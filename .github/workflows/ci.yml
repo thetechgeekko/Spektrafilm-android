@@ -137,43 +137,36 @@ jobs:
         run: python -m py_compile tools/parity/gen_goldens.py tools/parity/spkvec.py
 
   # ---------------------------------------------------------------------------
-  # Android build: no-op until the ImageToolbox host is seeded (M1). hashFiles()
-  # is NOT allowed in a job-level `if:` (the repo isn't checked out at job-eval
-  # time), so we detect the host in a step after checkout and gate the rest on it.
-  # This activates automatically the moment settings.gradle.kts (+ gradlew) land.
+  # Android build: assemble the debug APK (app + engine:spektra-core, with the
+  # NDK-built libspektra.so for all ABIs). Installs the SDK + NDK + CMake on the
+  # runner, then builds with the committed Gradle wrapper, and uploads the APK.
   # ---------------------------------------------------------------------------
   android:
-    name: Android (Gradle assemble)
+    name: Android (assemble debug APK)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect host (Gradle wrapper present?)
-        id: detect
-        run: |
-          if [ -f gradlew ]; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "host=false" >> "$GITHUB_OUTPUT"
-            echo "No gradlew yet — Android app build not wired into CI. Skipping."
-          fi
-
       - uses: actions/setup-java@v4
-        if: steps.detect.outputs.host == 'true'
         with:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Gradle
-        if: steps.detect.outputs.host == 'true'
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Assemble debug
-        if: steps.detect.outputs.host == 'true'
+      - name: Install NDK + CMake
+        run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Assemble debug APK
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          # Build the new modules first; fall back to the whole app assemble.
-          ./gradlew :engine:spektra-core:assembleDebug :lib:libraw:assembleDebug \
-                    :feature:film-emulation:assembleDebug --stacktrace \
-            || ./gradlew assembleDebug --stacktrace
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpectraFilm-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
