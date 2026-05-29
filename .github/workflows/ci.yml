@@ -97,6 +97,7 @@ jobs:
           build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_crop_resize "$ASSET" "$G/scan_portra_crop" tests/scan_portra_input_rgb.f64
           build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64
+          build_run test_diffusion "$G"
           exit $fail
 
   # ---------------------------------------------------------------------------
