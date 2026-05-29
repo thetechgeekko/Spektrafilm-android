@@ -39,6 +39,7 @@ ship as app assets. Because spektrafilm is GPLv3, the combined app is **GPLv3**
 ## Documentation
 
 - [`docs/DECISION.md`](docs/DECISION.md) — the chosen approach and the alternatives we rejected
+- [`docs/MOBILE_STRATEGY.md`](docs/MOBILE_STRATEGY.md) — fidelity/scope verdict, informed by how Lightroom mobile works (bit-exact, full engine, non-destructive, proxy preview)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — target module architecture of the Android app
 - [`docs/PORTING_PLAN.md`](docs/PORTING_PLAN.md) — spektrafilm → Kotlin/C++ module-by-module map + effort table
 - [`docs/RAW_DNG.md`](docs/RAW_DNG.md) — how RAW/DNG decode works on Android (LibRaw/NDK, rawpy parity)

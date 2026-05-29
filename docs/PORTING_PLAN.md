@@ -88,7 +88,13 @@ SpektraParams(...)  // 1:1 with RuntimePhotoParams (camera/enlarger/scanner/film
 
 - `spektrafilm_gui/` (napari/Qt desktop GUI) — replaced by `feature:film-emulation` Compose UI.
 - `utils/plotting.py`, `model/parametric.py`, `model/stocks.py`, `utils/calibration_targets.py`.
-- FFT-based diffusion (separable Gaussian suffices initially).
+- `lensfunpy` lens correction (unused upstream).
+
+> **Scope note (bit-exact, "everything"):** the full engine is in scope. In particular
+> **FFT-based diffusion is NOT skipped** — bit-exact parity on large-radius diffusion/halation
+> requires it (CPU FFT, e.g. pocketfft/kissfft). Only niche *file I/O* is deferred: EXR and
+> 32-bit-float TIFF (spektrafilm's OpenImageIO path) land behind the same writer interface in a
+> later milestone; the internal pipeline is 32-bit float regardless. See `MOBILE_STRATEGY.md`.
 
 ## Numerical parity strategy
 
@@ -100,6 +106,14 @@ tolerance. Port order = the stage table above; each stage is "done" when its gol
 matches. The upstream `debug` params (`output_film_log_raw`, `output_film_density_cmy`,
 `output_print_density_cmy`, `inject_film_density_cmy`) already expose exactly these
 intermediates — we reuse them to generate goldens.
+
+**Parity bar = bit-exact.** Per-stage golden vectors gate to a tight tolerance
+(`max_abs ≤ 1e-4`, `rms ≤ 1e-5`) against the Python engine; deterministic settings
+(auto-exposure off, fixed seeds). The one inherently stochastic stage — grain
+(Poisson-binomial) — is seeded for reproducibility and, where exact match is impossible across
+RNG implementations, compared on distribution statistics rather than element-wise. A GPU
+preview path (future) is held only to a looser *visual* tolerance and never gates parity; export
+always uses the CPU engine. See `MOBILE_STRATEGY.md` for why CPU is the parity-bearing engine.
 
 ## Effort summary
 

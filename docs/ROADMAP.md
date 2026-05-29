@@ -2,6 +2,14 @@
 
 Milestones are vertical slices. Each ends with something demonstrable and a parity gate.
 
+> **Scope & fidelity (confirmed):** we port the **true spektrafilm engine in full**, to a
+> **bit-exact** parity bar (the GUI is just a shell over this engine — see `MOBILE_STRATEGY.md`).
+> The app exposes the whole `RuntimePhotoParams` control surface, plus Lightroom-informed
+> additions: **non-destructive recipe/sidecar editing** and a **proxy-preview vs full-res-export**
+> model. The parity-bearing engine is **CPU C++/NDK** (GPU can't be bit-reproducible across
+> vendors); a GPU preview accelerator is an optional M6 item. Only niche file I/O (EXR /
+> 32-bit-float TIFF) is deferred.
+
 > **Progress note (2026-05-29):** beyond M0, a parallel scaffolding wave has landed real,
 > compiling code ahead of the host bootstrap: the C++ engine's pure-math + kernel layer
 > (`engine/spektra-core/src/main/cpp/{model,kernels}`: Gaussian/interp kernels, density curves,
@@ -43,16 +51,25 @@ Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filt
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
 
-## M5 — UI/UX (`feature:film-emulation`)
-Film/print profile pickers, parameter sliders grouped (camera/enlarger/scanner/grain/halation),
-fast preview vs full scan, before/after compare, export with EXIF+ICC.
+## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
+Full `RuntimePhotoParams` control surface (camera/enlarger/scanner/grain/halation/couplers/
+glare/diffusion/IO/settings), film+print profile pickers, **proxy preview vs full-res scan**,
+before/after compare, export with EXIF+ICC.
+- **Non-destructive recipe layer:** edits are a serialized `SpektraParams` sidecar keyed to the
+  source; original RAW untouched; re-render on view/export; presets (28 stocks + saved params)
+  and history (Lightroom-informed — see `MOBILE_STRATEGY.md`).
 - Reuse ImageToolbox components (zoomable canvas, sliders, sheets, compare, picker).
-- **Done when:** end-to-end on-device: pick RAW → tune → export, no code.
+- **Done when:** end-to-end on-device: pick RAW → tune (proxy) → export full-res, no code; edits
+  persist as a recipe and reopen non-destructively.
 
-## M6 — Performance & polish
-Tile/threading, native SIMD, optional LUT bake-to-`.cube` export, preset save/load, profile
-catalog UI, About/credits with attribution. APK size review.
-- **Done when:** ~6 MP preview interactive on mid-range device; full scan acceptable.
+## M6 — Performance, GPU accelerator & polish
+Tile/threading, native SIMD (NEON), preset save/load, profile catalog UI, About/credits with
+attribution, APK-size review. Optional **GPU preview accelerator** (Vulkan / GL ES compute) for
+slider interactivity — validated against CPU goldens to a *visual* tolerance, never the parity
+gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. Deferred file I/O
+(EXR / 32-bit-float TIFF) can also land here behind the writer interface.
+- **Done when:** proxy preview is interactive on a mid-range device; full scan acceptable; GPU
+  path (if shipped) matches CPU within visual tolerance.
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
