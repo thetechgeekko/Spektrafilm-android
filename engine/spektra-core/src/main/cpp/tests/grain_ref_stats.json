@@ -1,0 +1,49 @@
+{
+  "description": "grain statistical reference (non-sublayer apply_grain_to_density)",
+  "size": 64,
+  "npix": 4096,
+  "n_realisations": 5,
+  "pixel_size_um": 546.875,
+  "params": {
+    "agx_particle_area_um2": 0.2,
+    "agx_particle_scale": [
+      0.8,
+      1.0,
+      2.0
+    ],
+    "density_min": [
+      0.07,
+      0.08,
+      0.12
+    ],
+    "density_max_curves": [
+      1.93501956665644,
+      1.7509072781457695,
+      2.1123120101813386
+    ],
+    "uniformity": [
+      0.97,
+      0.97,
+      0.99
+    ],
+    "blur": 0.65,
+    "n_sub_layers": 1
+  },
+  "stats": {
+    "smooth_mean": [
+      0.8479108098024142,
+      0.8294702594958352,
+      1.0486344740552624
+    ],
+    "grainy_mean": [
+      0.8479130498111438,
+      0.8294547058048571,
+      1.0485928773394142
+    ],
+    "noise_std": [
+      0.04368217877601002,
+      0.03954937597672184,
+      0.04697196920654319
+    ]
+  }
+}

@@ -21,6 +21,7 @@
 
 #include "model/couplers.h"
 #include "model/diffusion.h"
+#include "model/grain.h"
 
 namespace spk {
 
@@ -56,6 +57,12 @@ struct FilmingParams {
 
     DirCouplersParams dir_couplers;  // filled by digest for the film type.
     HalationParams halation;         // filled by digest; active only if spatial.
+
+    // Stochastic grain (the AgX particle model). Active only when the case
+    // requests grain (grain_active && stochastic effects on). Off => identity.
+    // density_max_curves is filled at apply time from the film's normalized
+    // density curves; the rest are the schema defaults (digest_grain_params).
+    GrainParams grain;
 };
 
 // Build digested filming params for a film type, mirroring
@@ -68,6 +75,14 @@ struct FilmingParams {
 //   dir_couplers diffusion (size 20µm, tail 200µm, weight 0.06) is enabled and
 //   the digested HalationParams (scatter + back-reflection) are filled.
 FilmingParams digest_filming_params(bool is_negative, bool spatial_effects = false);
+
+// Fill p.grain from the schema GrainParams defaults and activate it. Mirrors the
+// digest under deactivate_stochastic_effects=False (grain.active stays True) and
+// deactivate_spatial_effects=False (grain.blur stays 0.65). The
+// density_max_curves are NOT set here — they are filled by develop() from the
+// film's normalized density curves (nanmax over the log-exposure axis). Only the
+// non-sublayer path is wired (sublayers/micro-structure deferred).
+void digest_grain_params(FilmingParams& p);
 
 // Fill p.halation from the film's halation preset tags (info.use / info.antihalation
 // in the profile), mirroring params_builder._apply_halation_preset +

@@ -19,6 +19,7 @@
 #include "model/couplers.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
+#include "model/grain.h"
 #include "model/spectral.h"
 
 namespace spk {
@@ -196,7 +197,28 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
         ndc.data(), n, params.dir_couplers, film.is_positive(),
         params.density_curve_gamma,
         params.spatial_effects ? params.pixel_size_um : 0.0, density_cmy_out);
-    // grain inactive -> identity.
+
+    // Stochastic grain (AgX particle model). Identity unless grain.active (set by
+    // digest_grain_params when grain_active && stochastic effects are on). The
+    // model operates on the post-coupler density_cmy, mirroring emulsion.py::
+    // develop, which calls apply_grain after apply_density_correction_dir_couplers.
+    if (params.grain.active) {
+        // density_max_curves[c] = nanmax(normalized_density_curves[:,c]) — the
+        // same per-channel max grain.py derives from density_max_curves.
+        GrainParams grain = params.grain;
+        for (int c = 0; c < 3; ++c) {
+            double mx = -1.0;
+            bool any = false;
+            for (int k = 0; k < n; ++k) {
+                float v = ndc[static_cast<size_t>(k) * 3 + c];
+                if (std::isnan(v)) continue;
+                if (!any || v > mx) { mx = v; any = true; }
+            }
+            grain.density_max_curves[c] = any ? mx : 2.2;
+        }
+        apply_grain_to_density(density_cmy_out, npix, width, height,
+                               params.pixel_size_um, grain, density_cmy_out);
+    }
 }
 
 }  // namespace spk

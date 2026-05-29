@@ -19,6 +19,7 @@ add_library(spektra SHARED
         kernels/gaussian.cpp
         kernels/exponential_filter.cpp      # float64 Gaussian + exponential mixture (spatial)
         kernels/spectral_upsampling.cpp     # Hanatos2025 RGB->spectrum (M3)
+        kernels/stats.cpp                   # Poisson + Binomial samplers (grain, M6)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):
@@ -28,14 +29,11 @@ add_library(spektra SHARED
         model/emulsion.cpp
         model/glare.cpp
         model/diffusion.cpp                  # in-emulsion scatter + halation (spatial)
+        model/grain.cpp                      # AgX particle grain model (M6)
         model/color_output.cpp               # XYZ->output RGB + CCTF (M3)
         # Profiles + runtime stages:
         profiles/profile.cpp                 # profile JSON loader (M3)
         runtime/stages/scanning.cpp          # scan_film negative -> RGB (M3)
-        # M3–M4: remaining stages to add as ported, e.g.
-        #   model/grain.cpp model/diffusion.cpp
-        #   runtime/pipeline.cpp runtime/stages/printing.cpp
-        #   kernels/interp_lut.cpp kernels/stats.cpp
         # Filming stage (rgb -> raw -> negative density), ported in M4:
         model/couplers.cpp                   # DIR couplers (M4)
         runtime/params.cpp                   # minimal digested filming params (M4)

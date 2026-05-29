@@ -97,6 +97,16 @@ FilmingParams digest_filming_params(bool is_negative, bool spatial_effects) {
     return p;
 }
 
+void digest_grain_params(FilmingParams& p) {
+    // params_schema.GrainParams defaults. The struct's in-class initialisers
+    // already carry agx_particle_area_um2=0.2, agx_particle_scale=(0.8,1,2),
+    // density_min=(0.07,0.08,0.12), uniformity=(0.97,0.97,0.99), blur=0.65,
+    // n_sub_layers=1 and the per-channel seed base {0,1,2}. We only flip active
+    // on (digest under deactivate_stochastic_effects=False). density_max_curves
+    // is filled by develop() from the film's normalized density curves.
+    p.grain.active = true;
+}
+
 void digest_halation_params(FilmingParams& p, const char* use,
                             const char* antihalation, bool spatial_effects) {
     HalationParams& h = p.halation;

@@ -22,11 +22,12 @@
  *   - output_cctf_encoding  -> ScanningParams.output_cctf_encoding
  *   - preview_max_size      -> used by spk_simulate_preview for the downscale target.
  *
- * Internally defaulted (matching the scan_portra goldens' toggles):
- *   - auto_exposure off, spatial + stochastic effects off, grain off, glare off.
- *     These are baked into FilmingParams/ScanningParams defaults; the corresponding
- *     spk_params toggles (grain_active/halation_active/glare_active/...) are not yet
- *     wired through and are treated as "off" for the scan_film parity route.
+ * Honoured stochastic/spatial toggles:
+ *   - halation_active -> spatial-effects branch (in-emulsion scatter + halation +
+ *     DIR-coupler diffusion + scanner unsharp).
+ *   - grain_active    -> stochastic AgX particle grain (model/grain.cpp), applied
+ *     to the post-coupler film density. Off by default (the deterministic goldens).
+ *   - auto_exposure / glare remain off (baked defaults) for the parity routes.
  */
 #include "spektra.h"
 
@@ -145,6 +146,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     //    diffusion) is enabled when the case requests it via halation_active
     //    (mirroring deactivate_spatial_effects=False under scan_portra_spatial).
     const bool spatial = (p->halation_active != 0);
+    const bool grain = (p->grain_active != 0);
     spk::FilmingParams fparams =
         spk::digest_filming_params(film.is_negative(), spatial);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
@@ -152,6 +154,19 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
     fparams.density_curve_gamma[2] = g;
+    // pixel_size_um drives both the spatial kernels and the grain blur, so it
+    // must be set whenever either spatial effects or grain are active.
+    if (spatial || grain) {
+        const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
+        const int longest = width > height ? width : height;
+        fparams.pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+    }
+    if (grain) {
+        // grain_active && stochastic effects on -> AgX particle grain. The
+        // density_max_curves are filled inside develop() from the film's
+        // normalized density curves.
+        spk::digest_grain_params(fparams);
+    }
     if (spatial) {
         // pixel_size_um = film_format_mm * 1000 / max(width, height) for the
         // parity image (square, no crop). Matches resize_service.pixel_size_um.
