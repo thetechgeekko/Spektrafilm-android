@@ -257,6 +257,38 @@ spk_status spk_simulate_tap(spk_engine*, const spk_image* in, const spk_params*,
 
 const char* spk_status_str(spk_status);
 
+/* LUT baking ------------------------------------------------------------------ */
+
+/*
+ * Bake the current film look into a 3D `.cube` LUT (Adobe/Resolve format).
+ *
+ * Builds an identity RGB lattice of size `lut_size` (default 33; clamped to
+ * [2,256]) spanning the unit cube [0,1]^3, runs each lattice point through the
+ * exact same per-pixel pipeline that spk_simulate uses (scan_film or print route,
+ * per params->scan_film), and writes the results as a text `.cube`.
+ *
+ * INPUT DOMAIN of the LUT: linear ProPhoto RGB in [0,1] (the engine's working
+ * space; the lattice axes are the linear input fed to the filming expose). This
+ * is documented in the emitted `.cube` header comments.
+ * OUTPUT DOMAIN: display-referred RGB in params->output_color_space, with CCTF per
+ * params->output_cctf_encoding — identical to spk_simulate's output.
+ *
+ * EXCLUDED EFFECTS: spatial/stochastic effects cannot be captured by a 3D LUT and
+ * are FORCED OFF for baking regardless of the params: grain, halation (with its
+ * in-emulsion scatter), camera/enlarger diffusion glare, DIR-coupler spatial
+ * diffusion, and scanner unsharp. The pointwise color science is kept: spectral
+ * upsampling, density curves, pointwise DIR couplers, printing, scanning, and the
+ * output color-space transform. This is also noted in the `.cube` header.
+ *
+ * The `.cube` text (LUT_3D_SIZE N, TITLE, DOMAIN_MIN/MAX, N^3 RGB triples in
+ * blue-fastest / red-slowest order) is written NUL-terminated into `out_text`.
+ * `*needed` is always set to the required buffer size (including the NUL); if
+ * `out_text` is null or `out_cap` is too small, returns SPK_ERR_BAD_ARGS so the
+ * caller can resize and retry (the bake still runs to size it).
+ */
+spk_status spk_bake_cube_lut(spk_engine*, const spk_params*, int lut_size,
+                             char* out_text, size_t out_cap, size_t* needed);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
