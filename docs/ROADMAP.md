@@ -24,13 +24,12 @@ Architecture decided, both repos mapped, port plan written, RAW/licensing strate
 engine API contract drafted. No build yet.
 - **Done when:** docs + engine contract reviewed and merged.
 
-## M1 — Host bootstrap
-Seed the repo with the ImageToolbox tree (the host) and wire empty Gradle modules.
-- Fork ImageToolbox source into the repo (`tools/bootstrap.md`).
-- Add `engine:spektra-core`, `lib:libraw`, `feature:film-emulation` to `settings.gradle.kts`
-  with minimal `build.gradle.kts` (convention plugins) — modules compile empty.
-- Register a `FilmEmulation` screen stub in `Screen.kt`; it appears on the home grid and opens.
-- **Done when:** app builds + installs; the (empty) SpectraFilm screen opens.
+## M1 — Runnable app  ✅ (v0.1.0)
+Shipped as a **standalone Compose app** wrapping the engine (pivot from vendoring ImageToolbox —
+see `DECISION.md`). Android SDK + NDK build verified; `:app:assembleDebug` produces a 23 MB APK
+with `libspektra.so` for all ABIs + bundled assets; CI assembles it on every push.
+- **Done:** app builds + installs; profile pickers, scan/print toggle, exposure, live render.
+- Follow-up: richer editing UI + optional ImageToolbox host integration (engine module is ready).
 
 ## M2 — RAW/DNG decode (`lib:libraw`)
 LibRaw compiled for all ABIs; JNI decode of RAW/DNG → linear 16-bit RGB with rawpy-parity

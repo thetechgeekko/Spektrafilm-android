@@ -29,3 +29,6 @@ keystore.properties
 __pycache__/
 *.pyc
 .venv/
+
+# Release artifacts (committed deliberately)
+!dist/*.apk

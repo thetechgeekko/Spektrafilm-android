@@ -2,6 +2,13 @@
 
 SpectraFilm for Android is licensed under the **GNU General Public License v3.0** (see `LICENSE`).
 
+> **Dedicated to the [pixls.us](https://pixls.us) community** — for keeping open photography and
+> open color science alive. Thank you. 💛
+
+Authored and directed by **Akshay** —
+[Instagram @akshay.pool](https://www.instagram.com/akshay.pool/) ·
+[YouTube @Akshayishere](https://www.youtube.com/@Akshayishere/videos).
+
 ## Film modeling powered by spektrafilm
 
 The film-simulation engine in this project is a port of **spektrafilm** by Andrea Volpato.
@@ -13,15 +20,22 @@ The film-simulation engine in this project is a port of **spektrafilm** by Andre
 Per the upstream request: *film modeling powered by `spektrafilm`*. Any academic use should
 cite the upstream repository.
 
-## Host application: Image Toolbox
+## Color science: colour-science
 
-The Android host application is derived from **Image Toolbox** by T8RIN (Malik Mukhametzyanov).
+Color-matching functions, illuminants, chromatic adaptation, and color-space transforms follow
+**colour-science** — the reference used by spektrafilm and the ground truth for this port.
+
+- Upstream: https://www.colour-science.org / https://github.com/colour-science/colour
+- License: BSD-3-Clause
+
+## Android architecture reference: Image Toolbox
+
+The Android app design is informed by **Image Toolbox** by T8RIN (Malik Mukhametzyanov) — its
+modular Compose/Hilt architecture guided this project, and it remains the intended richer host
+for future versions.
 
 - Upstream: https://github.com/T8RIN/ImageToolbox
-- License: Apache License 2.0
-
-Apache-2.0 source incorporated into this GPLv3 work retains its original copyright notices.
-Apache-2.0 is one-way compatible with GPLv3, so the combined work is distributed under GPLv3.
+- License: Apache License 2.0 (one-way compatible with GPLv3)
 
 ## RAW decoding: LibRaw
 
