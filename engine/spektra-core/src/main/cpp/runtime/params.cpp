@@ -101,9 +101,14 @@ void digest_grain_params(FilmingParams& p) {
     // params_schema.GrainParams defaults. The struct's in-class initialisers
     // already carry agx_particle_area_um2=0.2, agx_particle_scale=(0.8,1,2),
     // density_min=(0.07,0.08,0.12), uniformity=(0.97,0.97,0.99), blur=0.65,
-    // n_sub_layers=1 and the per-channel seed base {0,1,2}. We only flip active
-    // on (digest under deactivate_stochastic_effects=False). density_max_curves
-    // is filled by develop() from the film's normalized density curves.
+    // n_sub_layers=1 and the per-channel seed base {0,1,2}. They also carry the
+    // sublayer-path defaults sublayers_active=true, agx_particle_scale_layers=
+    // (2.5,1.0,0.5), blur_dye_clouds_um=1.0, micro_structure=(0.2,30) — the schema
+    // GrainParams defaults for kodak_portra_400 (no _apply_film_specifics grain
+    // override). We only flip active on (digest under
+    // deactivate_stochastic_effects=False). For the sublayer path develop() also
+    // supplies density_max_layers from the film's density_curves_layers; for the
+    // non-sublayer path density_max_curves is filled from the normalized curves.
     p.grain.active = true;
 }
 

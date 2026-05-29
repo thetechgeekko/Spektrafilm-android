@@ -203,21 +203,56 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
     // model operates on the post-coupler density_cmy, mirroring emulsion.py::
     // develop, which calls apply_grain after apply_density_correction_dir_couplers.
     if (params.grain.active) {
-        // density_max_curves[c] = nanmax(normalized_density_curves[:,c]) — the
-        // same per-channel max grain.py derives from density_max_curves.
         GrainParams grain = params.grain;
-        for (int c = 0; c < 3; ++c) {
-            double mx = -1.0;
-            bool any = false;
-            for (int k = 0; k < n; ++k) {
-                float v = ndc[static_cast<size_t>(k) * 3 + c];
-                if (std::isnan(v)) continue;
-                if (!any || v > mx) { mx = v; any = true; }
+        // The sublayer path is selected when sublayers_active AND the profile
+        // actually carries density_curves_layers; otherwise fall back to the
+        // non-sublayer path (mirrors apply_grain's structure, where the layers
+        // are required for the sublayer branch).
+        const bool have_layers =
+            static_cast<int>(film.density_curves_layers.size()) == n * 9;
+        if (grain.sublayers_active && have_layers) {
+            // interp_density_cmy_layers(density_cmy, normalized_density_curves,
+            //                           density_curves_layers_RAW, positive_film).
+            // NOTE: apply_grain passes the RAW (un-normalized) density_curves_layers
+            // here, while density_curves is the normalized curve axis.
+            std::vector<float> layers(static_cast<size_t>(npix) * 9);
+            interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
+                                      film.density_curves_layers.data(), n,
+                                      film.is_positive(), layers.data());
+            // density_max_layers[sl,c] = nanmax over the log-exposure axis of the
+            // RAW density_curves_layers (NOT normalized).
+            double density_max_layers[9];
+            for (int sl = 0; sl < 3; ++sl) {
+                for (int c = 0; c < 3; ++c) {
+                    double mx = -1.0;
+                    bool any = false;
+                    for (int k = 0; k < n; ++k) {
+                        float v = film.density_curves_layers[
+                            static_cast<size_t>(k) * 9 + sl * 3 + c];
+                        if (std::isnan(v)) continue;
+                        if (!any || v > mx) { mx = v; any = true; }
+                    }
+                    density_max_layers[sl * 3 + c] = any ? mx : 2.2;
+                }
             }
-            grain.density_max_curves[c] = any ? mx : 2.2;
+            apply_grain_to_density_layers(layers.data(), npix, width, height,
+                                          density_max_layers, params.pixel_size_um,
+                                          grain, density_cmy_out);
+        } else {
+            // Non-sublayer path: density_max_curves[c] = nanmax(ndc[:,c]).
+            for (int c = 0; c < 3; ++c) {
+                double mx = -1.0;
+                bool any = false;
+                for (int k = 0; k < n; ++k) {
+                    float v = ndc[static_cast<size_t>(k) * 3 + c];
+                    if (std::isnan(v)) continue;
+                    if (!any || v > mx) { mx = v; any = true; }
+                }
+                grain.density_max_curves[c] = any ? mx : 2.2;
+            }
+            apply_grain_to_density(density_cmy_out, npix, width, height,
+                                   params.pixel_size_um, grain, density_cmy_out);
         }
-        apply_grain_to_density(density_cmy_out, npix, width, height,
-                               params.pixel_size_um, grain, density_cmy_out);
     }
 }
 

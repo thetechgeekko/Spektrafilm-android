@@ -76,4 +76,28 @@ int64_t fast_binomial_one(int64_t n, double p, StatsRng& rng) {
     return k - 1;
 }
 
+double fast_lognormal_one(double mu, double sigma, StatsRng& rng) {
+    // fast_lognormal: sigma < 1e-6 -> exp(mu) (no normal consumed); else
+    // exp(mu + sigma * z).
+    const double sigma_threshold = 1e-6;
+    if (sigma < sigma_threshold) return std::exp(mu);
+    double z = rng.normal();
+    return std::exp(mu + sigma * z);
+}
+
+double fast_lognormal_from_mean_std_one(double m, double s, StatsRng& rng) {
+    // fast_lognormal_from_mean_std: compute (mu, sigma) from linear-space (m, s),
+    // then dispatch to fast_lognormal_one.
+    double mu, sigma;
+    if (m <= 0.0) {
+        mu = 0.0;
+        sigma = 0.0;
+    } else {
+        double sigma2 = std::log(1.0 + (s * s) / (m * m));
+        sigma = std::sqrt(sigma2);
+        mu = std::log(m) - sigma2 / 2.0;
+    }
+    return fast_lognormal_one(mu, sigma, rng);
+}
+
 }  // namespace spk

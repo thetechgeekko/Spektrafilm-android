@@ -13,11 +13,12 @@
  *   - layer_particle_model (method='poisson_binomial')
  *   - apply_grain_to_density (the non-sublayer path)
  *
- * Scope: the non-sublayer path (grain.sublayers_active == False). The sublayer +
- * micro-structure path (apply_grain_to_density_layers / add_micro_structure) is
- * NOT ported in this milestone — it requires the per-layer density curves
- * (density_curves_layers, interp_density_cmy_layers) and the lognormal clumping
- * sampler. See grain.cpp and the milestone report for the explicit deferral.
+ * Scope: BOTH the non-sublayer path (grain.sublayers_active == False) AND the
+ * sublayer + micro-structure path (grain.sublayers_active == True, the schema
+ * default). The sublayer path ports apply_grain_to_density_layers (per-sublayer
+ * particle model driven by density_curves_layers / interp_density_cmy_layers and
+ * agx_particle_scale_layers, with per-particle dye-cloud blur) followed by
+ * add_micro_structure (per-pixel lognormal clumping).
  */
 #ifndef SPK_MODEL_GRAIN_H
 #define SPK_MODEL_GRAIN_H
@@ -36,14 +37,24 @@ namespace spk {
 // the stochastic effects on.
 struct GrainParams {
     bool active = false;             // gates the whole pass (identity when false)
+    bool sublayers_active = true;    // schema default: use the per-sublayer path.
     double agx_particle_area_um2 = 0.2;
     double agx_particle_scale[3] = {0.8, 1.0, 2.0};
+    // Per-SUBLAYER particle-area scale (sublayers_active path only). Schema default
+    // GrainParams.agx_particle_scale_layers = (2.5, 1.0, 0.5).
+    double agx_particle_scale_layers[3] = {2.5, 1.0, 0.5};
     double density_min[3] = {0.07, 0.08, 0.12};
     // density_max_curves[c] = nanmax(normalized_density_curves[:,c]). Filled from
-    // the film profile at apply time (NOT a schema constant).
+    // the film profile at apply time (NOT a schema constant). Non-sublayer path.
     double density_max_curves[3] = {2.2, 2.2, 2.2};
     double uniformity[3] = {0.97, 0.97, 0.99};
     double blur = 0.65;              // final Gaussian sigma in pixels
+    // Per-particle dye-cloud blur (µm), sublayer path only. Schema default 1.0.
+    double blur_dye_clouds_um = 1.0;
+    // Micro-structure clumping (sublayer path): (blur_um, sigma_nm). Schema default
+    // (0.2, 30). add_micro_structure: blur_pixel = micro_structure[0]/pixel_size_um,
+    // sigma = micro_structure[1]*0.001/pixel_size_um.
+    double micro_structure[2] = {0.2, 30.0};
     int n_sub_layers = 1;
     // Per-channel deterministic RNG seeds (Python uses [0,1,2] + sublayer*10).
     // A single global offset is added so independent realisations can be drawn.
@@ -68,6 +79,61 @@ struct GrainParams {
 void layer_particle_model(const float* density, int npix, int width, int height,
                           double density_max, double n_particles_per_pixel,
                           double grain_uniformity, uint64_t seed, float* out);
+
+// Overload with the per-particle dye-cloud blur (sublayer path). When
+// blur_particle > 0, after sampling the grain plane is Gaussian-blurred with
+// sigma = blur_particle * sqrt(od_particle), od_particle = density_max /
+// n_particles_per_pixel — mirroring grain.py::layer_particle_model's
+// `if blur_particle>0: grain = fast_gaussian_filter(grain, blur_particle*sqrt(od_particle))`.
+// (width, height) drive that 2D blur; npix == width*height.
+void layer_particle_model(const float* density, int npix, int width, int height,
+                          double density_max, double n_particles_per_pixel,
+                          double grain_uniformity, uint64_t seed,
+                          double blur_particle, float* out);
+
+// add_micro_structure(density_cmy_out, micro_structure, pixel_size_um):
+//
+//   blur_pixel = micro_structure[0] / pixel_size_um
+//   sigma      = micro_structure[1] * 0.001 / pixel_size_um   (nm -> µm -> px)
+//   if sigma > 0.05:
+//       clumping = fast_lognormal_from_mean_std(ones, sigma)   (per pixel*channel)
+//       if blur_pixel > 0.4: clumping = gaussian_filter(clumping, blur_pixel)
+//       density_cmy_out *= clumping
+//
+// `inout` is (npix, 3) row-major (channel-interleaved); mutated in place.
+// `seed` seeds the deterministic lognormal RNG stream (statistical parity only).
+void add_micro_structure(float* inout, int npix, int width, int height,
+                         const double micro_structure[2], double pixel_size_um,
+                         uint64_t seed);
+
+// apply_grain_to_density_layers(density_cmy_layers, ...): the sublayer grain path
+// (grain.sublayers_active == True). Mirrors grain.py::apply_grain_to_density_layers
+// followed by add_micro_structure.
+//
+//   density_max_total[c]      = sum_sl density_max_layers[sl,c]
+//   density_max_fractions[sl,c] = density_max_layers[sl,c] / density_max_total[c]
+//   density_min_layers[sl,c]  = density_max_fractions[sl,c] * density_min[c]
+//   density_max_layers[sl,c] += density_min_layers[sl,c]
+//   particle_area[sl,c]       = agx_particle_area_um2 * agx_particle_scale[c]
+//                               * agx_particle_scale_layers[sl]
+//   n_ppp[sl,c] = pixel_area_um2 * density_max_fractions[sl,c] / particle_area[sl,c]
+//   density_cmy_layers[:,sl,c] += density_min_layers[sl,c]
+//   for c, sl: out[:,c] += layer_particle_model(density_cmy_layers[:,sl,c],
+//                          density_max_layers[sl,c], n_ppp[sl,c], uniformity[c],
+//                          seed = seed_base[c] + sl*10 + seed_offset,
+//                          blur_particle = blur_dye_clouds_um)
+//   out = add_micro_structure(out, micro_structure, pixel_size_um)
+//   out -= density_min
+//   if blur > 0: out = gaussian_filter(out, sigma=blur)      (NOTE: > 0, not > 0.4)
+//
+// `density_cmy_layers` is (npix, 3layer, 3ch) row-major (index pix*9 + sl*3 + c),
+// matching interp_density_cmy_layers' output. `density_max_layers` is (3layer, 3ch)
+// row-major (index sl*3 + c). It is NOT mutated. `out` is (npix, 3) row-major.
+void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
+                                   int width, int height,
+                                   const double* density_max_layers,
+                                   double pixel_size_um, const GrainParams& grain,
+                                   float* out);
 
 // apply_grain_to_density(density_cmy, ...): the non-sublayer grain path.
 //

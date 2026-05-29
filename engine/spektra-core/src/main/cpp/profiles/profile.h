@@ -44,6 +44,12 @@ struct Profile {
     std::vector<float> channel_density;     // (S*3,) row-major [s*3 + k] (CMY dye)
     std::vector<float> base_density;        // (S,)
     std::vector<float> density_curves;      // (N*3,) row-major [n*3 + k]
+    // Per-sublayer density characteristic curves (grain sublayer path). Shape
+    // (N, 3layer, 3ch) row-major: index n*9 + layer*3 + ch. Empty if the JSON
+    // omits data.density_curves_layers (then the sublayer grain path is unusable
+    // and callers fall back to the non-sublayer path). Matches the indexing of
+    // density_curves.cpp::interp_density_cmy_layers.
+    std::vector<float> density_curves_layers;  // (N*9,) row-major [n*9 + L*3 + k]
     int n_samples = 0;                      // S
     int n_density_pts = 0;                  // N
 

@@ -17,8 +17,9 @@
  *   - scan_film             -> selects this route (false => print route, TODO M4)
  *   - exposure_compensation_ev -> FilmingParams.exposure_compensation_ev
  *   - density_curve_gamma   -> FilmingParams.density_curve_gamma (broadcast to CMY)
- *   - output_color_space    -> only SPK_CS_SRGB is wired today (scanning stage emits
- *                              sRGB via the baked D50 matrix); other spaces TODO.
+ *   - output_color_space    -> ScanningParams.output_color_space (all six spaces:
+ *                              sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1,
+ *                              linear sRGB; per-space XYZ->RGB matrix + CCTF).
  *   - output_cctf_encoding  -> ScanningParams.output_cctf_encoding
  *   - preview_max_size      -> used by spk_simulate_preview for the downscale target.
  *
@@ -202,9 +203,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
 
     if (!final_rgb) return SPK_OK;  // caller only wanted an earlier tap
 
-    // 6) scan(): density_cmy -> display RGB (sRGB, CCTF per params).
+    // 6) scan(): density_cmy -> display RGB (output_color_space, CCTF per params).
     spk::ScanningParams sparams;
     sparams.scan_film = true;
+    sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
     if (spatial) {
         // scanner.unsharp_mask default = (0.7, 0.7); lens_blur stays 0.
@@ -316,6 +318,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // 5) Scan the print (D50 viewing illuminant, print profile's dyes).
     spk::ScanningParams sparams;
     sparams.scan_film = false;
+    sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,

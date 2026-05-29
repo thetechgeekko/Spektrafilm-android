@@ -54,6 +54,19 @@ int64_t fast_poisson_one(double lam, StatsRng& rng);
 // Single Binomial(n, p) variate, matching fast_binomial's branch structure.
 int64_t fast_binomial_one(int64_t n, double p, StatsRng& rng);
 
+// Single lognormal variate from underlying-normal (mu, sigma): exp(mu+sigma*z).
+// Mirrors fast_stats.py::fast_lognormal: if sigma < 1e-6, returns exp(mu)
+// (no normal draw is consumed in that branch, matching the Numba code path).
+double fast_lognormal_one(double mu, double sigma, StatsRng& rng);
+
+// Single lognormal variate parameterised by the LINEAR-space mean/std (m, s),
+// mirroring fast_stats.py::fast_lognormal_from_mean_std:
+//   if m <= 0: mu = 0, sigma = 0  -> exp(0) = 1
+//   else: sigma^2 = ln(1 + s^2/m^2); sigma = sqrt(sigma^2); mu = ln(m) - sigma^2/2
+// then draws fast_lognormal_one(mu, sigma). The sigma<1e-6 short-circuit inside
+// fast_lognormal_one matches the Numba two-stage structure.
+double fast_lognormal_from_mean_std_one(double m, double s, StatsRng& rng);
+
 }  // namespace spk
 
 #endif  // SPK_KERNELS_STATS_H
