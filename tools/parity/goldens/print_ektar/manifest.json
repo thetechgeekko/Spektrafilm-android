@@ -1,0 +1,77 @@
+{
+  "case_id": "print_ektar",
+  "film_profile": "kodak_ektar_100",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "Second negative/paper pair to catch profile-coupled regressions.",
+  "print_profile": "kodak_supra_endura",
+  "scan_film": false,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.541063904762268,
+      "mean": 0.9146916270256042,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 1.0980863571166992,
+      "mean": 0.27131906151771545,
+      "min": -3.9665095806121826,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.9288520812988281,
+      "mean": 0.553946316242218,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "print_density_cmy": {
+      "file": "print_density_cmy.spkvec",
+      "max": 2.4232656955718994,
+      "mean": 0.5281293392181396,
+      "min": 0.004081525839865208,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "deactivate_spatial_effects": true,
+    "deactivate_stochastic_effects": true,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}
