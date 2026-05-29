@@ -1,0 +1,74 @@
+/*
+ * SpectraFilm for Android — engine facade.
+ * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Film modeling powered by spektrafilm (GPLv3).
+ *
+ * Kotlin entry point to the native engine (libspektra.so). Mirrors spektrafilm's
+ * simulate(image, params) / simulate_preview(image, params). Image buffers are passed
+ * as linear, scene-referred float RGB and returned as a display-referred result.
+ *
+ * M0: the native methods are declared and the .so links, but the engine returns
+ * "not implemented" until the port lands (M3–M4, see docs/PORTING_PLAN.md).
+ */
+package com.spectrafilm.engine
+
+import java.nio.ByteBuffer
+
+/** A linear, scene-referred image: interleaved RGB float32, row-major. */
+class LinearImage(
+    val data: ByteBuffer,        // direct buffer, length = width*height*3*4 bytes
+    val width: Int,
+    val height: Int,
+    val colorSpace: String = "ProPhoto RGB",
+) {
+    init {
+        require(data.isDirect) { "LinearImage requires a direct ByteBuffer" }
+        require(width > 0 && height > 0) { "invalid dimensions ${width}x$height" }
+    }
+}
+
+/** Result of a simulation: display-referred RGB in [SpektraParams.io].outputColorSpace. */
+class SimResult(
+    val data: ByteBuffer,
+    val width: Int,
+    val height: Int,
+    val colorSpace: ColorSpace,
+)
+
+class SpektraEngine(assetDir: String? = null) : AutoCloseable {
+
+    private val handle: Long = nativeCreate(assetDir)
+
+    /** Available film/print profile ids bundled in assets (see docs/ASSETS.md). */
+    fun listProfiles(): List<String> =
+        nativeListProfiles(handle).split('\n').filter { it.isNotBlank() }
+
+    /** Full pipeline: RGB → negative → (print) → scan. Heavy; call off the main thread. */
+    fun simulate(image: LinearImage, params: SpektraParams): SimResult =
+        nativeSimulate(handle, image.data, image.width, image.height,
+            image.colorSpace, params, /* preview = */ false)
+            ?: error("spektra: simulate not implemented yet (M3–M4); handle=$handle")
+
+    /** Downscaled fast path to [SettingsParams.previewMaxSize] for interactive tuning. */
+    fun simulatePreview(image: LinearImage, params: SpektraParams): SimResult =
+        nativeSimulate(handle, image.data, image.width, image.height,
+            image.colorSpace, params, /* preview = */ true)
+            ?: error("spektra: simulatePreview not implemented yet (M3–M4); handle=$handle")
+
+    override fun close() {
+        if (handle != 0L) nativeDestroy(handle)
+    }
+
+    // --- native bridge (see spektra_jni.cpp) ---
+    private external fun nativeCreate(assetDir: String?): Long
+    private external fun nativeDestroy(handle: Long)
+    private external fun nativeListProfiles(handle: Long): String
+    private external fun nativeSimulate(
+        handle: Long, inBuf: ByteBuffer, w: Int, h: Int, inCs: String,
+        params: SpektraParams, preview: Boolean,
+    ): SimResult?
+
+    companion object {
+        init { System.loadLibrary("spektra") }
+    }
+}
