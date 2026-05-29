@@ -22,27 +22,30 @@ real spectral sensitivities, develops the dyes through characteristic density cu
 with dichroic Y/M/C filters, print paper, and a virtual scanner — then renders to your chosen
 color space.
 
-## What it does today (v0.1.0)
+## What it does
 
 - ✅ **Full pipeline, both routes:** scan-the-negative *and* negative → print → scan.
-- ✅ **28 film & paper profiles** (Kodak Portra/Ektar/Gold/Vision3/Ektachrome, Fujifilm
-  C200/Pro400H/Provia/Velvia, Endura/Supra/Ultra papers, …).
+- ✅ **28 film & paper profiles**, browsable by **friendly names grouped by category** (color
+  negative / slide / motion-picture / print film / RGB paper) with ISO · balance · era.
 - ✅ **The whole look:** DIR couplers, halation, in-emulsion scatter, scanner unsharp, and
   **film grain** (Poisson-binomial particle model with sublayers + micro-structure).
+- ✅ **Every parameter exposed**, organized **exactly like the spektrafilm desktop GUI** (Input ·
+  Import Raw · Simulation · Grain · Preflash · Halation · Couplers · Glare · Experimental ·
+  Display) with live preview.
+- ✅ **RAW/DNG import** (LibRaw → linear ACES) + photo picker, and a **synthetic demo image**.
+- ✅ **Presets:** 20 built-in researched film→print looks + **save / import / export** your own.
 - ✅ **6 output color spaces** — sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1, linear.
-- ✅ **Native engine** (`libspektra.so`) for arm64-v8a / armeabi-v7a / x86_64, driven from a
-  Jetpack Compose UI.
+- ✅ **Native engine** (`libspektra.so`) + **`libsfraw.so`** (LibRaw) for arm64-v8a /
+  armeabi-v7a / x86_64, driven from a Jetpack Compose UI with a full-res **export to gallery**.
 
-**Next:** RAW/DNG import on-device via LibRaw (the engine already speaks scene-linear; the
-`lib:libraw` decode module is scaffolded — see `docs/RAW_DNG.md`), and richer editing UI.
+**Next (M2+):** global Coil RAW decoder, zoomable canvas + before/after + histogram + 100% grain
+magnifier, profile-curve browser, bake-to-`.cube`-LUT, batch processing — see `docs/ROADMAP.md`.
 
 ## Install
 
 Grab the APK from [**`dist/`**](dist/) (or the **CI build artifact** on the latest green run),
-enable "install from unknown sources," and open it. Min Android 7.0 (API 24).
-
-> The v0.1.0 demo renders a built-in scene-linear test image so you can explore every film/paper
-> profile and parameter immediately, with no import step.
+enable "install from unknown sources," and open it. Min Android 7.0 (API 24). Pick a photo or a
+RAW/DNG, choose a preset or tune the parameters, and export to your gallery.
 
 ---
 

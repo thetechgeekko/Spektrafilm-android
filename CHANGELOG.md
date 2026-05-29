@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.0 — in development 🎛️
+
+Turning the engine into a real, playable tool.
+
+- **Full parameter surface wired through** — every `SpektraParams` field (camera, enlarger,
+  scanner, grain, halation, DIR couplers, glare, IO, settings) now reaches the engine; defaults
+  stay bit-exact (parity preserved), and edits measurably change the render.
+- **RAW/DNG import** via LibRaw (`libsfraw.so`, all ABIs) → linear ACES, plus an sRGB photo
+  picker (→ProPhoto) and the synthetic demo image.
+- **Full GUI organized exactly like the spektrafilm desktop GUI** — Input · Import Raw ·
+  Simulation · Grain · Preflash · Halation · Couplers · Glare · Experimental · Display —
+  ImageToolbox-styled collapsible cards + sliders, with a debounced live preview.
+- **Presets:** save / apply / delete and **import / export** as JSON, plus **20 built-in
+  researched presets** (portrait, landscape, slide/chrome, cinema, low-light, nostalgic).
+- **Film/print-stock catalog** — friendly names grouped by category (negative / slide /
+  motion-picture / print film / paper) with ISO · balance · era · character.
+- **Custom adaptive app icon** (35 mm film frame + spectral strip; Material You monochrome).
+- **Export mask** — a full-screen overlay during the full-resolution render → gallery save.
+
 ## v0.1.0 — first release 🎞️
 
 The complete **spektrafilm** spectral film-simulation engine, ported to native C++ and running
