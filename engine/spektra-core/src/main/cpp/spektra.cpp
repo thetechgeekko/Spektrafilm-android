@@ -45,6 +45,7 @@
 #include "profiles/profile.h"
 #include "runtime/params.h"
 #include "runtime/print_digest.h"
+#include "runtime/stages/crop_resize.h"
 #include "runtime/stages/filming.h"
 #include "runtime/stages/printing.h"
 #include "runtime/stages/scanning.h"
@@ -187,19 +188,66 @@ void apply_user_grain(spk::GrainParams& g, const spk_params* p) {
     g.n_sub_layers = p->grain_n_sub_layers > 0 ? p->grain_n_sub_layers : 1;
 }
 
+// Build the crop/resize params from spk_params (mirrors IOParams' crop fields).
+spk::CropResizeParams build_crop_resize(const spk_params* p) {
+    spk::CropResizeParams cr;
+    cr.crop = (p->crop != 0);
+    cr.crop_center[0] = static_cast<double>(p->crop_center[0]);
+    cr.crop_center[1] = static_cast<double>(p->crop_center[1]);
+    cr.crop_size[0] = static_cast<double>(p->crop_size[0]);
+    cr.crop_size[1] = static_cast<double>(p->crop_size[1]);
+    cr.upscale_factor = p->upscale_factor != 0.0f
+                            ? static_cast<double>(p->upscale_factor) : 1.0;
+    return cr;
+}
+
+// Promote the incoming float32 RGB to float64 and apply the geometry stage
+// (pipeline._preprocess -> ResizingService.crop_and_rescale), mirroring the
+// Python ordering: this runs BEFORE the filming stage. With default params
+// (crop off, upscale 1.0) it is a pure passthrough that leaves width/height and
+// pixel_size_um unchanged, so existing goldens stay byte-identical.
+//
+// `pixel_size_um` is computed here as film_format_mm*1000/max(h,w) on the
+// ORIGINAL geometry (matching ResizingService, which sets it from the incoming
+// shape before crop) and then divided by upscale_factor when a rescale runs.
+void preprocess_geometry(const spk_image* in, const spk_params* p,
+                         std::vector<double>* rgb, int* width, int* height,
+                         double* pixel_size_um) {
+    const int w = in->width, h = in->height;
+    const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
+    const int longest = w > h ? w : h;
+    *pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+
+    std::vector<double> src(static_cast<size_t>(w) * h * 3);
+    for (size_t i = 0; i < src.size(); ++i)
+        src[i] = static_cast<double>(in->data[i]);
+
+    spk::CropResizeParams cr = build_crop_resize(p);
+    spk::crop_and_rescale(src.data(), w, h, cr, rgb, width, height,
+                          pixel_size_um);
+}
+
 // Run the scan_film pipeline, producing display RGB plus the intermediate taps.
 // `tap_*` pointers, when non-null, receive the corresponding intermediate.
 spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params* p,
                          std::vector<float>* final_rgb,
                          std::vector<float>* tap_log_raw,
-                         std::vector<float>* tap_density_cmy) {
+                         std::vector<float>* tap_density_cmy,
+                         int* out_w = nullptr, int* out_h = nullptr) {
     if (!eng || !in || !p || !in->data) return SPK_ERR_BAD_ARGS;
     if (in->width <= 0 || in->height <= 0) return SPK_ERR_BAD_ARGS;
     if (!p->film_profile) return SPK_ERR_BAD_ARGS;
 
-    const int width = in->width;
-    const int height = in->height;
+    // 0) Geometry preprocess (pipeline._preprocess -> crop_and_rescale). Runs
+    //    BEFORE filming, mirroring Python ordering. Default params (crop off,
+    //    upscale 1.0) leave the image, geometry and pixel_size_um unchanged.
+    std::vector<double> rgb;
+    int width = 0, height = 0;
+    double resize_pixel_size_um = 0.0;
+    preprocess_geometry(in, p, &rgb, &width, &height, &resize_pixel_size_um);
     const int npix = width * height;
+    if (out_w) *out_w = width;
+    if (out_h) *out_h = height;
 
     // 1) Load the film profile.
     spk::Profile film;
@@ -232,11 +280,11 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // gamma matrices stay film-specific (baked by the digest).
     apply_user_dir_couplers(fparams.dir_couplers, p, spatial);
     // pixel_size_um drives both the spatial kernels and the grain blur, so it
-    // must be set whenever either spatial effects or grain are active.
+    // must be set whenever either spatial effects or grain are active. It comes
+    // from the resize service (film_format_mm*1000/max(orig h,w), then /=
+    // upscale_factor), computed in preprocess_geometry above.
     if (spatial || grain) {
-        const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
-        const int longest = width > height ? width : height;
-        fparams.pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+        fparams.pixel_size_um = resize_pixel_size_um;
     }
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
@@ -246,11 +294,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         apply_user_grain(fparams.grain, p);
     }
     if (spatial) {
-        // pixel_size_um = film_format_mm * 1000 / max(width, height) for the
-        // parity image (square, no crop). Matches resize_service.pixel_size_um.
-        const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
-        const int longest = width > height ? width : height;
-        fparams.pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+        // pixel_size_um already set from the resize service above.
+        fparams.pixel_size_um = resize_pixel_size_um;
         spk::digest_halation_params(fparams, film.use.c_str(),
                                     film.antihalation.c_str(), true);
         // halation user params (everything except the preset-baked sigma/strength).
@@ -265,12 +310,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         return SPK_ERR_ASSET_IO;
     }
 
-    // 4) expose(): the image runs as float64 (ProPhoto linear). Promote the
-    //    incoming float32 RGB to double, matching the Python pipeline.
-    std::vector<double> rgb(static_cast<size_t>(npix) * 3);
-    for (size_t i = 0; i < rgb.size(); ++i)
-        rgb[i] = static_cast<double>(in->data[i]);
-
+    // 4) expose(): the image runs as float64 (ProPhoto linear). `rgb` was built
+    //    by preprocess_geometry above (crop/rescale applied, float64), matching
+    //    the Python pipeline.
     std::vector<float> log_raw(static_cast<size_t>(npix) * 3);
     spk::expose(rgb.data(), width, height, fparams, tc_lut, log_raw.data());
     if (tap_log_raw) *tap_log_raw = log_raw;
@@ -306,12 +348,25 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
                      std::vector<float>* final_rgb,
                      std::vector<float>* tap_log_raw,
                      std::vector<float>* tap_film_density_cmy,
-                     std::vector<float>* tap_print_density_cmy) {
+                     std::vector<float>* tap_print_density_cmy,
+                     int* out_w = nullptr, int* out_h = nullptr) {
     if (!eng || !in || !p || !in->data) return SPK_ERR_BAD_ARGS;
     if (in->width <= 0 || in->height <= 0) return SPK_ERR_BAD_ARGS;
     if (!p->film_profile || !p->print_profile) return SPK_ERR_BAD_ARGS;
 
-    const int width = in->width, height = in->height, npix = width * height;
+    // 0) Geometry preprocess (crop_and_rescale) BEFORE filming, mirroring the
+    //    Python pipeline._preprocess. Default params -> passthrough. The print
+    //    route runs spatial/grain off, so pixel_size_um is not consumed here;
+    //    only the geometry (width/height) can change.
+    std::vector<double> rgb;
+    int width = 0, height = 0;
+    {
+        double px = 0.0;
+        preprocess_geometry(in, p, &rgb, &width, &height, &px);
+    }
+    const int npix = width * height;
+    if (out_w) *out_w = width;
+    if (out_h) *out_h = height;
 
     // 1) Load film + print profiles.
     spk::Profile film, prnt;
@@ -391,9 +446,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     fparams.density_curve_gamma[2] = fg;
     apply_user_dir_couplers(fparams.dir_couplers, p, /*spatial=*/false);
 
-    std::vector<double> rgb(static_cast<size_t>(npix) * 3);
-    for (size_t i = 0; i < rgb.size(); ++i)
-        rgb[i] = static_cast<double>(in->data[i]);
+    // `rgb` (float64, crop/rescale applied) built by preprocess_geometry above.
 
     std::vector<float> film_log_raw(static_cast<size_t>(npix) * 3);
     spk::expose(rgb.data(), width, height, fparams, tc_lut, film_log_raw.data());
@@ -668,14 +721,15 @@ spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* 
     if (!p) return SPK_ERR_BAD_ARGS;
     std::vector<float> rgb;
     spk_status st;
+    int ow = in->width, oh = in->height;
     if (p->scan_film) {
-        st = run_scan_film(eng, in, p, &rgb, nullptr, nullptr);
+        st = run_scan_film(eng, in, p, &rgb, nullptr, nullptr, &ow, &oh);
     } else {
         // Print (enlarger) route: filming -> printing -> scan(print).
-        st = run_print(eng, in, p, &rgb, nullptr, nullptr, nullptr);
+        st = run_print(eng, in, p, &rgb, nullptr, nullptr, nullptr, &ow, &oh);
     }
     if (st != SPK_OK) return st;
-    return fill_out_image(out, rgb, in->width, in->height,
+    return fill_out_image(out, rgb, ow, oh,
                           static_cast<int>(p->output_color_space));
 }
 
@@ -706,27 +760,30 @@ spk_status spk_simulate_preview(spk_engine* eng, const spk_image* in,
 spk_status spk_simulate_tap(spk_engine* eng, const spk_image* in,
                             const spk_params* p, const char* tap_name,
                             spk_image* out) {
-    if (!out || !p || !tap_name) return SPK_ERR_BAD_ARGS;
+    if (!out || !p || !tap_name || !in) return SPK_ERR_BAD_ARGS;
 
     std::string tap = tap_name;
     std::vector<float> log_raw, film_density_cmy, print_density_cmy, final_rgb;
     spk_status st;
+    // Output geometry after the crop/resize preprocess (== input geometry under
+    // default params); written by the run_* functions.
+    int ow = in->width, oh = in->height;
 
     if (p->scan_film) {
         // scan_film route: only the negative taps + final RGB exist.
         if (tap == "film_log_raw") {
-            st = run_scan_film(eng, in, p, nullptr, &log_raw, nullptr);
+            st = run_scan_film(eng, in, p, nullptr, &log_raw, nullptr, &ow, &oh);
             if (st != SPK_OK) return st;
-            return fill_out_image(out, log_raw, in->width, in->height, in->color_space);
+            return fill_out_image(out, log_raw, ow, oh, in->color_space);
         } else if (tap == "film_density_cmy") {
-            st = run_scan_film(eng, in, p, nullptr, &log_raw, &film_density_cmy);
+            st = run_scan_film(eng, in, p, nullptr, &log_raw, &film_density_cmy,
+                               &ow, &oh);
             if (st != SPK_OK) return st;
-            return fill_out_image(out, film_density_cmy, in->width, in->height,
-                                  in->color_space);
+            return fill_out_image(out, film_density_cmy, ow, oh, in->color_space);
         } else if (tap == "final_rgb") {
-            st = run_scan_film(eng, in, p, &final_rgb, nullptr, nullptr);
+            st = run_scan_film(eng, in, p, &final_rgb, nullptr, nullptr, &ow, &oh);
             if (st != SPK_OK) return st;
-            return fill_out_image(out, final_rgb, in->width, in->height,
+            return fill_out_image(out, final_rgb, ow, oh,
                                   static_cast<int>(p->output_color_space));
         }
         return SPK_ERR_BAD_ARGS;  // unknown / print-only tap on scan_film route
@@ -734,23 +791,23 @@ spk_status spk_simulate_tap(spk_engine* eng, const spk_image* in,
 
     // Print route taps (filming -> printing -> scan).
     if (tap == "film_log_raw") {
-        st = run_print(eng, in, p, nullptr, &log_raw, nullptr, nullptr);
+        st = run_print(eng, in, p, nullptr, &log_raw, nullptr, nullptr, &ow, &oh);
         if (st != SPK_OK) return st;
-        return fill_out_image(out, log_raw, in->width, in->height, in->color_space);
+        return fill_out_image(out, log_raw, ow, oh, in->color_space);
     } else if (tap == "film_density_cmy") {
-        st = run_print(eng, in, p, nullptr, nullptr, &film_density_cmy, nullptr);
+        st = run_print(eng, in, p, nullptr, nullptr, &film_density_cmy, nullptr,
+                       &ow, &oh);
         if (st != SPK_OK) return st;
-        return fill_out_image(out, film_density_cmy, in->width, in->height,
-                              in->color_space);
+        return fill_out_image(out, film_density_cmy, ow, oh, in->color_space);
     } else if (tap == "print_density_cmy") {
-        st = run_print(eng, in, p, nullptr, nullptr, nullptr, &print_density_cmy);
+        st = run_print(eng, in, p, nullptr, nullptr, nullptr, &print_density_cmy,
+                       &ow, &oh);
         if (st != SPK_OK) return st;
-        return fill_out_image(out, print_density_cmy, in->width, in->height,
-                              in->color_space);
+        return fill_out_image(out, print_density_cmy, ow, oh, in->color_space);
     } else if (tap == "final_rgb") {
-        st = run_print(eng, in, p, &final_rgb, nullptr, nullptr, nullptr);
+        st = run_print(eng, in, p, &final_rgb, nullptr, nullptr, nullptr, &ow, &oh);
         if (st != SPK_OK) return st;
-        return fill_out_image(out, final_rgb, in->width, in->height,
+        return fill_out_image(out, final_rgb, ow, oh,
                               static_cast<int>(p->output_color_space));
     }
     return SPK_ERR_BAD_ARGS;  // unknown tap
@@ -786,6 +843,10 @@ spk_status spk_bake_cube_lut(spk_engine* eng, const spk_params* p, int lut_size,
     bp.print_glare_active = 0;
     bp.camera_diffusion_active = 0;
     bp.enlarger_diffusion_active = 0;
+    // The .cube lattice is a synthetic count x 1 image; geometry transforms must
+    // not touch it (a crop/rescale would corrupt the lattice -> wrong LUT).
+    bp.crop = 0;
+    bp.upscale_factor = 1.0f;
 
     // --- Build the identity lattice as an spk_image --------------------------
     // Lattice axes span [0,1] in the engine's linear working space (treated as
