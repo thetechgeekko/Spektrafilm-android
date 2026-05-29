@@ -60,6 +60,44 @@ jobs:
             (echo "missing expected engine symbols" && exit 1)
 
   # ---------------------------------------------------------------------------
+  # Engine parity: compile the deterministic stage tests and run them against the
+  # BUNDLED assets (profiles + spectral LUT) and the committed goldens. This is a
+  # real bit-exact gate on the ported pipeline (scan_film + print + spatial),
+  # independent of any Python/oracle. Grain tests are statistical and run locally.
+  # ---------------------------------------------------------------------------
+  engine-parity:
+    name: Engine parity (deterministic goldens)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build + run stage parity tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CPP="$GITHUB_WORKSPACE/engine/spektra-core/src/main/cpp"
+          ASSET="$GITHUB_WORKSPACE/engine/spektra-core/src/main/assets/spektra"
+          G="$GITHUB_WORKSPACE/tools/parity/goldens"
+          LUT="$ASSET/luts/spectral_upsampling/irradiance_xy_tc.npy"
+          cd "$CPP"
+          SRC="spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp"
+          DEF=-DSPK_TEST_DIR="\"$CPP/tests\""
+          fail=0
+          build_run() { # name, binary-args...
+            local name="$1"; shift
+            g++ -std=c++17 -O2 -I. -I"$GITHUB_WORKSPACE/tools/parity" $DEF \
+              "tests/$name.cpp" $SRC -o "/tmp/$name"
+            echo "::group::$name"
+            if "/tmp/$name" "$@" 2>&1 | tee "/tmp/$name.out"; then :; fi
+            grep -qiE "FAIL" "/tmp/$name.out" && { echo "$name: FAIL"; fail=1; } || echo "$name: ok"
+            echo "::endgroup::"
+          }
+          build_run test_simulate_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          build_run test_filming "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$LUT" tests/scan_portra_input_rgb.f64
+          build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
+          exit $fail
+
+  # ---------------------------------------------------------------------------
   # Parity harness: the standalone .spkvec comparator builds and its byte-format
   # self-test passes. This is the gate that engine ports (M3/M4) run against.
   # ---------------------------------------------------------------------------
