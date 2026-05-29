@@ -107,10 +107,11 @@ The "do this when literally everything else is done" list:
 - **Welcome / onboarding screen** — a beautiful first-run intro: the project story (spektrafilm +
   ImageToolbox + the bit-exact port), **how the app works** (pick → choose film/print → tune →
   export), with tasteful **animations** (Compose animated transitions / a brief guided tour).
-  The **last page has a "Report an issue / Flag on GitHub" button** opening
-  https://github.com/thetechgeekko/Spectrafilmandroid/issues/new (plus a link to existing issues).
+  The last page links to Settings / a quick "Report an issue" shortcut.
 - **Settings page** — important app settings: default output color space, preview resolution,
-  default film/print, export format/quality + save location, theme (light/dark/dynamic), reset.
+  default film/print, export format/quality + save location, theme (light/dark/dynamic), reset,
+  **and a "Report an issue / Flag on GitHub" entry** opening
+  https://github.com/thetechgeekko/Spectrafilmandroid/issues/new (+ a link to existing issues).
 - **In-app About section** — credits (spektrafilm/ImageToolbox/colour-science/LibRaw), the
   pixls.us dedication, author links (Akshay — Instagram/YouTube), version, license, source link.
 - **GitHub repo "About"** — set the repository description, topics, and homepage at
