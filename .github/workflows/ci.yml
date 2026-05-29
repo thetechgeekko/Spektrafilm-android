@@ -170,3 +170,152 @@ jobs:
           name: SpectraFilm-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Android emulator smoke test: installs the debug APK produced by the
+  # `android` job onto a KVM-accelerated AVD (API 34, x86_64) and verifies that
+  # MainActivity launches without a fatal crash.
+  #
+  # Why artifact-reuse instead of a second full build?
+  #   • Avoids duplicating the ~10-minute NDK/CMake/Gradle build on the same
+  #     runner tier.
+  #   • Makes the dependency explicit: the emulator job only runs when the build
+  #     job produced a good APK, which is the right semantics.
+  #   • Keeps the emulator job focused on on-device verification, not building.
+  #
+  # KVM note: `ubuntu-latest` GitHub-hosted runners expose /dev/kvm; the cloud
+  # dev sandbox (this container) does not — so this job is GitHub-only.
+  # ---------------------------------------------------------------------------
+  android-emulator:
+    name: Android emulator smoke test (API 34 / x86_64)
+    runs-on: ubuntu-latest
+    needs: android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Install SDK + NDK so that `adb`, `avdmanager`, and `emulator` are
+      # available, matching the `android` job's toolchain exactly.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK + CMake + emulator packages
+        run: |
+          sdkmanager \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1" \
+            "emulator" \
+            "platform-tools" \
+            "system-images;android-34;default;x86_64" \
+            "platforms;android-34"
+
+      # Grant the runner's user access to /dev/kvm (standard udev rule from the
+      # reactivecircus/android-emulator-runner action README).
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Download the APK produced by the `android` job — no rebuild needed.
+      - name: Download debug APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: SpectraFilm-debug-apk
+          path: apk/
+
+      # Cache the AVD snapshot so subsequent runs don't re-create it from scratch.
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-api34-x86_64-v1
+
+      # Pre-create the AVD when the cache is cold.  The emulator-runner action
+      # can also do this, but doing it in a separate step keeps the log cleaner.
+      - name: Create AVD (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: Nexus 6
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          disable-animations: false
+          script: echo "AVD created."
+
+      # Main smoke-test: boot the cached AVD, install the APK, launch
+      # MainActivity, and assert no fatal crash.
+      - name: Run emulator smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: Nexus 6
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
+
+            APK=$(ls apk/*.apk | head -1)
+            echo "Installing APK: $APK"
+            adb install -r "$APK"
+
+            echo "--- Launching MainActivity ---"
+            # -W waits until onResume; captures ShortMsg/LongMsg on crash.
+            adb shell am start -W \
+              -n "com.spectrafilm.app/.MainActivity" \
+              -a android.intent.action.MAIN \
+              -c android.intent.category.LAUNCHER
+
+            echo "--- Waiting 8 s for the app to fully initialise ---"
+            sleep 8
+
+            echo "--- Capturing screenshot ---"
+            mkdir -p emulator-artifacts
+            adb exec-out screencap -p > emulator-artifacts/screenshot.png || true
+
+            echo "--- Dumping logcat ---"
+            adb logcat -d > emulator-artifacts/logcat.txt || true
+
+            echo "--- Asserting no FATAL EXCEPTION in com.spectrafilm.app ---"
+            if grep -E "FATAL EXCEPTION|UnsatisfiedLinkError" emulator-artifacts/logcat.txt \
+                 | grep "com.spectrafilm.app"; then
+              echo "SMOKE TEST FAILED: fatal crash or UnsatisfiedLinkError detected in com.spectrafilm.app"
+              exit 1
+            fi
+
+            echo "--- Asserting MainActivity is the resumed/focused activity ---"
+            ACTIVITIES=$(adb shell dumpsys activity activities 2>/dev/null || true)
+            if echo "$ACTIVITIES" | grep -q "com.spectrafilm.app/.MainActivity"; then
+              echo "SMOKE TEST PASSED: MainActivity is present in the activity stack."
+            else
+              echo "SMOKE TEST FAILED: com.spectrafilm.app/.MainActivity not found in activity stack."
+              echo "$ACTIVITIES" | grep -E "mResumedActivity|mFocusedActivity|TopResumedActivity" || true
+              exit 1
+            fi
+
+            echo "--- Smoke test complete ---"
+
+      # Always upload screenshot + logcat so failures are debuggable.
+      - name: Upload emulator artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-smoke-artifacts
+          path: emulator-artifacts/
+          if-no-files-found: warn
