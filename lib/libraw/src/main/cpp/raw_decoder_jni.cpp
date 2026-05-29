@@ -1,0 +1,135 @@
+/*
+ * SpectraFilm for Android — lib:libraw JNI bridge.
+ * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Uses LibRaw (LGPL-2.1).
+ *
+ * Bridges com.spectrafilm.libraw.RawDecoder (Kotlin) to the native decoder.
+ *
+ * Design notes (mirrors engine:spektra-core's spektra_jni.cpp):
+ *  - The decoded image crosses back to Kotlin as a *direct* java.nio.ByteBuffer of
+ *    float32 RGB (length = width*height*3*4 bytes) so it can be handed straight to
+ *    SpektraEngine.LinearImage with no per-pixel JNI traffic and no 8-bit round-trip.
+ *  - Width / height / colorSpace are returned via a small Kotlin result holder
+ *    (RawDecoder.NativeResult) constructed here through cached method/field IDs.
+ *  - Input arrives as either a byte[] (SAF stream read fully) or a raw fd
+ *    (ParcelFileDescriptor.detachFd()).
+ */
+#include <jni.h>
+
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+#include "raw_decoder.h"
+
+#define JNI(ret, name) extern "C" JNIEXPORT ret JNICALL \
+    Java_com_spectrafilm_libraw_RawDecoder_##name
+
+namespace {
+
+spectrafilm::DecodeOptions readOptions(jint wbMode, jdouble temperatureK, jdouble tint) {
+    spectrafilm::DecodeOptions opts;
+    // Must match RawDecoder.WhiteBalance.nativeMode ordinals in Kotlin.
+    switch (wbMode) {
+        case 0:  opts.whiteBalance = spectrafilm::WhiteBalanceMode::AsShot;   break;
+        case 1:  opts.whiteBalance = spectrafilm::WhiteBalanceMode::Daylight; break;
+        case 2:  opts.whiteBalance = spectrafilm::WhiteBalanceMode::Tungsten; break;
+        case 3:  opts.whiteBalance = spectrafilm::WhiteBalanceMode::Custom;   break;
+        default: opts.whiteBalance = spectrafilm::WhiteBalanceMode::AsShot;   break;
+    }
+    opts.temperatureK = temperatureK;
+    opts.tint = tint;
+    return opts;
+}
+
+// Build a com.spectrafilm.libraw.RawDecoder$NativeResult from a DecodeResult.
+// On failure returns null and the Kotlin facade throws with `error`.
+jobject toJavaResult(JNIEnv* env, const spectrafilm::DecodeResult& r) {
+    if (!r.ok) {
+        // Surface the native error message as an IllegalStateException.
+        jclass ise = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(ise, r.error.empty() ? "RAW decode failed" : r.error.c_str());
+        return nullptr;
+    }
+
+    const jlong byteLen =
+        static_cast<jlong>(r.rgb.size()) * static_cast<jlong>(sizeof(float));
+    // The decoded RGB lives in r.rgb (freed when this call returns), so we hand
+    // Kotlin a direct ByteBuffer it *owns* (allocateDirect) and memcpy into it.
+    // The buffer is direct so the engine can consume it as a LinearImage with no
+    // further copy.
+    jclass bbClass = env->FindClass("java/nio/ByteBuffer");
+    jmethodID allocDirect =
+        env->GetStaticMethodID(bbClass, "allocateDirect", "(I)Ljava/nio/ByteBuffer;");
+    jobject owned = env->CallStaticObjectMethod(
+        bbClass, allocDirect, static_cast<jint>(byteLen));
+    if (owned == nullptr) {
+        jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+        env->ThrowNew(oom, "failed to allocate direct buffer for RAW result");
+        return nullptr;
+    }
+    void* dst = env->GetDirectBufferAddress(owned);
+    if (dst != nullptr) {
+        std::memcpy(dst, r.rgb.data(), static_cast<size_t>(byteLen));
+    }
+
+    jclass resClass = env->FindClass("com/spectrafilm/libraw/RawDecoder$NativeResult");
+    jmethodID ctor = env->GetMethodID(
+        resClass, "<init>",
+        "(Ljava/nio/ByteBuffer;IILjava/lang/String;)V");
+    jstring cs = env->NewStringUTF(r.colorSpace.c_str());
+    return env->NewObject(
+        resClass, ctor, owned, static_cast<jint>(r.width),
+        static_cast<jint>(r.height), cs);
+}
+
+}  // namespace
+
+/*
+ * nativeDecodeBytes(bytes, wbMode, temperatureK, tint) -> NativeResult
+ * Decodes a fully-read RAW/DNG byte[] into linear float32 ACES RGB.
+ */
+JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject /*thiz*/, jbyteArray bytes,
+                                jint wbMode, jdouble temperatureK, jdouble tint) {
+    if (bytes == nullptr) {
+        jclass ise = env->FindClass("java/lang/IllegalArgumentException");
+        env->ThrowNew(ise, "null RAW byte[]");
+        return nullptr;
+    }
+    const jsize len = env->GetArrayLength(bytes);
+    jbyte* ptr = env->GetByteArrayElements(bytes, nullptr);
+    spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
+        reinterpret_cast<const uint8_t*>(ptr), static_cast<size_t>(len),
+        readOptions(wbMode, temperatureK, tint));
+    env->ReleaseByteArrayElements(bytes, ptr, JNI_ABORT);
+    return toJavaResult(env, result);
+}
+
+/*
+ * nativeDecodeBuffer(directBuf, len, wbMode, temperatureK, tint) -> NativeResult
+ * Same as above but reads directly from a direct ByteBuffer (zero input copy).
+ */
+JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject /*thiz*/, jobject directBuf,
+                                 jint len, jint wbMode, jdouble temperatureK, jdouble tint) {
+    void* addr = (directBuf != nullptr) ? env->GetDirectBufferAddress(directBuf) : nullptr;
+    if (addr == nullptr) {
+        jclass ise = env->FindClass("java/lang/IllegalArgumentException");
+        env->ThrowNew(ise, "expected a direct ByteBuffer for RAW input");
+        return nullptr;
+    }
+    spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
+        reinterpret_cast<const uint8_t*>(addr), static_cast<size_t>(len),
+        readOptions(wbMode, temperatureK, tint));
+    return toJavaResult(env, result);
+}
+
+/*
+ * nativeDecodeFd(fd, wbMode, temperatureK, tint) -> NativeResult
+ * Decodes from a file descriptor (e.g. ParcelFileDescriptor.detachFd()).
+ */
+JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject /*thiz*/, jint fd,
+                             jint wbMode, jdouble temperatureK, jdouble tint) {
+    spectrafilm::DecodeResult result = spectrafilm::decodeFromFd(
+        fd, readOptions(wbMode, temperatureK, tint));
+    return toJavaResult(env, result);
+}
