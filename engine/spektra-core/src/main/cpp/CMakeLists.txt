@@ -39,3 +39,11 @@ target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib})
 
 # M2: link LibRaw here (or keep it in lib:libraw and pass decoded buffers in).
 # target_link_libraries(spektra raw)
+
+# --- New files (M3 spectral upsampling port) ---------------------------------
+# Hanatos2025 RGB->spectrum upsampling + dependency-free LUT loaders. Add these
+# to the add_library(spektra ...) source list when wiring the runtime stage:
+#   io/npy_lut.cpp
+#   kernels/spectral_upsampling.cpp
+# Host parity test (not part of libspektra.so; built standalone with g++ -std=c++17
+# -I . -I tools/parity): tests/test_spectral_upsampling.cpp
