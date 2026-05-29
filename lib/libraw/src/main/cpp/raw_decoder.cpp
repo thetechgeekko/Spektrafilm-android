@@ -9,9 +9,11 @@
  * then the colour-science white-balance path (Von-Kries adaptation + tint) for
  * the non-as-shot modes.
  *
- * The LibRaw include is guarded with __has_include so this translation unit stays
- * readable (and the .so still links) before LibRaw is vendored at
- * libraw/upstream. Every spot that needs the real library is marked TODO(libraw).
+ * The LibRaw include is guarded with __has_include so this translation unit still
+ * compiles and links even if LibRaw is unavailable (e.g. a host build without the
+ * source). In the normal build, CMake fetches LibRaw and adds its root to this
+ * target's include path, so <libraw/libraw.h> resolves and the real decode path
+ * (SFRAW_HAVE_LIBRAW) is compiled in.
  */
 #include "raw_decoder.h"
 
@@ -336,19 +338,20 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) {
 
 #else  // !SFRAW_HAVE_LIBRAW
 
-// LibRaw is not vendored yet. The module still compiles and the .so links so the
-// Kotlin facade can be wired and tested; decode() returns a clear error.
-// TODO(libraw): vendor LibRaw at src/main/cpp/libraw/upstream to enable decoding.
+// Fallback: LibRaw headers were not found at compile time (only happens if the
+// FetchContent step was skipped without -DSFRAW_LIBRAW_SOURCE_DIR). The module
+// still compiles and the .so links so the Kotlin facade can be wired; decode()
+// returns a clear error instead of crashing.
 
 DecodeResult decodeFromBuffer(const uint8_t*, size_t, const DecodeOptions&) {
     DecodeResult result;
-    result.error = "LibRaw not vendored: build lib:libraw with libraw/upstream present";
+    result.error = "LibRaw unavailable: configure with network (FetchContent) or -DSFRAW_LIBRAW_SOURCE_DIR";
     return result;
 }
 
 DecodeResult decodeFromFd(int, const DecodeOptions&) {
     DecodeResult result;
-    result.error = "LibRaw not vendored: build lib:libraw with libraw/upstream present";
+    result.error = "LibRaw unavailable: configure with network (FetchContent) or -DSFRAW_LIBRAW_SOURCE_DIR";
     return result;
 }
 

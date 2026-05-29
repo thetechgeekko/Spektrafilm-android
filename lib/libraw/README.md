@@ -4,12 +4,14 @@ On-device camera **RAW / DNG** decoding for SpectraFilm for Android, producing a
 **linear, scene-referred float32 RGB** buffer with **bit-parity to spektrafilm's
 desktop `rawpy` settings**.
 
-> **Status: scaffold (M0/M1).** The native decoder, JNI bridge, and Kotlin facade
-> are in place. The module **activates at M1** (same as `engine:spektra-core`),
-> once the ImageToolbox host — with its build-logic convention plugins + version
-> catalog — is seeded. **LibRaw must be vendored** (see below) before the native
-> build can actually decode; until then `libsfraw.so` links and `decode()` returns
-> a clear "LibRaw not vendored" error.
+> **Status: building.** The native decoder, JNI bridge, and Kotlin facade are in
+> place, and **LibRaw is obtained at configure time via CMake `FetchContent`**
+> (pinned 0.21.4 release tarball + SHA256 — see `src/main/cpp/CMakeLists.txt`), so a
+> clean checkout builds `libsfraw.so` with just a working network. RAW/DNG decode is
+> live (verified end-to-end on a real DNG). `build.gradle.kts` mirrors
+> `engine:spektra-core` (plain AGP `com.android.library` + `kotlin.android` +
+> `externalNativeBuild` CMake), so the module configures and builds standalone the
+> moment it is added to `settings.gradle.kts`.
 
 ## What it does
 
@@ -34,8 +36,8 @@ lib/libraw/
     │   ├── CMakeLists.txt           # builds libsfraw.so; expects libraw/upstream
     │   ├── raw_decoder.h            # decode API + WB math contract
     │   ├── raw_decoder.cpp          # LibRaw params + Von-Kries adaptation (guarded)
-    │   ├── raw_decoder_jni.cpp      # JNI bridge -> direct float ByteBuffer + w/h/cs
-    │   └── libraw/upstream/         # ← VENDOR LIBRAW HERE (not committed)
+    │   └── raw_decoder_jni.cpp      # JNI bridge -> direct float ByteBuffer + w/h/cs
+    │       # (LibRaw sources are fetched at configure time, not committed)
     └── kotlin/com/spectrafilm/libraw/
         ├── RawDecoder.kt            # facade: decodeToLinear(bytes/buffer/fd/stream)
         └── RawCoilDecoder.kt        # Coil 3 Decoder.Factory (gallery full-res open)
@@ -43,17 +45,25 @@ lib/libraw/
 
 ## Vendoring LibRaw
 
-LibRaw is **not** bundled. Add it as a git submodule (preferred) or vendor a
-release under `src/main/cpp/libraw/upstream`:
+LibRaw is **not** committed. `src/main/cpp/CMakeLists.txt` fetches it at configure
+time via CMake **`FetchContent`**, pinned to a specific release tarball + SHA256:
 
-```sh
-git submodule add https://github.com/LibRaw/LibRaw \
-    lib/libraw/src/main/cpp/libraw/upstream
+```cmake
+SFRAW_LIBRAW_VERSION = "0.21.4"
+SFRAW_LIBRAW_URL     = "https://www.libraw.org/data/LibRaw-0.21.4.tar.gz"
+SFRAW_LIBRAW_SHA256  = "6be43f19397e43214ff56aab056bf3ff4925ca14012ce5a1538a172406a09e63"
 ```
 
-Expected stock-checkout layout: `libraw/upstream/libraw/libraw.h` (public headers),
-`libraw/upstream/src/**/*.cpp` and `libraw/upstream/internal/*.cpp` (implementation).
-`CMakeLists.txt` globs those sources, builds a static `raw` lib (with
+A clean checkout therefore builds with just a working network — no git submodule,
+no committed third-party blob. To pin a different release, bump the three
+`SFRAW_LIBRAW_*` cache variables. For offline/CI builds, point
+`-DSFRAW_LIBRAW_SOURCE_DIR=<dir>` at a stock LibRaw checkout (the dir containing
+`libraw/libraw.h`) and `FetchContent` is skipped.
+
+`CMakeLists.txt` then globs LibRaw's `src/**/*.cpp` (matching its own
+`Makefile.am` source list — notably **excluding the `*_ph.cpp` placeholder TUs**,
+which are postprocessing-free stubs that would otherwise shadow the real
+`dcraw_process` / `dcraw_make_mem_image`), builds a static `raw` lib (with
 `NO_JASPER/NO_JPEG/NO_LCMS` to keep the `.so` small — baseline DNG + common RAW
 decode without them), and links it into `libsfraw.so`.
 

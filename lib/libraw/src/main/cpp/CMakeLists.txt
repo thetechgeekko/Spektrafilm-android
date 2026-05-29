@@ -2,23 +2,23 @@
 # Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
 # This module uses LibRaw (LGPL-2.1), linked into the GPLv3 app.
 #
-# Builds libsfraw.so: the rawpy-parity RAW/DNG decoder + JNI bridge.
+# Builds libsfraw.so: the rawpy-parity RAW/DNG decoder + JNI bridge, with LibRaw
+# compiled in statically.
 #
 # --------------------------------------------------------------------------
-# VENDORING LIBRAW
+# VENDORING LIBRAW (reproducible, network-only)
 # --------------------------------------------------------------------------
-# LibRaw is NOT bundled in this repo. Add it as a git submodule (preferred) or
-# vendor a release tarball under:   src/main/cpp/libraw/upstream
+# LibRaw is obtained at configure time via CMake FetchContent, pinned to a
+# specific release tarball + SHA256 (see SFRAW_LIBRAW_VERSION / _URL / _SHA256
+# below). A clean checkout therefore builds with just a working network — no
+# git submodule, no committed third-party blob.
 #
-#   git submodule add https://github.com/LibRaw/LibRaw \
-#       lib/libraw/src/main/cpp/libraw/upstream
+# To pin a different release, bump the three SFRAW_LIBRAW_* variables.
 #
-# LibRaw has no first-party CMake build that targets the NDK cleanly, so we
-# compile its amalgamated/static sources directly here. The expected layout is
-# the stock LibRaw checkout:
-#     libraw/upstream/libraw/libraw.h        (public headers)
-#     libraw/upstream/src/**/*.cpp           (implementation)
-#     libraw/upstream/internal/*.cpp
+# Optional offline override: if LibRaw is already present on disk (e.g. a CI
+# cache or a hand-vendored copy), point -DSFRAW_LIBRAW_SOURCE_DIR=<dir> at a
+# stock LibRaw checkout (the directory that contains libraw/libraw.h) and
+# FetchContent is skipped.
 # --------------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.22.1)
@@ -30,32 +30,85 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Release: the demosaic/colour loops are the hot path. -O3 is safe; we keep IEEE
 # semantics here because the Von-Kries / white-balance multipliers must match the
 # desktop rawpy output to within golden-vector tolerance.
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
-
-set(LIBRAW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libraw/upstream")
+if (NOT CMAKE_CXX_FLAGS_RELEASE)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+endif ()
 
 # --------------------------------------------------------------------------
-# LibRaw static library (built only when vendored).
+# Pinned LibRaw release.
+# --------------------------------------------------------------------------
+set(SFRAW_LIBRAW_VERSION "0.21.4" CACHE STRING "Pinned LibRaw release version")
+set(SFRAW_LIBRAW_URL
+        "https://www.libraw.org/data/LibRaw-${SFRAW_LIBRAW_VERSION}.tar.gz"
+        CACHE STRING "LibRaw release tarball URL")
+# SHA256 of LibRaw-0.21.4.tar.gz (libraw.org). Pin so the fetch is verified.
+set(SFRAW_LIBRAW_SHA256
+        "6be43f19397e43214ff56aab056bf3ff4925ca14012ce5a1538a172406a09e63"
+        CACHE STRING "SHA256 of the pinned LibRaw tarball")
+
+# Optional: a pre-vendored LibRaw checkout (skips FetchContent when set/exists).
+set(SFRAW_LIBRAW_SOURCE_DIR "" CACHE PATH
+        "Pre-vendored LibRaw source dir (contains libraw/libraw.h); skips FetchContent")
+
+set(LIBRAW_DIR "")
+
+if (SFRAW_LIBRAW_SOURCE_DIR AND EXISTS "${SFRAW_LIBRAW_SOURCE_DIR}/libraw/libraw.h")
+    set(LIBRAW_DIR "${SFRAW_LIBRAW_SOURCE_DIR}")
+    message(STATUS "sfraw: using pre-vendored LibRaw at ${LIBRAW_DIR}")
+else ()
+    include(FetchContent)
+    message(STATUS "sfraw: fetching LibRaw ${SFRAW_LIBRAW_VERSION} from ${SFRAW_LIBRAW_URL}")
+    # NOTE: no DOWNLOAD_EXTRACT_TIMESTAMP here — that option is CMake 3.24+, and the
+    # Android-SDK-bundled CMake is 3.22.1, which folds the unknown keyword into
+    # URL_HASH and fails. 3.22 extracts fine without it.
+    FetchContent_Declare(
+            libraw_upstream
+            URL "${SFRAW_LIBRAW_URL}"
+            URL_HASH SHA256=${SFRAW_LIBRAW_SHA256}
+    )
+    # We only need the sources extracted; LibRaw's own build system is not used.
+    FetchContent_GetProperties(libraw_upstream)
+    if (NOT libraw_upstream_POPULATED)
+        FetchContent_Populate(libraw_upstream)
+    endif ()
+    set(LIBRAW_DIR "${libraw_upstream_SOURCE_DIR}")
+endif ()
+
+# --------------------------------------------------------------------------
+# LibRaw static library.
 # --------------------------------------------------------------------------
 if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
-    # Sensible source glob for a stock LibRaw checkout. LibRaw groups its sources
-    # under src/ (demosaic, decoders, metadata, postprocessing, write, utils) and
-    # a few helpers under internal/. Globbing keeps this resilient across LibRaw
-    # versions; pin to an explicit list if reproducibility matters more than
-    # convenience.
+    # LibRaw groups its sources under src/ (decoders, demosaic, metadata,
+    # preprocessing, postprocessing, tables, utils, write, x3f, integration) plus
+    # a top-level libraw_c_api.cpp / libraw_datastream.cpp. This glob matches the
+    # authoritative object list in LibRaw's Makefile.am for 0.21.x. The optional
+    # integration/*.cpp glue (DNG SDK / RawSpeed) is guarded by USE_DNGSDK /
+    # USE_RAWSPEED and compiles to (near) empty TUs when those are off — so it is
+    # harmless to include.
     file(GLOB_RECURSE LIBRAW_SOURCES
             "${LIBRAW_DIR}/src/*.cpp"
-            "${LIBRAW_DIR}/internal/*.cpp"
     )
-    # demosaic/decoder packs are #included by other TUs (LibRaw "*_common" pattern);
-    # excluding them avoids duplicate-symbol errors. Adjust to the version vendored.
-    list(FILTER LIBRAW_SOURCES EXCLUDE REGEX ".*(_common|placeholder)\\.cpp$")
+    # CRITICAL: LibRaw ships *_ph.cpp "placeholder" TUs (postprocessing_ph.cpp,
+    # preprocessing_ph.cpp, write_ph.cpp) that provide STUB implementations
+    # (e.g. dcraw_process() -> LIBRAW_NOT_IMPLEMENTED, dcraw_make_mem_image() ->
+    # NULL) for building a postprocessing-free "lite" LibRaw. They are mutually
+    # exclusive with the real implementations in postprocessing_utils.cpp /
+    # mem_image.cpp / etc., and LibRaw's own Makefile.am (lib_libraw_a_SOURCES)
+    # never lists them. Compiling both yields duplicate symbols; inside a static
+    # archive the link is silently ambiguous (which definition wins is undefined),
+    # so the placeholder dcraw_process() could be selected and decode would return
+    # LIBRAW_NOT_IMPLEMENTED at runtime. We MUST exclude them to get a real decoder.
+    #
+    # Also drop any "*_common" helper packs (older LibRaw demosaic-pack layout)
+    # and placeholder TUs that are #included by siblings, not compiled directly.
+    list(FILTER LIBRAW_SOURCES EXCLUDE REGEX ".*(_ph|_common|placeholder)\\.cpp$")
 
     add_library(raw STATIC ${LIBRAW_SOURCES})
     target_include_directories(raw PUBLIC "${LIBRAW_DIR}")
-    # LibRaw build knobs. We disue the heavy optional deps (jasper/jpeg/lcms) to
-    # keep the .so small; baseline DNG + common RAW decode without them. Revisit
-    # in M2 if lossy-DNG / embedded-JPEG-in-DNG support is required.
+    # LibRaw build knobs. We disable the heavy optional deps (jasper/jpeg/lcms) to
+    # keep the .so small; baseline DNG + common RAW decode without them. Revisit in
+    # M2 if lossy-DNG / embedded-JPEG-in-DNG support is required. LIBRAW_NODLL ->
+    # static (no dllimport/export); the integration glue stays compiled-out.
     target_compile_definitions(raw PUBLIC
             NO_JASPER
             NO_JPEG
@@ -64,11 +117,12 @@ if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
     )
     target_compile_options(raw PRIVATE -w)  # silence LibRaw's own warnings
     set(SFRAW_HAVE_LIBRAW TRUE)
+    message(STATUS "sfraw: LibRaw sources found (${LIBRAW_DIR}); RAW decode ENABLED")
 else ()
     message(WARNING
             "LibRaw not found at ${LIBRAW_DIR}. "
             "libsfraw.so will build but decode() will return an error at runtime. "
-            "Vendor LibRaw (see the header of this file) to enable RAW decoding.")
+            "Provide network access (FetchContent) or -DSFRAW_LIBRAW_SOURCE_DIR.")
     set(SFRAW_HAVE_LIBRAW FALSE)
 endif ()
 
@@ -88,8 +142,11 @@ if (SFRAW_HAVE_LIBRAW)
 endif ()
 
 # Android system libs: log for diagnostics; jnigraphics for optional Bitmap output;
-# android for AAssetManager / fd helpers.
-find_library(log-lib log)
-find_library(android-lib android)
-find_library(jnigraphics-lib jnigraphics)
-target_link_libraries(sfraw ${log-lib} ${android-lib} ${jnigraphics-lib})
+# android for AAssetManager / fd helpers. Guarded so the same CMakeLists can also be
+# configured for a host (non-Android) build of the decoder (parity tests).
+if (ANDROID)
+    find_library(log-lib log)
+    find_library(android-lib android)
+    find_library(jnigraphics-lib jnigraphics)
+    target_link_libraries(sfraw ${log-lib} ${android-lib} ${jnigraphics-lib})
+endif ()
