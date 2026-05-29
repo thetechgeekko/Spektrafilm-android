@@ -18,6 +18,7 @@
 #include "kernels/spectral_upsampling.h"
 #include "model/couplers.h"
 #include "model/density_curves.h"
+#include "model/diffusion.h"
 #include "model/spectral.h"
 
 namespace spk {
@@ -136,30 +137,47 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
     return tc_lut;
 }
 
-void expose(const double* rgb, int npix, const FilmingParams& params,
+void expose(const double* rgb, int width, int height, const FilmingParams& params,
             const NdArray& tc_lut, float* log_raw_out) {
+    const int npix = width * height;
     int L = tc_lut.shape[0];
     double scale = static_cast<double>(L - 1);
     double exp_mult = std::pow(2.0, params.exposure_compensation_ev);  // 1.0 under goldens
+
+    // Compute the float64 pre-log irradiance `raw` for every pixel.
+    // raw = rgb_to_raw_hanatos2025(rgb) * brightness * 2^exposure_comp_ev.
+    // (boost_ev==0 -> highlight boost identity; diffusion_filter/lens_blur off;
+    //  black/white exposure correction == 1.0 under the goldens.)
+    std::vector<double> raw(static_cast<size_t>(npix) * 3);
     for (int p = 0; p < npix; ++p) {
         double in[3] = {rgb[p * 3 + 0], rgb[p * 3 + 1], rgb[p * 3 + 2]};
         Vec2 tc;
         double b;
         prophoto_rgb_to_tc_b(in, &tc, &b);
-        double raw[3];
-        cubic_interp_lut_at_2d(tc_lut, tc.x * scale, tc.y * scale, raw);
-        for (int c = 0; c < 3; ++c) {
-            double r = raw[c] * b * exp_mult;
-            // boost/diffusion/blur/halation/black-white correction are no-ops.
-            double lr = std::log10(std::fmax(r, 0.0) + 1e-10);
-            log_raw_out[p * 3 + c] = static_cast<float>(lr);
-        }
+        double rr[3];
+        cubic_interp_lut_at_2d(tc_lut, tc.x * scale, tc.y * scale, rr);
+        for (int c = 0; c < 3; ++c) raw[p * 3 + c] = rr[c] * b * exp_mult;
+    }
+
+    // Spatial branch: in-emulsion scatter + back-reflection halation, applied to
+    // the float64 irradiance before the log10 (matching filming.py::expose, which
+    // calls apply_halation_um on `raw`). Skipped under the spatial-OFF goldens.
+    if (params.spatial_effects && params.halation.active) {
+        apply_halation_um(raw.data(), width, height, params.halation,
+                          params.pixel_size_um);
+    }
+
+    // log_raw = log10(fmax(raw, 0) + 1e-10).
+    for (int i = 0; i < npix * 3; ++i) {
+        double lr = std::log10(std::fmax(raw[i], 0.0) + 1e-10);
+        log_raw_out[i] = static_cast<float>(lr);
     }
 }
 
-void develop(const float* log_raw, int npix, const Profile& film,
+void develop(const float* log_raw, int width, int height, const Profile& film,
              const FilmingParams& params, float* density_cmy_out) {
     int n = film.n_density_pts;
+    const int npix = width * height;
 
     // normalized_density_curves = density_curves - nanmin(density_curves, axis=0)
     std::vector<float> ndc(static_cast<size_t>(n) * 3);
@@ -170,13 +188,14 @@ void develop(const float* log_raw, int npix, const Profile& film,
                                     film.log_exposure.data(), n,
                                     params.density_curve_gamma, density_cmy_out);
 
-    // apply_density_correction_dir_couplers (diffusion off, pointwise).
-    apply_density_correction_dir_couplers(density_cmy_out, npix, log_raw,
-                                          film.log_exposure.data(), ndc.data(), n,
-                                          params.dir_couplers,
-                                          film.is_positive(),
-                                          params.density_curve_gamma,
-                                          density_cmy_out);
+    // apply_density_correction_dir_couplers. The spatial variant diffuses the
+    // inhibitor correction (Gaussian + exponential tail) when spatial effects are
+    // on; it delegates to the pointwise path when diffusion_size_um == 0.
+    apply_density_correction_dir_couplers_spatial(
+        density_cmy_out, width, height, log_raw, film.log_exposure.data(),
+        ndc.data(), n, params.dir_couplers, film.is_positive(),
+        params.density_curve_gamma,
+        params.spatial_effects ? params.pixel_size_um : 0.0, density_cmy_out);
     // grain inactive -> identity.
 }
 

@@ -140,13 +140,27 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         return SPK_ERR_INTERNAL;  // profile lacks filming fields
     }
 
-    // 2) Digested filming params (auto-exposure off; spatial + stochastic off).
-    spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
+    // 2) Digested filming params (auto-exposure off; stochastic/grain off). The
+    //    spatial-effects branch (halation + in-emulsion scatter + DIR-coupler
+    //    diffusion) is enabled when the case requests it via halation_active
+    //    (mirroring deactivate_spatial_effects=False under scan_portra_spatial).
+    const bool spatial = (p->halation_active != 0);
+    spk::FilmingParams fparams =
+        spk::digest_filming_params(film.is_negative(), spatial);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     const float g = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
     fparams.density_curve_gamma[2] = g;
+    if (spatial) {
+        // pixel_size_um = film_format_mm * 1000 / max(width, height) for the
+        // parity image (square, no crop). Matches resize_service.pixel_size_um.
+        const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
+        const int longest = width > height ? width : height;
+        fparams.pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+        spk::digest_halation_params(fparams, film.use.c_str(),
+                                    film.antihalation.c_str(), true);
+    }
 
     // 3) Build the Hanatos2025 filming tc_lut (D55 reference illuminant).
     spk::NdArray tc_lut;
@@ -163,12 +177,12 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         rgb[i] = static_cast<double>(in->data[i]);
 
     std::vector<float> log_raw(static_cast<size_t>(npix) * 3);
-    spk::expose(rgb.data(), npix, fparams, tc_lut, log_raw.data());
+    spk::expose(rgb.data(), width, height, fparams, tc_lut, log_raw.data());
     if (tap_log_raw) *tap_log_raw = log_raw;
 
-    // 5) develop(): log_raw -> density_cmy (+ DIR couplers).
+    // 5) develop(): log_raw -> density_cmy (+ DIR couplers, spatial diffusion if on).
     std::vector<float> density_cmy(static_cast<size_t>(npix) * 3);
-    spk::develop(log_raw.data(), npix, film, fparams, density_cmy.data());
+    spk::develop(log_raw.data(), width, height, film, fparams, density_cmy.data());
     if (tap_density_cmy) *tap_density_cmy = density_cmy;
 
     if (!final_rgb) return SPK_OK;  // caller only wanted an earlier tap
@@ -177,6 +191,11 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     spk::ScanningParams sparams;
     sparams.scan_film = true;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
+    if (spatial) {
+        // scanner.unsharp_mask default = (0.7, 0.7); lens_blur stays 0.
+        sparams.unsharp_sigma = 0.7;
+        sparams.unsharp_amount = 0.7;
+    }
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb->data());
@@ -260,11 +279,12 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         rgb[i] = static_cast<double>(in->data[i]);
 
     std::vector<float> film_log_raw(static_cast<size_t>(npix) * 3);
-    spk::expose(rgb.data(), npix, fparams, tc_lut, film_log_raw.data());
+    spk::expose(rgb.data(), width, height, fparams, tc_lut, film_log_raw.data());
     if (tap_log_raw) *tap_log_raw = film_log_raw;
 
     std::vector<float> film_density_cmy(static_cast<size_t>(npix) * 3);
-    spk::develop(film_log_raw.data(), npix, film, fparams, film_density_cmy.data());
+    spk::develop(film_log_raw.data(), width, height, film, fparams,
+                 film_density_cmy.data());
     if (tap_film_density_cmy) *tap_film_density_cmy = film_density_cmy;
 
     // 4) Printing stage (film density -> enlarger expose -> print develop).

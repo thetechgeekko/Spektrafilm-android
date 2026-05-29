@@ -15,6 +15,7 @@
 #include <cmath>
 #include <vector>
 
+#include "kernels/exponential_filter.h"
 #include "model/color_output.h"
 #include "model/conversions.h"
 #include "model/emulsion.h"
@@ -26,6 +27,13 @@ void scan(const Profile& film, const ScanningParams& params,
           const float* density_cmy, int width, int height, float* rgb_out) {
     const int npix = width * height;
     const int S = film.n_samples;  // == kSpectralSamples (81) for bundled profiles
+
+    // Linear output-space RGB (pre-unsharp, pre-CAT02, pre-CCTF). Kept in float64
+    // to match scanning.py, which carries the whole chain at NumPy double
+    // precision and only stores float32 at the very end.
+    const bool do_unsharp =
+        params.unsharp_sigma > 0.0 && params.unsharp_amount > 0.0;
+    std::vector<double> lin_rgb(static_cast<size_t>(npix) * 3);
 
     // Scan illuminant + constants. For the scan_film route the scan illuminant is
     // the film's viewing illuminant (D50 here). These mirror scanning.py:
@@ -79,26 +87,39 @@ void scan(const Profile& film, const ScanningParams& params,
         // (add_glare skipped: glare is None on the scan_film route.)
 
         // 5. XYZ -> output RGB (sRGB linear), CAT to D65 baked into the matrix.
-        double rgb[3];
+        double* lin = lin_rgb.data() + static_cast<size_t>(p) * 3;
         for (int c = 0; c < 3; ++c) {
-            rgb[c] = static_cast<double>(kXYZ_to_sRGB_D50[c * 3 + 0]) * xyz[0] +
+            lin[c] = static_cast<double>(kXYZ_to_sRGB_D50[c * 3 + 0]) * xyz[0] +
                      static_cast<double>(kXYZ_to_sRGB_D50[c * 3 + 1]) * xyz[1] +
                      static_cast<double>(kXYZ_to_sRGB_D50[c * 3 + 2]) * xyz[2];
         }
+    }
 
-        // (blur + unsharp skipped: spatial effects deactivated.)
+    // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
+    // in the linear output space, before the CAT02 round-trip + CCTF. lens_blur is
+    // 0 under the goldens so the gaussian-blur pass is skipped. (apply_gaussian_blur
+    // / apply_unsharp_mask in model/diffusion.py.)
+    if (do_unsharp) {
+        const size_t total = static_cast<size_t>(npix) * 3;
+        std::vector<double> blur(lin_rgb);
+        double sg[3] = {params.unsharp_sigma, params.unsharp_sigma,
+                        params.unsharp_sigma};
+        gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
+        const double amt = params.unsharp_amount;
+        for (size_t i = 0; i < total; ++i)
+            lin_rgb[i] = lin_rgb[i] + amt * (lin_rgb[i] - blur[i]);
+    }
 
-        // 6. CCTF encode path mirrors scanning._apply_cctf_encoding_and_clip,
-        //    which calls colour.RGB_to_RGB(rgb, sRGB, sRGB, encode=True). That
-        //    helper *always* applies matrix_RGB_to_RGB(sRGB, sRGB, CAT02) — a
-        //    near-identity round-trip matrix with ~1e-5 residuals — BEFORE the
-        //    sRGB CCTF encode. Reproduce it exactly, then encode + clip.
+    // 6. CAT02 round-trip + CCTF encode + clip per pixel
+    //    (scanning._apply_cctf_encoding_and_clip via colour.RGB_to_RGB).
+    for (int p = 0; p < npix; ++p) {
+        const double* lin = lin_rgb.data() + static_cast<size_t>(p) * 3;
         float* out = rgb_out + static_cast<size_t>(p) * 3;
         double rgb_adapted[3];
         for (int c = 0; c < 3; ++c) {
-            rgb_adapted[c] = kSRGB_to_sRGB_CAT02[c * 3 + 0] * rgb[0] +
-                             kSRGB_to_sRGB_CAT02[c * 3 + 1] * rgb[1] +
-                             kSRGB_to_sRGB_CAT02[c * 3 + 2] * rgb[2];
+            rgb_adapted[c] = kSRGB_to_sRGB_CAT02[c * 3 + 0] * lin[0] +
+                             kSRGB_to_sRGB_CAT02[c * 3 + 1] * lin[1] +
+                             kSRGB_to_sRGB_CAT02[c * 3 + 2] * lin[2];
         }
         for (int c = 0; c < 3; ++c) {
             double v = rgb_adapted[c];

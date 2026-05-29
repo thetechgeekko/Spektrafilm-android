@@ -33,6 +33,11 @@ struct Profile {
     std::string stock;                // e.g. "kodak_portra_400" (info.stock)
     std::string viewing_illuminant;   // e.g. "D50"
     std::string reference_illuminant;
+    // Halation preset tags (info.use / info.antihalation). Drive the digested
+    // halation sigma_h / strength via params_builder._HALATION_PRESETS. Default to
+    // the "still"/"strong" still-film negative baseline if absent.
+    std::string use = "still";          // "still" | "cine"
+    std::string antihalation = "strong"; // "strong" | "weak" | "no"
 
     // data
     std::vector<float> wavelengths;        // (S,)

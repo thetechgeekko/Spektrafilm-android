@@ -63,6 +63,8 @@ Profile load_profile_string(const std::string& json_text) {
     Profile p;
     p.type = info.at("type").as_string();
     if (info.has("stock")) p.stock = info.at("stock").as_string();
+    if (info.has("use")) p.use = info.at("use").as_string();
+    if (info.has("antihalation")) p.antihalation = info.at("antihalation").as_string();
     p.viewing_illuminant = info.at("viewing_illuminant").as_string();
     if (info.has("reference_illuminant"))
         p.reference_illuminant = info.at("reference_illuminant").as_string();

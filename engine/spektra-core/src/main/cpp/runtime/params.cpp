@@ -13,6 +13,7 @@
 #include "runtime/params.h"
 
 #include <cstring>
+#include <string>
 
 #include "model/color_filters.h"
 
@@ -45,19 +46,31 @@ static const double kEnlargerTHKG3[81] = {
     0.41455292589926274,
 };
 
-FilmingParams digest_filming_params(bool is_negative) {
+FilmingParams digest_filming_params(bool is_negative, bool spatial_effects) {
     FilmingParams p;
+    p.spatial_effects = spatial_effects;
 
     // DirCouplersParams defaults (params_schema.DirCouplersParams) + the
     // negative-film overrides applied by _apply_film_specifics. amount and the
-    // two inhibition scalars are 1.0 by default. diffusion is forced off by the
-    // spatial-effects toggle.
+    // two inhibition scalars are 1.0 by default. The diffusion fields are enabled
+    // only when spatial effects are on; otherwise the spatial-effects debug toggle
+    // forces diffusion_size_um to 0 (pointwise correction).
     DirCouplersParams& dc = p.dir_couplers;
     dc.active = true;
     dc.amount = 1.0;
     dc.inhibition_samelayer = 1.0;
     dc.inhibition_interlayer = 1.0;
     dc.high_exposure_couplers_shift = 0.0;
+    if (spatial_effects) {
+        // params_schema.DirCouplersParams diffusion defaults.
+        dc.diffusion_size_um = 20.0;
+        dc.diffusion_tail_um = 200.0;
+        dc.diffusion_tail_weight = 0.06;
+    } else {
+        dc.diffusion_size_um = 0.0;
+        dc.diffusion_tail_um = 0.0;
+        dc.diffusion_tail_weight = 0.0;
+    }
 
     if (is_negative) {
         dc.gamma_samelayer_rgb[0] = 0.336;
@@ -82,6 +95,67 @@ FilmingParams digest_filming_params(bool is_negative) {
     }
 
     return p;
+}
+
+void digest_halation_params(FilmingParams& p, const char* use,
+                            const char* antihalation, bool spatial_effects) {
+    HalationParams& h = p.halation;
+
+    // params_schema.HalationParams defaults (scatter unchanged by the film
+    // specifics; the stock-specific scatter_core override is commented out
+    // upstream for kodak_portra_400).
+    h.boost_ev = 0.0;
+    h.boost_range = 0.3;
+    h.protect_ev = 4.0;
+    h.scatter_amount = 1.0;
+    h.scatter_spatial_scale = 1.0;
+    h.scatter_core_um[0] = 2.2; h.scatter_core_um[1] = 2.0; h.scatter_core_um[2] = 1.6;
+    h.scatter_tail_um[0] = 9.3; h.scatter_tail_um[1] = 9.7; h.scatter_tail_um[2] = 9.1;
+    h.scatter_tail_weight[0] = 0.78; h.scatter_tail_weight[1] = 0.65;
+    h.scatter_tail_weight[2] = 0.67;
+    h.halation_amount = 1.0;
+    h.halation_spatial_scale = 1.0;
+    h.halation_n_bounces = 3;
+    h.halation_bounce_decay = 0.5;
+    h.halation_renormalize = true;
+
+    // _apply_halation_preset: (use, antihalation) -> {sigma_h, strength}.
+    // sigma_h: still -> 65µm, cine -> 50µm.
+    // strength: strong -> (0.015,0.005,0.0); weak -> (0.08,0.02,0.0);
+    //           no -> (0.30,0.10,0.015).
+    std::string u = use ? use : "";
+    std::string a = antihalation ? antihalation : "";
+    bool known = true;
+    double sigma_h = 65.0;
+    double sr = 0.0, sg = 0.0, sb = 0.0;
+    if (u == "still") sigma_h = 65.0;
+    else if (u == "cine") sigma_h = 50.0;
+    else known = false;
+    if (a == "strong") { sr = 0.015; sg = 0.005; sb = 0.0; }
+    else if (a == "weak") { sr = 0.08; sg = 0.02; sb = 0.0; }
+    else if (a == "no") { sr = 0.30; sg = 0.10; sb = 0.015; }
+    else known = false;
+
+    if (known) {
+        h.halation_first_sigma_um[0] = sigma_h;
+        h.halation_first_sigma_um[1] = sigma_h;
+        h.halation_first_sigma_um[2] = sigma_h;
+        h.halation_strength[0] = sr;
+        h.halation_strength[1] = sg;
+        h.halation_strength[2] = sb;
+    }
+
+    // The spatial-effects debug toggle zeroes scatter_core/scatter_tail/
+    // halation_first_sigma when OFF (so apply_halation_um with the cleared sigmas
+    // is the identity even if it ran). We simply skip the pass entirely when
+    // spatial effects are off. The preset must be known for halation to apply.
+    h.active = spatial_effects && known;
+    if (!spatial_effects) {
+        h.scatter_core_um[0] = h.scatter_core_um[1] = h.scatter_core_um[2] = 0.0;
+        h.scatter_tail_um[0] = h.scatter_tail_um[1] = h.scatter_tail_um[2] = 0.0;
+        h.halation_first_sigma_um[0] = h.halation_first_sigma_um[1] =
+            h.halation_first_sigma_um[2] = 0.0;
+    }
 }
 
 const double* enlarger_illuminant(const char* illuminant_id) {

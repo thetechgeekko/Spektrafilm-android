@@ -42,6 +42,17 @@ struct DirCouplersParams {
     double inhibition_interlayer = 1.0;
 
     double high_exposure_couplers_shift = 0.0;
+
+    // Spatial diffusion of the inhibitor correction (the spatial-effects branch).
+    // When diffusion_size_um > 0 the (silver @ M) correction is filtered before
+    // it is subtracted from log_raw:
+    //   correction = (1 - tail_weight) * G(diffusion_size_px) * correction
+    //              + tail_weight       * Exp(diffusion_tail_px) * correction
+    // with diffusion_size_px = diffusion_size_um / pixel_size_um (and likewise for
+    // the tail). Forced to 0 (pointwise) when deactivate_spatial_effects is True.
+    double diffusion_size_um = 0.0;
+    double diffusion_tail_um = 0.0;
+    double diffusion_tail_weight = 0.0;
 };
 
 // compute_dir_couplers_matrix(params) * params.amount.
@@ -69,6 +80,21 @@ void apply_density_correction_dir_couplers(const float* density_cmy, int npix,
                                            bool positive_film,
                                            const float gamma_factor[3],
                                            float* out);
+
+// Spatial variant: same DIR-coupler correction, but the inhibitor correction
+// array (silver @ M, shape (h,w,3)) is spatially diffused (Gaussian + exponential
+// tail) before it is subtracted from log_raw, matching
+// compute_exposure_correction_dir_couplers's diffusion_size_pixel>0 path.
+//
+// `pixel_size_um` converts diffusion_size_um / diffusion_tail_um to pixel scales.
+// When params.diffusion_size_um <= 0 this is identical to the pointwise overload
+// above (the gaussian/exponential filters are skipped). `out` (h*w,3) may alias
+// density_cmy. Buffers are row-major channel-interleaved (h*w*3).
+void apply_density_correction_dir_couplers_spatial(
+    const float* density_cmy, int w, int h, const float* log_raw,
+    const float* log_exposure, const float* density_curves, int n,
+    const DirCouplersParams& params, bool positive_film,
+    const float gamma_factor[3], double pixel_size_um, float* out);
 
 }  // namespace spk
 

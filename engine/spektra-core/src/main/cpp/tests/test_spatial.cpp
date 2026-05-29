@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — host parity test for the filming stage.
+ * SpectraFilm for Android — host parity test for the spatial-effects branch.
  * Copyright (C) 2026 SpectraFilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -10,22 +10,24 @@
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
  * spektrafilm.
  *
- * Regenerates the scan_portra synthetic input (the float64 output of
- * gen_goldens.py::make_test_image, seed 20260529, 64x64x3, ProPhoto linear —
- * shipped here as scan_portra_input_rgb.f64), runs the C++ filming stage
- * (expose -> develop) and compares to BOTH goldens film_log_raw.spkvec and
- * film_density_cmy.spkvec, reporting max_abs / rms and PASS/FAIL against the
- * manifest tolerances (max_abs <= 1e-4, rms <= 1e-5).
+ * Runs the scan_film pipeline with the spatial-effects branch ON (in-emulsion
+ * scatter + back-reflection halation in expose, DIR-coupler spatial diffusion in
+ * develop, scanner unsharp mask in scan) on the scan_portra synthetic input and
+ * compares film_density_cmy + final_rgb to the scan_portra_spatial goldens,
+ * reporting max_abs / rms and PASS/FAIL against the manifest tolerances
+ * (max_abs <= 1e-4, rms <= 1e-5).
  *
  * Build (host):
- *   g++ -std=c++17 -O2 \
- *     -I <cpp_root> -I <tools/parity> \
- *     tests/test_filming.cpp \
- *     runtime/stages/filming.cpp runtime/params.cpp \
- *     model/couplers.cpp model/density_curves.cpp \
+ *   g++ -std=c++17 -O2 -I <cpp_root> -I <tools/parity> \
+ *     tests/test_spatial.cpp \
+ *     runtime/stages/filming.cpp runtime/stages/scanning.cpp runtime/params.cpp \
+ *     model/couplers.cpp model/density_curves.cpp model/diffusion.cpp \
+ *     model/color_output.cpp model/conversions.cpp model/emulsion.cpp \
+ *     model/spectral.cpp model/color_filters.cpp \
  *     kernels/spectral_upsampling.cpp kernels/interp.cpp \
+ *     kernels/exponential_filter.cpp \
  *     io/npy_lut.cpp profiles/profile.cpp \
- *     -o /tmp/test_filming
+ *     -o /tmp/test_spatial
  */
 #include <cmath>
 #include <cstdint>
@@ -40,13 +42,14 @@
 #include "profiles/profile.h"
 #include "runtime/params.h"
 #include "runtime/stages/filming.h"
+#include "runtime/stages/scanning.h"
 
 namespace {
 
 const char* kProfilePath =
     "/home/user/spektrafilm/src/spektrafilm/data/profiles/kodak_portra_400.json";
 const char* kGoldenDir =
-    "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra";
+    "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra_spatial";
 const char* kSpectraLut =
     "/home/user/spektrafilm/src/spektrafilm/data/luts/spectral_upsampling/"
     "irradiance_xy_tc.npy";
@@ -54,10 +57,8 @@ const char* kInputF64 =
     "/home/user/Spectrafilmandroid/engine/spektra-core/src/main/cpp/tests/"
     "scan_portra_input_rgb.f64";
 
-// D55 standard illuminant (colour-science SDS_ILLUMINANTS['D55'] aligned to the
-// 380..780 @5nm working shape, normalised by mean), the film reference
-// illuminant for the bundled negative profiles. Baked at full double precision
-// from the Python oracle (standard_illuminant('D55')).
+// D55 standard illuminant (film reference illuminant), baked at full double
+// precision from the Python oracle. Same constants as tests/test_filming.cpp.
 static const double kD55Illuminant[81] = {
     0.3792826592081565,0.41130471283820924,0.4433384066186183,0.5763969653409493,
     0.7094555240632804,0.7537113757177554,0.7979788675225865,0.8155671347108852,
@@ -81,11 +82,7 @@ static const double kD55Illuminant[81] = {
     0.6145184577576788,0.7491600769284603,0.883801696099242,0.8598811871171415,
     0.8359723182853972};
 
-struct Metrics {
-    double max_abs;
-    double rms;
-    size_t argmax;
-};
+struct Metrics { double max_abs; double rms; size_t argmax; };
 
 Metrics compare(const std::vector<float>& got, const std::vector<float>& gold) {
     double max_abs = 0.0, sse = 0.0;
@@ -119,9 +116,9 @@ int main(int argc, char** argv) {
     std::string input_path = argc > 4 ? argv[4] : kInputF64;
 
     spk::Profile film = spk::load_profile_file(profile_path);
-    std::printf("Loaded profile: type=%s ref_illuminant=%s samples=%d density_pts=%d\n",
-                film.type.c_str(), film.reference_illuminant.c_str(), film.n_samples,
-                film.n_density_pts);
+    std::printf("Loaded profile: type=%s ref_illuminant=%s use=%s antihalation=%s\n",
+                film.type.c_str(), film.reference_illuminant.c_str(),
+                film.use.c_str(), film.antihalation.c_str());
     if (film.log_sensitivity.empty() || film.log_exposure.empty() ||
         film.window_params.size() < 4) {
         std::fprintf(stderr, "profile missing filming fields\n");
@@ -136,17 +133,15 @@ int main(int argc, char** argv) {
                      spectra_path.c_str(), e.what());
         return 2;
     }
-    std::printf("spectra LUT shape: %dx%dx%d\n", spectra_lut.shape[0],
-                spectra_lut.shape[1], spectra_lut.shape[2]);
 
-    spkvec::Array gold_log = spkvec::read(golden_dir + "/film_log_raw.spkvec");
     spkvec::Array gold_cmy = spkvec::read(golden_dir + "/film_density_cmy.spkvec");
-    const int height = static_cast<int>(gold_log.shape[0]);
-    const int width = static_cast<int>(gold_log.shape[1]);
+    spkvec::Array gold_rgb = spkvec::read(golden_dir + "/final_rgb.spkvec");
+    const int height = static_cast<int>(gold_cmy.shape[0]);
+    const int width = static_cast<int>(gold_cmy.shape[1]);
     const int npix = height * width;
     std::printf("Image: %dx%dx3 (%d pixels)\n", width, height, npix);
 
-    // Read the deterministic float64 synthetic input (make_test_image output).
+    // Synthetic float64 input (make_test_image output).
     std::vector<double> rgb(static_cast<size_t>(npix) * 3);
     {
         std::ifstream in(input_path, std::ios::binary);
@@ -159,11 +154,18 @@ int main(int argc, char** argv) {
         }
     }
 
-    spk::FilmingParams params = spk::digest_filming_params(film.is_negative());
+    // Spatial filming params: pixel_size_um = film_format_mm*1000 / max(w,h).
+    spk::FilmingParams params =
+        spk::digest_filming_params(film.is_negative(), /*spatial_effects=*/true);
+    const int longest = width > height ? width : height;
+    params.pixel_size_um = 35.0 * 1000.0 / static_cast<double>(longest);
+    spk::digest_halation_params(params, film.use.c_str(), film.antihalation.c_str(),
+                               /*spatial_effects=*/true);
+    std::printf("pixel_size_um = %.6f  halation.active=%d  coupler diffusion=%.1fum\n",
+                params.pixel_size_um, params.halation.active ? 1 : 0,
+                params.dir_couplers.diffusion_size_um);
 
     spk::NdArray tc_lut = spk::build_filming_tc_lut(film, spectra_lut, kD55Illuminant);
-    std::printf("tc_lut shape: %dx%dx%d\n", tc_lut.shape[0], tc_lut.shape[1],
-                tc_lut.shape[2]);
 
     std::vector<float> log_raw(static_cast<size_t>(npix) * 3);
     spk::expose(rgb.data(), width, height, params, tc_lut, log_raw.data());
@@ -171,16 +173,24 @@ int main(int argc, char** argv) {
     std::vector<float> density_cmy(static_cast<size_t>(npix) * 3);
     spk::develop(log_raw.data(), width, height, film, params, density_cmy.data());
 
-    if (log_raw.size() != gold_log.data.size() ||
-        density_cmy.size() != gold_cmy.data.size()) {
+    spk::ScanningParams sparams;
+    sparams.scan_film = true;
+    sparams.output_cctf_encoding = true;
+    sparams.unsharp_sigma = 0.7;
+    sparams.unsharp_amount = 0.7;
+    std::vector<float> final_rgb(static_cast<size_t>(npix) * 3);
+    spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb.data());
+
+    if (density_cmy.size() != gold_cmy.data.size() ||
+        final_rgb.size() != gold_rgb.data.size()) {
         std::fprintf(stderr, "size mismatch vs goldens\n");
         return 2;
     }
 
-    Metrics m_log = compare(log_raw, gold_log.data);
     Metrics m_cmy = compare(density_cmy, gold_cmy.data);
-    bool pass_log = report("film_log_raw", m_log, log_raw, gold_log.data);
+    Metrics m_rgb = compare(final_rgb, gold_rgb.data);
     bool pass_cmy = report("film_density_cmy", m_cmy, density_cmy, gold_cmy.data);
+    bool pass_rgb = report("final_rgb", m_rgb, final_rgb, gold_rgb.data);
 
-    return (pass_log && pass_cmy) ? 0 : 1;
+    return (pass_cmy && pass_rgb) ? 0 : 1;
 }

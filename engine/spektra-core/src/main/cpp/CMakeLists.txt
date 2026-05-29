@@ -17,6 +17,7 @@ add_library(spektra SHARED
         # Kernels:
         kernels/interp.cpp
         kernels/gaussian.cpp
+        kernels/exponential_filter.cpp      # float64 Gaussian + exponential mixture (spatial)
         kernels/spectral_upsampling.cpp     # Hanatos2025 RGB->spectrum (M3)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
@@ -26,6 +27,7 @@ add_library(spektra SHARED
         model/density_curves.cpp
         model/emulsion.cpp
         model/glare.cpp
+        model/diffusion.cpp                  # in-emulsion scatter + halation (spatial)
         model/color_output.cpp               # XYZ->output RGB + CCTF (M3)
         # Profiles + runtime stages:
         profiles/profile.cpp                 # profile JSON loader (M3)
@@ -61,4 +63,7 @@ target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib})
 # data, available locally or after asset-bundling at M1):
 #   tests/test_spectral_upsampling.cpp   (max_abs ~1e-7 vs oracle)
 #   tests/test_scanning.cpp              (scan_portra final_rgb: max_abs ~6e-8)
+#   tests/test_filming.cpp               (scan_portra film_log_raw/density: max_abs ~2e-7)
+#   tests/test_spatial.cpp               (scan_portra_spatial film_density_cmy +
+#                                         final_rgb: spatial branch, max_abs ~2e-7)
 # See tests/ and tools/parity/ for the build/run commands.

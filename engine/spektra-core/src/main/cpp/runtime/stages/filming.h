@@ -50,12 +50,20 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
 // expose(): rgb (npix,3, linear ProPhoto, double — the pipeline runs the image
 // as float64) -> log_raw (npix,3). Reuses the project's verified cubic-2D LUT
 // path. `tc_lut` is from build_filming_tc_lut.
-void expose(const double* rgb, int npix, const FilmingParams& params,
+//
+// When params.spatial_effects is true, the float64 pre-log irradiance `raw` is
+// passed through apply_halation_um (in-emulsion scatter + back-reflection
+// halation) before the log10, using params.halation and params.pixel_size_um.
+// The 2D geometry (width, height) drives the spatial kernels; npix == width*height.
+void expose(const double* rgb, int width, int height, const FilmingParams& params,
             const NdArray& tc_lut, float* log_raw_out);
 
 // develop(): log_raw (npix,3) -> density_cmy (npix,3). Normalises the profile's
-// density curves, interpolates, then applies the DIR-coupler correction.
-void develop(const float* log_raw, int npix, const Profile& film,
+// density curves, interpolates, then applies the DIR-coupler correction. When
+// params.spatial_effects is true the coupler inhibitor correction is spatially
+// diffused (Gaussian + exponential tail) using params.pixel_size_um and the
+// 2D geometry; otherwise the correction is pointwise. npix == width*height.
+void develop(const float* log_raw, int width, int height, const Profile& film,
              const FilmingParams& params, float* density_cmy_out);
 
 }  // namespace spk

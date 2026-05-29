@@ -15,6 +15,8 @@
 #include <cmath>
 #include <vector>
 
+#include "kernels/exponential_filter.h"
+
 namespace spk {
 
 namespace {
@@ -192,6 +194,131 @@ void apply_density_correction_dir_couplers(const float* density_cmy, int npix,
             double correction = 0.0;
             for (int k = 0; k < 3; ++k) correction += silver[k] * M[k * 3 + c];
             double log_raw_0 = static_cast<double>(log_raw[p * 3 + c]) - correction;
+            out[p * 3 + c] = static_cast<float>(
+                fast_interp_channel(log_raw_0, axis_c[c].data(), curve_c[c].data(), n));
+        }
+    }
+}
+
+void apply_density_correction_dir_couplers_spatial(
+    const float* density_cmy, int w, int h, const float* log_raw,
+    const float* log_exposure, const float* density_curves, int n,
+    const DirCouplersParams& params, bool positive_film,
+    const float gamma_factor[3], double pixel_size_um, float* out) {
+    const int npix = w * h;
+
+    // No spatial diffusion requested -> delegate to the pointwise path.
+    if (!params.active || params.diffusion_size_um <= 0.0 || pixel_size_um <= 0.0) {
+        apply_density_correction_dir_couplers(density_cmy, npix, log_raw,
+                                              log_exposure, density_curves, n,
+                                              params, positive_film, gamma_factor,
+                                              out);
+        return;
+    }
+
+    double M[9];
+    compute_dir_couplers_matrix(params, M);
+
+    std::vector<double> le(n);
+    for (int k = 0; k < n; ++k) le[k] = static_cast<double>(log_exposure[k]);
+
+    // ---- compute_density_curves_before_dir_couplers (same as pointwise) ----
+    std::vector<double> dc(static_cast<size_t>(n) * 3);
+    for (int i = 0; i < n * 3; ++i) dc[i] = static_cast<double>(density_curves[i]);
+    std::vector<double> silver_curve(static_cast<size_t>(n) * 3);
+    if (positive_film) {
+        double dmax[3] = {-1e300, -1e300, -1e300};
+        for (int k = 0; k < n; ++k)
+            for (int c = 0; c < 3; ++c) {
+                double v = dc[k * 3 + c];
+                if (!std::isnan(v) && v > dmax[c]) dmax[c] = v;
+            }
+        for (int k = 0; k < n; ++k)
+            for (int c = 0; c < 3; ++c)
+                silver_curve[k * 3 + c] = dmax[c] - dc[k * 3 + c];
+    } else {
+        silver_curve = dc;
+    }
+    std::vector<double> dc0(static_cast<size_t>(n) * 3);
+    {
+        std::vector<double> le0(n), ycol(n);
+        for (int c = 0; c < 3; ++c) {
+            for (int j = 0; j < n; ++j) {
+                double amt = 0.0;
+                for (int k = 0; k < 3; ++k) amt += silver_curve[j * 3 + k] * M[k * 3 + c];
+                le0[j] = le[j] - amt;
+                ycol[j] = positive_film ? -dc[j * 3 + c] : dc[j * 3 + c];
+            }
+            for (int j = 0; j < n; ++j) {
+                double v = np_interp(le[j], le0.data(), ycol.data(), n);
+                dc0[j * 3 + c] = positive_film ? -v : v;
+            }
+        }
+    }
+
+    // density_max for the positive-film silver computation.
+    double dmax_cmy[3] = {0.0, 0.0, 0.0};
+    if (positive_film) {
+        dmax_cmy[0] = dmax_cmy[1] = dmax_cmy[2] = -1e300;
+        for (int k = 0; k < n; ++k)
+            for (int c = 0; c < 3; ++c) {
+                double v = dc[k * 3 + c];
+                if (!std::isnan(v) && v > dmax_cmy[c]) dmax_cmy[c] = v;
+            }
+    }
+    const double shift = params.high_exposure_couplers_shift;
+
+    // ---- compute_exposure_correction_dir_couplers (diffusion ON) ----
+    // correction[p,c] = sum_k silver[p,k] * M[k,c]   (full array, float64)
+    std::vector<double> correction(static_cast<size_t>(npix) * 3);
+    for (int p = 0; p < npix; ++p) {
+        double silver[3];
+        for (int k = 0; k < 3; ++k) {
+            double s = static_cast<double>(density_cmy[p * 3 + k]);
+            if (positive_film) s = dmax_cmy[k] - s;
+            if (shift != 0.0) s += shift * s * s;
+            silver[k] = s;
+        }
+        for (int c = 0; c < 3; ++c) {
+            double corr = 0.0;
+            for (int k = 0; k < 3; ++k) corr += silver[k] * M[k * 3 + c];
+            correction[p * 3 + c] = corr;
+        }
+    }
+
+    // Diffuse the correction:
+    //   correction = (1 - tail_w) * G(size_px) * correction
+    //              + tail_w       * Exp(tail_px) * correction
+    const double size_px = params.diffusion_size_um / pixel_size_um;
+    const double tail_px = params.diffusion_tail_um / pixel_size_um;
+    const double tail_w = params.diffusion_tail_weight;
+    {
+        std::vector<double> gauss(correction);  // copy, then blur in place
+        double sg[3] = {size_px, size_px, size_px};
+        gaussian_blur_per_channel_d(gauss.data(), w, h, 3, sg);
+        std::vector<double> tail(static_cast<size_t>(npix) * 3);
+        double lt[3] = {tail_px, tail_px, tail_px};
+        exponential_filter_per_channel_d(correction.data(), w, h, 3, lt, tail.data());
+        const size_t total = static_cast<size_t>(npix) * 3;
+        for (size_t i = 0; i < total; ++i)
+            correction[i] = (1.0 - tail_w) * gauss[i] + tail_w * tail[i];
+    }
+
+    // ---- interpolate_exposure_to_density(log_raw - correction, dc0, le, gamma) ----
+    std::vector<double> axis_c[3], curve_c[3];
+    for (int c = 0; c < 3; ++c) {
+        double g = static_cast<double>(gamma_factor[c]);
+        axis_c[c].resize(n);
+        curve_c[c].resize(n);
+        for (int k = 0; k < n; ++k) {
+            axis_c[c][k] = le[k] / g;
+            curve_c[c][k] = dc0[k * 3 + c];
+        }
+    }
+    for (int p = 0; p < npix; ++p) {
+        for (int c = 0; c < 3; ++c) {
+            double log_raw_0 =
+                static_cast<double>(log_raw[p * 3 + c]) - correction[p * 3 + c];
             out[p * 3 + c] = static_cast<float>(
                 fast_interp_channel(log_raw_0, axis_c[c].data(), curve_c[c].data(), n));
         }

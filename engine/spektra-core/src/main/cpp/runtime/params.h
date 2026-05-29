@@ -20,6 +20,7 @@
 #define SPK_RUNTIME_PARAMS_H
 
 #include "model/couplers.h"
+#include "model/diffusion.h"
 
 namespace spk {
 
@@ -42,14 +43,40 @@ struct FilmingParams {
     // Density-curve gamma (scalar broadcast to all three channels).
     float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};
 
+    // Spatial-effects toggle. When false (the spatial-OFF parity goldens) the
+    // halation pass is skipped in expose() and the DIR-coupler correction is
+    // applied pointwise (diffusion_size_um forced to 0). When true the halation
+    // pass runs and the coupler correction is spatially diffused.
+    bool spatial_effects = false;
+
+    // µm -> pixel conversion driving every spatial sigma. Equals the resize
+    // service's pixel_size_um = film_format_mm * 1000 / max(width, height) for the
+    // parity image (no crop). Only consumed when spatial_effects is true.
+    double pixel_size_um = 0.0;
+
     DirCouplersParams dir_couplers;  // filled by digest for the film type.
+    HalationParams halation;         // filled by digest; active only if spatial.
 };
 
 // Build digested filming params for a film type, mirroring
-// digest_params -> _apply_film_specifics under the parity toggles
-// (deactivate_spatial_effects=True => dir_couplers.diffusion_size_um=0).
+// digest_params -> _apply_film_specifics under the parity toggles.
 // `is_negative` selects the negative/positive coupler gamma matrix.
-FilmingParams digest_filming_params(bool is_negative);
+//
+// When `spatial_effects` is false (the default, spatial-OFF goldens):
+//   dir_couplers.diffusion_size_um == 0 (pointwise), halation.active == false.
+// When `spatial_effects` is true (scan_portra_spatial):
+//   dir_couplers diffusion (size 20µm, tail 200µm, weight 0.06) is enabled and
+//   the digested HalationParams (scatter + back-reflection) are filled.
+FilmingParams digest_filming_params(bool is_negative, bool spatial_effects = false);
+
+// Fill p.halation from the film's halation preset tags (info.use / info.antihalation
+// in the profile), mirroring params_builder._apply_halation_preset +
+// _HALATION_PRESETS. Sets sigma_h / strength from the (use, antihalation) preset;
+// scatter parameters stay at the params_schema HalationParams defaults. Marks
+// halation active only when `spatial_effects` is true (otherwise apply_halation_um
+// is skipped). Unknown tag pairs leave halation inactive.
+void digest_halation_params(FilmingParams& p, const char* use,
+                            const char* antihalation, bool spatial_effects);
 
 // Digested parameters the printing (enlarger) stage needs, under the print_portra
 // parity toggles (auto-exposure off, spatial + stochastic effects off, preflash
