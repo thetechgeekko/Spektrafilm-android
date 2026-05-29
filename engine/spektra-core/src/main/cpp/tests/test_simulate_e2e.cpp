@@ -100,10 +100,11 @@ int main(int argc, char** argv) {
     spk_params p{};
     p.film_profile = "kodak_portra_400";
     p.print_profile = "kodak_portra_endura";
+    spk_default_params(&p);  // physical defaults; parity case overrides below.
     p.exposure_compensation_ev = 0.0f;
     p.auto_exposure = 0;
     p.density_curve_gamma = 1.0f;
-    p.grain_active = 0;
+    p.grain_active = 0;       // deterministic goldens: stochastic + spatial off.
     p.halation_active = 0;
     p.dir_couplers_active = 1;
     p.glare_active = 0;

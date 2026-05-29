@@ -103,9 +103,129 @@ typedef struct {
     spk_rgb2raw rgb_to_raw_method;
     int32_t preview_max_size;         /* downscale target for simulate_preview */
 
-    /* Reserved for the remaining RuntimePhotoParams fields (grain/halation/coupler
-     * coefficients, scanner unsharp, debug taps, ...). See PORTING_PLAN.md. */
+    /* ====================================================================
+     * Full RuntimePhotoParams surface (appended; existing fields/offsets above
+     * are unchanged so the marshalled prefix stays compatible). Every field is
+     * initialised to its physical default by the JNI marshaller (and by
+     * spk_default_params for host tests) so a default-constructed SpektraParams
+     * reproduces the goldens byte-for-byte. RGB triples are fixed-size [3]
+     * arrays; Pairs are [2] arrays.
+     * ==================================================================== */
+
+    /* --- camera (extended) --- */
+    float camera_filter_uv[3];        /* (strength, center_nm, sigma_nm) */
+    float camera_filter_ir[3];        /* (strength, center_nm, sigma_nm) */
+    /* camera diffusion filter (Black Pro-Mist family) */
+    int32_t camera_diffusion_active;  /* bool */
+    float camera_diffusion_strength;
+    float camera_diffusion_spatial_scale;
+    float camera_diffusion_halo_warmth;
+    float camera_diffusion_core_intensity;
+    float camera_diffusion_core_size;
+    float camera_diffusion_halo_intensity;
+    float camera_diffusion_halo_size;
+    float camera_diffusion_bloom_intensity;
+    float camera_diffusion_bloom_size;
+
+    /* --- enlarger (extended) --- */
+    float print_exposure;
+    int32_t print_exposure_compensation;  /* bool */
+    float y_filter_neutral, m_filter_neutral, c_filter_neutral;
+    float enlarger_lens_blur;
+    float preflash_y_filter_shift, preflash_m_filter_shift;
+    /* enlarger diffusion filter */
+    int32_t enlarger_diffusion_active;    /* bool */
+    float enlarger_diffusion_strength;
+    float enlarger_diffusion_spatial_scale;
+    float enlarger_diffusion_halo_warmth;
+    float enlarger_diffusion_core_intensity;
+    float enlarger_diffusion_core_size;
+    float enlarger_diffusion_halo_intensity;
+    float enlarger_diffusion_halo_size;
+    float enlarger_diffusion_bloom_intensity;
+    float enlarger_diffusion_bloom_size;
+
+    /* --- scanner --- */
+    float scanner_lens_blur;
+    float scanner_unsharp[2];          /* (sigma, amount) */
+    int32_t scanner_white_correction;  /* bool */
+    int32_t scanner_black_correction;  /* bool */
+    float scanner_white_level;
+    float scanner_black_level;
+
+    /* --- film rendering: grain --- */
+    int32_t grain_sublayers_active;    /* bool */
+    float grain_particle_area_um2;
+    float grain_particle_scale[3];
+    float grain_particle_scale_layers[3];
+    float grain_density_min[3];
+    float grain_uniformity[3];
+    float grain_blur;
+    float grain_blur_dye_clouds_um;
+    float grain_micro_structure[2];    /* (blur_um, sigma_nm) */
+    int32_t grain_n_sub_layers;
+
+    /* --- film rendering: halation --- */
+    float halation_scatter_amount;
+    float halation_scatter_spatial_scale;
+    float halation_halation_amount;
+    float halation_halation_spatial_scale;
+    float halation_scatter_core_um[3];
+    float halation_scatter_tail_um[3];
+    float halation_scatter_tail_weight[3];
+    float halation_boost_ev;
+    float halation_boost_range;
+    float halation_protect_ev;
+    float halation_strength[3];
+    float halation_first_sigma_um[3];
+    int32_t halation_n_bounces;
+    float halation_bounce_decay;
+    int32_t halation_renormalize;      /* bool */
+
+    /* --- film rendering: DIR couplers --- */
+    float dir_amount;
+    float dir_inhibition_samelayer;
+    float dir_inhibition_interlayer;
+    float dir_gamma_samelayer_rgb[3];
+    float dir_gamma_interlayer_r_to_gb[2];
+    float dir_gamma_interlayer_g_to_rb[2];
+    float dir_gamma_interlayer_b_to_rg[2];
+    float dir_diffusion_size_um;
+    float dir_diffusion_tail_um;
+    float dir_diffusion_tail_weight;
+
+    /* --- film/print rendering: glare --- */
+    float glare_percent;
+    float glare_roughness;
+    float glare_blur;
+    int32_t print_glare_active;        /* bool (print_render.glare.active) */
+    float print_glare_percent;
+    float print_glare_roughness;
+    float print_glare_blur;
+    float print_density_curve_gamma;
+
+    /* --- io (extended) --- */
+    int32_t input_cctf_decoding;       /* bool */
+    int32_t crop;                      /* bool */
+    float crop_center[2];
+    float crop_size[2];
+    float upscale_factor;
+
+    /* --- settings (extended) --- */
+    int32_t apply_hanatos_window;      /* bool */
+    int32_t apply_hanatos_surface;     /* bool */
+    float spectral_gaussian_blur;
+    int32_t use_enlarger_lut;          /* bool */
+    int32_t use_scanner_lut;           /* bool */
+    int32_t lut_resolution;
+    int32_t neutral_print_filters_from_database; /* bool */
 } spk_params;
+
+/* Initialise `p` to the physical defaults that mirror a default-constructed
+ * Kotlin SpektraParams (so default params reproduce the goldens). film/print
+ * profile pointers are left untouched (caller sets them). Used by host tests;
+ * the JNI marshaller writes the same defaults before reading the jobject. */
+void spk_default_params(spk_params* p);
 
 /* Lifecycle ------------------------------------------------------------------- */
 

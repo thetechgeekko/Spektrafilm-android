@@ -114,6 +114,79 @@ struct spk_engine {
 
 namespace {
 
+// Apply the user-controllable DIR-coupler params from spk_params onto the
+// digested struct. The per-channel gamma matrices stay film-specific (baked by
+// digest_filming_params, mirroring _apply_film_specifics which overwrites them
+// regardless of user input), so they are NOT taken from spk_params. The
+// diffusion fields are only meaningful in the spatial branch (the digest already
+// zeroes them when spatial is off, matching deactivate_spatial_effects). All
+// values default to the schema defaults, so default params are bit-exact.
+void apply_user_dir_couplers(spk::DirCouplersParams& dc, const spk_params* p,
+                             bool spatial) {
+    dc.active = (p->dir_couplers_active != 0);
+    dc.amount = p->dir_amount;
+    dc.inhibition_samelayer = p->dir_inhibition_samelayer;
+    dc.inhibition_interlayer = p->dir_inhibition_interlayer;
+    if (spatial) {
+        dc.diffusion_size_um = p->dir_diffusion_size_um;
+        dc.diffusion_tail_um = p->dir_diffusion_tail_um;
+        dc.diffusion_tail_weight = p->dir_diffusion_tail_weight;
+    }
+}
+
+// Apply the user-controllable halation params from spk_params. The preset-driven
+// fields (halation_first_sigma_um and halation_strength) stay baked by
+// digest_halation_params (mirroring _apply_halation_preset, which overwrites them
+// from the film's use/antihalation tags regardless of user input). Everything
+// else (scatter geometry, amounts, boost/protect, bounce model) is user-driven.
+void apply_user_halation(spk::HalationParams& h, const spk_params* p) {
+    h.boost_ev = p->halation_boost_ev;
+    h.boost_range = p->halation_boost_range;
+    h.protect_ev = p->halation_protect_ev;
+    h.scatter_amount = p->halation_scatter_amount;
+    h.scatter_spatial_scale = p->halation_scatter_spatial_scale;
+    h.scatter_core_um[0] = p->halation_scatter_core_um[0];
+    h.scatter_core_um[1] = p->halation_scatter_core_um[1];
+    h.scatter_core_um[2] = p->halation_scatter_core_um[2];
+    h.scatter_tail_um[0] = p->halation_scatter_tail_um[0];
+    h.scatter_tail_um[1] = p->halation_scatter_tail_um[1];
+    h.scatter_tail_um[2] = p->halation_scatter_tail_um[2];
+    h.scatter_tail_weight[0] = p->halation_scatter_tail_weight[0];
+    h.scatter_tail_weight[1] = p->halation_scatter_tail_weight[1];
+    h.scatter_tail_weight[2] = p->halation_scatter_tail_weight[2];
+    h.halation_amount = p->halation_halation_amount;
+    h.halation_spatial_scale = p->halation_halation_spatial_scale;
+    h.halation_n_bounces = p->halation_n_bounces;
+    h.halation_bounce_decay = p->halation_bounce_decay;
+    h.halation_renormalize = (p->halation_renormalize != 0);
+}
+
+// Apply the full user grain params from spk_params onto the digested struct.
+// density_max_curves / density_max_layers stay film-derived (filled by develop()
+// from the profile's density curves). All other fields are user-driven and equal
+// the schema defaults for a default-constructed SpektraParams.
+void apply_user_grain(spk::GrainParams& g, const spk_params* p) {
+    g.sublayers_active = (p->grain_sublayers_active != 0);
+    g.agx_particle_area_um2 = p->grain_particle_area_um2;
+    g.agx_particle_scale[0] = p->grain_particle_scale[0];
+    g.agx_particle_scale[1] = p->grain_particle_scale[1];
+    g.agx_particle_scale[2] = p->grain_particle_scale[2];
+    g.agx_particle_scale_layers[0] = p->grain_particle_scale_layers[0];
+    g.agx_particle_scale_layers[1] = p->grain_particle_scale_layers[1];
+    g.agx_particle_scale_layers[2] = p->grain_particle_scale_layers[2];
+    g.density_min[0] = p->grain_density_min[0];
+    g.density_min[1] = p->grain_density_min[1];
+    g.density_min[2] = p->grain_density_min[2];
+    g.uniformity[0] = p->grain_uniformity[0];
+    g.uniformity[1] = p->grain_uniformity[1];
+    g.uniformity[2] = p->grain_uniformity[2];
+    g.blur = p->grain_blur;
+    g.blur_dye_clouds_um = p->grain_blur_dye_clouds_um;
+    g.micro_structure[0] = p->grain_micro_structure[0];
+    g.micro_structure[1] = p->grain_micro_structure[1];
+    g.n_sub_layers = p->grain_n_sub_layers > 0 ? p->grain_n_sub_layers : 1;
+}
+
 // Run the scan_film pipeline, producing display RGB plus the intermediate taps.
 // `tap_*` pointers, when non-null, receive the corresponding intermediate.
 spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params* p,
@@ -155,6 +228,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
     fparams.density_curve_gamma[2] = g;
+    // DIR-coupler user params (amount / inhibition / diffusion); the per-channel
+    // gamma matrices stay film-specific (baked by the digest).
+    apply_user_dir_couplers(fparams.dir_couplers, p, spatial);
     // pixel_size_um drives both the spatial kernels and the grain blur, so it
     // must be set whenever either spatial effects or grain are active.
     if (spatial || grain) {
@@ -167,6 +243,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         // density_max_curves are filled inside develop() from the film's
         // normalized density curves.
         spk::digest_grain_params(fparams);
+        apply_user_grain(fparams.grain, p);
     }
     if (spatial) {
         // pixel_size_um = film_format_mm * 1000 / max(width, height) for the
@@ -176,6 +253,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         fparams.pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
         spk::digest_halation_params(fparams, film.use.c_str(),
                                     film.antihalation.c_str(), true);
+        // halation user params (everything except the preset-baked sigma/strength).
+        apply_user_halation(fparams.halation, p);
     }
 
     // 3) Build the Hanatos2025 filming tc_lut (D55 reference illuminant).
@@ -209,9 +288,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
     if (spatial) {
-        // scanner.unsharp_mask default = (0.7, 0.7); lens_blur stays 0.
-        sparams.unsharp_sigma = 0.7;
-        sparams.unsharp_amount = 0.7;
+        // scanner.unsharp_mask = (sigma, amount); default (0.7, 0.7). lens_blur
+        // is not modelled here (0 under the goldens).
+        sparams.unsharp_sigma = p->scanner_unsharp[0];
+        sparams.unsharp_amount = p->scanner_unsharp[1];
     }
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
@@ -272,24 +352,44 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     const std::string film_stock  = !film.stock.empty() ? film.stock : p->film_profile;
     const std::string print_stock = !prnt.stock.empty() ? prnt.stock : p->print_profile;
     double neutral_cc[3];
-    spk::resolve_neutral_cc(eng->neutral_filters_path, print_stock, "TH-KG3",
-                            film_stock, neutral_cc);
+    if (p->neutral_print_filters_from_database) {
+        spk::resolve_neutral_cc(eng->neutral_filters_path, print_stock, "TH-KG3",
+                                film_stock, neutral_cc);
+    } else {
+        // Use the schema neutral CC values directly (filter_enlarger_source uses
+        // [c_filter_neutral, m_filter_neutral, y_filter_neutral] in CMY order).
+        neutral_cc[0] = p->c_filter_neutral;
+        neutral_cc[1] = p->m_filter_neutral;
+        neutral_cc[2] = p->y_filter_neutral;
+    }
+    // filtered_illuminant CC = [c_neutral, m_neutral + m_shift, y_neutral + y_shift]
+    // (filter_enlarger_source.filtered_illuminant). Shifts default to 0, so the
+    // resolved neutral CC is used unchanged under the parity defaults.
+    neutral_cc[1] += static_cast<double>(p->m_filter_shift);
+    neutral_cc[2] += static_cast<double>(p->y_filter_shift);
 
-    const float pg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
+    // Print density-curve gamma is independent of the film gamma.
+    const float pg = p->print_density_curve_gamma != 0.0f ? p->print_density_curve_gamma : 1.0f;
     // Build the filtered illuminant first (color_enlarger with neutral CC), then
     // use it for the native midgray factor.
     spk::PrintingParams pparams = spk::digest_printing_params(
         neutral_cc, enl, /*exposure_factor_midgray=*/1.0, pg);
     pparams.exposure_factor_midgray = spk::compute_midgray_exposure_factor(
         film, prnt, tc_lut, pparams.filtered_illuminant, pg);
+    // enlarger.print_exposure (default 1.0) multiplies the print exposure.
+    pparams.print_exposure = p->print_exposure;
 
     // 4) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
+    //    The print route runs the negative with spatial+stochastic effects off
+    //    (matching the print_portra parity toggles), so only the pointwise
+    //    DIR-coupler user params apply here.
     spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = fg;
     fparams.density_curve_gamma[1] = fg;
     fparams.density_curve_gamma[2] = fg;
+    apply_user_dir_couplers(fparams.dir_couplers, p, /*spatial=*/false);
 
     std::vector<double> rgb(static_cast<size_t>(npix) * 3);
     for (size_t i = 0; i < rgb.size(); ++i)
@@ -372,6 +472,144 @@ void downscale_bilinear(const float* src, int sw, int sh,
 }  // namespace
 
 extern "C" {
+
+void spk_default_params(spk_params* p) {
+    if (!p) return;
+    const char* film = p->film_profile;
+    const char* print = p->print_profile;
+    std::memset(p, 0, sizeof(*p));
+    p->film_profile = film;
+    p->print_profile = print;
+
+    // camera
+    p->exposure_compensation_ev = 0.0f;
+    p->auto_exposure = 1;
+    p->lens_blur_um = 0.0f;
+    p->film_format_mm = 35.0f;
+    p->camera_filter_uv[0] = 0.0f; p->camera_filter_uv[1] = 410.0f; p->camera_filter_uv[2] = 8.0f;
+    p->camera_filter_ir[0] = 0.0f; p->camera_filter_ir[1] = 675.0f; p->camera_filter_ir[2] = 15.0f;
+    p->camera_diffusion_active = 0;
+    p->camera_diffusion_strength = 0.5f;
+    p->camera_diffusion_spatial_scale = 1.0f;
+    p->camera_diffusion_halo_warmth = 0.0f;
+    p->camera_diffusion_core_intensity = 1.0f;
+    p->camera_diffusion_core_size = 1.0f;
+    p->camera_diffusion_halo_intensity = 1.0f;
+    p->camera_diffusion_halo_size = 1.0f;
+    p->camera_diffusion_bloom_intensity = 1.0f;
+    p->camera_diffusion_bloom_size = 1.0f;
+
+    // enlarger
+    p->y_filter_shift = 0.0f;
+    p->m_filter_shift = 0.0f;
+    p->preflash_exposure = 0.0f;
+    p->normalize_print_exposure = 1;
+    p->print_exposure = 1.0f;
+    p->print_exposure_compensation = 1;
+    p->y_filter_neutral = 55.0f;
+    p->m_filter_neutral = 65.0f;
+    p->c_filter_neutral = 0.0f;
+    p->enlarger_lens_blur = 0.0f;
+    p->preflash_y_filter_shift = 0.0f;
+    p->preflash_m_filter_shift = 0.0f;
+    p->enlarger_diffusion_active = 0;
+    p->enlarger_diffusion_strength = 0.5f;
+    p->enlarger_diffusion_spatial_scale = 1.0f;
+    p->enlarger_diffusion_halo_warmth = 0.0f;
+    p->enlarger_diffusion_core_intensity = 1.0f;
+    p->enlarger_diffusion_core_size = 1.0f;
+    p->enlarger_diffusion_halo_intensity = 1.0f;
+    p->enlarger_diffusion_halo_size = 1.0f;
+    p->enlarger_diffusion_bloom_intensity = 1.0f;
+    p->enlarger_diffusion_bloom_size = 1.0f;
+
+    // scanner
+    p->scanner_lens_blur = 0.0f;
+    p->scanner_unsharp[0] = 0.7f; p->scanner_unsharp[1] = 0.7f;
+    p->scanner_white_correction = 0;
+    p->scanner_black_correction = 0;
+    p->scanner_white_level = 0.98f;
+    p->scanner_black_level = 0.01f;
+
+    // film rendering toggles
+    p->density_curve_gamma = 1.0f;
+    p->grain_active = 1;
+    p->halation_active = 1;
+    p->dir_couplers_active = 1;
+    p->glare_active = 1;
+
+    // grain
+    p->grain_sublayers_active = 1;
+    p->grain_particle_area_um2 = 0.2f;
+    p->grain_particle_scale[0] = 0.8f; p->grain_particle_scale[1] = 1.0f; p->grain_particle_scale[2] = 2.0f;
+    p->grain_particle_scale_layers[0] = 2.5f; p->grain_particle_scale_layers[1] = 1.0f; p->grain_particle_scale_layers[2] = 0.5f;
+    p->grain_density_min[0] = 0.07f; p->grain_density_min[1] = 0.08f; p->grain_density_min[2] = 0.12f;
+    p->grain_uniformity[0] = 0.97f; p->grain_uniformity[1] = 0.97f; p->grain_uniformity[2] = 0.99f;
+    p->grain_blur = 0.65f;
+    p->grain_blur_dye_clouds_um = 1.0f;
+    p->grain_micro_structure[0] = 0.2f; p->grain_micro_structure[1] = 30.0f;
+    p->grain_n_sub_layers = 1;
+
+    // halation
+    p->halation_scatter_amount = 1.0f;
+    p->halation_scatter_spatial_scale = 1.0f;
+    p->halation_halation_amount = 1.0f;
+    p->halation_halation_spatial_scale = 1.0f;
+    p->halation_scatter_core_um[0] = 2.2f; p->halation_scatter_core_um[1] = 2.0f; p->halation_scatter_core_um[2] = 1.6f;
+    p->halation_scatter_tail_um[0] = 9.3f; p->halation_scatter_tail_um[1] = 9.7f; p->halation_scatter_tail_um[2] = 9.1f;
+    p->halation_scatter_tail_weight[0] = 0.78f; p->halation_scatter_tail_weight[1] = 0.65f; p->halation_scatter_tail_weight[2] = 0.67f;
+    p->halation_boost_ev = 0.0f;
+    p->halation_boost_range = 0.3f;
+    p->halation_protect_ev = 4.0f;
+    p->halation_strength[0] = 0.05f; p->halation_strength[1] = 0.015f; p->halation_strength[2] = 0.0f;
+    p->halation_first_sigma_um[0] = 65.0f; p->halation_first_sigma_um[1] = 65.0f; p->halation_first_sigma_um[2] = 65.0f;
+    p->halation_n_bounces = 3;
+    p->halation_bounce_decay = 0.5f;
+    p->halation_renormalize = 1;
+
+    // DIR couplers
+    p->dir_amount = 1.0f;
+    p->dir_inhibition_samelayer = 1.0f;
+    p->dir_inhibition_interlayer = 1.0f;
+    p->dir_gamma_samelayer_rgb[0] = 0.341f; p->dir_gamma_samelayer_rgb[1] = 0.324f; p->dir_gamma_samelayer_rgb[2] = 0.273f;
+    p->dir_gamma_interlayer_r_to_gb[0] = 0.355f; p->dir_gamma_interlayer_r_to_gb[1] = 0.305f;
+    p->dir_gamma_interlayer_g_to_rb[0] = 0.154f; p->dir_gamma_interlayer_g_to_rb[1] = 0.358f;
+    p->dir_gamma_interlayer_b_to_rg[0] = 0.171f; p->dir_gamma_interlayer_b_to_rg[1] = 0.225f;
+    p->dir_diffusion_size_um = 20.0f;
+    p->dir_diffusion_tail_um = 200.0f;
+    p->dir_diffusion_tail_weight = 0.06f;
+
+    // glare
+    p->glare_percent = 0.03f;
+    p->glare_roughness = 0.7f;
+    p->glare_blur = 0.5f;
+    p->print_glare_active = 1;
+    p->print_glare_percent = 0.03f;
+    p->print_glare_roughness = 0.7f;
+    p->print_glare_blur = 0.5f;
+    p->print_density_curve_gamma = 1.0f;
+
+    // io
+    p->scan_film = 0;
+    p->output_color_space = SPK_CS_SRGB;
+    p->output_cctf_encoding = 1;
+    p->input_cctf_decoding = 0;
+    p->crop = 0;
+    p->crop_center[0] = 0.5f; p->crop_center[1] = 0.5f;
+    p->crop_size[0] = 0.1f; p->crop_size[1] = 0.1f;
+    p->upscale_factor = 1.0f;
+
+    // settings
+    p->rgb_to_raw_method = SPK_RGB2RAW_HANATOS2025;
+    p->apply_hanatos_window = 1;
+    p->apply_hanatos_surface = 0;
+    p->spectral_gaussian_blur = 0.0f;
+    p->use_enlarger_lut = 0;
+    p->use_scanner_lut = 0;
+    p->lut_resolution = 17;
+    p->preview_max_size = 640;
+    p->neutral_print_filters_from_database = 1;
+}
 
 const char* spk_status_str(spk_status s) {
     switch (s) {

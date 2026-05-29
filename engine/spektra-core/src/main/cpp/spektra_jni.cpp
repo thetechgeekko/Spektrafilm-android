@@ -71,6 +71,47 @@ int call_int(JNIEnv* env, jobject obj, const char* getter) {
     return env->CallIntMethod(obj, m);
 }
 
+// Unbox a java.lang.Float (or Number) into a float.
+float unbox_float(JNIEnv* env, jobject boxed) {
+    if (!boxed) return 0.0f;
+    jclass cls = env->GetObjectClass(boxed);
+    jmethodID m = env->GetMethodID(cls, "floatValue", "()F");
+    env->DeleteLocalRef(cls);
+    if (!m) { env->ExceptionClear(); return 0.0f; }
+    return env->CallFloatMethod(boxed, m);
+}
+
+// Read a kotlin.Triple<Float,Float,Float> via getFirst/getSecond/getThird (each
+// returns java.lang.Object -> java.lang.Float). Writes the three components to
+// out[3]. Leaves out untouched on null (keeps the default already there).
+void read_triple_f(JNIEnv* env, jobject obj, const char* getter, float out[3]) {
+    jobject t = call_obj(env, obj, getter, "()Lkotlin/Triple;");
+    if (!t) return;
+    jobject a = call_obj(env, t, "getFirst", "()Ljava/lang/Object;");
+    jobject b = call_obj(env, t, "getSecond", "()Ljava/lang/Object;");
+    jobject c = call_obj(env, t, "getThird", "()Ljava/lang/Object;");
+    out[0] = unbox_float(env, a);
+    out[1] = unbox_float(env, b);
+    out[2] = unbox_float(env, c);
+    if (a) env->DeleteLocalRef(a);
+    if (b) env->DeleteLocalRef(b);
+    if (c) env->DeleteLocalRef(c);
+    env->DeleteLocalRef(t);
+}
+
+// Read a kotlin.Pair<Float,Float> via getFirst/getSecond. Writes to out[2].
+void read_pair_f(JNIEnv* env, jobject obj, const char* getter, float out[2]) {
+    jobject t = call_obj(env, obj, getter, "()Lkotlin/Pair;");
+    if (!t) return;
+    jobject a = call_obj(env, t, "getFirst", "()Ljava/lang/Object;");
+    jobject b = call_obj(env, t, "getSecond", "()Ljava/lang/Object;");
+    out[0] = unbox_float(env, a);
+    out[1] = unbox_float(env, b);
+    if (a) env->DeleteLocalRef(a);
+    if (b) env->DeleteLocalRef(b);
+    env->DeleteLocalRef(t);
+}
+
 // Map a Kotlin ColorSpace enum (com.spectrafilm.engine.ColorSpace) to spk_color_space
 // via its ordinal(). Ordinals match: SRGB=0, ADOBE_RGB=1, PROPHOTO=2, ... LINEAR_SRGB=5.
 spk_color_space enum_ordinal_cs(JNIEnv* env, jobject e) {
@@ -98,10 +139,28 @@ struct ParamStorage {
     std::string print_profile;
 };
 
-bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* store) {
-    std::memset(out, 0, sizeof(*out));
-    if (!params) return false;
+// Read a DiffusionFilterParams jobject into the spk_params diffusion-filter
+// fields (camera/enlarger share the same struct). `set` writes through a small
+// lambda so the same reader serves both prefixes.
+void read_diffusion_filter(JNIEnv* env, jobject df,
+                           int32_t* active, float* strength, float* spatial_scale,
+                           float* halo_warmth, float* core_intensity,
+                           float* core_size, float* halo_intensity, float* halo_size,
+                           float* bloom_intensity, float* bloom_size) {
+    if (!df) return;
+    *active = call_bool(env, df, "getActive") ? 1 : 0;
+    *strength = call_float(env, df, "getStrength");
+    *spatial_scale = call_float(env, df, "getSpatialScale");
+    *halo_warmth = call_float(env, df, "getHaloWarmth");
+    *core_intensity = call_float(env, df, "getCoreIntensity");
+    *core_size = call_float(env, df, "getCoreSize");
+    *halo_intensity = call_float(env, df, "getHaloIntensity");
+    *halo_size = call_float(env, df, "getHaloSize");
+    *bloom_intensity = call_float(env, df, "getBloomIntensity");
+    *bloom_size = call_float(env, df, "getBloomSize");
+}
 
+bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* store) {
     // Top-level: filmProfile / printProfile (String), and the nested objects.
     store->film_profile = jstr(env,
         static_cast<jstring>(call_obj(env, params, "getFilmProfile",
@@ -112,24 +171,83 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
     out->film_profile = store->film_profile.c_str();
     out->print_profile = store->print_profile.c_str();
 
-    jobject camera  = call_obj(env, params, "getCamera",
+    // Seed every field with the physical defaults so unread/absent fields keep
+    // the parity-reproducing defaults; the jobject getters override below.
+    spk_default_params(out);
+    if (!params) return true;
+
+    jobject camera   = call_obj(env, params, "getCamera",
         "()Lcom/spectrafilm/engine/CameraParams;");
-    jobject filmR   = call_obj(env, params, "getFilmRender",
+    jobject enlarger = call_obj(env, params, "getEnlarger",
+        "()Lcom/spectrafilm/engine/EnlargerParams;");
+    jobject scanner  = call_obj(env, params, "getScanner",
+        "()Lcom/spectrafilm/engine/ScannerParams;");
+    jobject filmR    = call_obj(env, params, "getFilmRender",
         "()Lcom/spectrafilm/engine/FilmRenderingParams;");
-    jobject io      = call_obj(env, params, "getIo",
+    jobject printR   = call_obj(env, params, "getPrintRender",
+        "()Lcom/spectrafilm/engine/PrintRenderingParams;");
+    jobject io       = call_obj(env, params, "getIo",
         "()Lcom/spectrafilm/engine/IoParams;");
     jobject settings = call_obj(env, params, "getSettings",
         "()Lcom/spectrafilm/engine/SettingsParams;");
 
-    // camera
+    // ---- camera ----
     if (camera) {
         out->exposure_compensation_ev = call_float(env, camera, "getExposureCompensationEv");
         out->auto_exposure = call_bool(env, camera, "getAutoExposure") ? 1 : 0;
         out->lens_blur_um = call_float(env, camera, "getLensBlurUm");
         out->film_format_mm = call_float(env, camera, "getFilmFormatMm");
+        read_triple_f(env, camera, "getFilterUv", out->camera_filter_uv);
+        read_triple_f(env, camera, "getFilterIr", out->camera_filter_ir);
+        jobject df = call_obj(env, camera, "getDiffusionFilter",
+            "()Lcom/spectrafilm/engine/DiffusionFilterParams;");
+        read_diffusion_filter(env, df, &out->camera_diffusion_active,
+            &out->camera_diffusion_strength, &out->camera_diffusion_spatial_scale,
+            &out->camera_diffusion_halo_warmth, &out->camera_diffusion_core_intensity,
+            &out->camera_diffusion_core_size, &out->camera_diffusion_halo_intensity,
+            &out->camera_diffusion_halo_size, &out->camera_diffusion_bloom_intensity,
+            &out->camera_diffusion_bloom_size);
+        if (df) env->DeleteLocalRef(df);
     }
 
-    // film rendering
+    // ---- enlarger ----
+    if (enlarger) {
+        out->print_exposure = call_float(env, enlarger, "getPrintExposure");
+        out->print_exposure_compensation =
+            call_bool(env, enlarger, "getPrintExposureCompensation") ? 1 : 0;
+        out->normalize_print_exposure =
+            call_bool(env, enlarger, "getNormalizePrintExposure") ? 1 : 0;
+        out->y_filter_shift = call_float(env, enlarger, "getYFilterShift");
+        out->m_filter_shift = call_float(env, enlarger, "getMFilterShift");
+        out->y_filter_neutral = call_float(env, enlarger, "getYFilterNeutral");
+        out->m_filter_neutral = call_float(env, enlarger, "getMFilterNeutral");
+        out->c_filter_neutral = call_float(env, enlarger, "getCFilterNeutral");
+        out->enlarger_lens_blur = call_float(env, enlarger, "getLensBlur");
+        out->preflash_exposure = call_float(env, enlarger, "getPreflashExposure");
+        out->preflash_y_filter_shift = call_float(env, enlarger, "getPreflashYFilterShift");
+        out->preflash_m_filter_shift = call_float(env, enlarger, "getPreflashMFilterShift");
+        jobject df = call_obj(env, enlarger, "getDiffusionFilter",
+            "()Lcom/spectrafilm/engine/DiffusionFilterParams;");
+        read_diffusion_filter(env, df, &out->enlarger_diffusion_active,
+            &out->enlarger_diffusion_strength, &out->enlarger_diffusion_spatial_scale,
+            &out->enlarger_diffusion_halo_warmth, &out->enlarger_diffusion_core_intensity,
+            &out->enlarger_diffusion_core_size, &out->enlarger_diffusion_halo_intensity,
+            &out->enlarger_diffusion_halo_size, &out->enlarger_diffusion_bloom_intensity,
+            &out->enlarger_diffusion_bloom_size);
+        if (df) env->DeleteLocalRef(df);
+    }
+
+    // ---- scanner ----
+    if (scanner) {
+        out->scanner_lens_blur = call_float(env, scanner, "getLensBlur");
+        out->scanner_white_correction = call_bool(env, scanner, "getWhiteCorrection") ? 1 : 0;
+        out->scanner_black_correction = call_bool(env, scanner, "getBlackCorrection") ? 1 : 0;
+        out->scanner_white_level = call_float(env, scanner, "getWhiteLevel");
+        out->scanner_black_level = call_float(env, scanner, "getBlackLevel");
+        read_pair_f(env, scanner, "getUnsharpMask", out->scanner_unsharp);
+    }
+
+    // ---- film rendering ----
     if (filmR) {
         out->density_curve_gamma = call_float(env, filmR, "getDensityCurveGamma");
         jobject grain = call_obj(env, filmR, "getGrain",
@@ -140,44 +258,116 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
             "()Lcom/spectrafilm/engine/DirCouplersParams;");
         jobject glare = call_obj(env, filmR, "getGlare",
             "()Lcom/spectrafilm/engine/GlareParams;");
-        out->grain_active        = grain    && call_bool(env, grain, "getActive")    ? 1 : 0;
-        out->halation_active     = halation && call_bool(env, halation, "getActive") ? 1 : 0;
-        out->dir_couplers_active = dir      && call_bool(env, dir, "getActive")      ? 1 : 0;
-        out->glare_active        = glare    && call_bool(env, glare, "getActive")    ? 1 : 0;
-        if (grain) env->DeleteLocalRef(grain);
-        if (halation) env->DeleteLocalRef(halation);
-        if (dir) env->DeleteLocalRef(dir);
-        if (glare) env->DeleteLocalRef(glare);
-    } else {
-        out->density_curve_gamma = 1.0f;
+
+        if (grain) {
+            out->grain_active = call_bool(env, grain, "getActive") ? 1 : 0;
+            out->grain_sublayers_active = call_bool(env, grain, "getSublayersActive") ? 1 : 0;
+            out->grain_particle_area_um2 = call_float(env, grain, "getAgxParticleAreaUm2");
+            read_triple_f(env, grain, "getAgxParticleScale", out->grain_particle_scale);
+            read_triple_f(env, grain, "getAgxParticleScaleLayers", out->grain_particle_scale_layers);
+            read_triple_f(env, grain, "getDensityMin", out->grain_density_min);
+            read_triple_f(env, grain, "getUniformity", out->grain_uniformity);
+            out->grain_blur = call_float(env, grain, "getBlur");
+            out->grain_blur_dye_clouds_um = call_float(env, grain, "getBlurDyeCloudsUm");
+            read_pair_f(env, grain, "getMicroStructure", out->grain_micro_structure);
+            out->grain_n_sub_layers = call_int(env, grain, "getNSubLayers");
+            env->DeleteLocalRef(grain);
+        }
+        if (halation) {
+            out->halation_active = call_bool(env, halation, "getActive") ? 1 : 0;
+            out->halation_scatter_amount = call_float(env, halation, "getScatterAmount");
+            out->halation_scatter_spatial_scale = call_float(env, halation, "getScatterSpatialScale");
+            out->halation_halation_amount = call_float(env, halation, "getHalationAmount");
+            out->halation_halation_spatial_scale = call_float(env, halation, "getHalationSpatialScale");
+            read_triple_f(env, halation, "getScatterCoreUm", out->halation_scatter_core_um);
+            read_triple_f(env, halation, "getScatterTailUm", out->halation_scatter_tail_um);
+            read_triple_f(env, halation, "getScatterTailWeight", out->halation_scatter_tail_weight);
+            out->halation_boost_ev = call_float(env, halation, "getBoostEv");
+            out->halation_boost_range = call_float(env, halation, "getBoostRange");
+            out->halation_protect_ev = call_float(env, halation, "getProtectEv");
+            read_triple_f(env, halation, "getHalationStrength", out->halation_strength);
+            read_triple_f(env, halation, "getHalationFirstSigmaUm", out->halation_first_sigma_um);
+            out->halation_n_bounces = call_int(env, halation, "getHalationNBounces");
+            out->halation_bounce_decay = call_float(env, halation, "getHalationBounceDecay");
+            out->halation_renormalize = call_bool(env, halation, "getHalationRenormalize") ? 1 : 0;
+            env->DeleteLocalRef(halation);
+        }
+        if (dir) {
+            out->dir_couplers_active = call_bool(env, dir, "getActive") ? 1 : 0;
+            out->dir_amount = call_float(env, dir, "getAmount");
+            out->dir_inhibition_samelayer = call_float(env, dir, "getInhibitionSamelayer");
+            out->dir_inhibition_interlayer = call_float(env, dir, "getInhibitionInterlayer");
+            read_triple_f(env, dir, "getGammaSamelayerRgb", out->dir_gamma_samelayer_rgb);
+            read_pair_f(env, dir, "getGammaInterlayerRToGb", out->dir_gamma_interlayer_r_to_gb);
+            read_pair_f(env, dir, "getGammaInterlayerGToRb", out->dir_gamma_interlayer_g_to_rb);
+            read_pair_f(env, dir, "getGammaInterlayerBToRg", out->dir_gamma_interlayer_b_to_rg);
+            out->dir_diffusion_size_um = call_float(env, dir, "getDiffusionSizeUm");
+            out->dir_diffusion_tail_um = call_float(env, dir, "getDiffusionTailUm");
+            out->dir_diffusion_tail_weight = call_float(env, dir, "getDiffusionTailWeight");
+            env->DeleteLocalRef(dir);
+        }
+        if (glare) {
+            out->glare_active = call_bool(env, glare, "getActive") ? 1 : 0;
+            out->glare_percent = call_float(env, glare, "getPercent");
+            out->glare_roughness = call_float(env, glare, "getRoughness");
+            out->glare_blur = call_float(env, glare, "getBlur");
+            env->DeleteLocalRef(glare);
+        }
     }
 
-    // io
+    // ---- print rendering ----
+    if (printR) {
+        out->print_density_curve_gamma = call_float(env, printR, "getDensityCurveGamma");
+        jobject pglare = call_obj(env, printR, "getGlare",
+            "()Lcom/spectrafilm/engine/GlareParams;");
+        if (pglare) {
+            out->print_glare_active = call_bool(env, pglare, "getActive") ? 1 : 0;
+            out->print_glare_percent = call_float(env, pglare, "getPercent");
+            out->print_glare_roughness = call_float(env, pglare, "getRoughness");
+            out->print_glare_blur = call_float(env, pglare, "getBlur");
+            env->DeleteLocalRef(pglare);
+        }
+    }
+
+    // ---- io ----
     if (io) {
         out->scan_film = call_bool(env, io, "getScanFilm") ? 1 : 0;
         out->output_cctf_encoding = call_bool(env, io, "getOutputCctfEncoding") ? 1 : 0;
+        out->input_cctf_decoding = call_bool(env, io, "getInputCctfDecoding") ? 1 : 0;
+        out->crop = call_bool(env, io, "getCrop") ? 1 : 0;
+        out->upscale_factor = call_float(env, io, "getUpscaleFactor");
+        read_pair_f(env, io, "getCropCenter", out->crop_center);
+        read_pair_f(env, io, "getCropSize", out->crop_size);
         jobject ocs = call_obj(env, io, "getOutputColorSpace",
             "()Lcom/spectrafilm/engine/ColorSpace;");
         out->output_color_space = enum_ordinal_cs(env, ocs);
         if (ocs) env->DeleteLocalRef(ocs);
-    } else {
-        out->output_cctf_encoding = 1;
-        out->output_color_space = SPK_CS_SRGB;
     }
 
-    // settings
+    // ---- settings ----
     if (settings) {
         jobject m = call_obj(env, settings, "getRgbToRawMethod",
             "()Lcom/spectrafilm/engine/Rgb2Raw;");
         out->rgb_to_raw_method = enum_ordinal_rgb2raw(env, m);
         if (m) env->DeleteLocalRef(m);
+        out->apply_hanatos_window =
+            call_bool(env, settings, "getApplyHanatos2025AdaptationWindow") ? 1 : 0;
+        out->apply_hanatos_surface =
+            call_bool(env, settings, "getApplyHanatos2025AdaptationSurface") ? 1 : 0;
+        out->spectral_gaussian_blur = call_float(env, settings, "getSpectralGaussianBlur");
+        out->use_enlarger_lut = call_bool(env, settings, "getUseEnlargerLut") ? 1 : 0;
+        out->use_scanner_lut = call_bool(env, settings, "getUseScannerLut") ? 1 : 0;
+        out->lut_resolution = call_int(env, settings, "getLutResolution");
         out->preview_max_size = call_int(env, settings, "getPreviewMaxSize");
-    } else {
-        out->preview_max_size = 640;
+        out->neutral_print_filters_from_database =
+            call_bool(env, settings, "getNeutralPrintFiltersFromDatabase") ? 1 : 0;
     }
 
     if (camera) env->DeleteLocalRef(camera);
+    if (enlarger) env->DeleteLocalRef(enlarger);
+    if (scanner) env->DeleteLocalRef(scanner);
     if (filmR) env->DeleteLocalRef(filmR);
+    if (printR) env->DeleteLocalRef(printR);
     if (io) env->DeleteLocalRef(io);
     if (settings) env->DeleteLocalRef(settings);
     return true;
