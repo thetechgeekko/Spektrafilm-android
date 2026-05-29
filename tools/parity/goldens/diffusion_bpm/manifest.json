@@ -1,0 +1,29 @@
+{
+  "case_id": "diffusion_bpm",
+  "generator": "gen_diffusion_golden.py",
+  "image": {
+    "dtype_input": "float64",
+    "kind": "ramp+bright_sources",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "params": {
+    "active": true,
+    "filter_family": "black_pro_mist",
+    "halo_warmth": 0.0,
+    "spatial_scale": 1.0,
+    "strength": 0.5
+  },
+  "pixel_size_um": 546.875,
+  "spkvec_version": 1,
+  "stage": "apply_diffusion_filter_um (camera/enlarger optical diffusion)",
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}
