@@ -47,9 +47,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "JAVA_HOME=$JAVA_HOME"
+          shopt -s nullglob
           g++ -std=c++17 -O2 -Wall -Wextra -fPIC -shared \
             -I. -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
-            spektra.cpp spektra_jni.cpp model/*.cpp kernels/*.cpp \
+            spektra.cpp spektra_jni.cpp \
+            kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/stages/*.cpp \
             -o libspektra.so
           ls -l libspektra.so
           # Sanity: the engine's exported C symbols are present.

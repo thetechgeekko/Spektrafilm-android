@@ -39,12 +39,20 @@ options; WB modes (as-shot/daylight/tungsten/custom).
 - Optional: register `RawDecoder` in Coil for full-res gallery open.
 - **Done when:** a DNG opens in-app at full resolution; linear values match rawpy within tol.
 
-## M3 — Engine core (`engine:spektra-core`) — scanning path first
+## M3 — Engine core (`engine:spektra-core`) — scanning path first  🚧 in progress
 Port the cheapest end-to-end path to prove the boundary: `scan_film` (skip print).
 Stage order: params/profiles → density curves/emulsion → spectral upsampling → filming →
 scanning. Ship 28 profiles + LUT assets.
 - Golden-vector harness green for: film raw, film density, scan RGB.
 - **Done when:** `simulate(scan_film=true)` on a test image matches spektrafilm within tol.
+
+> **Progress:** the Python engine runs headless here as a live oracle and real goldens are
+> committed (`tools/parity/goldens/`). Ported + **bit-exact vs the oracle**:
+> profile JSON loader, density curves, emulsion, conversions, glare, the **Hanatos2025 spectral
+> upsampling** (RGB→spectrum, max_abs ≈ 1.1e-7), and the **scanning stage** (`scan_portra`
+> `final_rgb`, max_abs ≈ 6e-8). Full `libspektra.so` links (engine + JNI + M3 sources).
+> Remaining for M3: the **filming stage** (RGB→raw→density) + `params_builder`/`digest_params`
+> + pipeline wiring, then `spk_simulate(scan_film=true)` end-to-end through JNI.
 
 ## M4 — Full negative→print→scan + look effects
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
