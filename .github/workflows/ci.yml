@@ -293,9 +293,15 @@ jobs:
             adb logcat -d > emulator-artifacts/logcat.txt || true
 
             echo "--- Asserting no FATAL EXCEPTION in com.spectrafilm.app ---"
-            if grep -E "FATAL EXCEPTION|UnsatisfiedLinkError" emulator-artifacts/logcat.txt \
-                 | grep "com.spectrafilm.app"; then
+            # Android prints "FATAL EXCEPTION: main" and "Process: com.spectrafilm.app"
+            # on separate lines, so scan the lines *following* each fatal marker for
+            # our package. UnsatisfiedLinkError lines name our .so directly.
+            if grep -A4 -E "FATAL EXCEPTION" emulator-artifacts/logcat.txt \
+                 | grep -q "com.spectrafilm.app" \
+               || grep -E "UnsatisfiedLinkError" emulator-artifacts/logcat.txt \
+                 | grep -q -E "libspektra|libsfraw|libsftiff|com.spectrafilm.app"; then
               echo "SMOKE TEST FAILED: fatal crash or UnsatisfiedLinkError detected in com.spectrafilm.app"
+              grep -A6 -E "FATAL EXCEPTION|UnsatisfiedLinkError" emulator-artifacts/logcat.txt || true
               exit 1
             fi
 
