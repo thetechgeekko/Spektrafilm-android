@@ -37,8 +37,11 @@ private val SRGB_TO_PROPHOTO = floatArrayOf(
     0.0167029f, 0.1176946f, 0.8656026f,
 )
 
-/** Cap the longest edge so on-device renders stay responsive. */
-const val MAX_EDGE_PX = 1024
+/** Cap the longest edge for full-resolution renders so on-device memory stays bounded. */
+const val MAX_EDGE_PX = 2048
+
+/** Longest-edge cap for fast interactive previews. */
+const val PREVIEW_EDGE_PX = 720
 
 /** Inverse sRGB CCTF: display sRGB (0..1) -> scene-linear (0..1). */
 private fun srgbToLinear(c: Float): Float =
@@ -53,8 +56,8 @@ private fun srgbToLinear(c: Float): Float =
  *   2. inverse sRGB CCTF -> scene-linear sRGB
  *   3. apply the sRGB->ProPhoto linear 3x3 matrix -> linear ProPhoto RGB float
  */
-fun decodeToLinearProPhoto(ctx: Context, uri: Uri): LinearImage {
-    val src = decodeDownscaled(ctx, uri)
+fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
+    val src = decodeDownscaled(ctx, uri, maxEdge)
     try {
         val w = src.width
         val h = src.height
@@ -81,8 +84,8 @@ fun decodeToLinearProPhoto(ctx: Context, uri: Uri): LinearImage {
     }
 }
 
-/** Decode [uri] with inSampleSize so the longest edge is at most [MAX_EDGE_PX]. */
-private fun decodeDownscaled(ctx: Context, uri: Uri): Bitmap {
+/** Decode [uri] with inSampleSize so the longest edge is at most [maxEdge]. */
+private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Bitmap {
     val resolver = ctx.contentResolver
     // First pass: read bounds only.
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -90,7 +93,7 @@ private fun decodeDownscaled(ctx: Context, uri: Uri): Bitmap {
     val longest = max(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
 
     var sample = 1
-    while (longest / sample > MAX_EDGE_PX) sample *= 2
+    while (longest / sample > maxEdge) sample *= 2
 
     val opts = BitmapFactory.Options().apply {
         inSampleSize = sample
@@ -102,8 +105,8 @@ private fun decodeDownscaled(ctx: Context, uri: Uri): Bitmap {
 
     // inSampleSize is power-of-two; do a final exact downscale if still over the cap.
     val long2 = max(decoded.width, decoded.height)
-    if (long2 <= MAX_EDGE_PX) return decoded
-    val scale = MAX_EDGE_PX.toFloat() / long2
+    if (long2 <= maxEdge) return decoded
+    val scale = maxEdge.toFloat() / long2
     val scaled = Bitmap.createScaledBitmap(
         decoded, (decoded.width * scale).toInt().coerceAtLeast(1),
         (decoded.height * scale).toInt().coerceAtLeast(1), true

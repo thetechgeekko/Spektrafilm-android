@@ -2,12 +2,18 @@
  * SpectraFilm for Android — app entry. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * UI: pick a photo (or use the synthetic demo image), choose film/print profiles
- * and rendering options, render off the main thread via the native engine, and
- * export the result to the gallery.
+ * Polished tool UI: a live preview at the top, a full parameter panel mirroring the
+ * spektrafilm desktop GUI (Input, Import Raw, Simulation incl. camera/enlarger/print/
+ * scanner/output, Grain, Preflash, Halation, Couplers, Glare, Experimental, Display),
+ * styled after Image Toolbox with collapsible cards and enhanced sliders. Edits rebuild
+ * an immutable SpektraParams and trigger a debounced, downscaled preview render. Export
+ * runs a full-resolution render behind a blocking full-screen mask, then saves to the
+ * gallery. RAW/DNG import (LibRaw -> ACES2065-1), the sRGB photo picker, and the synthetic
+ * demo image are all supported, plus named JSON presets (save/apply/delete/import/export).
  */
 package com.spectrafilm.app
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -18,37 +24,42 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
-import com.spectrafilm.engine.CameraParams
 import com.spectrafilm.engine.ColorSpace
-import com.spectrafilm.engine.DirCouplersParams
-import com.spectrafilm.engine.FilmRenderingParams
-import com.spectrafilm.engine.GlareParams
-import com.spectrafilm.engine.GrainParams
-import com.spectrafilm.engine.HalationParams
-import com.spectrafilm.engine.IoParams
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
-import com.spectrafilm.engine.SpektraParams
+import com.spectrafilm.libraw.RawDecoder
+import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Which kind of source image is loaded. */
+private enum class SourceKind { DEMO, PHOTO, RAW }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { Screen() } }
+        setContent { MaterialTheme(colorScheme = lightColorScheme()) { Screen() } }
     }
 
     @Composable
@@ -58,26 +69,27 @@ class MainActivity : ComponentActivity() {
 
         var engine by remember { mutableStateOf<SpektraEngine?>(null) }
         var profiles by remember { mutableStateOf<List<String>>(emptyList()) }
+        val state = remember { ParamsState() }
 
-        // --- parameter state ---
-        var film by remember { mutableStateOf("kodak_portra_400") }
-        var print by remember { mutableStateOf("kodak_portra_endura") }
-        var scanFilm by remember { mutableStateOf(true) }
-        var exposureEv by remember { mutableFloatStateOf(0f) }
-        var outputCs by remember { mutableStateOf(ColorSpace.SRGB) }
-        var grainOn by remember { mutableStateOf(true) }
-        var halationOn by remember { mutableStateOf(true) }
-        var dirCouplersOn by remember { mutableStateOf(true) }
-        var glareOn by remember { mutableStateOf(true) }
-        var exportFormat by remember { mutableStateOf(ExportFormat.PNG) }
-
-        // --- image / result state ---
-        var pickedUri by remember { mutableStateOf<Uri?>(null) }
-        var rendered by remember { mutableStateOf<Bitmap?>(null) }
+        // image / result state
+        var sourceUri by remember { mutableStateOf<Uri?>(null) }
+        var sourceKind by remember { mutableStateOf(SourceKind.DEMO) }
+        var sourceName by remember { mutableStateOf("synthetic demo image") }
+        var preview by remember { mutableStateOf<Bitmap?>(null) }
         var status by remember { mutableStateOf("initializing…") }
-        var busy by remember { mutableStateOf(false) }
+        var previewBusy by remember { mutableStateOf(false) }
+        var exporting by remember { mutableStateOf(false) }
+        var exportDone by remember { mutableStateOf(false) }
+        var previewTick by remember { mutableIntStateOf(0) }
 
-        // One-time engine init: extract bundled assets, open the engine.
+        // presets
+        var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
+        var presetName by remember { mutableStateOf("") }
+        var selectedPreset by remember { mutableStateOf("") }
+
+        fun refreshPresets() { presetList = Presets.list(ctx) }
+
+        // One-time engine init.
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 val dir = extractAssets(ctx)
@@ -86,237 +98,650 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) {
                     engine = e
                     profiles = list
+                    if (list.isNotEmpty()) {
+                        if (state.filmProfile !in list) state.filmProfile = list.first()
+                        if (state.printProfile !in list) state.printProfile = list.first()
+                    }
+                    refreshPresets()
                     status = "ready · ${list.size} profiles"
+                    previewTick++
                 }
             }
         }
 
-        val picker = rememberLauncherForActivityResult(
+        // --- source pickers ---
+        val photoPicker = rememberLauncherForActivityResult(
             ActivityResultContracts.PickVisualMedia()
         ) { uri ->
             if (uri != null) {
-                pickedUri = uri
-                status = "image selected"
+                sourceUri = uri; sourceKind = SourceKind.PHOTO; sourceName = "picked photo"
+                status = "photo selected"; previewTick++
+            }
+        }
+        val rawPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                val name = uri.lastPathSegment ?: "raw"
+                if (RawDecoder.isRawFileName(name) || true) {
+                    sourceUri = uri; sourceKind = SourceKind.RAW
+                    sourceName = "RAW: ${name.substringAfterLast('/')}"
+                    status = "RAW selected"; previewTick++
+                }
+            }
+        }
+        val presetImporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                runCatching { Presets.import(ctx, uri, state) }
+                    .onSuccess { status = "preset imported"; previewTick++ }
+                    .onFailure { status = "import failed: ${it.message}" }
+            }
+        }
+        val presetExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            if (uri != null) {
+                runCatching { Presets.export(ctx, uri, state) }
+                    .onSuccess { status = "preset exported" }
+                    .onFailure { status = "export failed: ${it.message}" }
             }
         }
 
-        // Film/print profile lists default to the current selection when assets aren't loaded yet.
-        val filmOptions = profiles.ifEmpty { listOf(film) }
-        val printOptions = profiles.ifEmpty { listOf(print) }
-
-        Column(
-            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("SpectraFilm", style = MaterialTheme.typography.headlineMedium)
-            Text(status, style = MaterialTheme.typography.bodySmall)
-
-            // --- source image ---
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    picker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                }) { Text("Pick photo") }
-                OutlinedButton(onClick = {
-                    pickedUri = null
-                    status = "using demo image"
-                }) { Text("Use demo image") }
+        // Decode the current source to a LinearImage capped to [maxEdge].
+        suspend fun loadSource(maxEdge: Int): LinearImage = withContext(Dispatchers.IO) {
+            when (sourceKind) {
+                SourceKind.RAW -> decodeRawToLinear(
+                    ctx, sourceUri!!, state.rawWhiteBalance,
+                    state.rawTemperature.toDouble(), state.rawTint.toDouble(), maxEdge,
+                )
+                SourceKind.PHOTO -> decodeToLinearProPhoto(ctx, sourceUri!!, maxEdge)
+                SourceKind.DEMO -> syntheticLinearImage(256)
             }
-            Text(
-                if (pickedUri != null) "Source: picked photo" else "Source: synthetic demo image",
-                style = MaterialTheme.typography.bodySmall
-            )
+        }
 
-            HorizontalDivider()
-
-            // --- profiles ---
-            ProfileDropdown("Film", film, filmOptions) { film = it }
-            ProfileDropdown("Print paper", print, printOptions) { print = it }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = scanFilm, onCheckedChange = { scanFilm = it })
-                Spacer(Modifier.width(8.dp))
-                Text(if (scanFilm) "Scan negative (skip print)" else "Full negative → print → scan")
+        // Debounced preview render: re-runs whenever params or source change.
+        LaunchedEffect(previewTick) {
+            val e = engine ?: return@LaunchedEffect
+            delay(350) // debounce rapid edits
+            previewBusy = true
+            status = "rendering preview…"
+            val result = runCatching {
+                withContext(Dispatchers.Default) {
+                    val image = loadSource(state.previewMaxSize.coerceAtLeast(256))
+                    val res = e.simulatePreview(image, state.toParams())
+                    simResultToBitmap(res.data, res.width, res.height)
+                }
             }
+            result.onSuccess { preview = it; status = "preview ready" }
+                .onFailure { status = "preview error: ${it.message}" }
+            previewBusy = false
+        }
 
-            // --- output color space ---
-            EnumDropdown(
-                label = "Output color space",
-                selected = outputCs,
-                options = ColorSpace.entries,
-                display = { it.name },
-                onSelect = { outputCs = it }
-            )
+        // re-trigger preview on any change to the params snapshot
+        val snapshot = state.toParams()
+        LaunchedEffect(snapshot, sourceUri, sourceKind) { previewTick++ }
 
-            // --- exposure ---
-            Text("Exposure: %+.1f EV".format(exposureEv))
-            Slider(value = exposureEv, onValueChange = { exposureEv = it }, valueRange = -3f..3f)
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("SpectraFilm", style = MaterialTheme.typography.headlineMedium)
+                Text(status, style = MaterialTheme.typography.bodySmall)
 
-            HorizontalDivider()
+                PreviewPane(preview, previewBusy)
 
-            // --- film rendering toggles ---
-            Text("Film rendering", style = MaterialTheme.typography.titleSmall)
-            ToggleRow("Grain", grainOn) { grainOn = it }
-            ToggleRow("Halation", halationOn) { halationOn = it }
-            ToggleRow("DIR couplers", dirCouplersOn) { dirCouplersOn = it }
-            ToggleRow("Glare", glareOn) { glareOn = it }
-
-            HorizontalDivider()
-
-            // --- render ---
-            Button(
-                onClick = {
-                    val e = engine ?: return@Button
-                    busy = true; status = "rendering…"
-                    val uri = pickedUri
-                    scope.launch {
-                        val result = runCatching {
-                            withContext(Dispatchers.Default) {
-                                val image: LinearImage = if (uri != null) {
-                                    decodeToLinearProPhoto(ctx, uri)
-                                } else {
-                                    syntheticLinearImage(256)
-                                }
-                                val params = SpektraParams(
-                                    filmProfile = film,
-                                    printProfile = print,
-                                    io = IoParams(
-                                        scanFilm = scanFilm,
-                                        outputColorSpace = outputCs,
-                                    ),
-                                    camera = CameraParams(
-                                        exposureCompensationEv = exposureEv,
-                                        autoExposure = false,
-                                    ),
-                                    filmRender = FilmRenderingParams(
-                                        grain = GrainParams(active = grainOn),
-                                        halation = HalationParams(active = halationOn),
-                                        dirCouplers = DirCouplersParams(active = dirCouplersOn),
-                                        glare = GlareParams(active = glareOn),
-                                    ),
-                                )
-                                val res = e.simulate(image, params)
-                                simResultToBitmap(res.data, res.width, res.height)
-                            }
-                        }
-                        result.onSuccess { bmp ->
-                            rendered = bmp; busy = false; status = "done"
-                        }.onFailure { t ->
-                            busy = false; status = "error: ${t.message}"
-                        }
-                    }
-                },
-                enabled = engine != null && !busy
-            ) { Text(if (busy) "Rendering…" else "Render") }
-
-            rendered?.let { bmp ->
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = "result",
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth()
+                SourceCard(
+                    sourceName = sourceName,
+                    onPickPhoto = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
+                    onUseDemo = {
+                        sourceUri = null; sourceKind = SourceKind.DEMO
+                        sourceName = "synthetic demo image"; previewTick++
+                    },
                 )
 
-                // --- export ---
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    EnumDropdown(
-                        label = "Format",
-                        selected = exportFormat,
-                        options = ExportFormat.entries.toList(),
-                        display = { it.display },
-                        onSelect = { exportFormat = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        enabled = !busy,
-                        onClick = {
-                            scope.launch {
-                                val saved = runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        saveToGallery(ctx, bmp, exportFormat)
+                PresetCard(
+                    presets = presetList,
+                    selected = selectedPreset,
+                    name = presetName,
+                    onNameChange = { presetName = it },
+                    onSelect = { selectedPreset = it },
+                    onSave = {
+                        if (presetName.isNotBlank()) {
+                            Presets.save(ctx, presetName, state); refreshPresets()
+                            status = "saved preset '${presetName}'"
+                        }
+                    },
+                    onApply = {
+                        if (selectedPreset.isNotBlank()) {
+                            runCatching { Presets.load(ctx, selectedPreset, state) }
+                                .onSuccess { status = "applied '${selectedPreset}'"; previewTick++ }
+                                .onFailure { status = "apply failed: ${it.message}" }
+                        }
+                    },
+                    onDelete = {
+                        if (selectedPreset.isNotBlank()) {
+                            Presets.delete(ctx, selectedPreset); refreshPresets()
+                            status = "deleted '${selectedPreset}'"; selectedPreset = ""
+                        }
+                    },
+                    onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
+                    onExport = { presetExporter.launch("spectrafilm_preset.json") },
+                )
+
+                // --- parameter sections in spektrafilm order ---
+                val filmOptions = profiles.ifEmpty { listOf(state.filmProfile) }
+                val printOptions = profiles.ifEmpty { listOf(state.printProfile) }
+
+                InputSection(state)
+                ImportRawSection(state)
+                SimulationSection(state, filmOptions, printOptions)
+                GrainSection(state)
+                PreflashSection(state)
+                HalationSection(state)
+                CouplersSection(state)
+                GlareSection(state)
+                ExperimentalSection(state)
+                DisplaySection(state)
+
+                ExportButton(
+                    enabled = engine != null && !previewBusy && !exporting,
+                    onExport = {
+                        val e = engine ?: return@ExportButton
+                        exporting = true; exportDone = false; status = "rendering full resolution…"
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.Default) {
+                                    val image = loadSource(MAX_EDGE_PX)
+                                    val res = e.simulate(image, state.toParams())
+                                    val bmp = simResultToBitmap(res.data, res.width, res.height)
+                                    val uri = withContext(Dispatchers.IO) {
+                                        saveToGallery(ctx, bmp, ExportFormat.PNG)
                                     }
+                                    bmp to uri
                                 }
-                                val msg = if (saved.isSuccess) {
-                                    "Saved to Pictures/SpectraFilm"
-                                } else {
-                                    "Export failed: ${saved.exceptionOrNull()?.message}"
-                                }
-                                status = msg
-                                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                            }
+                            result.onSuccess { (bmp, _) ->
+                                preview = bmp; exportDone = true
+                                status = "saved to Pictures/SpectraFilm"
+                            }.onFailure {
+                                exporting = false
+                                status = "export failed: ${it.message}"
+                                Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
                             }
                         }
-                    ) { Text("Save to gallery") }
-                }
+                    },
+                )
+
+                Text(
+                    "Film modeling powered by spektrafilm (GPLv3). Preview is downscaled for " +
+                        "interactivity; export renders at full resolution.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
-            Text(
-                "Film modeling powered by spektrafilm (GPLv3). Pick a photo or render the " +
-                    "synthetic demo image; RAW/DNG import is a separate workstream.",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-
-    @Composable
-    private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-            Spacer(Modifier.width(8.dp))
-            Text(label)
-        }
-    }
-
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Composable
-    private fun ProfileDropdown(
-        label: String, selected: String, options: List<String>, onSelect: (String) -> Unit
-    ) {
-        var expanded by remember { mutableStateOf(false) }
-        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-            OutlinedTextField(
-                value = selected, onValueChange = {}, readOnly = true, label = { Text(label) },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
-            )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { opt ->
-                    DropdownMenuItem(text = { Text(opt) }, onClick = { onSelect(opt); expanded = false })
-                }
+            // --- full-screen export mask ---
+            if (exporting) {
+                ExportMask(
+                    done = exportDone,
+                    onDismiss = { exporting = false; exportDone = false },
+                )
             }
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    // ---------------------------------------------------------------------------
+    // Top-level pieces
+    // ---------------------------------------------------------------------------
+
     @Composable
-    private fun <T> EnumDropdown(
-        label: String,
-        selected: T,
-        options: List<T>,
-        display: (T) -> String,
-        onSelect: (T) -> Unit,
-        modifier: Modifier = Modifier,
-    ) {
-        var expanded by remember { mutableStateOf(false) }
-        ExposedDropdownMenuBox(
-            expanded = expanded,
-            onExpandedChange = { expanded = it },
-            modifier = modifier,
+    private fun PreviewPane(preview: Bitmap?, busy: Boolean) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 200.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+            contentAlignment = Alignment.Center,
         ) {
+            val bmp = preview
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "preview",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text("No preview yet", style = MaterialTheme.typography.bodyMedium)
+            }
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
+            }
+        }
+    }
+
+    @Composable
+    private fun SourceCard(
+        sourceName: String,
+        onPickPhoto: () -> Unit,
+        onOpenRaw: () -> Unit,
+        onUseDemo: () -> Unit,
+    ) {
+        var expanded by remember { mutableStateOf(true) }
+        SectionCard("Source image", expanded, { expanded = it }) {
+            Text("Source: $sourceName", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onPickPhoto, modifier = Modifier.weight(1f)) { Text("Pick photo") }
+                Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) { Text("Open RAW/DNG") }
+            }
+            OutlinedButton(onClick = onUseDemo, modifier = Modifier.fillMaxWidth()) { Text("Use demo image") }
+        }
+    }
+
+    @Composable
+    private fun PresetCard(
+        presets: List<String>,
+        selected: String,
+        name: String,
+        onNameChange: (String) -> Unit,
+        onSelect: (String) -> Unit,
+        onSave: () -> Unit,
+        onApply: () -> Unit,
+        onDelete: () -> Unit,
+        onImport: () -> Unit,
+        onExport: () -> Unit,
+    ) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Presets", expanded, { expanded = it }) {
             OutlinedTextField(
-                value = display(selected), onValueChange = {}, readOnly = true, label = { Text(label) },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                value = name, onValueChange = onNameChange,
+                label = { Text("Preset name") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
             )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { opt ->
-                    DropdownMenuItem(
-                        text = { Text(display(opt)) },
-                        onClick = { onSelect(opt); expanded = false }
+            Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("Save current as preset") }
+            if (presets.isNotEmpty()) {
+                Dropdown(
+                    label = "Saved presets",
+                    selected = selected.ifEmpty { presets.first() },
+                    options = presets,
+                    display = { it },
+                    onSelect = onSelect,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onApply, modifier = Modifier.weight(1f)) { Text("Apply") }
+                    OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text("Delete") }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import .json") }
+                OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export / share") }
+            }
+        }
+    }
+
+    @Composable
+    private fun ExportButton(enabled: Boolean, onExport: () -> Unit) {
+        Button(
+            onClick = onExport,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Export (full resolution → gallery)") }
+    }
+
+    @Composable
+    private fun ExportMask(done: Boolean, onDismiss: () -> Unit) {
+        // Scrim filling the whole window, blocking all interaction until dismissed.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.78f))
+                .pointerInput(Unit) { /* consume all gestures while masked */
+                    awaitPointerEventScope { while (true) awaitPointerEvent() }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (!done) {
+                    CircularProgressIndicator(color = Color.White)
+                    Text(
+                        "Rendering at full resolution…",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
                     )
+                } else {
+                    Text(
+                        "Saved to gallery",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        "Pictures/SpectraFilm",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = onDismiss) { Text("View result") }
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Parameter sections (spektrafilm GUI order/grouping)
+    // ---------------------------------------------------------------------------
+
+    @Composable
+    private fun InputSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Input", expanded, { expanded = it }) {
+            Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
+                { s.inputColorSpace = it })
+            SwitchRow("Apply CCTF decoding", s.inputCctfDecoding, { s.inputCctfDecoding = it },
+                "Apply the inverse cctf transfer function of the color space")
+            Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
+                { it.name.lowercase() }, { s.spectralUpsampling = it })
+            SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
+                "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
+            SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
+                "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
+            EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
+                { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
+                tooltip = "Sigma in nm for Gaussian blur applied to reconstructed spectra.")
+            TripleSlider("UV filter", s.filterUv, 0f..800f, { s.filterUv = it }, step = 1f, decimals = 0,
+                tooltip = "Filter UV light (amplitude, wavelength cutoff nm, sigma nm).",
+                componentLabels = Triple("amp", "λ", "σ"))
+            TripleSlider("IR filter", s.filterIr, 0f..800f, { s.filterIr = it }, step = 1f, decimals = 0,
+                tooltip = "Filter IR light (amplitude, wavelength cutoff nm, sigma nm).",
+                componentLabels = Triple("amp", "λ", "σ"))
+            EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
+                step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
+            SwitchRow("Crop", s.crop, { s.crop = it },
+                "Crop image to a fraction of the original size to preview details at full scale")
+            PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
+                tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
+            PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
+                tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
+        }
+    }
+
+    @Composable
+    private fun ImportRawSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Import Raw", expanded, { expanded = it }) {
+            Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                { it.name.lowercase() }, { s.rawWhiteBalance = it })
+            EnhancedSlider("Temperature", s.rawTemperature, 1000f..12000f, { s.rawTemperature = it },
+                step = 100f, decimals = 0,
+                tooltip = "Temperature in Kelvin for the custom white balance")
+            EnhancedSlider("Tint", s.rawTint, 0f..2f, { s.rawTint = it }, step = 0.01f, decimals = 2,
+                tooltip = "Tint value for the custom white balance")
+            Text(
+                "Use \"Open RAW/DNG\" above to load a raw; settings here re-process on change.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    @Composable
+    private fun SimulationSection(s: ParamsState, filmOptions: List<String>, printOptions: List<String>) {
+        var expanded by remember { mutableStateOf(true) }
+        SectionCard("Simulation", expanded, { expanded = it }) {
+            Dropdown("Film profile", s.filmProfile, filmOptions, { it }, { s.filmProfile = it })
+            EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
+                { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
+                tooltip = "Add a bias to the auto-exposure of the camera")
+            SwitchRow("Camera auto exposure", s.autoExposure, { s.autoExposure = it },
+                "Use the auto-exposure feature of the virtual camera")
+            Dropdown("Auto exposure method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
+                { s.autoExposureMethod = it })
+            EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
+                step = 1f, decimals = 0,
+                tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)")
+            EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
+                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in um for the camera lens blur.")
+            DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
+
+            Divider()
+            Dropdown("Print profile", s.printProfile, printOptions, { it }, { s.printProfile = it })
+            Dropdown("Print illuminant", s.printIlluminant, PRINT_ILLUMINANTS, { it }, { s.printIlluminant = it })
+            EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
+                step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger")
+            SwitchRow("Print auto compensation", s.printExposureCompensation,
+                { s.printExposureCompensation = it },
+                "Auto adjust the print exposure for the camera exposure compensation ev")
+            EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
+                step = 1f, decimals = 0, tooltip = "Y filter shift from neutral, in Kodak CC units")
+            EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
+                step = 1f, decimals = 0, tooltip = "M filter shift from neutral, in Kodak CC units")
+            EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
+                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur")
+            DiffusionGroup("Print diffusion filter", s.printDiffusionState)
+
+            Divider()
+            Text("Scanner", style = MaterialTheme.typography.titleSmall)
+            EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
+                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur")
+            SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                "Enable white point correction applied to the scanner output")
+            EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled")
+            SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                "Enable black point correction applied to the scanner output")
+            EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled")
+            PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
+                step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
+                componentLabels = "σ" to "amt")
+
+            Divider()
+            Text("Output", style = MaterialTheme.typography.titleSmall)
+            Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
+                { it.name }, { s.outputColorSpace = it })
+            SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
+                "Add or not the CCTF to the saved image file")
+            SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
+                "Show a scan of the negative instead of the print")
+        }
+    }
+
+    @Composable
+    private fun DiffusionGroup(title: String, d: DiffusionState) {
+        var expanded by remember { mutableStateOf(false) }
+        Column(Modifier.fillMaxWidth()) {
+            SwitchRow(title, d.active, { d.active = it },
+                "Toggle the diffusion filter on this stage.")
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide diffusion details" else "Show diffusion details")
+            }
+            if (expanded) {
+                Dropdown("Diffusion family", d.family, DIFFUSION_FAMILIES, { it }, { d.family = it })
+                EnhancedSlider("Diffusion strength", d.strength, 0f..2f, { d.strength = it },
+                    step = 0.125f, decimals = 3, tooltip = "Commercial filter stop: 0, 1/8, 1/4, 1/2, 1, 2.")
+                EnhancedSlider("Spatial scale", d.spatialScale, 0f..4f, { d.spatialScale = it },
+                    step = 0.1f, decimals = 2, tooltip = "Multiplier on the image-plane PSF widths.")
+                EnhancedSlider("Halo warmth", d.haloWarmth, -1.5f..1.5f, { d.haloWarmth = it },
+                    step = 0.05f, decimals = 2, tooltip = "Additive offset on the halo warmth axis.")
+                EnhancedSlider("Core intensity", d.coreIntensity, 0f..4f, { d.coreIntensity = it },
+                    step = 0.05f, decimals = 2)
+                EnhancedSlider("Core size", d.coreSize, 0.1f..4f, { d.coreSize = it }, step = 0.05f, decimals = 2)
+                EnhancedSlider("Halo intensity", d.haloIntensity, 0f..4f, { d.haloIntensity = it },
+                    step = 0.05f, decimals = 2)
+                EnhancedSlider("Halo size", d.haloSize, 0.1f..4f, { d.haloSize = it }, step = 0.05f, decimals = 2)
+                EnhancedSlider("Bloom intensity", d.bloomIntensity, 0f..4f, { d.bloomIntensity = it },
+                    step = 0.05f, decimals = 2)
+                EnhancedSlider("Bloom size", d.bloomSize, 0.1f..4f, { d.bloomSize = it }, step = 0.05f, decimals = 2)
+            }
+        }
+    }
+
+    @Composable
+    private fun GrainSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Grain", expanded, { expanded = it }, enabledSwitch = s.grainActive,
+            onEnabledChange = { s.grainActive = it }) {
+            SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
+            EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
+                step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.")
+            TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
+                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.")
+            TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
+                { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
+                tooltip = "Scale of particle area for the sublayers in each color layer.")
+            TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
+                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).")
+            TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
+                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).")
+            EnhancedSlider("Blur", s.grainBlur, 0f..3f, { s.grainBlur = it }, step = 0.05f, decimals = 2,
+                tooltip = "Sigma of gaussian blur in pixels for the grain.")
+            EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
+                step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.")
+            PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
+                step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
+                componentLabels = "σ" to "nm")
+            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it })
+        }
+    }
+
+    @Composable
+    private fun PreflashSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Preflash", expanded, { expanded = it }) {
+            EnhancedSlider("Exposure", s.preflashExposure, 0f..2f, { s.preflashExposure = it },
+                step = 0.005f, decimals = 3, tooltip = "Preflash exposure value in ev for the print")
+            EnhancedSlider("Y filter shift", s.preflashYFilterShift, -20f..20f, { s.preflashYFilterShift = it },
+                step = 1f, decimals = 0, tooltip = "Shift the Y filter from neutral for the preflash (Kodak CC)")
+            EnhancedSlider("M filter shift", s.preflashMFilterShift, -20f..20f, { s.preflashMFilterShift = it },
+                step = 1f, decimals = 0, tooltip = "Shift the M filter from neutral for the preflash (Kodak CC)")
+        }
+    }
+
+    @Composable
+    private fun HalationSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Halation", expanded, { expanded = it }, enabledSwitch = s.halationActive,
+            onEnabledChange = { s.halationActive = it }) {
+            EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
+                step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.")
+            EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
+                { s.halScatterSpatialScale = it }, step = 0.1f, decimals = 2,
+                tooltip = "High-level scatter size multiplier (1.0 = physical defaults).")
+            EnhancedSlider("Halation amount", s.halHalationAmount, 0f..4f, { s.halHalationAmount = it },
+                step = 0.05f, decimals = 2, tooltip = "High-level halation strength multiplier.")
+            EnhancedSlider("Halation spatial scale", s.halHalationSpatialScale, 0f..4f,
+                { s.halHalationSpatialScale = it }, step = 0.1f, decimals = 2,
+                tooltip = "High-level halation size multiplier.")
+            EnhancedSlider("Boost EV", s.halBoostEv, 0f..6f, { s.halBoostEv = it }, step = 0.5f, decimals = 1,
+                tooltip = "Maximum highlight boost in stops.")
+            EnhancedSlider("Protect EV", s.halProtectEv, 0f..10f, { s.halProtectEv = it }, step = 0.5f, decimals = 1,
+                tooltip = "Protected range above midgray for the boost onset in stops.")
+            EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
+                step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).")
+            TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
+                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.")
+            TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
+                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.")
+            TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
+                { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
+                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).")
+            TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
+                { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
+                tooltip = "Total back-reflection halation amplitude per channel (0-100%).")
+            TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
+                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.")
+            IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
+                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).")
+            EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
+                step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).")
+            SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
+                "Divide by (1 + sum of bounce amplitudes) so mid-grey is preserved.")
+        }
+    }
+
+    @Composable
+    private fun CouplersSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Couplers", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
+            onEnabledChange = { s.couplersActive = it }) {
+            EnhancedSlider("Amount", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
+                step = 0.05f, decimals = 2, tooltip = "Global multiplier on the DIR coupler inhibition matrix.")
+            EnhancedSlider("Inhibition samelayer", s.couplersInhibitionSamelayer, 0f..4f,
+                { s.couplersInhibitionSamelayer = it }, step = 0.05f, decimals = 2,
+                tooltip = "Multiplier on the same-layer (diagonal) inhibition.")
+            EnhancedSlider("Inhibition interlayer", s.couplersInhibitionInterlayer, 0f..4f,
+                { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
+                tooltip = "Multiplier on the cross-layer (off-diagonal) inhibition.")
+            TripleSlider("Gamma samelayer RGB", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
+                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).")
+            PairSlider("Gamma R→GB", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
+                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from R onto G and B.",
+                componentLabels = "→G" to "→B")
+            PairSlider("Gamma G→RB", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
+                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from G onto R and B.",
+                componentLabels = "→R" to "→B")
+            PairSlider("Gamma B→RG", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
+                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from B onto R and G.",
+                componentLabels = "→R" to "→G")
+            EnhancedSlider("Diffusion size um", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
+                step = 5f, decimals = 1, tooltip = "Sigma in um for the diffusion of the couplers (5-20 um).")
+            EnhancedSlider("Diffusion tail um", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
+                step = 5f, decimals = 1)
+            EnhancedSlider("Diffusion tail weight", s.couplersDiffusionTailWeight, 0f..1f,
+                { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3)
+        }
+    }
+
+    @Composable
+    private fun GlareSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Glare", expanded, { expanded = it }, enabledSwitch = s.glareActive,
+            onEnabledChange = { s.glareActive = it }) {
+            EnhancedSlider("Percent", s.glarePercent, 0f..1f, { s.glarePercent = it },
+                step = 0.01f, decimals = 2, tooltip = "Percentage of the glare light (typically 0.1-0.25)")
+            EnhancedSlider("Roughness", s.glareRoughness, 0f..1f, { s.glareRoughness = it },
+                step = 0.05f, decimals = 2, tooltip = "Roughness of the glare light (0-1)")
+            EnhancedSlider("Blur", s.glareBlur, 0f..10f, { s.glareBlur = it }, step = 0.1f, decimals = 2,
+                tooltip = "Sigma of gaussian blur in pixels for the glare")
+        }
+    }
+
+    @Composable
+    private fun ExperimentalSection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Experimental", expanded, { expanded = it }) {
+            EnhancedSlider("Film gamma factor", s.filmGammaFactor, 0f..3f, { s.filmGammaFactor = it },
+                step = 0.05f, decimals = 2, tooltip = "Gamma factor of the negative density curves.")
+            EnhancedSlider("Print gamma factor", s.printGammaFactor, 0f..3f, { s.printGammaFactor = it },
+                step = 0.05f, decimals = 2, tooltip = "Gamma factor of the print paper.")
+        }
+    }
+
+    @Composable
+    private fun DisplaySection(s: ParamsState) {
+        var expanded by remember { mutableStateOf(false) }
+        SectionCard("Display", expanded, { expanded = it }) {
+            IntSlider("Preview max size", s.previewMaxSize, 128..1024, { s.previewMaxSize = it },
+                tooltip = "Max size of the long edge of the preview image, in pixels.")
+        }
+    }
+
+    @Composable
+    private fun Divider() {
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
     }
 }
