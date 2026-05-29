@@ -18,6 +18,14 @@ Turning the engine into a real, playable tool.
   motion-picture / print film / paper) with ISO · balance · era · character.
 - **Custom adaptive app icon** (35 mm film frame + spectral strip; Material You monochrome).
 - **Export mask** — a full-screen overlay during the full-resolution render → gallery save.
+- **Crop / resize geometry stage ported** (bit-exact) — the previously-inert `IOParams` crop
+  (`crop`, `crop_center`, `crop_size`) and cubic `upscale_factor` now run up front in both the
+  scan and print routes, matching the spektrafilm `_preprocess` step. Defaults are a strict
+  no-op (parity preserved); a new `scan_portra_crop` golden gates the non-default path.
+  (Downscale `upscale_factor < 1` AA is a documented follow-up.)
+- **RAW white-balance UI** — Temperature/Tint sliders + reset-to-as-shot, shown only for
+  RAW/DNG sources and wired to the existing LibRaw decoder so changing WB re-decodes the
+  preview. Default (as-shot) decode unchanged.
 
 ## v0.1.0 — first release 🎞️
 
