@@ -32,3 +32,7 @@ __pycache__/
 
 # Release artifacts (committed deliberately)
 !dist/*.apk
+
+# Kotlin/CMake incremental caches
+.kotlin/
+**/.cxx/
