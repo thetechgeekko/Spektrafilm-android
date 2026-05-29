@@ -27,6 +27,9 @@ Goldens are generated from the synthetic 64×64 ramp+Macbeth test image
 | `print_portra` | kodak_portra_400  | kodak_portra_endura | print       | off   | off                | all 4 |
 | `scan_portra`  | kodak_portra_400  | kodak_portra_endura | scan_film   | off   | off                | film_log_raw, film_density_cmy, final_rgb |
 | `print_ektar`  | kodak_ektar_100   | kodak_supra_endura  | print       | off   | off                | all 4 |
+| `scan_portra_spatial` | kodak_portra_400 | kodak_portra_endura | scan_film | off | spatial ON         | film_density_cmy, final_rgb (+) |
+| `scan_portra_crop`    | kodak_portra_400 | kodak_portra_endura | scan_film | off | off (crop+upscale) | film_density_cmy, final_rgb |
+| `scan_portra_autoexp` | kodak_portra_400 | kodak_portra_endura | scan_film | off | off (auto-exposure ON) | film_log_raw, film_density_cmy, final_rgb |
 
 Rationale:
 - `print_portra` is the canonical reference pair (matches `init_params` defaults)
@@ -35,10 +38,18 @@ Rationale:
   the print stage entirely (`PORTING_PLAN.md` Stage 3 `scanning.py`).
 - `print_ektar` uses a different film/paper pair to catch regressions that are
   coupled to profile data (density curves, dye spectra) rather than the math.
+- `scan_portra_spatial` / `scan_portra_crop` exercise the spatial branch and the
+  crop+cubic-upscale geometry stage respectively (still deterministic: grain off).
+- `scan_portra_autoexp` is the NON-default auto-exposure case: it flips
+  `camera.auto_exposure = True` (method `center_weighted`) to exercise
+  `FilmingStage.auto_exposure` in `pipeline._preprocess` — the image is metered
+  (small_preview luminance → `-log2(Y_meter/0.184)` EV) and globally scaled by
+  `2**ev` before crop/rescale. Tested by `tests/test_autoexposure.cpp`.
 
-All cases run with `auto_exposure = False` and `exposure_compensation_ev = 0` so
-the input→exposure mapping is fixed, and with stochastic + spatial effects off so
-the goldens are bit-stable across hosts.
+All cases EXCEPT `scan_portra_autoexp` run with `auto_exposure = False`; every
+case uses `exposure_compensation_ev = 0` and stochastic effects off so the
+goldens are bit-stable across hosts. (`scan_portra_autoexp` is still fully
+deterministic — the synthetic image is fixed, so the metered EV is reproducible.)
 
 ## Tolerances
 

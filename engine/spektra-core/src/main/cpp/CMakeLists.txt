@@ -44,6 +44,7 @@ add_library(spektra SHARED
         runtime/stages/printing.cpp          # film density -> print density CMY (M4)
         runtime/print_digest.cpp             # native neutral CC + midgray digest (M5)
         runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
+        runtime/stages/autoexposure.cpp      # center-weighted metering -> EV gain (M7)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -73,6 +74,11 @@ target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib})
 #                                         cubic upscale geometry stage; geometry
 #                                         64x64 -> 66x56 + film_density_cmy/final_rgb
 #                                         vs oracle: max_abs ~2e-7)
+#   tests/test_autoexposure.cpp          (scan_portra_autoexp: NON-default
+#                                         auto_exposure ON, center_weighted
+#                                         metering -> EV gain; film_log_raw /
+#                                         film_density_cmy / final_rgb vs oracle:
+#                                         max_abs ~1e-7; + AE-off==baseline no-op)
 # Statistical grain gates (RNG streams differ; verified by distribution + stats):
 #   tests/test_grain.cpp                 (non-sublayer apply_grain_to_density:
 #                                         mean preservation, noise std ±15%)

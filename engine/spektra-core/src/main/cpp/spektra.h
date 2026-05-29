@@ -83,6 +83,12 @@ typedef struct {
     int32_t auto_exposure;        /* bool */
     float lens_blur_um;
     float film_format_mm;
+    /* auto-exposure metering pattern (CameraParams.auto_exposure_method). Only
+     * consumed when auto_exposure != 0. NULL => the schema default
+     * "center_weighted". Allowed: "center_weighted" (default), "average",
+     * "median", "partial", "matrix", "multi_zone", "highlight_weighted". An
+     * unrecognised string reproduces the oracle's else-branch (EV = 0). */
+    const char* auto_exposure_method;
 
     /* enlarger */
     float y_filter_shift, m_filter_shift;

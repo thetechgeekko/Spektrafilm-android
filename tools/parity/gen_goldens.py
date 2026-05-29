@@ -82,6 +82,10 @@ class Case:
     crop_center: tuple = (0.5, 0.5)
     crop_size: tuple = (0.1, 0.1)
     upscale_factor: float = 1.0
+    # Auto-exposure (camera.auto_exposure / auto_exposure_method). Default OFF for
+    # determinism; a non-default case turns it ON to exercise the metering stage.
+    auto_exposure: bool = False
+    auto_exposure_method: str = "center_weighted"
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -136,6 +140,24 @@ CASES = [
               "(crop_and_rescale): crop_center=(0.45,0.55), crop_size=(0.6,0.5), "
               "upscale_factor=1.75. Spatial/grain off so it stays bit-stable; "
               "exercises the crop integer-slice + skimage rescale(order=3) port.",
+    ),
+    Case(
+        case_id="scan_portra_autoexp",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        auto_exposure=True,                 # NON-default: metering ON
+        auto_exposure_method="center_weighted",  # schema default pattern
+        notes="scan_film with AUTO-EXPOSURE ON (center_weighted metering). "
+              "Exercises FilmingStage.auto_exposure in pipeline._preprocess: the "
+              "image is metered (small_preview luminance -> -log2(Y_meter/0.184) "
+              "EV) and globally scaled by 2**ev before crop/rescale. For the 64px "
+              "synthetic image small_preview is a no-op (long edge 64 <= 256), so "
+              "metering runs on the full image. Spatial/grain off so it stays "
+              "bit-stable.",
     ),
 ]
 
@@ -227,9 +249,12 @@ def _build_params(sf, case: Case):
     params.debug.deactivate_stochastic_effects = case.deactivate_stochastic_effects
     params.debug.deactivate_spatial_effects = case.deactivate_spatial_effects
     params.film_render.grain.active = case.grain_active
-    # Make exposure deterministic: disable auto-exposure so identical inputs map
-    # to identical exposures regardless of metering tweaks.
-    params.camera.auto_exposure = False
+    # Auto-exposure: OFF by default (deterministic — identical inputs map to
+    # identical exposures regardless of metering tweaks). A case may turn it ON
+    # to exercise the metering stage; the synthetic image is fully deterministic
+    # so the metered EV is reproducible.
+    params.camera.auto_exposure = case.auto_exposure
+    params.camera.auto_exposure_method = case.auto_exposure_method
     params.camera.exposure_compensation_ev = 0.0
     return params
 
@@ -297,7 +322,8 @@ def generate_case(sf, case: Case, size: int) -> dict:
             "seed": SEED,
         },
         "toggles": {
-            "auto_exposure": False,
+            "auto_exposure": case.auto_exposure,
+            "auto_exposure_method": case.auto_exposure_method,
             "exposure_compensation_ev": 0.0,
             "grain_active": case.grain_active,
             "deactivate_stochastic_effects": case.deactivate_stochastic_effects,
