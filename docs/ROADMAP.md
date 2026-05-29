@@ -102,6 +102,19 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 - **Done when:** proxy preview is interactive on a mid-range device; full scan acceptable; GPU
   path (if shipped) matches CPU within visual tolerance.
 
+## M7 — Final polish & presentation (requested)
+The "do this when literally everything else is done" list:
+- **Welcome / onboarding screen** — a beautiful first-run intro: the project story (spektrafilm +
+  ImageToolbox + the bit-exact port), **how the app works** (pick → choose film/print → tune →
+  export), with tasteful **animations** (Compose animated transitions / a brief guided tour).
+- **Settings page** — important app settings: default output color space, preview resolution,
+  default film/print, export format/quality + save location, theme (light/dark/dynamic), reset.
+- **In-app About section** — credits (spektrafilm/ImageToolbox/colour-science/LibRaw), the
+  pixls.us dedication, author links (Akshay — Instagram/YouTube), version, license, source link.
+- **GitHub repo "About"** — set the repository description, topics, and homepage at
+  https://github.com/thetechgeekko/Spectrafilmandroid/ (via API if available, else provide the
+  exact text for one-click setup).
+
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
   → Implemented in `.github/workflows/ci.yml` (see `.github/workflows/README.md`): the
