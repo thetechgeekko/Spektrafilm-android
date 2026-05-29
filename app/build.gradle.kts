@@ -1,9 +1,21 @@
 // SpectraFilm for Android — app. GPLv3.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing is read from keystore.properties in the project root when present.
+// Expected keys: storeFile, storePassword, keyAlias, keyPassword. When the file is
+// absent (e.g. CI without secrets) the release build falls back to debug signing.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystorePropsFile.exists() &&
+    keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "com.spectrafilm.app"
@@ -18,9 +30,27 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Use the real release keystore when keystore.properties is present,
+            // otherwise fall back to debug signing so assembleRelease works in CI.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
