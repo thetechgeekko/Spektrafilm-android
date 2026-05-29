@@ -61,6 +61,17 @@ object Presets {
 
     fun toJsonString(state: ParamsState): String = toJson(state).toString(2)
 
+    /**
+     * Reusable serialization hooks so the recipe (sidecar) layer shares this exact
+     * JSON schema instead of forking a parallel one. [encode] mirrors [toJson];
+     * [decode] mirrors [fromJson]. The recipe layer wraps the result with its own
+     * envelope (source key + metadata) but the params payload is byte-for-byte the
+     * same format as a saved preset.
+     */
+    internal fun encode(state: ParamsState): JSONObject = toJson(state)
+
+    internal fun decode(o: JSONObject, into: ParamsState) = fromJson(o, into)
+
     // --- JSON (de)serialization ---
 
     private fun JSONObject.tri(key: String, t: Triple<Float, Float, Float>): JSONObject =
