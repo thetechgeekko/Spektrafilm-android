@@ -197,7 +197,7 @@ int main(int argc, char** argv) {
     std::printf("input %dx%d x3\n", width, height);
 
     std::vector<float> log_raw_print(static_cast<size_t>(npix) * 3);
-    spk::print_expose(film, prnt, pd.pparams, in.data.data(), npix,
+    spk::print_expose(film, prnt, pd.pparams, in.data.data(), width, height,
                       log_raw_print.data());
     std::vector<float> cmy_print(static_cast<size_t>(npix) * 3);
     spk::print_develop(prnt, pd.pparams, log_raw_print.data(), npix,

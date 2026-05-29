@@ -58,6 +58,15 @@ struct FilmingParams {
     DirCouplersParams dir_couplers;  // filled by digest for the film type.
     HalationParams halation;         // filled by digest; active only if spatial.
 
+    // Camera optical diffusion filter (Black Pro-Mist family). Applied in
+    // expose() on the float64 raw irradiance, AFTER the highlight boost and
+    // BEFORE the lens blur / halation (mirrors filming.py::expose ordering).
+    // Schema default active=false -> strict no-op, so default params stay
+    // bit-exact. Runs whenever active (independent of the spatial_effects
+    // toggle: the diffusion filter is active even in preview, matching the
+    // upstream GUI note "diffusion filters are active" in preview mode).
+    DiffusionFilterParams diffusion_filter;
+
     // Stochastic grain (the AgX particle model). Active only when the case
     // requests grain (grain_active && stochastic effects on). Off => identity.
     // density_max_curves is filled at apply time from the film's normalized
@@ -117,6 +126,14 @@ struct PrintingParams {
     double print_exposure = 1.0;
     double bw_exposure_correction = 1.0;
     float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};
+
+    // Enlarger optical diffusion filter. Applied in printing.py::expose on the
+    // float64 raw print irradiance (raw = 10^log_raw * print_exposure *
+    // bw_correction) BEFORE the final log10. Schema default active=false -> a
+    // strict no-op, so default params stay bit-exact. pixel_size_um drives the
+    // µm->pixel conversion (only consumed when diffusion_filter.active).
+    DiffusionFilterParams diffusion_filter;
+    double pixel_size_um = 0.0;
 };
 
 // Enlarger illuminant on the 81-band working shape for a given illuminant id.

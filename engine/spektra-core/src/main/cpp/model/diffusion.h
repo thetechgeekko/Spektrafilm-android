@@ -1,5 +1,6 @@
 /*
- * SpectraFilm for Android — native engine: in-emulsion scatter + halation.
+ * SpectraFilm for Android — native engine: in-emulsion scatter + halation +
+ * the optical diffusion-filter (Black Pro-Mist etc.) PSF stage.
  * Copyright (C) 2026 SpectraFilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -8,18 +9,22 @@
  * version. See <https://www.gnu.org/licenses/>.
  *
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
- * spektrafilm. Ports spektrafilm/model/diffusion.py::apply_halation_um (the
- * spatial-effects branch of the filming expose step). The diffusion-filter
- * family (Black Pro-Mist etc.) is NOT ported: camera/enlarger diffusion_filter
- * defaults active=False and is confirmed OFF under the parity goldens.
+ * spektrafilm. Ports spektrafilm/model/diffusion.py:
+ *   - apply_halation_um (in-emulsion scatter + back-reflection halation), and
+ *   - apply_diffusion_filter_um (the optical diffusion-filter PSF: a per-family
+ *     core/halo/bloom sum of 2D isotropic exponentials, energy-conserving convex
+ *     blend (1-p_s)*image + p_s*(K_s * image)). The camera/enlarger
+ *     diffusion_filter params drive it (issue #6 exposed-but-inert params).
  *
- * apply_halation_um runs on the float64 pre-log irradiance `raw` (the image is
- * carried as float64 by the spektrafilm pipeline), in the order:
- *   1. highlight boost (boost_ev==0 under the goldens -> identity, not ported here)
- *   2. in-emulsion scatter: energy-preserving mix of a Gaussian core and an
- *      exponential tail, blended with the identity by scatter_amount.
- *   3. back-reflection halation: additive sum of N Gaussians with sqrt(k)-spaced
- *      widths and a geometric bounce decay, optionally renormalised by 1+a_tot.
+ * apply_halation_um / apply_diffusion_filter_um run on the float64 pre-log
+ * irradiance `raw` (the spektrafilm pipeline carries the image as float64).
+ *
+ * Diffusion-filter convolution note: the oracle uses scipy.signal.fftconvolve
+ * (mode='same') on a numpy-'reflect'-padded image. fftconvolve is a plain linear
+ * convolution computed in the frequency domain; a direct double-precision spatial
+ * convolution is numerically equivalent (verified |Δ| ~ 1e-16 vs the oracle, far
+ * under the 1e-4 / 1e-5 parity tolerance), so this port uses a direct convolution
+ * in double precision and needs no FFT infrastructure.
  */
 #ifndef SPK_MODEL_DIFFUSION_H
 #define SPK_MODEL_DIFFUSION_H
@@ -63,6 +68,47 @@ struct HalationParams {
 // non-zero boost is ever required it must be added before the scatter pass.
 void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
                        double pixel_size_um);
+
+// Diffusion-filter family selector. Values mirror the keys of
+// _DIFFUSION_FILTER_SHAPES in spektrafilm/model/diffusion.py.
+enum class DiffusionFamily {
+    kGlimmerglass = 0,
+    kBlackProMist = 1,   // spektrafilm DiffusionFilterParams default family.
+    kProMist = 2,
+    kCinebloom = 3,
+};
+
+// Optical diffusion-filter params, mirroring the consumed fields of
+// spektrafilm.runtime.params_schema.DiffusionFilterParams. Defaults match the
+// schema so a default-constructed instance is a strict no-op:
+//   active=false  -> apply_diffusion_filter_um returns the image untouched.
+struct DiffusionFilterParams {
+    bool active = false;                                  // schema default false.
+    DiffusionFamily family = DiffusionFamily::kBlackProMist;  // "black_pro_mist".
+    double strength = 0.5;        // commercial filter stop (interpolated).
+    double spatial_scale = 1.0;   // multiplier on image-plane PSF widths.
+    double halo_warmth = 0.0;     // additive bias to the family halo-warmth axis.
+    // Per-group fine-tune multipliers (advanced). 1.0 = use the family preset.
+    double core_intensity = 1.0;
+    double core_size = 1.0;
+    double halo_intensity = 1.0;
+    double halo_size = 1.0;
+    double bloom_intensity = 1.0;
+    double bloom_size = 1.0;
+};
+
+// apply_diffusion_filter_um: in-place on the float64 raw irradiance image `raw`,
+// shape (h, w, 3) row-major channel-interleaved. Implements the energy-conserving
+// convex combination
+//     E_out = (1 - p_s) * E_in  +  p_s * (K_s * E_in)
+// with p_s derived from strength+family and K_s the per-channel diffusion-filter
+// PSF (the halo is colour-tinted via an energy-conserving warmth redistribution).
+// `pixel_size_um` converts the image-plane µm widths to pixels. No-op (image left
+// untouched) when params.active is false, strength<=0, spatial_scale<=0, or the
+// derived p_s<=0 — exactly mirroring spektrafilm.model.diffusion.apply_diffusion_filter_um.
+void apply_diffusion_filter_um(double* raw, int w, int h,
+                               const DiffusionFilterParams& params,
+                               double pixel_size_um);
 
 }  // namespace spk
 

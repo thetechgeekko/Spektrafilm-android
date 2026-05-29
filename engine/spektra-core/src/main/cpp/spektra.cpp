@@ -189,6 +189,39 @@ void apply_user_grain(spk::GrainParams& g, const spk_params* p) {
     g.n_sub_layers = p->grain_n_sub_layers > 0 ? p->grain_n_sub_layers : 1;
 }
 
+// Apply the camera/enlarger optical diffusion-filter params from spk_params onto
+// the digested struct. The C API does not expose filter_family, so it stays at
+// the schema default (black_pro_mist). active defaults to 0, so default params
+// leave the diffusion filter inactive (a strict no-op). `is_camera` selects the
+// camera (filming) vs enlarger (printing) field group.
+void apply_user_diffusion_filter(spk::DiffusionFilterParams& d,
+                                 const spk_params* p, bool is_camera) {
+    d.family = spk::DiffusionFamily::kBlackProMist;  // schema default family.
+    if (is_camera) {
+        d.active = (p->camera_diffusion_active != 0);
+        d.strength = p->camera_diffusion_strength;
+        d.spatial_scale = p->camera_diffusion_spatial_scale;
+        d.halo_warmth = p->camera_diffusion_halo_warmth;
+        d.core_intensity = p->camera_diffusion_core_intensity;
+        d.core_size = p->camera_diffusion_core_size;
+        d.halo_intensity = p->camera_diffusion_halo_intensity;
+        d.halo_size = p->camera_diffusion_halo_size;
+        d.bloom_intensity = p->camera_diffusion_bloom_intensity;
+        d.bloom_size = p->camera_diffusion_bloom_size;
+    } else {
+        d.active = (p->enlarger_diffusion_active != 0);
+        d.strength = p->enlarger_diffusion_strength;
+        d.spatial_scale = p->enlarger_diffusion_spatial_scale;
+        d.halo_warmth = p->enlarger_diffusion_halo_warmth;
+        d.core_intensity = p->enlarger_diffusion_core_intensity;
+        d.core_size = p->enlarger_diffusion_core_size;
+        d.halo_intensity = p->enlarger_diffusion_halo_intensity;
+        d.halo_size = p->enlarger_diffusion_halo_size;
+        d.bloom_intensity = p->enlarger_diffusion_bloom_intensity;
+        d.bloom_size = p->enlarger_diffusion_bloom_size;
+    }
+}
+
 // Build the crop/resize params from spk_params (mirrors IOParams' crop fields).
 spk::CropResizeParams build_crop_resize(const spk_params* p) {
     spk::CropResizeParams cr;
@@ -304,6 +337,12 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // DIR-coupler user params (amount / inhibition / diffusion); the per-channel
     // gamma matrices stay film-specific (baked by the digest).
     apply_user_dir_couplers(fparams.dir_couplers, p, spatial);
+    // Camera optical diffusion filter (issue #6 exposed-but-inert param). The
+    // oracle's digest_params zeroes camera.diffusion_filter.active under
+    // deactivate_spatial_effects=True, so the diffusion filter belongs to the
+    // spatial branch: it is only applied when spatial (== halation_active) is on.
+    apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
+    if (!spatial) fparams.diffusion_filter.active = false;
     // pixel_size_um drives both the spatial kernels and the grain blur, so it
     // must be set whenever either spatial effects or grain are active. It comes
     // from the resize service (film_format_mm*1000/max(orig h,w), then /=
@@ -385,10 +424,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //    only the geometry (width/height) can change.
     std::vector<double> rgb;
     int width = 0, height = 0;
-    {
-        double px = 0.0;
-        preprocess_geometry(in, p, &rgb, &width, &height, &px);
-    }
+    double resize_pixel_size_um = 0.0;
+    preprocess_geometry(in, p, &rgb, &width, &height, &resize_pixel_size_um);
     const int npix = width * height;
     if (out_w) *out_w = width;
     if (out_h) *out_h = height;
@@ -458,6 +495,20 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         film, prnt, tc_lut, pparams.filtered_illuminant, pg);
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
+    // Spatial branch toggle for the print route (mirrors the negative scan:
+    // deactivate_spatial_effects=False enables the spatial filters). Driven by
+    // halation_active, matching run_scan_film.
+    const bool print_spatial = (p->halation_active != 0);
+    // Enlarger optical diffusion filter (issue #6 exposed-but-inert param),
+    // applied in print_expose on the float64 print irradiance before the final
+    // log10. Gated on the spatial branch (the oracle's digest_params zeroes
+    // enlarger.diffusion_filter.active under deactivate_spatial_effects=True).
+    // Inactive by default -> strict no-op. pixel_size_um from the resize service
+    // drives the µm->pixel conversion when active.
+    apply_user_diffusion_filter(pparams.diffusion_filter, p, /*is_camera=*/false);
+    if (!print_spatial) pparams.diffusion_filter.active = false;
+    if (pparams.diffusion_filter.active)
+        pparams.pixel_size_um = resize_pixel_size_um;
 
     // 4) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
     //    The print route runs the negative with spatial+stochastic effects off
@@ -470,6 +521,12 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     fparams.density_curve_gamma[1] = fg;
     fparams.density_curve_gamma[2] = fg;
     apply_user_dir_couplers(fparams.dir_couplers, p, /*spatial=*/false);
+    // The print route's negative-filming step runs with the spatial branch OFF
+    // (the print parity goldens keep deactivate_spatial_effects=True), so the
+    // camera diffusion filter is not applied here (it lives in the spatial
+    // branch). fparams.spatial_effects stays false -> the filming stage gate
+    // skips it regardless.
+    fparams.diffusion_filter.active = false;
 
     // `rgb` (float64, crop/rescale applied) built by preprocess_geometry above.
 
@@ -484,7 +541,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
 
     // 4) Printing stage (film density -> enlarger expose -> print develop).
     std::vector<float> print_log_raw(static_cast<size_t>(npix) * 3);
-    spk::print_expose(film, prnt, pparams, film_density_cmy.data(), npix,
+    spk::print_expose(film, prnt, pparams, film_density_cmy.data(), width, height,
                       print_log_raw.data());
     std::vector<float> print_density_cmy(static_cast<size_t>(npix) * 3);
     spk::print_develop(prnt, pparams, print_log_raw.data(), npix,

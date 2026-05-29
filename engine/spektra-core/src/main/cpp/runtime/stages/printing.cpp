@@ -16,13 +16,23 @@
 #include <vector>
 
 #include "model/density_curves.h"
+#include "model/diffusion.h"
 
 namespace spk {
 
 void print_expose(const Profile& film, const Profile& print_profile,
                   const PrintingParams& params, const float* density_cmy,
-                  int npix, float* log_raw_print_out) {
+                  int width, int height, float* log_raw_print_out) {
+    const int npix = width * height;
     const int S = film.n_samples;  // 81 for bundled profiles.
+    const bool diffusion = params.diffusion_filter.active;
+    // When the enlarger diffusion filter is active the spatial pass runs on the
+    // float64 print irradiance (raw = 10^log_raw * print_exposure * bw) BEFORE
+    // the final log10, mirroring printing.py::expose. Otherwise the pointwise
+    // round trip below writes directly into log_raw_print_out and `raw_buf`
+    // is unused, keeping the default (no-op) path byte-identical.
+    std::vector<double> raw_buf;
+    if (diffusion) raw_buf.resize(static_cast<size_t>(npix) * 3);
 
     // print sensitivity = nan_to_num(10**log_sensitivity) on the working shape.
     // Precompute once: print_profile.log_sensitivity is (S*3,) row-major [s*3+k].
@@ -74,17 +84,33 @@ void print_expose(const Profile& film, const Profile& print_profile,
         double lr2 = std::log10(std::fmax(raw2, 0.0) + 1e-10);
 
         // expose(): raw = 10^log_raw; raw *= print_exposure * bw_correction;
-        // diffusion off; return log10(max(raw,0) + 1e-10). The 10^/log10 round
-        // trip is reproduced verbatim so float rounding matches the reference.
+        // then the optical diffusion filter (if active) runs on `raw`; finally
+        // return log10(max(raw,0) + 1e-10). The 10^/log10 round trip is
+        // reproduced verbatim so float rounding matches the reference.
         const double mult = params.print_exposure * params.bw_exposure_correction;
         double r0 = std::pow(10.0, lr0) * mult;
         double r1 = std::pow(10.0, lr1) * mult;
         double r2 = std::pow(10.0, lr2) * mult;
 
-        float* out = log_raw_print_out + static_cast<size_t>(p) * 3;
-        out[0] = static_cast<float>(std::log10(std::fmax(r0, 0.0) + 1e-10));
-        out[1] = static_cast<float>(std::log10(std::fmax(r1, 0.0) + 1e-10));
-        out[2] = static_cast<float>(std::log10(std::fmax(r2, 0.0) + 1e-10));
+        if (diffusion) {
+            double* rb = raw_buf.data() + static_cast<size_t>(p) * 3;
+            rb[0] = r0; rb[1] = r1; rb[2] = r2;
+        } else {
+            float* out = log_raw_print_out + static_cast<size_t>(p) * 3;
+            out[0] = static_cast<float>(std::log10(std::fmax(r0, 0.0) + 1e-10));
+            out[1] = static_cast<float>(std::log10(std::fmax(r1, 0.0) + 1e-10));
+            out[2] = static_cast<float>(std::log10(std::fmax(r2, 0.0) + 1e-10));
+        }
+    }
+
+    if (diffusion) {
+        apply_diffusion_filter_um(raw_buf.data(), width, height,
+                                  params.diffusion_filter, params.pixel_size_um);
+        const size_t total = static_cast<size_t>(npix) * 3;
+        for (size_t i = 0; i < total; ++i) {
+            log_raw_print_out[i] = static_cast<float>(
+                std::log10(std::fmax(raw_buf[i], 0.0) + 1e-10));
+        }
     }
 }
 

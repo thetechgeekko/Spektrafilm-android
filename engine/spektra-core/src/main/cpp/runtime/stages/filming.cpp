@@ -160,6 +160,21 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
         for (int c = 0; c < 3; ++c) raw[p * 3 + c] = rr[c] * b * exp_mult;
     }
 
+    // Camera optical diffusion filter (Black Pro-Mist family), applied on the
+    // float64 irradiance AFTER the highlight boost and BEFORE lens blur /
+    // halation — matching filming.py::expose, which calls
+    // apply_diffusion_filter_um(raw, camera.diffusion_filter, pixel_size_um)
+    // before apply_gaussian_blur_um / apply_halation_um. Gated on
+    // spatial_effects: the oracle's digest_params zeroes
+    // camera.diffusion_filter.active when deactivate_spatial_effects is True
+    // (params_builder.py), so the diffusion filter is part of the spatial branch.
+    // No-op unless diffusion_filter.active (schema default false), so default
+    // params stay bit-exact.
+    if (params.spatial_effects && params.diffusion_filter.active) {
+        apply_diffusion_filter_um(raw.data(), width, height,
+                                  params.diffusion_filter, params.pixel_size_um);
+    }
+
     // Spatial branch: in-emulsion scatter + back-reflection halation, applied to
     // the float64 irradiance before the log10 (matching filming.py::expose, which
     // calls apply_halation_um on `raw`). Skipped under the spatial-OFF goldens.
