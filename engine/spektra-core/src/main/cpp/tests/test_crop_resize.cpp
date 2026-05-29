@@ -37,9 +37,9 @@ namespace {
 
 const char* kAssetDir  = "/home/user/spektrafilm/src/spektrafilm/data";
 const char* kGoldenDir =
-    "/home/user/wt-engine/tools/parity/goldens/scan_portra_crop";
+    "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra_crop";
 const char* kInputF64  =
-    "/home/user/wt-engine/engine/spektra-core/src/main/cpp/tests/"
+    "/home/user/Spectrafilmandroid/engine/spektra-core/src/main/cpp/tests/"
     "scan_portra_input_rgb.f64";
 
 bool check(const char* label, const float* got, const std::vector<float>& gold) {
