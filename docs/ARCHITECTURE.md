@@ -71,7 +71,7 @@ Bitmap (display-referred) ─► host preview / export with EXIF+ICC
 
 | Driver | Detail |
 |--------|--------|
-| Performance | Spectral integration runs over a 441-band shape (360–780 nm, 1 nm). Per-pixel einsum-style contractions and several 2D Gaussian/exponential convolutions dominate. C++ with SIMD-friendly loops is the right tool. |
+| Performance | Spectral integration runs over an 81-band shape (380–780 nm, 5 nm). Per-pixel einsum-style contractions and several 2D Gaussian/exponential convolutions dominate. C++ with SIMD-friendly loops is the right tool. |
 | Existing shape | spektrafilm's hot paths are already Numba-JIT kernels (`fast_gaussian_filter`, `fast_interp_lut`, `fast_stats`) — these translate near-mechanically to C++. |
 | Co-location | LibRaw is C++. Sharing one native boundary (and linear-RGB buffers) with the decoder avoids extra copies. |
 | Determinism | A C++ port lets us match spektrafilm's `.npz` regression baselines for numerical parity. |

@@ -37,7 +37,7 @@ SpektraParams(...)  // 1:1 with RuntimePhotoParams (camera/enlarger/scanner/film
 | `model/illuminants.py` | 56 | → C++ + asset | black-body formula trivial; CIE D-series + custom (TH-KG3) tabulated as assets. |
 | `utils/autoexposure.py` | 111 | → C++ | center-weighted metering to 18% gray. |
 | `utils/conversions.py` | 76 | → C++ | density↔light, embedded ACES/RGB matrices. |
-| `config.py` (SPECTRAL_SHAPE, CMFs) | — | → C++ const + asset | 360–780 nm @1 nm (441), CIE 1931 2° CMFs `(441,3)`. |
+| `config.py` (SPECTRAL_SHAPE, CMFs) | — | → C++ const + asset | 380–780 nm @5 nm (81 samples), CIE 1931 2° CMFs `(81,3)`. |
 
 ## Stage 2 — Hot kernels (mechanical from Numba, ~1,500 LOC)
 

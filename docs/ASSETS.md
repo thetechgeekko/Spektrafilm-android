@@ -42,8 +42,8 @@ Output-color-space ICC profiles (sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES varia
 on export to match spektrafilm's color management.
 
 ## Constants compiled into the engine (not assets)
-- `SPECTRAL_SHAPE`: 360–780 nm @ 1 nm → 441 samples.
-- `STANDARD_OBSERVER_CMFS`: CIE 1931 2° color-matching functions, shape `(441, 3)`.
+- `SPECTRAL_SHAPE`: 380–780 nm @ 5 nm → 81 samples (SpectralShape(380,780,5)).
+- `STANDARD_OBSERVER_CMFS`: CIE 1931 2° color-matching functions, shape `(81, 3)`.
 
 ## APK-size note
 ~17 MB of assets + LibRaw `.so` per ABI. If size matters we can (a) split per ABI, (b)

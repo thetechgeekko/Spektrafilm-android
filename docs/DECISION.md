@@ -34,7 +34,7 @@ gallery/media picker, Coil decode pipeline, 16-bit handling, EXIF, export with m
 zoomable canvas, gesture handling, Material3 Compose UI, settings, crash reporting. Its NDK/ABI
 build is already configured (`armeabi-v7a, arm64-v8a, x86_64`) and it already ships native
 `.so` codec libs, so adding two more native modules is idiomatic. C++ for the engine gives us
-(a) performance for per-pixel spectral integration over 441 wavelengths, (b) co-location with
+(a) performance for per-pixel spectral integration over the 81-band spectral shape, (b) co-location with
 LibRaw (also C++), and (c) a near-mechanical translation of the existing Numba kernels.
 
 **Cost:** Large host codebase to carry; must relicense the combined work to GPLv3 (acceptable).
@@ -43,7 +43,7 @@ LibRaw (also C++), and (c) a near-mechanical translation of the existing Numba k
 Build a minimal app from scratch; reimplement the engine in Kotlin.
 
 **Rejected because:** We would reinvent RAW handling, 16-bit image I/O, export, gallery, and
-UI that ImageToolbox already provides and battle-tested. Pure-Kotlin numerics for 441-band
+UI that ImageToolbox already provides and battle-tested. Pure-Kotlin numerics for 81-band
 spectral integration would be slow and would still need NDK for LibRaw anyway — so we pay the
 JNI cost regardless. Loses the explicit "maybe use ImageToolbox" steer from the brief.
 

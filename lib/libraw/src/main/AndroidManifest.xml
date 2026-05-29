@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SpectraFilm for Android — lib:libraw manifest (minimal).
+  Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+  This module ships only a native decoder + Kotlin facade; no components.
+-->
+<manifest />

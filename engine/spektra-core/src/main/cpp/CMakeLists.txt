@@ -14,12 +14,19 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -ffast-math -fno-finite-math-only")
 add_library(spektra SHARED
         spektra.cpp
         spektra_jni.cpp
-        # M3–M4: add per-stage sources as they are ported, e.g.
-        #   model/density_curves.cpp model/couplers.cpp model/grain.cpp model/diffusion.cpp
+        # Ported pure-math + kernels (M3 wave 1):
+        kernels/interp.cpp
+        kernels/gaussian.cpp
+        model/spectral.cpp
+        model/conversions.cpp
+        model/density_curves.cpp
+        model/emulsion.cpp
+        model/glare.cpp
+        # M3–M4: remaining stages to add as ported, e.g.
+        #   model/couplers.cpp model/grain.cpp model/diffusion.cpp
         #   runtime/pipeline.cpp runtime/stages/filming.cpp runtime/stages/printing.cpp
         #   runtime/stages/scanning.cpp
-        #   kernels/gaussian.cpp kernels/interp_lut.cpp kernels/stats.cpp
-        #   kernels/spectral_upsampling.cpp
+        #   kernels/interp_lut.cpp kernels/stats.cpp kernels/spectral_upsampling.cpp
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

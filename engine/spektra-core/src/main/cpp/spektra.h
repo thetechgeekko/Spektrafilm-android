@@ -26,11 +26,12 @@
 extern "C" {
 #endif
 
-/* Spectral working shape, matching spektrafilm/config.py: 360..780 nm @ 1 nm. */
-#define SPK_SPECTRAL_MIN_NM 360
+/* Spectral working shape, matching spektrafilm/config.py exactly:
+ * SpectralShape(380, 780, 5) -> 81 samples at 5 nm. */
+#define SPK_SPECTRAL_MIN_NM 380
 #define SPK_SPECTRAL_MAX_NM 780
-#define SPK_SPECTRAL_STEP_NM 1
-#define SPK_SPECTRAL_SAMPLES 441
+#define SPK_SPECTRAL_STEP_NM 5
+#define SPK_SPECTRAL_SAMPLES 81
 
 typedef enum {
     SPK_OK = 0,

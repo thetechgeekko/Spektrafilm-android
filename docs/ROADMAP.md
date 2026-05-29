@@ -2,6 +2,15 @@
 
 Milestones are vertical slices. Each ends with something demonstrable and a parity gate.
 
+> **Progress note (2026-05-29):** beyond M0, a parallel scaffolding wave has landed real,
+> compiling code ahead of the host bootstrap: the C++ engine's pure-math + kernel layer
+> (`engine/spektra-core/src/main/cpp/{model,kernels}`: Gaussian/interp kernels, density curves,
+> emulsion, conversions, glare, and the **corrected 81-sample 380–780@5 spectral grid + CIE
+> CMFs** — a grid bug from the initial map was caught and fixed here), the `lib:libraw` decode
+> module (M2), the `feature:film-emulation` Compose UI (M5), and the `tools/parity` golden-vector
+> harness (the M3/M4 gate). These compile/are structurally complete in isolation; they wire
+> together and build as an app at **M1** (host bootstrap).
+
 ## M0 — Foundation  ✅ (this commit)
 Architecture decided, both repos mapped, port plan written, RAW/licensing strategy fixed,
 engine API contract drafted. No build yet.
