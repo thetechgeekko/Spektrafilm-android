@@ -42,6 +42,7 @@ add_library(spektra SHARED
         # (negative -> enlarger expose -> print develop -> scan print):
         model/color_filters.cpp              # dichroic Y/M/C enlarger filters (M4)
         runtime/stages/printing.cpp          # film density -> print density CMY (M4)
+        runtime/print_digest.cpp             # native neutral CC + midgray digest (M5)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

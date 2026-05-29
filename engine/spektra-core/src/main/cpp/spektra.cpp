@@ -8,7 +8,9 @@
  *     load film profile -> build_filming_tc_lut -> expose -> develop(+couplers)
  *     -> scan -> display RGB (output_color_space, CCTF per params).
  *
- * The print (enlarger) route is M4 and returns SPK_ERR_INTERNAL with a TODO.
+ * The print (enlarger) route works for ANY (film, paper) pair: the neutral
+ * dichroic CC values are resolved natively from neutral_print_filters.json and
+ * the midgray exposure factor is computed natively (runtime/print_digest).
  *
  * Honoured spk_params for the scan_film parity case (scan_portra defaults):
  *   - film_profile          -> profile JSON loaded from <asset_dir>/profiles/<id>.json
@@ -40,6 +42,7 @@
 #include "io/npy_lut.h"
 #include "profiles/profile.h"
 #include "runtime/params.h"
+#include "runtime/print_digest.h"
 #include "runtime/stages/filming.h"
 #include "runtime/stages/printing.h"
 #include "runtime/stages/scanning.h"
@@ -91,6 +94,7 @@ struct spk_engine {
     std::string asset_dir;        // root containing profiles/ and luts/
     std::string profiles_dir;     // <asset_dir>/profiles
     std::string spectra_lut_path; // <asset_dir>/luts/spectral_upsampling/irradiance_xy_tc.npy
+    std::string neutral_filters_path; // <asset_dir>/filters/neutral_print_filters.json
 
     std::mutex lut_mutex;
     bool lut_loaded = false;
@@ -179,35 +183,6 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     return SPK_OK;
 }
 
-// Digested enlarger neutral-print-filter CC values + midgray exposure factor for
-// a (film, print, illuminant) triple. These are produced by the Python
-// params_builder (neutral_print_filters.json lookup) + the filming-stage midgray
-// balance computation; reproducing that whole chain natively is future work, so
-// the supported parity pairs are baked at full precision from the oracle. Unknown
-// pairs fall back to SPK_ERR_INTERNAL (the print route is gated on these).
-struct PrintDigest {
-    const char* film;
-    const char* print;
-    double neutral_cc[3];          // CMY Kodak CC units.
-    double exposure_factor_midgray;
-};
-
-const PrintDigest kPrintDigests[] = {
-    {"kodak_portra_400", "kodak_portra_endura",
-     {0.0, 51.43162770877449, 55.26070894686862}, 0.8530971500678061},
-    {"kodak_ektar_100", "kodak_supra_endura",
-     {0.0, 74.60631920310733, 63.31534862217596}, 1.1994496282985427},
-};
-
-const PrintDigest* lookup_print_digest(const char* film, const char* print) {
-    if (!film || !print) return nullptr;
-    for (const auto& d : kPrintDigests) {
-        if (std::strcmp(d.film, film) == 0 && std::strcmp(d.print, print) == 0)
-            return &d;
-    }
-    return nullptr;
-}
-
 // Run the negative -> print -> scan route, producing display RGB plus the
 // intermediate taps. `tap_*` pointers, when non-null, receive the corresponding
 // intermediate. Mirrors pipeline._pipeline_print under the print_portra toggles.
@@ -241,29 +216,44 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         return SPK_ERR_INTERNAL;  // print profile lacks printing fields
     }
 
-    // 2) Resolve digested enlarger params for this pair (neutral CC + midgray).
-    const PrintDigest* pd = lookup_print_digest(p->film_profile, p->print_profile);
-    if (!pd) return SPK_ERR_INTERNAL;  // unsupported pair (no baked digest yet)
-    const double* enl = spk::enlarger_illuminant("TH-KG3");
-    if (!enl) return SPK_ERR_INTERNAL;
-    const float pg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
-    spk::PrintingParams pparams = spk::digest_printing_params(
-        pd->neutral_cc, enl, pd->exposure_factor_midgray, pg);
-
-    // 3) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
-    spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
-    fparams.exposure_compensation_ev = p->exposure_compensation_ev;
-    const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
-    fparams.density_curve_gamma[0] = fg;
-    fparams.density_curve_gamma[1] = fg;
-    fparams.density_curve_gamma[2] = fg;
-
+    // 2) Build the Hanatos2025 filming tc_lut (D55 reference illuminant). Needed
+    //    both by the filming expose and by the native midgray digest below.
     spk::NdArray tc_lut;
     try {
         tc_lut = spk::build_filming_tc_lut(film, eng->spectra(), kD55Illuminant);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
+
+    // 3) Native print digest for ANY (film, paper) pair:
+    //    (a) neutral dichroic CC resolved from neutral_print_filters.json
+    //        ([print_stock][illuminant][film_stock]); missing triples fall back
+    //        to the schema defaults {0,0,0}, mirroring params_builder.py.
+    //    (b) midgray exposure factor computed natively from the filming midgray
+    //        balance + the print sensitivity/filtered illuminant.
+    const double* enl = spk::enlarger_illuminant("TH-KG3");
+    if (!enl) return SPK_ERR_INTERNAL;
+    const std::string film_stock  = !film.stock.empty() ? film.stock : p->film_profile;
+    const std::string print_stock = !prnt.stock.empty() ? prnt.stock : p->print_profile;
+    double neutral_cc[3];
+    spk::resolve_neutral_cc(eng->neutral_filters_path, print_stock, "TH-KG3",
+                            film_stock, neutral_cc);
+
+    const float pg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
+    // Build the filtered illuminant first (color_enlarger with neutral CC), then
+    // use it for the native midgray factor.
+    spk::PrintingParams pparams = spk::digest_printing_params(
+        neutral_cc, enl, /*exposure_factor_midgray=*/1.0, pg);
+    pparams.exposure_factor_midgray = spk::compute_midgray_exposure_factor(
+        film, prnt, tc_lut, pparams.filtered_illuminant, pg);
+
+    // 4) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
+    spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
+    fparams.exposure_compensation_ev = p->exposure_compensation_ev;
+    const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
+    fparams.density_curve_gamma[0] = fg;
+    fparams.density_curve_gamma[1] = fg;
+    fparams.density_curve_gamma[2] = fg;
 
     std::vector<double> rgb(static_cast<size_t>(npix) * 3);
     for (size_t i = 0; i < rgb.size(); ++i)
@@ -365,6 +355,8 @@ spk_status spk_engine_create(const char* asset_dir, spk_engine** out) {
     eng->profiles_dir = join_path(eng->asset_dir, "profiles");
     eng->spectra_lut_path =
         join_path(eng->asset_dir, "luts/spectral_upsampling/irradiance_xy_tc.npy");
+    eng->neutral_filters_path =
+        join_path(eng->asset_dir, "filters/neutral_print_filters.json");
     *out = eng.release();
     return SPK_OK;
 }

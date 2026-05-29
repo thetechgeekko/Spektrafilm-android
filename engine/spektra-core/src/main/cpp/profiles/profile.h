@@ -30,6 +30,7 @@ namespace spk {
 struct Profile {
     // info
     std::string type;                 // "negative" | "positive"
+    std::string stock;                // e.g. "kodak_portra_400" (info.stock)
     std::string viewing_illuminant;   // e.g. "D50"
     std::string reference_illuminant;
 

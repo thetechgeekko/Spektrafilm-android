@@ -63,8 +63,9 @@ FilmingParams digest_filming_params(bool is_negative);
 //     enlarger.illuminant)). 81 samples on the working shape.
 //   - exposure_factor_midgray: the scalar midgray normalisation factor returned
 //     by PrintingStage._compute_exposure_factor_midgray (= factor_midgray_comp
-//     when both normalize + compensation are on). Pulled from the oracle because
-//     it derives from the full filming midgray chain (rgb_to_raw of 0.184 gray).
+//     when both normalize + compensation are on). Computed natively by
+//     runtime/print_digest.h::compute_midgray_exposure_factor from the full
+//     filming midgray chain (rgb_to_raw of 0.184 gray) — no longer oracle-baked.
 //   - print_exposure / bw_exposure_correction: scalar multipliers in expose()
 //     (1.0 each under the parity defaults: no black/white correction).
 //   - density_curve_gamma: print_render.density_curve_gamma (scalar broadcast).
@@ -82,12 +83,15 @@ struct PrintingParams {
 // unknown ids. Equal to illuminants.standard_illuminant(id).
 const double* enlarger_illuminant(const char* illuminant_id);
 
-// Build digested printing params for the print_portra parity case. `neutral_cc`
-// are the digested neutral C/M/Y filter values (Kodak CC units, from
-// neutral_print_filters.json for the film/print/illuminant triple); `enl_illum`
-// is enlarger_illuminant(id). The filtered illuminant is computed exactly via
-// color_enlarger (shifts==0). `exposure_factor_midgray` and `gamma` are passed in
-// from the oracle-derived digested values.
+// Build digested printing params for any (film, paper) pair. `neutral_cc` are the
+// neutral C/M/Y filter values (Kodak CC units) resolved natively from
+// neutral_print_filters.json by runtime/print_digest.h::resolve_neutral_cc for
+// the film/print/illuminant triple; `enl_illum` is enlarger_illuminant(id). The
+// filtered illuminant is computed exactly via color_enlarger (shifts==0).
+// `exposure_factor_midgray` is the native midgray factor from
+// runtime/print_digest.h::compute_midgray_exposure_factor; `gamma` is the print
+// density-curve gamma. (Pass exposure_factor_midgray=1.0 to build the filtered
+// illuminant first, then set it from the native computation.)
 PrintingParams digest_printing_params(const double neutral_cc[3],
                                       const double* enl_illum,
                                       double exposure_factor_midgray,
