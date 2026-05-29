@@ -24,13 +24,12 @@ Architecture decided, both repos mapped, port plan written, RAW/licensing strate
 engine API contract drafted. No build yet.
 - **Done when:** docs + engine contract reviewed and merged.
 
-## M1 — Host bootstrap
-Seed the repo with the ImageToolbox tree (the host) and wire empty Gradle modules.
-- Fork ImageToolbox source into the repo (`tools/bootstrap.md`).
-- Add `engine:spektra-core`, `lib:libraw`, `feature:film-emulation` to `settings.gradle.kts`
-  with minimal `build.gradle.kts` (convention plugins) — modules compile empty.
-- Register a `FilmEmulation` screen stub in `Screen.kt`; it appears on the home grid and opens.
-- **Done when:** app builds + installs; the (empty) SpectraFilm screen opens.
+## M1 — Runnable app  ✅ (v0.1.0)
+Shipped as a **standalone Compose app** wrapping the engine (pivot from vendoring ImageToolbox —
+see `DECISION.md`). Android SDK + NDK build verified; `:app:assembleDebug` produces a 23 MB APK
+with `libspektra.so` for all ABIs + bundled assets; CI assembles it on every push.
+- **Done:** app builds + installs; profile pickers, scan/print toggle, exposure, live render.
+- Follow-up: richer editing UI + optional ImageToolbox host integration (engine module is ready).
 
 ## M2 — RAW/DNG decode (`lib:libraw`)
 LibRaw compiled for all ABIs; JNI decode of RAW/DNG → linear 16-bit RGB with rawpy-parity
@@ -47,17 +46,41 @@ scanning. Ship 28 profiles + LUT assets.
 - **Done when:** `simulate(scan_film=true)` on a test image matches spektrafilm within tol.
 
 > **Progress:** the Python engine runs headless here as a live oracle and real goldens are
-> committed (`tools/parity/goldens/`). Ported + **bit-exact vs the oracle**:
-> profile JSON loader, density curves, emulsion, conversions, glare, the **Hanatos2025 spectral
-> upsampling** (RGB→spectrum, max_abs ≈ 1.1e-7), and the **scanning stage** (`scan_portra`
-> `final_rgb`, max_abs ≈ 6e-8). Full `libspektra.so` links (engine + JNI + M3 sources).
-> Remaining for M3: the **filming stage** (RGB→raw→density) + `params_builder`/`digest_params`
-> + pipeline wiring, then `spk_simulate(scan_film=true)` end-to-end through JNI.
+> committed (`tools/parity/goldens/`). The **entire `scan_film` path is ported and bit-exact
+> vs the oracle**, stage by stage:
+> - profile JSON loader, density curves, emulsion, conversions, glare
+> - **Hanatos2025 spectral upsampling** (RGB→spectrum, max_abs ≈ 1.1e-7)
+> - **filming stage** (RGB→raw→develop incl. **DIR couplers**): `film_log_raw` max_abs ≈ 1.2e-7,
+>   `film_density_cmy` ≈ 2.4e-7
+> - **scanning stage** (density→RGB): `final_rgb` max_abs ≈ 6e-8
+>
+> Full `libspektra.so` links (engine + JNI + all scan-path sources).
+>
+> **`spk_simulate(scan_film=true)` now runs end-to-end** through one C-API call — orchestrating
+> profile load → filming → develop(+couplers) → scanning — reproducing `final_rgb` at
+> **max_abs ≈ 7.45e-8**. The JNI bridge (`nativeCreate/Destroy/ListProfiles/Simulate`,
+> SpektraParams↔spk_params marshaling, direct-ByteBuffer I/O) is implemented and `libspektra.so`
+> exports all four `Java_com_spectrafilm_engine_*` symbols. **The scan_film engine is callable
+> from Kotlin.**
+>
+> Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir),
+> non-sRGB output color spaces, and wiring the grain/halation/glare toggles. Then M4 (print
+> route + spatial/stochastic effects + full-pipeline goldens).
 
-## M4 — Full negative→print→scan + look effects
+## M4 — Full negative→print→scan + look effects  🚧 in progress
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
+
+> **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
+> print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
+> vs the `print_portra` goldens: `print_density_cmy` max_abs ≈ 2.4e-7, `final_rgb` ≈ 4.2e-7;
+> end-to-end `spk_simulate(scan_film=false)` ≈ 5.6e-7. DIR couplers already done (M3).
+> **Known limitation:** the per-(film,paper) **neutral dichroic CC values** and the **midgray
+> exposure factor** are currently *baked* from the oracle for the portra & ektar pairs (other
+> pairs return an error). Generalizing requires a native digest of `neutral_print_filters.json`
+> + the filming-midgray balance — the next M4 task. Then: grain (Poisson-binomial), halation/
+> scatter + diffusion filters (spatial branches), and stochastic/spatial golden cases.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
 Full `RuntimePhotoParams` control surface (camera/enlarger/scanner/grain/halation/couplers/

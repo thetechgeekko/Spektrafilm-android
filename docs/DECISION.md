@@ -62,6 +62,15 @@ However, we *will* reuse the filter framework for finishing touches, and we may 
 Adopt **Option A**. Engine in C++/NDK, host = forked ImageToolbox, RAW via LibRaw/NDK, UI via a
 new Compose feature module. Combined license = **GPLv3**.
 
+## Update (v0.1.0): shipped as a standalone app
+
+The engine port came in bit-exact and ahead of expectations, so v0.1.0 ships as a **buildable
+standalone Compose app** (`app` + `engine:spektra-core`) rather than waiting on a full
+ImageToolbox vendor. The native engine module is self-contained and **still drops into
+ImageToolbox unchanged** when we want the richer host — this just made a real, installable APK
+possible now (Android SDK + NDK build verified; CI assembles the APK). Option A's reasoning
+stands; only the *host shell* was deferred.
+
 ## Consequences
 
 - The next milestone (M1) seeds this repo with the ImageToolbox tree (the host) and wires the

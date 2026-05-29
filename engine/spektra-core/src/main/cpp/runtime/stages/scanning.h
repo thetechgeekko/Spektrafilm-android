@@ -17,6 +17,7 @@
 #define SPK_RUNTIME_STAGES_SCANNING_H
 
 #include "profiles/profile.h"
+#include "spektra.h"  // spk_color_space
 
 namespace spk {
 
@@ -27,8 +28,20 @@ namespace spk {
 struct ScanningParams {
     bool scan_film = true;
     bool output_cctf_encoding = true;
-    // Spatial effects (lens_blur, unsharp) and glare are no-ops here. The full
-    // pipeline will add them; for the parity milestone they are disabled.
+    // io.output_color_space: selects the XYZ->RGB matrix + per-space CCTF in
+    // color_output. Defaults to sRGB. LINEAR_SRGB uses sRGB primaries with the
+    // CCTF (and the near-identity RGB->RGB round-trip) skipped, matching
+    // scanning.py, which only runs colour.RGB_to_RGB when output_cctf_encoding.
+    spk_color_space output_color_space = SPK_CS_SRGB;
+    // Scanner unsharp mask (scanner.unsharp_mask = (sigma, amount)). Applied in
+    // the output (linear sRGB) space after XYZ->RGB and before the CAT02 round
+    // trip + CCTF encode, matching scanning.py::_apply_blur_and_unsharp /
+    // diffusion.apply_unsharp_mask: rgb += amount * (rgb - G(sigma) * rgb).
+    // Both default 0 (spatial OFF); set to (0.7, 0.7) under scan_portra_spatial.
+    // scanner.lens_blur is 0 under the goldens, so the gaussian-blur pass is a
+    // no-op and is not modelled here.
+    double unsharp_sigma = 0.0;
+    double unsharp_amount = 0.0;
 };
 
 // scan(): run the scanning stage on an (h x w x 3) row-major density_cmy image.

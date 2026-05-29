@@ -21,6 +21,8 @@
 #ifndef SPK_MODEL_COLOR_OUTPUT_H
 #define SPK_MODEL_COLOR_OUTPUT_H
 
+#include "spektra.h"  // spk_color_space
+
 namespace spk {
 
 // --- D50 viewing illuminant (the film's viewing_illuminant) ------------------
@@ -50,6 +52,35 @@ extern const double kSRGB_to_sRGB_CAT02[9];
 // V = (L <= 0.0031308) ? 12.92*L : 1.055*L^(1/2.4) - 0.055.
 // Matches colour.models.rgb.transfer_functions.srgb.eotf_inverse_sRGB.
 float srgb_cctf_encode(float linear);
+
+// --- Per-output-space transforms --------------------------------------------
+// The scanning stage emits RGB in io.output_color_space. Each space has:
+//   * an effective XYZ->RGB matrix from colour.XYZ_to_RGB(..., illuminant=D50_xy)
+//     (CAT02 from the D50 scan whitepoint to the space's whitepoint + the
+//     space's primaries baked in), and
+//   * a near-identity RGB->RGB matrix from colour.RGB_to_RGB(cs, cs, "CAT02")
+//     that colour applies inside _apply_cctf_encoding_and_clip *before* the CCTF
+//     encode (only when output_cctf_encoding is on), and
+//   * a CCTF encode (see output_cctf_encode below).
+// LINEAR_SRGB shares sRGB's primaries/matrix but carries NO CCTF and (because
+// scanning.py only runs RGB_to_RGB when output_cctf_encoding is True) no
+// near-identity round-trip either.
+//
+// All matrices are row-major 3x3 (out = M . in), extracted from colour-science
+// via the parity oracle so they match bit-for-bit. Indexed by spk_color_space.
+extern const double kXYZ_to_RGB[6][9];
+extern const double kRGB_to_RGB_CCTF[6][9];
+
+// output_cctf_encode(): the per-space encode CCTF, applied component-wise after
+// the near-identity matrix. Mirrors colour's cctf_encoding for each colourspace:
+//   SRGB / LINEAR_SRGB : sRGB piecewise (LINEAR_SRGB never calls this; CCTF off)
+//   ADOBE_RGB          : pow(L, 1/2.19921875) == pow(L, 0.4547069271758437),
+//                        "Indeterminate" negative handling -> NaN for L<0.
+//   PROPHOTO           : ROMM: L<E_t ? 16*L : spow(L, 1/1.8), E_t=16^(1.8/(1-1.8)).
+//   REC2020            : L<0.018 ? 4.5*L : 1.099*spow(L,0.45) - 0.099.
+//   ACES2065_1         : linear (identity).
+// `spow` is sign-preserving (sign(L)*pow(|L|,e)); Adobe's plain pow is NOT.
+double output_cctf_encode(spk_color_space cs, double linear);
 
 }  // namespace spk
 

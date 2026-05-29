@@ -1,70 +1,113 @@
-# SpectraFilm for Android
+<div align="center">
 
-> Spectral film simulation of analog photography — on Android, with RAW/DNG editing.
+# 🎞️ SpectraFilm for Android
 
-This repository is the Android port of [**spektrafilm**](https://github.com/andreavolpato/spektrafilm),
-a physically-based, spectral simulation engine that turns a camera RAW into a convincing
-film **negative → print → scan** rendering using data extracted from real film-stock datasheets.
+### Spectral film simulation of analog photography — running natively on your phone.
 
-The goal: bring the full spektrafilm pipeline (spectral upsampling, characteristic density
-curves, DIR couplers, stochastic grain, halation, enlarger filtration, virtual scanning)
-to a native Android app that can **open and edit RAW DNG files** directly on device.
+*Film modeling powered by [**spektrafilm**](https://github.com/andreavolpato/spektrafilm).*
+*Dedicated to the [**pixls.us**](https://pixls.us) community.*
 
-> [!IMPORTANT]
-> This is **milestone 0 — project foundation**. This commit contains the architecture,
-> the porting plan, faithful maps of both source repositories, the RAW/DNG decoding
-> strategy, the licensing analysis, and the engine API contract (C++/JNI/Kotlin).
-> The host app and engine implementation are delivered in subsequent milestones — see
-> [`docs/ROADMAP.md`](docs/ROADMAP.md).
+</div>
 
-## The three source repositories
+---
 
-| Repo | What it is | Role in this port |
-|------|------------|-------------------|
-| [`spektrafilm`](https://github.com/andreavolpato/spektrafilm) | Python spectral film simulator (NumPy/SciPy/Numba, GPLv3) | **The engine we port.** Source of all the photographic physics + 28 film/paper profiles. |
-| [`ImageToolbox`](https://github.com/T8RIN/ImageToolbox) | Mature Kotlin/Compose Android image editor (Apache-2.0) | **The host app.** Solves image I/O, gallery, export, Compose UI, gestures, RAW *preview* decoding, and a 295-filter framework. |
-| **Spectrafilmandroid** (this repo) | The Android product | ImageToolbox host **+** ported spektrafilm engine **+** real RAW/DNG decode. |
+SpectraFilm takes a scene-linear image and runs it through a **physically-based, spectral**
+simulation of the full analog pipeline — a virtual **negative → enlarger → print → scan** —
+grounded in real film-stock datasheet measurements. It is a faithful native-C++ port of the
+[spektrafilm](https://github.com/andreavolpato/spektrafilm) research engine, brought to Android.
 
-## How we do it (one paragraph)
+This is not a "film-look LUT." It reconstructs spectra from RGB, exposes a virtual emulsion with
+real spectral sensitivities, develops the dyes through characteristic density curves, simulates
+**DIR couplers**, **halation**, **in-emulsion scatter**, **stochastic grain**, an **enlarger**
+with dichroic Y/M/C filters, print paper, and a virtual scanner — then renders to your chosen
+color space.
 
-We fork **ImageToolbox** as the host application (it already solves the hard Android
-problems), add a native **C++ NDK engine module** (`engine/spektra-core`) that is a direct
-port of spektrafilm's `runtime` + `model` packages, add a **LibRaw NDK module** for
-full-resolution RAW/DNG decode (spektrafilm uses `rawpy`, which *is* LibRaw — so we get
-bit-for-bit parity), and add a **`feature:film-emulation`** Compose screen that drives the
-engine. The 28 film/paper JSON profiles and the spectral-upsampling LUT binaries (~17 MB)
-ship as app assets. Because spektrafilm is GPLv3, the combined app is **GPLv3**
-(Apache-2.0 → GPLv3 is one-way compatible). Full reasoning in [`docs/DECISION.md`](docs/DECISION.md).
+## What it does today (v0.1.0)
+
+- ✅ **Full pipeline, both routes:** scan-the-negative *and* negative → print → scan.
+- ✅ **28 film & paper profiles** (Kodak Portra/Ektar/Gold/Vision3/Ektachrome, Fujifilm
+  C200/Pro400H/Provia/Velvia, Endura/Supra/Ultra papers, …).
+- ✅ **The whole look:** DIR couplers, halation, in-emulsion scatter, scanner unsharp, and
+  **film grain** (Poisson-binomial particle model with sublayers + micro-structure).
+- ✅ **6 output color spaces** — sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1, linear.
+- ✅ **Native engine** (`libspektra.so`) for arm64-v8a / armeabi-v7a / x86_64, driven from a
+  Jetpack Compose UI.
+
+**Next:** RAW/DNG import on-device via LibRaw (the engine already speaks scene-linear; the
+`lib:libraw` decode module is scaffolded — see `docs/RAW_DNG.md`), and richer editing UI.
+
+## Install
+
+Grab the APK from [**`dist/`**](dist/) (or the **CI build artifact** on the latest green run),
+enable "install from unknown sources," and open it. Min Android 7.0 (API 24).
+
+> The v0.1.0 demo renders a built-in scene-linear test image so you can explore every film/paper
+> profile and parameter immediately, with no import step.
+
+---
+
+## 🙏 How this app was made — and who to thank
+
+SpectraFilm stands entirely on the shoulders of open color science and open source. **Every
+stage of the engine was ported and then checked, bit-for-bit, against the original.** Huge
+thanks to:
+
+- **[spektrafilm](https://github.com/andreavolpato/spektrafilm)** by **Andrea Volpato** — the
+  spectral film-simulation engine this project ports. The science, the film-stock profiles, and
+  the spectral LUTs are all his work. *Film modeling powered by spektrafilm.* If you find this
+  useful, please go star spektrafilm and read the brilliant write-up on
+  [discuss.pixls.us](https://discuss.pixls.us/t/spectral-film-simulations-from-scratch/48209).
+- **[Image Toolbox](https://github.com/T8RIN/ImageToolbox)** by **T8RIN (Malik Mukhametzyanov)**
+  — the reference Android image-editor architecture that guided this app's design (and the
+  intended richer host for future versions).
+- **[colour-science](https://www.colour-science.org/)** — the color-science backbone whose CMFs,
+  illuminants, and color-space transforms define "correct" here.
+- **[LibRaw](https://www.libraw.org/)** — for the coming on-device RAW/DNG decode.
+- **The [pixls.us](https://pixls.us) community** — for keeping open photography and open color
+  science alive and welcoming. **This app is dedicated to you.** 💛
+
+### The method (for the pixls.us folks who'll appreciate it)
+
+The port was done **parity-first**. We ran the real Python `spektrafilm` engine headless as a
+*live oracle*, captured golden vectors of every intermediate (`film_log_raw`,
+`film_density_cmy`, `print_density_cmy`, `final_rgb`) via its `DebugParams` taps, then ported
+each stage to C++ and gated it against those goldens:
+
+| Stage | Parity vs the original engine |
+|-------|-------------------------------|
+| Hanatos2025 spectral upsampling | max_abs ≈ 1.1e-7 |
+| Filming (expose → develop) + DIR couplers | ≈ 1.2e-7 / 2.4e-7 |
+| Printing (enlarger + dichroic filters, all profiles) | ≈ 2.4e-7 / 5.6e-7 |
+| Scanning (spectral → XYZ → RGB, 6 spaces) | ≈ 6e-8 |
+| Halation + scatter + coupler diffusion | ≈ 1.5e-7 |
+| Grain (stochastic) | mean-preserving; noise std matched ~0% |
+
+Those are *float32 rounding* differences — the double-precision math reproduces the original
+exactly. A `tools/parity` harness + CI guard this on every commit. The deeper story, the
+architecture, and the full stage-by-stage map live in [`docs/`](docs/).
+
+---
+
+## 👋 About the author
+
+Built and directed by **Akshay**.
+
+- Instagram: **[@akshay.pool](https://www.instagram.com/akshay.pool/)**
+- YouTube: **[@Akshayishere](https://www.youtube.com/@Akshayishere/videos)**
+
+If SpectraFilm brings you joy, say hi, share your renders, and tag along. 🎬
 
 ## Documentation
 
-- [`docs/DECISION.md`](docs/DECISION.md) — the chosen approach and the alternatives we rejected
-- [`docs/MOBILE_STRATEGY.md`](docs/MOBILE_STRATEGY.md) — fidelity/scope verdict, informed by how Lightroom mobile works (bit-exact, full engine, non-destructive, proxy preview)
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — target module architecture of the Android app
-- [`docs/PORTING_PLAN.md`](docs/PORTING_PLAN.md) — spektrafilm → Kotlin/C++ module-by-module map + effort table
-- [`docs/RAW_DNG.md`](docs/RAW_DNG.md) — how RAW/DNG decode works on Android (LibRaw/NDK, rawpy parity)
-- [`docs/LICENSING.md`](docs/LICENSING.md) — GPLv3 obligations and compatibility
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — phased milestones and acceptance criteria
-- [`docs/ASSETS.md`](docs/ASSETS.md) — film/paper profiles + LUT binaries inventory
-- [`docs/maps/SPEKTRAFILM_MAP.md`](docs/maps/SPEKTRAFILM_MAP.md) — full technical map of the engine
-- [`docs/maps/IMAGETOOLBOX_MAP.md`](docs/maps/IMAGETOOLBOX_MAP.md) — full technical map of the host
-
-## Engine API contract (preview)
-
-The native engine exposes a small surface mirroring spektrafilm's `create_params` / `simulate`:
-
-```kotlin
-val engine = SpektraEngine()                       // loads native lib + bundled assets
-val params = SpektraParams(
-    filmProfile  = "kodak_portra_400",
-    printProfile = "kodak_portra_endura",
-)
-val result: Bitmap = engine.simulate(linearRgb, params)   // RAW → negative → print → scan
-```
-
-See [`engine/spektra-core`](engine/spektra-core) for the C++ header, JNI bridge, and Kotlin facade.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — engine + app architecture
+- [`docs/PORTING_PLAN.md`](docs/PORTING_PLAN.md) — module-by-module port map
+- [`docs/MOBILE_STRATEGY.md`](docs/MOBILE_STRATEGY.md) — bit-exact parity + mobile design
+- [`docs/RAW_DNG.md`](docs/RAW_DNG.md) — RAW/DNG decode plan (LibRaw)
+- [`docs/maps/`](docs/maps/) — technical maps of the source projects
+- [`tools/parity/`](tools/parity/) — the golden-vector parity harness
+- [`NOTICE.md`](NOTICE.md) — attributions
 
 ## License
 
-GPLv3 — see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md). Derivative of `spektrafilm`
-(GPLv3) and `ImageToolbox` (Apache-2.0). Film modeling powered by **spektrafilm**.
+**GPL-3.0** — see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md). Because SpectraFilm is a
+derivative of the GPLv3 spektrafilm engine, the whole app is GPLv3. Please keep it open. 💛

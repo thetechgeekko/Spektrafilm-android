@@ -30,16 +30,37 @@ namespace spk {
 struct Profile {
     // info
     std::string type;                 // "negative" | "positive"
+    std::string stock;                // e.g. "kodak_portra_400" (info.stock)
     std::string viewing_illuminant;   // e.g. "D50"
     std::string reference_illuminant;
+    // Halation preset tags (info.use / info.antihalation). Drive the digested
+    // halation sigma_h / strength via params_builder._HALATION_PRESETS. Default to
+    // the "still"/"strong" still-film negative baseline if absent.
+    std::string use = "still";          // "still" | "cine"
+    std::string antihalation = "strong"; // "strong" | "weak" | "no"
 
     // data
     std::vector<float> wavelengths;        // (S,)
     std::vector<float> channel_density;     // (S*3,) row-major [s*3 + k] (CMY dye)
     std::vector<float> base_density;        // (S,)
     std::vector<float> density_curves;      // (N*3,) row-major [n*3 + k]
+    // Per-sublayer density characteristic curves (grain sublayer path). Shape
+    // (N, 3layer, 3ch) row-major: index n*9 + layer*3 + ch. Empty if the JSON
+    // omits data.density_curves_layers (then the sublayer grain path is unusable
+    // and callers fall back to the non-sublayer path). Matches the indexing of
+    // density_curves.cpp::interp_density_cmy_layers.
+    std::vector<float> density_curves_layers;  // (N*9,) row-major [n*9 + L*3 + k]
     int n_samples = 0;                      // S
     int n_density_pts = 0;                  // N
+
+    // Filming-stage fields (loaded for the rgb->raw->density port). Optional in
+    // the JSON; empty vectors mean "not present" (the scanning milestone did not
+    // need them).
+    std::vector<float> log_sensitivity;     // (S*3,) row-major [s*3 + k]
+    std::vector<float> log_exposure;        // (N,) shared log-exposure axis
+    // hanatos2025 spectral band-pass window params (erf4 model):
+    // [c_uv, sigma_uv, c_ir, sigma_ir]. Empty if absent.
+    std::vector<double> window_params;
 
     bool is_negative() const { return type == "negative"; }
     bool is_positive() const { return type == "positive"; }

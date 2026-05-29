@@ -51,12 +51,51 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -fPIC -shared \
             -I. -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
             spektra.cpp spektra_jni.cpp \
-            kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/stages/*.cpp \
+            kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp \
+            runtime/*.cpp runtime/stages/*.cpp \
             -o libspektra.so
           ls -l libspektra.so
           # Sanity: the engine's exported C symbols are present.
           nm -D libspektra.so | grep -E "spk_simulate|spk_engine_create" || \
             (echo "missing expected engine symbols" && exit 1)
+
+  # ---------------------------------------------------------------------------
+  # Engine parity: compile the deterministic stage tests and run them against the
+  # BUNDLED assets (profiles + spectral LUT) and the committed goldens. This is a
+  # real bit-exact gate on the ported pipeline (scan_film + print + spatial),
+  # independent of any Python/oracle. Grain tests are statistical and run locally.
+  # ---------------------------------------------------------------------------
+  engine-parity:
+    name: Engine parity (deterministic goldens)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build + run stage parity tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CPP="$GITHUB_WORKSPACE/engine/spektra-core/src/main/cpp"
+          ASSET="$GITHUB_WORKSPACE/engine/spektra-core/src/main/assets/spektra"
+          G="$GITHUB_WORKSPACE/tools/parity/goldens"
+          LUT="$ASSET/luts/spectral_upsampling/irradiance_xy_tc.npy"
+          cd "$CPP"
+          SRC="spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp"
+          DEF=-DSPK_TEST_DIR="\"$CPP/tests\""
+          fail=0
+          build_run() { # name, binary-args...
+            local name="$1"; shift
+            g++ -std=c++17 -O2 -I. -I"$GITHUB_WORKSPACE/tools/parity" $DEF \
+              "tests/$name.cpp" $SRC -o "/tmp/$name"
+            echo "::group::$name"
+            if "/tmp/$name" "$@" 2>&1 | tee "/tmp/$name.out"; then :; fi
+            grep -qiE "FAIL" "/tmp/$name.out" && { echo "$name: FAIL"; fail=1; } || echo "$name: ok"
+            echo "::endgroup::"
+          }
+          build_run test_simulate_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          build_run test_filming "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$LUT" tests/scan_portra_input_rgb.f64
+          build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
+          exit $fail
 
   # ---------------------------------------------------------------------------
   # Parity harness: the standalone .spkvec comparator builds and its byte-format
@@ -98,14 +137,13 @@ jobs:
         run: python -m py_compile tools/parity/gen_goldens.py tools/parity/spkvec.py
 
   # ---------------------------------------------------------------------------
-  # Android build: skipped until the ImageToolbox host is seeded (M1). The job
-  # condition keys off settings.gradle.kts, so it stays green-by-skip now and
-  # activates the moment the host (and gradlew) land — no edit required.
+  # Android build: assemble the debug APK (app + engine:spektra-core, with the
+  # NDK-built libspektra.so for all ABIs). Installs the SDK + NDK + CMake on the
+  # runner, then builds with the committed Gradle wrapper, and uploads the APK.
   # ---------------------------------------------------------------------------
   android:
-    name: Android (Gradle assemble)
+    name: Android (assemble debug APK)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('settings.gradle.kts') != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -114,14 +152,21 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Assemble debug
+      - name: Install NDK + CMake
+        run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Assemble debug APK
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          # Build the new modules first; fall back to the whole app assemble.
-          ./gradlew :engine:spektra-core:assembleDebug :lib:libraw:assembleDebug \
-                    :feature:film-emulation:assembleDebug --stacktrace \
-            || ./gradlew assembleDebug --stacktrace
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpectraFilm-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

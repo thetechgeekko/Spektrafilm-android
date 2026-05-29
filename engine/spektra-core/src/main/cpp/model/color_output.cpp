@@ -14,6 +14,8 @@
 
 #include <cmath>
 
+#include "spektra.h"
+
 namespace spk {
 
 // standard_illuminant("D50"), SpectralShape(380,780,5), normalised to mean 1.
@@ -61,6 +63,192 @@ float srgb_cctf_encode(float linear) {
     // colour: spow(L, 1/2.4) == sign(L)*pow(|L|, 1/2.4); inputs here are >= 0.
     if (linear <= 0.0031308f) return 12.92f * linear;
     return 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+}
+
+// --- Per-output-space matrices ----------------------------------------------
+// Effective XYZ -> output-RGB (linear) matrices. row-major (rgb = M . xyz).
+// colour.XYZ_to_RGB(eye, colourspace, illuminant=D50_xy): CAT02 from the D50
+// scan whitepoint to the space whitepoint + space primaries baked in. Extracted
+// from colour-science via the parity oracle (bit-for-bit). Indexed by
+// spk_color_space; LINEAR_SRGB (5) shares sRGB's matrix.
+const double kXYZ_to_RGB[6][9] = {
+    {  // [0] SRGB
+        3.142560531830132,
+        -1.6326137961870142,
+        -0.48185557645187271,
+        -0.9697409102368959,
+        1.9022205296210604,
+        0.039872573492736187,
+        0.059238850962744567,
+        -0.20070431453367582,
+        1.3860495993494377
+    },
+    {  // [1] ADOBE_RGB
+        1.9712349874153061,
+        -0.62572112138316549,
+        -0.33320749091235091,
+        -0.97007079823624576,
+        1.9024005644289221,
+        0.039933450041275319,
+        0.016801292045390288,
+        -0.11411011568389857,
+        1.3305940932494869
+    },
+    {  // [2] PROPHOTO
+        1.3460511557389605,
+        -0.25549887834774693,
+        -0.05112002291427066,
+        -0.5445537190485934,
+        1.5081028885618692,
+        0.020497944497017227,
+        -1.0509873740792862e-06,
+        6.8692002868351891e-08,
+        1.2122747140648567
+    },
+    {  // [3] REC2020
+        1.6550138362531475,
+        -0.40669447721540475,
+        -0.22913524712033548,
+        -0.67418291166695654,
+        1.6342291843689367,
+        0.019167894711971223,
+        0.019130981893892087,
+        -0.039055210216034392,
+        1.2369182318017684
+    },
+    {  // [4] ACES2065_1
+        1.0195716907143211,
+        -0.022810203261674832,
+        0.048165423762075193,
+        -0.50306460039388901,
+        1.3844084125716802,
+        0.12197568835784825,
+        0.00096183477783376686,
+        0.0030561904324193151,
+        1.207113247346848
+    },
+    {  // [5] LINEAR_SRGB (== SRGB)
+        3.142560531830132,
+        -1.6326137961870142,
+        -0.48185557645187271,
+        -0.9697409102368959,
+        1.9022205296210604,
+        0.039872573492736187,
+        0.059238850962744567,
+        -0.20070431453367582,
+        1.3860495993494377
+    },
+};
+
+// Near-identity RGB->RGB matrices colour applies (matrix_RGB_to_RGB(cs, cs,
+// "CAT02")) inside _apply_cctf_encoding_and_clip, before the CCTF encode, when
+// output_cctf_encoding is on. row-major (rgb_out = M . rgb_in). Indexed by
+// spk_color_space.
+const double kRGB_to_RGB_CCTF[6][9] = {
+    {  // [0] SRGB
+        0.99999174000000013,
+        1.1823931167498358e-16,
+        2.3159999999960313e-05,
+        2.1670000000040608e-05,
+        1.0000403199999999,
+        -7.9399999999762392e-06,
+        3.8000000000042523e-07,
+        1.1920000000013188e-05,
+        1.00000355
+    },
+    {  // [1] ADOBE_RGB
+        1.0000055799999998,
+        3.8030999998693774e-06,
+        4.24459999995054e-06,
+        -7.3442000000058817e-06,
+        0.99999424120000002,
+        1.8265000000026845e-06,
+        -2.672500000003587e-06,
+        1.9640999999931614e-06,
+        0.99999711459999996
+    },
+    {  // [2] PROPHOTO
+        1.0000914000000001,
+        1.7559999999962318e-05,
+        -4.8150000000010725e-05,
+        -6.5819999999990205e-05,
+        1.00005766,
+        1.5290000000007618e-05,
+        -1.3908398461908093e-18,
+        -7.8277489333936824e-19,
+        1.00002627
+    },
+    {  // [3] REC2020
+        1,
+        -3.2317645347557231e-17,
+        6.2041613010914368e-18,
+        -2.3542968446340584e-17,
+        1,
+        8.0487377619960405e-18,
+        8.0943508849239081e-19,
+        -9.6915099471300284e-19,
+        0.99999999999999989
+    },
+    {  // [4] ACES2065_1
+        0.99999999996184175,
+        -2.2362308506423466e-17,
+        7.6953142761556508e-12,
+        3.9892802275237737e-11,
+        0.99999999997004307,
+        3.5211567385746431e-11,
+        -1.3580416246962525e-18,
+        -4.9119815365090854e-19,
+        1.0000000000474871
+    },
+    {  // [5] LINEAR_SRGB (== SRGB; unused: CCTF is off for this space)
+        0.99999174000000013,
+        1.1823931167498358e-16,
+        2.3159999999960313e-05,
+        2.1670000000040608e-05,
+        1.0000403199999999,
+        -7.9399999999762392e-06,
+        3.8000000000042523e-07,
+        1.1920000000013188e-05,
+        1.00000355
+    },
+};
+
+namespace {
+// Sign-preserving power: spow(L, e) = sign(L) * pow(|L|, e). Matches colour.spow.
+inline double spow(double L, double e) {
+    if (L == 0.0) return 0.0;
+    return std::copysign(std::pow(std::fabs(L), e), L);
+}
+}  // namespace
+
+double output_cctf_encode(spk_color_space cs, double L) {
+    switch (cs) {
+        case SPK_CS_ADOBE_RGB:
+            // colour gamma_function(L, 0.4547069271758437) with "Indeterminate"
+            // negative handling: plain L**exp -> NaN for L < 0 (NOT sign-preserving).
+            return std::pow(L, 0.4547069271758437);
+        case SPK_CS_PROPHOTO: {
+            // cctf_encoding_ROMMRGB: E_t = 16^(1.8/(1-1.8)); below E_t -> 16*L,
+            // else spow(L, 1/1.8). (I_max factors cancel in the float-1 path.)
+            const double E_t = 0.001953125;  // 16 ** (1.8/(1-1.8))
+            return (E_t > L) ? (L * 16.0) : spow(L, 1.0 / 1.8);
+        }
+        case SPK_CS_REC2020: {
+            // oetf_BT2020 (non-12-bit): a=1.099, b=0.018; below b -> 4.5*L,
+            // else a*spow(L,0.45) - (a-1).
+            const double a = 1.099, b = 0.018;
+            return (b > L) ? (L * 4.5) : (a * spow(L, 0.45) - (a - 1.0));
+        }
+        case SPK_CS_ACES2065_1:
+            // linear_function: identity.
+            return L;
+        case SPK_CS_SRGB:
+        case SPK_CS_LINEAR_SRGB:
+        default:
+            // eotf_inverse_sRGB: piecewise; spow(L,1/2.4) sign-preserving.
+            return (L <= 0.0031308) ? (12.92 * L)
+                                    : (1.055 * spow(L, 1.0 / 2.4) - 0.055);
+    }
 }
 
 }  // namespace spk
