@@ -325,6 +325,72 @@ fun <T> Dropdown(
     }
 }
 
+/** One selectable option in a grouped dropdown: a stable id plus its display label. */
+data class DropdownOption(val id: String, val label: String)
+
+/** A titled group of [DropdownOption]s (e.g. a stock category) for a grouped dropdown. */
+data class DropdownGroup(val title: String, val options: List<DropdownOption>)
+
+/** Convert StockCatalog [ProfileOption]s into ordered [DropdownGroup]s, preserving order. */
+fun List<ProfileOption>.toGroups(): List<DropdownGroup> {
+    val byGroup = LinkedHashMap<String, MutableList<DropdownOption>>()
+    for (o in this) byGroup.getOrPut(o.groupTitle) { mutableListOf() }.add(DropdownOption(o.id, o.label))
+    return byGroup.map { (title, opts) -> DropdownGroup(title, opts) }
+}
+
+/**
+ * A read-only exposed dropdown whose options are organized under non-selectable group
+ * headers. The field shows the label of the currently selected id (falling back to the
+ * raw id when it isn't among the options). Used for built-in presets and for the
+ * catalog-grouped film/print profile pickers.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GroupedDropdown(
+    label: String,
+    selectedId: String,
+    groups: List<DropdownGroup>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = remember(selectedId, groups) {
+        groups.firstNotNullOfOrNull { g -> g.options.firstOrNull { it.id == selectedId }?.label } ?: selectedId
+    }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier,
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            groups.forEachIndexed { gi, group ->
+                if (group.title.isNotBlank()) {
+                    Text(
+                        group.title,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, top = if (gi == 0) 8.dp else 12.dp, bottom = 4.dp),
+                    )
+                }
+                group.options.forEach { opt ->
+                    DropdownMenuItem(
+                        text = { Text(opt.label) },
+                        onClick = { onSelect(opt.id); expanded = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
 private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float): Float {
     if (step <= 0f) return v.coerceIn(range.start, range.endInclusive)
     val snapped = range.start + (((v - range.start) / step).roundToInt()) * step

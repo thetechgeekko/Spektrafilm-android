@@ -71,6 +71,10 @@ class MainActivity : ComponentActivity() {
         var profiles by remember { mutableStateOf<List<String>>(emptyList()) }
         val state = remember { ParamsState() }
 
+        // bundled catalog (friendly stock names + grouping) and built-in presets
+        var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
+        var catalogReady by remember { mutableStateOf(false) }
+
         // image / result state
         var sourceUri by remember { mutableStateOf<Uri?>(null) }
         var sourceKind by remember { mutableStateOf(SourceKind.DEMO) }
@@ -95,6 +99,9 @@ class MainActivity : ComponentActivity() {
                 val dir = extractAssets(ctx)
                 val e = SpektraEngine(dir.absolutePath)
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
+                // parse bundled data off the main thread
+                StockCatalog.stocks(ctx) // warm the catalog cache
+                val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())
                 withContext(Dispatchers.Main) {
                     engine = e
                     profiles = list
@@ -102,6 +109,8 @@ class MainActivity : ComponentActivity() {
                         if (state.filmProfile !in list) state.filmProfile = list.first()
                         if (state.printProfile !in list) state.printProfile = list.first()
                     }
+                    builtInGroups = presetGroups
+                    catalogReady = true
                     refreshPresets()
                     status = "ready · ${list.size} profiles"
                     previewTick++
@@ -211,6 +220,12 @@ class MainActivity : ComponentActivity() {
                 )
 
                 PresetCard(
+                    builtInGroups = builtInGroups,
+                    onApplyBuiltIn = { preset ->
+                        BuiltInPresets.apply(preset, state)
+                        status = "applied built-in '${preset.name}'"
+                        previewTick++
+                    },
                     presets = presetList,
                     selected = selectedPreset,
                     name = presetName,
@@ -240,12 +255,20 @@ class MainActivity : ComponentActivity() {
                 )
 
                 // --- parameter sections in spektrafilm order ---
-                val filmOptions = profiles.ifEmpty { listOf(state.filmProfile) }
-                val printOptions = profiles.ifEmpty { listOf(state.printProfile) }
+                // Film/print dropdowns: catalog-grouped friendly names, falling back to raw ids.
+                val available = profiles.ifEmpty {
+                    listOf(state.filmProfile, state.printProfile).distinct()
+                }
+                val filmGroups = remember(available, catalogReady) {
+                    StockCatalog.optionsFor(ctx, available, forFilm = true).toGroups()
+                }
+                val printGroups = remember(available, catalogReady) {
+                    StockCatalog.optionsFor(ctx, available, forFilm = false).toGroups()
+                }
 
                 InputSection(state)
                 ImportRawSection(state)
-                SimulationSection(state, filmOptions, printOptions)
+                SimulationSection(state, filmGroups, printGroups)
                 GrainSection(state)
                 PreflashSection(state)
                 HalationSection(state)
@@ -351,6 +374,8 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun PresetCard(
+        builtInGroups: Map<String, List<BuiltInPreset>>,
+        onApplyBuiltIn: (BuiltInPreset) -> Unit,
         presets: List<String>,
         selected: String,
         name: String,
@@ -362,8 +387,40 @@ class MainActivity : ComponentActivity() {
         onImport: () -> Unit,
         onExport: () -> Unit,
     ) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Presets", expanded, { expanded = it }) {
+            // --- built-in presets (bundled, grouped) ---
+            if (builtInGroups.isNotEmpty()) {
+                Text("Built-in looks", style = MaterialTheme.typography.titleSmall)
+                var selectedBuiltIn by remember {
+                    mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
+                }
+                val all = remember(builtInGroups) { builtInGroups.values.flatten() }
+                GroupedDropdown(
+                    label = "Built-in preset",
+                    selectedId = selectedBuiltIn,
+                    groups = builtInGroups.map { (g, ps) ->
+                        DropdownGroup(g, ps.map { DropdownOption(it.id, it.name) })
+                    },
+                    onSelect = { selectedBuiltIn = it },
+                )
+                val current = all.firstOrNull { it.id == selectedBuiltIn }
+                if (current?.description?.isNotBlank() == true) {
+                    Text(
+                        current.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Button(
+                    onClick = { current?.let(onApplyBuiltIn) },
+                    enabled = current != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Apply built-in preset") }
+                Divider()
+                Text("Your presets", style = MaterialTheme.typography.titleSmall)
+            }
+
             OutlinedTextField(
                 value = name, onValueChange = onNameChange,
                 label = { Text("Preset name") }, singleLine = true,
@@ -499,10 +556,19 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun SimulationSection(s: ParamsState, filmOptions: List<String>, printOptions: List<String>) {
+    private fun SimulationSection(
+        s: ParamsState,
+        filmGroups: List<DropdownGroup>,
+        printGroups: List<DropdownGroup>,
+    ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
-            Dropdown("Film profile", s.filmProfile, filmOptions, { it }, { s.filmProfile = it })
+            GroupedDropdown(
+                label = "Film profile",
+                selectedId = s.filmProfile,
+                groups = filmGroups,
+                onSelect = { s.filmProfile = it },
+            )
             EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
@@ -518,7 +584,12 @@ class MainActivity : ComponentActivity() {
             DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
 
             Divider()
-            Dropdown("Print profile", s.printProfile, printOptions, { it }, { s.printProfile = it })
+            GroupedDropdown(
+                label = "Print profile",
+                selectedId = s.printProfile,
+                groups = printGroups,
+                onSelect = { s.printProfile = it },
+            )
             Dropdown("Print illuminant", s.printIlluminant, PRINT_ILLUMINANTS, { it }, { s.printIlluminant = it })
             EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
                 step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger")
