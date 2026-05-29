@@ -21,7 +21,9 @@ python3 -m pip install --quiet numba opt_einsum scikit-image exiv2 || {
 }
 
 # 2) Stub the I/O/GUI deps that are imported but unused on the math path.
-STUBS="$(mktemp -d /tmp/spkstubs.XXXXXX)"
+#    Fixed path so the same PYTHONPATH works across separate shell invocations.
+STUBS="${SPK_STUBS:-/tmp/spkstubs}"
+mkdir -p "$STUBS"
 cat > "$STUBS/lensfunpy.py" <<'PY'
 # unused on the math path
 PY
