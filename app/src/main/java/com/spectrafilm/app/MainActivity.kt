@@ -1069,11 +1069,43 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
-            GatedBlock("Auto-exposure is not wired into the engine yet.") {
-                SwitchRow("Camera auto exposure", s.autoExposure, { s.autoExposure = it },
-                    "Use the auto-exposure feature of the virtual camera")
-                Dropdown("Auto exposure method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
-                    { s.autoExposureMethod = it })
+
+            // --- Auto exposure toggle (Lightroom-style) ---
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (s.autoExposure) {
+                    Button(
+                        onClick = { s.autoExposure = false },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) { Text("Auto") }
+                } else {
+                    OutlinedButton(
+                        onClick = { s.autoExposure = true },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Auto") }
+                }
+                Text(
+                    if (s.autoExposure) "Metering to midgray" else "Manual exposure",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (s.autoExposure)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(2f),
+                )
+            }
+            if (s.autoExposure) {
+                GatedBlock("Metering method is not yet forwarded to the engine (center_weighted is always used).") {
+                    Dropdown("Metering method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
+                        { s.autoExposureMethod = it })
+                }
             }
             EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
                 step = 1f, decimals = 0,

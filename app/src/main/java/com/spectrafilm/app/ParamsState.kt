@@ -84,7 +84,7 @@ class ParamsState {
 
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
-    var autoExposure by mutableStateOf(true)
+    var autoExposure by mutableStateOf(false)
     var autoExposureMethod by mutableStateOf("center_weighted")
     var filmFormatMm by mutableFloatStateOf(35f)
     var cameraLensBlurUm by mutableFloatStateOf(0f)
