@@ -77,6 +77,26 @@ Profile load_profile_string(const std::string& json_text) {
     p.density_curves = read_matrix3(data.at("density_curves"), &dc_rows);
     p.n_density_pts = dc_rows;
 
+    // Filming-stage fields (optional; present in the bundled film profiles).
+    if (data.has("log_sensitivity")) {
+        int ls_rows = 0;
+        p.log_sensitivity = read_matrix3(data.at("log_sensitivity"), &ls_rows);
+        if (ls_rows != p.n_samples)
+            throw std::runtime_error("Profile: log_sensitivity rows != wavelengths");
+    }
+    if (data.has("log_exposure")) {
+        p.log_exposure = read_vec(data.at("log_exposure"));
+        if (static_cast<int>(p.log_exposure.size()) != p.n_density_pts)
+            throw std::runtime_error("Profile: log_exposure size != density_curves rows");
+    }
+    if (data.has("hanatos2025_adaptation_window_params")) {
+        const json::Value& wp = data.at("hanatos2025_adaptation_window_params");
+        if (!wp.is_array())
+            throw std::runtime_error("Profile: window_params expected array");
+        for (size_t i = 0; i < wp.size(); ++i)
+            p.window_params.push_back(wp[i].as_number());
+    }
+
     // Validation mirroring profiles/io.py::_validate_profile (subset).
     if (cd_rows != p.n_samples)
         throw std::runtime_error("Profile: channel_density rows != wavelengths");

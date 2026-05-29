@@ -31,9 +31,13 @@ add_library(spektra SHARED
         profiles/profile.cpp                 # profile JSON loader (M3)
         runtime/stages/scanning.cpp          # scan_film negative -> RGB (M3)
         # M3–M4: remaining stages to add as ported, e.g.
-        #   model/couplers.cpp model/grain.cpp model/diffusion.cpp
-        #   runtime/pipeline.cpp runtime/stages/filming.cpp runtime/stages/printing.cpp
+        #   model/grain.cpp model/diffusion.cpp
+        #   runtime/pipeline.cpp runtime/stages/printing.cpp
         #   kernels/interp_lut.cpp kernels/stats.cpp
+        # Filming stage (rgb -> raw -> negative density), ported in M4:
+        model/couplers.cpp                   # DIR couplers (M4)
+        runtime/params.cpp                   # minimal digested filming params (M4)
+        runtime/stages/filming.cpp           # rgb -> raw -> film density CMY (M4)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

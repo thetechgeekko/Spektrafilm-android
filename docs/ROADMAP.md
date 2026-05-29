@@ -47,12 +47,17 @@ scanning. Ship 28 profiles + LUT assets.
 - **Done when:** `simulate(scan_film=true)` on a test image matches spektrafilm within tol.
 
 > **Progress:** the Python engine runs headless here as a live oracle and real goldens are
-> committed (`tools/parity/goldens/`). Ported + **bit-exact vs the oracle**:
-> profile JSON loader, density curves, emulsion, conversions, glare, the **Hanatos2025 spectral
-> upsampling** (RGB→spectrum, max_abs ≈ 1.1e-7), and the **scanning stage** (`scan_portra`
-> `final_rgb`, max_abs ≈ 6e-8). Full `libspektra.so` links (engine + JNI + M3 sources).
-> Remaining for M3: the **filming stage** (RGB→raw→density) + `params_builder`/`digest_params`
-> + pipeline wiring, then `spk_simulate(scan_film=true)` end-to-end through JNI.
+> committed (`tools/parity/goldens/`). The **entire `scan_film` path is ported and bit-exact
+> vs the oracle**, stage by stage:
+> - profile JSON loader, density curves, emulsion, conversions, glare
+> - **Hanatos2025 spectral upsampling** (RGB→spectrum, max_abs ≈ 1.1e-7)
+> - **filming stage** (RGB→raw→develop incl. **DIR couplers**): `film_log_raw` max_abs ≈ 1.2e-7,
+>   `film_density_cmy` ≈ 2.4e-7
+> - **scanning stage** (density→RGB): `final_rgb` max_abs ≈ 6e-8
+>
+> Full `libspektra.so` links (engine + JNI + all scan-path sources). Remaining for M3:
+> `params_builder`/`digest_params` glue + **pipeline orchestration + JNI marshaling** so
+> `spk_simulate(scan_film=true)` runs end-to-end on device (the math is all in place and proven).
 
 ## M4 — Full negative→print→scan + look effects
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.

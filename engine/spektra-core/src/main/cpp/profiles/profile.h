@@ -41,6 +41,15 @@ struct Profile {
     int n_samples = 0;                      // S
     int n_density_pts = 0;                  // N
 
+    // Filming-stage fields (loaded for the rgb->raw->density port). Optional in
+    // the JSON; empty vectors mean "not present" (the scanning milestone did not
+    // need them).
+    std::vector<float> log_sensitivity;     // (S*3,) row-major [s*3 + k]
+    std::vector<float> log_exposure;        // (N,) shared log-exposure axis
+    // hanatos2025 spectral band-pass window params (erf4 model):
+    // [c_uv, sigma_uv, c_ir, sigma_ir]. Empty if absent.
+    std::vector<double> window_params;
+
     bool is_negative() const { return type == "negative"; }
     bool is_positive() const { return type == "positive"; }
 };
