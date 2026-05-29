@@ -55,9 +55,18 @@ scanning. Ship 28 profiles + LUT assets.
 >   `film_density_cmy` ≈ 2.4e-7
 > - **scanning stage** (density→RGB): `final_rgb` max_abs ≈ 6e-8
 >
-> Full `libspektra.so` links (engine + JNI + all scan-path sources). Remaining for M3:
-> `params_builder`/`digest_params` glue + **pipeline orchestration + JNI marshaling** so
-> `spk_simulate(scan_film=true)` runs end-to-end on device (the math is all in place and proven).
+> Full `libspektra.so` links (engine + JNI + all scan-path sources).
+>
+> **`spk_simulate(scan_film=true)` now runs end-to-end** through one C-API call — orchestrating
+> profile load → filming → develop(+couplers) → scanning — reproducing `final_rgb` at
+> **max_abs ≈ 7.45e-8**. The JNI bridge (`nativeCreate/Destroy/ListProfiles/Simulate`,
+> SpektraParams↔spk_params marshaling, direct-ByteBuffer I/O) is implemented and `libspektra.so`
+> exports all four `Java_com_spectrafilm_engine_*` symbols. **The scan_film engine is callable
+> from Kotlin.**
+>
+> Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir),
+> non-sRGB output color spaces, and wiring the grain/halation/glare toggles. Then M4 (print
+> route + spatial/stochastic effects + full-pipeline goldens).
 
 ## M4 — Full negative→print→scan + look effects
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
