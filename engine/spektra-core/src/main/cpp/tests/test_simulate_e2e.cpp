@@ -9,15 +9,26 @@
  * final_rgb.spkvec — printing max_abs/rms and PASS/FAIL against the manifest
  * tolerances (max_abs <= 1e-4, rms <= 1e-5).
  *
- * Build (host):
+ * It then exercises the PRINT (enlarger) route on the same fixture for TWO
+ * (film, paper) pairs through the generalized native digest (neutral dichroic
+ * CC resolved from neutral_print_filters.json + midgray exposure factor computed
+ * natively — no baked per-pair constants):
+ *   - print_portra: kodak_portra_400 -> kodak_portra_endura
+ *   - print_ektar:  kodak_ektar_100  -> kodak_supra_endura
+ * Each compares print_density_cmy (spk_simulate_tap) and final_rgb (spk_simulate)
+ * to the committed goldens, proving the generalized print path is bit-exact for
+ * an additional pair, not just the original portra case.
+ *
+ * Build (host) — full source set, run from the cpp root:
  *   g++ -std=c++17 -O2 -I <cpp_root> -I <tools/parity> \
  *     tests/test_simulate_e2e.cpp spektra.cpp \
- *     runtime/stages/filming.cpp runtime/stages/scanning.cpp runtime/params.cpp \
- *     model/couplers.cpp model/density_curves.cpp model/color_output.cpp \
- *     model/emulsion.cpp model/conversions.cpp model/spectral.cpp \
- *     kernels/spectral_upsampling.cpp kernels/interp.cpp \
- *     io/npy_lut.cpp profiles/profile.cpp \
+ *     model/*.cpp kernels/*.cpp io/*.cpp profiles/*.cpp \
+ *     runtime/params.cpp runtime/print_digest.cpp runtime/stages/*.cpp \
  *     -o /tmp/test_simulate_e2e
+ * Run (golden dirs default to the repo-root /home/user/Spectrafilmandroid path;
+ * argv[4] optionally overrides the goldens ROOT for a git worktree):
+ *   /tmp/test_simulate_e2e <asset_dir> <scan_portra_golden_dir> <input.f64> \
+ *     [goldens_root]
  */
 #include <cmath>
 #include <cstdint>
@@ -36,6 +47,13 @@ const char* kGoldenDir  =
     "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra";
 const char* kPrintGoldenDir =
     "/home/user/Spectrafilmandroid/tools/parity/goldens/print_portra";
+// Second (film, paper) pair exercising the GENERALIZED print path (native
+// neutral-CC + midgray digest, no baked portra/ektar special-case): the
+// kodak_ektar_100 negative printed on kodak_supra_endura paper. Driven by the
+// SAME deterministic input fixture (scan_portra_input_rgb.f64 == make_test_image(64))
+// the print_ektar golden was generated from.
+const char* kPrintEktarGoldenDir =
+    "/home/user/Spectrafilmandroid/tools/parity/goldens/print_ektar";
 const char* kInputF64   =
     "/home/user/Spectrafilmandroid/engine/spektra-core/src/main/cpp/tests/"
     "scan_portra_input_rgb.f64";
@@ -66,6 +84,17 @@ int main(int argc, char** argv) {
     std::string asset_dir  = argc > 1 ? argv[1] : kAssetDir;
     std::string golden_dir = argc > 2 ? argv[2] : kGoldenDir;
     std::string input_path = argc > 3 ? argv[3] : kInputF64;
+    // Optional argv[4] = goldens ROOT (the dir containing print_portra/,
+    // print_ektar/, ...). When given, the print-route golden dirs are taken from
+    // it; otherwise the repo-root defaults are used (CI / installed repo). This
+    // lets the test run from a git worktree before the goldens land in the repo.
+    std::string print_portra_dir = kPrintGoldenDir;
+    std::string print_ektar_dir  = kPrintEktarGoldenDir;
+    if (argc > 4) {
+        std::string root = argv[4];
+        print_portra_dir = root + "/print_portra";
+        print_ektar_dir  = root + "/print_ektar";
+    }
 
     spk_engine* eng = nullptr;
     spk_status st = spk_engine_create(asset_dir.c_str(), &eng);
@@ -151,7 +180,7 @@ int main(int argc, char** argv) {
     spk_image_free(&out);
 
     // --- Print (enlarger) route: same input fixture, scan_film off. ----------
-    std::string print_dir = kPrintGoldenDir;
+    std::string print_dir = print_portra_dir;
     spkvec::Array gold_print_cmy = spkvec::read(print_dir + "/print_density_cmy.spkvec");
     spkvec::Array gold_print_rgb = spkvec::read(print_dir + "/final_rgb.spkvec");
 
@@ -180,8 +209,59 @@ int main(int argc, char** argv) {
         spk_image_free(&print_out);
     }
 
+    // --- Generalized print path: a SECOND (film, paper) pair --------------
+    // kodak_ektar_100 -> kodak_supra_endura through the SAME C API. The neutral
+    // dichroic CC + midgray exposure factor are computed natively for this pair
+    // (no baked constants), proving the generalized print route matches the
+    // oracle bit-exact under the same 1e-4/1e-5 tolerances.
+    std::string ektar_dir = print_ektar_dir;
+    spkvec::Array gold_ektar_cmy = spkvec::read(ektar_dir + "/print_density_cmy.spkvec");
+    spkvec::Array gold_ektar_rgb = spkvec::read(ektar_dir + "/final_rgb.spkvec");
+
+    spk_params pe{};
+    pe.film_profile = "kodak_ektar_100";
+    pe.print_profile = "kodak_supra_endura";
+    spk_default_params(&pe);  // preserves film_profile/print_profile set above.
+    pe.exposure_compensation_ev = 0.0f;
+    pe.auto_exposure = 0;
+    pe.density_curve_gamma = 1.0f;
+    pe.grain_active = 0;
+    pe.halation_active = 0;
+    pe.dir_couplers_active = 1;
+    pe.glare_active = 0;
+    pe.scan_film = 0;  // negative -> print -> scan route.
+    pe.output_color_space = SPK_CS_SRGB;
+    pe.output_cctf_encoding = 1;
+    pe.rgb_to_raw_method = SPK_RGB2RAW_HANATOS2025;
+    pe.preview_max_size = 640;
+
+    bool pass_ektar_cmy = false, pass_ektar_rgb = false;
+
+    spk_image ektar_cmy{};
+    st = spk_simulate_tap(eng, &in_img, &pe, "print_density_cmy", &ektar_cmy);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "spk_simulate_tap(print_ektar cmy) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_ektar_cmy = check("print_ektar print_density_cmy", ektar_cmy.data,
+                               gold_ektar_cmy.data);
+        spk_image_free(&ektar_cmy);
+    }
+
+    spk_image ektar_out{};
+    st = spk_simulate(eng, &in_img, &pe, &ektar_out);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "spk_simulate(print_ektar) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_ektar_rgb = check("print_ektar final_rgb", ektar_out.data,
+                               gold_ektar_rgb.data);
+        spk_image_free(&ektar_out);
+    }
+
     spk_engine_destroy(eng);
-    bool all = pass && pass_print_cmy && pass_print_rgb;
+    bool all = pass && pass_print_cmy && pass_print_rgb &&
+               pass_ektar_cmy && pass_ektar_rgb;
     std::printf("%s\n", all ? "ALL PASS" : "FAIL");
     return all ? 0 : 1;
 }
