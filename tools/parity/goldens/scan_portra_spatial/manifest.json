@@ -1,0 +1,66 @@
+{
+  "case_id": "scan_portra_spatial",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "scan_film with spatial effects ON (halation/scatter/diffusion), grain off. Deterministic target for porting the spatial branches.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.509970784187317,
+      "mean": 0.9086853861808777,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 1.0561224222183228,
+      "mean": 0.27427393198013306,
+      "min": -3.5808591842651367,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.8893845677375793,
+      "mean": 0.2486598640680313,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "deactivate_spatial_effects": false,
+    "deactivate_stochastic_effects": true,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

@@ -103,6 +103,17 @@ CASES = [
         scan_film=False,
         notes="Second negative/paper pair to catch profile-coupled regressions.",
     ),
+    Case(
+        case_id="scan_portra_spatial",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=False,   # halation + in-emulsion scatter + coupler diffusion ON
+        deactivate_stochastic_effects=True,  # grain OFF -> still deterministic/bit-stable
+        grain_active=False,
+        notes="scan_film with spatial effects ON (halation/scatter/diffusion), grain off. "
+              "Deterministic target for porting the spatial branches.",
+    ),
 ]
 
 
