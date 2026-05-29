@@ -51,7 +51,8 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -fPIC -shared \
             -I. -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
             spektra.cpp spektra_jni.cpp \
-            kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/stages/*.cpp \
+            kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp \
+            runtime/*.cpp runtime/stages/*.cpp \
             -o libspektra.so
           ls -l libspektra.so
           # Sanity: the engine's exported C symbols are present.
@@ -98,26 +99,39 @@ jobs:
         run: python -m py_compile tools/parity/gen_goldens.py tools/parity/spkvec.py
 
   # ---------------------------------------------------------------------------
-  # Android build: skipped until the ImageToolbox host is seeded (M1). The job
-  # condition keys off settings.gradle.kts, so it stays green-by-skip now and
-  # activates the moment the host (and gradlew) land — no edit required.
+  # Android build: no-op until the ImageToolbox host is seeded (M1). hashFiles()
+  # is NOT allowed in a job-level `if:` (the repo isn't checked out at job-eval
+  # time), so we detect the host in a step after checkout and gate the rest on it.
+  # This activates automatically the moment settings.gradle.kts (+ gradlew) land.
   # ---------------------------------------------------------------------------
   android:
     name: Android (Gradle assemble)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('settings.gradle.kts') != '' }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect host (settings.gradle.kts present?)
+        id: detect
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "host=false" >> "$GITHUB_OUTPUT"
+            echo "No settings.gradle.kts yet — host not seeded (M1). Skipping Gradle build."
+          fi
+
       - uses: actions/setup-java@v4
+        if: steps.detect.outputs.host == 'true'
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
+        if: steps.detect.outputs.host == 'true'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Assemble debug
+        if: steps.detect.outputs.host == 'true'
         run: |
           set -euo pipefail
           chmod +x ./gradlew
