@@ -148,14 +148,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect host (settings.gradle.kts present?)
+      - name: Detect host (Gradle wrapper present?)
         id: detect
         run: |
-          if [ -f settings.gradle.kts ]; then
+          if [ -f gradlew ]; then
             echo "host=true" >> "$GITHUB_OUTPUT"
           else
             echo "host=false" >> "$GITHUB_OUTPUT"
-            echo "No settings.gradle.kts yet — host not seeded (M1). Skipping Gradle build."
+            echo "No gradlew yet — Android app build not wired into CI. Skipping."
           fi
 
       - uses: actions/setup-java@v4

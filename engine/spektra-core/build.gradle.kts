@@ -1,29 +1,25 @@
-/*
- * SpectraFilm for Android — engine:spektra-core build.
- * GPLv3.
- *
- * NOTE: this activates at M1, once the ImageToolbox host (with its build-logic
- * convention plugins + version catalog) is seeded into the repo (see tools/bootstrap.md).
- * Until then it documents the intended build: an Android library with a CMake native
- * build producing libspektra.so, plus the Kotlin facade.
- */
+// SpectraFilm for Android — engine:spektra-core. GPLv3.
+// Android library wrapping the native spektrafilm engine (libspektra.so, built via
+// CMake/NDK) plus the Kotlin facade (SpektraEngine / SpektraParams).
 plugins {
-    alias(libs.plugins.image.toolbox.library)
-    alias(libs.plugins.image.toolbox.hilt)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.spectrafilm.engine"
+    compileSdk = 34
 
     defaultConfig {
+        minSdk = 24
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
+                arguments += "-DANDROID_STL=c++_shared"
             }
         }
         ndk {
-            // Match ImageToolbox's supported ABIs.
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -33,10 +29,13 @@ android {
             version = "3.22.1"
         }
     }
-}
 
-dependencies {
-    // Engine is intentionally light on app deps; it consumes linear buffers + params.
-    implementation(projects.core.domain)
-    // M2: implementation(projects.lib.libraw) // or link LibRaw natively in CMake
+    // C++ sources test code lives under src/main/cpp/tests but is host-only
+    // (standalone g++ host parity tests); it is not part of the Android library.
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
 }
