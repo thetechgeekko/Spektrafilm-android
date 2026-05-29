@@ -211,6 +211,19 @@ class MainActivity : ComponentActivity() {
 
         fun refreshPresets() { presetList = Presets.list(ctx) }
 
+        // --- non-destructive recipe (sidecar) layer ---
+        // True once the engine + persisted defaults are applied, so the initial
+        // default-load doesn't get auto-saved as a recipe before a source is chosen.
+        var recipeReady by remember { mutableStateOf(false) }
+        // Whether the currently loaded source has a saved recipe bound to it.
+        var hasRecipe by remember { mutableStateOf(false) }
+        // Serialized baseline of the default (post-app-defaults) editing state. Auto-save
+        // only writes a recipe when the current edit differs from this, so untouched
+        // images never get a sidecar and "Reset edits / clear recipe" stays cleared.
+        var defaultsJson by remember { mutableStateOf<String?>(null) }
+        val snackbarHost = remember { SnackbarHostState() }
+        val recipeKey = Recipes.keyFor(sourceUri)
+
         // One-time engine init.
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
@@ -234,8 +247,39 @@ class MainActivity : ComponentActivity() {
                     catalogReady = true
                     refreshPresets()
                     status = "ready · ${list.size} profiles"
+                    // Capture the default editing state as the auto-save baseline.
+                    defaultsJson = Presets.toJsonString(state)
+                    recipeReady = true
                     previewTick++
                 }
+            }
+        }
+
+        // --- Non-destructive recipe: restore-on-open ---
+        // When the source changes to a keyed (persistable) image: if a recipe is saved
+        // for its key, load it so the edit is reproduced; otherwise reset to defaults so
+        // one image's edits never bleed onto the next. Keyed on the resolved recipeKey so
+        // it fires once per distinct source. The first run (initial demo source, key null)
+        // is a no-op, preserving the unchanged default-launch behavior.
+        var lastRestoredKey by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(recipeKey, recipeReady) {
+            if (!recipeReady) return@LaunchedEffect
+            if (recipeKey == null) { hasRecipe = false; return@LaunchedEffect }
+            if (recipeKey == lastRestoredKey) return@LaunchedEffect
+            lastRestoredKey = recipeKey
+            val restored = runCatching { Recipes.load(ctx, recipeKey, state) }.getOrDefault(false)
+            hasRecipe = restored
+            if (restored) {
+                previewTick++
+                snackbarHost.currentSnackbarData?.dismiss()
+                snackbarHost.showSnackbar(
+                    message = "Restored saved edit for this image",
+                    withDismissAction = true,
+                )
+            } else {
+                // No recipe for this source — start from defaults (don't inherit prior edits).
+                Recipes.resetToDefaults(state, settings, profiles)
+                previewTick++
             }
         }
 
@@ -254,6 +298,13 @@ class MainActivity : ComponentActivity() {
             if (uri != null) {
                 val name = uri.lastPathSegment ?: "raw"
                 if (RawDecoder.isRawFileName(name) || true) {
+                    // Persist read access so the same Uri string re-binds its recipe
+                    // across app sessions (OpenDocument grants are persistable).
+                    runCatching {
+                        ctx.contentResolver.takePersistableUriPermission(
+                            uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
                     sourceUri = uri; sourceKind = SourceKind.RAW
                     sourceName = "RAW: ${name.substringAfterLast('/')}"
                     status = "RAW selected"; previewTick++
@@ -360,6 +411,30 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(snapshot, sourceUri, sourceKind,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
 
+        // --- Non-destructive recipe: debounced auto-save ---
+        // Whenever the edit changes and a persistable source is loaded, write/update
+        // the sidecar recipe to app-private storage. Debounced so dragging a slider
+        // doesn't thrash the disk. The original image is never written. The RAW WB
+        // fields aren't in SpektraParams, so they're included as keys explicitly.
+        LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson,
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
+            if (!recipeReady || recipeKey == null) return@LaunchedEffect
+            delay(700) // debounce edits
+            val current = runCatching { Presets.toJsonString(state) }.getOrNull()
+            if (current != null && current == defaultsJson) {
+                // State equals defaults — no meaningful edit. Don't create a sidecar;
+                // drop any stale one so reverting to defaults clears the recipe too.
+                if (Recipes.exists(ctx, recipeKey)) {
+                    withContext(Dispatchers.IO) { Recipes.delete(ctx, recipeKey) }
+                }
+                hasRecipe = false
+                return@LaunchedEffect
+            }
+            runCatching {
+                withContext(Dispatchers.IO) { Recipes.save(ctx, recipeKey, state, sourceName) }
+            }.onSuccess { hasRecipe = true }
+        }
+
         Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier
@@ -402,6 +477,19 @@ class MainActivity : ComponentActivity() {
                     onUseDemo = {
                         sourceUri = null; sourceKind = SourceKind.DEMO
                         sourceName = "synthetic demo image"; previewTick++
+                    },
+                    hasRecipe = hasRecipe,
+                    onResetEdits = {
+                        // Clear the saved sidecar and restore default editing state.
+                        Recipes.delete(ctx, recipeKey)
+                        Recipes.resetToDefaults(state, settings, profiles)
+                        hasRecipe = false
+                        status = "edits reset · recipe cleared"
+                        previewTick++
+                        scope.launch {
+                            snackbarHost.currentSnackbarData?.dismiss()
+                            snackbarHost.showSnackbar("Edits reset; saved recipe cleared")
+                        }
                     },
                 )
 
@@ -587,6 +675,12 @@ class MainActivity : ComponentActivity() {
                     onDismiss = { exporting = false; exportDone = false },
                 )
             }
+
+            // Recipe restore / status snackbar.
+            SnackbarHost(
+                hostState = snackbarHost,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+            )
         }
     }
 
@@ -671,9 +765,11 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun SourceCard(
         sourceName: String,
+        hasRecipe: Boolean,
         onPickPhoto: () -> Unit,
         onOpenRaw: () -> Unit,
         onUseDemo: () -> Unit,
+        onResetEdits: () -> Unit,
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Source image", expanded, { expanded = it }) {
@@ -683,6 +779,18 @@ class MainActivity : ComponentActivity() {
                 Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) { Text("Open RAW/DNG") }
             }
             OutlinedButton(onClick = onUseDemo, modifier = Modifier.fillMaxWidth()) { Text("Use demo image") }
+            // Non-destructive recipe affordance: shown only when an edit is saved for
+            // this source. Edits are auto-saved as a sidecar; the original is untouched.
+            if (hasRecipe) {
+                Text(
+                    "Edits auto-saved for this image (original never modified).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(onClick = onResetEdits, modifier = Modifier.fillMaxWidth()) {
+                    Text("Reset edits / clear recipe")
+                }
+            }
         }
     }
 
