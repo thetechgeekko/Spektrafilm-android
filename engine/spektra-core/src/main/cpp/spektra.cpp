@@ -45,6 +45,7 @@
 #include "profiles/profile.h"
 #include "runtime/params.h"
 #include "runtime/print_digest.h"
+#include "runtime/stages/autoexposure.h"
 #include "runtime/stages/crop_resize.h"
 #include "runtime/stages/filming.h"
 #include "runtime/stages/printing.h"
@@ -201,11 +202,21 @@ spk::CropResizeParams build_crop_resize(const spk_params* p) {
     return cr;
 }
 
-// Promote the incoming float32 RGB to float64 and apply the geometry stage
-// (pipeline._preprocess -> ResizingService.crop_and_rescale), mirroring the
-// Python ordering: this runs BEFORE the filming stage. With default params
-// (crop off, upscale 1.0) it is a pure passthrough that leaves width/height and
-// pixel_size_um unchanged, so existing goldens stay byte-identical.
+// Promote the incoming float32 RGB to float64 and apply pipeline._preprocess:
+//   image = np.double(image[..., 0:3])
+//   image = self._filming_stage.auto_exposure(image)   # metering + global gain
+//   image = self._resize_service.crop_and_rescale(image)
+// This runs BEFORE the filming stage. With default *parity* params (auto-exposure
+// off, crop off, upscale 1.0) it is a pure passthrough that leaves width/height
+// and pixel_size_um unchanged, so the existing goldens stay byte-identical.
+//
+// AUTO-EXPOSURE: when p->auto_exposure is set, FilmingStage.auto_exposure meters
+// the luminance of small_preview(image) (a max-256 nearest downscale of the
+// ORIGINAL, pre-crop image) under the chosen metering pattern, computes
+// ev = -log2(metered/0.184), and scales the FULL-resolution float64 image by
+// 2**ev — a single global gain applied before crop/rescale, exactly like the
+// oracle. input_color_space is ProPhoto RGB (the engine's input space) and
+// cctf decoding follows io.input_cctf_decoding (default off).
 //
 // `pixel_size_um` is computed here as film_format_mm*1000/max(h,w) on the
 // ORIGINAL geometry (matching ResizingService, which sets it from the incoming
@@ -221,6 +232,20 @@ void preprocess_geometry(const spk_image* in, const spk_params* p,
     std::vector<double> src(static_cast<size_t>(w) * h * 3);
     for (size_t i = 0; i < src.size(); ++i)
         src[i] = static_cast<double>(in->data[i]);
+
+    // Auto-exposure (pipeline._preprocess -> FilmingStage.auto_exposure). Runs on
+    // the original geometry, BEFORE crop_and_rescale. No-op when off.
+    if (p->auto_exposure != 0) {
+        spk::AeMethod method = spk::AeMethod::kCenterWeighted;
+        const bool known = p->auto_exposure_method == nullptr
+                               ? true  // NULL => schema default center_weighted
+                               : spk::ae_method_from_string(
+                                     p->auto_exposure_method, &method);
+        spk::apply_auto_exposure(src.data(), w, h,
+                                 spk::AeColorSpace::kProPhotoRGB,
+                                 /*apply_cctf_decoding=*/p->input_cctf_decoding != 0,
+                                 method, known);
+    }
 
     spk::CropResizeParams cr = build_crop_resize(p);
     spk::crop_and_rescale(src.data(), w, h, cr, rgb, width, height,
@@ -537,6 +562,10 @@ void spk_default_params(spk_params* p) {
     // camera
     p->exposure_compensation_ev = 0.0f;
     p->auto_exposure = 1;
+    // Schema default metering = "center_weighted"; NULL selects it. (The JNI
+    // marshaller may later read CameraParams.auto_exposure_method; leaving it
+    // NULL keeps the schema default until then.)
+    p->auto_exposure_method = nullptr;
     p->lens_blur_um = 0.0f;
     p->film_format_mm = 35.0f;
     p->camera_filter_uv[0] = 0.0f; p->camera_filter_uv[1] = 410.0f; p->camera_filter_uv[2] = 8.0f;

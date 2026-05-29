@@ -1,5 +1,5 @@
 {
-  "case_id": "print_portra",
+  "case_id": "scan_portra_autoexp",
   "film_profile": "kodak_portra_400",
   "generator": "gen_goldens.py",
   "image": {
@@ -13,15 +13,15 @@
     ],
     "size": 64
   },
-  "notes": "Baseline negative->print->scan, all stochastic/spatial effects off.",
+  "notes": "scan_film with AUTO-EXPOSURE ON (center_weighted metering). Exercises FilmingStage.auto_exposure in pipeline._preprocess: the image is metered (small_preview luminance -> -log2(Y_meter/0.184) EV) and globally scaled by 2**ev before crop/rescale. For the 64px synthetic image small_preview is a no-op (long edge 64 <= 256), so metering runs on the full image. Spatial/grain off so it stays bit-stable.",
   "print_profile": "kodak_portra_endura",
-  "scan_film": false,
+  "scan_film": true,
   "spkvec_version": 1,
   "taps": {
     "film_density_cmy": {
       "file": "film_density_cmy.spkvec",
-      "max": 1.5096431970596313,
-      "mean": 0.9086718559265137,
+      "max": 1.3032047748565674,
+      "mean": 0.7088481783866882,
       "min": 0.0,
       "shape": [
         64,
@@ -31,9 +31,9 @@
     },
     "film_log_raw": {
       "file": "film_log_raw.spkvec",
-      "max": 1.0561563968658447,
-      "mean": 0.2743043601512909,
-      "min": -3.5808303356170654,
+      "max": 0.6795267462730408,
+      "mean": -0.10232526063919067,
+      "min": -3.9574596881866455,
       "shape": [
         64,
         64,
@@ -42,20 +42,9 @@
     },
     "final_rgb": {
       "file": "final_rgb.spkvec",
-      "max": 0.9213292002677917,
-      "mean": 0.5643554329872131,
+      "max": 0.8630849123001099,
+      "mean": 0.3046853840351105,
       "min": 0.0,
-      "shape": [
-        64,
-        64,
-        3
-      ]
-    },
-    "print_density_cmy": {
-      "file": "print_density_cmy.spkvec",
-      "max": 2.3174376487731934,
-      "mean": 0.4610418975353241,
-      "min": 0.007219614926725626,
       "shape": [
         64,
         64,
@@ -64,7 +53,7 @@
     }
   },
   "toggles": {
-    "auto_exposure": false,
+    "auto_exposure": true,
     "auto_exposure_method": "center_weighted",
     "deactivate_spatial_effects": true,
     "deactivate_stochastic_effects": true,
