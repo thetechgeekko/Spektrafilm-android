@@ -95,6 +95,8 @@ jobs:
           build_run test_simulate_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_filming "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
+          build_run test_crop_resize "$ASSET" "$G/scan_portra_crop" tests/scan_portra_input_rgb.f64
+          build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64
           exit $fail
 
   # ---------------------------------------------------------------------------
@@ -190,6 +192,11 @@ jobs:
     name: Android emulator smoke test (API 34 / x86_64)
     runs-on: ubuntu-latest
     needs: android
+    # Advisory until proven green once: a brand-new, infra-sensitive job
+    # (emulator boot, KVM) should not block the PR. The smoke-test artifacts
+    # (screenshot + logcat) are uploaded regardless for diagnosis. Once this
+    # job has passed on a real run, drop continue-on-error to make it gating.
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -200,20 +207,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      # Install SDK + NDK so that `adb`, `avdmanager`, and `emulator` are
-      # available, matching the `android` job's toolchain exactly.
+      # adb / avdmanager / sdkmanager. The emulator binary and the
+      # system image are installed by reactivecircus/android-emulator-runner
+      # below (keyed off api-level/target/arch), so we do NOT pre-install the
+      # NDK/CMake/system-image here — this job only runs the prebuilt APK, and
+      # the large NDK download was an unnecessary failure/disk surface.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install NDK + CMake + emulator packages
-        run: |
-          sdkmanager \
-            "ndk;26.3.11579264" \
-            "cmake;3.22.1" \
-            "emulator" \
-            "platform-tools" \
-            "system-images;android-34;default;x86_64" \
-            "platforms;android-34"
 
       # Grant the runner's user access to /dev/kvm (standard udev rule from the
       # reactivecircus/android-emulator-runner action README).
