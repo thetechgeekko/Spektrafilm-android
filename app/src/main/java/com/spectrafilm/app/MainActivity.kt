@@ -32,6 +32,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -327,9 +328,13 @@ class MainActivity : ComponentActivity() {
             previewBusy = false
         }
 
-        // re-trigger preview on any change to the params snapshot
+        // re-trigger preview on any change to the params snapshot.
+        // Raw WB fields (rawWhiteBalance, rawTemperature, rawTint) are pre-decode params;
+        // they're not in SpektraParams/toParams(), so include them explicitly here so that
+        // moving the RAW WB sliders re-decodes and re-renders the preview.
         val snapshot = state.toParams()
-        LaunchedEffect(snapshot, sourceUri, sourceKind) { previewTick++ }
+        LaunchedEffect(snapshot, sourceUri, sourceKind,
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
 
         Box(Modifier.fillMaxSize()) {
             Column(
@@ -426,7 +431,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
                 InputSection(state)
-                ImportRawSection(state)
+                ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
                 SimulationSection(state, filmGroups, printGroups)
                 GrainSection(state)
                 PreflashSection(state)
@@ -805,22 +810,87 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * RAW white-balance controls. Only meaningful when a RAW/DNG file is loaded;
+     * the section is shown but dims its controls and shows a notice for non-RAW sources
+     * so users understand the context. When [isRaw] is true the controls are fully active
+     * and changes trigger a re-decode + re-render via the [previewTick] mechanism in [Screen].
+     *
+     * Temperature and Tint only take effect when [WhiteBalance.CUSTOM] is selected;
+     * for other modes they are shown at reduced opacity to match the decoder's behaviour.
+     */
     @Composable
-    private fun ImportRawSection(s: ParamsState) {
+    private fun ImportRawSection(s: ParamsState, isRaw: Boolean) {
         var expanded by remember { mutableStateOf(false) }
-        SectionCard("Import Raw", expanded, { expanded = it }) {
-            Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
-                { it.name.lowercase() }, { s.rawWhiteBalance = it })
-            EnhancedSlider("Temperature", s.rawTemperature, 1000f..12000f, { s.rawTemperature = it },
-                step = 100f, decimals = 0,
-                tooltip = "Temperature in Kelvin for the custom white balance")
-            EnhancedSlider("Tint", s.rawTint, 0f..2f, { s.rawTint = it }, step = 0.01f, decimals = 2,
-                tooltip = "Tint value for the custom white balance")
-            Text(
-                "Use \"Open RAW/DNG\" above to load a raw; settings here re-process on change.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard("RAW White Balance", expanded, { expanded = it }) {
+            if (!isRaw) {
+                // Not a RAW source — show an informational note; dim the controls.
+                Text(
+                    "Load a RAW/DNG file (\"Open RAW/DNG\" above) to enable RAW white-balance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().alpha(0.38f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                        { it.name.lowercase() }, { /* no-op when not RAW */ })
+                    EnhancedSlider("Temperature (K)", s.rawTemperature, 1000f..12000f, { },
+                        step = 100f, decimals = 0,
+                        tooltip = "Temperature in Kelvin (active only for RAW files with Custom WB)")
+                    EnhancedSlider("Tint", s.rawTint, 0f..2f, { },
+                        step = 0.01f, decimals = 2,
+                        tooltip = "Tint multiplier (active only for RAW files with Custom WB)")
+                }
+            } else {
+                // RAW source loaded — full controls, wired to re-decode on change.
+                val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
+                Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                    { it.name.lowercase() }, { s.rawWhiteBalance = it })
+                // Reset button: restore camera/as-shot WB (default decoder behaviour).
+                OutlinedButton(
+                    onClick = {
+                        s.rawWhiteBalance = WhiteBalance.AS_SHOT
+                        s.rawTemperature = 5500f
+                        s.rawTint = 1f
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Reset to camera / as-shot WB") }
+                // Temperature & Tint: only used by the decoder in CUSTOM mode.
+                // Dim but keep interactive for the other modes so values are preserved.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(if (customActive) 1f else 0.45f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (!customActive) {
+                        Text(
+                            "Temperature and Tint are used only when \"custom\" is selected above.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    EnhancedSlider(
+                        "Temperature (K)", s.rawTemperature, 1000f..12000f,
+                        { s.rawTemperature = it },
+                        step = 100f, decimals = 0,
+                        tooltip = "Colour temperature in Kelvin for Custom white balance (1000 K – 12000 K).",
+                    )
+                    EnhancedSlider(
+                        "Tint", s.rawTint, 0f..2f,
+                        { s.rawTint = it },
+                        step = 0.01f, decimals = 2,
+                        tooltip = "Green/magenta tint multiplier for Custom white balance (1.0 = neutral).",
+                    )
+                }
+                Text(
+                    "Changes re-decode the RAW file and update the preview automatically.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 
