@@ -1070,43 +1070,14 @@ class MainActivity : ComponentActivity() {
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
 
-            // --- Auto exposure toggle (Lightroom-style) ---
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (s.autoExposure) {
-                    Button(
-                        onClick = { s.autoExposure = false },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) { Text("Auto") }
-                } else {
-                    OutlinedButton(
-                        onClick = { s.autoExposure = true },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Auto") }
-                }
-                Text(
-                    if (s.autoExposure) "Metering to midgray" else "Manual exposure",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (s.autoExposure)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(2f),
-                )
-            }
-            if (s.autoExposure) {
-                GatedBlock("Metering method is not yet forwarded to the engine (center_weighted is always used).") {
-                    Dropdown("Metering method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
-                        { s.autoExposureMethod = it })
-                }
-            }
+            // --- Auto exposure — Lightroom-style expandable metering control ---
+            AutoExposureControl(
+                autoExposure = s.autoExposure,
+                autoExposureMethod = s.autoExposureMethod,
+                methods = AUTO_EXPOSURE_METHODS,
+                onAutoExposureChange = { s.autoExposure = it },
+                onMethodChange = { s.autoExposureMethod = it },
+            )
             EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
                 step = 1f, decimals = 0,
                 tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)")

@@ -11,26 +11,39 @@ package com.spectrafilm.app
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -38,15 +51,20 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -450,3 +468,291 @@ private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float):
 
 private fun formatValue(v: Float, decimals: Int): String =
     if (decimals <= 0) v.roundToInt().toString() else "%.${decimals}f".format(v)
+
+// ---------------------------------------------------------------------------
+// AutoExposureControl — Lightroom-mobile style expandable metering control
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts a snake_case method id to a human-readable Title Case label.
+ * e.g. "center_weighted" -> "Center Weighted"
+ */
+private fun meteringMethodLabel(id: String): String =
+    id.split('_').joinToString(" ") { word ->
+        word.replaceFirstChar { it.uppercaseChar() }
+    }
+
+/**
+ * A small drag-handle bar drawn via Canvas — the grabber affordance at the
+ * top of the expanded metering list.
+ */
+@Composable
+private fun DragHandle(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    Canvas(modifier = modifier.size(width = 32.dp, height = 4.dp)) {
+        drawRoundRect(
+            color = color,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+        )
+    }
+}
+
+/**
+ * Lightroom-mobile-style expandable auto-exposure / metering-method control.
+ *
+ * Collapsed state: a single "Auto" button (OutlinedButton when off, filled Button
+ * showing the active method name when on).
+ *
+ * Expanded state: an elevated Surface that slides up from the button showing all
+ * metering methods plus an "Off / Manual" option at the top. A drag handle at
+ * the top of the list and a swipe-down gesture collapse it. Swiping up on the
+ * (collapsed) button expands it.
+ *
+ * State ownership: [autoExposure] / [autoExposureMethod] are owned by the caller
+ * (ParamsState fields); expand/collapse is local [remember] state.
+ */
+@Composable
+fun AutoExposureControl(
+    autoExposure: Boolean,
+    autoExposureMethod: String,
+    methods: List<String>,
+    onAutoExposureChange: (Boolean) -> Unit,
+    onMethodChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // Accumulated vertical drag on the button (swipe-up to expand).
+    var buttonDragAccum by remember { mutableFloatStateOf(0f) }
+    // Accumulated vertical drag on the list panel (swipe-down to collapse).
+    var listDragAccum by remember { mutableFloatStateOf(0f) }
+    // Threshold (px) for swipe recognition — ~40dp worth at most densities.
+    val swipeThresholdPx = 80f
+
+    // Human-readable label for the current method.
+    val currentLabel = meteringMethodLabel(autoExposureMethod)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+
+        // ----- Expanded metering-method panel -----
+        // Renders ABOVE the button in the column layout, slides up from the button.
+        AnimatedVisibility(
+            visible = expanded,
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(220),
+            ) + fadeIn(animationSpec = tween(220)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(180),
+            ) + fadeOut(animationSpec = tween(180)),
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    // Swipe-down anywhere on the panel collapses the list.
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragStart = { listDragAccum = 0f },
+                            onDragEnd = { listDragAccum = 0f },
+                            onDragCancel = { listDragAccum = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                listDragAccum += dragAmount
+                                if (listDragAccum > swipeThresholdPx) {
+                                    expanded = false
+                                    listDragAccum = 0f
+                                }
+                            },
+                        )
+                    },
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    // Drag handle at the very top — visual affordance for swipe-down.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        DragHandle()
+                    }
+
+                    Text(
+                        "Metering method",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                    // "Off / Manual" entry — always at the top.
+                    MeteringMethodRow(
+                        label = "Off / Manual",
+                        isSelected = !autoExposure,
+                        onClick = {
+                            onAutoExposureChange(false)
+                            expanded = false
+                        },
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+
+                    // All metering methods.
+                    methods.forEachIndexed { index, method ->
+                        MeteringMethodRow(
+                            label = meteringMethodLabel(method),
+                            isSelected = autoExposure && autoExposureMethod == method,
+                            onClick = {
+                                onAutoExposureChange(true)
+                                onMethodChange(method)
+                                // Keep the list open so the user sees the selection.
+                                // It can be closed via swipe-down or tapping outside.
+                            },
+                        )
+                        if (index < methods.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+
+        // ----- Collapsed "Auto" button -----
+        // Tap: if off → turn on and expand. If on → just expand (toggle list visibility).
+        // Swipe up: expand the list.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { buttonDragAccum = 0f },
+                        onDragEnd = { buttonDragAccum = 0f },
+                        onDragCancel = { buttonDragAccum = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            buttonDragAccum += dragAmount
+                            // Negative dragAmount = upward swipe → expand.
+                            if (buttonDragAccum < -swipeThresholdPx) {
+                                if (!autoExposure) onAutoExposureChange(true)
+                                expanded = true
+                                buttonDragAccum = 0f
+                            }
+                        },
+                    )
+                },
+        ) {
+            if (autoExposure) {
+                // ON: filled/accent button showing active method name.
+                Button(
+                    onClick = {
+                        // Tap while on: toggle the list panel.
+                        expanded = !expanded
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Text(
+                        "Auto  ·  $currentLabel",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            } else {
+                // OFF: outlined button, subtitle "Manual exposure".
+                Column(Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            // Tap while off: turn on and expand.
+                            onAutoExposureChange(true)
+                            expanded = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Auto")
+                    }
+                    Text(
+                        "Manual exposure",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A single row in the metering-method list: label + trailing checkmark when selected.
+ */
+@Composable
+private fun MeteringMethodRow(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = if (isSelected) {
+                MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+            } else {
+                MaterialTheme.typography.bodyMedium
+            },
+            color = if (isSelected) primaryColor else onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (isSelected) {
+            // Checkmark drawn via Canvas — no material-icons dependency.
+            val checkColor = primaryColor
+            Canvas(modifier = Modifier.size(20.dp)) {
+                val w = size.width
+                val h = size.height
+                val stroke = w * 0.10f
+                drawLine(
+                    color = checkColor,
+                    start = Offset(w * 0.18f, h * 0.52f),
+                    end = Offset(w * 0.42f, h * 0.76f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = checkColor,
+                    start = Offset(w * 0.42f, h * 0.76f),
+                    end = Offset(w * 0.82f, h * 0.28f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+    }
+}
