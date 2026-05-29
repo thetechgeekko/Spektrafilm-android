@@ -4,6 +4,8 @@
  *
  * Converts a display-referred (sRGB) Bitmap into the scene-linear ProPhoto-RGB
  * float buffer the engine expects, and writes a rendered Bitmap to the gallery.
+ * For 16-bit TIFF export the engine's float SimResult buffer is quantised directly
+ * to uint16 and written via TiffWriter (lib:tiffwriter) — no 8-bit Bitmap round-trip.
  */
 package com.spectrafilm.app
 
@@ -15,11 +17,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.SimResult
+import com.spectrafilm.tiffwriter.ExifColorSpace
+import com.spectrafilm.tiffwriter.TiffWriter
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -169,14 +178,20 @@ fun cubeFileName(film: String, print: String): String {
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {
     PNG("PNG", "image/png", "png"),
     JPEG("JPEG", "image/jpeg", "jpg"),
+    TIFF("16-bit TIFF", "image/tiff", "tif"),
 }
 
 /**
- * Save [bmp] to the public gallery under Pictures/SpectraFilm.
+ * Save [bmp] to the public gallery under Pictures/SpectraFilm as PNG or JPEG.
  * Uses scoped storage (MediaStore RELATIVE_PATH + IS_PENDING) on API 29+, and the
  * legacy direct-file + MediaStore insert path below that. Returns the content [Uri].
+ *
+ * For TIFF, use [saveSimResultAsTiff] instead — Bitmap.compress has no TIFF support.
  */
 fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: Int = 95): Uri {
+    require(format != ExportFormat.TIFF) {
+        "Use saveSimResultAsTiff() for TIFF export"
+    }
     val name = "SpectraFilm_${System.currentTimeMillis()}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
     val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
@@ -215,4 +230,109 @@ fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: 
     }
     return resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
         ?: Uri.fromFile(file)
+}
+
+/**
+ * Return the EXIF ColorSpace advisory tag value for a given engine [ColorSpace].
+ * Only sRGB and linear sRGB map to EXIF ColorSpace = 1 (sRGB); all wide-gamut
+ * spaces map to 0xFFFF (Uncalibrated) per the EXIF spec.
+ */
+private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
+    ColorSpace.SRGB, ColorSpace.LINEAR_SRGB -> ExifColorSpace.SRGB
+    else -> ExifColorSpace.UNCALIBRATED
+}
+
+/**
+ * Quantise the engine's display-referred float RGB [SimResult] to 16-bit per channel
+ * and write a baseline TIFF to the gallery via [TiffWriter], using MediaStore for
+ * scoped-storage / legacy compatibility.
+ *
+ * Bit depth: the engine's [SimResult.data] buffer holds float32 RGB values already
+ * CCTF-encoded in the chosen [SimResult.colorSpace]. We round-to-nearest quantise
+ * each [0,1]-clamped float to [0, 65535] uint16 — a true 16-bit encode with no
+ * intermediate 8-bit Bitmap step.
+ *
+ * ICC: no ICC profile bytes are bundled in the app assets for this wave; the EXIF
+ * ColorSpace advisory tag is set to SRGB when the output space is sRGB/linear-sRGB,
+ * and UNCALIBRATED for all wide-gamut spaces. A future wave can add .icc assets
+ * and pass their bytes here.
+ *
+ * @param ctx     Android context (for MediaStore / cacheDir)
+ * @param result  The engine SimResult whose float data is quantised to 16-bit
+ * @return        The MediaStore [Uri] of the written file
+ */
+fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
+    val w = result.width
+    val h = result.height
+    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val nSamples = w * h * 3
+
+    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
+    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
+    for (i in 0 until nSamples) {
+        val v = floatBuf.get(i).coerceIn(0f, 1f)
+        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+        // Write as little-endian uint16 (low byte first).
+        rgb16Buf.put((u16 and 0xFF).toByte())
+        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+    }
+    rgb16Buf.flip()
+
+    val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
+    val exifCs = exifColorSpaceFor(result.colorSpace)
+
+    // Write to a temp file in cacheDir first; this avoids holding a MediaStore
+    // output stream open for the entire (potentially large) TiffWriter write.
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
+    TiffWriter.write(
+        rgb16 = rgb16Buf,
+        width = w,
+        height = h,
+        outPath = tmpFile.absolutePath,
+        icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
+        exifColorSpace = exifCs,
+        software = "SpectraFilm",
+        dateTime = dateTime,
+        packBits = false,        // Uncompressed baseline for maximum compatibility
+    )
+
+    val name = "SpectraFilm_${System.currentTimeMillis()}.tif"
+    val resolver = ctx.contentResolver
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore insert failed for TIFF")
+        resolver.openOutputStream(uri)?.use { out ->
+            tmpFile.inputStream().use { it.copyTo(out) }
+        } ?: error("Could not open MediaStore output stream for TIFF")
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        tmpFile.delete()
+        uri
+    } else {
+        // Legacy (API 24..28): write directly to public Pictures dir.
+        @Suppress("DEPRECATION")
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "SpectraFilm"
+        ).apply { mkdirs() }
+        val destFile = File(dir, name)
+        tmpFile.copyTo(destFile, overwrite = true)
+        tmpFile.delete()
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
+            @Suppress("DEPRECATION")
+            put(MediaStore.Images.Media.DATA, destFile.absolutePath)
+        }
+        resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: Uri.fromFile(destFile)
+    }
 }

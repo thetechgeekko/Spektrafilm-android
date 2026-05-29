@@ -23,3 +23,4 @@ rootProject.name = "SpectraFilm"
 include(":app")
 include(":engine:spektra-core")
 include(":lib:libraw")
+include(":lib:tiffwriter")

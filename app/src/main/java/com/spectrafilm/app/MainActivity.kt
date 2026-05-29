@@ -494,7 +494,11 @@ class MainActivity : ComponentActivity() {
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
-                                        saveToGallery(ctx, bmp, fmt, settings.exportQuality)
+                                        if (fmt == ExportFormat.TIFF) {
+                                            saveSimResultAsTiff(ctx, res)
+                                        } else {
+                                            saveToGallery(ctx, bmp, fmt, settings.exportQuality)
+                                        }
                                     }
                                     bmp to uri
                                 }
