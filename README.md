@@ -33,13 +33,19 @@ color space.
   Import Raw · Simulation · Grain · Preflash · Halation · Couplers · Glare · Experimental ·
   Display) with live preview.
 - ✅ **RAW/DNG import** (LibRaw → linear ACES) + photo picker, and a **synthetic demo image**.
+- ✅ **RAW white-balance UI** — Temperature/Tint sliders + mode dropdown (as-shot / daylight /
+  tungsten / custom) + reset, shown only for RAW/DNG sources; changing WB re-decodes the
+  preview automatically.
+- ✅ **Crop/resize geometry stage** — the `IOParams` crop fields and cubic `upscale_factor` are
+  live (bit-exact vs the spektrafilm `_preprocess` step); defaults are a strict no-op.
 - ✅ **Presets:** 20 built-in researched film→print looks + **save / import / export** your own.
 - ✅ **6 output color spaces** — sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1, linear.
 - ✅ **Native engine** (`libspektra.so`) + **`libsfraw.so`** (LibRaw) for arm64-v8a /
   armeabi-v7a / x86_64, driven from a Jetpack Compose UI with a full-res **export to gallery**.
 
-**Next (M2+):** global Coil RAW decoder, zoomable canvas + before/after + histogram + 100% grain
-magnifier, profile-curve browser, bake-to-`.cube`-LUT, batch processing — see `docs/ROADMAP.md`.
+**Next (M2+):** global Coil RAW decoder, 16-bit PNG/TIFF export, profile-curve browser, batch
+processing, porting the remaining gated stages (diffusion filters, lens blur, auto-exposure) —
+see `docs/ROADMAP.md`.
 
 ## Install
 

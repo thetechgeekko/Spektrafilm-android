@@ -44,6 +44,9 @@ Stage order: params/profiles → density curves/emulsion → spectral upsampling
 scanning. Ship 28 profiles + LUT assets.
 - Golden-vector harness green for: film raw, film density, scan RGB.
 - **Done when:** `simulate(scan_film=true)` on a test image matches spektrafilm within tol.
+- **Landed (2026-05-29):** RAW white-balance UI (Temperature/Tint sliders + WB-mode dropdown
+  + reset-to-as-shot) — see progress note below. `scan_film` path itself was already
+  bit-exact in v0.1.0; remaining M3 small items are AAssetManager path + non-sRGB wiring.
 
 > **Progress:** the Python engine runs headless here as a live oracle and real goldens are
 > committed (`tools/parity/goldens/`). The **entire `scan_film` path is ported and bit-exact
@@ -66,11 +69,21 @@ scanning. Ship 28 profiles + LUT assets.
 > Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir),
 > non-sRGB output color spaces, and wiring the grain/halation/glare toggles. Then M4 (print
 > route + spatial/stochastic effects + full-pipeline goldens).
+>
+> **M3 backlog item landed (2026-05-29):** **RAW white-balance UI** — Temperature/Tint sliders
+> + a WB-mode dropdown (as-shot / daylight / tungsten / custom) + reset-to-as-shot, shown only
+> for RAW/DNG sources. Wired to the existing LibRaw decoder: changing the mode or sliders
+> re-decodes the preview automatically. Default (as-shot) behaviour is unchanged; parity
+> preserved. (Issue #6 note: the `rawTemperature`/`rawTint` fields were already in `RawDecoder`
+> — this completes the UI surface for that path.)
 
 ## M4 — Full negative→print→scan + look effects  🚧 in progress
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
+- **Landed (2026-05-29, M-geometry / issue #6 partial):** crop/resize geometry stage ported
+  (bit-exact). Remaining gated stages for #6: diffusion filters, lens blur, auto-exposure,
+  LUT acceleration — see progress note below.
 
 > **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
 > print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
@@ -81,6 +94,19 @@ Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filt
 > pairs return an error). Generalizing requires a native digest of `neutral_print_filters.json`
 > + the filming-midgray balance — the next M4 task. Then: grain (Poisson-binomial), halation/
 > scatter + diffusion filters (spatial branches), and stochastic/spatial golden cases.
+>
+> **M4/M-geometry item landed (2026-05-29) — partial fix for issue #6:** **crop/resize geometry
+> stage ported** (bit-exact). The previously-inert `IOParams` crop fields (`crop`,
+> `crop_center`, `crop_size`) and the cubic `upscale_factor` are now a live pre-process stage
+> running before filming in both the scan and print routes, matching spektrafilm's
+> `_preprocess` step (`runtime/services/resize.py` + `utils/crop_resize.py`). Defaults remain
+> a strict no-op; parity on all 11 existing goldens is byte-identical. A new
+> `scan_portra_crop` golden gates the non-default path (max_abs ≈ 2e-7). Host suite: 12/12
+> PASS.
+>
+> **Remaining gated stages for #6** (params still shown as "not yet active" in UI):
+> diffusion filters, lens blur, auto-exposure, and LUT acceleration.
+> Downscale (`upscale_factor < 1`) anti-aliasing prefilter is a documented follow-up.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
 Full `RuntimePhotoParams` control surface (camera/enlarger/scanner/grain/halation/couplers/
@@ -104,19 +130,22 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 
 ## M7 — Final polish & presentation (requested)
 The "do this when literally everything else is done" list:
-- **Welcome / onboarding screen** — a beautiful first-run intro: the project story (spektrafilm +
-  ImageToolbox + the bit-exact port), **how the app works** (pick → choose film/print → tune →
-  export), with tasteful **animations** (Compose animated transitions / a brief guided tour).
-  The last page links to Settings / a quick "Report an issue" shortcut.
-- **Settings page** — important app settings: default output color space, preview resolution,
+- ✅ **Welcome / onboarding screen** — shipped in v0.2.0. A multi-page intro covering the
+  project story, how the app works, and a guided tour. The last page links to Settings and the
+  "Report an issue" GitHub shortcut.
+- ✅ **Settings page** — shipped in v0.2.0. Default output color space, preview resolution,
   default film/print, export format/quality + save location, theme (light/dark/dynamic), reset,
-  **and a "Report an issue / Flag on GitHub" entry** opening
-  https://github.com/thetechgeekko/Spectrafilmandroid/issues/new (+ a link to existing issues).
-- **In-app About section** — credits (spektrafilm/ImageToolbox/colour-science/LibRaw), the
-  pixls.us dedication, author links (Akshay — Instagram/YouTube), version, license, source link.
-- **GitHub repo "About"** — set the repository description, topics, and homepage at
-  https://github.com/thetechgeekko/Spectrafilmandroid/ (via API if available, else provide the
-  exact text for one-click setup).
+  and a "Report an issue / Flag on GitHub" entry opening
+  https://github.com/thetechgeekko/Spectrafilmandroid/issues/new.
+- ✅ **In-app About section** — shipped in v0.2.0. Credits (spektrafilm/ImageToolbox/
+  colour-science/LibRaw), the pixls.us dedication, author links (Akshay — Instagram/YouTube),
+  version, license, and source link.
+- **GitHub repo "About"** — repository description, topics, and homepage must be set manually
+  at https://github.com/thetechgeekko/Spectrafilmandroid/ by the maintainer (the env cannot
+  push via the API). Ready-to-paste text is in `docs/RELEASE_CHECKLIST.md`.
+- **Remaining (M7/polish):** port the gated engine stages so those params go live (diffusion
+  filters, lens blur, auto-exposure — see issue #6); signed release key (currently debug-signed
+  fallback; see `docs/RELEASE_CHECKLIST.md`).
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
