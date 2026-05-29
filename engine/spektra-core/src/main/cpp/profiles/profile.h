@@ -1,0 +1,58 @@
+/*
+ * SpectraFilm for Android — native engine: film/print Profile struct + loader.
+ * Copyright (C) 2026 SpectraFilm Android contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version. See <https://www.gnu.org/licenses/>.
+ *
+ * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
+ * spektrafilm. Ports the parts of spektrafilm/profiles/io.py the scanning stage
+ * consumes: info.type / info.viewing_illuminant and data.{wavelengths,
+ * channel_density, base_density, density_curves}. Other fields parsed by the
+ * full pipeline (log_sensitivity, log_exposure, ...) are loaded lazily as the
+ * port grows; the scanning milestone only needs the subset below.
+ */
+#ifndef SPK_PROFILES_PROFILE_H
+#define SPK_PROFILES_PROFILE_H
+
+#include <string>
+#include <vector>
+
+namespace spk {
+
+// Mirrors the spektrafilm Profile fields used downstream. Spectral arrays are
+// stored on the profile's own wavelength grid (the bundled profiles already use
+// the 380..780 @5nm / 81-sample working shape, matching spektra.h). NaN entries
+// in the JSON (`null`) are preserved as NaN so density_to_light zeroes them,
+// exactly as the Python pipeline does.
+struct Profile {
+    // info
+    std::string type;                 // "negative" | "positive"
+    std::string viewing_illuminant;   // e.g. "D50"
+    std::string reference_illuminant;
+
+    // data
+    std::vector<float> wavelengths;        // (S,)
+    std::vector<float> channel_density;     // (S*3,) row-major [s*3 + k] (CMY dye)
+    std::vector<float> base_density;        // (S,)
+    std::vector<float> density_curves;      // (N*3,) row-major [n*3 + k]
+    int n_samples = 0;                      // S
+    int n_density_pts = 0;                  // N
+
+    bool is_negative() const { return type == "negative"; }
+    bool is_positive() const { return type == "positive"; }
+};
+
+// Load a profile from a JSON file path (the bundled spektrafilm profile format).
+// Throws std::runtime_error on parse/validation failure.
+Profile load_profile_file(const std::string& json_path);
+
+// Parse a profile from an in-memory JSON string (for asset-backed loading on
+// Android, where the file lives in the APK asset store).
+Profile load_profile_string(const std::string& json_text);
+
+}  // namespace spk
+
+#endif  // SPK_PROFILES_PROFILE_H
