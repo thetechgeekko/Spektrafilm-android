@@ -137,6 +137,7 @@ spk_rgb2raw enum_ordinal_rgb2raw(JNIEnv* env, jobject e) {
 struct ParamStorage {
     std::string film_profile;
     std::string print_profile;
+    std::string auto_exposure_method;
 };
 
 // Read a DiffusionFilterParams jobject into the spk_params diffusion-filter
@@ -195,6 +196,14 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
     if (camera) {
         out->exposure_compensation_ev = call_float(env, camera, "getExposureCompensationEv");
         out->auto_exposure = call_bool(env, camera, "getAutoExposure") ? 1 : 0;
+        // Forward the metering method string (e.g. "center_weighted"). The owned
+        // copy in `store` keeps the pointer valid for the duration of the call;
+        // empty/null leaves the spk_default_params value (engine -> center_weighted).
+        store->auto_exposure_method = jstr(env,
+            static_cast<jstring>(call_obj(env, camera, "getAutoExposureMethod",
+                                          "()Ljava/lang/String;")));
+        out->auto_exposure_method = store->auto_exposure_method.empty()
+            ? nullptr : store->auto_exposure_method.c_str();
         out->lens_blur_um = call_float(env, camera, "getLensBlurUm");
         out->film_format_mm = call_float(env, camera, "getFilmFormatMm");
         read_triple_f(env, camera, "getFilterUv", out->camera_filter_uv);
