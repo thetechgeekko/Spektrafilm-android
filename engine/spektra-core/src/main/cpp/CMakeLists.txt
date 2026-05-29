@@ -43,6 +43,7 @@ add_library(spektra SHARED
         model/color_filters.cpp              # dichroic Y/M/C enlarger filters (M4)
         runtime/stages/printing.cpp          # film density -> print density CMY (M4)
         runtime/print_digest.cpp             # native neutral CC + midgray digest (M5)
+        runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -68,6 +69,10 @@ target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib})
 #   tests/test_filming.cpp               (scan_portra film_log_raw/density: max_abs ~2e-7)
 #   tests/test_spatial.cpp               (scan_portra_spatial film_density_cmy +
 #                                         final_rgb: spatial branch, max_abs ~2e-7)
+#   tests/test_crop_resize.cpp           (scan_portra_crop: non-default crop +
+#                                         cubic upscale geometry stage; geometry
+#                                         64x64 -> 66x56 + film_density_cmy/final_rgb
+#                                         vs oracle: max_abs ~2e-7)
 # Statistical grain gates (RNG streams differ; verified by distribution + stats):
 #   tests/test_grain.cpp                 (non-sublayer apply_grain_to_density:
 #                                         mean preservation, noise std ±15%)

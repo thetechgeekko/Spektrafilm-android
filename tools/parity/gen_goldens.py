@@ -76,6 +76,12 @@ class Case:
     deactivate_stochastic_effects: bool = True
     deactivate_spatial_effects: bool = True
     grain_active: bool = False
+    # Crop / resize geometry (io params). Defaults are a strict no-op; non-default
+    # values exercise the crop_and_rescale (crop + cubic upscale) preprocess.
+    crop: bool = False
+    crop_center: tuple = (0.5, 0.5)
+    crop_size: tuple = (0.1, 0.1)
+    upscale_factor: float = 1.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -113,6 +119,23 @@ CASES = [
         grain_active=False,
         notes="scan_film with spatial effects ON (halation/scatter/diffusion), grain off. "
               "Deterministic target for porting the spatial branches.",
+    ),
+    Case(
+        case_id="scan_portra_crop",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        crop=True,
+        crop_center=(0.45, 0.55),
+        crop_size=(0.6, 0.5),
+        upscale_factor=1.75,
+        notes="scan_film with a NON-default crop + cubic upscale geometry stage "
+              "(crop_and_rescale): crop_center=(0.45,0.55), crop_size=(0.6,0.5), "
+              "upscale_factor=1.75. Spatial/grain off so it stays bit-stable; "
+              "exercises the crop integer-slice + skimage rescale(order=3) port.",
     ),
 ]
 
@@ -197,6 +220,10 @@ def _build_params(sf, case: Case):
         print_profile=case.print_profile,
     )
     params.io.scan_film = case.scan_film
+    params.io.crop = case.crop
+    params.io.crop_center = tuple(case.crop_center)
+    params.io.crop_size = tuple(case.crop_size)
+    params.io.upscale_factor = case.upscale_factor
     params.debug.deactivate_stochastic_effects = case.deactivate_stochastic_effects
     params.debug.deactivate_spatial_effects = case.deactivate_spatial_effects
     params.film_render.grain.active = case.grain_active

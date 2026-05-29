@@ -1,0 +1,66 @@
+{
+  "case_id": "scan_portra_crop",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "scan_film with a NON-default crop + cubic upscale geometry stage (crop_and_rescale): crop_center=(0.45,0.55), crop_size=(0.6,0.5), upscale_factor=1.75. Spatial/grain off so it stays bit-stable; exercises the crop integer-slice + skimage rescale(order=3) port.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.552591323852539,
+      "mean": 0.8637599349021912,
+      "min": 0.004478398244827986,
+      "shape": [
+        56,
+        66,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 0.9081817865371704,
+      "mean": 0.19241419434547424,
+      "min": -1.671385645866394,
+      "shape": [
+        56,
+        66,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.8268885612487793,
+      "mean": 0.2606051564216614,
+      "min": 0.0,
+      "shape": [
+        56,
+        66,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "deactivate_spatial_effects": true,
+    "deactivate_stochastic_effects": true,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}
