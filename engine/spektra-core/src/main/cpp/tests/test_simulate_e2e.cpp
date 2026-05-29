@@ -34,9 +34,31 @@ namespace {
 const char* kAssetDir   = "/home/user/spektrafilm/src/spektrafilm/data";
 const char* kGoldenDir  =
     "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra";
+const char* kPrintGoldenDir =
+    "/home/user/Spectrafilmandroid/tools/parity/goldens/print_portra";
 const char* kInputF64   =
     "/home/user/Spectrafilmandroid/engine/spektra-core/src/main/cpp/tests/"
     "scan_portra_input_rgb.f64";
+
+// Compare a flat float buffer against a golden, print + return PASS/FAIL.
+bool check(const char* label, const float* got, const std::vector<float>& gold) {
+    double max_abs = 0.0, sse = 0.0;
+    size_t argmax = 0;
+    for (size_t i = 0; i < gold.size(); ++i) {
+        double d = std::fabs(static_cast<double>(got[i]) -
+                             static_cast<double>(gold[i]));
+        if (d > max_abs) { max_abs = d; argmax = i; }
+        sse += d * d;
+    }
+    double rms = std::sqrt(sse / static_cast<double>(gold.size()));
+    const double tol_max_abs = 1e-4, tol_rms = 1e-5;
+    bool pass = (max_abs <= tol_max_abs) && (rms <= tol_rms);
+    std::printf("[%s] max_abs=%.6e (tol %.0e) rms=%.6e (tol %.0e) "
+                "worst idx=%zu got=%.8f gold=%.8f -> %s\n",
+                label, max_abs, tol_max_abs, rms, tol_rms, argmax,
+                got[argmax], gold[argmax], pass ? "PASS" : "FAIL");
+    return pass;
+}
 
 }  // namespace
 
@@ -119,13 +141,46 @@ int main(int argc, char** argv) {
 
     const double tol_max_abs = 1e-4, tol_rms = 1e-5;
     bool pass = (max_abs <= tol_max_abs) && (rms <= tol_rms);
-    std::printf("max_abs = %.6e (tol %.0e)\n", max_abs, tol_max_abs);
-    std::printf("rms     = %.6e (tol %.0e)\n", rms, tol_rms);
-    std::printf("worst idx=%zu: got=%.8f golden=%.8f\n", argmax,
-                out.data[argmax], gold.data[argmax]);
-    std::printf("%s\n", pass ? "PASS" : "FAIL");
-
+    std::printf("[scan_portra final_rgb] max_abs = %.6e (tol %.0e)\n",
+                max_abs, tol_max_abs);
+    std::printf("[scan_portra final_rgb] rms     = %.6e (tol %.0e)\n",
+                rms, tol_rms);
+    std::printf("worst idx=%zu: got=%.8f golden=%.8f -> %s\n", argmax,
+                out.data[argmax], gold.data[argmax], pass ? "PASS" : "FAIL");
     spk_image_free(&out);
+
+    // --- Print (enlarger) route: same input fixture, scan_film off. ----------
+    std::string print_dir = kPrintGoldenDir;
+    spkvec::Array gold_print_cmy = spkvec::read(print_dir + "/print_density_cmy.spkvec");
+    spkvec::Array gold_print_rgb = spkvec::read(print_dir + "/final_rgb.spkvec");
+
+    p.scan_film = 0;  // negative -> print -> scan route.
+
+    bool pass_print_cmy = false, pass_print_rgb = false;
+
+    spk_image tap_cmy{};
+    st = spk_simulate_tap(eng, &in_img, &p, "print_density_cmy", &tap_cmy);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "spk_simulate_tap(print_density_cmy) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_print_cmy = check("print_portra print_density_cmy", tap_cmy.data,
+                               gold_print_cmy.data);
+        spk_image_free(&tap_cmy);
+    }
+
+    spk_image print_out{};
+    st = spk_simulate(eng, &in_img, &p, &print_out);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "spk_simulate(print) failed: %s\n", spk_status_str(st));
+    } else {
+        pass_print_rgb = check("print_portra final_rgb", print_out.data,
+                               gold_print_rgb.data);
+        spk_image_free(&print_out);
+    }
+
     spk_engine_destroy(eng);
-    return pass ? 0 : 1;
+    bool all = pass && pass_print_cmy && pass_print_rgb;
+    std::printf("%s\n", all ? "ALL PASS" : "FAIL");
+    return all ? 0 : 1;
 }

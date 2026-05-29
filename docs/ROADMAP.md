@@ -68,10 +68,20 @@ scanning. Ship 28 profiles + LUT assets.
 > non-sRGB output color spaces, and wiring the grain/halation/glare toggles. Then M4 (print
 > route + spatial/stochastic effects + full-pipeline goldens).
 
-## M4 — Full negative→print→scan + look effects
+## M4 — Full negative→print→scan + look effects  🚧 in progress
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
+
+> **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
+> print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
+> vs the `print_portra` goldens: `print_density_cmy` max_abs ≈ 2.4e-7, `final_rgb` ≈ 4.2e-7;
+> end-to-end `spk_simulate(scan_film=false)` ≈ 5.6e-7. DIR couplers already done (M3).
+> **Known limitation:** the per-(film,paper) **neutral dichroic CC values** and the **midgray
+> exposure factor** are currently *baked* from the oracle for the portra & ektar pairs (other
+> pairs return an error). Generalizing requires a native digest of `neutral_print_filters.json`
+> + the filming-midgray balance — the next M4 task. Then: grain (Poisson-binomial), halation/
+> scatter + diffusion filters (spatial branches), and stochastic/spatial golden cases.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
 Full `RuntimePhotoParams` control surface (camera/enlarger/scanner/grain/halation/couplers/

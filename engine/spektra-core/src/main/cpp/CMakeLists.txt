@@ -38,6 +38,10 @@ add_library(spektra SHARED
         model/couplers.cpp                   # DIR couplers (M4)
         runtime/params.cpp                   # minimal digested filming params (M4)
         runtime/stages/filming.cpp           # rgb -> raw -> film density CMY (M4)
+        # Printing (enlarger) stage + dichroic filters, ported in M4
+        # (negative -> enlarger expose -> print develop -> scan print):
+        model/color_filters.cpp              # dichroic Y/M/C enlarger filters (M4)
+        runtime/stages/printing.cpp          # film density -> print density CMY (M4)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

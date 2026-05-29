@@ -51,6 +51,48 @@ struct FilmingParams {
 // `is_negative` selects the negative/positive coupler gamma matrix.
 FilmingParams digest_filming_params(bool is_negative);
 
+// Digested parameters the printing (enlarger) stage needs, under the print_portra
+// parity toggles (auto-exposure off, spatial + stochastic effects off, preflash
+// off, print_exposure==1, normalize_print_exposure & print_exposure_compensation
+// both on so the midgray normalisation reduces to the single midgray factor).
+//
+// Mirrors the relevant digested RuntimePhotoParams fields:
+//   - filtered_illuminant: the enlarger light source after the dichroic Y/M/C
+//     filters (color_enlarger with the digested neutral CC values + shifts==0),
+//     i.e. enlarger_service.enlarger_filtered_illuminant(standard_illuminant(
+//     enlarger.illuminant)). 81 samples on the working shape.
+//   - exposure_factor_midgray: the scalar midgray normalisation factor returned
+//     by PrintingStage._compute_exposure_factor_midgray (= factor_midgray_comp
+//     when both normalize + compensation are on). Pulled from the oracle because
+//     it derives from the full filming midgray chain (rgb_to_raw of 0.184 gray).
+//   - print_exposure / bw_exposure_correction: scalar multipliers in expose()
+//     (1.0 each under the parity defaults: no black/white correction).
+//   - density_curve_gamma: print_render.density_curve_gamma (scalar broadcast).
+struct PrintingParams {
+    double filtered_illuminant[81] = {0.0};
+    double exposure_factor_midgray = 1.0;
+    double print_exposure = 1.0;
+    double bw_exposure_correction = 1.0;
+    float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};
+};
+
+// Enlarger illuminant on the 81-band working shape for a given illuminant id.
+// Currently only the default "TH-KG3" (tungsten-halogen blackbody 3400K through
+// the Schott KG3 heat filter, mean-normalised) is baked; returns nullptr for
+// unknown ids. Equal to illuminants.standard_illuminant(id).
+const double* enlarger_illuminant(const char* illuminant_id);
+
+// Build digested printing params for the print_portra parity case. `neutral_cc`
+// are the digested neutral C/M/Y filter values (Kodak CC units, from
+// neutral_print_filters.json for the film/print/illuminant triple); `enl_illum`
+// is enlarger_illuminant(id). The filtered illuminant is computed exactly via
+// color_enlarger (shifts==0). `exposure_factor_midgray` and `gamma` are passed in
+// from the oracle-derived digested values.
+PrintingParams digest_printing_params(const double neutral_cc[3],
+                                      const double* enl_illum,
+                                      double exposure_factor_midgray,
+                                      float gamma);
+
 }  // namespace spk
 
 #endif  // SPK_RUNTIME_PARAMS_H

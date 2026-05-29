@@ -41,6 +41,7 @@
 #include "profiles/profile.h"
 #include "runtime/params.h"
 #include "runtime/stages/filming.h"
+#include "runtime/stages/printing.h"
 #include "runtime/stages/scanning.h"
 
 namespace {
@@ -178,6 +179,125 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     return SPK_OK;
 }
 
+// Digested enlarger neutral-print-filter CC values + midgray exposure factor for
+// a (film, print, illuminant) triple. These are produced by the Python
+// params_builder (neutral_print_filters.json lookup) + the filming-stage midgray
+// balance computation; reproducing that whole chain natively is future work, so
+// the supported parity pairs are baked at full precision from the oracle. Unknown
+// pairs fall back to SPK_ERR_INTERNAL (the print route is gated on these).
+struct PrintDigest {
+    const char* film;
+    const char* print;
+    double neutral_cc[3];          // CMY Kodak CC units.
+    double exposure_factor_midgray;
+};
+
+const PrintDigest kPrintDigests[] = {
+    {"kodak_portra_400", "kodak_portra_endura",
+     {0.0, 51.43162770877449, 55.26070894686862}, 0.8530971500678061},
+    {"kodak_ektar_100", "kodak_supra_endura",
+     {0.0, 74.60631920310733, 63.31534862217596}, 1.1994496282985427},
+};
+
+const PrintDigest* lookup_print_digest(const char* film, const char* print) {
+    if (!film || !print) return nullptr;
+    for (const auto& d : kPrintDigests) {
+        if (std::strcmp(d.film, film) == 0 && std::strcmp(d.print, print) == 0)
+            return &d;
+    }
+    return nullptr;
+}
+
+// Run the negative -> print -> scan route, producing display RGB plus the
+// intermediate taps. `tap_*` pointers, when non-null, receive the corresponding
+// intermediate. Mirrors pipeline._pipeline_print under the print_portra toggles.
+spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
+                     std::vector<float>* final_rgb,
+                     std::vector<float>* tap_log_raw,
+                     std::vector<float>* tap_film_density_cmy,
+                     std::vector<float>* tap_print_density_cmy) {
+    if (!eng || !in || !p || !in->data) return SPK_ERR_BAD_ARGS;
+    if (in->width <= 0 || in->height <= 0) return SPK_ERR_BAD_ARGS;
+    if (!p->film_profile || !p->print_profile) return SPK_ERR_BAD_ARGS;
+
+    const int width = in->width, height = in->height, npix = width * height;
+
+    // 1) Load film + print profiles.
+    spk::Profile film, prnt;
+    try {
+        film = spk::load_profile_file(
+            join_path(eng->profiles_dir, std::string(p->film_profile) + ".json"));
+        prnt = spk::load_profile_file(
+            join_path(eng->profiles_dir, std::string(p->print_profile) + ".json"));
+    } catch (const std::exception&) {
+        return SPK_ERR_PROFILE_NOT_FOUND;
+    }
+    if (film.log_sensitivity.empty() || film.log_exposure.empty() ||
+        film.window_params.size() < 4) {
+        return SPK_ERR_INTERNAL;  // film profile lacks filming fields
+    }
+    if (prnt.log_sensitivity.empty() || prnt.log_exposure.empty() ||
+        prnt.density_curves.empty()) {
+        return SPK_ERR_INTERNAL;  // print profile lacks printing fields
+    }
+
+    // 2) Resolve digested enlarger params for this pair (neutral CC + midgray).
+    const PrintDigest* pd = lookup_print_digest(p->film_profile, p->print_profile);
+    if (!pd) return SPK_ERR_INTERNAL;  // unsupported pair (no baked digest yet)
+    const double* enl = spk::enlarger_illuminant("TH-KG3");
+    if (!enl) return SPK_ERR_INTERNAL;
+    const float pg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
+    spk::PrintingParams pparams = spk::digest_printing_params(
+        pd->neutral_cc, enl, pd->exposure_factor_midgray, pg);
+
+    // 3) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
+    spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
+    fparams.exposure_compensation_ev = p->exposure_compensation_ev;
+    const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
+    fparams.density_curve_gamma[0] = fg;
+    fparams.density_curve_gamma[1] = fg;
+    fparams.density_curve_gamma[2] = fg;
+
+    spk::NdArray tc_lut;
+    try {
+        tc_lut = spk::build_filming_tc_lut(film, eng->spectra(), kD55Illuminant);
+    } catch (const std::exception&) {
+        return SPK_ERR_ASSET_IO;
+    }
+
+    std::vector<double> rgb(static_cast<size_t>(npix) * 3);
+    for (size_t i = 0; i < rgb.size(); ++i)
+        rgb[i] = static_cast<double>(in->data[i]);
+
+    std::vector<float> film_log_raw(static_cast<size_t>(npix) * 3);
+    spk::expose(rgb.data(), npix, fparams, tc_lut, film_log_raw.data());
+    if (tap_log_raw) *tap_log_raw = film_log_raw;
+
+    std::vector<float> film_density_cmy(static_cast<size_t>(npix) * 3);
+    spk::develop(film_log_raw.data(), npix, film, fparams, film_density_cmy.data());
+    if (tap_film_density_cmy) *tap_film_density_cmy = film_density_cmy;
+
+    // 4) Printing stage (film density -> enlarger expose -> print develop).
+    std::vector<float> print_log_raw(static_cast<size_t>(npix) * 3);
+    spk::print_expose(film, prnt, pparams, film_density_cmy.data(), npix,
+                      print_log_raw.data());
+    std::vector<float> print_density_cmy(static_cast<size_t>(npix) * 3);
+    spk::print_develop(prnt, pparams, print_log_raw.data(), npix,
+                       print_density_cmy.data());
+    if (tap_print_density_cmy) *tap_print_density_cmy = print_density_cmy;
+
+    if (!final_rgb) return SPK_OK;  // caller only wanted an earlier tap
+
+    // 5) Scan the print (D50 viewing illuminant, print profile's dyes).
+    spk::ScanningParams sparams;
+    sparams.scan_film = false;
+    sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
+    final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
+    spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
+              final_rgb->data());
+    return SPK_OK;
+}
+
 // Allocate an spk_image and copy `data` into it.
 spk_status fill_out_image(spk_image* out, const std::vector<float>& data,
                           int width, int height, int color_space) {
@@ -278,13 +398,14 @@ spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* 
                         spk_image* out) {
     if (!out) return SPK_ERR_BAD_ARGS;
     if (!p) return SPK_ERR_BAD_ARGS;
-    if (!p->scan_film) {
-        // TODO(M4): print (enlarger) route — expose negative onto print stock,
-        // develop print, scan the print. Not yet ported.
-        return SPK_ERR_INTERNAL;
-    }
     std::vector<float> rgb;
-    spk_status st = run_scan_film(eng, in, p, &rgb, nullptr, nullptr);
+    spk_status st;
+    if (p->scan_film) {
+        st = run_scan_film(eng, in, p, &rgb, nullptr, nullptr);
+    } else {
+        // Print (enlarger) route: filming -> printing -> scan(print).
+        st = run_print(eng, in, p, &rgb, nullptr, nullptr, nullptr);
+    }
     if (st != SPK_OK) return st;
     return fill_out_image(out, rgb, in->width, in->height,
                           static_cast<int>(p->output_color_space));
@@ -318,22 +439,48 @@ spk_status spk_simulate_tap(spk_engine* eng, const spk_image* in,
                             const spk_params* p, const char* tap_name,
                             spk_image* out) {
     if (!out || !p || !tap_name) return SPK_ERR_BAD_ARGS;
-    if (!p->scan_film) return SPK_ERR_INTERNAL;  // print taps are M4.
 
     std::string tap = tap_name;
-    std::vector<float> log_raw, density_cmy, final_rgb;
-
+    std::vector<float> log_raw, film_density_cmy, print_density_cmy, final_rgb;
     spk_status st;
+
+    if (p->scan_film) {
+        // scan_film route: only the negative taps + final RGB exist.
+        if (tap == "film_log_raw") {
+            st = run_scan_film(eng, in, p, nullptr, &log_raw, nullptr);
+            if (st != SPK_OK) return st;
+            return fill_out_image(out, log_raw, in->width, in->height, in->color_space);
+        } else if (tap == "film_density_cmy") {
+            st = run_scan_film(eng, in, p, nullptr, &log_raw, &film_density_cmy);
+            if (st != SPK_OK) return st;
+            return fill_out_image(out, film_density_cmy, in->width, in->height,
+                                  in->color_space);
+        } else if (tap == "final_rgb") {
+            st = run_scan_film(eng, in, p, &final_rgb, nullptr, nullptr);
+            if (st != SPK_OK) return st;
+            return fill_out_image(out, final_rgb, in->width, in->height,
+                                  static_cast<int>(p->output_color_space));
+        }
+        return SPK_ERR_BAD_ARGS;  // unknown / print-only tap on scan_film route
+    }
+
+    // Print route taps (filming -> printing -> scan).
     if (tap == "film_log_raw") {
-        st = run_scan_film(eng, in, p, nullptr, &log_raw, nullptr);
+        st = run_print(eng, in, p, nullptr, &log_raw, nullptr, nullptr);
         if (st != SPK_OK) return st;
         return fill_out_image(out, log_raw, in->width, in->height, in->color_space);
     } else if (tap == "film_density_cmy") {
-        st = run_scan_film(eng, in, p, nullptr, &log_raw, &density_cmy);
+        st = run_print(eng, in, p, nullptr, nullptr, &film_density_cmy, nullptr);
         if (st != SPK_OK) return st;
-        return fill_out_image(out, density_cmy, in->width, in->height, in->color_space);
+        return fill_out_image(out, film_density_cmy, in->width, in->height,
+                              in->color_space);
+    } else if (tap == "print_density_cmy") {
+        st = run_print(eng, in, p, nullptr, nullptr, nullptr, &print_density_cmy);
+        if (st != SPK_OK) return st;
+        return fill_out_image(out, print_density_cmy, in->width, in->height,
+                              in->color_space);
     } else if (tap == "final_rgb") {
-        st = run_scan_film(eng, in, p, &final_rgb, nullptr, nullptr);
+        st = run_print(eng, in, p, &final_rgb, nullptr, nullptr, nullptr);
         if (st != SPK_OK) return st;
         return fill_out_image(out, final_rgb, in->width, in->height,
                               static_cast<int>(p->output_color_space));
