@@ -47,6 +47,45 @@ const val PREVIEW_EDGE_PX = 720
 private fun srgbToLinear(c: Float): Float =
     if (c <= 0.04045f) c / 12.92f else Math.pow(((c + 0.055) / 1.055), 2.4).toFloat()
 
+/** sRGB OETF: scene-linear (0..1) -> display sRGB (0..1). */
+private fun linearToSrgb(c: Float): Float {
+    val v = c.coerceIn(0f, 1f)
+    return if (v <= 0.0031308f) v * 12.92f else (1.055f * Math.pow(v.toDouble(), 1.0 / 2.4).toFloat() - 0.055f)
+}
+
+/** ProPhoto RGB (D50) linear -> sRGB (D65) linear 3x3, row-major (inverse of [SRGB_TO_PROPHOTO]). */
+private val PROPHOTO_TO_SRGB = floatArrayOf(
+    2.0340429f, -0.7275221f, -0.3065211f,
+    -0.2289921f, 1.2317125f, -0.0027205f,
+    -0.0085287f, -0.1532223f, 1.1617509f,
+)
+
+/**
+ * Convert a scene-linear wide-gamut [LinearImage] to a display-referred sRGB Bitmap for the
+ * "before" reference in the compare viewer. ProPhoto-RGB sources are matrixed to sRGB; other
+ * spaces (e.g. ACES2065-1 RAW) are tone-mapped through the same matrix as a reasonable
+ * approximation, then sRGB-encoded. This is only a viewing reference, not a render path.
+ */
+fun linearToDisplayBitmap(img: LinearImage): Bitmap {
+    val w = img.width
+    val h = img.height
+    val f = img.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val m = PROPHOTO_TO_SRGB
+    val px = IntArray(w * h)
+    for (p in 0 until w * h) {
+        val i = p * 3
+        val pr = f.get(i); val pg = f.get(i + 1); val pb = f.get(i + 2)
+        val rl = m[0] * pr + m[1] * pg + m[2] * pb
+        val gl = m[3] * pr + m[4] * pg + m[5] * pb
+        val bl = m[6] * pr + m[7] * pg + m[8] * pb
+        val r = (linearToSrgb(rl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val g = (linearToSrgb(gl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val b = (linearToSrgb(bl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        px[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    }
+    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+}
+
 /**
  * Decode [uri] to a display-sRGB Bitmap, downscale so the longest edge is
  * <= [MAX_EDGE_PX], then convert to a scene-linear ProPhoto-RGB float [LinearImage].

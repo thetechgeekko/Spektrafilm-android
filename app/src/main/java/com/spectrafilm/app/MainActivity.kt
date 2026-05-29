@@ -80,11 +80,22 @@ class MainActivity : ComponentActivity() {
         var sourceKind by remember { mutableStateOf(SourceKind.DEMO) }
         var sourceName by remember { mutableStateOf("synthetic demo image") }
         var preview by remember { mutableStateOf<Bitmap?>(null) }
+        var beforePreview by remember { mutableStateOf<Bitmap?>(null) }
         var status by remember { mutableStateOf("initializing…") }
         var previewBusy by remember { mutableStateOf(false) }
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
+
+        // viewer modes
+        var compareMode by remember { mutableStateOf(false) }
+        var showHistogram by remember { mutableStateOf(true) }
+
+        // 100% grain magnifier
+        var magnifierOpen by remember { mutableStateOf(false) }
+        var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
+        var magnifierRendering by remember { mutableStateOf(false) }
+        var magnifierStatus by remember { mutableStateOf("") }
 
         // presets
         var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -170,6 +181,35 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
+        // We load the source at full native resolution, slice a ~512px window centred on the
+        // point (no resampling), and run the full simulate() on that small image — so the
+        // dye-cloud grain resolves at 1:1 instead of being an upscale of the preview.
+        fun openMagnifier(nx: Float, ny: Float) {
+            val e = engine ?: return
+            magnifierOpen = true
+            magnifierBitmap = null
+            magnifierRendering = true
+            magnifierStatus = "rendering 100% crop…"
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.Default) {
+                        val full = loadSource(MAX_EDGE_PX)
+                        val crop = cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX)
+                        val res = e.simulate(crop, state.toParams())
+                        simResultToBitmap(res.data, res.width, res.height)
+                    }
+                }
+                result.onSuccess {
+                    magnifierBitmap = it
+                    magnifierStatus = "${it.width}×${it.height}px · 1:1 full-res render"
+                }.onFailure {
+                    magnifierStatus = "crop render failed: ${it.message}"
+                }
+                magnifierRendering = false
+            }
+        }
+
         // Debounced preview render: re-runs whenever params or source change.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
@@ -179,12 +219,14 @@ class MainActivity : ComponentActivity() {
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     val image = loadSource(state.previewMaxSize.coerceAtLeast(256))
+                    val before = linearToDisplayBitmap(image)
                     val res = e.simulatePreview(image, state.toParams())
-                    simResultToBitmap(res.data, res.width, res.height)
+                    before to simResultToBitmap(res.data, res.width, res.height)
                 }
             }
-            result.onSuccess { preview = it; status = "preview ready" }
-                .onFailure { status = "preview error: ${it.message}" }
+            result.onSuccess { (before, after) ->
+                beforePreview = before; preview = after; status = "preview ready"
+            }.onFailure { status = "preview error: ${it.message}" }
             previewBusy = false
         }
 
@@ -203,7 +245,17 @@ class MainActivity : ComponentActivity() {
                 Text("SpectraFilm", style = MaterialTheme.typography.headlineMedium)
                 Text(status, style = MaterialTheme.typography.bodySmall)
 
-                PreviewPane(preview, previewBusy)
+                PreviewPane(
+                    preview = preview,
+                    before = beforePreview,
+                    busy = previewBusy,
+                    compareMode = compareMode,
+                    showHistogram = showHistogram,
+                    onToggleCompare = { compareMode = !compareMode },
+                    onToggleHistogram = { showHistogram = !showHistogram },
+                    onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
+                    onCropCenter = { openMagnifier(0.5f, 0.5f) },
+                )
 
                 SourceCard(
                     sourceName = sourceName,
@@ -313,6 +365,16 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            // --- 100% grain magnifier overlay ---
+            if (magnifierOpen) {
+                MagnifierOverlay(
+                    crop = magnifierBitmap,
+                    rendering = magnifierRendering,
+                    status = magnifierStatus,
+                    onClose = { magnifierOpen = false; magnifierBitmap = null },
+                )
+            }
+
             // --- full-screen export mask ---
             if (exporting) {
                 ExportMask(
@@ -328,28 +390,75 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun PreviewPane(preview: Bitmap?, busy: Boolean) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 200.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            val bmp = preview
-            if (bmp != null) {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = "preview",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                Text("No preview yet", style = MaterialTheme.typography.bodyMedium)
+    private fun PreviewPane(
+        preview: Bitmap?,
+        before: Bitmap?,
+        busy: Boolean,
+        compareMode: Boolean,
+        showHistogram: Boolean,
+        onToggleCompare: () -> Unit,
+        onToggleHistogram: () -> Unit,
+        onPointPicked: (Float, Float) -> Unit,
+        onCropCenter: () -> Unit,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 200.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val bmp = preview
+                if (bmp != null) {
+                    if (compareMode && before != null) {
+                        CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        ZoomableImage(
+                            bitmap = bmp,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                            onPointPicked = onPointPicked,
+                        )
+                    }
+                } else {
+                    Text("No preview yet", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
+                }
             }
-            if (busy) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
+
+            // viewer controls
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = compareMode,
+                    onClick = onToggleCompare,
+                    label = { Text("Compare") },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = showHistogram,
+                    onClick = onToggleHistogram,
+                    label = { Text("Histogram") },
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = onCropCenter,
+                    enabled = preview != null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("100% crop") }
+            }
+            if (!compareMode) {
+                Text(
+                    "Pinch to zoom · double-tap to 2x · tap a point for a 100% grain crop",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (showHistogram && preview != null) {
+                HistogramCard(preview)
             }
         }
     }

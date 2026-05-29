@@ -104,6 +104,42 @@ fun decodeRawToLinear(
     return LinearImage(out, outW, outH, colorSpace = result.colorSpace)
 }
 
+/**
+ * Crop a square-ish window of [cropEdge] native pixels out of [src], centred on the
+ * normalized point ([nx], [ny]) in 0..1. The window is clamped to the image bounds. The
+ * returned [LinearImage] shares the same color space and is a real pixel-for-pixel slice
+ * of the source float buffer (no resampling), so when it is rendered through the engine at
+ * full resolution the dye-cloud grain resolves at 1:1 — this is the backing for the 100%
+ * grain magnifier, not an upscale of the downscaled preview.
+ */
+fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage {
+    val w = src.width
+    val h = src.height
+    val cw = min(cropEdge, w)
+    val ch = min(cropEdge, h)
+    val cxPx = (nx.coerceIn(0f, 1f) * w).toInt()
+    val cyPx = (ny.coerceIn(0f, 1f) * h).toInt()
+    val x0 = (cxPx - cw / 2).coerceIn(0, w - cw)
+    val y0 = (cyPx - ch / 2).coerceIn(0, h - ch)
+
+    val sf = src.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val out = ByteBuffer.allocateDirect(cw * ch * 3 * 4).order(ByteOrder.nativeOrder())
+    val of = out.asFloatBuffer()
+    var oi = 0
+    for (oy in 0 until ch) {
+        val rowBase = (y0 + oy) * w
+        for (ox in 0 until cw) {
+            val si = (rowBase + x0 + ox) * 3
+            of.put(oi, sf.get(si)); of.put(oi + 1, sf.get(si + 1)); of.put(oi + 2, sf.get(si + 2))
+            oi += 3
+        }
+    }
+    return LinearImage(out, cw, ch, colorSpace = src.colorSpace)
+}
+
+/** Native pixel edge of the full-resolution magnifier crop. */
+const val MAGNIFIER_CROP_PX = 512
+
 /** Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap. */
 fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
     val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
