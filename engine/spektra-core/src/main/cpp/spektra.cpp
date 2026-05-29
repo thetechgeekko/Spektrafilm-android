@@ -756,6 +756,140 @@ spk_status spk_simulate_tap(spk_engine* eng, const spk_image* in,
     return SPK_ERR_BAD_ARGS;  // unknown tap
 }
 
+spk_status spk_bake_cube_lut(spk_engine* eng, const spk_params* p, int lut_size,
+                             char* out_text, size_t out_cap, size_t* needed) {
+    if (needed) *needed = 0;
+    if (!eng || !p) return SPK_ERR_BAD_ARGS;
+
+    // Clamp the lattice size to a sane range. 33 is the default; below 2 a 3D LUT
+    // is meaningless, and >256 explodes the bake cost (N^3 lattice points).
+    int n = lut_size > 0 ? lut_size : 33;
+    if (n < 2) n = 2;
+    if (n > 256) n = 256;
+
+    // --- Force spatial/stochastic effects OFF for the bake -------------------
+    // A 3D LUT is a pure pointwise RGB->RGB map; any spatial or stochastic
+    // effect (grain, halation + its in-emulsion scatter, camera/enlarger
+    // diffusion glare, DIR-coupler spatial diffusion, scanner unsharp) cannot be
+    // represented and would make the lattice irreproducible. We copy the params
+    // and disable those, keeping the pointwise color science intact: spectral
+    // upsampling, density curves, pointwise DIR couplers, printing, scanning,
+    // and the output color-space transform. (Note: run_scan_film/run_print only
+    // enable the spatial branch when halation_active is set, and only read the
+    // scanner-unsharp / spatial diffusion fields in that branch; grain only runs
+    // when grain_active is set. Disabling those two toggles deactivates every
+    // spatial/stochastic path. We also clear the glare toggles for clarity.)
+    spk_params bp = *p;
+    bp.grain_active = 0;
+    bp.halation_active = 0;
+    bp.glare_active = 0;
+    bp.print_glare_active = 0;
+    bp.camera_diffusion_active = 0;
+    bp.enlarger_diffusion_active = 0;
+
+    // --- Build the identity lattice as an spk_image --------------------------
+    // Lattice axes span [0,1] in the engine's linear working space (treated as
+    // ProPhoto-linear by the filming expose). The image is laid out so that BLUE
+    // varies fastest, then GREEN, then RED (blue-fastest / red-slowest), matching
+    // the .cube data ordering emitted below. We pack the whole lattice into a
+    // single image row (width = n^3, height = 1) and run it through the exact
+    // same per-pixel pipeline spk_simulate uses.
+    const size_t count = static_cast<size_t>(n) * n * n;
+    std::vector<float> lattice(count * 3);
+    const float denom = static_cast<float>(n - 1);
+    size_t idx = 0;
+    for (int r = 0; r < n; ++r) {
+        const float rv = static_cast<float>(r) / denom;
+        for (int g = 0; g < n; ++g) {
+            const float gv = static_cast<float>(g) / denom;
+            for (int b = 0; b < n; ++b) {
+                const float bv = static_cast<float>(b) / denom;
+                lattice[idx * 3 + 0] = rv;
+                lattice[idx * 3 + 1] = gv;
+                lattice[idx * 3 + 2] = bv;
+                ++idx;
+            }
+        }
+    }
+
+    spk_image in_img{lattice.data(), static_cast<int32_t>(count), 1,
+                     static_cast<int32_t>(SPK_CS_PROPHOTO)};
+
+    // --- Run the pipeline (same route spk_simulate would take) ---------------
+    std::vector<float> rgb;
+    spk_status st;
+    if (bp.scan_film) {
+        st = run_scan_film(eng, &in_img, &bp, &rgb, nullptr, nullptr);
+    } else {
+        st = run_print(eng, &in_img, &bp, &rgb, nullptr, nullptr, nullptr);
+    }
+    if (st != SPK_OK) return st;
+    if (rgb.size() != count * 3) return SPK_ERR_INTERNAL;
+
+    // --- Emit the .cube text -------------------------------------------------
+    const char* cs_name = "sRGB";
+    switch (bp.output_color_space) {
+        case SPK_CS_SRGB:        cs_name = "sRGB"; break;
+        case SPK_CS_ADOBE_RGB:   cs_name = "Adobe RGB (1998)"; break;
+        case SPK_CS_PROPHOTO:    cs_name = "ProPhoto RGB"; break;
+        case SPK_CS_REC2020:     cs_name = "Rec.2020"; break;
+        case SPK_CS_ACES2065_1:  cs_name = "ACES2065-1"; break;
+        case SPK_CS_LINEAR_SRGB: cs_name = "linear sRGB"; break;
+    }
+    const char* route = bp.scan_film ? "scan negative" : "negative -> print -> scan";
+
+    std::string out;
+    out.reserve(count * 33 + 1024);
+    char line[256];
+
+    out += "# SpectraFilm for Android — baked film-look 3D LUT (.cube)\n";
+    out += "# Film modeling powered by spektrafilm (GPLv3).\n";
+    std::snprintf(line, sizeof(line), "# Film profile: %s\n",
+                  p->film_profile ? p->film_profile : "(none)");
+    out += line;
+    if (!bp.scan_film) {
+        std::snprintf(line, sizeof(line), "# Print profile: %s\n",
+                      p->print_profile ? p->print_profile : "(none)");
+        out += line;
+    }
+    std::snprintf(line, sizeof(line), "# Pipeline route: %s\n", route);
+    out += line;
+    out += "# INPUT domain:  linear ProPhoto RGB in [0,1] (engine working space,\n";
+    out += "#                the lattice axis fed to the filming expose).\n";
+    std::snprintf(line, sizeof(line),
+                  "# OUTPUT domain: %s, CCTF encoding %s.\n", cs_name,
+                  bp.output_cctf_encoding ? "ON" : "OFF");
+    out += line;
+    out += "# EXCLUDED (cannot be captured by a 3D LUT, forced OFF for bake):\n";
+    out += "#   grain, halation (+ in-emulsion scatter), camera/enlarger diffusion\n";
+    out += "#   glare, DIR-coupler spatial diffusion, scanner unsharp mask.\n";
+    out += "# KEPT: spectral upsampling, density curves, pointwise DIR couplers,\n";
+    out += "#   printing, scanning, output color-space transform.\n";
+    out += "# Data order: BLUE fastest, then GREEN, then RED.\n";
+
+    std::snprintf(line, sizeof(line), "TITLE \"SpectraFilm %s\"\n",
+                  p->film_profile ? p->film_profile : "look");
+    out += line;
+    std::snprintf(line, sizeof(line), "LUT_3D_SIZE %d\n", n);
+    out += line;
+    out += "DOMAIN_MIN 0.0 0.0 0.0\n";
+    out += "DOMAIN_MAX 1.0 1.0 1.0\n";
+
+    for (size_t i = 0; i < count; ++i) {
+        std::snprintf(line, sizeof(line), "%.6f %.6f %.6f\n",
+                      static_cast<double>(rgb[i * 3 + 0]),
+                      static_cast<double>(rgb[i * 3 + 1]),
+                      static_cast<double>(rgb[i * 3 + 2]));
+        out += line;
+    }
+
+    const size_t req = out.size() + 1;  // include NUL terminator
+    if (needed) *needed = req;
+    if (!out_text || out_cap < req) return SPK_ERR_BAD_ARGS;  // caller resizes & retries
+    std::memcpy(out_text, out.c_str(), req);
+    return SPK_OK;
+}
+
 void spk_image_free(spk_image* img) {
     if (img && img->data) {
         std::free(img->data);

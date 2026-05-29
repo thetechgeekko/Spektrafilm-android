@@ -55,6 +55,23 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
             image.colorSpace, params, /* preview = */ true)
             ?: error("spektra: simulatePreview not implemented yet (M3–M4); handle=$handle")
 
+    /**
+     * Bake the current film look into a 3D `.cube` LUT (Adobe/Resolve format) and
+     * return its text. Builds an identity RGB lattice of [size] (default 33) in the
+     * engine's linear ProPhoto working space, runs each lattice point through the
+     * same pointwise pipeline [simulate] uses, and emits `LUT_3D_SIZE N` + N^3 RGB
+     * triples (blue-fastest order).
+     *
+     * INPUT domain: linear ProPhoto RGB in [0,1]. OUTPUT domain: display RGB in
+     * [params].io.outputColorSpace (CCTF per outputCctfEncoding). Spatial/stochastic
+     * effects (grain, halation, diffusion glare, DIR-coupler diffusion, scanner
+     * unsharp) cannot be captured by a 3D LUT and are forced OFF for the bake;
+     * this is documented in the emitted `.cube` header. Heavy; call off the main thread.
+     */
+    fun bakeCubeLut(params: SpektraParams, size: Int = 33): String =
+        nativeBakeCubeLut(handle, params, size)
+            ?: error("spektra: bakeCubeLut failed; handle=$handle")
+
     override fun close() {
         if (handle != 0L) nativeDestroy(handle)
     }
@@ -67,6 +84,9 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
         handle: Long, inBuf: ByteBuffer, w: Int, h: Int, inCs: String,
         params: SpektraParams, preview: Boolean,
     ): SimResult?
+    private external fun nativeBakeCubeLut(
+        handle: Long, params: SpektraParams, size: Int,
+    ): String?
 
     companion object {
         init { System.loadLibrary("spektra") }

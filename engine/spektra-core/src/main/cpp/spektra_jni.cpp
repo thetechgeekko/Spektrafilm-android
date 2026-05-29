@@ -464,3 +464,31 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
     env->DeleteLocalRef(outBuf);
     return result;
 }
+
+/*
+ * nativeBakeCubeLut(handle, paramsObj, size) -> String (.cube text) or null.
+ * Marshals the params (reusing marshal_params), bakes a size^3 3D LUT of the
+ * current film look, and returns the .cube text. The bake forces all spatial /
+ * stochastic effects off (see spk_bake_cube_lut). Sized in two passes: first to
+ * learn the required buffer length, then to fill it.
+ */
+JNI(jstring, nativeBakeCubeLut)(JNIEnv* env, jobject /*thiz*/, jlong handle,
+                                jobject paramsObj, jint size) {
+    spk_engine* eng = reinterpret_cast<spk_engine*>(handle);
+    if (!eng) return nullptr;
+
+    spk_params params;
+    ParamStorage store;
+    if (!marshal_params(env, paramsObj, &params, &store)) return nullptr;
+
+    size_t needed = 0;
+    spk_status st = spk_bake_cube_lut(eng, &params, size, nullptr, 0, &needed);
+    // The sizing pass returns SPK_ERR_BAD_ARGS (null buffer) but still sets
+    // `needed`; any other failure (bad profile, internal) is fatal.
+    if (needed == 0) return nullptr;
+
+    std::vector<char> buf(needed);
+    st = spk_bake_cube_lut(eng, &params, size, buf.data(), buf.size(), &needed);
+    if (st != SPK_OK) return nullptr;
+    return env->NewStringUTF(buf.data());
+}
