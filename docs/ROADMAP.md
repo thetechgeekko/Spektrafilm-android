@@ -56,4 +56,7 @@ catalog UI, About/credits with attribution. APK size review.
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
+  → Implemented in `.github/workflows/ci.yml` (see `.github/workflows/README.md`): the
+  `engine-native`, `parity`, and `python-lint` jobs run today; the `android` job auto-activates
+  when the host is seeded at M1 (guarded on `settings.gradle.kts`).
 - Each engine PR cites which golden vectors it turned green.

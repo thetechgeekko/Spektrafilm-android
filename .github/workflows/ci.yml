@@ -1,0 +1,125 @@
+# SpectraFilm for Android — Continuous Integration
+#
+# What runs today (before the ImageToolbox host is seeded at M1):
+#   • engine-native  — compiles the C++ engine + JNI bridge into libspektra.so
+#   • parity         — builds the golden-vector comparator and runs its ctest self-test
+#   • python-lint    — byte-compiles the Python parity harness
+# What activates automatically at M1 (when settings.gradle.kts lands):
+#   • android        — Gradle assemble of the app + new modules (skipped until then)
+#
+# Film modeling powered by spektrafilm (GPLv3).
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Native engine: the ported C++ (model/ + kernels/) plus the JNI bridge must
+  # compile and link into a shared library on a host toolchain. This is the
+  # build gate for engine:spektra-core ahead of the NDK build.
+  # ---------------------------------------------------------------------------
+  engine-native:
+    name: Engine (C++ host build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK (for jni.h)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Compile libspektra.so (engine + JNI bridge)
+        working-directory: engine/spektra-core/src/main/cpp
+        run: |
+          set -euo pipefail
+          echo "JAVA_HOME=$JAVA_HOME"
+          g++ -std=c++17 -O2 -Wall -Wextra -fPIC -shared \
+            -I. -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
+            spektra.cpp spektra_jni.cpp model/*.cpp kernels/*.cpp \
+            -o libspektra.so
+          ls -l libspektra.so
+          # Sanity: the engine's exported C symbols are present.
+          nm -D libspektra.so | grep -E "spk_simulate|spk_engine_create" || \
+            (echo "missing expected engine symbols" && exit 1)
+
+  # ---------------------------------------------------------------------------
+  # Parity harness: the standalone .spkvec comparator builds and its byte-format
+  # self-test passes. This is the gate that engine ports (M3/M4) run against.
+  # ---------------------------------------------------------------------------
+  parity:
+    name: Parity comparator (CMake + ctest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure + build
+        working-directory: tools/parity
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Run self-test
+        working-directory: tools/parity
+        run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Python harness: the golden generator + spkvec I/O must at least byte-compile.
+  # (Generating real goldens needs a spektrafilm env; that runs out-of-CI for now
+  # — see tools/parity/README.md.)
+  # ---------------------------------------------------------------------------
+  python-lint:
+    name: Python harness (compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Byte-compile parity scripts
+        run: python -m py_compile tools/parity/gen_goldens.py tools/parity/spkvec.py
+
+  # ---------------------------------------------------------------------------
+  # Android build: skipped until the ImageToolbox host is seeded (M1). The job
+  # condition keys off settings.gradle.kts, so it stays green-by-skip now and
+  # activates the moment the host (and gradlew) land — no edit required.
+  # ---------------------------------------------------------------------------
+  android:
+    name: Android (Gradle assemble)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('settings.gradle.kts') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          # Build the new modules first; fall back to the whole app assemble.
+          ./gradlew :engine:spektra-core:assembleDebug :lib:libraw:assembleDebug \
+                    :feature:film-emulation:assembleDebug --stacktrace \
+            || ./gradlew assembleDebug --stacktrace
