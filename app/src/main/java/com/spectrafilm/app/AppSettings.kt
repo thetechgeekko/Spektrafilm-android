@@ -1,0 +1,103 @@
+/*
+ * SpectraFilm for Android — persisted app settings. GPLv3.
+ * Film modeling powered by spektrafilm.
+ *
+ * A thin SharedPreferences-backed store for app-level preferences that are NOT part of
+ * the per-image SpektraParams tree: the default output color space, preview resolution,
+ * default film/print profiles, export format + quality, theme, and the onboarding
+ * "seen" flag. ParamsState owns the render parameters; this owns the app's defaults and
+ * chrome. Values are read/written eagerly (commit/apply) so they survive process death.
+ *
+ * applyDefaultsTo() seeds a fresh ParamsState with the user's saved defaults on launch.
+ */
+package com.spectrafilm.app
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.spectrafilm.engine.ColorSpace
+
+/** App theme preference. */
+enum class ThemeMode(val display: String) {
+    SYSTEM("System default"),
+    LIGHT("Light"),
+    DARK("Dark"),
+}
+
+/**
+ * Persisted application settings. Construct lazily via [AppSettings.from] (which caches
+ * a single instance per process). All setters write through to SharedPreferences.
+ */
+class AppSettings private constructor(private val prefs: SharedPreferences) {
+
+    var seenOnboarding: Boolean
+        get() = prefs.getBoolean(KEY_SEEN_ONBOARDING, false)
+        set(v) { prefs.edit().putBoolean(KEY_SEEN_ONBOARDING, v).apply() }
+
+    var theme: ThemeMode
+        get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
+            .getOrDefault(ThemeMode.SYSTEM)
+        set(v) { prefs.edit().putString(KEY_THEME, v.name).apply() }
+
+    var defaultOutputColorSpace: ColorSpace
+        get() = runCatching { ColorSpace.valueOf(prefs.getString(KEY_OUTPUT_CS, ColorSpace.SRGB.name)!!) }
+            .getOrDefault(ColorSpace.SRGB)
+        set(v) { prefs.edit().putString(KEY_OUTPUT_CS, v.name).apply() }
+
+    var previewMaxSize: Int
+        get() = prefs.getInt(KEY_PREVIEW_MAX, 640)
+        set(v) { prefs.edit().putInt(KEY_PREVIEW_MAX, v).apply() }
+
+    var defaultFilmProfile: String
+        get() = prefs.getString(KEY_FILM, "") ?: ""
+        set(v) { prefs.edit().putString(KEY_FILM, v).apply() }
+
+    var defaultPrintProfile: String
+        get() = prefs.getString(KEY_PRINT, "") ?: ""
+        set(v) { prefs.edit().putString(KEY_PRINT, v).apply() }
+
+    var exportFormat: ExportFormat
+        get() = runCatching { ExportFormat.valueOf(prefs.getString(KEY_EXPORT_FMT, ExportFormat.PNG.name)!!) }
+            .getOrDefault(ExportFormat.PNG)
+        set(v) { prefs.edit().putString(KEY_EXPORT_FMT, v.name).apply() }
+
+    var exportQuality: Int
+        get() = prefs.getInt(KEY_EXPORT_Q, 95).coerceIn(1, 100)
+        set(v) { prefs.edit().putInt(KEY_EXPORT_Q, v.coerceIn(1, 100)).apply() }
+
+    /**
+     * Seed a freshly constructed [state] with the saved app defaults. Profile defaults
+     * are only applied when they appear in [availableProfiles] (so a stale id can't make
+     * the picker show a profile the engine doesn't know).
+     */
+    fun applyDefaultsTo(state: ParamsState, availableProfiles: List<String>) {
+        state.outputColorSpace = defaultOutputColorSpace
+        state.previewMaxSize = previewMaxSize
+        if (defaultFilmProfile.isNotBlank() && defaultFilmProfile in availableProfiles) {
+            state.filmProfile = defaultFilmProfile
+        }
+        if (defaultPrintProfile.isNotBlank() && defaultPrintProfile in availableProfiles) {
+            state.printProfile = defaultPrintProfile
+        }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "spectrafilm_settings"
+        private const val KEY_SEEN_ONBOARDING = "seen_onboarding"
+        private const val KEY_THEME = "theme"
+        private const val KEY_OUTPUT_CS = "output_color_space"
+        private const val KEY_PREVIEW_MAX = "preview_max_size"
+        private const val KEY_FILM = "default_film_profile"
+        private const val KEY_PRINT = "default_print_profile"
+        private const val KEY_EXPORT_FMT = "export_format"
+        private const val KEY_EXPORT_Q = "export_quality"
+
+        @Volatile private var instance: AppSettings? = null
+
+        fun from(ctx: Context): AppSettings =
+            instance ?: synchronized(this) {
+                instance ?: AppSettings(
+                    ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+                ).also { instance = it }
+            }
+    }
+}

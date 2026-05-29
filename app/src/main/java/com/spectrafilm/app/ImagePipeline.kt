@@ -154,6 +154,18 @@ private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX)
     return scaled
 }
 
+/** Write baked `.cube` LUT [text] to a SAF [uri] (from CreateDocument). */
+fun saveTextToUri(ctx: Context, uri: Uri, text: String) {
+    ctx.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        ?: error("Could not open output for LUT")
+}
+
+/** Filesystem-safe `<film>_<print>.cube` filename from friendly stock names. */
+fun cubeFileName(film: String, print: String): String {
+    fun clean(s: String) = s.trim().ifEmpty { "lut" }.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+    return "${clean(film)}_${clean(print)}.cube"
+}
+
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {
     PNG("PNG", "image/png", "png"),
     JPEG("JPEG", "image/jpeg", "jpg"),
@@ -164,10 +176,10 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
  * Uses scoped storage (MediaStore RELATIVE_PATH + IS_PENDING) on API 29+, and the
  * legacy direct-file + MediaStore insert path below that. Returns the content [Uri].
  */
-fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat): Uri {
+fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: Int = 95): Uri {
     val name = "SpectraFilm_${System.currentTimeMillis()}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-    val quality = if (format == ExportFormat.PNG) 100 else 95
+    val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
 
     val resolver = ctx.contentResolver
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
@@ -388,6 +389,56 @@ fun GroupedDropdown(
                 }
             }
         }
+    }
+}
+
+/**
+ * A small "not yet active" badge + helper line for parameters that are present in the
+ * UI (forward-compatible) but have no engine effect yet. Wrap the inert controls in a
+ * [GatedBlock] to dim them and append this note, so users aren't misled (repo issue #6).
+ */
+@Composable
+fun NotYetActiveNote(
+    detail: String = "These controls are wired for a future engine update and have no effect yet.",
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+        ) {
+            Text(
+                "not yet active",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Visually gates [content] for parameters that don't do anything yet: shows a
+ * [NotYetActiveNote] header and dims the controls (still interactive, so values are
+ * retained/forward-compatible, but clearly marked as inert).
+ */
+@Composable
+fun GatedBlock(
+    note: String = "These controls are wired for a future engine update and have no effect yet.",
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        NotYetActiveNote(note)
+        Spacer(Modifier.width(0.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth().alpha(0.55f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) { content() }
     }
 }
 

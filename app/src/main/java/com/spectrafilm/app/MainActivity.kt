@@ -13,7 +13,6 @@
  */
 package com.spectrafilm.app
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -23,8 +22,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,9 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -56,14 +53,95 @@ import kotlinx.coroutines.withContext
 /** Which kind of source image is loaded. */
 private enum class SourceKind { DEMO, PHOTO, RAW }
 
+/** Top-level navigation destinations. */
+private enum class Screen { EDITOR, SETTINGS, ABOUT }
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = lightColorScheme()) { Screen() } }
+        val settings = AppSettings.from(this)
+        setContent {
+            var themeMode by remember { mutableStateOf(settings.theme) }
+            val dark = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    AppRoot(settings = settings, onThemeChanged = { themeMode = it })
+                }
+            }
+        }
+    }
+
+    /** Hosts onboarding + top-level navigation around the editor. */
+    @Composable
+    private fun AppRoot(settings: AppSettings, onThemeChanged: (ThemeMode) -> Unit) {
+        var showOnboarding by remember { mutableStateOf(!settings.seenOnboarding) }
+        var screen by remember { mutableStateOf(Screen.EDITOR) }
+        val ctx = LocalContext.current
+
+        // Catalog-grouped profile options for the Settings default-profile pickers.
+        var settingsFilmGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
+        var settingsPrintGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
+
+        Box(Modifier.fillMaxSize()) {
+            when (screen) {
+                Screen.EDITOR -> Screen(
+                    settings = settings,
+                    onOpenSettings = { screen = Screen.SETTINGS },
+                    onOpenAbout = { screen = Screen.ABOUT },
+                    onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
+                )
+                Screen.SETTINGS -> NavScaffold("Settings", onBack = { screen = Screen.EDITOR }) {
+                    SettingsScreen(
+                        settings = settings,
+                        filmGroups = settingsFilmGroups,
+                        printGroups = settingsPrintGroups,
+                        onThemeChanged = onThemeChanged,
+                        onShowOnboarding = { showOnboarding = true; screen = Screen.EDITOR },
+                    )
+                }
+                Screen.ABOUT -> NavScaffold("About", onBack = { screen = Screen.EDITOR }) {
+                    AboutScreen()
+                }
+            }
+
+            if (showOnboarding) {
+                WelcomeFlow(
+                    onFinish = { settings.seenOnboarding = true; showOnboarding = false },
+                    onOpenSettings = {
+                        settings.seenOnboarding = true; showOnboarding = false; screen = Screen.SETTINGS
+                    },
+                    onReportIssue = { Links.open(ctx, Links.NEW_ISSUE) },
+                )
+            }
+        }
+    }
+
+    /** A simple back-arrow top bar wrapping a sub-screen. */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun NavScaffold(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+        Column(Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    TextButton(onClick = onBack) { Text("Back") }
+                },
+            )
+            Box(Modifier.weight(1f)) { content() }
+        }
     }
 
     @Composable
-    private fun Screen() {
+    private fun Screen(
+        settings: AppSettings,
+        onOpenSettings: () -> Unit,
+        onOpenAbout: () -> Unit,
+        onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
+    ) {
         val ctx = LocalContext.current.applicationContext
         val scope = lifecycleScope
 
@@ -86,6 +164,10 @@ class MainActivity : ComponentActivity() {
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
+
+        // LUT export
+        var bakingLut by remember { mutableStateOf(false) }
+        var pendingLutText by remember { mutableStateOf<String?>(null) }
 
         // viewer modes
         var compareMode by remember { mutableStateOf(false) }
@@ -116,6 +198,9 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) {
                     engine = e
                     profiles = list
+
+                    // Apply persisted app defaults (output space / preview size / profiles).
+                    settings.applyDefaultsTo(state, list)
                     if (list.isNotEmpty()) {
                         if (state.filmProfile !in list) state.filmProfile = list.first()
                         if (state.printProfile !in list) state.printProfile = list.first()
@@ -167,6 +252,18 @@ class MainActivity : ComponentActivity() {
                     .onSuccess { status = "preset exported" }
                     .onFailure { status = "export failed: ${it.message}" }
             }
+        }
+        // .cube LUT writer: receives the SAF target and writes the already-baked text.
+        val lutExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("*/*")
+        ) { uri ->
+            val text = pendingLutText
+            if (uri != null && text != null) {
+                runCatching { saveTextToUri(ctx, uri, text) }
+                    .onSuccess { status = "LUT saved" }
+                    .onFailure { status = "LUT save failed: ${it.message}" }
+            }
+            pendingLutText = null
         }
 
         // Decode the current source to a LinearImage capped to [maxEdge].
@@ -242,7 +339,15 @@ class MainActivity : ComponentActivity() {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("SpectraFilm", style = MaterialTheme.typography.headlineMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "SpectraFilm",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onOpenSettings) { Text("Settings") }
+                    TextButton(onClick = onOpenAbout) { Text("About") }
+                }
                 Text(status, style = MaterialTheme.typography.bodySmall)
 
                 PreviewPane(
@@ -317,6 +422,8 @@ class MainActivity : ComponentActivity() {
                 val printGroups = remember(available, catalogReady) {
                     StockCatalog.optionsFor(ctx, available, forFilm = false).toGroups()
                 }
+                // Share the profile groups with the Settings screen's default-profile pickers.
+                LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
                 InputSection(state)
                 ImportRawSection(state)
@@ -333,6 +440,7 @@ class MainActivity : ComponentActivity() {
                     enabled = engine != null && !previewBusy && !exporting,
                     onExport = {
                         val e = engine ?: return@ExportButton
+                        val fmt = settings.exportFormat
                         exporting = true; exportDone = false; status = "rendering full resolution…"
                         scope.launch {
                             val result = runCatching {
@@ -341,7 +449,7 @@ class MainActivity : ComponentActivity() {
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
-                                        saveToGallery(ctx, bmp, ExportFormat.PNG)
+                                        saveToGallery(ctx, bmp, fmt, settings.exportQuality)
                                     }
                                     bmp to uri
                                 }
@@ -356,6 +464,54 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                )
+
+                // Export LUT: bake a 33³ .cube off-main-thread, then save via SAF.
+                Button(
+                    onClick = {
+                        val e = engine ?: return@Button
+                        bakingLut = true
+                        status = "baking .cube LUT…"
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.Default) { e.bakeCubeLut(state.toParams(), 33) }
+                            }
+                            bakingLut = false
+                            result.onSuccess { cube ->
+                                pendingLutText = cube
+                                val fileName = cubeFileName(
+                                    StockCatalog.displayName(ctx, state.filmProfile),
+                                    StockCatalog.displayName(ctx, state.printProfile),
+                                )
+                                runCatching { lutExporter.launch(fileName) }
+                                    .onFailure { status = "could not open save dialog: ${it.message}" }
+                            }.onFailure {
+                                status = "LUT bake failed: ${it.message}"
+                                Toast.makeText(ctx, "LUT bake failed: ${it.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    enabled = engine != null && !bakingLut && !exporting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (bakingLut) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Baking LUT…")
+                    } else {
+                        Text("Export LUT (.cube, 33³)")
+                    }
+                }
+                Text(
+                    "Bakes the current film + print look into a 33³ .cube 3D LUT. Spatial/" +
+                        "stochastic effects (grain, halation, diffusion, glare) can't be captured " +
+                        "in a 3D LUT and are omitted from the bake.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Text(
@@ -621,27 +777,31 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                 { it.name.lowercase() }, { s.spectralUpsampling = it })
-            SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
-                "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
-            SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
-                "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
-            EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
-                { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
-                tooltip = "Sigma in nm for Gaussian blur applied to reconstructed spectra.")
+            GatedBlock("The hanatos2025 adaptation toggles and spectral Gaussian blur (spectral-blur) are not wired into the engine yet.") {
+                SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
+                    "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
+                SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
+                    "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
+                EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
+                    { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
+                    tooltip = "Sigma in nm for Gaussian blur applied to reconstructed spectra.")
+            }
             TripleSlider("UV filter", s.filterUv, 0f..800f, { s.filterUv = it }, step = 1f, decimals = 0,
                 tooltip = "Filter UV light (amplitude, wavelength cutoff nm, sigma nm).",
                 componentLabels = Triple("amp", "λ", "σ"))
             TripleSlider("IR filter", s.filterIr, 0f..800f, { s.filterIr = it }, step = 1f, decimals = 0,
                 tooltip = "Filter IR light (amplitude, wavelength cutoff nm, sigma nm).",
                 componentLabels = Triple("amp", "λ", "σ"))
-            EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
-                step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
-            SwitchRow("Crop", s.crop, { s.crop = it },
-                "Crop image to a fraction of the original size to preview details at full scale")
-            PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
-                tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
-            PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
-                tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
+            GatedBlock("Upscale and crop have no engine effect yet.") {
+                EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
+                    step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
+                SwitchRow("Crop", s.crop, { s.crop = it },
+                    "Crop image to a fraction of the original size to preview details at full scale")
+                PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
+                    tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
+                PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
+                    tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
+            }
         }
     }
 
@@ -681,15 +841,19 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
-            SwitchRow("Camera auto exposure", s.autoExposure, { s.autoExposure = it },
-                "Use the auto-exposure feature of the virtual camera")
-            Dropdown("Auto exposure method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
-                { s.autoExposureMethod = it })
+            GatedBlock("Auto-exposure is not wired into the engine yet.") {
+                SwitchRow("Camera auto exposure", s.autoExposure, { s.autoExposure = it },
+                    "Use the auto-exposure feature of the virtual camera")
+                Dropdown("Auto exposure method", s.autoExposureMethod, AUTO_EXPOSURE_METHODS, { it },
+                    { s.autoExposureMethod = it })
+            }
             EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
                 step = 1f, decimals = 0,
                 tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)")
-            EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
-                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in um for the camera lens blur.")
+            GatedBlock("Camera lens blur has no engine effect yet.") {
+                EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
+                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in um for the camera lens blur.")
+            }
             DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
 
             Divider()
@@ -709,14 +873,18 @@ class MainActivity : ComponentActivity() {
                 step = 1f, decimals = 0, tooltip = "Y filter shift from neutral, in Kodak CC units")
             EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
                 step = 1f, decimals = 0, tooltip = "M filter shift from neutral, in Kodak CC units")
-            EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
-                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur")
+            GatedBlock("Enlarger lens blur has no engine effect yet.") {
+                EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
+                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur")
+            }
             DiffusionGroup("Print diffusion filter", s.printDiffusionState)
 
             Divider()
             Text("Scanner", style = MaterialTheme.typography.titleSmall)
-            EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
-                step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur")
+            GatedBlock("Scanner lens blur has no engine effect yet.") {
+                EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
+                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur")
+            }
             SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
                 "Enable white point correction applied to the scanner output")
             EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
@@ -743,7 +911,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun DiffusionGroup(title: String, d: DiffusionState) {
         var expanded by remember { mutableStateOf(false) }
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            NotYetActiveNote("Diffusion filters are not wired into the engine yet.")
             SwitchRow(title, d.active, { d.active = it },
                 "Toggle the diffusion filter on this stage.")
             TextButton(onClick = { expanded = !expanded }) {
