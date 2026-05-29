@@ -55,7 +55,7 @@ import kotlinx.coroutines.withContext
 private enum class SourceKind { DEMO, PHOTO, RAW }
 
 /** Top-level navigation destinations. */
-private enum class Screen { EDITOR, SETTINGS, ABOUT }
+private enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +87,12 @@ class MainActivity : ComponentActivity() {
         var settingsFilmGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
         var settingsPrintGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
 
+        // Profile IDs and names remembered for the Curves screens.
+        var curvesFilmId by remember { mutableStateOf("") }
+        var curvesFilmName by remember { mutableStateOf("") }
+        var curvesPrintId by remember { mutableStateOf("") }
+        var curvesPrintName by remember { mutableStateOf("") }
+
         Box(Modifier.fillMaxSize()) {
             when (screen) {
                 Screen.EDITOR -> Screen(
@@ -94,6 +100,12 @@ class MainActivity : ComponentActivity() {
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenAbout = { screen = Screen.ABOUT },
                     onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
+                    onOpenFilmCurves = { id, name ->
+                        curvesFilmId = id; curvesFilmName = name; screen = Screen.CURVES_FILM
+                    },
+                    onOpenPrintCurves = { id, name ->
+                        curvesPrintId = id; curvesPrintName = name; screen = Screen.CURVES_PRINT
+                    },
                 )
                 Screen.SETTINGS -> NavScaffold("Settings", onBack = { screen = Screen.EDITOR }) {
                     SettingsScreen(
@@ -107,9 +119,19 @@ class MainActivity : ComponentActivity() {
                 Screen.ABOUT -> NavScaffold("About", onBack = { screen = Screen.EDITOR }) {
                     AboutScreen()
                 }
+                Screen.CURVES_FILM -> ProfileCurvesScreen(
+                    profileId = curvesFilmId,
+                    displayName = curvesFilmName,
+                    onBack = { screen = Screen.EDITOR },
+                )
+                Screen.CURVES_PRINT -> ProfileCurvesScreen(
+                    profileId = curvesPrintId,
+                    displayName = curvesPrintName,
+                    onBack = { screen = Screen.EDITOR },
+                )
             }
 
-            if (showOnboarding) {
+            if (showOnboarding && screen == Screen.EDITOR) {
                 WelcomeFlow(
                     onFinish = { settings.seenOnboarding = true; showOnboarding = false },
                     onOpenSettings = {
@@ -142,6 +164,8 @@ class MainActivity : ComponentActivity() {
         onOpenSettings: () -> Unit,
         onOpenAbout: () -> Unit,
         onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
+        onOpenFilmCurves: (id: String, name: String) -> Unit,
+        onOpenPrintCurves: (id: String, name: String) -> Unit,
     ) {
         val ctx = LocalContext.current.applicationContext
         val scope = lifecycleScope
@@ -432,7 +456,23 @@ class MainActivity : ComponentActivity() {
 
                 InputSection(state)
                 ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
-                SimulationSection(state, filmGroups, printGroups)
+                SimulationSection(
+                    s = state,
+                    filmGroups = filmGroups,
+                    printGroups = printGroups,
+                    onOpenFilmCurves = {
+                        onOpenFilmCurves(
+                            state.filmProfile,
+                            StockCatalog.displayName(ctx, state.filmProfile),
+                        )
+                    },
+                    onOpenPrintCurves = {
+                        onOpenPrintCurves(
+                            state.printProfile,
+                            StockCatalog.displayName(ctx, state.printProfile),
+                        )
+                    },
+                )
                 GrainSection(state)
                 PreflashSection(state)
                 HalationSection(state)
@@ -899,6 +939,8 @@ class MainActivity : ComponentActivity() {
         s: ParamsState,
         filmGroups: List<DropdownGroup>,
         printGroups: List<DropdownGroup>,
+        onOpenFilmCurves: () -> Unit,
+        onOpenPrintCurves: () -> Unit,
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
@@ -908,6 +950,10 @@ class MainActivity : ComponentActivity() {
                 groups = filmGroups,
                 onSelect = { s.filmProfile = it },
             )
+            OutlinedButton(
+                onClick = onOpenFilmCurves,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("View film profile curves") }
             EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
@@ -933,6 +979,10 @@ class MainActivity : ComponentActivity() {
                 groups = printGroups,
                 onSelect = { s.printProfile = it },
             )
+            OutlinedButton(
+                onClick = onOpenPrintCurves,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("View print profile curves") }
             Dropdown("Print illuminant", s.printIlluminant, PRINT_ILLUMINANTS, { it }, { s.printIlluminant = it })
             EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
                 step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger")
