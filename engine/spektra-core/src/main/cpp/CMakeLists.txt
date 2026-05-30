@@ -20,6 +20,7 @@ add_library(spektra SHARED
         kernels/exponential_filter.cpp      # float64 Gaussian + exponential mixture (spatial)
         kernels/spectral_upsampling.cpp     # Hanatos2025 RGB->spectrum (M3)
         kernels/stats.cpp                   # Poisson + Binomial samplers (grain, M6)
+        kernels/lut3d.cpp                   # opt-in PCHIP 3D LUT accel (M7, default OFF)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):

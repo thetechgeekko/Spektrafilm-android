@@ -1,0 +1,43 @@
+{
+  "bounds": {
+    "xmax": [
+      2.4,
+      2.2,
+      2.0
+    ],
+    "xmin": [
+      -0.12,
+      -0.1,
+      -0.08
+    ]
+  },
+  "case_id": "lut_accel",
+  "generator": "gen_lut_golden.py",
+  "image": {
+    "dtype_input": "float64 (normalized [0,1])",
+    "seed": 20260529,
+    "shape": [
+      48,
+      48,
+      3
+    ],
+    "size": 48
+  },
+  "lut": {
+    "method": "pchip",
+    "shape": [
+      17,
+      17,
+      17,
+      3
+    ],
+    "steps": 17
+  },
+  "lut_vs_direct_max_abs": 4.950516760269044e-05,
+  "spkvec_version": 1,
+  "stage": "LUT-accelerated density->log_xyz (scanner/enlarger), pchip 3D LUT",
+  "tolerance_interp": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}
