@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +34,15 @@ import androidx.compose.ui.unit.dp
 /** Full-screen About, used when reached from the top-bar / Settings. */
 @Composable
 fun AboutScreen() {
+    // Show the How-To guide over this screen when the user taps the button.
+    // Local state: no MainActivity or NavController dependency.
+    var showHowTo by remember { mutableStateOf(false) }
+
+    if (showHowTo) {
+        HowToUseScreen(onBack = { showHowTo = false })
+        return
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -40,6 +50,13 @@ fun AboutScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        // Prominent "How to use this app" entry point at the top of About.
+        Button(
+            onClick = { showHowTo = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("How to use this app")
+        }
         AboutContent()
     }
 }
