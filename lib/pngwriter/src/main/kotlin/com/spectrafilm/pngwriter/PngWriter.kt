@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:pngwriter Kotlin facade.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:pngwriter Kotlin facade.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Writes a 16-bit-per-channel RGB PNG (bit_depth=16, color_type=2, filter=None,
  * zlib-deflated IDAT) with an optional embedded iCCP chunk and tEXt Software
@@ -45,7 +45,7 @@ object PngWriter {
         height: Int,
         outPath: String,
         icc: ByteArray? = null,
-        software: String = "SpectraFilm",
+        software: String = "Spektrafilm",
     ): Long {
         val direct = if (rgb16.isDirect) {
             rgb16
@@ -68,7 +68,7 @@ object PngWriter {
         height: Int,
         outPath: String,
         icc: ByteArray? = null,
-        software: String = "SpectraFilm",
+        software: String = "Spektrafilm",
     ): Long = nativeWriteShorts(rgb16, width, height, software, icc, outPath)
 
     /**
@@ -89,7 +89,7 @@ object PngWriter {
         height: Int,
         outPath: String,
         icc: ByteArray? = null,
-        software: String = "SpectraFilm",
+        software: String = "Spektrafilm",
     ): Long {
         val n = width.toLong() * height.toLong() * 3L
         require(rgbFloat.size >= n) { "float buffer too small for $width x $height x 3" }

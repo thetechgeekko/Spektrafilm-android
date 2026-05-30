@@ -1,5 +1,5 @@
-# SpectraFilm for Android — lib:libraw native build.
-# Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+# Spektrafilm for Android — lib:libraw native build.
+# Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
 # This module uses LibRaw (LGPL-2.1), linked into the GPLv3 app.
 #
 # Builds libsfraw.so: the rawpy-parity RAW/DNG decoder + JNI bridge, with LibRaw

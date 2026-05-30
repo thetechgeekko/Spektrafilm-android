@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:tiffwriter Kotlin facade.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:tiffwriter Kotlin facade.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Writes a baseline 16-bit-per-channel RGB TIFF (TIFF 6.0, little-endian) with an
  * optional embedded ICC profile and basic EXIF/TIFF metadata, for the M2 export
@@ -57,7 +57,7 @@ object TiffWriter {
         outPath: String,
         icc: ByteArray? = null,
         exifColorSpace: ExifColorSpace = ExifColorSpace.UNCALIBRATED,
-        software: String = "SpectraFilm",
+        software: String = "Spektrafilm",
         dateTime: String? = null,
         packBits: Boolean = false,
     ): Long {
@@ -84,7 +84,7 @@ object TiffWriter {
         outPath: String,
         icc: ByteArray? = null,
         exifColorSpace: ExifColorSpace = ExifColorSpace.UNCALIBRATED,
-        software: String = "SpectraFilm",
+        software: String = "Spektrafilm",
         dateTime: String? = null,
         packBits: Boolean = false,
     ): Long = nativeWriteShorts(

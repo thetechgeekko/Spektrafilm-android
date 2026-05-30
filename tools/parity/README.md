@@ -1,6 +1,6 @@
 # Golden-vector parity harness
 
-This directory contains the **golden-vector parity harness** for SpectraFilm for
+This directory contains the **golden-vector parity harness** for Spektrafilm for
 Android. Its job is to prove the C++ engine port (`engine/spektra-core`,
 `libspektra.so`) matches the Python `spektrafilm` engine **stage by stage**, not
 just on the final image.
@@ -165,5 +165,5 @@ sibling `manifest.json`.
 
 ## License
 
-GPLv3, matching spektrafilm and the rest of SpectraFilm for Android. Film modeling
+GPLv3, matching spektrafilm and the rest of Spektrafilm for Android. Film modeling
 powered by `spektrafilm` (GPLv3) by Andrea Volpato.

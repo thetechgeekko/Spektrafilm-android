@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — JNI bridge.
+ * Spektrafilm for Android — JNI bridge.
  * GPLv3. Bridges com.spectrafilm.engine.SpektraEngine (Kotlin) to the spektra C API.
  *
  * Design notes:

@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:tiffwriter build.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:tiffwriter build.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Android library wrapping the native 16-bit baseline TIFF writer (libsftiff.so,
  * built via CMake/NDK; dependency-free) plus the Kotlin TiffWriter facade.

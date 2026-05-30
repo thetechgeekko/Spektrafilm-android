@@ -1,7 +1,7 @@
 /*
- * SpectraFilm for Android — native engine: in-emulsion scatter + halation +
+ * Spektrafilm for Android — native engine: in-emulsion scatter + halation +
  * the optical diffusion-filter (Black Pro-Mist etc.) PSF stage.
- * Copyright (C) 2026 SpectraFilm Android contributors.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free Software

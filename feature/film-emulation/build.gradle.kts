@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — feature:film-emulation build.
- * Copyright (C) 2026 SpectraFilm Android contributors.
+ * Spektrafilm for Android — feature:film-emulation build.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@ plugins {
 android.namespace = "com.spectrafilm.feature.film_emulation"
 
 dependencies {
-    // The SpectraFilm additions this screen drives.
+    // The Spektrafilm additions this screen drives.
     implementation(projects.engine.spektraCore)
     implementation(projects.lib.libraw)
 

@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:libraw native decoder (implementation).
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:libraw native decoder (implementation).
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Uses LibRaw (LGPL-2.1).
  *
  * Reproduces spektrafilm/utils/raw_file_processor.py on-device with LibRaw:

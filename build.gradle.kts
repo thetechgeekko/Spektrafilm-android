@@ -1,4 +1,4 @@
-// SpectraFilm for Android — root build. GPLv3.
+// Spektrafilm for Android — root build. GPLv3.
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false

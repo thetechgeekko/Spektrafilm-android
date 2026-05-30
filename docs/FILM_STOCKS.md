@@ -1,10 +1,10 @@
-# SpectraFilm Stock Catalog
+# Spektrafilm Stock Catalog
 
-SpectraFilm ships with 28 spectral film and paper profiles. This reference groups every
+Spektrafilm ships with 28 spectral film and paper profiles. This reference groups every
 bundled stock by its role in the photographic chain — the film you expose, the slide you
 project, the cine negative you shoot, and the print medium that renders the final image.
 
-In SpectraFilm a *film* is paired with a *print medium* (an RGB paper for still negatives,
+In Spektrafilm a *film* is paired with a *print medium* (an RGB paper for still negatives,
 or a motion-picture print film for cine negatives) to produce the final look. Reversal
 (slide) stocks are positives that need no print stage. Stocks marked **tungsten** are
 balanced for ~3200 K artificial light rather than ~5500 K daylight.
@@ -72,7 +72,7 @@ Balanced for the tungsten-halogen + KG3 lamp of a printer/projector.
 
 ## RGB Print Paper
 
-RA-4 color negative papers — the final medium for still color negatives. In SpectraFilm a
+RA-4 color negative papers — the final medium for still color negatives. In Spektrafilm a
 negative film is paired with one of these papers to render its final color and contrast.
 These are papers, not films, so they carry no ISO speed.
 

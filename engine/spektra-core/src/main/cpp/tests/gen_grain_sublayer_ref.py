@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SpectraFilm for Android - generate a statistical reference for the SUBLAYER
+# Spektrafilm for Android - generate a statistical reference for the SUBLAYER
 # film-grain particle model (model/grain.py::apply_grain_to_density_layers +
 # add_micro_structure), exercised through apply_grain with sublayers_active=True
 # (the real GrainParams default).

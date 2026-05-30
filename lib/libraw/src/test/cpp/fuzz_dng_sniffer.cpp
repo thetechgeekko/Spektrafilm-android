@@ -1,5 +1,5 @@
 /*
- * SpectraFilm — libFuzzer harness for the DNG compression sniffer (GPLv3).
+ * Spektrafilm — libFuzzer harness for the DNG compression sniffer (GPLv3).
  *
  * The sniffer (dngsniff::compressionOf / classifyUnpackFailure) is the part of the
  * RAW decoder that parses FULLY UNTRUSTED bytes (a malformed DNG/TIFF header + IFD

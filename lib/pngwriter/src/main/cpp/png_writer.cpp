@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:pngwriter 16-bit PNG writer implementation.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:pngwriter 16-bit PNG writer implementation.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Writes a valid 16-bit-per-channel RGB PNG stream. Format details:
  *

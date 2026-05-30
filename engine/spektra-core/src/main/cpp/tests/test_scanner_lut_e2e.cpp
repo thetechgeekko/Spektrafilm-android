@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — end-to-end host test for the OPT-IN scanner 3D-LUT.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — end-to-end host test for the OPT-IN scanner 3D-LUT.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * Proves the WIRED scanner-LUT path is correct end-to-end (not just the isolated

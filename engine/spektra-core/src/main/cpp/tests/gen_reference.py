@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SpectraFilm for Android - generate reference spectra for the Hanatos2025
+# Spektrafilm for Android - generate reference spectra for the Hanatos2025
 # RGB->spectrum upsampling C++ parity test.
 #
 # Runs the real spektrafilm engine as an oracle and dumps reference spectra for a

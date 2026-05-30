@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host unit test for the 16-bit baseline TIFF writer.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host unit test for the 16-bit baseline TIFF writer.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Pure host test (no Android / no Gradle). Writes a small known 16-bit RGB buffer
  * to /tmp with an embedded ICC blob + metadata, then parses the file back from
@@ -156,7 +156,7 @@ void runCase(const char* label, TiffCompression comp, const std::vector<uint8_t>
     }
 
     TiffMetadata meta;
-    meta.software = "SpectraFilm-test";
+    meta.software = "Spektrafilm-test";
     meta.dateTime = "2026:05:29 12:00:00";
     meta.xResolution = 300.0;
     meta.yResolution = 300.0;
@@ -212,9 +212,9 @@ void runCase(const char* label, TiffCompression comp, const std::vector<uint8_t>
     if (ifd.count(305)) {
         size_t off = valueDataOffset(ifd[305]);
         std::string s(reinterpret_cast<const char*>(&file[off]));
-        sw = (s == "SpectraFilm-test");
+        sw = (s == "Spektrafilm-test");
     }
-    CHECK(sw, "Software tag = 'SpectraFilm-test'");
+    CHECK(sw, "Software tag = 'Spektrafilm-test'");
 
     // ICC presence + byte round-trip.
     if (!icc.empty()) {

@@ -1,6 +1,6 @@
-# SpectraFilm Built-in Presets
+# Spektrafilm Built-in Presets
 
-SpectraFilm ships 20 curated presets, each pairing a film stock with a print medium and a
+Spektrafilm ships 20 curated presets, each pairing a film stock with a print medium and a
 small set of complementary engine tweaks to reproduce a coherent, recognizable look. The
 machine-readable definitions live in
 `engine/spektra-core/src/main/assets/spektra/presets.json`; this document is the design

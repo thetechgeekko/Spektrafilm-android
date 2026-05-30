@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:pngwriter build.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:pngwriter build.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Android library wrapping the native 16-bit PNG writer (libsfpng.so, built via
  * CMake/NDK using zlib for deflate + CRC32) plus the Kotlin PngWriter facade.

@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host test for spk_bake_cube_lut.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host test for spk_bake_cube_lut.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * Bakes a 17^3 3D LUT for the default scan_film look and validates the emitted

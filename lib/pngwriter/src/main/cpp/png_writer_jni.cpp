@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:pngwriter JNI bridge.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:pngwriter JNI bridge.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Bridges com.spectrafilm.pngwriter.PngWriter (Kotlin) to the native 16-bit PNG
  * writer (libsfpng.so). Mirrors the lib:tiffwriter bridge conventions:

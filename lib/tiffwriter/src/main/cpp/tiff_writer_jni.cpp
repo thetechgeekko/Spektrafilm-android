@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:tiffwriter JNI bridge.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:tiffwriter JNI bridge.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Bridges com.spectrafilm.tiffwriter.TiffWriter (Kotlin) to the native baseline
  * 16-bit TIFF writer. Mirrors the lib:libraw bridge conventions:

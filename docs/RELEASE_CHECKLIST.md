@@ -8,7 +8,7 @@ the tooling, no `edit-repository` MCP method).
 
 ## Environment constraints — why this file exists
 
-The development environment used to build and commit SpectraFilm:
+The development environment used to build and commit Spektrafilm:
 
 - **Cannot push git tags** — the git proxy returns 403 on `refs/tags/*` pushes. Local tags
   `v0.1.0` and `v0.2.0` exist in the repo but are not yet on GitHub.
@@ -67,9 +67,9 @@ enabled, but are **not suitable for Play Store submission**.
    `keystore.properties` automatically and uses the release signing config.
 
 4. The resulting APK at `app/build/outputs/apk/release/app-release.apk` is release-signed.
-   Copy it to `dist/SpectraFilm-vX.Y.Z.apk` and regenerate the SHA-256:
+   Copy it to `dist/Spektrafilm-vX.Y.Z.apk` and regenerate the SHA-256:
    ```
-   sha256sum dist/SpectraFilm-vX.Y.Z.apk > dist/SpectraFilm-vX.Y.Z.apk.sha256
+   sha256sum dist/Spektrafilm-vX.Y.Z.apk > dist/Spektrafilm-vX.Y.Z.apk.sha256
    ```
 
 > **Note:** for Play Store distribution, also configure `bundleRelease` to produce an `.aab`.
@@ -90,7 +90,7 @@ git push origin v0.2.0
 For a new release, tag first, then push:
 
 ```bash
-git tag -a v0.3.0 -m "SpectraFilm v0.3.0"
+git tag -a v0.3.0 -m "Spektrafilm v0.3.0"
 git push origin v0.3.0
 ```
 
@@ -101,7 +101,7 @@ the wave needed:
 
 ```bash
 git fetch origin
-git tag -a v0.3.0 origin/release/v0.3.0 -m "SpectraFilm v0.3.0"
+git tag -a v0.3.0 origin/release/v0.3.0 -m "Spektrafilm v0.3.0"
 git push origin v0.3.0
 ```
 
@@ -116,7 +116,7 @@ Navigate to https://github.com/thetechgeekko/Spectrafilmandroid/releases/new and
 
 - [ ] **Tag:** `v0.3.0`. **Target:** `release/v0.3.0` (or `main` once PR #8 is merged) — GitHub
   will create the tag on publish if it doesn't exist yet.
-- [ ] **Release title:** `SpectraFilm v0.3.0`
+- [ ] **Release title:** `Spektrafilm v0.3.0`
 - [ ] **Description:** paste the template below (mirrors the `## v0.3.0` block in `CHANGELOG.md`).
 - [ ] **Attach files:** `dist/SpectraFilm-v0.3.0.apk` and `dist/SpectraFilm-v0.3.0.apk.sha256`
   — **BUT** see §2: the committed APK is **debug-signed**. Rebuild with the real keystore and
@@ -127,7 +127,7 @@ Navigate to https://github.com/thetechgeekko/Spectrafilmandroid/releases/new and
 ### Release notes template (paste into the GitHub Release description)
 
 ```
-## SpectraFilm v0.3.0
+## Spektrafilm v0.3.0
 
 Lightroom-style UI redesign, new bit-exact engine stages, and a major export/import upgrade.
 

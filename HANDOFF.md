@@ -1,4 +1,4 @@
-# SpectraFilm Android — Session Handoff (v0.3.0 wave, security-hardened)
+# Spektrafilm Android — Session Handoff (v0.3.0 wave, security-hardened)
 
 ## State — HEAD `b12492e`, dev branch `claude/sharp-allen-I7wQK`, draft PR #8 (68 commits since v0.2.0 base `4b93acc`)
 HEAD == origin, clean tree, 1 worktree. Host parity **14/14 bit-exact**; `:app:assembleDebug` + `:app:assembleRelease` green. CI green on gating jobs. Built by parallel skilled sub-agents across engine/app/lib/docs lanes, each re-verified (parity suite / unified build) by the integrator before merge.

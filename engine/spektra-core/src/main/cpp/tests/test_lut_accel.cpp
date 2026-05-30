@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host parity test for the OPT-IN 3D LUT acceleration.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host parity test for the OPT-IN 3D LUT acceleration.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * Exercises kernels/lut3d.h (the native port of the oracle's PCHIP 3D LUT path:

@@ -6,7 +6,7 @@ Three host edits activate it. Apply them once the host (`app/`, `core/`,
 
 ## 1. `settings.gradle.kts` — include the module
 
-Add alongside the other SpectraFilm additions:
+Add alongside the other Spektrafilm additions:
 
 ```kotlin
 include(":engine:spektra-core")

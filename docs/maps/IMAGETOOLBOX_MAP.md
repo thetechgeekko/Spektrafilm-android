@@ -1,7 +1,7 @@
 # Technical map — Image Toolbox (the host app)
 
 Source: `T8RIN/ImageToolbox`, Kotlin/Jetpack Compose, Apache-2.0. Produced by surveying the
-actual source + `ARCHITECTURE.md`. This is the reference for hosting the SpectraFilm port.
+actual source + `ARCHITECTURE.md`. This is the reference for hosting the Spektrafilm port.
 
 ## Stack
 

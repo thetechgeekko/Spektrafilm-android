@@ -1,4 +1,4 @@
-// SpectraFilm for Android — app. GPLv3.
+// Spektrafilm for Android — app. GPLv3.
 import java.util.Properties
 
 plugins {

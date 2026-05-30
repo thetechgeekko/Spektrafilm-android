@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host unit test for the 16-bit PNG writer.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host unit test for the 16-bit PNG writer.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Pure host test (no Android / no Gradle). Writes a small known 16-bit RGB
  * buffer to /tmp with an embedded iCCP blob + tEXt Software tag, then parses
@@ -342,7 +342,7 @@ int main() {
     // Case 1: full metadata (ICC + software tag).
     {
         PngMetadata meta;
-        meta.software  = "SpectraFilm-test";
+        meta.software  = "Spektrafilm-test";
         meta.iccProfile = icc;
         runCase("rgb16", pixels, W, H, meta);
     }
@@ -350,7 +350,7 @@ int main() {
     // Case 2: no ICC (no iCCP chunk expected).
     {
         PngMetadata meta;
-        meta.software = "SpectraFilm-test";
+        meta.software = "Spektrafilm-test";
         // meta.iccProfile is empty by default
         runCase("no_icc", pixels, W, H, meta);
     }

@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host parity test for the auto-exposure stage.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host parity test for the auto-exposure stage.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * Exercises a NON-default auto-exposure setting (camera.auto_exposure = ON,

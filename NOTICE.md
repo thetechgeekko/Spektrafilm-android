@@ -1,6 +1,6 @@
 # Attribution & Third-Party Notices
 
-SpectraFilm for Android is licensed under the **GNU General Public License v3.0** (see `LICENSE`).
+Spektrafilm for Android is licensed under the **GNU General Public License v3.0** (see `LICENSE`).
 
 > **Dedicated to the [pixls.us](https://pixls.us) community** — for keeping open photography and
 > open color science alive. Thank you. 💛

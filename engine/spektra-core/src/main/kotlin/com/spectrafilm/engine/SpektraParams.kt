@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — engine parameters.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — engine parameters.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * 1:1 mirror of spektrafilm's RuntimePhotoParams tree
  * (src/spektrafilm/runtime/params_schema.py). Defaults match upstream so that, for a

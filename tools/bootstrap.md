@@ -69,7 +69,7 @@ cp -r spektrafilm/src/spektrafilm/data/icc       engine/spektra-core/src/main/as
 
 ## 7. Build gate
 
-`./gradlew :app:assembleDebug` builds; the SpectraFilm screen opens (empty). The engine + JNI
+`./gradlew :app:assembleDebug` builds; the Spektrafilm screen opens (empty). The engine + JNI
 link (returning "not implemented") and LibRaw compiles for all ABIs. That closes M1; M2 brings
 RAW decode online and M3 starts the engine port (`docs/ROADMAP.md`).
 

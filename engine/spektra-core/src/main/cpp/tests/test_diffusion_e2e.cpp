@@ -1,7 +1,7 @@
 /*
- * SpectraFilm for Android — END-TO-END host parity test for the camera optical
+ * Spektrafilm for Android — END-TO-END host parity test for the camera optical
  * diffusion filter run through the WHOLE scan_film pipeline.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * The diffusion_bpm golden (tests/test_diffusion.cpp) only exercises
