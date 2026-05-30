@@ -78,6 +78,7 @@ import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -273,6 +274,10 @@ class MainActivity : ComponentActivity() {
         var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
         var magnifierRendering by remember { mutableStateOf(false) }
         var magnifierStatus by remember { mutableStateOf("") }
+        // Tracks the in-flight magnifier render so a rapid re-tap can cancel the previous
+        // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
+        // Held in a remember box (not Compose state — we never read it during composition).
+        val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
         // presets
         var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -474,13 +479,22 @@ class MainActivity : ComponentActivity() {
         }
 
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
+        //
+        // PERF/RACE: each tap previously launched an independent coroutine with no
+        // cancellation, so rapid taps ran several full-res simulate()s in parallel and
+        // raced their results into magnifierBitmap (last-write-wins, wasteful, and an
+        // orphaned bitmap per superseded run). We now cancel the prior in-flight render
+        // before starting a new one (last-tap-wins), and the result is only published if
+        // the coroutine is still active — a cancelled run recycles its own bitmap instead
+        // of writing it, so a superseded render can never leak or land on screen.
         fun openMagnifier(nx: Float, ny: Float) {
             val e = engine ?: return
+            magnifierJobRef.value?.cancel()
             magnifierOpen = true
             magnifierBitmap = null
             magnifierRendering = true
             magnifierStatus = "rendering 100% crop…"
-            scope.launch {
+            magnifierJobRef.value = scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.Default) {
                         val full = loadSource(MAX_EDGE_PX)
@@ -488,6 +502,12 @@ class MainActivity : ComponentActivity() {
                         val res = e.simulate(crop, state.toParams())
                         simResultToBitmap(res.data, res.width, res.height)
                     }
+                }
+                if (!isActive) {
+                    // Superseded by a newer tap (this job was cancelled): drop our render so
+                    // it neither overwrites the latest request nor leaks an orphaned bitmap.
+                    result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
+                    return@launch
                 }
                 result.onSuccess {
                     magnifierBitmap = it
@@ -530,8 +550,32 @@ class MainActivity : ComponentActivity() {
             previewBusy = false
         }
 
+        // MEMORY (#2): `preview` and `beforePreview` are intentionally LEFT TO GC, not recycled
+        // on swap. Recycling them is NOT provably safe: `preview` is consumed by HistogramCard,
+        // which reads its pixels with getPixels() from a background coroutine
+        // (LaunchedEffect(bitmap){ withContext(Dispatchers.Default){ computeHistogram(bitmap) } }).
+        // computeHistogram is a tight, non-suspending loop, so when `preview` swaps mid-compute
+        // the previous coroutine is NOT actually cancelled (cancellation is cooperative) and runs
+        // to completion on the OLD bitmap. Recycling that bitmap on the recomposition swap would
+        // race the still-running getPixels() -> "Can't call getPixels() on a recycled bitmap"
+        // crash, and a check-then-recycle can't close that window without coordinating with the
+        // histogram coroutine. Per the audit's correctness-over-aggressiveness rule these orphaned
+        // ARGB_8888 bitmaps (incl. the full-res export bitmap, which becomes `preview`) are left
+        // for the GC, which reclaims them promptly under the memory pressure that actually
+        // matters. Only the magnifier crop — which has NO async reader — is recycled
+        // deterministically (see the magnifier overlay's DisposableEffect below).
+
         // re-trigger preview on any change to the params snapshot / source / rotation.
-        val snapshot = state.toParams()
+        //
+        // PERF: wrap toParams() in derivedStateOf so the full SpektraParams tree (+ nested
+        // Grain/Halation/DirCouplers/Glare/Diffusion) is allocated ONLY when a param state
+        // actually changes — not on every recomposition of EditorScreen. derivedStateOf reads
+        // exactly the same param states toParams() does, so it invalidates (and re-allocates)
+        // iff one of those states changes, and otherwise returns the cached instance. The
+        // resulting SpektraParams is structurally compared by LaunchedEffect's key machinery
+        // (it is a data class), so a relaunch fires for every field that can alter the render —
+        // identical trigger behaviour to the old per-frame snapshot, with no per-frame alloc.
+        val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
 
@@ -812,11 +856,33 @@ class MainActivity : ComponentActivity() {
 
             // --- 100% grain magnifier overlay ---
             if (magnifierOpen) {
+                // MEMORY: the magnifier crop is a real full-resolution ARGB_8888 render
+                // (~512px native here, but it is the only path that decodes at MAX_EDGE_PX
+                // before cropping). Recycle it deterministically once the overlay leaves
+                // composition (close) or the rendered crop is replaced by a re-render. This
+                // DisposableEffect is scoped INSIDE `if (magnifierOpen)`, so onDispose runs
+                // only after the overlay is no longer composed/drawn — never a use-after-
+                // recycle of the bitmap still on screen. `crop` is the value captured for
+                // THIS effect instance; when `magnifierBitmap` changes (e.g. -> null on a
+                // re-open) or the overlay closes, the captured previous bitmap is freed.
+                val cropToFree = magnifierBitmap
+                DisposableEffect(magnifierBitmap) {
+                    onDispose {
+                        if (cropToFree != null && !cropToFree.isRecycled) cropToFree.recycle()
+                    }
+                }
                 MagnifierOverlay(
                     crop = magnifierBitmap,
                     rendering = magnifierRendering,
                     status = magnifierStatus,
-                    onClose = { magnifierOpen = false; magnifierBitmap = null },
+                    onClose = {
+                        // Cancel any in-flight crop render so it doesn't resurrect the overlay
+                        // state or leak its bitmap (a cancelled job recycles its own result).
+                        magnifierJobRef.value?.cancel()
+                        magnifierRendering = false
+                        magnifierOpen = false
+                        magnifierBitmap = null
+                    },
                 )
             }
 

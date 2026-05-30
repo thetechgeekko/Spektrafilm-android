@@ -71,6 +71,46 @@ fun decodeRawToLinear(
     tint: Double,
     maxEdge: Int = MAX_EDGE_PX,
 ): LinearImage {
+    // Issue #7 mitigation (app-side, conservative): LibRaw decodes at FULL native
+    // resolution into a float32 buffer (12 bytes/px) BEFORE we box-downsample to maxEdge,
+    // a multi-hundred-MB transient for 50-200MP RAW. True tiling needs native work and is
+    // out of scope. Here we (1) guard the decode against OutOfMemoryError and retry at a
+    // progressively smaller cap (the *output* shrinks; the native full-res decode is
+    // unavoidable without native tiling, but a smaller target frees the downsample buffer
+    // and the surviving LinearImage so a borderline device can still produce a usable
+    // preview), and (2) surface a clear error rather than crash if even the smallest cap
+    // fails. The display-quality difference of a smaller cap is preferable to an app crash.
+    var attemptEdge = maxEdge.coerceAtLeast(MIN_RAW_FALLBACK_EDGE)
+    while (true) {
+        try {
+            return decodeRawAtEdge(ctx, uri, wb, temperatureK, tint, attemptEdge)
+        } catch (oom: OutOfMemoryError) {
+            // Encourage the collector to reclaim the failed transient before retrying.
+            System.gc()
+            if (attemptEdge <= MIN_RAW_FALLBACK_EDGE) {
+                // Out of headroom even at the smallest cap: surface a clear, catchable error
+                // (the caller's runCatching turns this into a user-visible status, not a crash).
+                throw RuntimeException(
+                    "Not enough memory to decode this RAW file (too large for this device).", oom,
+                )
+            }
+            attemptEdge = max(MIN_RAW_FALLBACK_EDGE, attemptEdge / 2)
+        }
+    }
+}
+
+/** Smallest longest-edge cap the RAW OOM-retry ladder will fall back to before giving up. */
+private const val MIN_RAW_FALLBACK_EDGE = 512
+
+/** Single RAW decode + box-downsample attempt at a specific [maxEdge] (see [decodeRawToLinear]). */
+private fun decodeRawAtEdge(
+    ctx: Context,
+    uri: Uri,
+    wb: WhiteBalance,
+    temperatureK: Double,
+    tint: Double,
+    maxEdge: Int,
+): LinearImage {
     val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         ?: error("Could not open RAW file")
     val result = RawDecoder.decodeToLinear(
@@ -101,6 +141,8 @@ fun decodeRawToLinear(
             oi += 3
         }
     }
+    // The full-resolution native float buffer (result.data) and the file byte[] are now
+    // unreferenced once this returns the smaller `out` LinearImage -> eligible for prompt GC.
     return LinearImage(out, outW, outH, colorSpace = result.colorSpace)
 }
 
