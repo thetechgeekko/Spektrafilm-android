@@ -33,8 +33,9 @@ Lightroom-style UI redesign, new engine stages, and a major export/import upgrad
   keyed to the source; original RAW is untouched; re-renders on open/export.
 - **Engine/render status pill** — persistent readout showing decoding / rendering / exporting /
   error / last-render-ms on the preview canvas.
-- **Full source EXIF copy on export** — all EXIF tags from the source image are copied into
-  exported JPEGs and TIFFs.
+- **Source EXIF copy on export** — camera/lens/exposure/date EXIF from the source image is
+  copied into exported JPEGs. **GPS/location is opt-in** (Settings → "Preserve location",
+  default OFF/stripped) so shared images don't leak location by default.
 - **Google Ultra HDR export** — exports a gain-map JPEG Ultra HDR when the device supports it.
 
 ### Major UI redesign (Lightroom-style)
@@ -51,9 +52,19 @@ Lightroom-style UI redesign, new engine stages, and a major export/import upgrad
 - Settings → gear icon, About → "?" icon.
 
 ### Quality & CI
-- Crop, auto-exposure, and diffusion parity tests gated in the `engine-parity` CI job.
+- Crop, auto-exposure, diffusion (incl. full-pipeline + matrix-metering), lens-blur,
+  `print_ektar`, and LUT-accel parity tests gated in the `engine-parity` CI job.
 - `android-emulator` KVM smoke job added but gated to manual `workflow_dispatch` (hosted
   runners have no `/dev/kvm`; needs runner-level fix before it can run automatically).
+- `tools/device_smoke_test.sh` — one-command on-device verification for the maintainer.
+
+### Security hardening (from a pre-release review)
+- Reject >2 GiB before `ByteBuffer.allocateDirect((jint))` in the RAW-decode and engine-output
+  JNI paths (prevents `jint` truncation → heap overflow). Added direct-buffer capacity checks to
+  the TIFF/PNG writer JNI and a 32-bit-ABI overflow guard to the PNG writer.
+- GPS-on-export is now opt-in (see above).
+- **Release note:** the `dist/` APK is **debug-signed** (fallback) — the maintainer must rebuild
+  with a real release keystore before publishing. LibRaw decode paths should be fuzzed pre-release.
 
 *Film modeling powered by [spektrafilm](https://github.com/andreavolpato/spektrafilm).*
 
