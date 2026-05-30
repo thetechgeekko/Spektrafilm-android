@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,7 +66,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
 
 /**
@@ -498,14 +506,59 @@ private fun DragHandle(modifier: Modifier = Modifier) {
 }
 
 /**
+ * Adaptive popup position provider for the metering-method panel.
+ *
+ * Placement logic:
+ *   - If there is enough room ABOVE the anchor (anchorBounds.top >= popupContentSize.height),
+ *     place the panel so its bottom edge meets the anchor's top edge (grows upward).
+ *   - Otherwise, place the panel so its top edge meets the anchor's bottom edge (grows downward).
+ *   - Horizontally, align the panel's left edge to the anchor's left edge.
+ *   - Both x and y are clamped to stay fully within the window bounds.
+ *
+ * The [placeAbove] callback lets the composable know which direction was chosen so
+ * the drag-handle can be positioned on the correct edge.
+ */
+private class MeteringPopupPositionProvider(
+    private val onPlacedAbove: (Boolean) -> Unit,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val placeAbove = anchorBounds.top >= popupContentSize.height
+        onPlacedAbove(placeAbove)
+
+        val y = if (placeAbove) {
+            // Bottom of popup aligns with top of anchor.
+            anchorBounds.top - popupContentSize.height
+        } else {
+            // Top of popup aligns with bottom of anchor.
+            anchorBounds.bottom
+        }
+
+        val x = anchorBounds.left
+
+        // Clamp so the panel never goes off-screen.
+        val clampedX = x.coerceIn(0, maxOf(0, windowSize.width - popupContentSize.width))
+        val clampedY = y.coerceIn(0, maxOf(0, windowSize.height - popupContentSize.height))
+
+        return IntOffset(clampedX, clampedY)
+    }
+}
+
+/**
  * Lightroom-mobile-style expandable auto-exposure / metering-method control.
  *
  * Collapsed state: a single "Auto" button (OutlinedButton when off, filled Button
  * showing the active method name when on).
  *
- * Expanded state: an elevated Surface that slides up from the button showing all
- * metering methods plus an "Off / Manual" option at the top. A drag handle at
- * the top of the list and a swipe-down gesture collapse it. Swiping up on the
+ * Expanded state: an elevated Surface rendered in a [Popup] anchored to the Auto
+ * button. The popup positions itself ABOVE the button when there is room, or BELOW
+ * when the button is near the top of the screen (adaptive vertical anchoring).
+ * Tapping outside the popup or pressing Back dismisses it (focusable = true).
+ * A drag handle and a swipe gesture also collapse it. Swiping up on the
  * (collapsed) button expands it.
  *
  * State ownership: [autoExposure] / [autoExposureMethod] are owned by the caller
@@ -522,6 +575,9 @@ fun AutoExposureControl(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
+    // Whether the popup was last placed above the button (drives drag direction logic).
+    var popupIsAbove by remember { mutableStateOf(true) }
+
     // Accumulated vertical drag on the button (swipe-up to expand).
     var buttonDragAccum by remember { mutableFloatStateOf(0f) }
     // Accumulated vertical drag on the list panel (swipe-down to collapse).
@@ -532,171 +588,222 @@ fun AutoExposureControl(
     // Human-readable label for the current method.
     val currentLabel = meteringMethodLabel(autoExposureMethod)
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    val collapse = { expanded = false }
 
-        // ----- Expanded metering-method panel -----
-        // Renders ABOVE the button in the column layout, slides up from the button.
-        AnimatedVisibility(
-            visible = expanded,
-            enter = slideInVertically(
-                initialOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(220),
-            ) + fadeIn(animationSpec = tween(220)),
-            exit = slideOutVertically(
-                targetOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(180),
-            ) + fadeOut(animationSpec = tween(180)),
+    // The popup position provider is remembered so it is stable across recompositions.
+    val positionProvider = remember {
+        MeteringPopupPositionProvider(onPlacedAbove = { popupIsAbove = it })
+    }
+
+    // ----- Popup containing the metering-method panel -----
+    // Placed outside the normal layout flow; the anchor Box below provides the bounds.
+    // focusable = true enables tap-outside-to-dismiss and back-press dismissal.
+    if (expanded) {
+        Popup(
+            popupPositionProvider = positionProvider,
+            onDismissRequest = collapse,
+            properties = PopupProperties(focusable = true),
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 4.dp)
-                    // Swipe-down anywhere on the panel collapses the list.
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = { listDragAccum = 0f },
-                            onDragEnd = { listDragAccum = 0f },
-                            onDragCancel = { listDragAccum = 0f },
-                            onVerticalDrag = { change, dragAmount ->
-                                change.consume()
-                                listDragAccum += dragAmount
-                                if (listDragAccum > swipeThresholdPx) {
-                                    expanded = false
-                                    listDragAccum = 0f
-                                }
-                            },
-                        )
+            // Animate on first appearance: slide in from the direction of the button.
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInVertically(
+                    // If above → slide up (negative = from below the panel's final position).
+                    // If below → slide down (positive).
+                    initialOffsetY = { fullHeight ->
+                        if (popupIsAbove) fullHeight else -fullHeight
                     },
-                shape = RoundedCornerShape(16.dp),
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp,
-                color = MaterialTheme.colorScheme.surface,
+                    animationSpec = tween(220),
+                ) + fadeIn(animationSpec = tween(220)),
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    // Drag handle at the very top — visual affordance for swipe-down.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        DragHandle()
-                    }
-
-                    Text(
-                        "Metering method",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
-                    // "Off / Manual" entry — always at the top.
-                    MeteringMethodRow(
-                        label = "Off / Manual",
-                        isSelected = !autoExposure,
-                        onClick = {
-                            onAutoExposureChange(false)
-                            expanded = false
+                Surface(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        // Swipe gesture on the panel to collapse.
+                        // When above: swipe DOWN (positive dragAmount) collapses.
+                        // When below: swipe UP (negative dragAmount) collapses.
+                        .pointerInput(popupIsAbove) {
+                            detectVerticalDragGestures(
+                                onDragStart = { listDragAccum = 0f },
+                                onDragEnd = { listDragAccum = 0f },
+                                onDragCancel = { listDragAccum = 0f },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    listDragAccum += dragAmount
+                                    val shouldCollapse = if (popupIsAbove) {
+                                        listDragAccum > swipeThresholdPx   // swipe down
+                                    } else {
+                                        listDragAccum < -swipeThresholdPx  // swipe up
+                                    }
+                                    if (shouldCollapse) {
+                                        expanded = false
+                                        listDragAccum = 0f
+                                    }
+                                },
+                            )
                         },
-                    )
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    Column(
+                        modifier = Modifier.wrapContentSize(),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        // Drag handle — placed on the edge nearest the button:
+                        //   • panel above button → handle at the BOTTOM of the panel.
+                        //   • panel below button → handle at the TOP of the panel.
+                        // When above we render the main content first, then the handle.
+                        if (!popupIsAbove) {
+                            // Below: handle at top.
+                            Box(
+                                modifier = Modifier
+                                    .wrapContentSize()
+                                    .padding(top = 8.dp, bottom = 4.dp)
+                                    .align(Alignment.CenterHorizontally),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DragHandle()
+                            }
+                        }
 
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                    )
-
-                    // All metering methods.
-                    methods.forEachIndexed { index, method ->
-                        MeteringMethodRow(
-                            label = meteringMethodLabel(method),
-                            isSelected = autoExposure && autoExposureMethod == method,
-                            onClick = {
-                                onAutoExposureChange(true)
-                                onMethodChange(method)
-                                // Keep the list open so the user sees the selection.
-                                // It can be closed via swipe-down or tapping outside.
-                            },
-                        )
-                        if (index < methods.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                        if (popupIsAbove) {
+                            Text(
+                                "Metering method",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        } else {
+                            Text(
+                                "Metering method",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                             )
                         }
-                    }
 
-                    Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                        // "Off / Manual" entry — always at the top.
+                        MeteringMethodRow(
+                            label = "Off / Manual",
+                            isSelected = !autoExposure,
+                            onClick = {
+                                onAutoExposureChange(false)
+                                expanded = false
+                            },
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+
+                        // All metering methods.
+                        methods.forEachIndexed { index, method ->
+                            MeteringMethodRow(
+                                label = meteringMethodLabel(method),
+                                isSelected = autoExposure && autoExposureMethod == method,
+                                onClick = {
+                                    onAutoExposureChange(true)
+                                    onMethodChange(method)
+                                    // Keep the list open so the user sees the selection.
+                                    // Dismissed via swipe, tap-outside, or back-press.
+                                },
+                            )
+                            if (index < methods.lastIndex) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                )
+                            }
+                        }
+
+                        if (popupIsAbove) {
+                            // Above: handle at bottom — nearest the button.
+                            Box(
+                                modifier = Modifier
+                                    .wrapContentSize()
+                                    .padding(top = 4.dp, bottom = 8.dp)
+                                    .align(Alignment.CenterHorizontally),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DragHandle()
+                            }
+                        } else {
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
                 }
             }
         }
+    }
 
-        // ----- Collapsed "Auto" button -----
-        // Tap: if off → turn on and expand. If on → just expand (toggle list visibility).
-        // Swipe up: expand the list.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragStart = { buttonDragAccum = 0f },
-                        onDragEnd = { buttonDragAccum = 0f },
-                        onDragCancel = { buttonDragAccum = 0f },
-                        onVerticalDrag = { change, dragAmount ->
-                            change.consume()
-                            buttonDragAccum += dragAmount
-                            // Negative dragAmount = upward swipe → expand.
-                            if (buttonDragAccum < -swipeThresholdPx) {
-                                if (!autoExposure) onAutoExposureChange(true)
-                                expanded = true
-                                buttonDragAccum = 0f
-                            }
-                        },
-                    )
+    // ----- Collapsed "Auto" button (stays in normal layout flow) -----
+    // This Box is the popup anchor — the Popup() sibling above is positioned relative to it.
+    // Tap: if off → turn on and expand. If on → toggle list visibility.
+    // Swipe up: expand the list.
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { buttonDragAccum = 0f },
+                    onDragEnd = { buttonDragAccum = 0f },
+                    onDragCancel = { buttonDragAccum = 0f },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        buttonDragAccum += dragAmount
+                        // Negative dragAmount = upward swipe → expand.
+                        if (buttonDragAccum < -swipeThresholdPx) {
+                            if (!autoExposure) onAutoExposureChange(true)
+                            expanded = true
+                            buttonDragAccum = 0f
+                        }
+                    },
+                )
+            },
+    ) {
+        if (autoExposure) {
+            // ON: filled/accent button showing active method name.
+            Button(
+                onClick = {
+                    // Tap while on: toggle the list panel.
+                    expanded = !expanded
                 },
-        ) {
-            if (autoExposure) {
-                // ON: filled/accent button showing active method name.
-                Button(
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Text(
+                    "Auto  ·  $currentLabel",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+        } else {
+            // OFF: outlined button, subtitle "Manual exposure".
+            Column(Modifier.fillMaxWidth()) {
+                OutlinedButton(
                     onClick = {
-                        // Tap while on: toggle the list panel.
-                        expanded = !expanded
+                        // Tap while off: turn on and expand.
+                        onAutoExposureChange(true)
+                        expanded = true
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
                 ) {
-                    Text(
-                        "Auto  ·  $currentLabel",
-                        style = MaterialTheme.typography.labelLarge,
-                    )
+                    Text("Auto")
                 }
-            } else {
-                // OFF: outlined button, subtitle "Manual exposure".
-                Column(Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = {
-                            // Tap while off: turn on and expand.
-                            onAutoExposureChange(true)
-                            expanded = true
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Auto")
-                    }
-                    Text(
-                        "Manual exposure",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
-                    )
-                }
+                Text(
+                    "Manual exposure",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
             }
         }
     }
