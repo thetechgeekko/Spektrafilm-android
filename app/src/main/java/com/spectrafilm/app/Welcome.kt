@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — animated welcome / onboarding. GPLv3.
+ * Spektrafilm for Android — animated welcome / onboarding. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A multi-page first-run flow built on a HorizontalPager with a film + spectrum theme:
@@ -78,7 +78,7 @@ private data class OnboardPage(
 private val PAGES = listOf(
     OnboardPage(
         title = "Spectral film simulation,\non your phone",
-        body = "SpectraFilm renders your photos through a physically-modelled film " +
+        body = "Spektrafilm renders your photos through a physically-modelled film " +
             "stock and darkroom print — spectrum-accurate, not a preset filter.",
         accent = SPECTRUM[0],
     ),

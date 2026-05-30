@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — UI widgets. GPLv3.
+ * Spektrafilm for Android — UI widgets. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Self-contained Material3 composables styled after Image Toolbox: rounded

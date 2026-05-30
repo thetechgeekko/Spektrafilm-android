@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — editable parameter state. GPLv3.
+ * Spektrafilm for Android — editable parameter state. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A flat, Compose-observable mirror of the full SpektraParams tree. Edits update

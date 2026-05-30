@@ -1,8 +1,8 @@
 /*
- * SpectraFilm for Android — custom category / utility icons. GPLv3.
+ * Spektrafilm for Android — custom category / utility icons. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * Hand-crafted ImageVector icons for the SpectraFilm bottom category bar and
+ * Hand-crafted ImageVector icons for the Spektrafilm bottom category bar and
  * toolbar. Each icon lives at 24 × 24 dp, drawn as stroke-only line art
  * at a consistent strokeWidth of 1.5f. Colour is left entirely to the caller,
  * so they tint naturally via the standard Compose Icon composable:

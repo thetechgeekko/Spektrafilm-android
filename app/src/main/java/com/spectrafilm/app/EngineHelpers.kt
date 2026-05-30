@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — engine asset/bitmap helpers. GPLv3.
+ * Spektrafilm for Android — engine asset/bitmap helpers. GPLv3.
  * Film modeling powered by spektrafilm.
  */
 package com.spectrafilm.app

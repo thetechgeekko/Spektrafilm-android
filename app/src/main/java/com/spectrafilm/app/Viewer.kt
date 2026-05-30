@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — editor-grade preview viewer. GPLv3.
+ * Spektrafilm for Android — editor-grade preview viewer. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A set of self-contained composables that turn the flat preview Image into an

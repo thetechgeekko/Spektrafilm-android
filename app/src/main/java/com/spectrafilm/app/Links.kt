@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — external links + app metadata. GPLv3.
+ * Spektrafilm for Android — external links + app metadata. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Centralizes the project URLs (source, issue tracker, author socials) and a helper

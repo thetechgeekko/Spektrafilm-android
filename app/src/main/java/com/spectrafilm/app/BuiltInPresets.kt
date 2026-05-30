@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — bundled built-in presets. GPLv3.
+ * Spektrafilm for Android — bundled built-in presets. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Loads assets/spektra/presets.json (shipped in the engine assets, read here via the

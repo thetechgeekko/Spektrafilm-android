@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — app entry. GPLv3.
+ * Spektrafilm for Android — app entry. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Lightroom-mobile-style editor: an edge-to-edge near-black canvas with a pinned live
@@ -690,7 +690,7 @@ class MainActivity : ComponentActivity() {
                             }
                             result.onSuccess { (bmp, _) ->
                                 preview = bmp; exportDone = true
-                                status = "saved to Pictures/SpectraFilm"
+                                status = "saved to Pictures/Spektrafilm"
                             }.onFailure {
                                 exporting = false
                                 status = "export failed: ${it.message}"
@@ -981,7 +981,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "SpectraFilm",
+                    "Spektrafilm",
                     color = Color.White.copy(alpha = 0.92f),
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -1639,7 +1639,7 @@ class MainActivity : ComponentActivity() {
                         textAlign = TextAlign.Center,
                     )
                     Text(
-                        "Pictures/SpectraFilm",
+                        "Pictures/Spektrafilm",
                         color = Color.White.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.bodyMedium,
                     )

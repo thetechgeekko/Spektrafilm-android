@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — Settings screen. GPLv3.
+ * Spektrafilm for Android — Settings screen. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * App-level settings persisted via AppSettings (SharedPreferences): default output

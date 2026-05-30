@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — interactive crop overlay. GPLv3.
+ * Spektrafilm for Android — interactive crop overlay. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A Lightroom-mobile-style full-screen crop tool that replaces the old numeric

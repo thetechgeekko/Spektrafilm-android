@@ -1,9 +1,9 @@
 /*
- * SpectraFilm for Android — in-app "How to use this app" guide. GPLv3.
+ * Spektrafilm for Android — in-app "How to use this app" guide. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A self-contained, scrollable full-screen composable that walks a photographer
- * through every part of the app: what SpectraFilm is, loading a photo, the editing
+ * through every part of the app: what Spektrafilm is, loading a photo, the editing
  * layout, choosing a look, key tools, RAW white balance, non-destructive editing,
  * exporting, tips, and credits. Edge-to-edge safe via windowInsetsPadding(systemBars).
  *
@@ -69,7 +69,7 @@ fun HowToUseScreen(onBack: () -> Unit) {
                 .windowInsetsPadding(WindowInsets.systemBars),
         ) {
             TopAppBar(
-                title = { Text("How to use SpectraFilm") },
+                title = { Text("How to use Spektrafilm") },
                 navigationIcon = {
                     TextButton(onClick = onBack) { Text("Back") }
                 },
@@ -95,13 +95,13 @@ fun HowToUseScreen(onBack: () -> Unit) {
 @Composable
 private fun HowToContent(ctx: android.content.Context) {
 
-    // --- 1. What SpectraFilm is ---
+    // --- 1. What Spektrafilm is ---
     GuideSection(
         icon = SpectraIcons.Simulation,
-        title = "What SpectraFilm is",
+        title = "What Spektrafilm is",
     ) {
         GuideBody(
-            "SpectraFilm is a physically-based spectral film simulator. Unlike a simple filter " +
+            "Spektrafilm is a physically-based spectral film simulator. Unlike a simple filter " +
                 "or a look-up table, it models the real analog pipeline: a virtual negative is " +
                 "exposed to your photo's light, developed in a chemical bath, optionally enlarged " +
                 "onto print paper in a darkroom, and scanned back to a digital file — all driven " +
@@ -295,7 +295,7 @@ private fun HowToContent(ctx: android.content.Context) {
                 "coordinates copied from the source EXIF into the exported file."
         )
         GuideBody(
-            "The exported file is saved to Pictures/SpectraFilm on your device. " +
+            "The exported file is saved to Pictures/Spektrafilm on your device. " +
                 "Camera metadata (make, model, lens, exposure settings) from the source image " +
                 "is copied into the exported file's EXIF automatically."
         )
@@ -336,7 +336,7 @@ private fun HowToContent(ctx: android.content.Context) {
     ) {
         GuideBody(
             "Film modeling powered by spektrafilm (Andrea Volpato). The science, the film-stock " +
-                "profiles, and the spectral LUTs are Andrea's work — SpectraFilm is a " +
+                "profiles, and the spectral LUTs are Andrea's work — Spektrafilm is a " +
                 "native Android port of that engine, verified bit-exact against the original."
         )
         GuideBody("Dedicated to the pixls.us community.")

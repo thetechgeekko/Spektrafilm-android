@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — image import/export helpers. GPLv3.
+ * Spektrafilm for Android — image import/export helpers. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Converts a display-referred (sRGB) Bitmap into the scene-linear ProPhoto-RGB
@@ -422,11 +422,11 @@ fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): Sou
 
 /**
  * Apply the captured [source] EXIF to the [dest] ExifInterface (opened on the exported JPEG),
- * then write the SpectraFilm overrides and call saveAttributes(). Overrides written AFTER the
+ * then write the Spektrafilm overrides and call saveAttributes(). Overrides written AFTER the
  * bulk copy so they win:
- *   - TAG_ORIENTATION = ORIENTATION_NORMAL (1): SpectraFilm bakes rotation/orientation into the
+ *   - TAG_ORIENTATION = ORIENTATION_NORMAL (1): Spektrafilm bakes rotation/orientation into the
  *     exported pixels (loadSource applies manual rotation), so viewers must not re-rotate.
- *   - TAG_SOFTWARE = "SpectraFilm".
+ *   - TAG_SOFTWARE = "Spektrafilm".
  *   - width / height / pixel-x/y dimensions = the EXPORTED dimensions (the render may be
  *     cropped/resized/rotated vs the source).
  * Works for an empty [source] too: only the overrides are written, which is the desired
@@ -437,7 +437,7 @@ private fun applySourceExif(dest: ExifInterface, source: SourceExif, outW: Int, 
         runCatching { dest.setAttribute(tag, value) }
     }
     dest.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-    dest.setAttribute(ExifInterface.TAG_SOFTWARE, "SpectraFilm")
+    dest.setAttribute(ExifInterface.TAG_SOFTWARE, "Spektrafilm")
     dest.setAttribute(ExifInterface.TAG_IMAGE_WIDTH, outW.toString())
     dest.setAttribute(ExifInterface.TAG_IMAGE_LENGTH, outH.toString())
     dest.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, outW.toString())
@@ -445,12 +445,12 @@ private fun applySourceExif(dest: ExifInterface, source: SourceExif, outW: Int, 
     dest.saveAttributes()
 }
 
-/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG opened by file [descriptor]. */
+/** Apply [source] EXIF + Spektrafilm overrides to an exported JPEG opened by file [descriptor]. */
 private fun writeExifToFd(descriptor: FileDescriptor, source: SourceExif, outW: Int, outH: Int) {
     runCatching { applySourceExif(ExifInterface(descriptor), source, outW, outH) }
 }
 
-/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG at filesystem [path]. */
+/** Apply [source] EXIF + Spektrafilm overrides to an exported JPEG at filesystem [path]. */
 private fun writeExifToPath(path: String, source: SourceExif, outW: Int, outH: Int) {
     runCatching { applySourceExif(ExifInterface(path), source, outW, outH) }
 }
@@ -493,7 +493,7 @@ private fun attachNeutralGainmap(base: Bitmap) {
 }
 
 /**
- * Save [bmp] to the public gallery under Pictures/SpectraFilm as PNG or JPEG.
+ * Save [bmp] to the public gallery under Pictures/Spektrafilm as PNG or JPEG.
  * Uses scoped storage (MediaStore RELATIVE_PATH + IS_PENDING) on API 29+, and the
  * legacy direct-file + MediaStore insert path below that. Returns the content [Uri].
  *
@@ -509,7 +509,7 @@ fun saveToGallery(
     require(format != ExportFormat.TIFF) {
         "Use saveSimResultAsTiff() for TIFF export"
     }
-    val name = "SpectraFilm_${System.currentTimeMillis()}.${format.ext}"
+    val name = "Spektrafilm_${System.currentTimeMillis()}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
     val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
 
@@ -529,7 +529,7 @@ fun saveToGallery(
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, format.mime)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Spektrafilm")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
@@ -555,7 +555,7 @@ fun saveToGallery(
     @Suppress("DEPRECATION")
     val dir = File(
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-        "SpectraFilm"
+        "Spektrafilm"
     ).apply { mkdirs() }
     val file = File(dir, name)
     FileOutputStream(file).use { bmp.compress(compress, quality, it) }
@@ -629,19 +629,19 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
         outPath = tmpFile.absolutePath,
         icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
         exifColorSpace = exifCs,
-        software = "SpectraFilm",
+        software = "Spektrafilm",
         dateTime = dateTime,
         packBits = false,        // Uncompressed baseline for maximum compatibility
     )
 
-    val name = "SpectraFilm_${System.currentTimeMillis()}.tif"
+    val name = "Spektrafilm_${System.currentTimeMillis()}.tif"
     val resolver = ctx.contentResolver
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Spektrafilm")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
@@ -659,7 +659,7 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
         @Suppress("DEPRECATION")
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-            "SpectraFilm"
+            "Spektrafilm"
         ).apply { mkdirs() }
         val destFile = File(dir, name)
         tmpFile.copyTo(destFile, overwrite = true)
@@ -714,17 +714,17 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
         height = h,
         outPath = tmpFile.absolutePath,
         icc = null,              // No ICC assets bundled yet
-        software = "SpectraFilm",
+        software = "Spektrafilm",
     )
 
-    val name = "SpectraFilm_${System.currentTimeMillis()}.png"
+    val name = "Spektrafilm_${System.currentTimeMillis()}.png"
     val resolver = ctx.contentResolver
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.PNG16.mime)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Spektrafilm")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
@@ -742,7 +742,7 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
         @Suppress("DEPRECATION")
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-            "SpectraFilm"
+            "Spektrafilm"
         ).apply { mkdirs() }
         val destFile = File(dir, name)
         tmpFile.copyTo(destFile, overwrite = true)

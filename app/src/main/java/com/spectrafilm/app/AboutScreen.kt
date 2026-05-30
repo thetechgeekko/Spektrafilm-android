@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — About section. GPLv3.
+ * Spektrafilm for Android — About section. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * The dedication, credits/thanks, author links, version, license and source. Rendered
@@ -75,7 +75,7 @@ fun AboutCard() {
 private fun AboutContent() {
     val ctx = LocalContext.current
 
-    Text("SpectraFilm", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    Text("Spektrafilm", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     Text(
         "Version ${appVersionName(ctx)} (${appVersionCode(ctx)})",
         style = MaterialTheme.typography.bodySmall,
