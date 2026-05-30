@@ -23,6 +23,7 @@ import androidx.exifinterface.media.ExifInterface
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SimResult
+import com.spectrafilm.pngwriter.PngWriter
 import com.spectrafilm.tiffwriter.ExifColorSpace
 import com.spectrafilm.tiffwriter.TiffWriter
 import java.io.File
@@ -111,29 +112,92 @@ fun linearToDisplayBitmap(img: LinearImage): Bitmap {
 fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
     val src = decodeDownscaled(ctx, uri, maxEdge)
     try {
-        val w = src.width
-        val h = src.height
-        val pixels = IntArray(w * h)
-        src.getPixels(pixels, 0, w, 0, 0, w, h)
-
-        val buf = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
-        val f = buf.asFloatBuffer()
-        val m = SRGB_TO_PROPHOTO
-        for (p in pixels.indices) {
-            val argb = pixels[p]
-            val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
-            val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
-            val bl = srgbToLinear((argb and 0xFF) / 255f)
-            val pr = m[0] * rl + m[1] * gl + m[2] * bl
-            val pg = m[3] * rl + m[4] * gl + m[5] * bl
-            val pb = m[6] * rl + m[7] * gl + m[8] * bl
-            val i = p * 3
-            f.put(i, pr); f.put(i + 1, pg); f.put(i + 2, pb)
-        }
-        return LinearImage(buf, w, h, colorSpace = "ProPhoto RGB")
+        return bitmapToLinearProPhoto(src)
     } finally {
         src.recycle()
     }
+}
+
+/**
+ * Convert an already-decoded display-sRGB [src] Bitmap to a scene-linear ProPhoto-RGB
+ * float [LinearImage] (same inverse-CCTF + sRGB->ProPhoto matrix as
+ * [decodeToLinearProPhoto]). Used by both the photo-picker path and the lossy/JPEG-XL
+ * DNG ImageDecoder fallback (display-referred). Does not recycle [src].
+ */
+fun bitmapToLinearProPhoto(src: Bitmap): LinearImage {
+    val w = src.width
+    val h = src.height
+    val pixels = IntArray(w * h)
+    src.getPixels(pixels, 0, w, 0, 0, w, h)
+
+    val buf = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
+    val f = buf.asFloatBuffer()
+    val m = SRGB_TO_PROPHOTO
+    for (p in pixels.indices) {
+        val argb = pixels[p]
+        val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
+        val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
+        val bl = srgbToLinear((argb and 0xFF) / 255f)
+        val pr = m[0] * rl + m[1] * gl + m[2] * bl
+        val pg = m[3] * rl + m[4] * gl + m[5] * bl
+        val pb = m[6] * rl + m[7] * gl + m[8] * bl
+        val i = p * 3
+        f.put(i, pr); f.put(i + 1, pg); f.put(i + 2, pb)
+    }
+    return LinearImage(buf, w, h, colorSpace = "ProPhoto RGB")
+}
+
+/**
+ * Lossy / JPEG-XL DNG fallback: decode [uri] via the platform image decoder
+ * ([android.graphics.ImageDecoder] on API 28+, [BitmapFactory] on 24..27) and convert
+ * to a display-referred ProPhoto-RGB [LinearImage]. Used when LibRaw throws on a
+ * compressed Samsung/Pixel Expert-RAW DNG. The result is display-referred (NOT linear
+ * ACES scene data), so it bypasses the spectral scene-linear assumptions — preview/
+ * import quality only. Downscaled to [maxEdge]; EXIF orientation is applied by the
+ * caller (loadSource) just like any other source.
+ */
+fun decodeViaPlatform(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
+    val bmp: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val source = android.graphics.ImageDecoder.createSource(ctx.contentResolver, uri)
+        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            // Force a software ARGB_8888 bitmap (getPixels needs CPU-readable pixels) and
+            // honour maxEdge with an integer sample size.
+            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+            val longest = max(info.size.width, info.size.height).coerceAtLeast(1)
+            var sample = 1
+            while (longest / sample > maxEdge) sample *= 2
+            if (sample > 1) decoder.setTargetSampleSize(sample)
+        }
+    } else {
+        decodeDownscaled(ctx, uri, maxEdge)
+    }
+    val safe = if (bmp.config == Bitmap.Config.ARGB_8888) bmp
+    else bmp.copy(Bitmap.Config.ARGB_8888, false).also { bmp.recycle() }
+    try {
+        return bitmapToLinearProPhoto(safe)
+    } finally {
+        safe.recycle()
+    }
+}
+
+/**
+ * Read the SOURCE image's EXIF orientation tag from [uri] and map it to an
+ * [ExifOrientation] baseline (clockwise rotation + optional horizontal mirror).
+ * Returns [ExifOrientation.NONE] if the stream has no EXIF, can't be read, or is
+ * already upright. This is applied to the decoded [LinearImage] BEFORE the user's
+ * manual rotate steps so JPEG/HEIC imports (and lossy-DNG ImageDecoder fallbacks)
+ * appear upright in preview AND export.
+ */
+fun readExifOrientation(ctx: Context, uri: Uri): ExifOrientation {
+    return runCatching {
+        ctx.contentResolver.openInputStream(uri)?.use { stream ->
+            val exif = ExifInterface(stream)
+            val o = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL,
+            )
+            ExifOrientation.fromExif(o)
+        } ?: ExifOrientation.NONE
+    }.getOrDefault(ExifOrientation.NONE)
 }
 
 /** Decode [uri] with inSampleSize so the longest edge is at most [maxEdge]. */
@@ -180,12 +244,15 @@ fun cubeFileName(film: String, print: String): String {
 }
 
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {
-    PNG("PNG", "image/png", "png"),
+    PNG("PNG (8-bit)", "image/png", "png"),
     JPEG("JPEG", "image/jpeg", "jpg"),
     // Ultra HDR is a JPEG container with an embedded ISO 21496-1 / Google gain map +
     // MPF index — its MIME type stays image/jpeg and the extension stays jpg.
     ULTRA_HDR("Ultra HDR (JPEG)", "image/jpeg", "jpg"),
     TIFF("16-bit TIFF", "image/tiff", "tif"),
+    // True 16-bit-per-channel PNG via lib:pngwriter (libsfpng.so) — the engine's float
+    // SimResult is quantised directly to uint16, no 8-bit Bitmap round-trip (unlike PNG).
+    PNG16("16-bit PNG", "image/png", "png"),
 }
 
 /**
@@ -590,6 +657,89 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
+            @Suppress("DEPRECATION")
+            put(MediaStore.Images.Media.DATA, destFile.absolutePath)
+        }
+        resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: Uri.fromFile(destFile)
+    }
+}
+
+/**
+ * Quantise the engine's display-referred float RGB [SimResult] to 16-bit per channel
+ * and write a true 16-bit-per-channel RGB PNG to the gallery via [PngWriter]
+ * (lib:pngwriter / libsfpng.so), using MediaStore for scoped-storage compatibility.
+ *
+ * Mirrors [saveSimResultAsTiff]: same round-to-nearest float[0,1] -> uint16[0,65535]
+ * quantisation with no intermediate 8-bit Bitmap step. The PNG writer byte-swaps the
+ * little-endian uint16 samples to big-endian internally (PNG spec), so the caller only
+ * supplies native/little-endian uint16. No ICC bytes are bundled this wave (the PNG
+ * carries no iCCP chunk); a future wave can pass profile bytes here.
+ *
+ * Unlike the 8-bit [saveToGallery] PNG path (Bitmap.compress, 8 bpc), this preserves
+ * the engine's full tonal precision.
+ */
+fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
+    val w = result.width
+    val h = result.height
+    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val nSamples = w * h * 3
+
+    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
+    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
+    for (i in 0 until nSamples) {
+        val v = floatBuf.get(i).coerceIn(0f, 1f)
+        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+        rgb16Buf.put((u16 and 0xFF).toByte())
+        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+    }
+    rgb16Buf.flip()
+
+    // Write to a temp file in cacheDir first; avoids holding a MediaStore output stream
+    // open for the whole (potentially large) PNG deflate.
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.png")
+    PngWriter.write(
+        rgb16 = rgb16Buf,
+        width = w,
+        height = h,
+        outPath = tmpFile.absolutePath,
+        icc = null,              // No ICC assets bundled yet
+        software = "SpectraFilm",
+    )
+
+    val name = "SpectraFilm_${System.currentTimeMillis()}.png"
+    val resolver = ctx.contentResolver
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.PNG16.mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore insert failed for PNG16")
+        resolver.openOutputStream(uri)?.use { out ->
+            tmpFile.inputStream().use { it.copyTo(out) }
+        } ?: error("Could not open MediaStore output stream for PNG16")
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        tmpFile.delete()
+        uri
+    } else {
+        // Legacy (API 24..28): write directly to public Pictures dir.
+        @Suppress("DEPRECATION")
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "SpectraFilm"
+        ).apply { mkdirs() }
+        val destFile = File(dir, name)
+        tmpFile.copyTo(destFile, overwrite = true)
+        tmpFile.delete()
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.PNG16.mime)
             @Suppress("DEPRECATION")
             put(MediaStore.Images.Media.DATA, destFile.absolutePath)
         }

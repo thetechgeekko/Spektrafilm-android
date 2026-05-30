@@ -72,6 +72,8 @@ import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
+import com.spectrafilm.libraw.DecodeStatus
+import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
@@ -249,8 +251,14 @@ class MainActivity : ComponentActivity() {
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
 
-        // source rotation (applied to the decoded LinearImage -> preview AND export)
+        // source rotation (applied to the decoded LinearImage -> preview AND export).
+        // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
+        // (see loadSource) and is NOT persisted in the recipe.
         var rotation by remember { mutableStateOf(SourceRotation.NONE) }
+
+        // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
+        // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
+        var dngFallbackNotice by remember { mutableStateOf(false) }
 
         // LUT export
         var bakingLut by remember { mutableStateOf(false) }
@@ -323,6 +331,9 @@ class MainActivity : ComponentActivity() {
             val restored = runCatching { Recipes.load(ctx, recipeKey, state) }.getOrDefault(false)
             hasRecipe = restored
             if (restored) {
+                // Restore the persisted manual rotation (EXIF baseline is re-derived on load).
+                rotation = runCatching { Recipes.loadRotation(ctx, recipeKey) }
+                    .getOrDefault(SourceRotation.NONE)
                 previewTick++
                 snackbarHost.currentSnackbarData?.dismiss()
                 snackbarHost.showSnackbar(
@@ -331,7 +342,20 @@ class MainActivity : ComponentActivity() {
                 )
             } else {
                 Recipes.resetToDefaults(state, settings, profiles)
+                rotation = SourceRotation.NONE
                 previewTick++
+            }
+        }
+
+        // One-shot snackbar when a compressed DNG fell back to the system decoder.
+        LaunchedEffect(dngFallbackNotice) {
+            if (dngFallbackNotice) {
+                snackbarHost.currentSnackbarData?.dismiss()
+                snackbarHost.showSnackbar(
+                    message = "DNG imported via system decoder (display-referred)",
+                    withDismissAction = true,
+                )
+                dngFallbackNotice = false
             }
         }
 
@@ -393,17 +417,60 @@ class MainActivity : ComponentActivity() {
             pendingLutText = null
         }
 
-        // Decode the current source to a LinearImage capped to [maxEdge], then rotate.
+        // Decode the current source to a LinearImage capped to [maxEdge], applying the
+        // EXIF orientation baseline THEN the user's manual rotate steps so imports appear
+        // upright in both the preview and the export. The demo image has no EXIF.
+        //
+        // RAW/DNG: a compressed (lossy-JPEG / JPEG-XL) Samsung/Pixel Expert-RAW DNG makes
+        // LibRaw throw RawDecodeException; we fall back to the platform ImageDecoder
+        // (display-referred) and flag a one-shot snackbar. EXIF is then applied to the
+        // fallback bitmap too.
         suspend fun loadSource(maxEdge: Int): LinearImage = withContext(Dispatchers.IO) {
+            val uri = sourceUri
+            // EXIF baseline read once from the original source stream.
+            val exif = if (uri != null && sourceKind != SourceKind.DEMO) {
+                readExifOrientation(ctx, uri)
+            } else {
+                ExifOrientation.NONE
+            }
+            // applyExifBaseline guards the RAW double-rotation case: LibRaw already
+            // uprights its linear output (it honours the DNG Orientation tag during
+            // dcraw_process), so applying the file's EXIF on top would double-rotate.
+            // The platform ImageDecoder fallback does NOT upright by default for DNG, so
+            // the fallback path opts back in.
+            var applyExifBaseline = sourceKind != SourceKind.RAW
             val img = when (sourceKind) {
-                SourceKind.RAW -> decodeRawToLinear(
-                    ctx, sourceUri!!, state.rawWhiteBalance,
-                    state.rawTemperature.toDouble(), state.rawTint.toDouble(), maxEdge,
-                )
-                SourceKind.PHOTO -> decodeToLinearProPhoto(ctx, sourceUri!!, maxEdge)
+                SourceKind.RAW -> try {
+                    decodeRawToLinear(
+                        ctx, uri!!, state.rawWhiteBalance,
+                        state.rawTemperature.toDouble(), state.rawTint.toDouble(), maxEdge,
+                    )
+                } catch (e: RawDecodeException) {
+                    when (e.status) {
+                        DecodeStatus.LOSSY_JPEG_DNG,
+                        DecodeStatus.FILE_UNSUPPORTED -> {
+                            // Compressed Expert-RAW DNG: platform decoder fallback, which
+                            // does NOT auto-upright DNGs -> apply the EXIF baseline.
+                            dngFallbackNotice = true
+                            applyExifBaseline = true
+                            decodeViaPlatform(ctx, uri!!, maxEdge)
+                        }
+                        else -> throw e
+                    }
+                } catch (e: RuntimeException) {
+                    // Defensive: any other native decode failure on a DNG/RAW still tries
+                    // the platform decoder before giving up (e.g. an untyped error on a
+                    // lossy DNG with no typed status).
+                    dngFallbackNotice = true
+                    applyExifBaseline = true
+                    decodeViaPlatform(ctx, uri!!, maxEdge)
+                }
+                SourceKind.PHOTO -> decodeToLinearProPhoto(ctx, uri!!, maxEdge)
                 SourceKind.DEMO -> syntheticLinearImage(256)
             }
-            img.rotated(rotation)
+            // EXIF baseline (when applicable) first, then the user's manual rotate steps.
+            val based = if (applyExifBaseline) img.applyExif(exif) else img
+            based.rotated(rotation)
         }
 
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
@@ -469,12 +536,14 @@ class MainActivity : ComponentActivity() {
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
-        LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson,
+        LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
-            if (current != null && current == defaultsJson) {
+            // A non-NONE manual rotation is itself an edit worth persisting, even when the
+            // params are otherwise default — so only treat as "pristine" if rotation is NONE.
+            if (current != null && current == defaultsJson && rotation == SourceRotation.NONE) {
                 if (Recipes.exists(ctx, recipeKey)) {
                     withContext(Dispatchers.IO) { Recipes.delete(ctx, recipeKey) }
                 }
@@ -482,7 +551,9 @@ class MainActivity : ComponentActivity() {
                 return@LaunchedEffect
             }
             runCatching {
-                withContext(Dispatchers.IO) { Recipes.save(ctx, recipeKey, state, sourceName) }
+                withContext(Dispatchers.IO) {
+                    Recipes.save(ctx, recipeKey, state, sourceName, rotation.degrees)
+                }
             }.onSuccess { hasRecipe = true }
         }
 
@@ -553,8 +624,11 @@ class MainActivity : ComponentActivity() {
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
-                                        if (exportFmt == ExportFormat.TIFF) saveSimResultAsTiff(ctx, res)
-                                        else saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
+                                        when (exportFmt) {
+                                            ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
+                                            ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res)
+                                            else -> saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
+                                        }
                                     }
                                     bmp to uri
                                 }
@@ -1440,16 +1514,14 @@ class MainActivity : ComponentActivity() {
             TripleSlider("IR filter", s.filterIr, 0f..800f, { s.filterIr = it }, step = 1f, decimals = 0,
                 tooltip = "Filter IR light (amplitude, wavelength cutoff nm, sigma nm).",
                 componentLabels = Triple("amp", "λ", "σ"))
-            GatedBlock("Upscale and crop have no engine effect yet.") {
-                EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
-                    step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
-                SwitchRow("Crop", s.crop, { s.crop = it },
-                    "Crop image to a fraction of the original size to preview details at full scale")
-                PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
-                    tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
-                PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
-                    tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
-            }
+            EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
+                step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
+            SwitchRow("Crop", s.crop, { s.crop = it },
+                "Crop image to a fraction of the original size to preview details at full scale")
+            PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
+                tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
+            PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
+                tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
         }
     }
 
@@ -1622,7 +1694,6 @@ class MainActivity : ComponentActivity() {
     private fun DiffusionGroup(title: String, d: DiffusionState) {
         var expanded by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            NotYetActiveNote("Diffusion filters are not wired into the engine yet.")
             SwitchRow(title, d.active, { d.active = it },
                 "Toggle the diffusion filter on this stage.")
             TextButton(onClick = { expanded = !expanded }) {

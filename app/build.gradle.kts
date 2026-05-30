@@ -25,8 +25,8 @@ android {
         applicationId = "com.spectrafilm.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.3.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
@@ -65,6 +65,7 @@ dependencies {
     implementation(project(":engine:spektra-core"))
     implementation(project(":lib:libraw"))
     implementation(project(":lib:tiffwriter"))
+    implementation(project(":lib:pngwriter"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
