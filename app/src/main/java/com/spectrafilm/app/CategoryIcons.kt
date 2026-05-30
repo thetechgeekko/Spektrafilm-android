@@ -483,4 +483,41 @@ object SpectraIcons {
             strokePath("M 5 13 L 10 18 L 19 6")
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Undo — counter-clockwise curved arrow pointing back to the left.
+    // A shallow arc sweeping from the right down and round to the left, with an
+    // arrowhead at the open (left) end — the classic "step backward" glyph,
+    // drawn in the same hand-stroked line-art style as Rotate.
+    // -----------------------------------------------------------------------
+    val Undo: ImageVector by lazy {
+        icon("Undo") {
+            // Arc: starts low-left, curves up over the top, down to the right
+            // (an open loop opening toward the lower-left).
+            strokePath(
+                "M 5 12" +
+                " C 5 7.58 8.58 4 13 4" +
+                " C 17.42 4 21 7.58 21 12" +
+                " C 21 16.42 17.42 20 13 20"
+            )
+            // Arrowhead at the open (lower-left) end, pointing left/down.
+            strokePath("M 8.5 8.5 L 5 12 L 8.5 15.5")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Redo — clockwise curved arrow pointing forward to the right (mirror of Undo).
+    // -----------------------------------------------------------------------
+    val Redo: ImageVector by lazy {
+        icon("Redo") {
+            strokePath(
+                "M 19 12" +
+                " C 19 7.58 15.42 4 11 4" +
+                " C 6.58 4 3 7.58 3 12" +
+                " C 3 16.42 6.58 20 11 20"
+            )
+            // Arrowhead at the open (lower-right) end, pointing right/down.
+            strokePath("M 15.5 8.5 L 19 12 L 15.5 15.5")
+        }
+    }
 }
