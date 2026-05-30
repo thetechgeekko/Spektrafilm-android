@@ -1,0 +1,131 @@
+# SpectraFilm release pipeline.
+#
+# Fires on tag push `v*` (e.g. v0.4.0). Builds a signed release APK using the
+# production keystore stored in repo secrets, attaches the APK + SHA-256 to the
+# existing GitHub Release for that tag (or creates one if missing).
+#
+# Required secrets (set via `gh secret set` — see HANDOFF.md):
+#   SIGNING_KEYSTORE           base64 of spectrafilm-release.jks
+#   SIGNING_KEY_ALIAS          keystore alias (e.g. spectrafilm)
+#   SIGNING_KEYSTORE_PASSWORD  store password
+#   SIGNING_KEY_PASSWORD       key password
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.4.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-signed-apk:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "version=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode keystore from secret
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::SIGNING_KEYSTORE secret is empty"; exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > spectrafilm-release.jks
+          ls -l spectrafilm-release.jks
+
+      - name: Write keystore.properties
+        env:
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          cat > keystore.properties <<EOF
+          storeFile=spectrafilm-release.jks
+          storePassword=${STORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+
+      - name: Assemble signed release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Verify signature
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK"
+
+      - name: Stage release artifacts
+        id: stage
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ref.outputs.version }}"
+          NAME="SpectraFilm-${VERSION}.apk"
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/${NAME}"
+          ( cd out && sha256sum "${NAME}" > "${NAME}.sha256" )
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "apk=out/${NAME}" >> "$GITHUB_OUTPUT"
+          echo "sha=out/${NAME}.sha256" >> "$GITHUB_OUTPUT"
+          ls -l out
+
+      - name: Upload artifacts (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-${{ steps.ref.outputs.version }}
+          path: out/
+
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ref.outputs.version }}"
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" \
+              "${{ steps.stage.outputs.apk }}" \
+              "${{ steps.stage.outputs.sha }}" \
+              --clobber
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --generate-notes \
+              "${{ steps.stage.outputs.apk }}" \
+              "${{ steps.stage.outputs.sha }}"
+          fi
+
+      - name: Cleanup keystore from runner
+        if: always()
+        run: |
+          rm -f spectrafilm-release.jks keystore.properties
