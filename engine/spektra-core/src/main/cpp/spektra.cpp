@@ -343,6 +343,12 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // spatial branch: it is only applied when spatial (== halation_active) is on.
     apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
     if (!spatial) fparams.diffusion_filter.active = false;
+    // Camera lens blur (camera.lens_blur_um) — applied in expose() between the
+    // diffusion filter and halation. The oracle's digest_params zeroes
+    // camera.lens_blur_um under deactivate_spatial_effects=True, so it lives in the
+    // spatial branch: only honoured when spatial (== halation_active) is on. Default
+    // 0.0 µm => strict no-op, so default params stay bit-exact.
+    fparams.lens_blur_um = spatial ? static_cast<double>(p->lens_blur_um) : 0.0;
     // pixel_size_um drives both the spatial kernels and the grain blur, so it
     // must be set whenever either spatial effects or grain are active. It comes
     // from the resize service (film_format_mm*1000/max(orig h,w), then /=
@@ -394,10 +400,13 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
     if (spatial) {
-        // scanner.unsharp_mask = (sigma, amount); default (0.7, 0.7). lens_blur
-        // is not modelled here (0 under the goldens).
+        // scanner.unsharp_mask = (sigma, amount); default (0.7, 0.7). scanner
+        // lens_blur (in pixels) is applied before the unsharp mask. Both are part
+        // of the spatial branch (the oracle's digest_params zeroes them under
+        // deactivate_spatial_effects=True), so they are only honoured when spatial.
         sparams.unsharp_sigma = p->scanner_unsharp[0];
         sparams.unsharp_amount = p->scanner_unsharp[1];
+        sparams.lens_blur = static_cast<double>(p->scanner_lens_blur);
     }
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
@@ -499,6 +508,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // deactivate_spatial_effects=False enables the spatial filters). Driven by
     // halation_active, matching run_scan_film.
     const bool print_spatial = (p->halation_active != 0);
+    // Stochastic branch toggle for the print route (mirrors the negative scan:
+    // deactivate_stochastic_effects=False enables grain + viewing glare). Used to
+    // gate the print-route viewing glare below.
+    const bool print_stochastic = (p->grain_active != 0);
     // Enlarger optical diffusion filter (issue #6 exposed-but-inert param),
     // applied in print_expose on the float64 print irradiance before the final
     // log10. Gated on the spatial branch (the oracle's digest_params zeroes
@@ -555,6 +568,37 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     sparams.scan_film = false;
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
+    // Viewing glare on the PRINT route (scanning.py applies glare = print_render.glare
+    // here, in XYZ space, before XYZ->RGB). It is STOCHASTIC (per-pixel lognormal via
+    // np.random.randn) so an active result is NOT bit-exact vs the oracle (exactly
+    // like grain). The oracle's digest_params sets print_render.glare.active = False
+    // under deactivate_stochastic_effects=True, i.e. glare is part of the STOCHASTIC
+    // branch — the same branch grain belongs to. The print parity goldens were
+    // generated with deactivate_stochastic_effects=True, so glare was OFF and the
+    // default native print output (glare off) stays bit-exact.
+    //
+    // We therefore gate native glare on the stochastic branch (proxied by
+    // grain_active, the engine's stochastic toggle, mirroring how the oracle ties
+    // both grain and glare to deactivate_stochastic_effects) AND print_glare_active.
+    // With the parity toggles (grain_active == 0) glare never runs. When a caller
+    // turns the stochastic branch on AND enables print glare, the effect is applied
+    // at the oracle position but held to a visual (not bit-exact) tolerance.
+    if (print_stochastic && p->print_glare_active != 0) {
+        sparams.glare_active = true;
+        sparams.glare_percent = p->print_glare_percent;
+        sparams.glare_roughness = p->print_glare_roughness;
+        sparams.glare_blur = p->print_glare_blur;
+    }
+    // Scanner lens blur + unsharp on the print route (scanning.py runs the same
+    // _apply_blur_and_unsharp on both routes). Part of the spatial branch (the
+    // oracle zeroes scanner.lens_blur / unsharp under deactivate_spatial_effects),
+    // so honoured only when the print spatial branch is on; default 0 => no-op, so
+    // the print parity goldens stay bit-exact.
+    if (print_spatial) {
+        sparams.lens_blur = static_cast<double>(p->scanner_lens_blur);
+        sparams.unsharp_sigma = p->scanner_unsharp[0];
+        sparams.unsharp_amount = p->scanner_unsharp[1];
+    }
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
               final_rgb->data());

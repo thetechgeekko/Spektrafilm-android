@@ -58,6 +58,20 @@ struct FilmingParams {
     DirCouplersParams dir_couplers;  // filled by digest for the film type.
     HalationParams halation;         // filled by digest; active only if spatial.
 
+    // Camera lens blur, in micrometres (camera.lens_blur_um). Applied in expose()
+    // on the float64 raw irradiance, AFTER the optical diffusion filter and BEFORE
+    // halation — exactly matching filming.py::expose, which calls
+    // apply_gaussian_blur_um(raw, camera.lens_blur_um, pixel_size_um) between
+    // apply_diffusion_filter_um and apply_halation_um. The blur is a per-channel
+    // 2D Gaussian with a single scalar sigma = lens_blur_um / pixel_size_um (the
+    // oracle broadcasts the scalar sigma across all three channels). Schema default
+    // 0.0 µm => sigma 0 => strict no-op, so default params stay bit-exact. The
+    // oracle's digest_params zeroes camera.lens_blur_um under
+    // deactivate_spatial_effects=True (params_builder.py), so the lens blur belongs
+    // to the spatial branch (gated on spatial_effects in expose()). pixel_size_um
+    // drives the µm->pixel conversion.
+    double lens_blur_um = 0.0;
+
     // Camera optical diffusion filter (Black Pro-Mist family). Applied in
     // expose() on the float64 raw irradiance, AFTER the highlight boost and
     // BEFORE the lens blur / halation (mirrors filming.py::expose ordering).

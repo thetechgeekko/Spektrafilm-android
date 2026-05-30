@@ -19,6 +19,7 @@
 #include "model/color_output.h"
 #include "model/conversions.h"
 #include "model/emulsion.h"
+#include "model/glare.h"
 #include "model/spectral.h"
 
 namespace spk {
@@ -40,6 +41,31 @@ void scan(const Profile& film, const ScanningParams& params,
     //   normalization = sum(scan_illuminant * ybar)
     const float* illum = kIlluminantD50;
     const double norm = kNormD50;
+
+    // Viewing glare (print route only). scanning.py::_density_to_rgb adds
+    //   xyz += glare_amount[:,:,None] * illuminant_xyz[None,None,:]
+    // in XYZ space, where illuminant_xyz = contract("k,kl->l", scan_illuminant,
+    // CMFS) / normalization. We precompute the per-pixel glare field and the
+    // illuminant XYZ once; the field is added to each pixel's XYZ before the
+    // XYZ->RGB matrix. Glare is stochastic (model/glare.py draws np.random.randn
+    // per pixel) so the result is NOT bit-exact vs the oracle; it is OFF by default
+    // (glare_active == false), preserving the deterministic goldens.
+    const bool do_glare =
+        params.glare_active && !params.scan_film && params.glare_percent > 0.0f;
+    std::vector<float> glare_field;
+    double illuminant_xyz[3] = {0.0, 0.0, 0.0};
+    if (do_glare) {
+        for (int l = 0; l < S; ++l) {
+            double w = static_cast<double>(illum[l]) / norm;
+            illuminant_xyz[0] += w * kCieCmf1931[l][0];
+            illuminant_xyz[1] += w * kCieCmf1931[l][1];
+            illuminant_xyz[2] += w * kCieCmf1931[l][2];
+        }
+        glare_field.assign(static_cast<size_t>(npix), 0.0f);
+        compute_random_glare_amount(params.glare_percent, params.glare_roughness,
+                                    params.glare_blur, width, height,
+                                    params.glare_seed, glare_field.data());
+    }
 
     // The Python reference computes the whole chain in float64 (NumPy default for
     // the profile arrays) and only stores float32 at the very end. To reproduce it
@@ -84,7 +110,15 @@ void scan(const Profile& film, const ScanningParams& params,
         xyz[2] = std::pow(10.0, std::log10(std::fmax(Z * inv_norm, 0.0) + 1e-10));
 
         // (black/white XYZ correction skipped: negative film scan route.)
-        // (add_glare skipped: glare is None on the scan_film route.)
+
+        // add_glare (print route only): xyz += glare[p] * illuminant_xyz. On the
+        // scan_film route glare is None (do_glare false) so this is skipped.
+        if (do_glare) {
+            double g = static_cast<double>(glare_field[p]);
+            xyz[0] += g * illuminant_xyz[0];
+            xyz[1] += g * illuminant_xyz[1];
+            xyz[2] += g * illuminant_xyz[2];
+        }
 
         // 5. XYZ -> output RGB (linear, in io.output_color_space), with CAT02
         //    from the D50 scan whitepoint to the space whitepoint baked into the
@@ -98,10 +132,21 @@ void scan(const Profile& film, const ScanningParams& params,
         }
     }
 
+    // Scanner lens blur (scanner.lens_blur, in pixels): a per-channel 2D Gaussian
+    // applied in the linear output space BEFORE the unsharp mask, matching
+    // scanning.py::_apply_blur_and_unsharp (apply_gaussian_blur then
+    // apply_unsharp_mask). apply_gaussian_blur gates on sigma > 0 and uses a scalar
+    // sigma broadcast across the 3 channels. Default lens_blur == 0 => skipped, so
+    // the existing goldens stay bit-exact.
+    if (params.lens_blur > 0.0) {
+        double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
+        gaussian_blur_per_channel_d(lin_rgb.data(), width, height, 3, sg);
+    }
+
     // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
-    // in the linear output space, before the CAT02 round-trip + CCTF. lens_blur is
-    // 0 under the goldens so the gaussian-blur pass is skipped. (apply_gaussian_blur
-    // / apply_unsharp_mask in model/diffusion.py.)
+    // in the linear output space, after the lens blur and before the CAT02
+    // round-trip + CCTF. (apply_gaussian_blur / apply_unsharp_mask in
+    // model/diffusion.py.)
     if (do_unsharp) {
         const size_t total = static_cast<size_t>(npix) * 3;
         std::vector<double> blur(lin_rgb);

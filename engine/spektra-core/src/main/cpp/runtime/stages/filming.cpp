@@ -15,6 +15,7 @@
 #include <cmath>
 #include <vector>
 
+#include "kernels/exponential_filter.h"
 #include "kernels/spectral_upsampling.h"
 #include "model/couplers.h"
 #include "model/density_curves.h"
@@ -173,6 +174,24 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
     if (params.spatial_effects && params.diffusion_filter.active) {
         apply_diffusion_filter_um(raw.data(), width, height,
                                   params.diffusion_filter, params.pixel_size_um);
+    }
+
+    // Camera lens blur (camera.lens_blur_um), applied on the float64 irradiance
+    // AFTER the diffusion filter and BEFORE halation — matching filming.py::expose,
+    // which calls apply_gaussian_blur_um(raw, camera.lens_blur_um, pixel_size_um)
+    // between apply_diffusion_filter_um and apply_halation_um. apply_gaussian_blur_um
+    // gates on sigma = lens_blur_um / pixel_size_um > 0 and blurs every channel with
+    // the same scalar sigma (fast_gaussian_filter broadcasts the scalar across the
+    // 3 channels). Gated on spatial_effects: the oracle's digest_params zeroes
+    // camera.lens_blur_um under deactivate_spatial_effects=True, so the lens blur is
+    // part of the spatial branch. Default lens_blur_um == 0 => no-op (bit-exact).
+    if (params.spatial_effects && params.lens_blur_um > 0.0 &&
+        params.pixel_size_um > 0.0) {
+        double sigma = params.lens_blur_um / params.pixel_size_um;
+        if (sigma > 0.0) {
+            double sg[3] = {sigma, sigma, sigma};
+            gaussian_blur_per_channel_d(raw.data(), width, height, 3, sg);
+        }
     }
 
     // Spatial branch: in-emulsion scatter + back-reflection halation, applied to

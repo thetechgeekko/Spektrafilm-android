@@ -16,6 +16,8 @@
 #ifndef SPK_RUNTIME_STAGES_SCANNING_H
 #define SPK_RUNTIME_STAGES_SCANNING_H
 
+#include <cstdint>
+
 #include "profiles/profile.h"
 #include "spektra.h"  // spk_color_space
 
@@ -38,10 +40,40 @@ struct ScanningParams {
     // trip + CCTF encode, matching scanning.py::_apply_blur_and_unsharp /
     // diffusion.apply_unsharp_mask: rgb += amount * (rgb - G(sigma) * rgb).
     // Both default 0 (spatial OFF); set to (0.7, 0.7) under scan_portra_spatial.
-    // scanner.lens_blur is 0 under the goldens, so the gaussian-blur pass is a
-    // no-op and is not modelled here.
     double unsharp_sigma = 0.0;
     double unsharp_amount = 0.0;
+    // Scanner lens blur (scanner.lens_blur, in pixels). Applied in the output
+    // (linear) space BEFORE the unsharp mask, matching scanning.py::
+    // _apply_blur_and_unsharp, which calls apply_gaussian_blur(rgb, scanner.lens_blur)
+    // (a per-channel 2D Gaussian with scalar sigma == lens_blur, NOT a µm value)
+    // and only then apply_unsharp_mask. Gated on lens_blur > 0; default 0 (the
+    // oracle's digest_params zeroes scanner.lens_blur under
+    // deactivate_spatial_effects=True) => strict no-op, so existing goldens stay
+    // bit-exact.
+    double lens_blur = 0.0;
+
+    // Viewing glare (print_render.glare), applied on the PRINT route only, in XYZ
+    // space BEFORE the XYZ->RGB transform — matching scanning.py::_density_to_rgb,
+    // which calls add_glare(xyz, illuminant_xyz, glare) right after the black/white
+    // XYZ correction and before colour.XYZ_to_RGB. On the scan_film route glare is
+    // None (scanning.py sets glare = None when io.scan_film), so it is never applied
+    // there.
+    //
+    // IMPORTANT (parity): glare is a STOCHASTIC effect — model/glare.py draws a
+    // per-pixel lognormal field via numpy's np.random.randn (numba). A native RNG
+    // cannot reproduce that pixel stream bit-for-bit, so a glare-active result is
+    // NOT bit-exact against the oracle (exactly like grain). The committed print
+    // goldens were generated with deactivate_stochastic_effects=True, which the
+    // oracle's params_builder maps to print_render.glare.active = False, so the
+    // default print output has glare OFF and stays bit-exact. glare_active defaults
+    // to false here => strict no-op. It is wired so a caller can enable a non-default
+    // glare (visual effect), but such a result is held to a visual, not bit-exact,
+    // tolerance.
+    bool glare_active = false;
+    float glare_percent = 0.03f;
+    float glare_roughness = 0.7f;
+    float glare_blur = 0.5f;
+    uint64_t glare_seed = 0;
 };
 
 // scan(): run the scanning stage on an (h x w x 3) row-major density_cmy image.
