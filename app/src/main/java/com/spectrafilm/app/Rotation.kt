@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — source-image rotation.
+ * Spektrafilm for Android — source-image rotation.
  *
  * Rotation is applied to the decoded [LinearImage] BEFORE it is handed to the engine,
  * so both the live preview render and the full-resolution export reflect the same

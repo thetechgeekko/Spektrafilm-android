@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎞️ SpectraFilm for Android
+# 🎞️ Spektrafilm for Android
 
 ### Spectral film simulation of analog photography — running natively on your phone.
 
@@ -11,7 +11,7 @@
 
 ---
 
-SpectraFilm takes a scene-linear image and runs it through a **physically-based, spectral**
+Spektrafilm takes a scene-linear image and runs it through a **physically-based, spectral**
 simulation of the full analog pipeline — a virtual **negative → enlarger → print → scan** —
 grounded in real film-stock datasheet measurements. It is a faithful native-C++ port of the
 [spektrafilm](https://github.com/andreavolpato/spektrafilm) research engine, brought to Android.
@@ -86,7 +86,7 @@ RAW/DNG, choose a preset or tune the parameters, and export to your gallery.
 
 ## 🙏 How this app was made — and who to thank
 
-SpectraFilm stands entirely on the shoulders of open color science and open source. **Every
+Spektrafilm stands entirely on the shoulders of open color science and open source. **Every
 stage of the engine was ported and then checked, bit-for-bit, against the original.** Huge
 thanks to:
 
@@ -133,7 +133,7 @@ Built and directed by **Akshay**.
 - Instagram: **[@akshay.pool](https://www.instagram.com/akshay.pool/)**
 - YouTube: **[@Akshayishere](https://www.youtube.com/@Akshayishere/videos)**
 
-If SpectraFilm brings you joy, say hi, share your renders, and tag along. 🎬
+If Spektrafilm brings you joy, say hi, share your renders, and tag along. 🎬
 
 ## Documentation
 
@@ -147,5 +147,5 @@ If SpectraFilm brings you joy, say hi, share your renders, and tag along. 🎬
 
 ## License
 
-**GPL-3.0** — see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md). Because SpectraFilm is a
+**GPL-3.0** — see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md). Because Spektrafilm is a
 derivative of the GPLv3 spektrafilm engine, the whole app is GPLv3. Please keep it open. 💛

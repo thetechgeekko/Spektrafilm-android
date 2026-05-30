@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:libraw JNI bridge.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:libraw JNI bridge.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Uses LibRaw (LGPL-2.1).
  *
  * Bridges com.spectrafilm.libraw.RawDecoder (Kotlin) to the native decoder.

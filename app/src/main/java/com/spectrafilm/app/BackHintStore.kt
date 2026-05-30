@@ -1,5 +1,5 @@
 /*
- * SpectraFilm — one-time "press back again to exit" hint flag.
+ * Spektrafilm — one-time "press back again to exit" hint flag.
  *
  * Persists a single boolean in DataStore Preferences so the double-back exit hint
  * snackbar is shown only the FIRST time the user ever triggers it. After that,

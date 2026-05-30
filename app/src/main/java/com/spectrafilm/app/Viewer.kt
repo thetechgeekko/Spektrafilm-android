@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — editor-grade preview viewer. GPLv3.
+ * Spektrafilm for Android — editor-grade preview viewer. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A set of self-contained composables that turn the flat preview Image into an
@@ -298,6 +298,32 @@ fun HistogramCard(bitmap: Bitmap, modifier: Modifier = Modifier) {
         } else {
             Canvas(Modifier.fillMaxSize().padding(6.dp)) { drawHistogram(h) }
         }
+    }
+}
+
+/**
+ * A compact, translucent histogram overlaid on the TOP EDGE of the live preview
+ * (Lightroom-mobile style). Reuses [computeHistogram] (run off the main thread)
+ * and [drawHistogram]; recomputes when the preview [bitmap] identity changes.
+ *
+ * The bitmap is the live preview reference — the render path replaces (never
+ * recycles) it, so the background read here cannot hit a recycled buffer.
+ */
+@Composable
+fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
+    var hist by remember { mutableStateOf<Histogram?>(null) }
+    LaunchedEffect(bitmap) {
+        hist = withContext(Dispatchers.Default) { computeHistogram(bitmap) }
+    }
+    val h = hist ?: return
+    Box(
+        modifier = modifier
+            .fillMaxWidth(0.6f)
+            .height(56.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.42f)),
+    ) {
+        Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawHistogram(h) }
     }
 }
 

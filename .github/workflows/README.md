@@ -10,7 +10,7 @@ Runs on every push, PR, and manual dispatch. Six jobs:
 | **engine-parity** | Deterministic stage parity tests (`test_simulate_e2e`, `test_filming`, `test_spatial`) run against bundled assets and committed goldens. Bit-exact gate for the ported pipeline. | **Active**. |
 | **parity** | The standalone `.spkvec` comparator (`tools/parity`) builds via CMake and its `spkvec_selftest` ctest passes (byte-format compatibility between `spkvec.py` and `spkvec_io.h`). | **Active**. |
 | **python-lint** | The Python parity harness (`gen_goldens.py`, `spkvec.py`) byte-compiles. | **Active**. |
-| **android** | Gradle assemble of the app + engine modules (NDK-built `libspektra.so` for all ABIs); uploads the debug APK as the `SpectraFilm-debug-apk` artifact. | **Active**. |
+| **android** | Gradle assemble of the app + engine modules (NDK-built `libspektra.so` for all ABIs); uploads the debug APK as the `Spektrafilm-debug-apk` artifact. | **Active**. |
 | **android-emulator** | Downloads the APK built by `android`, boots a KVM-accelerated AVD (API 34, AOSP default, x86\_64), installs the APK, launches `MainActivity`, and asserts no `FATAL EXCEPTION`/`UnsatisfiedLinkError`. | **Manual / advisory (`workflow_dispatch`) — fails in setup on hosted runners; does not gate.** |
 
 ### android-emulator details

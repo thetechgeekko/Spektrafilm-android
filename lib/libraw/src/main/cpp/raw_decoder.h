@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:libraw native decoder.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:libraw native decoder.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Uses LibRaw (LGPL-2.1).
  *
  * Decodes a camera RAW / DNG buffer into a linear, scene-referred RGB image with
@@ -98,7 +98,7 @@ struct DecodeResult {
     std::string colorSpace = "ACES2065-1";
     bool ok = false;
     std::string error;            // populated when ok == false
-    // Stable SpectraFilm status (DecodeStatus). SFRAW_OK on success.
+    // Stable Spektrafilm status (DecodeStatus). SFRAW_OK on success.
     int status = SFRAW_ERR_UNKNOWN;
     // Underlying LibRaw error code (LIBRAW_*), for diagnostics. 0 if N/A.
     int librawCode = 0;

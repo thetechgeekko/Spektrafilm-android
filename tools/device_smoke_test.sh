@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# SpectraFilm — on-device smoke test (reconciles issue #5; validates the v0.3.0 wave).
+# Spektrafilm — on-device smoke test (reconciles issue #5; validates the v0.3.0 wave).
 #
 # The build sandbox has no /dev/kvm, so the app was never run on a real device.
 # Run this on a machine with `adb` and a connected device/emulator (USB-debugging on)
 # to do the on-device verification the CI/sandbox couldn't.
 #
 #   Usage:  tools/device_smoke_test.sh [path/to/app-release.apk]
-#   Default APK: dist/SpectraFilm-v0.3.0.apk
+#   Default APK: dist/Spektrafilm-v0.3.0.apk
 #
 # It installs the APK, launches MainActivity, and checks logcat for crashes /
 # UnsatisfiedLinkError on the native libs. Then MANUALLY verify the checklist printed
 # at the end (rotate->export, EXIF-orientation, 16-bit PNG/TIFF, Ultra HDR, Expert RAW).
 set -euo pipefail
 
-APK="${1:-dist/SpectraFilm-v0.3.0.apk}"
+APK="${1:-dist/Spektrafilm-v0.3.0.apk}"
 PKG="com.spectrafilm.app"
 ACT="$PKG/.MainActivity"
 

@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — profile curve browser. GPLv3.
+ * Spektrafilm for Android — profile curve browser. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Plots, for a selected film or print profile, its:

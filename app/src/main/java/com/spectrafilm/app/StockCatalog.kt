@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — film/print stock catalog. GPLv3.
+ * Spektrafilm for Android — film/print stock catalog. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Loads assets/spektra/catalog.json (via the AssetManager) and turns the raw engine

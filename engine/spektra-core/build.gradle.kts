@@ -1,4 +1,4 @@
-// SpectraFilm for Android — engine:spektra-core. GPLv3.
+// Spektrafilm for Android — engine:spektra-core. GPLv3.
 // Android library wrapping the native spektrafilm engine (libspektra.so, built via
 // CMake/NDK) plus the Kotlin facade (SpektraEngine / SpektraParams).
 plugins {

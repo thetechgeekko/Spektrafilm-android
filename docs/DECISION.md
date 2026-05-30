@@ -1,4 +1,4 @@
-# Decision Record — How we port SpectraFilm to Android
+# Decision Record — How we port Spektrafilm to Android
 
 Status: **Accepted** (milestone 0). Author: project lead. Date: 2026-05-29.
 

@@ -1,9 +1,9 @@
-# Target Architecture — SpectraFilm for Android
+# Target Architecture — Spektrafilm for Android
 
 ## Module map
 
 ```
-Spectrafilmandroid/                 (forked ImageToolbox host + SpectraFilm additions)
+Spectrafilmandroid/                 (forked ImageToolbox host + Spektrafilm additions)
 ├── app/                            [from ImageToolbox] application entry, navigation host
 ├── core/                           [from ImageToolbox] data, ui, domain, filters, di, ksp, ...
 │   └── data/.../coil/              ← register RawDecoder (full-res, via spektra-core/libraw)

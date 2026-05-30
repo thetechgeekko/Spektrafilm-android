@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — native engine: auto-exposure metering stage.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — native engine: auto-exposure metering stage.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
  * spektrafilm. See autoexposure.h for the parity contract.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SpectraFilm for Android - generate a statistical reference for the film-grain
+# Spektrafilm for Android - generate a statistical reference for the film-grain
 # particle model (model/grain.py::apply_grain_to_density, the non-sublayer path).
 #
 # Grain is stochastic: even with a fixed seed the Python (numpy/Numba) RNG stream

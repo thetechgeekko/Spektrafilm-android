@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — app entry. GPLv3.
+ * Spektrafilm for Android — app entry. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Lightroom-mobile-style editor: an edge-to-edge near-black canvas with a pinned live
@@ -90,18 +90,18 @@ private enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT }
 
 /** Adjustment categories shown in the bottom bar; each maps to an existing section. */
 private enum class Category(val label: String) {
+    SOURCE("Source"),
+    PRESETS("Presets"),
     SIMULATION("Simulation"),
     INPUT("Input"),
     RAW_WB("RAW WB"),
     GRAIN("Grain"),
-    PREFLASH("Preflash"),
     HALATION("Halation"),
-    COUPLERS("Couplers"),
     GLARE("Glare"),
+    COUPLERS("Couplers"),
+    PREFLASH("Preflash"),
     EXPERIMENTAL("Experimental"),
     DISPLAY("Display"),
-    PRESETS("Presets"),
-    SOURCE("Source"),
 }
 
 class MainActivity : ComponentActivity() {
@@ -268,6 +268,9 @@ class MainActivity : ComponentActivity() {
         // viewer modes
         var compareMode by remember { mutableStateOf(false) }
         var showHistogram by remember { mutableStateOf(false) }
+
+        // interactive crop overlay (Lightroom-style); hosts on top of everything.
+        var cropOverlayOpen by remember { mutableStateOf(false) }
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -614,9 +617,11 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
         // --- back handling on the root editor ---
-        // 1) panel open -> close panel; 2) else double-back-to-exit with one-time hint.
-        BackHandler(enabled = activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = activeCategory == null) {
+        // 0) crop overlay open -> close it; 1) panel open -> close panel;
+        // 2) else double-back-to-exit with one-time hint.
+        BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
+        BackHandler(enabled = !cropOverlayOpen && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !cropOverlayOpen && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -645,7 +650,12 @@ class MainActivity : ComponentActivity() {
                 EditorTopBar(
                     canExport = engine != null && !previewBusy && !exporting,
                     exporting = exporting,
-                    onClose = { finish() },
+                    onOpenSource = {
+                        // Open the SAME photo picker the Source panel uses (no app exit).
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
                     onExport = {
                         val e = engine ?: return@EditorTopBar
                         var fmt = settings.exportFormat
@@ -680,7 +690,7 @@ class MainActivity : ComponentActivity() {
                             }
                             result.onSuccess { (bmp, _) ->
                                 preview = bmp; exportDone = true
-                                status = "saved to Pictures/SpectraFilm"
+                                status = "saved to Pictures/Spektrafilm"
                             }.onFailure {
                                 exporting = false
                                 status = "export failed: ${it.message}"
@@ -708,8 +718,11 @@ class MainActivity : ComponentActivity() {
                         lastRenderMs = lastRenderMs,
                         renderErr = renderErr,
                         compareMode = compareMode,
+                        showHistogram = showHistogram,
                         onToggleCompare = { compareMode = !compareMode },
+                        onToggleHistogram = { showHistogram = !showHistogram },
                         onRotate = { rotation = rotation.next() },
+                        onEditCrop = { cropOverlayOpen = true },
                         onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
                     )
                 }
@@ -730,7 +743,7 @@ class MainActivity : ComponentActivity() {
                         onDismiss = { activeCategory = null },
                     ) {
                         when (activeCategory) {
-                            Category.INPUT -> InputSection(state)
+                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
                             Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
@@ -816,7 +829,6 @@ class MainActivity : ComponentActivity() {
                                 sourceName = sourceName,
                                 status = status,
                                 showHistogram = showHistogram,
-                                preview = preview,
                                 onToggleHistogram = { showHistogram = !showHistogram },
                                 hasRecipe = hasRecipe,
                                 onPickPhoto = {
@@ -887,6 +899,28 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            // --- interactive crop overlay (Lightroom-style) ---
+            // Only shown once a preview bitmap exists (the crop tool needs the image
+            // to draw and to read its aspect ratio).
+            val cropBmp = preview
+            if (cropOverlayOpen && cropBmp != null) {
+                CropOverlay(
+                    bitmap = cropBmp,
+                    initialCrop = state.crop,
+                    initialCenter = state.cropCenter,
+                    initialSize = state.cropSize,
+                    onRotate = { rotation = rotation.next() },
+                    onConfirm = { crop, center, size ->
+                        state.crop = crop
+                        state.cropCenter = center
+                        state.cropSize = size
+                        cropOverlayOpen = false
+                        previewTick++
+                    },
+                    onCancel = { cropOverlayOpen = false },
+                )
+            }
+
             // --- full-screen export mask ---
             if (exporting) {
                 ExportMask(
@@ -914,7 +948,7 @@ class MainActivity : ComponentActivity() {
     private fun EditorTopBar(
         canExport: Boolean,
         exporting: Boolean,
-        onClose: () -> Unit,
+        onOpenSource: () -> Unit,
         onExport: () -> Unit,
         onOpenSettings: () -> Unit,
         onOpenAbout: () -> Unit,
@@ -936,37 +970,46 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PressIconButton(onClick = onClose) {
-                    Icon(
-                        SpectraIcons.SourceImage, contentDescription = "Close",
-                        tint = Color.White,
-                    )
+                // Open / pick a source photo (was an app-exit bug previously).
+                TextTooltip("Open photo") {
+                    PressIconButton(onClick = onOpenSource) {
+                        Icon(
+                            SpectraIcons.OpenPhoto, contentDescription = "Open photo",
+                            tint = Color.White,
+                        )
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "SpectraFilm",
+                    "Spektrafilm",
                     color = Color.White.copy(alpha = 0.92f),
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
                 // Export / save
-                PressIconButton(onClick = onExport, enabled = canExport) {
-                    if (exporting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White,
-                        )
-                    } else {
-                        Icon(
-                            SpectraIcons.Presets, contentDescription = "Export to gallery",
-                            tint = if (canExport) Color.White else Color.White.copy(alpha = 0.4f),
-                        )
+                TextTooltip("Export to gallery") {
+                    PressIconButton(onClick = onExport, enabled = canExport) {
+                        if (exporting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White,
+                            )
+                        } else {
+                            Icon(
+                                SpectraIcons.Presets, contentDescription = "Export to gallery",
+                                tint = if (canExport) Color.White else Color.White.copy(alpha = 0.4f),
+                            )
+                        }
                     }
                 }
-                PressIconButton(onClick = onOpenSettings) {
-                    Icon(SpectraIcons.Settings, contentDescription = "Settings", tint = Color.White)
+                TextTooltip("Settings") {
+                    PressIconButton(onClick = onOpenSettings) {
+                        Icon(SpectraIcons.Settings, contentDescription = "Settings", tint = Color.White)
+                    }
                 }
-                PressIconButton(onClick = onOpenAbout) {
-                    Icon(SpectraIcons.Help, contentDescription = "About", tint = Color.White)
+                TextTooltip("About") {
+                    PressIconButton(onClick = onOpenAbout) {
+                        Icon(SpectraIcons.Help, contentDescription = "About", tint = Color.White)
+                    }
                 }
             }
         }
@@ -983,8 +1026,11 @@ class MainActivity : ComponentActivity() {
         lastRenderMs: Long?,
         renderErr: String?,
         compareMode: Boolean,
+        showHistogram: Boolean,
         onToggleCompare: () -> Unit,
+        onToggleHistogram: () -> Unit,
         onRotate: () -> Unit,
+        onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
     ) {
         Box(
@@ -1009,6 +1055,21 @@ class MainActivity : ComponentActivity() {
                 Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
             }
 
+            // Compact translucent histogram overlaid at the TOP EDGE of the preview
+            // (Lightroom-style). Driven by the same `showHistogram` state as the
+            // Source-panel toggle. computeHistogram runs on a bg coroutine inside
+            // PreviewHistogramOverlay; it reads pixels from `bmp` which is the live
+            // preview reference — the preview swap path replaces (not recycles) this
+            // bitmap, so there is no recycle race here.
+            if (showHistogram && bmp != null) {
+                PreviewHistogramOverlay(
+                    bitmap = bmp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 4.dp),
+                )
+            }
+
             // Status pill — top-start of the preview, over the canvas.
             StatusPill(
                 exporting = exporting,
@@ -1021,7 +1082,7 @@ class MainActivity : ComponentActivity() {
                     .padding(start = 6.dp, top = 6.dp),
             )
 
-            // bottom-center controls on a scrim: compare + rotate
+            // bottom-center controls on a scrim: histogram + compare + crop + rotate
             Row(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -1029,14 +1090,31 @@ class MainActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircleScrimButton(onClick = onToggleCompare, active = compareMode) {
-                    Icon(
-                        SpectraIcons.Display, contentDescription = "Before / after compare",
-                        tint = Color.White,
-                    )
+                TextTooltip("Histogram") {
+                    CircleScrimButton(onClick = onToggleHistogram, active = showHistogram) {
+                        Icon(
+                            SpectraIcons.Histogram, contentDescription = "Toggle histogram",
+                            tint = Color.White,
+                        )
+                    }
                 }
-                CircleScrimButton(onClick = onRotate) {
-                    Icon(SpectraIcons.Rotate, contentDescription = "Rotate 90°", tint = Color.White)
+                TextTooltip("Before / after compare") {
+                    CircleScrimButton(onClick = onToggleCompare, active = compareMode) {
+                        Icon(
+                            SpectraIcons.Display, contentDescription = "Before / after compare",
+                            tint = Color.White,
+                        )
+                    }
+                }
+                TextTooltip("Crop & transform") {
+                    CircleScrimButton(onClick = onEditCrop) {
+                        Icon(SpectraIcons.Crop, contentDescription = "Crop and transform", tint = Color.White)
+                    }
+                }
+                TextTooltip("Rotate 90°") {
+                    CircleScrimButton(onClick = onRotate) {
+                        Icon(SpectraIcons.Rotate, contentDescription = "Rotate 90°", tint = Color.White)
+                    }
                 }
             }
         }
@@ -1305,6 +1383,7 @@ class MainActivity : ComponentActivity() {
         val accent = MaterialTheme.colorScheme.primary
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
+        TextTooltip(categoryHint(category)) {
         Column(
             Modifier
                 .width(72.dp)
@@ -1338,6 +1417,23 @@ class MainActivity : ComponentActivity() {
                     .background(if (selected) accent else Color.Transparent),
             )
         }
+        }
+    }
+
+    /** One-line tooltip description for each editor category. */
+    private fun categoryHint(c: Category) = when (c) {
+        Category.SOURCE -> "Pick a photo / RAW, demo image, histogram & reset edits"
+        Category.PRESETS -> "Built-in looks and your saved presets; import/export & LUT"
+        Category.SIMULATION -> "Film stock, print paper, exposure & auto-exposure metering"
+        Category.INPUT -> "Input colour space, spectral upsampling, filters, crop & upscale"
+        Category.RAW_WB -> "RAW/DNG white balance (temperature & tint)"
+        Category.GRAIN -> "Film grain structure, size and blur"
+        Category.HALATION -> "Halation glow and in-emulsion light scatter"
+        Category.GLARE -> "Print glare (stochastic; off by default)"
+        Category.COUPLERS -> "DIR couplers — cross-channel inhibition & saturation"
+        Category.PREFLASH -> "Enlarger pre-flash exposure and filtration"
+        Category.EXPERIMENTAL -> "Film and print density-curve gamma factors"
+        Category.DISPLAY -> "Output colour space, CCTF encoding and preview size"
     }
 
     private fun categoryIcon(c: Category) = when (c) {
@@ -1461,7 +1557,6 @@ class MainActivity : ComponentActivity() {
         sourceName: String,
         status: String,
         showHistogram: Boolean,
-        preview: Bitmap?,
         onToggleHistogram: () -> Unit,
         hasRecipe: Boolean,
         onPickPhoto: () -> Unit,
@@ -1483,9 +1578,11 @@ class MainActivity : ComponentActivity() {
             onClick = onToggleHistogram,
             label = { Text("Histogram") },
         )
-        if (showHistogram && preview != null) {
-            HistogramCard(preview)
-        }
+        Text(
+            "Shows a live RGB histogram over the top of the preview.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         if (hasRecipe) {
             Text(
@@ -1542,7 +1639,7 @@ class MainActivity : ComponentActivity() {
                         textAlign = TextAlign.Center,
                     )
                     Text(
-                        "Pictures/SpectraFilm",
+                        "Pictures/Spektrafilm",
                         color = Color.White.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -1557,7 +1654,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun InputSection(s: ParamsState) {
+    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
             Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
@@ -1583,12 +1680,28 @@ class MainActivity : ComponentActivity() {
                 componentLabels = Triple("amp", "λ", "σ"))
             EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
                 step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution")
-            SwitchRow("Crop", s.crop, { s.crop = it },
-                "Crop image to a fraction of the original size to preview details at full scale")
-            PairSlider("Crop center", s.cropCenter, 0f..1f, { s.cropCenter = it }, step = 0.01f, decimals = 2,
-                tooltip = "Center of the crop region (x, y) 0-1", componentLabels = "x" to "y")
-            PairSlider("Crop size", s.cropSize, 0f..1f, { s.cropSize = it }, step = 0.01f, decimals = 2,
-                tooltip = "Normalized size of the crop region (x, y)", componentLabels = "x" to "y")
+            // Crop is now an interactive overlay (see the crop button under the
+            // preview). Upscale stays a slider: it is a resolution multiplier, not
+            // part of the crop rectangle, so it does not fit the crop metaphor.
+            Divider()
+            Text(
+                if (s.crop) "Crop: enabled (use the crop tool to adjust)"
+                else "Crop: off (full frame)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onEditCrop, modifier = Modifier.weight(1f)) { Text("Edit crop") }
+                if (s.crop) {
+                    OutlinedButton(
+                        onClick = {
+                            s.crop = false
+                            s.cropCenter = 0.5f to 0.5f
+                            s.cropSize = 0.1f to 0.1f
+                        },
+                    ) { Text("Clear") }
+                }
+            }
         }
     }
 
@@ -1696,10 +1809,10 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
                 step = 1f, decimals = 0,
                 tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)")
-            GatedBlock("Camera lens blur has no engine effect yet.") {
-                EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
-                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in um for the camera lens blur.")
-            }
+            EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
+                step = 0.05f, decimals = 2,
+                tooltip = "Sigma of gaussian filter in um for the camera lens blur. " +
+                    "Spatial effect — applied only when Halation is enabled (the spatial branch).")
             DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
 
             Divider()
@@ -1722,7 +1835,7 @@ class MainActivity : ComponentActivity() {
                 step = 1f, decimals = 0, tooltip = "Y filter shift from neutral, in Kodak CC units")
             EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
                 step = 1f, decimals = 0, tooltip = "M filter shift from neutral, in Kodak CC units")
-            GatedBlock("Enlarger lens blur has no engine effect yet.") {
+            GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
                 EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
                     step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur")
             }
@@ -1730,10 +1843,10 @@ class MainActivity : ComponentActivity() {
 
             Divider()
             Text("Scanner", style = MaterialTheme.typography.titleSmall)
-            GatedBlock("Scanner lens blur has no engine effect yet.") {
-                EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
-                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur")
-            }
+            EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
+                step = 0.05f, decimals = 2,
+                tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
+                    "Spatial effect — applied only when Halation is enabled (the spatial branch).")
             SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
                 "Enable white point correction applied to the scanner output")
             EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },

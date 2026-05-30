@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SpectraFilm for Android. GPLv3. Adaptive-icon background color. -->
+<!-- Spektrafilm for Android. GPLv3. Adaptive-icon background color. -->
 <resources>
     <color name="ic_launcher_background">#101418</color>
 </resources>

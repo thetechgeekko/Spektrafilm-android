@@ -1,7 +1,7 @@
 /*
- * SpectraFilm for Android — native engine: double-precision spatial filters
+ * Spektrafilm for Android — native engine: double-precision spatial filters
  * (Gaussian + exponential-mixture) for the spatial-effects branch.
- * Copyright (C) 2026 SpectraFilm Android contributors.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free Software

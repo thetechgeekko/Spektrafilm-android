@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — animated welcome / onboarding. GPLv3.
+ * Spektrafilm for Android — animated welcome / onboarding. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A multi-page first-run flow built on a HorizontalPager with a film + spectrum theme:
@@ -42,7 +42,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -75,7 +78,7 @@ private data class OnboardPage(
 private val PAGES = listOf(
     OnboardPage(
         title = "Spectral film simulation,\non your phone",
-        body = "SpectraFilm renders your photos through a physically-modelled film " +
+        body = "Spektrafilm renders your photos through a physically-modelled film " +
             "stock and darkroom print — spectrum-accurate, not a preset filter.",
         accent = SPECTRUM[0],
     ),
@@ -105,7 +108,8 @@ private val PAGES = listOf(
  * Full-screen onboarding pager. [onFinish] is invoked when the user taps "Get started"
  * (or "Skip"); the host should then mark onboarding seen and dismiss this. The last page
  * exposes quick links to Settings and to filing an issue via [onOpenSettings] /
- * [onReportIssue].
+ * [onReportIssue], plus a "How to use this app" button managed via local state so no
+ * new parameter (and therefore no MainActivity change) is needed.
  */
 @Composable
 fun WelcomeFlow(
@@ -113,6 +117,15 @@ fun WelcomeFlow(
     onOpenSettings: () -> Unit,
     onReportIssue: () -> Unit,
 ) {
+    // Show the How-To guide over the welcome flow when the user taps the button.
+    // Local state: no new parameter, no MainActivity dependency.
+    var showHowTo by remember { mutableStateOf(false) }
+
+    if (showHowTo) {
+        HowToUseScreen(onBack = { showHowTo = false })
+        return
+    }
+
     val pagerState = rememberPagerState(pageCount = { PAGES.size })
     val scope = rememberCoroutineScope()
 
@@ -170,6 +183,7 @@ fun WelcomeFlow(
                     modifier = Modifier.alpha(pageAlpha),
                     onOpenSettings = onOpenSettings,
                     onReportIssue = onReportIssue,
+                    onOpenHowTo = { showHowTo = true },
                 )
             }
 
@@ -228,6 +242,7 @@ private fun OnboardingPageContent(
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit,
     onReportIssue: () -> Unit,
+    onOpenHowTo: () -> Unit,
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(8.dp),
@@ -266,6 +281,11 @@ private fun OnboardingPageContent(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = onOpenHowTo,
+                modifier = Modifier.fillMaxWidth(0.85f),
+            ) { Text("How to use this app") }
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
                 OutlinedButton(onClick = onReportIssue) { Text("Report an issue") }

@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — non-destructive recipe / sidecar layer. GPLv3.
+ * Spektrafilm for Android — non-destructive recipe / sidecar layer. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * M5 headline feature. A "recipe" is simply a preset bound to a specific source

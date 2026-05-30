@@ -1,7 +1,7 @@
 /*
- * SpectraFilm for Android — native engine: print-route digest (neutral CC +
+ * Spektrafilm for Android — native engine: print-route digest (neutral CC +
  * midgray exposure factor) computed natively for ANY (film, paper) pair.
- * Copyright (C) 2026 SpectraFilm Android contributors.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free Software

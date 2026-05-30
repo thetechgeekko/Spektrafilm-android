@@ -1,6 +1,6 @@
-# SpectraFilm for Android — oracle reference generator for scanning output
+# Spektrafilm for Android — oracle reference generator for scanning output
 # color spaces.
-# Copyright (C) 2026 SpectraFilm Android contributors.
+# Copyright (C) 2026 Spektrafilm Android contributors.
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software

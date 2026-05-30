@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:libraw Kotlin facade.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:libraw Kotlin facade.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Uses LibRaw (LGPL-2.1).
  *
  * Decodes a camera RAW / DNG into a linear, scene-referred float32 RGB buffer with

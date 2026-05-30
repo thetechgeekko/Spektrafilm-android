@@ -1,4 +1,4 @@
-# SpectraFilm for Android — native engine build.
+# Spektrafilm for Android — native engine build.
 # GPLv3. Builds libspektra.so (engine + JNI bridge).
 cmake_minimum_required(VERSION 3.22.1)
 project(spektra LANGUAGES CXX)

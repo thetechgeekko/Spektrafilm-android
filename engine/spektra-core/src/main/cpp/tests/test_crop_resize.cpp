@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — host parity test for the crop/resize geometry stage.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — host parity test for the crop/resize geometry stage.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by spektrafilm.
  *
  * Exercises the NON-default crop + cubic-upscale preprocess (the scan_portra_crop

@@ -1,8 +1,8 @@
 /*
- * SpectraFilm for Android — custom category / utility icons. GPLv3.
+ * Spektrafilm for Android — custom category / utility icons. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * Hand-crafted ImageVector icons for the SpectraFilm bottom category bar and
+ * Hand-crafted ImageVector icons for the Spektrafilm bottom category bar and
  * toolbar. Each icon lives at 24 × 24 dp, drawn as stroke-only line art
  * at a consistent strokeWidth of 1.5f. Colour is left entirely to the caller,
  * so they tint naturally via the standard Compose Icon composable:
@@ -391,6 +391,60 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // OpenPhoto — open folder with an up-arrow (pick / open a source photo)
+    // A folder outline with an arrow rising out of it: reads as "open / load".
+    // -----------------------------------------------------------------------
+    val OpenPhoto: ImageVector by lazy {
+        icon("OpenPhoto") {
+            // Folder body with tab
+            strokePath("M 3 7 L 9 7 L 11 9.5 L 21 9.5 L 21 19 L 3 19 Z")
+            // Up-arrow shaft (entering from below)
+            strokePath("M 12 19 L 12 12")
+            // Arrowhead chevron pointing up
+            strokePath("M 9 15 L 12 12 L 15 15")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Crop — overlapping crop corner marks (Lightroom-style crop tool)
+    // Two L-shaped corner brackets offset to form a crop frame.
+    // -----------------------------------------------------------------------
+    val Crop: ImageVector by lazy {
+        icon("Crop") {
+            // Top-left corner bracket arm running down the left edge
+            strokePath("M 7 3 L 7 17 L 21 17")
+            // Bottom-right corner bracket arm running along the top edge
+            strokePath("M 3 7 L 17 7 L 17 21")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Histogram — bar-chart bars inside a frame (preview histogram toggle)
+    // Three vertical bars of differing heights sitting on a baseline.
+    // -----------------------------------------------------------------------
+    val Histogram: ImageVector by lazy {
+        icon("Histogram") {
+            // Baseline
+            strokePath("M 3 20 L 21 20")
+            // Bars
+            strokePath("M 6.5 20 L 6.5 12")
+            strokePath("M 10.5 20 L 10.5 6")
+            strokePath("M 14.5 20 L 14.5 9")
+            strokePath("M 18.5 20 L 18.5 14")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // AspectRatio — nested rectangles (aspect-ratio preset chips)
+    // -----------------------------------------------------------------------
+    val AspectRatio: ImageVector by lazy {
+        icon("AspectRatio") {
+            strokePath("M 3 6 L 21 6 L 21 18 L 3 18 Z")
+            strokePath("M 7 9 L 17 9 L 17 15 L 7 15 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Rotate — 90° clockwise rotate-arrow (preview rotate button)
     // Three-quarter open arc (clockwise from 3-o'clock around to 12-o'clock)
     // with a small arrowhead at the open end suggesting 90° CW rotation.
@@ -408,6 +462,25 @@ object SpectraIcons {
             // one pointing CW (→ right-upward direction)
             strokePath("M 12 4 L 15.5 6")
             strokePath("M 12 4 L 14 1")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Cancel — an "X" (dismiss the crop overlay).
+    // -----------------------------------------------------------------------
+    val Cancel: ImageVector by lazy {
+        icon("Cancel") {
+            strokePath("M 6 6 L 18 18")
+            strokePath("M 18 6 L 6 18")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Confirm — a check mark (apply the crop overlay).
+    // -----------------------------------------------------------------------
+    val Confirm: ImageVector by lazy {
+        icon("Confirm") {
+            strokePath("M 5 13 L 10 18 L 19 6")
         }
     }
 }

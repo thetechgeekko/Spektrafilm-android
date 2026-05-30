@@ -1,5 +1,5 @@
-# SpectraFilm for Android — lib:tiffwriter native build.
-# Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+# Spektrafilm for Android — lib:tiffwriter native build.
+# Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
 #
 # Builds libsftiff.so: a self-contained, dependency-free 16-bit baseline TIFF
 # writer (RGB, 16 bit/sample, uncompressed or PackBits, with ICC + EXIF) plus its

@@ -1,4 +1,4 @@
-# SpectraFilm release pipeline.
+# Spektrafilm release pipeline.
 #
 # Fires on tag push `v*` (e.g. v0.4.0). Builds a signed release APK using the
 # production keystore stored in repo secrets, attaches the APK + SHA-256 to the
@@ -91,7 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.ref.outputs.version }}"
-          NAME="SpectraFilm-${VERSION}.apk"
+          NAME="Spektrafilm-${VERSION}.apk"
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk "out/${NAME}"
           ( cd out && sha256sum "${NAME}" > "${NAME}.sha256" )

@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — preset persistence. GPLv3.
+ * Spektrafilm for Android — preset persistence. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * Presets are SpektraParams snapshots serialized to JSON with android's built-in

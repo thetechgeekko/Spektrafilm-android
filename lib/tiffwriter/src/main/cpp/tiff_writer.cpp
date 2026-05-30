@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:tiffwriter 16-bit baseline TIFF writer.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:tiffwriter 16-bit baseline TIFF writer.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * Self-contained, dependency-free implementation. See tiff_writer.h for the API
  * and the rationale for hand-rolling rather than reusing LibRaw (LibRaw exposes

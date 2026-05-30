@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — native engine entry (capstone wiring).
+ * Spektrafilm for Android — native engine entry (capstone wiring).
  * GPLv3. Port of spektrafilm (GPLv3) — film modeling powered by spektrafilm.
  *
  * Implements the C API for the scan_film route by orchestrating the already-ported,
@@ -1050,7 +1050,7 @@ spk_status spk_bake_cube_lut(spk_engine* eng, const spk_params* p, int lut_size,
     out.reserve(count * 33 + 1024);
     char line[256];
 
-    out += "# SpectraFilm for Android — baked film-look 3D LUT (.cube)\n";
+    out += "# Spektrafilm for Android — baked film-look 3D LUT (.cube)\n";
     out += "# Film modeling powered by spektrafilm (GPLv3).\n";
     std::snprintf(line, sizeof(line), "# Film profile: %s\n",
                   p->film_profile ? p->film_profile : "(none)");
@@ -1075,7 +1075,7 @@ spk_status spk_bake_cube_lut(spk_engine* eng, const spk_params* p, int lut_size,
     out += "#   printing, scanning, output color-space transform.\n";
     out += "# Data order: BLUE fastest, then GREEN, then RED.\n";
 
-    std::snprintf(line, sizeof(line), "TITLE \"SpectraFilm %s\"\n",
+    std::snprintf(line, sizeof(line), "TITLE \"Spektrafilm %s\"\n",
                   p->film_profile ? p->film_profile : "look");
     out += line;
     std::snprintf(line, sizeof(line), "LUT_3D_SIZE %d\n", n);

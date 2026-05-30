@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:tiffwriter native 16-bit TIFF writer.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:tiffwriter native 16-bit TIFF writer.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  *
  * A self-contained, dependency-free baseline TIFF writer for the M2 export path:
  * writes an RGB, 16-bit-per-sample, single-IFD baseline TIFF (little-endian, "II")
@@ -38,7 +38,7 @@ enum class TiffCompression {
 
 // Metadata embedded into the TIFF. All string fields are optional ("" => skipped).
 struct TiffMetadata {
-    std::string software = "SpectraFilm";  // tag 305
+    std::string software = "Spektrafilm";  // tag 305
     std::string imageDescription;          // tag 270
     std::string artist;                    // tag 315
     std::string copyright;                 // tag 33432

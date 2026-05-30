@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — grouped parameter controls.
- * Copyright (C) 2026 SpectraFilm Android contributors.
+ * Spektrafilm for Android — grouped parameter controls.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

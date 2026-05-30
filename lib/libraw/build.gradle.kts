@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — lib:libraw build.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — lib:libraw build.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Decoding powered by LibRaw (LGPL-2.1; GPLv3-compatible, linked statically).
  *
  * Android library wrapping the native RAW/DNG decoder (libsfraw.so, built via

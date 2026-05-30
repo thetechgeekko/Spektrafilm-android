@@ -1,6 +1,6 @@
 /*
- * SpectraFilm for Android — engine facade.
- * Copyright (C) 2026 SpectraFilm Android contributors. GPLv3.
+ * Spektrafilm for Android — engine facade.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  * Film modeling powered by spektrafilm (GPLv3).
  *
  * Kotlin entry point to the native engine (libspektra.so). Mirrors spektrafilm's

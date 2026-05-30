@@ -1,4 +1,4 @@
-# SpectraFilm for Android — Continuous Integration
+# Spektrafilm for Android — Continuous Integration
 #
 # Six jobs run on every push / PR / manual dispatch:
 #   • engine-native   — compiles C++ engine + JNI bridge into libspektra.so (host toolchain)
@@ -179,7 +179,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: SpectraFilm-debug-apk
+          name: Spektrafilm-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -242,7 +242,7 @@ jobs:
       - name: Download debug APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: SpectraFilm-debug-apk
+          name: Spektrafilm-debug-apk
           path: apk/
 
       # Cache the AVD snapshot so subsequent runs don't re-create it from scratch.

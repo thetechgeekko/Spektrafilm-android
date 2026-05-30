@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SpectraFilm for Android. GPLv3. -->
+<!-- Spektrafilm for Android. GPLv3. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Legacy gallery export (API <= 28) writes to public Pictures storage.

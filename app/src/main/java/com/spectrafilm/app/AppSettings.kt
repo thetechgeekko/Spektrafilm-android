@@ -1,5 +1,5 @@
 /*
- * SpectraFilm for Android — persisted app settings. GPLv3.
+ * Spektrafilm for Android — persisted app settings. GPLv3.
  * Film modeling powered by spektrafilm.
  *
  * A thin SharedPreferences-backed store for app-level preferences that are NOT part of

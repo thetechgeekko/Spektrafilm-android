@@ -1,6 +1,6 @@
 # lib:libraw
 
-On-device camera **RAW / DNG** decoding for SpectraFilm for Android, producing a
+On-device camera **RAW / DNG** decoding for Spektrafilm for Android, producing a
 **linear, scene-referred float32 RGB** buffer with **bit-parity to spektrafilm's
 desktop `rawpy` settings**.
 
@@ -153,6 +153,6 @@ green-channel tint multiplier (`_apply_tint_adjustment`).
 
 ## License
 
-SpectraFilm for Android is **GPLv3**. This module **uses LibRaw**, which is
+Spektrafilm for Android is **GPLv3**. This module **uses LibRaw**, which is
 **LGPL-2.1 / CDDL-1.0** dual-licensed; we link it under **LGPL-2.1**
 (GPLv3-compatible). See `../../docs/RAW_DNG.md` and `LICENSING.md`.
