@@ -182,6 +182,78 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
 /** Native pixel edge of the full-resolution magnifier crop. */
 const val MAGNIFIER_CROP_PX = 512
 
+/**
+ * In-memory cache of the decoded *proxy-resolution source* [LinearImage], so that interactive
+ * slider/param edits don't re-decode the RAW/photo (LibRaw decode or bitmap decode + sRGB→
+ * ProPhoto linearization + EXIF/rotation) on every render. Only the look/film params change
+ * between most renders, and the decoded source does NOT depend on any of them — it depends
+ * only on the DECODE-affecting inputs captured in [Key].
+ *
+ * READ-ONLY / DEFENSIVE-COPY DECISION: verified against the engine + JNI that the input image
+ * buffer is treated as strictly const, so the SAME cached [LinearImage] can be re-fed to
+ * `simulatePreview` across edits with no defensive copy:
+ *   - `spk_simulate` / `spk_simulate_preview` take `const spk_image* in` (spektra.h).
+ *   - `preprocess_geometry` (the shared entry for both scan_film and print routes) copies
+ *     `in->data` into a fresh `std::vector<double> src` and operates only on that copy
+ *     (spektra.cpp ~L265-267); the input is never written.
+ *   - `spk_simulate_preview` downscales `in->data` into a fresh `std::vector<float> small`
+ *     (read-only read; spektra.cpp ~L901) before simulating.
+ *   - The JNI obtains `in_data` via `GetDirectBufferAddress` and only reads it (spektra_jni.cpp).
+ * Therefore re-using the cached buffer cannot corrupt it. (If the engine ever started writing
+ * into the input, this class would have to hand out a copy instead — see [get].)
+ *
+ * Scope: exactly ONE cached entry (the current source at the current proxy resolution). Storing
+ * a new entry drops the previous [LinearImage] reference, so its direct ByteBuffer becomes
+ * eligible for GC — we never hold two large source buffers at once.
+ *
+ * Thread-safety: all access happens from the preview render coroutine (Dispatchers.Default /
+ * .IO sequentially per render); methods are `@Synchronized` as cheap insurance since
+ * [invalidate] may be called from a different scope.
+ */
+class DecodedSourceCache {
+    /** Everything that affects the DECODE of the proxy source — and nothing that doesn't. */
+    private data class Key(
+        val uri: String?,
+        val kind: String,
+        val whiteBalance: WhiteBalance,
+        val temperature: Float,
+        val tint: Float,
+        val rotationDegrees: Int,
+        val maxEdge: Int,
+    )
+
+    private var key: Key? = null
+    private var image: LinearImage? = null
+
+    /**
+     * Return the cached decoded source if its key matches the supplied decode inputs, else
+     * null. A null result means the caller must decode (via loadSource) and then [put] it.
+     */
+    @Synchronized
+    fun get(
+        uri: String?, kind: String, whiteBalance: WhiteBalance,
+        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+    ): LinearImage? {
+        val k = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        return if (k == key) image else null
+    }
+
+    /** Store [img] as the single cached entry, dropping any previous one (GC reclaims it). */
+    @Synchronized
+    fun put(
+        uri: String?, kind: String, whiteBalance: WhiteBalance,
+        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+        img: LinearImage,
+    ) {
+        key = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        image = img // previous LinearImage (and its direct buffer) is now unreferenced -> GC
+    }
+
+    /** Drop the cached entry (e.g. on teardown). */
+    @Synchronized
+    fun invalidate() { key = null; image = null }
+}
+
 /** Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap. */
 fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
     val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
