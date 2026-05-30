@@ -313,6 +313,46 @@ class MainActivity : ComponentActivity() {
         // --- double-back-to-exit on the root editor ---
         var backArmed by remember { mutableStateOf(false) }
 
+        // --- in-session undo / redo edit history ---
+        // A snapshot = the full preset/recipe JSON (Presets.toJsonString — covers every
+        // ParamsState field incl. raw WB/temp/tint) PLUS the editor-local manual rotation.
+        val editHistory = remember { EditHistory() }
+        // The last SETTLED snapshot we committed. Capture coalescing pushes THIS (the
+        // pre-edit state) onto undo when a newer settled state differs (see the capture
+        // effect below), so one slider drag (which settles once) == one undo step.
+        var committedSnapshot by remember { mutableStateOf<EditSnapshot?>(null) }
+        // Set true while we are programmatically restoring a snapshot (undo/redo). The
+        // capture effect skips one settle cycle so the restore is NOT recorded as a new
+        // edit — without this the restored state would push itself and we'd never escape.
+        var restoring by remember { mutableStateOf(false) }
+
+        // Build a snapshot of the CURRENT live editing state (+ manual rotation).
+        fun snapshotNow(): EditSnapshot =
+            EditSnapshot(Presets.toJsonString(state), rotation.degrees)
+
+        // Restore a snapshot into the live state: decode params (shared preset schema),
+        // re-apply rotation, then bump previewTick — mirrors the recipe restore-on-open
+        // path. `restoring` guards the capture effect against recording this mutation.
+        fun applySnapshot(snap: EditSnapshot) {
+            restoring = true
+            runCatching { Presets.decode(org.json.JSONObject(snap.paramsJson), state) }
+            rotation = SourceRotation.fromDegrees(snap.rotationDegrees)
+            committedSnapshot = snap
+            previewTick++
+        }
+
+        fun doUndo() {
+            val target = editHistory.undo(snapshotNow()) ?: return
+            applySnapshot(target)
+            status = "undo"
+        }
+
+        fun doRedo() {
+            val target = editHistory.redo(snapshotNow()) ?: return
+            applySnapshot(target)
+            status = "redo"
+        }
+
         // One-time engine init.
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
@@ -344,9 +384,27 @@ class MainActivity : ComponentActivity() {
         var lastRestoredKey by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(recipeKey, recipeReady) {
             if (!recipeReady) return@LaunchedEffect
-            if (recipeKey == null) { hasRecipe = false; return@LaunchedEffect }
+            if (recipeKey == null) {
+                hasRecipe = false
+                // Switched to a keyless source (the demo image): still drop cross-image
+                // history and re-baseline once for the demo's current state.
+                if (lastRestoredKey != null) {
+                    lastRestoredKey = null
+                    editHistory.clear()
+                    committedSnapshot = null
+                    restoring = true
+                }
+                return@LaunchedEffect
+            }
             if (recipeKey == lastRestoredKey) return@LaunchedEffect
             lastRestoredKey = recipeKey
+            // New source: undo must never cross images. Drop the history and re-baseline so
+            // the just-restored/default state for THIS image is the empty-history baseline
+            // (canUndo=false). `restoring` makes the next capture settle adopt the new
+            // baseline without recording it as an edit.
+            editHistory.clear()
+            committedSnapshot = null
+            restoring = true
             val restored = runCatching { Recipes.load(ctx, recipeKey, state) }.getOrDefault(false)
             hasRecipe = restored
             if (restored) {
@@ -645,6 +703,40 @@ class MainActivity : ComponentActivity() {
             }.onSuccess { hasRecipe = true }
         }
 
+        // --- Undo/redo capture (debounced coalescing) ---
+        // Keyed on the same settle inputs as the auto-save effect, so it re-arms on every
+        // edit and only the LAST change in a burst survives the delay (a slider drag fires
+        // many state changes but they all collapse into ONE surviving settle). After the
+        // state settles we compare the new snapshot to the last COMMITTED one:
+        //   • restoring == true  -> this settle is the programmatic undo/redo restore;
+        //     don't record it, just clear the flag (applySnapshot already moved the
+        //     committed pointer). This is what breaks the feedback loop.
+        //   • committedSnapshot == null -> first settle for this source/baseline; adopt it
+        //     as the baseline WITHOUT pushing (canUndo stays false until a real edit).
+        //   • differs from committed -> the user made an edit: push the PREVIOUS committed
+        //     snapshot onto the undo stack and advance the committed pointer. One settled
+        //     drag => exactly one undo step that returns to the pre-drag state.
+        // Uses a slightly shorter delay than auto-save so a quick undo right after an edit
+        // still finds the entry recorded; both are debounced independently and key on the
+        // same inputs, so this adds no extra previewTick churn or re-decodes.
+        LaunchedEffect(snapshot, recipeKey, recipeReady, rotation,
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
+            if (!recipeReady) return@LaunchedEffect
+            delay(500)
+            val now = snapshotNow()
+            when {
+                restoring -> {
+                    committedSnapshot = now
+                    restoring = false
+                }
+                committedSnapshot == null -> committedSnapshot = now
+                now != committedSnapshot -> {
+                    editHistory.push(committedSnapshot!!)
+                    committedSnapshot = now
+                }
+            }
+        }
+
         // catalog-grouped profile options for the Simulation pickers + Settings.
         val available = profiles.ifEmpty {
             listOf(state.filmProfile, state.printProfile).distinct()
@@ -691,6 +783,10 @@ class MainActivity : ComponentActivity() {
                 EditorTopBar(
                     canExport = engine != null && !previewBusy && !exporting,
                     exporting = exporting,
+                    canUndo = editHistory.canUndo,
+                    canRedo = editHistory.canRedo,
+                    onUndo = { doUndo() },
+                    onRedo = { doRedo() },
                     onOpenSource = {
                         // Open the SAME photo picker the Source panel uses (no app exit).
                         photoPicker.launch(
@@ -887,6 +983,10 @@ class MainActivity : ComponentActivity() {
                                     Recipes.delete(ctx, recipeKey)
                                     Recipes.resetToDefaults(state, settings, profiles)
                                     hasRecipe = false; rotation = SourceRotation.NONE
+                                    // Reset clears history: the defaults become the new
+                                    // empty-history baseline (you can't undo back across a
+                                    // reset). `restoring` makes the next settle adopt it.
+                                    editHistory.clear(); committedSnapshot = null; restoring = true
                                     status = "edits reset · recipe cleared"; previewTick++
                                     scope.launch {
                                         snackbarHost.currentSnackbarData?.dismiss()
@@ -989,6 +1089,10 @@ class MainActivity : ComponentActivity() {
     private fun EditorTopBar(
         canExport: Boolean,
         exporting: Boolean,
+        canUndo: Boolean,
+        canRedo: Boolean,
+        onUndo: () -> Unit,
+        onRedo: () -> Unit,
         onOpenSource: () -> Unit,
         onExport: () -> Unit,
         onOpenSettings: () -> Unit,
@@ -1027,6 +1131,24 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
+                // Undo / redo — in-session edit history. Disabled (dimmed) when the
+                // respective stack is empty; one slider drag = one undo step.
+                TextTooltip("Undo") {
+                    PressIconButton(onClick = onUndo, enabled = canUndo) {
+                        Icon(
+                            SpectraIcons.Undo, contentDescription = "Undo",
+                            tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.4f),
+                        )
+                    }
+                }
+                TextTooltip("Redo") {
+                    PressIconButton(onClick = onRedo, enabled = canRedo) {
+                        Icon(
+                            SpectraIcons.Redo, contentDescription = "Redo",
+                            tint = if (canRedo) Color.White else Color.White.copy(alpha = 0.4f),
+                        )
+                    }
+                }
                 // Export / save
                 TextTooltip("Export to gallery") {
                     PressIconButton(onClick = onExport, enabled = canExport) {
