@@ -60,6 +60,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -240,6 +242,9 @@ class MainActivity : ComponentActivity() {
         var beforePreview by remember { mutableStateOf<Bitmap?>(null) }
         var status by remember { mutableStateOf("initializing…") }
         var previewBusy by remember { mutableStateOf(false) }
+        var decoding by remember { mutableStateOf(false) }
+        var lastRenderMs by remember { mutableStateOf<Long?>(null) }
+        var renderErr by remember { mutableStateOf<String?>(null) }
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
@@ -432,18 +437,29 @@ class MainActivity : ComponentActivity() {
             val e = engine ?: return@LaunchedEffect
             delay(350)
             previewBusy = true
+            renderErr = null
             status = "rendering preview…"
+            val renderStart = System.currentTimeMillis()
             val result = runCatching {
                 withContext(Dispatchers.Default) {
+                    decoding = true
                     val image = loadSource(state.previewMaxSize.coerceAtLeast(256))
+                    decoding = false
                     val before = linearToDisplayBitmap(image)
                     val res = e.simulatePreview(image, state.toParams())
                     before to simResultToBitmap(res.data, res.width, res.height)
                 }
             }
+            decoding = false
             result.onSuccess { (before, after) ->
-                beforePreview = before; preview = after; status = "preview ready"
-            }.onFailure { status = "preview error: ${it.message}" }
+                beforePreview = before; preview = after
+                lastRenderMs = System.currentTimeMillis() - renderStart
+                renderErr = null
+                status = "preview ready"
+            }.onFailure {
+                renderErr = it.message?.take(60)
+                status = "preview error: ${it.message}"
+            }
             previewBusy = false
         }
 
@@ -557,6 +573,10 @@ class MainActivity : ComponentActivity() {
                         preview = preview,
                         before = beforePreview,
                         busy = previewBusy,
+                        decoding = decoding,
+                        exporting = exporting,
+                        lastRenderMs = lastRenderMs,
+                        renderErr = renderErr,
                         compareMode = compareMode,
                         onToggleCompare = { compareMode = !compareMode },
                         onRotate = { rotation = rotation.next() },
@@ -806,6 +826,10 @@ class MainActivity : ComponentActivity() {
         preview: Bitmap?,
         before: Bitmap?,
         busy: Boolean,
+        decoding: Boolean,
+        exporting: Boolean,
+        lastRenderMs: Long?,
+        renderErr: String?,
         compareMode: Boolean,
         onToggleCompare: () -> Unit,
         onRotate: () -> Unit,
@@ -832,12 +856,18 @@ class MainActivity : ComponentActivity() {
             } else {
                 Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
             }
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                    color = Color.White,
-                )
-            }
+
+            // Status pill — top-start of the preview, over the canvas.
+            StatusPill(
+                exporting = exporting,
+                rendering = busy,
+                decoding = decoding,
+                lastRenderMs = lastRenderMs,
+                renderErr = renderErr,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 6.dp, top = 6.dp),
+            )
 
             // bottom-center controls on a scrim: compare + rotate
             Row(
@@ -858,6 +888,118 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * A compact status pill overlaid in the top-start corner of the preview canvas.
+     *
+     * Priority: exporting > decoding > rendering > error > idle (last render time or "Ready").
+     * Fades in when visible; the idle state auto-fades after 2 s using [animateFloatAsState].
+     * Shows a small [CircularProgressIndicator] while busy.
+     */
+    @Composable
+    private fun StatusPill(
+        exporting: Boolean,
+        rendering: Boolean,
+        decoding: Boolean,
+        lastRenderMs: Long?,
+        renderErr: String?,
+        modifier: Modifier = Modifier,
+    ) {
+        // Derive a single status from the priority chain.
+        val pillState: PillState = when {
+            exporting -> PillState.Busy("Exporting…")
+            decoding  -> PillState.Busy("Decoding…")
+            rendering -> PillState.Busy("Rendering…")
+            renderErr != null -> PillState.Error(renderErr)
+            lastRenderMs != null -> PillState.Done(lastRenderMs)
+            else -> PillState.Hidden
+        }
+
+        // For the idle "Rendered in X ms" state we auto-fade after 2 s.
+        var showIdle by remember { mutableStateOf(false) }
+        LaunchedEffect(lastRenderMs, rendering, exporting, decoding, renderErr) {
+            if (pillState is PillState.Done) {
+                showIdle = true
+                delay(2000)
+                showIdle = false
+            } else {
+                showIdle = false
+            }
+        }
+
+        val visible = pillState is PillState.Busy ||
+            pillState is PillState.Error ||
+            (pillState is PillState.Done && showIdle)
+
+        val pillDesc = when (pillState) {
+            is PillState.Busy  -> pillState.label
+            is PillState.Error -> "Render error: ${pillState.message}"
+            is PillState.Done  -> "Rendered in ${pillState.ms} ms"
+            PillState.Hidden   -> ""
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            modifier = modifier,
+            enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(180)),
+            exit  = fadeOut(animationSpec = androidx.compose.animation.core.tween(400)),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.45f),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .wrapContentSize()
+                    .semantics { contentDescription = pillDesc },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    when (pillState) {
+                        is PillState.Busy -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 1.5.dp,
+                                color = Color.White,
+                            )
+                            Text(
+                                pillState.label,
+                                fontSize = 12.sp,
+                                color = Color.White,
+                            )
+                        }
+                        is PillState.Error -> {
+                            Text(
+                                "Error: ${pillState.message}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        is PillState.Done -> {
+                            Text(
+                                "Rendered in ${pillState.ms} ms",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.85f),
+                            )
+                        }
+                        PillState.Hidden -> { /* not shown */ }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Internal sealed hierarchy for the status-pill priority logic. */
+    private sealed interface PillState {
+        data class Busy(val label: String) : PillState
+        data class Error(val message: String) : PillState
+        data class Done(val ms: Long) : PillState
+        data object Hidden : PillState
     }
 
     /** 40dp circular control over a ~35% scrim. */
