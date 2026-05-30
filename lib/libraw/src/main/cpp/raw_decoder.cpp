@@ -355,6 +355,13 @@ namespace {
 // Apply the rawpy-parity postprocess params (RAW_DNG.md):
 //   output_color=6 (ACES), output_bps=16, no_auto_bright=1, gamm[0]=gamm[1]=1.0,
 //   use_camera_wb for as-shot.
+// When options.halfSize is true, also sets half_size=1 so LibRaw averages each
+// 2x2 Bayer cell into one pixel instead of running full demosaic interpolation.
+// This produces an image at ~half the linear dimensions (quarter the pixel count),
+// reducing peak memory by ~75% and substantially cutting decode time — intended
+// for fast proxy/preview decodes of large RAW/DNG files. half_size=0 is the
+// LibRaw default; explicitly setting it here keeps the full-res path unchanged
+// even if imgdata.params was not zero-initialized by the caller.
 void applyParityParams(LibRaw& raw, const DecodeOptions& options) {
     auto& p = raw.imgdata.params;
     p.output_color   = 6;     // 6 == ACES, matches rawpy.ColorSpace.ACES
@@ -362,6 +369,12 @@ void applyParityParams(LibRaw& raw, const DecodeOptions& options) {
     p.no_auto_bright = 1;
     p.gamm[0]        = 1.0;   // gamma (1,1) -> linear
     p.gamm[1]        = 1.0;
+
+    // Half-size proxy decode: set to 1 for fast low-memory decode, 0 for full-res.
+    // Explicitly writing 0 in the full-res path is defensive — LibRaw default-
+    // constructs params.half_size = 0, but being explicit ensures correctness if
+    // the LibRaw instance is ever reused or partially re-initialized by a caller.
+    p.half_size = options.halfSize ? 1 : 0;
 
     if (options.whiteBalance == WhiteBalanceMode::AsShot) {
         p.use_camera_wb = 1;

@@ -36,6 +36,24 @@ struct DecodeOptions {
     // channels (1.0 = neutral). Mirrors raw_file_processor.py.
     double temperatureK = 6504.0;
     double tint = 1.0;
+
+    // Half-size (proxy) decode.  When true, LibRaw sets `imgdata.params.half_size = 1`
+    // before `dcraw_process()`, producing an image at half the linear dimensions
+    // (¼ the pixel count) by averaging each 2×2 Bayer cell into one output pixel
+    // instead of running full demosaic interpolation.  Benefits:
+    //   * Peak memory is ~¼ of a full-res decode (the main OOM surface for large
+    //     Expert-RAW / multi-hundred-MP DNGs on low-RAM devices).
+    //   * Decode is substantially faster (no demosaic, smaller copy).
+    // Tradeoffs:
+    //   * Lower quality: colour at each output pixel is a simple 2×2 average, not
+    //     a full-neighbourhood interpolation — fine for a proxy/preview, not for
+    //     export or spectral processing.
+    //   * `result.width` and `result.height` will be approximately half the values
+    //     reported by LibRaw for the full-res image (LibRaw updates imgdata.sizes
+    //     accordingly; `dcraw_make_mem_image` reports the post-process dimensions).
+    //
+    // Default false → full-resolution decode; existing behaviour is unchanged.
+    bool halfSize = false;
 };
 
 // Stable decode status codes. These cross to Kotlin (RawDecoder.DecodeStatus)
