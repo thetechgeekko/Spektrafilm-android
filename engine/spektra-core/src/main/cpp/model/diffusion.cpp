@@ -25,6 +25,20 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// NaN / Inf behavior — VERIFIED against the oracle (spektrafilm/model/diffusion.py).
+// The oracle's apply_halation_um and apply_diffusion_filter_um do NO NaN/Inf
+// sanitization: there is no np.nan_to_num / np.isnan / np.isfinite anywhere on
+// this path. They use only np.maximum(..., 1e-6) on the FILTER PARAMETERS
+// (sigma/lambda lower bounds) and np.clip on the strength/warmth SCALARS — never
+// on the image data — so any NaN/Inf in the input irradiance PROPAGATES through
+// the Gaussian/exponential filters and the direct convolution, exactly like
+// numpy. This port matches that behavior DELIBERATELY: it is NOT NaN-aware on the
+// image data, by design, to stay bit-exact with the oracle. The existing isnan
+// guards elsewhere in the engine (filming/printing sensitivity, midgray, scan(),
+// conversions) each mirror a SPECIFIC oracle np.nan_to_num/np.isnan call; the
+// diffusion path has none, so adding one here would DIVERGE from the oracle and
+// is intentionally omitted. Upstream stages already feed finite irradiance here
+// (raw = fmax(raw, 0) + 1e-10 happens just after this in filming.expose).
 namespace spk {
 
 namespace {

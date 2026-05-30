@@ -1,0 +1,73 @@
+{
+  "case_id": "scan_diffusion",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "scan_film with the camera OPTICAL DIFFUSION FILTER ON end-to-end (camera.diffusion_filter: active=True, family=black_pro_mist, strength=0.8 -- a NON-default strength) plus the rest of the spatial branch (halation/scatter/coupler diffusion), grain off. Exercises apply_diffusion_filter_um inside FilmingStage.expose run through the WHOLE pipeline (the diffusion_bpm case only tests the filter in isolation). The oracle's digest_params zeroes camera.diffusion_filter.active under deactivate_spatial_effects=True, so spatial effects are kept on. Grain off so it stays deterministic/bit-stable. Tested by tests/test_diffusion_e2e.cpp.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.509961485862732,
+      "mean": 0.9087011218070984,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 1.0561072826385498,
+      "mean": 0.2743304967880249,
+      "min": -3.472745895385742,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.8893811106681824,
+      "mean": 0.2486560344696045,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "auto_exposure_method": "center_weighted",
+    "deactivate_spatial_effects": false,
+    "deactivate_stochastic_effects": true,
+    "diffusion_active": true,
+    "diffusion_family": "black_pro_mist",
+    "diffusion_halo_warmth": 0.0,
+    "diffusion_spatial_scale": 1.0,
+    "diffusion_strength": 0.8,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false,
+    "lens_blur_um": 0.0
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

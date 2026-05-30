@@ -47,6 +47,8 @@ namespace {
 const char* kAssetDir = "/home/user/spektrafilm/src/spektrafilm/data";
 const char* kAutoexpGoldenDir =
     "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra_autoexp";
+const char* kAutoexpMatrixGoldenDir =
+    "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra_autoexp_matrix";
 const char* kBaselineGoldenDir =
     "/home/user/Spectrafilmandroid/tools/parity/goldens/scan_portra";
 const char* kInputF64 =
@@ -89,10 +91,12 @@ int main(int argc, char** argv) {
     std::string golden_dir = argc > 2 ? argv[2] : kAutoexpGoldenDir;
     std::string input_path = argc > 3 ? argv[3] : kInputF64;
     std::string baseline_dir = kBaselineGoldenDir;
+    std::string matrix_dir = kAutoexpMatrixGoldenDir;
     if (argc > 4) {
         std::string root = argv[4];
         golden_dir = root + "/scan_portra_autoexp";
         baseline_dir = root + "/scan_portra";
+        matrix_dir = root + "/scan_portra_autoexp_matrix";
     }
 
     spk_engine* eng = nullptr;
@@ -195,8 +199,63 @@ int main(int argc, char** argv) {
     }
     spk_image_free(&out);
 
+    // --- NON-center_weighted metering: the MATRIX pattern ------------------
+    // The scan_portra_autoexp golden only covers center_weighted; this exercises
+    // the 5x5 raised-cosine zone-weighted branch end-to-end and asserts the C++
+    // pipeline output matches the scan_portra_autoexp_matrix oracle golden
+    // bit-exact (film_log_raw + film_density_cmy + final_rgb). It also confirms
+    // the matrix EV differs from center_weighted (the metering pattern matters).
+    spkvec::Array gm_rgb = spkvec::read(matrix_dir + "/final_rgb.spkvec");
+    spkvec::Array gm_logr = spkvec::read(matrix_dir + "/film_log_raw.spkvec");
+    spkvec::Array gm_cmy = spkvec::read(matrix_dir + "/film_density_cmy.spkvec");
+
+    spk_params pm = p;
+    pm.auto_exposure = 1;
+    pm.auto_exposure_method = "matrix";  // NON-center_weighted pattern.
+
+    bool pass_m_logr = false, pass_m_cmy = false, pass_m_rgb = false;
+    double matrix_vs_center = 0.0;
+
+    spk_image m_logr{};
+    st = spk_simulate_tap(eng, &in_img, &pm, "film_log_raw", &m_logr);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "tap(matrix film_log_raw) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_m_logr = check("autoexp_matrix film_log_raw", m_logr.data, gm_logr.data);
+        spk_image_free(&m_logr);
+    }
+
+    spk_image m_cmy{};
+    st = spk_simulate_tap(eng, &in_img, &pm, "film_density_cmy", &m_cmy);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "tap(matrix film_density_cmy) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_m_cmy = check("autoexp_matrix film_density_cmy", m_cmy.data, gm_cmy.data);
+        spk_image_free(&m_cmy);
+    }
+
+    spk_image m_out{};
+    st = spk_simulate(eng, &in_img, &pm, &m_out);
+    if (st != SPK_OK) {
+        std::fprintf(stderr, "spk_simulate(matrix) failed: %s\n",
+                     spk_status_str(st));
+    } else {
+        pass_m_rgb = check("autoexp_matrix final_rgb", m_out.data, gm_rgb.data);
+        // Confirm matrix metering differs from center_weighted (different EV).
+        matrix_vs_center = max_abs_diff(m_out.data, gold_rgb.data.data(),
+                                        static_cast<size_t>(npix) * 3);
+        std::printf("[matrix vs center_weighted] max_abs = %.6e (must be > 0: a "
+                    "different metering pattern => a different EV) -> %s\n",
+                    matrix_vs_center,
+                    matrix_vs_center > 1e-4 ? "DISTINCT" : "SAME?!");
+        spk_image_free(&m_out);
+    }
+
     spk_engine_destroy(eng);
-    bool all = pass_logr && pass_cmy && pass_rgb && pass_off && (ae_delta > 1e-3);
+    bool all = pass_logr && pass_cmy && pass_rgb && pass_off && (ae_delta > 1e-3) &&
+               pass_m_logr && pass_m_cmy && pass_m_rgb && (matrix_vs_center > 1e-4);
     std::printf("%s\n", all ? "ALL PASS" : "FAIL");
     return all ? 0 : 1;
 }

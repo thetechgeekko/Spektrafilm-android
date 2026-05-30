@@ -19,6 +19,15 @@
 
 #include "../kernels/gaussian.h"
 
+// NaN / Inf behavior — VERIFIED against the oracle (spektrafilm/model/glare.py
+// + spektrafilm/utils/fast_stats.py). add_glare / compute_random_glare_amount do
+// NO NaN/Inf sanitization: there is no np.nan_to_num / np.isnan / np.isfinite on
+// this path. The glare amount is a lognormal random field (always finite for
+// finite mu/sigma) blurred and scaled by 1/100, then ADDED to the XYZ image, so
+// numpy would simply propagate any pre-existing NaN/Inf in the input. This port
+// matches that behavior DELIBERATELY to stay bit-exact with the oracle; the
+// engine's other isnan guards each mirror a specific oracle np.nan_to_num/isnan
+// call, and the glare path has none, so adding one here would DIVERGE.
 namespace spk {
 
 namespace {
