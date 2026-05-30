@@ -13,16 +13,20 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Gainmap
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SimResult
 import com.spectrafilm.tiffwriter.ExifColorSpace
 import com.spectrafilm.tiffwriter.TiffWriter
 import java.io.File
+import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -178,7 +182,237 @@ fun cubeFileName(film: String, print: String): String {
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {
     PNG("PNG", "image/png", "png"),
     JPEG("JPEG", "image/jpeg", "jpg"),
+    // Ultra HDR is a JPEG container with an embedded ISO 21496-1 / Google gain map +
+    // MPF index — its MIME type stays image/jpeg and the extension stays jpg.
+    ULTRA_HDR("Ultra HDR (JPEG)", "image/jpeg", "jpg"),
     TIFF("16-bit TIFF", "image/tiff", "tif"),
+}
+
+/**
+ * Whether [format] writes a JPEG byte-stream (plain JPEG or Ultra HDR). EXIF copy via
+ * androidx ExifInterface is only attempted for JPEG targets — PNG has no standard EXIF
+ * segment that ExifInterface writes reliably across the 1.3.7 version, and TIFF EXIF is
+ * handled by the native TiffWriter (a limited subset).
+ */
+private fun ExportFormat.isJpeg(): Boolean =
+    this == ExportFormat.JPEG || this == ExportFormat.ULTRA_HDR
+
+/**
+ * Comprehensive list of standard ExifInterface TAG_* attributes copied verbatim from the
+ * source image into the export. Deliberately includes GPS/location (the user wants a FULL
+ * copy). Tags that MUST reflect the exported (rendered) image rather than the source —
+ * orientation, software, and the width/height/pixel-dimension family — are NOT in this list;
+ * they are written explicitly as overrides in [applySourceExif] AFTER this bulk copy.
+ */
+private val EXIF_COPY_TAGS: List<String> = listOf(
+    // --- Camera / image description ---
+    ExifInterface.TAG_MAKE,
+    ExifInterface.TAG_MODEL,
+    ExifInterface.TAG_IMAGE_DESCRIPTION,
+    ExifInterface.TAG_ARTIST,
+    ExifInterface.TAG_COPYRIGHT,
+    ExifInterface.TAG_USER_COMMENT,
+    ExifInterface.TAG_X_RESOLUTION,
+    ExifInterface.TAG_Y_RESOLUTION,
+    ExifInterface.TAG_RESOLUTION_UNIT,
+    ExifInterface.TAG_BODY_SERIAL_NUMBER,
+    ExifInterface.TAG_CAMERA_OWNER_NAME,
+    // --- Lens ---
+    ExifInterface.TAG_LENS_MAKE,
+    ExifInterface.TAG_LENS_MODEL,
+    ExifInterface.TAG_LENS_SERIAL_NUMBER,
+    ExifInterface.TAG_LENS_SPECIFICATION,
+    // --- Exposure ---
+    ExifInterface.TAG_EXPOSURE_TIME,
+    ExifInterface.TAG_F_NUMBER,
+    ExifInterface.TAG_EXPOSURE_PROGRAM,
+    ExifInterface.TAG_SPECTRAL_SENSITIVITY,
+    ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+    ExifInterface.TAG_ISO_SPEED_RATINGS,
+    ExifInterface.TAG_ISO_SPEED,
+    ExifInterface.TAG_SENSITIVITY_TYPE,
+    ExifInterface.TAG_OECF,
+    ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+    ExifInterface.TAG_APERTURE_VALUE,
+    ExifInterface.TAG_BRIGHTNESS_VALUE,
+    ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+    ExifInterface.TAG_MAX_APERTURE_VALUE,
+    ExifInterface.TAG_SUBJECT_DISTANCE,
+    ExifInterface.TAG_METERING_MODE,
+    ExifInterface.TAG_LIGHT_SOURCE,
+    ExifInterface.TAG_FLASH,
+    ExifInterface.TAG_FOCAL_LENGTH,
+    ExifInterface.TAG_FLASH_ENERGY,
+    ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,
+    ExifInterface.TAG_EXPOSURE_MODE,
+    ExifInterface.TAG_EXPOSURE_INDEX,
+    ExifInterface.TAG_DIGITAL_ZOOM_RATIO,
+    ExifInterface.TAG_SCENE_CAPTURE_TYPE,
+    ExifInterface.TAG_GAIN_CONTROL,
+    ExifInterface.TAG_CONTRAST,
+    ExifInterface.TAG_SATURATION,
+    ExifInterface.TAG_SHARPNESS,
+    ExifInterface.TAG_SUBJECT_DISTANCE_RANGE,
+    ExifInterface.TAG_SENSING_METHOD,
+    ExifInterface.TAG_FILE_SOURCE,
+    ExifInterface.TAG_SCENE_TYPE,
+    ExifInterface.TAG_CUSTOM_RENDERED,
+    ExifInterface.TAG_SUBJECT_AREA,
+    ExifInterface.TAG_SUBJECT_LOCATION,
+    // --- White balance / colour ---
+    ExifInterface.TAG_WHITE_BALANCE,
+    ExifInterface.TAG_COLOR_SPACE,
+    ExifInterface.TAG_WHITE_POINT,
+    ExifInterface.TAG_PRIMARY_CHROMATICITIES,
+    ExifInterface.TAG_COMPONENTS_CONFIGURATION,
+    // --- Date / time ---
+    ExifInterface.TAG_DATETIME,
+    ExifInterface.TAG_DATETIME_ORIGINAL,
+    ExifInterface.TAG_DATETIME_DIGITIZED,
+    ExifInterface.TAG_SUBSEC_TIME,
+    ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+    ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
+    ExifInterface.TAG_OFFSET_TIME,
+    ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+    ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+    // --- EXIF / Interop versions ---
+    ExifInterface.TAG_EXIF_VERSION,
+    ExifInterface.TAG_FLASHPIX_VERSION,
+    ExifInterface.TAG_MAKER_NOTE,
+    ExifInterface.TAG_IMAGE_UNIQUE_ID,
+    // --- GPS / location (user explicitly wants FULL copy incl. location) ---
+    ExifInterface.TAG_GPS_VERSION_ID,
+    ExifInterface.TAG_GPS_LATITUDE,
+    ExifInterface.TAG_GPS_LATITUDE_REF,
+    ExifInterface.TAG_GPS_LONGITUDE,
+    ExifInterface.TAG_GPS_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_ALTITUDE,
+    ExifInterface.TAG_GPS_ALTITUDE_REF,
+    ExifInterface.TAG_GPS_TIMESTAMP,
+    ExifInterface.TAG_GPS_DATESTAMP,
+    ExifInterface.TAG_GPS_SATELLITES,
+    ExifInterface.TAG_GPS_STATUS,
+    ExifInterface.TAG_GPS_MEASURE_MODE,
+    ExifInterface.TAG_GPS_DOP,
+    ExifInterface.TAG_GPS_SPEED_REF,
+    ExifInterface.TAG_GPS_SPEED,
+    ExifInterface.TAG_GPS_TRACK_REF,
+    ExifInterface.TAG_GPS_TRACK,
+    ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+    ExifInterface.TAG_GPS_IMG_DIRECTION,
+    ExifInterface.TAG_GPS_MAP_DATUM,
+    ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LATITUDE,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE,
+    ExifInterface.TAG_GPS_DEST_BEARING_REF,
+    ExifInterface.TAG_GPS_DEST_BEARING,
+    ExifInterface.TAG_GPS_DEST_DISTANCE_REF,
+    ExifInterface.TAG_GPS_DEST_DISTANCE,
+    ExifInterface.TAG_GPS_PROCESSING_METHOD,
+    ExifInterface.TAG_GPS_AREA_INFORMATION,
+    ExifInterface.TAG_GPS_DIFFERENTIAL,
+    ExifInterface.TAG_GPS_H_POSITIONING_ERROR,
+)
+
+/**
+ * A snapshot of the source image's standard EXIF tags, captured from the source URI before
+ * export so it can be re-applied to the exported JPEG. [tags] maps tag name -> attribute
+ * string for every non-null tag in [EXIF_COPY_TAGS]. Empty when the source has no readable
+ * EXIF (e.g. the synthetic demo image, or a source whose EXIF cannot be parsed).
+ */
+class SourceExif(val tags: Map<String, String>) {
+    val isEmpty: Boolean get() = tags.isEmpty()
+}
+
+/**
+ * Read all standard [EXIF_COPY_TAGS] from [sourceUri] (via the content resolver). Returns an
+ * empty [SourceExif] if the URI is null, has no EXIF, or cannot be parsed — never throws.
+ */
+fun readSourceExif(ctx: Context, sourceUri: Uri?): SourceExif {
+    if (sourceUri == null) return SourceExif(emptyMap())
+    return runCatching {
+        ctx.contentResolver.openInputStream(sourceUri)?.use { input ->
+            val exif = ExifInterface(input)
+            val map = HashMap<String, String>()
+            for (tag in EXIF_COPY_TAGS) {
+                exif.getAttribute(tag)?.let { map[tag] = it }
+            }
+            SourceExif(map)
+        } ?: SourceExif(emptyMap())
+    }.getOrDefault(SourceExif(emptyMap()))
+}
+
+/**
+ * Apply the captured [source] EXIF to the [dest] ExifInterface (opened on the exported JPEG),
+ * then write the SpectraFilm overrides and call saveAttributes(). Overrides written AFTER the
+ * bulk copy so they win:
+ *   - TAG_ORIENTATION = ORIENTATION_NORMAL (1): SpectraFilm bakes rotation/orientation into the
+ *     exported pixels (loadSource applies manual rotation), so viewers must not re-rotate.
+ *   - TAG_SOFTWARE = "SpectraFilm".
+ *   - width / height / pixel-x/y dimensions = the EXPORTED dimensions (the render may be
+ *     cropped/resized/rotated vs the source).
+ * Works for an empty [source] too: only the overrides are written, which is the desired
+ * behaviour for the demo image / EXIF-less sources.
+ */
+private fun applySourceExif(dest: ExifInterface, source: SourceExif, outW: Int, outH: Int) {
+    for ((tag, value) in source.tags) {
+        runCatching { dest.setAttribute(tag, value) }
+    }
+    dest.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+    dest.setAttribute(ExifInterface.TAG_SOFTWARE, "SpectraFilm")
+    dest.setAttribute(ExifInterface.TAG_IMAGE_WIDTH, outW.toString())
+    dest.setAttribute(ExifInterface.TAG_IMAGE_LENGTH, outH.toString())
+    dest.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, outW.toString())
+    dest.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, outH.toString())
+    dest.saveAttributes()
+}
+
+/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG opened by file [descriptor]. */
+private fun writeExifToFd(descriptor: FileDescriptor, source: SourceExif, outW: Int, outH: Int) {
+    runCatching { applySourceExif(ExifInterface(descriptor), source, outW, outH) }
+}
+
+/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG at filesystem [path]. */
+private fun writeExifToPath(path: String, source: SourceExif, outW: Int, outH: Int) {
+    runCatching { applySourceExif(ExifInterface(path), source, outW, outH) }
+}
+
+/**
+ * Build a near-neutral Ultra HDR [Gainmap] for an SDR [base] bitmap and attach it (API 34+).
+ *
+ * The engine output is a display-referred SDR film look, so there is no real HDR headroom to
+ * recover. We therefore attach a *near-neutral* gain map: a tiny single-pixel map whose values
+ * encode a very gentle highlight lift. On an SDR display the base renders identically (gain map
+ * ignored); on an HDR display the modest ratioMax gives a subtle, safe boost rather than a
+ * fabricated tone-mapping. Metadata uses the android.graphics.Gainmap defaults adjusted for a
+ * gentle global boost:
+ *   - gain-map content: a 1x1 ALPHA_8 bitmap at 255 (full, uniform application of the ratios)
+ *   - ratioMin = 1.0 (no shadow boost), ratioMax = ~1.6 (gentle highlight headroom, ~+0.7 stop)
+ *   - gamma = 1.0, epsilonSdr/Hdr = small constants, displayRatioForFullHdr = ratioMax,
+ *     minDisplayRatioForHdrTransition = 1.0
+ *
+ * NOTE (honest, not device-verified): on API 34+ the platform JPEG encoder embeds the attached
+ * Gainmap into a valid Ultra HDR JPEG (base SDR primary + gain-map secondary + MPF) when
+ * Bitmap.compress(JPEG, ...) is called. This is the documented Android 14 behaviour for
+ * gainmap-bearing bitmaps. It has NOT been verified on a physical device in this environment.
+ */
+private fun attachNeutralGainmap(base: Bitmap) {
+    if (Build.VERSION.SDK_INT < 34) return
+    // A 1x1 uniform gain-map content bitmap: full (255) application of the configured ratios.
+    // eraseColor sets the ALPHA_8 channel to 0xFF — setPixel is unreliable on ALPHA_8.
+    val content = Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8)
+    content.eraseColor(Color.argb(255, 0, 0, 0))
+    val gainmap = Gainmap(content).apply {
+        setRatioMin(1.0f, 1.0f, 1.0f)
+        setRatioMax(1.6f, 1.6f, 1.6f)
+        setGamma(1.0f, 1.0f, 1.0f)
+        setEpsilonSdr(0.015625f, 0.015625f, 0.015625f)
+        setEpsilonHdr(0.015625f, 0.015625f, 0.015625f)
+        setDisplayRatioForFullHdr(1.6f)
+        minDisplayRatioForHdrTransition = 1.0f
+    }
+    base.setGainmap(gainmap)
 }
 
 /**
@@ -188,13 +422,30 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
  *
  * For TIFF, use [saveSimResultAsTiff] instead — Bitmap.compress has no TIFF support.
  */
-fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: Int = 95): Uri {
+fun saveToGallery(
+    ctx: Context,
+    bmp: Bitmap,
+    format: ExportFormat,
+    jpegQuality: Int = 95,
+    sourceExif: SourceExif = SourceExif(emptyMap()),
+): Uri {
     require(format != ExportFormat.TIFF) {
         "Use saveSimResultAsTiff() for TIFF export"
     }
     val name = "SpectraFilm_${System.currentTimeMillis()}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
     val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
+
+    // Ultra HDR: attach a near-neutral gain map so the platform JPEG encoder emits a valid
+    // Ultra HDR JPEG (base SDR + gain map + MPF). No-op below API 34. We mutate a copy's
+    // gainmap reference only; the pixel data is shared and unchanged.
+    if (format == ExportFormat.ULTRA_HDR) attachNeutralGainmap(bmp)
+
+    // EXIF is only writable (via androidx ExifInterface) for JPEG targets. The exported
+    // dimensions are taken from the rendered bitmap (post crop/resize/rotate).
+    val writeExif = format.isJpeg()
+    val outW = bmp.width
+    val outH = bmp.height
 
     val resolver = ctx.contentResolver
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -208,6 +459,15 @@ fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: 
             ?: error("MediaStore insert failed")
         resolver.openOutputStream(uri)?.use { bmp.compress(compress, quality, it) }
             ?: error("Could not open output stream")
+        // Write EXIF back while the item is still IS_PENDING (we own it exclusively): reopen
+        // the MediaStore item read/write and run ExifInterface on its file descriptor.
+        if (writeExif) {
+            runCatching {
+                resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                    writeExifToFd(pfd.fileDescriptor, sourceExif, outW, outH)
+                }
+            }
+        }
         values.clear()
         values.put(MediaStore.Images.Media.IS_PENDING, 0)
         resolver.update(uri, values, null, null)
@@ -222,6 +482,7 @@ fun saveToGallery(ctx: Context, bmp: Bitmap, format: ExportFormat, jpegQuality: 
     ).apply { mkdirs() }
     val file = File(dir, name)
     FileOutputStream(file).use { bmp.compress(compress, quality, it) }
+    if (writeExif) writeExifToPath(file.absolutePath, sourceExif, outW, outH)
     val values = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, name)
         put(MediaStore.Images.Media.MIME_TYPE, format.mime)

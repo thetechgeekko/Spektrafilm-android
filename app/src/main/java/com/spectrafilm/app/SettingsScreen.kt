@@ -128,7 +128,7 @@ fun SettingsScreen(
                 display = { it.display },
                 onSelect = { format = it; settings.exportFormat = it },
             )
-            if (format == ExportFormat.JPEG) {
+            if (format == ExportFormat.JPEG || format == ExportFormat.ULTRA_HDR) {
                 IntSlider(
                     label = "JPEG quality",
                     value = quality,

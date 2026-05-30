@@ -533,17 +533,28 @@ class MainActivity : ComponentActivity() {
                     onClose = { finish() },
                     onExport = {
                         val e = engine ?: return@EditorTopBar
-                        val fmt = settings.exportFormat
+                        var fmt = settings.exportFormat
+                        // Ultra HDR needs the API 34 Gainmap framework class; on older devices
+                        // fall back to a standard JPEG rather than write a non-HDR file labelled
+                        // HDR. Warn the user once via a toast.
+                        if (fmt == ExportFormat.ULTRA_HDR && android.os.Build.VERSION.SDK_INT < 34) {
+                            fmt = ExportFormat.JPEG
+                            Toast.makeText(ctx, "Ultra HDR needs Android 14+ — saving JPEG instead", Toast.LENGTH_LONG).show()
+                        }
+                        val exportFmt = fmt
                         exporting = true; exportDone = false; status = "rendering full resolution…"
                         scope.launch {
                             val result = runCatching {
                                 withContext(Dispatchers.Default) {
+                                    // Read the full source EXIF (incl. GPS) from the picked/opened
+                                    // URI; empty for the synthetic demo image.
+                                    val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri) }
                                     val image = loadSource(MAX_EDGE_PX)
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
-                                        if (fmt == ExportFormat.TIFF) saveSimResultAsTiff(ctx, res)
-                                        else saveToGallery(ctx, bmp, fmt, settings.exportQuality)
+                                        if (exportFmt == ExportFormat.TIFF) saveSimResultAsTiff(ctx, res)
+                                        else saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
                                     }
                                     bmp to uri
                                 }
