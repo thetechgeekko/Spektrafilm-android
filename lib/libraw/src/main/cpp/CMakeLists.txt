@@ -105,17 +105,85 @@ if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
 
     add_library(raw STATIC ${LIBRAW_SOURCES})
     target_include_directories(raw PUBLIC "${LIBRAW_DIR}")
-    # LibRaw build knobs. We disable the heavy optional deps (jasper/jpeg/lcms) to
-    # keep the .so small; baseline DNG + common RAW decode without them. Revisit in
-    # M2 if lossy-DNG / embedded-JPEG-in-DNG support is required. LIBRAW_NODLL ->
-    # static (no dllimport/export); the integration glue stays compiled-out.
-    target_compile_definitions(raw PUBLIC
-            NO_JASPER
-            NO_JPEG
-            NO_LCMS
-            LIBRAW_NODLL
-    )
+
+    # ----------------------------------------------------------------------
+    # LibRaw build knobs.
+    # ----------------------------------------------------------------------
+    # We disable the heavy optional deps we don't need (jasper/lcms). But two
+    # codecs are REQUIRED for Samsung "Expert RAW" and other modern compressed
+    # DNGs and MUST stay enabled:
+    #
+    #   * DEFLATE/ZIP-compressed DNG (DNG Compression tag 8). LibRaw decodes
+    #     these via zlib's inflate(); guarded by USE_ZLIB. Samsung Expert RAW
+    #     very commonly uses deflate-compressed (often 16-bit linear) tiles, so
+    #     WITHOUT zlib LibRaw's unpack() fails with LIBRAW_DATA_ERROR /
+    #     LIBRAW_UNSUPPORTED_THUMBNAIL and the image cannot be decoded. The
+    #     Android NDK ships zlib (libz) in its sysroot, so this is cheap and
+    #     safe -> ENABLED. (Note: LibRaw's *internal* dcraw deflate path is
+    #     compiled in regardless, but the DNG/Adobe-coder deflate path is what
+    #     USE_ZLIB gates, which is the one Expert RAW exercises.)
+    #
+    #   * Lossy-JPEG-compressed DNG (DNG 1.4 lossy, Compression 0x884C / 7).
+    #     LibRaw decodes these via libjpeg; guarded by USE_JPEG. The NDK does
+    #     NOT ship libjpeg, so this stays OFF unless a libjpeg target is
+    #     provided (SFRAW_LIBRAW_JPEG_TARGET). When OFF, lossy-JPEG Expert RAW
+    #     DNGs cannot be unpacked by LibRaw; the decoder reports a specific
+    #     error so the app can fall back to the platform ImageDecoder.
+    #
+    # LIBRAW_NODLL -> static (no dllimport/export); integration glue stays out.
+    set(SFRAW_LIBRAW_DEFS NO_JASPER NO_LCMS LIBRAW_NODLL)
+
+    # zlib / deflate-DNG: ON by default (NDK provides libz).
+    option(SFRAW_WITH_ZLIB "Build LibRaw with deflate-DNG (zlib) support" ON)
+    # libjpeg / lossy-DNG: OFF by default (NDK has no libjpeg). Point
+    # SFRAW_LIBRAW_JPEG_TARGET at a CMake target that provides libjpeg
+    # (headers + library) to enable lossy-JPEG DNG decoding.
+    set(SFRAW_LIBRAW_JPEG_TARGET "" CACHE STRING
+            "CMake target providing libjpeg (headers+lib); enables lossy-JPEG DNG")
+
+    if (SFRAW_WITH_ZLIB)
+        list(APPEND SFRAW_LIBRAW_DEFS USE_ZLIB)
+        message(STATUS "sfraw: deflate-compressed DNG support ENABLED (zlib)")
+    else ()
+        list(APPEND SFRAW_LIBRAW_DEFS NO_ZLIB)
+        message(WARNING "sfraw: deflate-compressed DNG support DISABLED; "
+                "Samsung Expert RAW deflate DNGs will fail to unpack.")
+    endif ()
+
+    if (SFRAW_LIBRAW_JPEG_TARGET STREQUAL "")
+        list(APPEND SFRAW_LIBRAW_DEFS NO_JPEG)
+        message(STATUS "sfraw: lossy-JPEG DNG support DISABLED (no libjpeg in NDK); "
+                "lossy-JPEG Expert RAW reports SFRAW_ERR_LOSSY_JPEG_DNG for "
+                "app-side ImageDecoder fallback.")
+    else ()
+        list(APPEND SFRAW_LIBRAW_DEFS USE_JPEG)
+        target_link_libraries(raw ${SFRAW_LIBRAW_JPEG_TARGET})
+        message(STATUS "sfraw: lossy-JPEG DNG support ENABLED (${SFRAW_LIBRAW_JPEG_TARGET})")
+    endif ()
+
+    target_compile_definitions(raw PUBLIC ${SFRAW_LIBRAW_DEFS})
     target_compile_options(raw PRIVATE -w)  # silence LibRaw's own warnings
+
+    # Link zlib into the static lib's consumers. On Android the NDK sysroot has
+    # libz; find_library locates it. On a host build ZLIB::ZLIB is used if found.
+    if (SFRAW_WITH_ZLIB)
+        if (ANDROID)
+            find_library(z-lib z)
+            if (z-lib)
+                target_link_libraries(raw ${z-lib})
+            else ()
+                target_link_libraries(raw z)  # NDK sysroot always has -lz
+            endif ()
+        else ()
+            find_package(ZLIB)
+            if (ZLIB_FOUND)
+                target_link_libraries(raw ZLIB::ZLIB)
+            else ()
+                target_link_libraries(raw z)
+            endif ()
+        endif ()
+    endif ()
+
     set(SFRAW_HAVE_LIBRAW TRUE)
     message(STATUS "sfraw: LibRaw sources found (${LIBRAW_DIR}); RAW decode ENABLED")
 else ()

@@ -19,9 +19,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <unistd.h>
+#include <vector>
 
 #if defined(__has_include)
 #  if __has_include(<libraw/libraw.h>)
@@ -35,6 +37,147 @@
 #endif
 
 namespace spectrafilm {
+
+// ---------------------------------------------------------------------------
+// Minimal in-memory TIFF/DNG sniffer.
+// ---------------------------------------------------------------------------
+// We only need the *compression scheme* of the primary (full-resolution, non-
+// reduced) raw image so we can classify an unpack() failure precisely: a
+// Samsung "Expert RAW" file that fails because it is lossy-JPEG-compressed
+// (needs libjpeg, absent from the NDK) must be reported distinctly from a
+// generic corrupt-file error, so the app can fall back to the platform
+// ImageDecoder. Deliberately small and tolerant: any parse trouble -> unknown.
+namespace dngsniff {
+
+enum Compression {
+    kUnknown = -1,
+    kNone = 1,
+    kLossyJpegOld = 6,
+    kJpeg = 7,        // baseline / lossless JPEG (DNG lossless)
+    kDeflate = 8,     // ZIP/DEFLATE (Adobe)
+    kDeflateAdobe = 0x80B2,
+    kLossyJpeg = 0x884C,  // DNG 1.4 lossy JPEG
+};
+
+struct Reader {
+    const uint8_t* p = nullptr;
+    size_t n = 0;
+    bool be = false;
+    bool in(size_t off, size_t len) const { return off + len <= n && off <= n; }
+    uint16_t u16(size_t o) const {
+        if (!in(o, 2)) return 0;
+        return be ? (uint16_t)((p[o] << 8) | p[o + 1])
+                  : (uint16_t)((p[o + 1] << 8) | p[o]);
+    }
+    uint32_t u32(size_t o) const {
+        if (!in(o, 4)) return 0;
+        return be ? ((uint32_t)p[o] << 24) | ((uint32_t)p[o + 1] << 16) |
+                        ((uint32_t)p[o + 2] << 8) | p[o + 3]
+                  : ((uint32_t)p[o + 3] << 24) | ((uint32_t)p[o + 2] << 16) |
+                        ((uint32_t)p[o + 1] << 8) | p[o];
+    }
+};
+
+inline void scanIfd(const Reader& r, uint32_t ifdOff, bool& isDng,
+                    int& bestComp, uint64_t& bestPx, int depth) {
+    if (ifdOff == 0 || depth > 4 || !r.in(ifdOff, 2)) return;
+    uint16_t entries = r.u16(ifdOff);
+    if (entries == 0 || entries > 512) return;
+
+    int comp = kUnknown;
+    uint32_t width = 0, height = 0, newSubfileType = 0;
+    uint32_t subifds[16];
+    int subCount = 0;
+
+    for (uint16_t i = 0; i < entries; ++i) {
+        size_t e = (size_t)ifdOff + 2 + (size_t)i * 12;
+        if (!r.in(e, 12)) return;
+        uint16_t tag = r.u16(e);
+        uint16_t type = r.u16(e + 2);
+        uint32_t count = r.u32(e + 4);
+        size_t valOff = e + 8;
+        auto scalar = [&]() -> uint32_t {
+            return (type == 3 /*SHORT*/) ? r.u16(valOff) : r.u32(valOff);
+        };
+        switch (tag) {
+            case 0x00FE: newSubfileType = scalar(); break;  // NewSubfileType
+            case 0x0100: width = scalar(); break;           // ImageWidth
+            case 0x0101: height = scalar(); break;          // ImageLength
+            case 0x0103: comp = (int)scalar(); break;       // Compression
+            case 0xC612: isDng = true; break;               // DNGVersion
+            case 0x014A:                                    // SubIFDs
+                if ((type == 4 || type == 3) && count <= 16) {
+                    if (count == 1) {
+                        if (subCount < 16) subifds[subCount++] = scalar();
+                    } else {
+                        uint32_t arr = r.u32(valOff);
+                        for (uint32_t k = 0; k < count && subCount < 16; ++k)
+                            subifds[subCount++] = r.u32((size_t)arr + k * 4);
+                    }
+                }
+                break;
+            default: break;
+        }
+    }
+
+    uint64_t px = (uint64_t)width * height;
+    bool reduced = (newSubfileType & 1) != 0;  // reduced-resolution preview
+    if (!reduced && comp != kUnknown && px >= bestPx) {
+        bestPx = px;
+        bestComp = comp;
+    }
+    for (int s = 0; s < subCount; ++s)
+        scanIfd(r, subifds[s], isDng, bestComp, bestPx, depth + 1);
+
+    uint32_t next = r.u32((size_t)ifdOff + 2 + (size_t)entries * 12);
+    if (next > ifdOff) scanIfd(r, next, isDng, bestComp, bestPx, depth);
+}
+
+// Returns the primary-image compression; sets *isDng if a DNGVersion tag seen.
+inline int compressionOf(const uint8_t* data, size_t len, bool* isDng) {
+    *isDng = false;
+    if (data == nullptr || len < 8) return kUnknown;
+    Reader r;
+    r.p = data;
+    r.n = len;
+    if (data[0] == 'I' && data[1] == 'I') r.be = false;
+    else if (data[0] == 'M' && data[1] == 'M') r.be = true;
+    else return kUnknown;
+    int best = kUnknown;
+    uint64_t bestPx = 0;
+    bool dng = false;
+    scanIfd(r, r.u32(4), dng, best, bestPx, 0);
+    *isDng = dng;
+    return best;
+}
+
+inline bool isDeflate(int c) { return c == kDeflate || c == kDeflateAdobe; }
+inline bool isLossyJpeg(int c) { return c == kLossyJpeg || c == kLossyJpegOld; }
+
+// Classify an unpack() failure for a compressed DNG into a stable status.
+// Returns SFRAW_ERR_UNPACK if it isn't a recognizable compressed-DNG case.
+inline int classifyUnpackFailure(const uint8_t* data, size_t len) {
+    bool isDng = false;
+    int comp = compressionOf(data, len, &isDng);
+    if (isDng) {
+        if (isLossyJpeg(comp)) {
+#ifndef USE_JPEG
+            return SFRAW_ERR_LOSSY_JPEG_DNG;
+#endif
+        }
+        if (isDeflate(comp)) {
+#ifndef USE_ZLIB
+            return SFRAW_ERR_DEFLATE_DNG;
+#endif
+        }
+        // DNG of unknown compression that still failed: the dominant cause for
+        // Samsung Expert RAW is lossy-JPEG, so hint that fallback.
+        if (comp == kUnknown) return SFRAW_ERR_LOSSY_JPEG_DNG;
+    }
+    return SFRAW_ERR_UNPACK;
+}
+
+}  // namespace dngsniff
 
 namespace {
 
@@ -229,16 +372,35 @@ void applyAcesAdaptation(float* rgb, size_t pixelCount, const DecodeOptions& opt
 // Run unpack + dcraw_process + dcraw_make_mem_image and copy the 16-bit linear RGB
 // into a normalized float result (value / 65535), matching the Python:
 //   rgb = raw.postprocess(...).astype(float32) / 65535.0
-DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options) {
+//
+// `srcData`/`srcLen` point at the still-readable source bytes (the same buffer
+// LibRaw opened) so a failed unpack() of a compressed DNG can be classified
+// (deflate vs lossy-JPEG) for a precise, actionable error code.
+DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
+                          const uint8_t* srcData, size_t srcLen) {
     DecodeResult result;
 
-    if (raw.unpack() != LIBRAW_SUCCESS) {
-        result.error = "LibRaw unpack() failed";
+    int rc = raw.unpack();
+    if (rc != LIBRAW_SUCCESS) {
+        result.librawCode = rc;
+        result.status = dngsniff::classifyUnpackFailure(srcData, srcLen);
+        const char* hint = "";
+        if (result.status == SFRAW_ERR_LOSSY_JPEG_DNG)
+            hint = " [lossy-JPEG DNG (e.g. Samsung Expert RAW); this build has no "
+                   "libjpeg — fall back to platform ImageDecoder]";
+        else if (result.status == SFRAW_ERR_DEFLATE_DNG)
+            hint = " [deflate-compressed DNG; rebuild LibRaw with USE_ZLIB]";
+        result.error = std::string("LibRaw unpack() failed: ") +
+                       libraw_strerror(rc) + hint;
         return result;
     }
     applyParityParams(raw, options);
-    if (raw.dcraw_process() != LIBRAW_SUCCESS) {
-        result.error = "LibRaw dcraw_process() failed";
+    rc = raw.dcraw_process();
+    if (rc != LIBRAW_SUCCESS) {
+        result.librawCode = rc;
+        result.status = SFRAW_ERR_PROCESS;
+        result.error =
+            std::string("LibRaw dcraw_process() failed: ") + libraw_strerror(rc);
         return result;
     }
 
@@ -246,11 +408,15 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options) {
     libraw_processed_image_t* img = raw.dcraw_make_mem_image(&status);
     if (img == nullptr || status != LIBRAW_SUCCESS) {
         if (img) LibRaw::dcraw_clear_mem(img);
-        result.error = "LibRaw dcraw_make_mem_image() failed";
+        result.librawCode = status;
+        result.status = SFRAW_ERR_PROCESS;
+        result.error = std::string("LibRaw dcraw_make_mem_image() failed: ") +
+                       libraw_strerror(status);
         return result;
     }
     if (img->type != LIBRAW_IMAGE_BITMAP || img->colors != 3 || img->bits != 16) {
         LibRaw::dcraw_clear_mem(img);
+        result.status = SFRAW_ERR_FORMAT;
         result.error = "unexpected LibRaw image format (expected 16-bit 3-channel)";
         return result;
     }
@@ -270,6 +436,7 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options) {
     applyAcesAdaptation(result.rgb.data(), pixelCount, options);
 
     result.colorSpace = "ACES2065-1";
+    result.status = SFRAW_OK;
     result.ok = true;
     return result;
 }
@@ -279,20 +446,27 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options) {
 DecodeResult decodeFromBuffer(const uint8_t* data, size_t length, const DecodeOptions& options) {
     DecodeResult result;
     if (data == nullptr || length == 0) {
+        result.status = SFRAW_ERR_INPUT;
         result.error = "empty input buffer";
         return result;
     }
     LibRaw raw;
-    if (raw.open_buffer(const_cast<uint8_t*>(data), length) != LIBRAW_SUCCESS) {
-        result.error = "LibRaw open_buffer() failed (unsupported or corrupt RAW)";
+    int rc = raw.open_buffer(const_cast<uint8_t*>(data), length);
+    if (rc != LIBRAW_SUCCESS) {
+        result.librawCode = rc;
+        result.status = (rc == LIBRAW_FILE_UNSUPPORTED) ? SFRAW_ERR_FILE_UNSUPPORTED
+                                                        : SFRAW_ERR_OPEN;
+        result.error = std::string("LibRaw open_buffer() failed: ") +
+                       libraw_strerror(rc) + " (unsupported or corrupt RAW)";
         return result;
     }
-    return finishDecode(raw, options);
+    return finishDecode(raw, options, data, length);
 }
 
 DecodeResult decodeFromFd(int fd, const DecodeOptions& options) {
     DecodeResult result;
     if (fd < 0) {
+        result.status = SFRAW_ERR_INPUT;
         result.error = "invalid file descriptor";
         return result;
     }
@@ -300,12 +474,14 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) {
     // LibRaw can read from a FILE*; we dup the fd so the caller keeps ownership.
     int dup_fd = ::dup(fd);
     if (dup_fd < 0) {
+        result.status = SFRAW_ERR_INPUT;
         result.error = "dup(fd) failed";
         return result;
     }
     FILE* fp = ::fdopen(dup_fd, "rb");
     if (fp == nullptr) {
         ::close(dup_fd);
+        result.status = SFRAW_ERR_INPUT;
         result.error = "fdopen() failed";
         return result;
     }
@@ -326,14 +502,20 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) {
     }
     std::fclose(fp);  // closes dup_fd
     if (bytes.empty()) {
+        result.status = SFRAW_ERR_INPUT;
         result.error = "failed to read RAW from fd";
         return result;
     }
-    if (raw.open_buffer(bytes.data(), bytes.size()) != LIBRAW_SUCCESS) {
-        result.error = "LibRaw open_buffer() failed (unsupported or corrupt RAW)";
+    int rc = raw.open_buffer(bytes.data(), bytes.size());
+    if (rc != LIBRAW_SUCCESS) {
+        result.librawCode = rc;
+        result.status = (rc == LIBRAW_FILE_UNSUPPORTED) ? SFRAW_ERR_FILE_UNSUPPORTED
+                                                        : SFRAW_ERR_OPEN;
+        result.error = std::string("LibRaw open_buffer() failed: ") +
+                       libraw_strerror(rc) + " (unsupported or corrupt RAW)";
         return result;
     }
-    return finishDecode(raw, options);
+    return finishDecode(raw, options, bytes.data(), bytes.size());
 }
 
 #else  // !SFRAW_HAVE_LIBRAW
@@ -345,12 +527,14 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) {
 
 DecodeResult decodeFromBuffer(const uint8_t*, size_t, const DecodeOptions&) {
     DecodeResult result;
+    result.status = SFRAW_ERR_UNKNOWN;
     result.error = "LibRaw unavailable: configure with network (FetchContent) or -DSFRAW_LIBRAW_SOURCE_DIR";
     return result;
 }
 
 DecodeResult decodeFromFd(int, const DecodeOptions&) {
     DecodeResult result;
+    result.status = SFRAW_ERR_UNKNOWN;
     result.error = "LibRaw unavailable: configure with network (FetchContent) or -DSFRAW_LIBRAW_SOURCE_DIR";
     return result;
 }
