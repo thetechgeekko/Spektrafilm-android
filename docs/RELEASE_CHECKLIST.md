@@ -190,10 +190,20 @@ https://github.com/thetechgeekko/Spectrafilmandroid
 
 ---
 
-## Issue #5 / #6 / #7 — current status (as of 2026-05-29)
+## Issue #5 / #6 / #7 — current status (as of 2026-05-30)
 
 | Issue | Description | Status |
 |-------|-------------|--------|
-| #5 | App not yet run on a real device or emulator (build-verified only). | **Open** — highest priority before marking any release "latest." Use the `verify` or `run` skill to boot an emulator and smoke-test. |
-| #6 | Some exposed params are inert (gated in UI). Remaining gated stages: diffusion filters, lens blur, auto-exposure, LUT acceleration. | **Partially addressed** — crop/resize geometry stage ported and bit-exact (landed 2026-05-29, commit `dec0b15`). RAW WB UI also landed (commit `d2102f7`). Remaining stages are still gated. |
+| #5 | On-device smoke-test. | **Needs reconciliation.** Issue #5 was closed on GitHub, but the app has never been run on a real physical device in this environment (the sandbox emulator has no `/dev/kvm` — software emulation is too slow and only ever reaches the welcome screen). The CI `android-emulator` job is gated to manual `workflow_dispatch` and also fails in setup on hosted runners. **Recommended action:** reopen #5 (or add a tracking note) until the redesigned UI, rotate→export flow, back-navigation, and Expert RAW import have been confirmed on an actual device. Maintainer: sideload `app/build/outputs/apk/debug/app-debug.apk` and smoke-test. |
+| #6 | Some exposed params are inert (gated in UI). | **Substantially addressed.** Crop/resize geometry, auto-exposure (all 7 metering patterns), and diffusion filters are now ported, bit-exact, and parity-gated. **Remaining gated stages: lens blur and LUT acceleration.** Glare-on-print is a known gap being addressed in a separate work stream. |
 | #7 | Full-res RAW memory/perf risk (no tiling or GPU path yet). | **Open** — deferred to M6/M7 (tiling, NEON SIMD, optional GPU accelerator). |
+
+> **Maintainer note — version bump and dist APK:** the v0.3.0 feature wave (auto-exposure,
+> diffusion, TIFF export, EXIF copy, Ultra HDR, UI redesign, Expert RAW fix, recipe layer,
+> status pill, profile-curve browser) is committed on the dev branch but `versionCode` /
+> `versionName` in `app/build.gradle.kts` have not yet been bumped to v0.3.0, and no updated
+> APK has been placed in `dist/`. Another agent is handling the version bump in
+> `app/build.gradle.kts`; once that lands, rebuild with `./gradlew :app:assembleDebug` (or
+> `assembleRelease` with a signing key) and copy the result to `dist/SpectraFilm-v0.3.0.apk`
+> along with a regenerated `.sha256`. This is a **maintainer step** — do not merge to `main`
+> or publish a GitHub Release without a current dist APK.

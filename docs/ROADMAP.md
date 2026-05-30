@@ -18,6 +18,18 @@ Milestones are vertical slices. Each ends with something demonstrable and a pari
 > module (M2), the `feature:film-emulation` Compose UI (M5), and the `tools/parity` golden-vector
 > harness (the M3/M4 gate). These compile/are structurally complete in isolation; they wire
 > together and build as an app at **M1** (host bootstrap).
+>
+> **Progress note (2026-05-30 — v0.3.0 wave):** a major feature wave landed on the dev branch
+> (PR #8). Engine stages: **auto-exposure** (7 metering patterns, bit-exact, parity-gated) and
+> **diffusion filters** (bit-exact, parity-gated) are now DONE. Print path is **generalized to
+> all film/paper pairs** via native `print_digest` + `neutral_print_filters.json` (was Portra/
+> Ektar baked-only; `print_ektar` golden proves the second pair). App features: 16-bit TIFF
+> export (live), Lightroom-style Auto-exposure UI, profile-curve browser, non-destructive
+> recipe/sidecar layer, engine/render status pill, full source EXIF copy on export, Google Ultra
+> HDR export, Expert RAW DEFLATE fix, and a **major Lightroom-style UI redesign** (edge-to-edge,
+> pinned preview + 90° rotate, horizontal scrollable category bar, inline panel, back navigation).
+> Remaining gated engine stages for issue #6: **lens blur** and **LUT acceleration**. Glare-on-
+> print is a known gap currently being addressed.
 
 ## M0 — Foundation  ✅ (this commit)
 Architecture decided, both repos mapped, port plan written, RAW/licensing strategy fixed,
@@ -82,30 +94,38 @@ Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filt
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
 - **Landed (2026-05-29, M-geometry / issue #6 partial):** crop/resize geometry stage ported
-  (bit-exact). Remaining gated stages for #6: diffusion filters, lens blur, auto-exposure,
-  LUT acceleration — see progress note below.
+  (bit-exact). Remaining gated stages for #6: lens blur and LUT acceleration — see progress
+  note below.
 
 > **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
 > print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
 > vs the `print_portra` goldens: `print_density_cmy` max_abs ≈ 2.4e-7, `final_rgb` ≈ 4.2e-7;
 > end-to-end `spk_simulate(scan_film=false)` ≈ 5.6e-7. DIR couplers already done (M3).
-> **Known limitation:** the per-(film,paper) **neutral dichroic CC values** and the **midgray
-> exposure factor** are currently *baked* from the oracle for the portra & ektar pairs (other
-> pairs return an error). Generalizing requires a native digest of `neutral_print_filters.json`
-> + the filming-midgray balance — the next M4 task. Then: grain (Poisson-binomial), halation/
-> scatter + diffusion filters (spatial branches), and stochastic/spatial golden cases.
+>
+> **Print path generalized (2026-05-30):** the per-(film,paper) neutral dichroic CC values and
+> midgray exposure factor are now resolved at runtime by a native `print_digest` (digest of
+> `neutral_print_filters.json` + filming-midgray balance). The previous baked-for-portra/ektar
+> limitation is gone — any film/paper profile combination is now valid. A new `print_ektar`
+> e2e golden proves the second pair; both `print_portra` and `print_ektar` parity tests pass
+> (host suite 12/12 PASS).
+>
+> **Diffusion-filter stage (2026-05-30, issue #6):** spatial diffusion filters (halation/
+> scatter coupling, DIR coupler diffusion) ported and parity-gated (`diffusion_bpm` golden).
+>
+> **Auto-exposure stage (2026-05-30, issue #6):** all 7 metering patterns ported and parity-
+> gated (`scan_portra_autoexp` golden). JNI forwards `auto_exposure_method`.
 >
 > **M4/M-geometry item landed (2026-05-29) — partial fix for issue #6:** **crop/resize geometry
 > stage ported** (bit-exact). The previously-inert `IOParams` crop fields (`crop`,
 > `crop_center`, `crop_size`) and the cubic `upscale_factor` are now a live pre-process stage
 > running before filming in both the scan and print routes, matching spektrafilm's
 > `_preprocess` step (`runtime/services/resize.py` + `utils/crop_resize.py`). Defaults remain
-> a strict no-op; parity on all 11 existing goldens is byte-identical. A new
-> `scan_portra_crop` golden gates the non-default path (max_abs ≈ 2e-7). Host suite: 12/12
-> PASS.
+> a strict no-op; parity on all existing goldens is byte-identical. A new `scan_portra_crop`
+> golden gates the non-default path (max_abs ≈ 2e-7).
 >
 > **Remaining gated stages for #6** (params still shown as "not yet active" in UI):
-> diffusion filters, lens blur, auto-exposure, and LUT acceleration.
+> **lens blur** and **LUT acceleration**. Glare-on-print is a known gap (currently being
+> addressed in a separate work stream).
 > Downscale (`upscale_factor < 1`) anti-aliasing prefilter is a documented follow-up.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
@@ -143,9 +163,10 @@ The "do this when literally everything else is done" list:
 - **GitHub repo "About"** — repository description, topics, and homepage must be set manually
   at https://github.com/thetechgeekko/Spectrafilmandroid/ by the maintainer (the env cannot
   push via the API). Ready-to-paste text is in `docs/RELEASE_CHECKLIST.md`.
-- **Remaining (M7/polish):** port the gated engine stages so those params go live (diffusion
-  filters, lens blur, auto-exposure — see issue #6); signed release key (currently debug-signed
-  fallback; see `docs/RELEASE_CHECKLIST.md`).
+- **Remaining (M7/polish):** port the remaining gated engine stages so those params go live
+  (**lens blur** and **LUT acceleration** — diffusion filters and auto-exposure are now done;
+  see issue #6); signed release key (currently debug-signed fallback; see
+  `docs/RELEASE_CHECKLIST.md`).
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
