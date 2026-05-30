@@ -82,6 +82,15 @@ JNI_PNG(jlong, nativeWriteBuffer)(JNIEnv* env, jobject /*thiz*/, jobject directB
         env->ThrowNew(iae, "expected a direct ByteBuffer of 16-bit RGB samples");
         return 0;
     }
+    // Validate the buffer holds width*height*3 uint16 samples before reading,
+    // in 64-bit math. (Security review F5.)
+    const int64_t needBytes =
+        static_cast<int64_t>(width) * static_cast<int64_t>(height) * 3 * 2;
+    if (width <= 0 || height <= 0 || env->GetDirectBufferCapacity(directBuf) < needBytes) {
+        jclass iae = env->FindClass("java/lang/IllegalArgumentException");
+        env->ThrowNew(iae, "direct ByteBuffer too small for width*height*3 uint16 RGB samples");
+        return 0;
+    }
     spectrafilm::PngMetadata meta = buildMeta(env, software, iccBytes);
     spectrafilm::PngWriteResult r = spectrafilm::writePng16ToFile(
         reinterpret_cast<const uint16_t*>(addr), width, height, meta,

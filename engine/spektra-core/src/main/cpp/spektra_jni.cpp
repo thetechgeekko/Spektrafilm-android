@@ -489,6 +489,16 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
     // ownership on the JVM heap so the GC reclaims it.
     const size_t n = static_cast<size_t>(out.width) * out.height * 3;
 
+    // Guard against >2 GiB: allocateDirect takes a jint, so a larger byte count
+    // would truncate and the full memcpy below would overflow the buffer. Computed
+    // in int64 to avoid its own overflow. (Security review F2.)
+    const int64_t out_bytes = static_cast<int64_t>(n) * static_cast<int64_t>(sizeof(float));
+    if (out_bytes > static_cast<int64_t>(INT32_MAX)) {
+        spk_image_free(&out);
+        throw_runtime(env, "spektra: output image too large for a direct ByteBuffer (>2 GiB)");
+        return nullptr;
+    }
+
     // Allocate a JVM-managed direct ByteBuffer for the result. Each JNI lookup is
     // checked + cleared so a failure (e.g. an unexpected R8/ProGuard strip of the
     // referenced class/method) raises a specific RuntimeException instead of

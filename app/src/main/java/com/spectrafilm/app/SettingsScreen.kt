@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +31,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,7 @@ fun SettingsScreen(
     var print by remember { mutableStateOf(settings.defaultPrintProfile) }
     var format by remember { mutableStateOf(settings.exportFormat) }
     var quality by remember { mutableIntStateOf(settings.exportQuality) }
+    var keepGps by remember { mutableStateOf(settings.exportKeepGps) }
 
     Column(
         Modifier
@@ -134,6 +137,24 @@ fun SettingsScreen(
                     value = quality,
                     range = 1..100,
                     onValueChange = { quality = it; settings.exportQuality = it },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Preserve location (GPS)", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Off: strip GPS from exports (recommended). Other EXIF (camera, " +
+                            "exposure, date) is always kept.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = keepGps,
+                    onCheckedChange = { keepGps = it; settings.exportKeepGps = it },
                 )
             }
         }

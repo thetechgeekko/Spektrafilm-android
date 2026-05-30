@@ -661,9 +661,10 @@ class MainActivity : ComponentActivity() {
                         scope.launch {
                             val result = runCatching {
                                 withContext(Dispatchers.Default) {
-                                    // Read the full source EXIF (incl. GPS) from the picked/opened
-                                    // URI; empty for the synthetic demo image.
-                                    val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri) }
+                                    // Copy source EXIF (camera/lens/exposure/date) into the export;
+                                    // GPS/location only when the user opted in (default OFF). Empty
+                                    // for the synthetic demo image.
+                                    val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = settings.exportKeepGps) }
                                     val image = loadSource(MAX_EDGE_PX)
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)

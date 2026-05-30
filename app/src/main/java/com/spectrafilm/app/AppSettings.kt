@@ -65,6 +65,16 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         set(v) { prefs.edit().putInt(KEY_EXPORT_Q, v.coerceIn(1, 100)).apply() }
 
     /**
+     * Whether to preserve GPS/location EXIF tags when copying source metadata into
+     * exported images. Defaults to FALSE (strip location) — the privacy-safe default
+     * for a shareable photo app (security review F3). All other EXIF (camera/lens/
+     * exposure/date) is always copied; this toggle only governs the GPS block.
+     */
+    var exportKeepGps: Boolean
+        get() = prefs.getBoolean(KEY_EXPORT_KEEP_GPS, false)
+        set(v) { prefs.edit().putBoolean(KEY_EXPORT_KEEP_GPS, v).apply() }
+
+    /**
      * Seed a freshly constructed [state] with the saved app defaults. Profile defaults
      * are only applied when they appear in [availableProfiles] (so a stale id can't make
      * the picker show a profile the engine doesn't know).
@@ -90,6 +100,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         private const val KEY_PRINT = "default_print_profile"
         private const val KEY_EXPORT_FMT = "export_format"
         private const val KEY_EXPORT_Q = "export_quality"
+        private const val KEY_EXPORT_KEEP_GPS = "export_keep_gps"
 
         @Volatile private var instance: AppSettings? = null
 

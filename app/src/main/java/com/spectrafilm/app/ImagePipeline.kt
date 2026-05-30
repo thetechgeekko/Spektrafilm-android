@@ -347,7 +347,14 @@ private val EXIF_COPY_TAGS: List<String> = listOf(
     ExifInterface.TAG_FLASHPIX_VERSION,
     ExifInterface.TAG_MAKER_NOTE,
     ExifInterface.TAG_IMAGE_UNIQUE_ID,
-    // --- GPS / location (user explicitly wants FULL copy incl. location) ---
+)
+
+/**
+ * GPS / location EXIF tags, kept SEPARATE from [EXIF_COPY_TAGS] so they can be
+ * gated behind the "preserve location on export" setting (default OFF — strip).
+ * Security review F3: a photo app must not silently bake location into shared files.
+ */
+private val EXIF_GPS_TAGS: List<String> = listOf(
     ExifInterface.TAG_GPS_VERSION_ID,
     ExifInterface.TAG_GPS_LATITUDE,
     ExifInterface.TAG_GPS_LATITUDE_REF,
@@ -396,13 +403,16 @@ class SourceExif(val tags: Map<String, String>) {
  * Read all standard [EXIF_COPY_TAGS] from [sourceUri] (via the content resolver). Returns an
  * empty [SourceExif] if the URI is null, has no EXIF, or cannot be parsed — never throws.
  */
-fun readSourceExif(ctx: Context, sourceUri: Uri?): SourceExif {
+fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): SourceExif {
     if (sourceUri == null) return SourceExif(emptyMap())
     return runCatching {
         ctx.contentResolver.openInputStream(sourceUri)?.use { input ->
             val exif = ExifInterface(input)
             val map = HashMap<String, String>()
-            for (tag in EXIF_COPY_TAGS) {
+            // GPS/location is only captured when the user has opted in (default OFF);
+            // never reading it keeps location out of the export entirely. (F3.)
+            val tags = if (keepGps) EXIF_COPY_TAGS + EXIF_GPS_TAGS else EXIF_COPY_TAGS
+            for (tag in tags) {
                 exif.getAttribute(tag)?.let { map[tag] = it }
             }
             SourceExif(map)

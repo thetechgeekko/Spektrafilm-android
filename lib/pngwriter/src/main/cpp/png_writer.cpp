@@ -58,6 +58,7 @@
 #include "png_writer.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <zlib.h>
@@ -137,6 +138,17 @@ PngWriteResult writePng16ToMemory(const uint16_t* rgb16, int width, int height,
 
     if (rgb16 == nullptr) { res.error = "null pixel buffer"; return res; }
     if (width <= 0 || height <= 0) { res.error = "invalid dimensions"; return res; }
+    // Reject images whose filtered-scanline buffer would overflow size_t on a
+    // 32-bit ABI (armeabi-v7a). Computed in uint64; matches the TIFF writer's
+    // >4 GiB guard. (Security review F6.)
+    {
+        const uint64_t rowBytes64 = static_cast<uint64_t>(width) * 3u * 2u + 1u;
+        const uint64_t bufBytes64 = rowBytes64 * static_cast<uint64_t>(height);
+        if (bufBytes64 > static_cast<uint64_t>(SIZE_MAX)) {
+            res.error = "image too large (scanline buffer exceeds addressable size)";
+            return res;
+        }
+    }
 
     // ---- 1. PNG signature --------------------------------------------------
     // \x89 P N G \r \n \x1a \n  (RFC 2083 §5.2)
