@@ -221,9 +221,22 @@ typedef struct {
     int32_t apply_hanatos_window;      /* bool */
     int32_t apply_hanatos_surface;     /* bool */
     float spectral_gaussian_blur;
-    int32_t use_enlarger_lut;          /* bool */
-    int32_t use_scanner_lut;           /* bool */
-    int32_t lut_resolution;
+    /* OPT-IN 3D-LUT acceleration of the spectral density->log_xyz transforms.
+     * Both default 0/false (spk_default_params) so the default engine path is the
+     * direct, bit-exact spectral evaluation and never constructs a LUT.
+     *   use_scanner_lut: WIRED. Gates the scanner LUT in scan() for BOTH the
+     *     scan_film route (run_scan) and the print-scan route (run_print). When
+     *     on, density_cmy->log_xyz is PCHIP-interpolated through a per-channel 3D
+     *     LUT built at lut_resolution; result is within ~5e-5 of the direct path
+     *     (NOT bit-exact by design). Gated by tests/test_scanner_lut_e2e.cpp.
+     *   use_enlarger_lut: RESERVED / not yet wired. The oracle also LUT-accelerates
+     *     the enlarger expose (printing.py via spectral_compute_enlarger), but that
+     *     path is materially more involved (full enlarger spectral chain) and is
+     *     left for a follow-up; this flag is read by JNI but currently inert in the
+     *     native print path. Wiring scanner-only keeps this pass low-risk. */
+    int32_t use_enlarger_lut;          /* bool (RESERVED, not yet wired) */
+    int32_t use_scanner_lut;           /* bool (wired: opt-in scanner LUT) */
+    int32_t lut_resolution;            /* LUT steps/axis; clamped to [2,192] */
     int32_t neutral_print_filters_from_database; /* bool */
 } spk_params;
 

@@ -109,10 +109,31 @@ float64 irradiance. They get a dedicated stage-isolation golden + host test:
   at float32 store (interp max_abs = 0), and the native LUT build matches the
   oracle to machine epsilon (~2e-16). LUT-vs-direct error is ~5e-5 (matching the
   oracle's own), which is the documented acceleration tolerance — LUT
-  interpolation is intentionally NOT bit-exact vs. the direct path. **This is an
-  isolated, verified, opt-in accelerator; it is NOT yet wired into the live
-  scan/print pipeline (the default stays the direct, bit-exact path).** See
+  interpolation is intentionally NOT bit-exact vs. the direct path. See
   `kernels/lut3d.h` for the parity contract.
+
+  **WIRING (this pass):** the scanner LUT is now wired into the live pipeline as a
+  strictly OPT-IN path. `settings.use_scanner_lut` (default `0`) gates it in BOTH
+  scan call sites in `spektra.cpp` (the `scan_film` route in `run_scan` and the
+  print-scan route in `run_print`); `scan()` (`runtime/stages/scanning.{h,cpp}`)
+  builds a per-channel PCHIP 3D LUT over the density domain
+  (`scan_film`: `[-grain.density_min, nanmax(density_curves)]`; print scan:
+  `[nanmin, nanmax](density_curves)`) at `settings.lut_resolution` (clamped to
+  `[2, 192]`; engine default `17`) and interpolates `density_cmy -> log_xyz`
+  instead of the per-pixel spectral integral. When `use_scanner_lut == 0` the LUT
+  is NEVER constructed and the output is BYTE-IDENTICAL to the pre-wiring direct
+  path (verified by `cmp` of `spk_simulate` final_rgb, HEAD vs wired, for both the
+  scan and print routes). The end-to-end LUT-on path is gated by
+  `tests/test_scanner_lut_e2e.cpp` (see `scanner_lut_e2e` below). The ENLARGER LUT
+  (`use_enlarger_lut`) is left RESERVED/unwired this pass (see note).
+
+- **`scanner_lut_e2e`** — the FULL-PIPELINE gate for the WIRED opt-in scanner LUT
+  (`tests/test_scanner_lut_e2e.cpp`, asset-backed, reuses the `scan_portra`
+  fixture + golden). Runs the whole `scan_film` pipeline through `spk_simulate`
+  twice: (A) `use_scanner_lut=0` (default direct path) — asserted bit-exact vs the
+  `scan_portra` golden band (max_abs <= 1e-4), and (B) `use_scanner_lut=1` at
+  `lut_resolution` 17 and 64 — asserted within the acceleration band of (A)
+  (max_abs ~4.1e-5 at res 17, ~5.0e-7 at res 64; NOT bit-exact by design).
 
 ## Tolerances
 
@@ -129,6 +150,7 @@ full-source set, `DEF`, and `$G` (goldens root) the existing lines use:
 ```sh
 build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
 build_run test_lut_accel "$G"
+build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
 ```
 
 The existing `build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp"

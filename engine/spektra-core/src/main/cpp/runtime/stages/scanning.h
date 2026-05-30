@@ -74,6 +74,33 @@ struct ScanningParams {
     float glare_roughness = 0.7f;
     float glare_blur = 0.5f;
     uint64_t glare_seed = 0;
+
+    // OPT-IN scanner 3D-LUT acceleration (settings.use_scanner_lut +
+    // settings.lut_resolution). Mirrors scanning.py::_density_to_rgb, which routes
+    // the per-pixel cmy_to_log_xyz spectral integral through
+    // SpectralLUTService.spectral_compute_scanner(..., use_lut=use_scanner_lut):
+    // when use_lut, a per-channel uniform 3D LUT is built over the density domain
+    // [data_min, data_max] at `lut_resolution` steps and the image is interpolated
+    // with the PCHIP path (kernels/lut3d) instead of evaluating the spectral
+    // integral per pixel.
+    //
+    // The LUT covers EXACTLY the density_cmy -> log_xyz step (steps 1-4 of scan());
+    // the post-LUT 10^log_xyz, optional glare, XYZ->RGB, blur/unsharp and CCTF are
+    // identical to the direct path. Interpolation is NOT bit-exact vs the direct
+    // spectral evaluation (it trades a documented ~5e-5 tolerance for speed), so it
+    // is OPT-IN: use_lut defaults to false and the default engine path never
+    // constructs the LUT and stays byte-identical to today.
+    //
+    // Domain bounds (scanning.py::_density_to_rgb):
+    //   scan_film : data_min = -film_render.grain.density_min,
+    //               data_max =  np.nanmax(film.data.density_curves, axis=0)
+    //   print scan: data_min =  np.nanmin(print.data.density_curves, axis=0),
+    //               data_max =  np.nanmax(print.data.density_curves, axis=0)
+    // The scan_film grain.density_min defaults (0.07, 0.08, 0.12) are carried here
+    // so scan() can form xmin = -density_min without pulling the full grain params.
+    bool use_lut = false;
+    int lut_resolution = 32;
+    double grain_density_min[3] = {0.07, 0.08, 0.12};
 };
 
 // scan(): run the scanning stage on an (h x w x 3) row-major density_cmy image.
