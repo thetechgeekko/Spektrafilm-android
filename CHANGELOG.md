@@ -1,6 +1,41 @@
 # Changelog
 
-## v0.3.0 — in development 🎛️
+## v0.4.0 — usability, performance & undo/redo ✨
+
+Builds directly on the v0.3.0 engine/export foundation with an editor-usability overhaul, a
+performance pass that keeps slider edits instant, in-session undo/redo, and the **Spektrafilm**
+rebrand (display name only — package `com.spectrafilm.app` and the engine are unchanged).
+
+### Rebrand
+- **App display name is now "Spektrafilm"** across the UI, docs, Gradle, CI, and source headers.
+  The application ID (`com.spectrafilm.app`), repository, and bit-exact engine are unchanged, so
+  the rebrand carries no signing or compatibility impact.
+
+### Editor usability
+- **Open-photo button fixed** — the picker reliably opens from the editor.
+- **Interactive crop overlay** — drag-to-adjust crop handles drawn over the live preview
+  (replaces the previous numeric-only crop).
+- **Histogram over preview** — the histogram now overlays the preview canvas for at-a-glance
+  exposure/tonal reading while editing.
+- **Reordered category bar** + **tooltips** on the category icons for discoverability.
+- **Camera & scanner lens-blur controls un-gated** — both are now adjustable from the UI.
+- **In-app "How to use" guide** (`HowToUseScreen`) surfaced from both About and the Welcome
+  screen.
+
+### Performance
+- **Decoded-source proxy cache** (`DecodedSourceCache`) — the decoded RAW/photo proxy is cached
+  so look-parameter edits (sliders, presets) re-render without re-decoding the source, keeping
+  interaction responsive. Cache invalidates correctly on source change, white-balance, and
+  rotation.
+- **Opt-in half-size RAW decode** (`lib:libraw`) — a `halfSize` proxy-decode option that caps
+  peak memory on large RAW/DNG. Default remains full-resolution; export is unaffected.
+
+### Editing
+- **In-session undo/redo with edit history** (`EditHistory.kt`) — top-bar Undo/Redo step through
+  your edits, reusing the existing `Presets` JSON snapshots (rotation-aware). Edits are debounced
+  so one drag is one undo step; the history clears on source change.
+
+## v0.3.0 — Lightroom-style redesign, new engine stages, export upgrade 🎛️
 
 Lightroom-style UI redesign, new engine stages, and a major export/import upgrade.
 
