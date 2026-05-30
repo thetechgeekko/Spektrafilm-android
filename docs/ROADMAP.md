@@ -28,8 +28,10 @@ Milestones are vertical slices. Each ends with something demonstrable and a pari
 > recipe/sidecar layer, engine/render status pill, full source EXIF copy on export, Google Ultra
 > HDR export, Expert RAW DEFLATE fix, and a **major Lightroom-style UI redesign** (edge-to-edge,
 > pinned preview + 90° rotate, horizontal scrollable category bar, inline panel, back navigation).
-> Remaining gated engine stages for issue #6: **lens blur** and **LUT acceleration**. Glare-on-
-> print is a known gap currently being addressed.
+> Issue #6 is essentially resolved: lens blur (camera+scanner) and scanner LUT acceleration are
+> now wired too (the latter opt-in/default-off, default path byte-identical). Minor remainders:
+> `use_enlarger_lut` is reserved/unwired, and glare-on-print is wired but default-off (stochastic,
+> so not bit-exact). No UI-exposed param is falsely gated anymore.
 
 ## M0 — Foundation  ✅ (this commit)
 Architecture decided, both repos mapped, port plan written, RAW/licensing strategy fixed,
@@ -93,9 +95,9 @@ scanning. Ship 28 profiles + LUT assets.
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
-- **Landed (2026-05-29, M-geometry / issue #6 partial):** crop/resize geometry stage ported
-  (bit-exact). Remaining gated stages for #6: lens blur and LUT acceleration — see progress
-  note below.
+- **Landed (issue #6 — essentially resolved):** crop/resize, auto-exposure, diffusion, lens blur
+  (camera+scanner), and scanner LUT acceleration (opt-in) all ported & parity-gated. Minor
+  remainders: `use_enlarger_lut` reserved, glare-on-print default-off (stochastic).
 
 > **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
 > print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
@@ -123,9 +125,10 @@ Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filt
 > a strict no-op; parity on all existing goldens is byte-identical. A new `scan_portra_crop`
 > golden gates the non-default path (max_abs ≈ 2e-7).
 >
-> **Remaining gated stages for #6** (params still shown as "not yet active" in UI):
-> **lens blur** and **LUT acceleration**. Glare-on-print is a known gap (currently being
-> addressed in a separate work stream).
+> **#6 is essentially resolved** — lens blur (camera+scanner) and scanner LUT acceleration
+> are now wired and parity-gated (LUT opt-in/default-off, default path byte-identical). The
+> crop/diffusion UI "not yet active" badges were removed. Minor remainders: `use_enlarger_lut`
+> reserved/unwired; glare-on-print wired but default-off (stochastic, not bit-exact).
 > Downscale (`upscale_factor < 1`) anti-aliasing prefilter is a documented follow-up.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
@@ -163,10 +166,10 @@ The "do this when literally everything else is done" list:
 - **GitHub repo "About"** — repository description, topics, and homepage must be set manually
   at https://github.com/thetechgeekko/Spectrafilmandroid/ by the maintainer (the env cannot
   push via the API). Ready-to-paste text is in `docs/RELEASE_CHECKLIST.md`.
-- **Remaining (M7/polish):** port the remaining gated engine stages so those params go live
-  (**lens blur** and **LUT acceleration** — diffusion filters and auto-exposure are now done;
-  see issue #6); signed release key (currently debug-signed fallback; see
-  `docs/RELEASE_CHECKLIST.md`).
+- **Remaining (M7/polish):** the gated engine stages are now live (crop, auto-exposure,
+  diffusion, lens blur, scanner LUT accel); only `use_enlarger_lut` (reserved) and bit-exact
+  glare-on-print (stochastic) remain, both minor/by-design. The real release blocker is the
+  **signed release key** (currently debug-signed fallback; see `docs/RELEASE_CHECKLIST.md`).
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
