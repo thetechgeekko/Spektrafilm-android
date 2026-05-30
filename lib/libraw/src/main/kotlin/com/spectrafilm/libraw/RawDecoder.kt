@@ -127,6 +127,62 @@ object RawDecoder {
         return LinearResult(data, width, height, colorSpace)
     }
 
+    /**
+     * ## Mobile / Pixel / Samsung compressed DNG coverage
+     *
+     * Most mobile DNGs (Google Pixel computational RAW, plain camera DNGs) use
+     * one of three raw-plane compressions, ALL decoded natively here:
+     *
+     *  * **Uncompressed** (Compression 1) — decoded natively.
+     *  * **Lossless-JPEG / LJ92** (Compression 7) — the common Pixel encoding;
+     *    decoded natively by LibRaw's own internal lossless-JPEG code (no
+     *    libjpeg needed).
+     *  * **DEFLATE/ZIP** (Compression 8) — decoded natively (this module is
+     *    built with zlib; the NDK ships libz).
+     *
+     * Variants that still need a platform fallback (no libjpeg/libjxl vendored):
+     *
+     *  * **Lossy-baseline-JPEG DNG** (DNG 1.4 lossy, Compression 0x884C; or
+     *    old-style JPEG, Compression 6) — common in Samsung Expert RAW. LibRaw
+     *    `unpack()` fails; the native layer throws [RawDecodeException] with
+     *    status [DecodeStatus.LOSSY_JPEG_DNG].
+     *  * **JPEG-XL DNG** (DNG 1.7, recent Galaxy S24+ Expert RAW) — needs libjxl
+     *    / Adobe DNG SDK 1.7; surfaces as [DecodeStatus.JPEGXL_DNG] (or, if the
+     *    container can't be opened at all, [DecodeStatus.FILE_UNSUPPORTED]).
+     *
+     * ### Recommended app-side fallback (implemented in the app module, NOT here)
+     *
+     * On [DecodeStatus.LOSSY_JPEG_DNG] / [DecodeStatus.JPEGXL_DNG] (and,
+     * defensively, on [DecodeStatus.FILE_UNSUPPORTED] for a `.dng`), fall back to
+     * Android's platform DNG decoder, backed by the system codecs, which decodes
+     * lossy / JPEG-XL DNG. Use [android.graphics.ImageDecoder] (API 28+):
+     *
+     * ```kotlin
+     * // App-side (feature module), NOT in lib:libraw:
+     * try {
+     *     val r = RawDecoder.decodeToLinear(fd)   // engine path
+     *     // ... hand r to SpektraEngine ...
+     * } catch (e: RawDecodeException) {
+     *     when (e.status) {
+     *         DecodeStatus.LOSSY_JPEG_DNG,
+     *         DecodeStatus.JPEGXL_DNG,
+     *         DecodeStatus.FILE_UNSUPPORTED -> {
+     *             val src = ImageDecoder.createSource(resolver, uri) // API 28+
+     *             val bmp = ImageDecoder.decodeBitmap(src)
+     *             // NOTE: bmp is display-referred sRGB, not linear ACES, so this
+     *             // bypasses the spectral pipeline (preview / import only).
+     *         }
+     *         else -> throw e
+     *     }
+     * }
+     * ```
+     *
+     * Full lossy-JPEG-DNG support on the engine (linear) path requires linking
+     * libjpeg into this module (see `SFRAW_LIBRAW_JPEG_TARGET` in
+     * `src/main/cpp/CMakeLists.txt`); JPEG-XL additionally requires the Adobe
+     * DNG SDK 1.7.
+     */
+
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
@@ -143,4 +199,72 @@ object RawDecoder {
     init {
         System.loadLibrary("sfraw")
     }
+}
+
+/**
+ * Stable decode status codes mirrored from the native layer
+ * (`raw_decoder.h` `enum DecodeStatus`). Keep the [code] values in sync.
+ *
+ * Decodes NATIVELY (no exception — [RawDecoder] returns a result):
+ *  - Uncompressed DNG (Compression 1) — plain mobile / Pixel DNGs.
+ *  - Lossless-JPEG / LJ92 DNG (Compression 7) — common Google Pixel and other
+ *    computational-RAW DNGs; LibRaw decodes these with its own internal
+ *    lossless-JPEG code (no libjpeg required).
+ *  - DEFLATE / ZIP DNG (Compression 8) — via zlib.
+ *  - Mainstream camera RAW (CR2/CR3/NEF/ARW/RAF/ORF/RW2/...).
+ */
+enum class DecodeStatus(val code: Int) {
+    OK(0),
+    UNKNOWN(1),
+    INPUT(2),
+    OPEN(3),
+    FILE_UNSUPPORTED(4),
+    UNPACK(5),
+    PROCESS(6),
+    NO_MEMORY(7),
+    FORMAT(8),
+
+    /** DEFLATE-compressed DNG but the build lacks zlib (should not happen). */
+    DEFLATE_DNG(10),
+
+    /**
+     * Lossy-baseline-JPEG compressed DNG (DNG 1.4 lossy, Compression 0x884C, or
+     * old-style JPEG, Compression 6). The build has no libjpeg, so fall back to
+     * the platform `ImageDecoder`. See [RawDecoder].
+     */
+    LOSSY_JPEG_DNG(11),
+
+    /**
+     * JPEG-XL compressed DNG (DNG 1.7+, Compression 0xCD42). The build has no
+     * libjxl / DNG SDK; fall back to the platform `ImageDecoder` (Android 14+
+     * decodes JXL). See [RawDecoder].
+     */
+    JPEGXL_DNG(12),
+    ;
+
+    companion object {
+        fun fromCode(code: Int): DecodeStatus =
+            entries.firstOrNull { it.code == code } ?: UNKNOWN
+    }
+}
+
+/**
+ * Thrown by the native decoder on failure. The [status] lets callers branch on
+ * the failure kind (e.g. compressed Expert RAW DNG -> platform ImageDecoder
+ * fallback); [librawCode] is the underlying LibRaw `LIBRAW_*` code (0 if N/A).
+ *
+ * Constructed from native code via `(String, int, int)`; the JNI bridge throws
+ * it on every decode failure (see raw_decoder_jni.cpp).
+ */
+@Suppress("unused")
+class RawDecodeException(
+    message: String,
+    val statusCode: Int,
+    val librawCode: Int,
+) : RuntimeException(message) {
+
+    /** Typed status for `when` branching (e.g. ImageDecoder fallback). */
+    val status: DecodeStatus get() = DecodeStatus.fromCode(statusCode)
+
+    constructor(message: String) : this(message, DecodeStatus.UNKNOWN.code, 0)
 }

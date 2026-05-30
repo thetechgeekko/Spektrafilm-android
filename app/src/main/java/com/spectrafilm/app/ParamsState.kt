@@ -1,0 +1,433 @@
+/*
+ * SpectraFilm for Android — editable parameter state. GPLv3.
+ * Film modeling powered by spektrafilm.
+ *
+ * A flat, Compose-observable mirror of the full SpektraParams tree. Edits update
+ * the individual mutableState fields; toParams() rebuilds an immutable SpektraParams
+ * and fromParams() loads one back. The grouping/field set tracks the spektrafilm GUI
+ * (widget_sections.py / state.py).
+ *
+ * Unit note: the GUI (and these sliders) express halation.scatter_tail_weight and
+ * halation.halation_strength in 0-100 percent, while the engine stores fractions
+ * (params_mapper.py divides by 100). Those fields are kept in PERCENT here and
+ * converted in toParams()/fromParams().
+ */
+package com.spectrafilm.app
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.spectrafilm.engine.CameraParams
+import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.DiffusionFilterParams
+import com.spectrafilm.engine.DirCouplersParams
+import com.spectrafilm.engine.EnlargerParams
+import com.spectrafilm.engine.FilmRenderingParams
+import com.spectrafilm.engine.GlareParams
+import com.spectrafilm.engine.GrainParams
+import com.spectrafilm.engine.HalationParams
+import com.spectrafilm.engine.IoParams
+import com.spectrafilm.engine.PrintRenderingParams
+import com.spectrafilm.engine.Rgb2Raw
+import com.spectrafilm.engine.ScannerParams
+import com.spectrafilm.engine.SettingsParams
+import com.spectrafilm.engine.SpektraParams
+import com.spectrafilm.libraw.WhiteBalance
+
+/** Input color-space option labels matching spektrafilm's RGBColorSpaces enum values. */
+val INPUT_COLOR_SPACES = listOf(
+    "sRGB", "DCI-P3", "Display P3", "Adobe RGB (1998)",
+    "ITU-R BT.2020", "ProPhoto RGB", "ACES2065-1",
+)
+
+/** Diffusion-filter PSF families (DiffusionFilterFamilies). */
+val DIFFUSION_FAMILIES = listOf("glimmerglass", "black_pro_mist", "pro_mist", "cinebloom")
+
+/** Auto-exposure metering methods (AutoExposureMethods). */
+val AUTO_EXPOSURE_METHODS = listOf(
+    "center_weighted", "matrix", "multi_zone", "partial",
+    "highlight_weighted", "median", "average",
+)
+
+/** Print illuminants (Illuminants); single bundled option upstream. */
+val PRINT_ILLUMINANTS = listOf("TH-KG3")
+
+/**
+ * Flat Compose-state mirror of SpektraParams. Construct from a SpektraParams via
+ * [loadFrom]; read back with [toParams].
+ */
+class ParamsState {
+    // --- profiles (Simulation) ---
+    var filmProfile by mutableStateOf("kodak_portra_400")
+    var printProfile by mutableStateOf("kodak_portra_endura")
+
+    // --- Input ---
+    var inputColorSpace by mutableStateOf("ProPhoto RGB")
+    var inputCctfDecoding by mutableStateOf(false)
+    var spectralUpsampling by mutableStateOf(Rgb2Raw.HANATOS2025)
+    var adaptationWindow by mutableStateOf(true)
+    var adaptationSurface by mutableStateOf(false)
+    var spectralGaussianBlur by mutableFloatStateOf(0f)
+    var filterUv by mutableStateOf(Triple(0f, 410f, 8f))
+    var filterIr by mutableStateOf(Triple(0f, 675f, 15f))
+    var upscaleFactor by mutableFloatStateOf(1f)
+    var crop by mutableStateOf(false)
+    var cropCenter by mutableStateOf(0.5f to 0.5f)
+    var cropSize by mutableStateOf(0.1f to 0.1f)
+
+    // --- Import Raw ---
+    var rawWhiteBalance by mutableStateOf(WhiteBalance.AS_SHOT)
+    var rawTemperature by mutableFloatStateOf(5500f)
+    var rawTint by mutableFloatStateOf(1f)
+
+    // --- Simulation / camera ---
+    var exposureCompensationEv by mutableFloatStateOf(0f)
+    var autoExposure by mutableStateOf(false)
+    var autoExposureMethod by mutableStateOf("center_weighted")
+    var filmFormatMm by mutableFloatStateOf(35f)
+    var cameraLensBlurUm by mutableFloatStateOf(0f)
+    val cameraDiffusionState = DiffusionState()
+
+    // --- Simulation / enlarger (print) ---
+    var printIlluminant by mutableStateOf("TH-KG3")
+    var printExposure by mutableFloatStateOf(1f)
+    var printExposureCompensation by mutableStateOf(true)
+    var printYFilterShift by mutableFloatStateOf(0f)
+    var printMFilterShift by mutableFloatStateOf(0f)
+    var enlargerLensBlur by mutableFloatStateOf(0f)
+    val printDiffusionState = DiffusionState()
+
+    // --- Preflash ---
+    var preflashExposure by mutableFloatStateOf(0f)
+    var preflashYFilterShift by mutableFloatStateOf(0f)
+    var preflashMFilterShift by mutableFloatStateOf(0f)
+
+    // --- Scanner ---
+    var scanLensBlur by mutableFloatStateOf(0f)
+    var scanWhiteCorrection by mutableStateOf(false)
+    var scanWhiteLevel by mutableFloatStateOf(0.98f)
+    var scanBlackCorrection by mutableStateOf(false)
+    var scanBlackLevel by mutableFloatStateOf(0.01f)
+    var scanUnsharpMask by mutableStateOf(0.7f to 0.7f)
+
+    // --- Output / saving ---
+    var outputColorSpace by mutableStateOf(ColorSpace.SRGB)
+    var savingCctfEncoding by mutableStateOf(true)
+    var scanFilm by mutableStateOf(false)
+
+    // --- Grain ---
+    var grainActive by mutableStateOf(true)
+    var grainSublayersActive by mutableStateOf(true)
+    var grainParticleAreaUm2 by mutableFloatStateOf(0.2f)
+    var grainParticleScale by mutableStateOf(Triple(0.8f, 1f, 2f))
+    var grainParticleScaleLayers by mutableStateOf(Triple(2.5f, 1f, 0.5f))
+    var grainDensityMin by mutableStateOf(Triple(0.07f, 0.08f, 0.12f))
+    var grainUniformity by mutableStateOf(Triple(0.97f, 0.97f, 0.99f))
+    var grainBlur by mutableFloatStateOf(0.65f)
+    var grainBlurDyeCloudsUm by mutableFloatStateOf(1f)
+    var grainMicroStructure by mutableStateOf(0.2f to 30f)
+    var grainNSubLayers by mutableIntStateOf(1)
+
+    // --- Halation (strengths/tail-weight in PERCENT 0-100) ---
+    var halationActive by mutableStateOf(true)
+    var halScatterAmount by mutableFloatStateOf(1f)
+    var halScatterSpatialScale by mutableFloatStateOf(1f)
+    var halHalationAmount by mutableFloatStateOf(1f)
+    var halHalationSpatialScale by mutableFloatStateOf(1f)
+    var halBoostEv by mutableFloatStateOf(0f)
+    var halProtectEv by mutableFloatStateOf(4f)
+    var halBoostRange by mutableFloatStateOf(0.3f)
+    var halScatterCoreUm by mutableStateOf(Triple(2.2f, 2f, 1.6f))
+    var halScatterTailUm by mutableStateOf(Triple(9.3f, 9.7f, 9.1f))
+    var halScatterTailWeightPct by mutableStateOf(Triple(78f, 65f, 67f))
+    var halHalationStrengthPct by mutableStateOf(Triple(5f, 1.5f, 0f))
+    var halFirstSigmaUm by mutableStateOf(Triple(65f, 65f, 65f))
+    var halNBounces by mutableIntStateOf(3)
+    var halBounceDecay by mutableFloatStateOf(0.5f)
+    var halRenormalize by mutableStateOf(true)
+
+    // --- Couplers (DIR) ---
+    var couplersActive by mutableStateOf(true)
+    var couplersAmount by mutableFloatStateOf(1f)
+    var couplersInhibitionSamelayer by mutableFloatStateOf(1f)
+    var couplersInhibitionInterlayer by mutableFloatStateOf(1f)
+    var couplersGammaSamelayer by mutableStateOf(Triple(0.341f, 0.324f, 0.273f))
+    var couplersGammaRtoGb by mutableStateOf(0.355f to 0.305f)
+    var couplersGammaGtoRb by mutableStateOf(0.154f to 0.358f)
+    var couplersGammaBtoRg by mutableStateOf(0.171f to 0.225f)
+    var couplersDiffusionSizeUm by mutableFloatStateOf(20f)
+    var couplersDiffusionTailUm by mutableFloatStateOf(200f)
+    var couplersDiffusionTailWeight by mutableFloatStateOf(0.06f)
+
+    // --- Glare (print) ---
+    var glareActive by mutableStateOf(true)
+    var glarePercent by mutableFloatStateOf(0.03f)
+    var glareRoughness by mutableFloatStateOf(0.7f)
+    var glareBlur by mutableFloatStateOf(0.5f)
+
+    // --- Experimental ---
+    var filmGammaFactor by mutableFloatStateOf(1f)
+    var printGammaFactor by mutableFloatStateOf(1f)
+
+    // --- Display / settings ---
+    var previewMaxSize by mutableIntStateOf(640)
+
+    /** Reset to the engine defaults for the given profile pair. */
+    fun loadFrom(p: SpektraParams) {
+        filmProfile = p.filmProfile
+        printProfile = p.printProfile
+
+        inputColorSpace = p.io.inputColorSpace
+        inputCctfDecoding = p.io.inputCctfDecoding
+        spectralUpsampling = p.settings.rgbToRawMethod
+        adaptationWindow = p.settings.applyHanatos2025AdaptationWindow
+        adaptationSurface = p.settings.applyHanatos2025AdaptationSurface
+        spectralGaussianBlur = p.settings.spectralGaussianBlur
+        filterUv = p.camera.filterUv
+        filterIr = p.camera.filterIr
+        upscaleFactor = p.io.upscaleFactor
+        crop = p.io.crop
+        cropCenter = p.io.cropCenter
+        cropSize = p.io.cropSize
+
+        exposureCompensationEv = p.camera.exposureCompensationEv
+        autoExposure = p.camera.autoExposure
+        autoExposureMethod = p.camera.autoExposureMethod
+        filmFormatMm = p.camera.filmFormatMm
+        cameraLensBlurUm = p.camera.lensBlurUm
+        cameraDiffusionState.loadFrom(p.camera.diffusionFilter)
+
+        printIlluminant = p.enlarger.illuminant
+        printExposure = p.enlarger.printExposure
+        printExposureCompensation = p.enlarger.printExposureCompensation
+        printYFilterShift = p.enlarger.yFilterShift
+        printMFilterShift = p.enlarger.mFilterShift
+        enlargerLensBlur = p.enlarger.lensBlur
+        printDiffusionState.loadFrom(p.enlarger.diffusionFilter)
+
+        preflashExposure = p.enlarger.preflashExposure
+        preflashYFilterShift = p.enlarger.preflashYFilterShift
+        preflashMFilterShift = p.enlarger.preflashMFilterShift
+
+        scanLensBlur = p.scanner.lensBlur
+        scanWhiteCorrection = p.scanner.whiteCorrection
+        scanWhiteLevel = p.scanner.whiteLevel
+        scanBlackCorrection = p.scanner.blackCorrection
+        scanBlackLevel = p.scanner.blackLevel
+        scanUnsharpMask = p.scanner.unsharpMask
+
+        outputColorSpace = p.io.outputColorSpace
+        savingCctfEncoding = p.io.outputCctfEncoding
+        scanFilm = p.io.scanFilm
+
+        val g = p.filmRender.grain
+        grainActive = g.active
+        grainSublayersActive = g.sublayersActive
+        grainParticleAreaUm2 = g.agxParticleAreaUm2
+        grainParticleScale = g.agxParticleScale
+        grainParticleScaleLayers = g.agxParticleScaleLayers
+        grainDensityMin = g.densityMin
+        grainUniformity = g.uniformity
+        grainBlur = g.blur
+        grainBlurDyeCloudsUm = g.blurDyeCloudsUm
+        grainMicroStructure = g.microStructure
+        grainNSubLayers = g.nSubLayers
+
+        val h = p.filmRender.halation
+        halationActive = h.active
+        halScatterAmount = h.scatterAmount
+        halScatterSpatialScale = h.scatterSpatialScale
+        halHalationAmount = h.halationAmount
+        halHalationSpatialScale = h.halationSpatialScale
+        halBoostEv = h.boostEv
+        halProtectEv = h.protectEv
+        halBoostRange = h.boostRange
+        halScatterCoreUm = h.scatterCoreUm
+        halScatterTailUm = h.scatterTailUm
+        halScatterTailWeightPct = h.scatterTailWeight.times100()
+        halHalationStrengthPct = h.halationStrength.times100()
+        halFirstSigmaUm = h.halationFirstSigmaUm
+        halNBounces = h.halationNBounces
+        halBounceDecay = h.halationBounceDecay
+        halRenormalize = h.halationRenormalize
+
+        val c = p.filmRender.dirCouplers
+        couplersActive = c.active
+        couplersAmount = c.amount
+        couplersInhibitionSamelayer = c.inhibitionSamelayer
+        couplersInhibitionInterlayer = c.inhibitionInterlayer
+        couplersGammaSamelayer = c.gammaSamelayerRgb
+        couplersGammaRtoGb = c.gammaInterlayerRToGb
+        couplersGammaGtoRb = c.gammaInterlayerGToRb
+        couplersGammaBtoRg = c.gammaInterlayerBToRg
+        couplersDiffusionSizeUm = c.diffusionSizeUm
+        couplersDiffusionTailUm = c.diffusionTailUm
+        couplersDiffusionTailWeight = c.diffusionTailWeight
+
+        val gl = p.printRender.glare
+        glareActive = gl.active
+        glarePercent = gl.percent
+        glareRoughness = gl.roughness
+        glareBlur = gl.blur
+
+        filmGammaFactor = p.filmRender.densityCurveGamma
+        printGammaFactor = p.printRender.densityCurveGamma
+
+        previewMaxSize = p.settings.previewMaxSize
+    }
+
+    /** Build an immutable SpektraParams from current state. */
+    fun toParams(): SpektraParams = SpektraParams(
+        filmProfile = filmProfile,
+        printProfile = printProfile,
+        camera = CameraParams(
+            exposureCompensationEv = exposureCompensationEv,
+            autoExposure = autoExposure,
+            autoExposureMethod = autoExposureMethod,
+            lensBlurUm = cameraLensBlurUm,
+            filmFormatMm = filmFormatMm,
+            filterUv = filterUv,
+            filterIr = filterIr,
+            diffusionFilter = cameraDiffusionState.toParams(),
+        ),
+        enlarger = EnlargerParams(
+            illuminant = printIlluminant,
+            printExposure = printExposure,
+            printExposureCompensation = printExposureCompensation,
+            yFilterShift = printYFilterShift,
+            mFilterShift = printMFilterShift,
+            lensBlur = enlargerLensBlur,
+            diffusionFilter = printDiffusionState.toParams(),
+            preflashExposure = preflashExposure,
+            preflashYFilterShift = preflashYFilterShift,
+            preflashMFilterShift = preflashMFilterShift,
+        ),
+        scanner = ScannerParams(
+            lensBlur = scanLensBlur,
+            whiteCorrection = scanWhiteCorrection,
+            blackCorrection = scanBlackCorrection,
+            whiteLevel = scanWhiteLevel,
+            blackLevel = scanBlackLevel,
+            unsharpMask = scanUnsharpMask,
+        ),
+        io = IoParams(
+            inputColorSpace = inputColorSpace,
+            inputCctfDecoding = inputCctfDecoding,
+            outputColorSpace = outputColorSpace,
+            outputCctfEncoding = savingCctfEncoding,
+            crop = crop,
+            cropCenter = cropCenter,
+            cropSize = cropSize,
+            upscaleFactor = upscaleFactor,
+            scanFilm = scanFilm,
+        ),
+        settings = SettingsParams(
+            rgbToRawMethod = spectralUpsampling,
+            applyHanatos2025AdaptationWindow = adaptationWindow,
+            applyHanatos2025AdaptationSurface = adaptationSurface,
+            spectralGaussianBlur = spectralGaussianBlur,
+            previewMaxSize = previewMaxSize,
+        ),
+        filmRender = FilmRenderingParams(
+            densityCurveGamma = filmGammaFactor,
+            grain = GrainParams(
+                active = grainActive,
+                sublayersActive = grainSublayersActive,
+                agxParticleAreaUm2 = grainParticleAreaUm2,
+                agxParticleScale = grainParticleScale,
+                agxParticleScaleLayers = grainParticleScaleLayers,
+                densityMin = grainDensityMin,
+                uniformity = grainUniformity,
+                blur = grainBlur,
+                blurDyeCloudsUm = grainBlurDyeCloudsUm,
+                microStructure = grainMicroStructure,
+                nSubLayers = grainNSubLayers,
+            ),
+            halation = HalationParams(
+                active = halationActive,
+                scatterAmount = halScatterAmount,
+                scatterSpatialScale = halScatterSpatialScale,
+                halationAmount = halHalationAmount,
+                halationSpatialScale = halHalationSpatialScale,
+                scatterCoreUm = halScatterCoreUm,
+                scatterTailUm = halScatterTailUm,
+                scatterTailWeight = halScatterTailWeightPct.div100(),
+                boostEv = halBoostEv,
+                boostRange = halBoostRange,
+                protectEv = halProtectEv,
+                halationStrength = halHalationStrengthPct.div100(),
+                halationFirstSigmaUm = halFirstSigmaUm,
+                halationNBounces = halNBounces,
+                halationBounceDecay = halBounceDecay,
+                halationRenormalize = halRenormalize,
+            ),
+            dirCouplers = DirCouplersParams(
+                active = couplersActive,
+                amount = couplersAmount,
+                inhibitionSamelayer = couplersInhibitionSamelayer,
+                inhibitionInterlayer = couplersInhibitionInterlayer,
+                gammaSamelayerRgb = couplersGammaSamelayer,
+                gammaInterlayerRToGb = couplersGammaRtoGb,
+                gammaInterlayerGToRb = couplersGammaGtoRb,
+                gammaInterlayerBToRg = couplersGammaBtoRg,
+                diffusionSizeUm = couplersDiffusionSizeUm,
+                diffusionTailUm = couplersDiffusionTailUm,
+                diffusionTailWeight = couplersDiffusionTailWeight,
+            ),
+            glare = GlareParams(
+                active = glareActive,
+                percent = glarePercent,
+                roughness = glareRoughness,
+                blur = glareBlur,
+            ),
+        ),
+        printRender = PrintRenderingParams(
+            densityCurveGamma = printGammaFactor,
+            glare = GlareParams(
+                active = glareActive,
+                percent = glarePercent,
+                roughness = glareRoughness,
+                blur = glareBlur,
+            ),
+        ),
+    )
+}
+
+/** A diffusion-filter sub-section (camera or print stage). */
+class DiffusionState {
+    var active by mutableStateOf(false)
+    var family by mutableStateOf("black_pro_mist")
+    var strength by mutableFloatStateOf(0.5f)
+    var spatialScale by mutableFloatStateOf(1f)
+    var haloWarmth by mutableFloatStateOf(0f)
+    var coreIntensity by mutableFloatStateOf(1f)
+    var coreSize by mutableFloatStateOf(1f)
+    var haloIntensity by mutableFloatStateOf(1f)
+    var haloSize by mutableFloatStateOf(1f)
+    var bloomIntensity by mutableFloatStateOf(1f)
+    var bloomSize by mutableFloatStateOf(1f)
+
+    fun loadFrom(d: DiffusionFilterParams) {
+        active = d.active; family = d.filterFamily; strength = d.strength
+        spatialScale = d.spatialScale; haloWarmth = d.haloWarmth
+        coreIntensity = d.coreIntensity; coreSize = d.coreSize
+        haloIntensity = d.haloIntensity; haloSize = d.haloSize
+        bloomIntensity = d.bloomIntensity; bloomSize = d.bloomSize
+    }
+
+    fun toParams() = DiffusionFilterParams(
+        active = active, filterFamily = family, strength = strength,
+        spatialScale = spatialScale, haloWarmth = haloWarmth,
+        coreIntensity = coreIntensity, coreSize = coreSize,
+        haloIntensity = haloIntensity, haloSize = haloSize,
+        bloomIntensity = bloomIntensity, bloomSize = bloomSize,
+    )
+}
+
+private fun Triple<Float, Float, Float>.times100() =
+    Triple(first * 100f, second * 100f, third * 100f)
+
+private fun Triple<Float, Float, Float>.div100() =
+    Triple(first / 100f, second / 100f, third / 100f)

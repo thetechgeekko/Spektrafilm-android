@@ -54,6 +54,7 @@
   },
   "toggles": {
     "auto_exposure": false,
+    "auto_exposure_method": "center_weighted",
     "deactivate_spatial_effects": true,
     "deactivate_stochastic_effects": true,
     "exposure_compensation_ev": 0.0,

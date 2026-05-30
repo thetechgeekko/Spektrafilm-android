@@ -1,0 +1,759 @@
+/*
+ * SpectraFilm for Android — image import/export helpers. GPLv3.
+ * Film modeling powered by spektrafilm.
+ *
+ * Converts a display-referred (sRGB) Bitmap into the scene-linear ProPhoto-RGB
+ * float buffer the engine expects, and writes a rendered Bitmap to the gallery.
+ * For 16-bit TIFF export the engine's float SimResult buffer is quantised directly
+ * to uint16 and written via TiffWriter (lib:tiffwriter) — no 8-bit Bitmap round-trip.
+ */
+package com.spectrafilm.app
+
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Gainmap
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface
+import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.SimResult
+import com.spectrafilm.pngwriter.PngWriter
+import com.spectrafilm.tiffwriter.ExifColorSpace
+import com.spectrafilm.tiffwriter.TiffWriter
+import java.io.File
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.max
+
+/**
+ * sRGB (D65) -> ProPhoto RGB (D50) linear 3x3 matrix, row-major.
+ *
+ * Baked constant. Derivation:
+ *   M = [ProPhoto XYZ->RGB (D50)] · [Bradford CAT D65->D50] · [sRGB RGB->XYZ (D65)]
+ * i.e. take linear sRGB primaries to CIE XYZ under D65, chromatically adapt the
+ * white point from D65 to D50 (Bradford), then convert XYZ to linear ProPhoto RGB.
+ * Values match the colour-science reference matrix for sRGB->ProPhoto (linear).
+ */
+private val SRGB_TO_PROPHOTO = floatArrayOf(
+    0.5290825f, 0.3303437f, 0.1405738f,
+    0.0982640f, 0.8734031f, 0.0283329f,
+    0.0167029f, 0.1176946f, 0.8656026f,
+)
+
+/** Cap the longest edge for full-resolution renders so on-device memory stays bounded. */
+const val MAX_EDGE_PX = 2048
+
+/** Longest-edge cap for fast interactive previews. */
+const val PREVIEW_EDGE_PX = 720
+
+/** Inverse sRGB CCTF: display sRGB (0..1) -> scene-linear (0..1). */
+private fun srgbToLinear(c: Float): Float =
+    if (c <= 0.04045f) c / 12.92f else Math.pow(((c + 0.055) / 1.055), 2.4).toFloat()
+
+/** sRGB OETF: scene-linear (0..1) -> display sRGB (0..1). */
+private fun linearToSrgb(c: Float): Float {
+    val v = c.coerceIn(0f, 1f)
+    return if (v <= 0.0031308f) v * 12.92f else (1.055f * Math.pow(v.toDouble(), 1.0 / 2.4).toFloat() - 0.055f)
+}
+
+/** ProPhoto RGB (D50) linear -> sRGB (D65) linear 3x3, row-major (inverse of [SRGB_TO_PROPHOTO]). */
+private val PROPHOTO_TO_SRGB = floatArrayOf(
+    2.0340429f, -0.7275221f, -0.3065211f,
+    -0.2289921f, 1.2317125f, -0.0027205f,
+    -0.0085287f, -0.1532223f, 1.1617509f,
+)
+
+/**
+ * Convert a scene-linear wide-gamut [LinearImage] to a display-referred sRGB Bitmap for the
+ * "before" reference in the compare viewer. ProPhoto-RGB sources are matrixed to sRGB; other
+ * spaces (e.g. ACES2065-1 RAW) are tone-mapped through the same matrix as a reasonable
+ * approximation, then sRGB-encoded. This is only a viewing reference, not a render path.
+ */
+fun linearToDisplayBitmap(img: LinearImage): Bitmap {
+    val w = img.width
+    val h = img.height
+    val f = img.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val m = PROPHOTO_TO_SRGB
+    val px = IntArray(w * h)
+    for (p in 0 until w * h) {
+        val i = p * 3
+        val pr = f.get(i); val pg = f.get(i + 1); val pb = f.get(i + 2)
+        val rl = m[0] * pr + m[1] * pg + m[2] * pb
+        val gl = m[3] * pr + m[4] * pg + m[5] * pb
+        val bl = m[6] * pr + m[7] * pg + m[8] * pb
+        val r = (linearToSrgb(rl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val g = (linearToSrgb(gl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val b = (linearToSrgb(bl) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        px[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    }
+    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+}
+
+/**
+ * Decode [uri] to a display-sRGB Bitmap, downscale so the longest edge is
+ * <= [MAX_EDGE_PX], then convert to a scene-linear ProPhoto-RGB float [LinearImage].
+ *
+ * Steps per pixel:
+ *   1. read 8-bit sRGB-encoded R,G,B (0..255 -> 0..1)
+ *   2. inverse sRGB CCTF -> scene-linear sRGB
+ *   3. apply the sRGB->ProPhoto linear 3x3 matrix -> linear ProPhoto RGB float
+ */
+fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
+    val src = decodeDownscaled(ctx, uri, maxEdge)
+    try {
+        return bitmapToLinearProPhoto(src)
+    } finally {
+        src.recycle()
+    }
+}
+
+/**
+ * Convert an already-decoded display-sRGB [src] Bitmap to a scene-linear ProPhoto-RGB
+ * float [LinearImage] (same inverse-CCTF + sRGB->ProPhoto matrix as
+ * [decodeToLinearProPhoto]). Used by both the photo-picker path and the lossy/JPEG-XL
+ * DNG ImageDecoder fallback (display-referred). Does not recycle [src].
+ */
+fun bitmapToLinearProPhoto(src: Bitmap): LinearImage {
+    val w = src.width
+    val h = src.height
+    val pixels = IntArray(w * h)
+    src.getPixels(pixels, 0, w, 0, 0, w, h)
+
+    val buf = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
+    val f = buf.asFloatBuffer()
+    val m = SRGB_TO_PROPHOTO
+    for (p in pixels.indices) {
+        val argb = pixels[p]
+        val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
+        val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
+        val bl = srgbToLinear((argb and 0xFF) / 255f)
+        val pr = m[0] * rl + m[1] * gl + m[2] * bl
+        val pg = m[3] * rl + m[4] * gl + m[5] * bl
+        val pb = m[6] * rl + m[7] * gl + m[8] * bl
+        val i = p * 3
+        f.put(i, pr); f.put(i + 1, pg); f.put(i + 2, pb)
+    }
+    return LinearImage(buf, w, h, colorSpace = "ProPhoto RGB")
+}
+
+/**
+ * Lossy / JPEG-XL DNG fallback: decode [uri] via the platform image decoder
+ * ([android.graphics.ImageDecoder] on API 28+, [BitmapFactory] on 24..27) and convert
+ * to a display-referred ProPhoto-RGB [LinearImage]. Used when LibRaw throws on a
+ * compressed Samsung/Pixel Expert-RAW DNG. The result is display-referred (NOT linear
+ * ACES scene data), so it bypasses the spectral scene-linear assumptions — preview/
+ * import quality only. Downscaled to [maxEdge]; EXIF orientation is applied by the
+ * caller (loadSource) just like any other source.
+ */
+fun decodeViaPlatform(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
+    val bmp: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val source = android.graphics.ImageDecoder.createSource(ctx.contentResolver, uri)
+        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            // Force a software ARGB_8888 bitmap (getPixels needs CPU-readable pixels) and
+            // honour maxEdge with an integer sample size.
+            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+            val longest = max(info.size.width, info.size.height).coerceAtLeast(1)
+            var sample = 1
+            while (longest / sample > maxEdge) sample *= 2
+            if (sample > 1) decoder.setTargetSampleSize(sample)
+        }
+    } else {
+        decodeDownscaled(ctx, uri, maxEdge)
+    }
+    val safe = if (bmp.config == Bitmap.Config.ARGB_8888) bmp
+    else bmp.copy(Bitmap.Config.ARGB_8888, false).also { bmp.recycle() }
+    try {
+        return bitmapToLinearProPhoto(safe)
+    } finally {
+        safe.recycle()
+    }
+}
+
+/**
+ * Read the SOURCE image's EXIF orientation tag from [uri] and map it to an
+ * [ExifOrientation] baseline (clockwise rotation + optional horizontal mirror).
+ * Returns [ExifOrientation.NONE] if the stream has no EXIF, can't be read, or is
+ * already upright. This is applied to the decoded [LinearImage] BEFORE the user's
+ * manual rotate steps so JPEG/HEIC imports (and lossy-DNG ImageDecoder fallbacks)
+ * appear upright in preview AND export.
+ */
+fun readExifOrientation(ctx: Context, uri: Uri): ExifOrientation {
+    return runCatching {
+        ctx.contentResolver.openInputStream(uri)?.use { stream ->
+            val exif = ExifInterface(stream)
+            val o = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL,
+            )
+            ExifOrientation.fromExif(o)
+        } ?: ExifOrientation.NONE
+    }.getOrDefault(ExifOrientation.NONE)
+}
+
+/** Decode [uri] with inSampleSize so the longest edge is at most [maxEdge]. */
+private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Bitmap {
+    val resolver = ctx.contentResolver
+    // First pass: read bounds only.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    val longest = max(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
+
+    var sample = 1
+    while (longest / sample > maxEdge) sample *= 2
+
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    val decoded = resolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, opts)
+    } ?: error("Could not decode image")
+
+    // inSampleSize is power-of-two; do a final exact downscale if still over the cap.
+    val long2 = max(decoded.width, decoded.height)
+    if (long2 <= maxEdge) return decoded
+    val scale = maxEdge.toFloat() / long2
+    val scaled = Bitmap.createScaledBitmap(
+        decoded, (decoded.width * scale).toInt().coerceAtLeast(1),
+        (decoded.height * scale).toInt().coerceAtLeast(1), true
+    )
+    if (scaled !== decoded) decoded.recycle()
+    return scaled
+}
+
+/** Write baked `.cube` LUT [text] to a SAF [uri] (from CreateDocument). */
+fun saveTextToUri(ctx: Context, uri: Uri, text: String) {
+    ctx.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        ?: error("Could not open output for LUT")
+}
+
+/** Filesystem-safe `<film>_<print>.cube` filename from friendly stock names. */
+fun cubeFileName(film: String, print: String): String {
+    fun clean(s: String) = s.trim().ifEmpty { "lut" }.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+    return "${clean(film)}_${clean(print)}.cube"
+}
+
+enum class ExportFormat(val display: String, val mime: String, val ext: String) {
+    PNG("PNG (8-bit)", "image/png", "png"),
+    JPEG("JPEG", "image/jpeg", "jpg"),
+    // Ultra HDR is a JPEG container with an embedded ISO 21496-1 / Google gain map +
+    // MPF index — its MIME type stays image/jpeg and the extension stays jpg.
+    ULTRA_HDR("Ultra HDR (JPEG)", "image/jpeg", "jpg"),
+    TIFF("16-bit TIFF", "image/tiff", "tif"),
+    // True 16-bit-per-channel PNG via lib:pngwriter (libsfpng.so) — the engine's float
+    // SimResult is quantised directly to uint16, no 8-bit Bitmap round-trip (unlike PNG).
+    PNG16("16-bit PNG", "image/png", "png"),
+}
+
+/**
+ * Whether [format] writes a JPEG byte-stream (plain JPEG or Ultra HDR). EXIF copy via
+ * androidx ExifInterface is only attempted for JPEG targets — PNG has no standard EXIF
+ * segment that ExifInterface writes reliably across the 1.3.7 version, and TIFF EXIF is
+ * handled by the native TiffWriter (a limited subset).
+ */
+private fun ExportFormat.isJpeg(): Boolean =
+    this == ExportFormat.JPEG || this == ExportFormat.ULTRA_HDR
+
+/**
+ * Comprehensive list of standard ExifInterface TAG_* attributes copied verbatim from the
+ * source image into the export. Deliberately includes GPS/location (the user wants a FULL
+ * copy). Tags that MUST reflect the exported (rendered) image rather than the source —
+ * orientation, software, and the width/height/pixel-dimension family — are NOT in this list;
+ * they are written explicitly as overrides in [applySourceExif] AFTER this bulk copy.
+ */
+private val EXIF_COPY_TAGS: List<String> = listOf(
+    // --- Camera / image description ---
+    ExifInterface.TAG_MAKE,
+    ExifInterface.TAG_MODEL,
+    ExifInterface.TAG_IMAGE_DESCRIPTION,
+    ExifInterface.TAG_ARTIST,
+    ExifInterface.TAG_COPYRIGHT,
+    ExifInterface.TAG_USER_COMMENT,
+    ExifInterface.TAG_X_RESOLUTION,
+    ExifInterface.TAG_Y_RESOLUTION,
+    ExifInterface.TAG_RESOLUTION_UNIT,
+    ExifInterface.TAG_BODY_SERIAL_NUMBER,
+    ExifInterface.TAG_CAMERA_OWNER_NAME,
+    // --- Lens ---
+    ExifInterface.TAG_LENS_MAKE,
+    ExifInterface.TAG_LENS_MODEL,
+    ExifInterface.TAG_LENS_SERIAL_NUMBER,
+    ExifInterface.TAG_LENS_SPECIFICATION,
+    // --- Exposure ---
+    ExifInterface.TAG_EXPOSURE_TIME,
+    ExifInterface.TAG_F_NUMBER,
+    ExifInterface.TAG_EXPOSURE_PROGRAM,
+    ExifInterface.TAG_SPECTRAL_SENSITIVITY,
+    ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+    ExifInterface.TAG_ISO_SPEED_RATINGS,
+    ExifInterface.TAG_ISO_SPEED,
+    ExifInterface.TAG_SENSITIVITY_TYPE,
+    ExifInterface.TAG_OECF,
+    ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+    ExifInterface.TAG_APERTURE_VALUE,
+    ExifInterface.TAG_BRIGHTNESS_VALUE,
+    ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+    ExifInterface.TAG_MAX_APERTURE_VALUE,
+    ExifInterface.TAG_SUBJECT_DISTANCE,
+    ExifInterface.TAG_METERING_MODE,
+    ExifInterface.TAG_LIGHT_SOURCE,
+    ExifInterface.TAG_FLASH,
+    ExifInterface.TAG_FOCAL_LENGTH,
+    ExifInterface.TAG_FLASH_ENERGY,
+    ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,
+    ExifInterface.TAG_EXPOSURE_MODE,
+    ExifInterface.TAG_EXPOSURE_INDEX,
+    ExifInterface.TAG_DIGITAL_ZOOM_RATIO,
+    ExifInterface.TAG_SCENE_CAPTURE_TYPE,
+    ExifInterface.TAG_GAIN_CONTROL,
+    ExifInterface.TAG_CONTRAST,
+    ExifInterface.TAG_SATURATION,
+    ExifInterface.TAG_SHARPNESS,
+    ExifInterface.TAG_SUBJECT_DISTANCE_RANGE,
+    ExifInterface.TAG_SENSING_METHOD,
+    ExifInterface.TAG_FILE_SOURCE,
+    ExifInterface.TAG_SCENE_TYPE,
+    ExifInterface.TAG_CUSTOM_RENDERED,
+    ExifInterface.TAG_SUBJECT_AREA,
+    ExifInterface.TAG_SUBJECT_LOCATION,
+    // --- White balance / colour ---
+    ExifInterface.TAG_WHITE_BALANCE,
+    ExifInterface.TAG_COLOR_SPACE,
+    ExifInterface.TAG_WHITE_POINT,
+    ExifInterface.TAG_PRIMARY_CHROMATICITIES,
+    ExifInterface.TAG_COMPONENTS_CONFIGURATION,
+    // --- Date / time ---
+    ExifInterface.TAG_DATETIME,
+    ExifInterface.TAG_DATETIME_ORIGINAL,
+    ExifInterface.TAG_DATETIME_DIGITIZED,
+    ExifInterface.TAG_SUBSEC_TIME,
+    ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+    ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
+    ExifInterface.TAG_OFFSET_TIME,
+    ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+    ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+    // --- EXIF / Interop versions ---
+    ExifInterface.TAG_EXIF_VERSION,
+    ExifInterface.TAG_FLASHPIX_VERSION,
+    ExifInterface.TAG_MAKER_NOTE,
+    ExifInterface.TAG_IMAGE_UNIQUE_ID,
+)
+
+/**
+ * GPS / location EXIF tags, kept SEPARATE from [EXIF_COPY_TAGS] so they can be
+ * gated behind the "preserve location on export" setting (default OFF — strip).
+ * Security review F3: a photo app must not silently bake location into shared files.
+ */
+private val EXIF_GPS_TAGS: List<String> = listOf(
+    ExifInterface.TAG_GPS_VERSION_ID,
+    ExifInterface.TAG_GPS_LATITUDE,
+    ExifInterface.TAG_GPS_LATITUDE_REF,
+    ExifInterface.TAG_GPS_LONGITUDE,
+    ExifInterface.TAG_GPS_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_ALTITUDE,
+    ExifInterface.TAG_GPS_ALTITUDE_REF,
+    ExifInterface.TAG_GPS_TIMESTAMP,
+    ExifInterface.TAG_GPS_DATESTAMP,
+    ExifInterface.TAG_GPS_SATELLITES,
+    ExifInterface.TAG_GPS_STATUS,
+    ExifInterface.TAG_GPS_MEASURE_MODE,
+    ExifInterface.TAG_GPS_DOP,
+    ExifInterface.TAG_GPS_SPEED_REF,
+    ExifInterface.TAG_GPS_SPEED,
+    ExifInterface.TAG_GPS_TRACK_REF,
+    ExifInterface.TAG_GPS_TRACK,
+    ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+    ExifInterface.TAG_GPS_IMG_DIRECTION,
+    ExifInterface.TAG_GPS_MAP_DATUM,
+    ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LATITUDE,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_DEST_LONGITUDE,
+    ExifInterface.TAG_GPS_DEST_BEARING_REF,
+    ExifInterface.TAG_GPS_DEST_BEARING,
+    ExifInterface.TAG_GPS_DEST_DISTANCE_REF,
+    ExifInterface.TAG_GPS_DEST_DISTANCE,
+    ExifInterface.TAG_GPS_PROCESSING_METHOD,
+    ExifInterface.TAG_GPS_AREA_INFORMATION,
+    ExifInterface.TAG_GPS_DIFFERENTIAL,
+    ExifInterface.TAG_GPS_H_POSITIONING_ERROR,
+)
+
+/**
+ * A snapshot of the source image's standard EXIF tags, captured from the source URI before
+ * export so it can be re-applied to the exported JPEG. [tags] maps tag name -> attribute
+ * string for every non-null tag in [EXIF_COPY_TAGS]. Empty when the source has no readable
+ * EXIF (e.g. the synthetic demo image, or a source whose EXIF cannot be parsed).
+ */
+class SourceExif(val tags: Map<String, String>) {
+    val isEmpty: Boolean get() = tags.isEmpty()
+}
+
+/**
+ * Read all standard [EXIF_COPY_TAGS] from [sourceUri] (via the content resolver). Returns an
+ * empty [SourceExif] if the URI is null, has no EXIF, or cannot be parsed — never throws.
+ */
+fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): SourceExif {
+    if (sourceUri == null) return SourceExif(emptyMap())
+    return runCatching {
+        ctx.contentResolver.openInputStream(sourceUri)?.use { input ->
+            val exif = ExifInterface(input)
+            val map = HashMap<String, String>()
+            // GPS/location is only captured when the user has opted in (default OFF);
+            // never reading it keeps location out of the export entirely. (F3.)
+            val tags = if (keepGps) EXIF_COPY_TAGS + EXIF_GPS_TAGS else EXIF_COPY_TAGS
+            for (tag in tags) {
+                exif.getAttribute(tag)?.let { map[tag] = it }
+            }
+            SourceExif(map)
+        } ?: SourceExif(emptyMap())
+    }.getOrDefault(SourceExif(emptyMap()))
+}
+
+/**
+ * Apply the captured [source] EXIF to the [dest] ExifInterface (opened on the exported JPEG),
+ * then write the SpectraFilm overrides and call saveAttributes(). Overrides written AFTER the
+ * bulk copy so they win:
+ *   - TAG_ORIENTATION = ORIENTATION_NORMAL (1): SpectraFilm bakes rotation/orientation into the
+ *     exported pixels (loadSource applies manual rotation), so viewers must not re-rotate.
+ *   - TAG_SOFTWARE = "SpectraFilm".
+ *   - width / height / pixel-x/y dimensions = the EXPORTED dimensions (the render may be
+ *     cropped/resized/rotated vs the source).
+ * Works for an empty [source] too: only the overrides are written, which is the desired
+ * behaviour for the demo image / EXIF-less sources.
+ */
+private fun applySourceExif(dest: ExifInterface, source: SourceExif, outW: Int, outH: Int) {
+    for ((tag, value) in source.tags) {
+        runCatching { dest.setAttribute(tag, value) }
+    }
+    dest.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+    dest.setAttribute(ExifInterface.TAG_SOFTWARE, "SpectraFilm")
+    dest.setAttribute(ExifInterface.TAG_IMAGE_WIDTH, outW.toString())
+    dest.setAttribute(ExifInterface.TAG_IMAGE_LENGTH, outH.toString())
+    dest.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, outW.toString())
+    dest.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, outH.toString())
+    dest.saveAttributes()
+}
+
+/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG opened by file [descriptor]. */
+private fun writeExifToFd(descriptor: FileDescriptor, source: SourceExif, outW: Int, outH: Int) {
+    runCatching { applySourceExif(ExifInterface(descriptor), source, outW, outH) }
+}
+
+/** Apply [source] EXIF + SpectraFilm overrides to an exported JPEG at filesystem [path]. */
+private fun writeExifToPath(path: String, source: SourceExif, outW: Int, outH: Int) {
+    runCatching { applySourceExif(ExifInterface(path), source, outW, outH) }
+}
+
+/**
+ * Build a near-neutral Ultra HDR [Gainmap] for an SDR [base] bitmap and attach it (API 34+).
+ *
+ * The engine output is a display-referred SDR film look, so there is no real HDR headroom to
+ * recover. We therefore attach a *near-neutral* gain map: a tiny single-pixel map whose values
+ * encode a very gentle highlight lift. On an SDR display the base renders identically (gain map
+ * ignored); on an HDR display the modest ratioMax gives a subtle, safe boost rather than a
+ * fabricated tone-mapping. Metadata uses the android.graphics.Gainmap defaults adjusted for a
+ * gentle global boost:
+ *   - gain-map content: a 1x1 ALPHA_8 bitmap at 255 (full, uniform application of the ratios)
+ *   - ratioMin = 1.0 (no shadow boost), ratioMax = ~1.6 (gentle highlight headroom, ~+0.7 stop)
+ *   - gamma = 1.0, epsilonSdr/Hdr = small constants, displayRatioForFullHdr = ratioMax,
+ *     minDisplayRatioForHdrTransition = 1.0
+ *
+ * NOTE (honest, not device-verified): on API 34+ the platform JPEG encoder embeds the attached
+ * Gainmap into a valid Ultra HDR JPEG (base SDR primary + gain-map secondary + MPF) when
+ * Bitmap.compress(JPEG, ...) is called. This is the documented Android 14 behaviour for
+ * gainmap-bearing bitmaps. It has NOT been verified on a physical device in this environment.
+ */
+private fun attachNeutralGainmap(base: Bitmap) {
+    if (Build.VERSION.SDK_INT < 34) return
+    // A 1x1 uniform gain-map content bitmap: full (255) application of the configured ratios.
+    // eraseColor sets the ALPHA_8 channel to 0xFF — setPixel is unreliable on ALPHA_8.
+    val content = Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8)
+    content.eraseColor(Color.argb(255, 0, 0, 0))
+    val gainmap = Gainmap(content).apply {
+        setRatioMin(1.0f, 1.0f, 1.0f)
+        setRatioMax(1.6f, 1.6f, 1.6f)
+        setGamma(1.0f, 1.0f, 1.0f)
+        setEpsilonSdr(0.015625f, 0.015625f, 0.015625f)
+        setEpsilonHdr(0.015625f, 0.015625f, 0.015625f)
+        setDisplayRatioForFullHdr(1.6f)
+        minDisplayRatioForHdrTransition = 1.0f
+    }
+    base.setGainmap(gainmap)
+}
+
+/**
+ * Save [bmp] to the public gallery under Pictures/SpectraFilm as PNG or JPEG.
+ * Uses scoped storage (MediaStore RELATIVE_PATH + IS_PENDING) on API 29+, and the
+ * legacy direct-file + MediaStore insert path below that. Returns the content [Uri].
+ *
+ * For TIFF, use [saveSimResultAsTiff] instead — Bitmap.compress has no TIFF support.
+ */
+fun saveToGallery(
+    ctx: Context,
+    bmp: Bitmap,
+    format: ExportFormat,
+    jpegQuality: Int = 95,
+    sourceExif: SourceExif = SourceExif(emptyMap()),
+): Uri {
+    require(format != ExportFormat.TIFF) {
+        "Use saveSimResultAsTiff() for TIFF export"
+    }
+    val name = "SpectraFilm_${System.currentTimeMillis()}.${format.ext}"
+    val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+    val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
+
+    // Ultra HDR: attach a near-neutral gain map so the platform JPEG encoder emits a valid
+    // Ultra HDR JPEG (base SDR + gain map + MPF). No-op below API 34. We mutate a copy's
+    // gainmap reference only; the pixel data is shared and unchanged.
+    if (format == ExportFormat.ULTRA_HDR) attachNeutralGainmap(bmp)
+
+    // EXIF is only writable (via androidx ExifInterface) for JPEG targets. The exported
+    // dimensions are taken from the rendered bitmap (post crop/resize/rotate).
+    val writeExif = format.isJpeg()
+    val outW = bmp.width
+    val outH = bmp.height
+
+    val resolver = ctx.contentResolver
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, format.mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore insert failed")
+        resolver.openOutputStream(uri)?.use { bmp.compress(compress, quality, it) }
+            ?: error("Could not open output stream")
+        // Write EXIF back while the item is still IS_PENDING (we own it exclusively): reopen
+        // the MediaStore item read/write and run ExifInterface on its file descriptor.
+        if (writeExif) {
+            runCatching {
+                resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                    writeExifToFd(pfd.fileDescriptor, sourceExif, outW, outH)
+                }
+            }
+        }
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri
+    }
+
+    // Legacy (API 24..28): write to the public Pictures dir, then register with MediaStore.
+    @Suppress("DEPRECATION")
+    val dir = File(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+        "SpectraFilm"
+    ).apply { mkdirs() }
+    val file = File(dir, name)
+    FileOutputStream(file).use { bmp.compress(compress, quality, it) }
+    if (writeExif) writeExifToPath(file.absolutePath, sourceExif, outW, outH)
+    val values = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, name)
+        put(MediaStore.Images.Media.MIME_TYPE, format.mime)
+        @Suppress("DEPRECATION")
+        put(MediaStore.Images.Media.DATA, file.absolutePath)
+    }
+    return resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        ?: Uri.fromFile(file)
+}
+
+/**
+ * Return the EXIF ColorSpace advisory tag value for a given engine [ColorSpace].
+ * Only sRGB and linear sRGB map to EXIF ColorSpace = 1 (sRGB); all wide-gamut
+ * spaces map to 0xFFFF (Uncalibrated) per the EXIF spec.
+ */
+private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
+    ColorSpace.SRGB, ColorSpace.LINEAR_SRGB -> ExifColorSpace.SRGB
+    else -> ExifColorSpace.UNCALIBRATED
+}
+
+/**
+ * Quantise the engine's display-referred float RGB [SimResult] to 16-bit per channel
+ * and write a baseline TIFF to the gallery via [TiffWriter], using MediaStore for
+ * scoped-storage / legacy compatibility.
+ *
+ * Bit depth: the engine's [SimResult.data] buffer holds float32 RGB values already
+ * CCTF-encoded in the chosen [SimResult.colorSpace]. We round-to-nearest quantise
+ * each [0,1]-clamped float to [0, 65535] uint16 — a true 16-bit encode with no
+ * intermediate 8-bit Bitmap step.
+ *
+ * ICC: no ICC profile bytes are bundled in the app assets for this wave; the EXIF
+ * ColorSpace advisory tag is set to SRGB when the output space is sRGB/linear-sRGB,
+ * and UNCALIBRATED for all wide-gamut spaces. A future wave can add .icc assets
+ * and pass their bytes here.
+ *
+ * @param ctx     Android context (for MediaStore / cacheDir)
+ * @param result  The engine SimResult whose float data is quantised to 16-bit
+ * @return        The MediaStore [Uri] of the written file
+ */
+fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
+    val w = result.width
+    val h = result.height
+    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val nSamples = w * h * 3
+
+    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
+    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
+    for (i in 0 until nSamples) {
+        val v = floatBuf.get(i).coerceIn(0f, 1f)
+        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+        // Write as little-endian uint16 (low byte first).
+        rgb16Buf.put((u16 and 0xFF).toByte())
+        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+    }
+    rgb16Buf.flip()
+
+    val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
+    val exifCs = exifColorSpaceFor(result.colorSpace)
+
+    // Write to a temp file in cacheDir first; this avoids holding a MediaStore
+    // output stream open for the entire (potentially large) TiffWriter write.
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
+    TiffWriter.write(
+        rgb16 = rgb16Buf,
+        width = w,
+        height = h,
+        outPath = tmpFile.absolutePath,
+        icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
+        exifColorSpace = exifCs,
+        software = "SpectraFilm",
+        dateTime = dateTime,
+        packBits = false,        // Uncompressed baseline for maximum compatibility
+    )
+
+    val name = "SpectraFilm_${System.currentTimeMillis()}.tif"
+    val resolver = ctx.contentResolver
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore insert failed for TIFF")
+        resolver.openOutputStream(uri)?.use { out ->
+            tmpFile.inputStream().use { it.copyTo(out) }
+        } ?: error("Could not open MediaStore output stream for TIFF")
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        tmpFile.delete()
+        uri
+    } else {
+        // Legacy (API 24..28): write directly to public Pictures dir.
+        @Suppress("DEPRECATION")
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "SpectraFilm"
+        ).apply { mkdirs() }
+        val destFile = File(dir, name)
+        tmpFile.copyTo(destFile, overwrite = true)
+        tmpFile.delete()
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.TIFF.mime)
+            @Suppress("DEPRECATION")
+            put(MediaStore.Images.Media.DATA, destFile.absolutePath)
+        }
+        resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: Uri.fromFile(destFile)
+    }
+}
+
+/**
+ * Quantise the engine's display-referred float RGB [SimResult] to 16-bit per channel
+ * and write a true 16-bit-per-channel RGB PNG to the gallery via [PngWriter]
+ * (lib:pngwriter / libsfpng.so), using MediaStore for scoped-storage compatibility.
+ *
+ * Mirrors [saveSimResultAsTiff]: same round-to-nearest float[0,1] -> uint16[0,65535]
+ * quantisation with no intermediate 8-bit Bitmap step. The PNG writer byte-swaps the
+ * little-endian uint16 samples to big-endian internally (PNG spec), so the caller only
+ * supplies native/little-endian uint16. No ICC bytes are bundled this wave (the PNG
+ * carries no iCCP chunk); a future wave can pass profile bytes here.
+ *
+ * Unlike the 8-bit [saveToGallery] PNG path (Bitmap.compress, 8 bpc), this preserves
+ * the engine's full tonal precision.
+ */
+fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
+    val w = result.width
+    val h = result.height
+    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+    val nSamples = w * h * 3
+
+    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
+    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
+    for (i in 0 until nSamples) {
+        val v = floatBuf.get(i).coerceIn(0f, 1f)
+        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+        rgb16Buf.put((u16 and 0xFF).toByte())
+        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+    }
+    rgb16Buf.flip()
+
+    // Write to a temp file in cacheDir first; avoids holding a MediaStore output stream
+    // open for the whole (potentially large) PNG deflate.
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.png")
+    PngWriter.write(
+        rgb16 = rgb16Buf,
+        width = w,
+        height = h,
+        outPath = tmpFile.absolutePath,
+        icc = null,              // No ICC assets bundled yet
+        software = "SpectraFilm",
+    )
+
+    val name = "SpectraFilm_${System.currentTimeMillis()}.png"
+    val resolver = ctx.contentResolver
+
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.PNG16.mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SpectraFilm")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore insert failed for PNG16")
+        resolver.openOutputStream(uri)?.use { out ->
+            tmpFile.inputStream().use { it.copyTo(out) }
+        } ?: error("Could not open MediaStore output stream for PNG16")
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        tmpFile.delete()
+        uri
+    } else {
+        // Legacy (API 24..28): write directly to public Pictures dir.
+        @Suppress("DEPRECATION")
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "SpectraFilm"
+        ).apply { mkdirs() }
+        val destFile = File(dir, name)
+        tmpFile.copyTo(destFile, overwrite = true)
+        tmpFile.delete()
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, ExportFormat.PNG16.mime)
+            @Suppress("DEPRECATION")
+            put(MediaStore.Images.Media.DATA, destFile.absolutePath)
+        }
+        resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: Uri.fromFile(destFile)
+    }
+}

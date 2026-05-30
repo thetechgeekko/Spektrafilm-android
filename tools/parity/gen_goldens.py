@@ -76,6 +76,36 @@ class Case:
     deactivate_stochastic_effects: bool = True
     deactivate_spatial_effects: bool = True
     grain_active: bool = False
+    # Crop / resize geometry (io params). Defaults are a strict no-op; non-default
+    # values exercise the crop_and_rescale (crop + cubic upscale) preprocess.
+    crop: bool = False
+    crop_center: tuple = (0.5, 0.5)
+    crop_size: tuple = (0.1, 0.1)
+    upscale_factor: float = 1.0
+    # Auto-exposure (camera.auto_exposure / auto_exposure_method). Default OFF for
+    # determinism; a non-default case turns it ON to exercise the metering stage.
+    auto_exposure: bool = False
+    auto_exposure_method: str = "center_weighted"
+    # Camera lens blur in micrometres (camera.lens_blur_um). Default 0.0 (strict
+    # no-op). A non-default case sets it to exercise the µm Gaussian lens-blur pass
+    # in FilmingStage.expose (applied between the diffusion filter and halation).
+    # lens_blur_um is only honoured when deactivate_spatial_effects is False (the
+    # oracle's digest_params zeroes it otherwise), so a lens-blur case must keep
+    # spatial effects on.
+    lens_blur_um: float = 0.0
+    # Camera optical diffusion filter (camera.diffusion_filter). Default OFF
+    # (active=False is a strict no-op). A non-default case turns it ON with a
+    # real filter family + strength to exercise apply_diffusion_filter_um END TO
+    # END through the pipeline (filming.expose), not just in stage isolation.
+    # The oracle's digest_params zeroes camera.diffusion_filter.active when
+    # deactivate_spatial_effects=True, so a diffusion full-pipeline case MUST keep
+    # spatial effects on (deactivate_spatial_effects=False), exactly like the
+    # lens-blur case.
+    diffusion_active: bool = False
+    diffusion_family: str = "black_pro_mist"
+    diffusion_strength: float = 0.5
+    diffusion_spatial_scale: float = 1.0
+    diffusion_halo_warmth: float = 0.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -113,6 +143,105 @@ CASES = [
         grain_active=False,
         notes="scan_film with spatial effects ON (halation/scatter/diffusion), grain off. "
               "Deterministic target for porting the spatial branches.",
+    ),
+    Case(
+        case_id="scan_portra_lensblur",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=False,   # required: keeps camera.lens_blur_um alive
+        deactivate_stochastic_effects=True,  # grain OFF -> deterministic/bit-stable
+        grain_active=False,
+        lens_blur_um=1650.0,                # NON-default camera lens blur (µm)
+        notes="scan_film with the camera lens blur ON (camera.lens_blur_um=1650µm) "
+              "plus the rest of the spatial branch (halation/scatter/coupler "
+              "diffusion). Exercises apply_gaussian_blur_um in FilmingStage.expose, "
+              "applied between the optical diffusion filter and halation: a µm "
+              "Gaussian with sigma = lens_blur_um/pixel_size_um broadcast across the "
+              "3 channels. For the 64px image pixel_size_um=546.875, so sigma~=3.017 "
+              "px -> the Young-van Vliet IIR path (sigma>=SMALL_SIGMA_MAX=3) is "
+              "exercised, a clearly non-trivial blur. Grain off so it stays "
+              "deterministic/bit-stable.",
+    ),
+    Case(
+        case_id="scan_portra_crop",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        crop=True,
+        crop_center=(0.45, 0.55),
+        crop_size=(0.6, 0.5),
+        upscale_factor=1.75,
+        notes="scan_film with a NON-default crop + cubic upscale geometry stage "
+              "(crop_and_rescale): crop_center=(0.45,0.55), crop_size=(0.6,0.5), "
+              "upscale_factor=1.75. Spatial/grain off so it stays bit-stable; "
+              "exercises the crop integer-slice + skimage rescale(order=3) port.",
+    ),
+    Case(
+        case_id="scan_portra_autoexp",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        auto_exposure=True,                 # NON-default: metering ON
+        auto_exposure_method="center_weighted",  # schema default pattern
+        notes="scan_film with AUTO-EXPOSURE ON (center_weighted metering). "
+              "Exercises FilmingStage.auto_exposure in pipeline._preprocess: the "
+              "image is metered (small_preview luminance -> -log2(Y_meter/0.184) "
+              "EV) and globally scaled by 2**ev before crop/rescale. For the 64px "
+              "synthetic image small_preview is a no-op (long edge 64 <= 256), so "
+              "metering runs on the full image. Spatial/grain off so it stays "
+              "bit-stable.",
+    ),
+    Case(
+        case_id="scan_portra_autoexp_matrix",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        auto_exposure=True,                 # NON-default: metering ON
+        auto_exposure_method="matrix",      # NON-center_weighted pattern
+        notes="scan_film with AUTO-EXPOSURE ON using the MATRIX metering pattern "
+              "(a NON-center_weighted pattern; scan_portra_autoexp only covers "
+              "center_weighted). Exercises the 5x5 raised-cosine zone-weighted "
+              "branch of utils.autoexposure.measure_autoexposure_ev: the image is "
+              "split into a 5x5 grid, each zone mean weighted by 0.5*(1+cos(pi*"
+              "dist)) of its normalised distance from centre, the weighted average "
+              "/ 0.184 -> -log2(exposure) EV, then the image is globally scaled by "
+              "2**ev before crop/rescale. For the 64px image small_preview is a "
+              "no-op (long edge 64 <= 256). Spatial/grain off so it stays "
+              "bit-stable. Tested by tests/test_autoexposure.cpp.",
+    ),
+    Case(
+        case_id="scan_diffusion",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=False,   # required: keeps camera.diffusion_filter alive
+        deactivate_stochastic_effects=True,  # grain OFF -> deterministic/bit-stable
+        grain_active=False,
+        diffusion_active=True,              # NON-default: camera optical diffusion ON
+        diffusion_family="black_pro_mist",
+        diffusion_strength=0.8,             # NON-default strength (schema default is 0.5)
+        diffusion_spatial_scale=1.0,
+        diffusion_halo_warmth=0.0,
+        notes="scan_film with the camera OPTICAL DIFFUSION FILTER ON end-to-end "
+              "(camera.diffusion_filter: active=True, family=black_pro_mist, "
+              "strength=0.8 -- a NON-default strength) plus the rest of the spatial "
+              "branch (halation/scatter/coupler diffusion), grain off. Exercises "
+              "apply_diffusion_filter_um inside FilmingStage.expose run through the "
+              "WHOLE pipeline (the diffusion_bpm case only tests the filter in "
+              "isolation). The oracle's digest_params zeroes "
+              "camera.diffusion_filter.active under deactivate_spatial_effects=True, "
+              "so spatial effects are kept on. Grain off so it stays "
+              "deterministic/bit-stable. Tested by tests/test_diffusion_e2e.cpp.",
     ),
 ]
 
@@ -197,13 +326,32 @@ def _build_params(sf, case: Case):
         print_profile=case.print_profile,
     )
     params.io.scan_film = case.scan_film
+    params.io.crop = case.crop
+    params.io.crop_center = tuple(case.crop_center)
+    params.io.crop_size = tuple(case.crop_size)
+    params.io.upscale_factor = case.upscale_factor
     params.debug.deactivate_stochastic_effects = case.deactivate_stochastic_effects
     params.debug.deactivate_spatial_effects = case.deactivate_spatial_effects
     params.film_render.grain.active = case.grain_active
-    # Make exposure deterministic: disable auto-exposure so identical inputs map
-    # to identical exposures regardless of metering tweaks.
-    params.camera.auto_exposure = False
+    # Auto-exposure: OFF by default (deterministic — identical inputs map to
+    # identical exposures regardless of metering tweaks). A case may turn it ON
+    # to exercise the metering stage; the synthetic image is fully deterministic
+    # so the metered EV is reproducible.
+    params.camera.auto_exposure = case.auto_exposure
+    params.camera.auto_exposure_method = case.auto_exposure_method
     params.camera.exposure_compensation_ev = 0.0
+    # Camera lens blur (µm). Only meaningful when spatial effects are kept on
+    # (digest_params zeroes it under deactivate_spatial_effects=True).
+    params.camera.lens_blur_um = case.lens_blur_um
+    # Camera optical diffusion filter. Only honoured when spatial effects are kept
+    # on (digest_params zeroes camera.diffusion_filter.active under
+    # deactivate_spatial_effects=True). When active we set a real family + a
+    # non-default strength so the filter does visible work end to end.
+    params.camera.diffusion_filter.active = case.diffusion_active
+    params.camera.diffusion_filter.filter_family = case.diffusion_family
+    params.camera.diffusion_filter.strength = case.diffusion_strength
+    params.camera.diffusion_filter.spatial_scale = case.diffusion_spatial_scale
+    params.camera.diffusion_filter.halo_warmth = case.diffusion_halo_warmth
     return params
 
 
@@ -270,11 +418,18 @@ def generate_case(sf, case: Case, size: int) -> dict:
             "seed": SEED,
         },
         "toggles": {
-            "auto_exposure": False,
+            "auto_exposure": case.auto_exposure,
+            "auto_exposure_method": case.auto_exposure_method,
             "exposure_compensation_ev": 0.0,
             "grain_active": case.grain_active,
             "deactivate_stochastic_effects": case.deactivate_stochastic_effects,
             "deactivate_spatial_effects": case.deactivate_spatial_effects,
+            "lens_blur_um": case.lens_blur_um,
+            "diffusion_active": case.diffusion_active,
+            "diffusion_family": case.diffusion_family,
+            "diffusion_strength": case.diffusion_strength,
+            "diffusion_spatial_scale": case.diffusion_spatial_scale,
+            "diffusion_halo_warmth": case.diffusion_halo_warmth,
         },
         "notes": case.notes,
         "taps": written,

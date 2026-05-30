@@ -36,9 +36,13 @@ namespace spk {
 //   `film`  supplies channel_density / base_density (the negative's dyes).
 //   `print_profile` supplies log_sensitivity (the paper's spectral response).
 //   `params` supplies the enlarger filtered illuminant, midgray factor, etc.
+// `width`/`height` (width*height == npix, row-major) are needed only by the
+// enlarger optical diffusion filter (params.diffusion_filter); when it is
+// inactive (the schema default) the result is bit-identical to the pointwise
+// path regardless of the width/height split.
 void print_expose(const Profile& film, const Profile& print_profile,
                   const PrintingParams& params, const float* density_cmy,
-                  int npix, float* log_raw_print_out);
+                  int width, int height, float* log_raw_print_out);
 
 // develop(): log_raw_print (npix,3) -> print density_cmy (npix,3) via the print
 // paper's density curves (no normalisation, no couplers).

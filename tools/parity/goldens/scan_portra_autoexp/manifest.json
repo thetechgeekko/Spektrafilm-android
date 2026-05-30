@@ -1,0 +1,67 @@
+{
+  "case_id": "scan_portra_autoexp",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "scan_film with AUTO-EXPOSURE ON (center_weighted metering). Exercises FilmingStage.auto_exposure in pipeline._preprocess: the image is metered (small_preview luminance -> -log2(Y_meter/0.184) EV) and globally scaled by 2**ev before crop/rescale. For the 64px synthetic image small_preview is a no-op (long edge 64 <= 256), so metering runs on the full image. Spatial/grain off so it stays bit-stable.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.3032047748565674,
+      "mean": 0.7088481783866882,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 0.6795267462730408,
+      "mean": -0.10232526063919067,
+      "min": -3.9574596881866455,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.8630849123001099,
+      "mean": 0.3046853840351105,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": true,
+    "auto_exposure_method": "center_weighted",
+    "deactivate_spatial_effects": true,
+    "deactivate_stochastic_effects": true,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

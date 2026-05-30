@@ -22,27 +22,65 @@ real spectral sensitivities, develops the dyes through characteristic density cu
 with dichroic Y/M/C filters, print paper, and a virtual scanner — then renders to your chosen
 color space.
 
-## What it does today (v0.1.0)
+## What it does
 
-- ✅ **Full pipeline, both routes:** scan-the-negative *and* negative → print → scan.
-- ✅ **28 film & paper profiles** (Kodak Portra/Ektar/Gold/Vision3/Ektachrome, Fujifilm
-  C200/Pro400H/Provia/Velvia, Endura/Supra/Ultra papers, …).
-- ✅ **The whole look:** DIR couplers, halation, in-emulsion scatter, scanner unsharp, and
-  **film grain** (Poisson-binomial particle model with sublayers + micro-structure).
+- ✅ **Full pipeline, both routes:** scan-the-negative *and* negative → print → scan, on **all
+  film/paper pairs** (print path now generalized via native `print_digest`; no longer baked for
+  specific pairs).
+- ✅ **28 film & paper profiles**, browsable by **friendly names grouped by category** (color
+  negative / slide / motion-picture / print film / RGB paper) with ISO · balance · era.
+- ✅ **The whole look:** DIR couplers, halation, in-emulsion scatter, scanner unsharp,
+  **diffusion filters** (halation/scatter coupling, coupler diffusion), **auto-exposure**
+  (7 metering patterns), and **film grain** (Poisson-binomial particle model with sublayers +
+  micro-structure).
+- ✅ **Every parameter exposed**, organized **exactly like the spektrafilm desktop GUI** (Input ·
+  Import Raw · Simulation · Grain · Preflash · Halation · Couplers · Glare · Experimental ·
+  Display) with live preview.
+- ✅ **RAW/DNG import** (LibRaw → linear ACES) + photo picker, and a **synthetic demo image**.
+  Expert RAW / Samsung DEFLATE-compressed DNGs decode correctly (zlib/NDK libz fix).
+- ✅ **RAW white-balance UI** — Temperature/Tint sliders + mode dropdown (as-shot / daylight /
+  tungsten / custom) + reset, shown only for RAW/DNG sources; changing WB re-decodes the
+  preview automatically.
+- ✅ **Crop/resize geometry stage** — the `IOParams` crop fields and cubic `upscale_factor` are
+  live (bit-exact vs the spektrafilm `_preprocess` step); defaults are a strict no-op.
+- ✅ **Lightroom-style Auto-exposure control** — opt-in "Auto" button (default OFF), expands to
+  a metering-method popup (7 patterns) with adaptive above/below anchoring and tap-outside
+  dismiss.
+- ✅ **16-bit TIFF export** — live export option backed by the hand-rolled `lib:tiffwriter`
+  (`libsftiff`) with ICC + EXIF support.
+- ✅ **Full source EXIF copy on export** — all EXIF tags from the source image are copied into
+  exported JPEGs and TIFFs.
+- ✅ **Google Ultra HDR export** — gain-map JPEG Ultra HDR output when the device supports it.
+- ✅ **Profile-curve browser** — dedicated screen to browse film/paper density curves.
+- ✅ **Non-destructive recipe/sidecar layer** — edits stored as a `SpektraParams` sidecar keyed
+  to the source; original RAW untouched; re-renders on open/export.
+- ✅ **Engine/render status pill** — persistent readout on the preview canvas showing
+  decoding / rendering / exporting / error / last-render-ms.
+- ✅ **Presets:** 20 built-in researched film→print looks + **save / import / export** your own.
 - ✅ **6 output color spaces** — sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1, linear.
-- ✅ **Native engine** (`libspektra.so`) for arm64-v8a / armeabi-v7a / x86_64, driven from a
-  Jetpack Compose UI.
+- ✅ **Native engine** (`libspektra.so`) + **`libsfraw.so`** (LibRaw) for arm64-v8a /
+  armeabi-v7a / x86_64, driven from a redesigned Jetpack Compose UI.
 
-**Next:** RAW/DNG import on-device via LibRaw (the engine already speaks scene-linear; the
-`lib:libraw` decode module is scaffolded — see `docs/RAW_DNG.md`), and richer editing UI.
+### Lightroom-style UI
+
+The editor was fully redesigned in the v0.3.0 wave:
+- **Edge-to-edge full screen** (no Scaffold / ModalBottomSheet) with a **pinned preview** and a
+  **90° rotate button** that applies uniformly to preview, export, and the grain magnifier.
+- **Horizontal scrollable bottom category bar** with custom hand-drawn `SpectraIcons` (12
+  categories + gear / "?" / rotate), spring overscroll, sliding indicator, and gesture-safe
+  padding.
+- **Inline `AnimatedVisibility` adjustment panel** (replaces modal bottom sheets).
+- **Back → previous screen**; **double-back-to-exit** with a one-time DataStore-persisted hint.
+
+**Next:** lens blur stage, LUT acceleration — see `docs/ROADMAP.md`. 16-bit PNG export
+(`lib:pngwriter` built and host-tested; UI wiring in progress). EXIF-orientation import and
+lossy-DNG fallback are queued follow-ups.
 
 ## Install
 
 Grab the APK from [**`dist/`**](dist/) (or the **CI build artifact** on the latest green run),
-enable "install from unknown sources," and open it. Min Android 7.0 (API 24).
-
-> The v0.1.0 demo renders a built-in scene-linear test image so you can explore every film/paper
-> profile and parameter immediately, with no import step.
+enable "install from unknown sources," and open it. Min Android 7.0 (API 24). Pick a photo or a
+RAW/DNG, choose a preset or tune the parameters, and export to your gallery.
 
 ---
 

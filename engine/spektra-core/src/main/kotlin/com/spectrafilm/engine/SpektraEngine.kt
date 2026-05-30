@@ -7,8 +7,10 @@
  * simulate(image, params) / simulate_preview(image, params). Image buffers are passed
  * as linear, scene-referred float RGB and returned as a display-referred result.
  *
- * M0: the native methods are declared and the .so links, but the engine returns
- * "not implemented" until the port lands (M3–M4, see docs/PORTING_PLAN.md).
+ * The native methods throw a [RuntimeException] carrying the specific
+ * `spk_status` message (e.g. "spektra: profile not found") on failure, so a real,
+ * actionable error reaches the caller. A null return without an exception is
+ * treated as an unexpected engine fault.
  */
 package com.spectrafilm.engine
 
@@ -43,17 +45,39 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
     fun listProfiles(): List<String> =
         nativeListProfiles(handle).split('\n').filter { it.isNotBlank() }
 
-    /** Full pipeline: RGB → negative → (print) → scan. Heavy; call off the main thread. */
+    /**
+     * Full pipeline: RGB → negative → (print) → scan. Heavy; call off the main
+     * thread. On a native failure the underlying [RuntimeException] (with the
+     * specific `spk_status` message) propagates; a null return without an
+     * exception is reported as an unexpected fault.
+     */
     fun simulate(image: LinearImage, params: SpektraParams): SimResult =
         nativeSimulate(handle, image.data, image.width, image.height,
             image.colorSpace, params, /* preview = */ false)
-            ?: error("spektra: simulate not implemented yet (M3–M4); handle=$handle")
+            ?: error("spektra: simulate returned null (handle=$handle)")
 
     /** Downscaled fast path to [SettingsParams.previewMaxSize] for interactive tuning. */
     fun simulatePreview(image: LinearImage, params: SpektraParams): SimResult =
         nativeSimulate(handle, image.data, image.width, image.height,
             image.colorSpace, params, /* preview = */ true)
-            ?: error("spektra: simulatePreview not implemented yet (M3–M4); handle=$handle")
+            ?: error("spektra: simulatePreview returned null (handle=$handle)")
+
+    /**
+     * Bake the current film look into a 3D `.cube` LUT (Adobe/Resolve format) and
+     * return its text. Builds an identity RGB lattice of [size] (default 33) in the
+     * engine's linear ProPhoto working space, runs each lattice point through the
+     * same pointwise pipeline [simulate] uses, and emits `LUT_3D_SIZE N` + N^3 RGB
+     * triples (blue-fastest order).
+     *
+     * INPUT domain: linear ProPhoto RGB in [0,1]. OUTPUT domain: display RGB in
+     * [params].io.outputColorSpace (CCTF per outputCctfEncoding). Spatial/stochastic
+     * effects (grain, halation, diffusion glare, DIR-coupler diffusion, scanner
+     * unsharp) cannot be captured by a 3D LUT and are forced OFF for the bake;
+     * this is documented in the emitted `.cube` header. Heavy; call off the main thread.
+     */
+    fun bakeCubeLut(params: SpektraParams, size: Int = 33): String =
+        nativeBakeCubeLut(handle, params, size)
+            ?: error("spektra: bakeCubeLut returned null (handle=$handle)")
 
     override fun close() {
         if (handle != 0L) nativeDestroy(handle)
@@ -67,6 +91,9 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
         handle: Long, inBuf: ByteBuffer, w: Int, h: Int, inCs: String,
         params: SpektraParams, preview: Boolean,
     ): SimResult?
+    private external fun nativeBakeCubeLut(
+        handle: Long, params: SpektraParams, size: Int,
+    ): String?
 
     companion object {
         init { System.loadLibrary("spektra") }

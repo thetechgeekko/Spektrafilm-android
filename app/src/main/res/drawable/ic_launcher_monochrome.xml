@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SpectraFilm for Android. GPLv3.
+  Monochrome layer for Material You themed icons: the film frame silhouette
+  rendered as a single tintable shape.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#000000">
+
+    <!-- Film body outline -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M28,24 L80,24 A6,6 0 0 1 86,30 L86,78 A6,6 0 0 1 80,84 L28,84 A6,6 0 0 1 22,78 L22,30 A6,6 0 0 1 28,24 Z" />
+
+    <!-- Exposed frame window -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M35,38 h36 v32 h-36 Z" />
+
+    <!-- Sprocket holes (top) -->
+    <path android:fillColor="#FFFFFF" android:pathData="M27,29 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M36,29 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M45,29 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,29 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M63,29 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M72,29 h5 v5 h-5 Z" />
+
+    <!-- Sprocket holes (bottom) -->
+    <path android:fillColor="#FFFFFF" android:pathData="M27,74 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M36,74 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M45,74 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,74 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M63,74 h5 v5 h-5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M72,74 h5 v5 h-5 Z" />
+</vector>

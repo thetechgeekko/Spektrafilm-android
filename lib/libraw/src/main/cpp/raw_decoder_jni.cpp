@@ -44,16 +44,51 @@ spectrafilm::DecodeOptions readOptions(jint wbMode, jdouble temperatureK, jdoubl
 
 // Build a com.spectrafilm.libraw.RawDecoder$NativeResult from a DecodeResult.
 // On failure returns null and the Kotlin facade throws with `error`.
+// Throw com.spectrafilm.libraw.RawDecodeException(message, status, librawCode)
+// so the Kotlin side can branch on the failure kind (e.g. a lossy-JPEG Expert
+// RAW DNG -> platform ImageDecoder fallback). Falls back to
+// IllegalStateException if the exception class is unavailable.
+void throwDecodeException(JNIEnv* env, const spectrafilm::DecodeResult& r) {
+    const char* msg = r.error.empty() ? "RAW decode failed" : r.error.c_str();
+    jclass exClass = env->FindClass("com/spectrafilm/libraw/RawDecodeException");
+    if (exClass != nullptr) {
+        jmethodID ctor =
+            env->GetMethodID(exClass, "<init>", "(Ljava/lang/String;II)V");
+        if (ctor != nullptr) {
+            jstring jmsg = env->NewStringUTF(msg);
+            jobject ex = env->NewObject(exClass, ctor, jmsg,
+                                        static_cast<jint>(r.status),
+                                        static_cast<jint>(r.librawCode));
+            if (ex != nullptr) {
+                env->Throw(static_cast<jthrowable>(ex));
+                return;
+            }
+        }
+        env->ExceptionClear();
+        env->ThrowNew(exClass, msg);  // (String) fallback
+        return;
+    }
+    env->ExceptionClear();
+    jclass ise = env->FindClass("java/lang/IllegalStateException");
+    env->ThrowNew(ise, msg);
+}
+
 jobject toJavaResult(JNIEnv* env, const spectrafilm::DecodeResult& r) {
     if (!r.ok) {
-        // Surface the native error message as an IllegalStateException.
-        jclass ise = env->FindClass("java/lang/IllegalStateException");
-        env->ThrowNew(ise, r.error.empty() ? "RAW decode failed" : r.error.c_str());
+        throwDecodeException(env, r);
         return nullptr;
     }
 
     const jlong byteLen =
         static_cast<jlong>(r.rgb.size()) * static_cast<jlong>(sizeof(float));
+    // Guard against >2 GiB: ByteBuffer.allocateDirect takes a jint, so a larger
+    // length would truncate (and the full 64-bit memcpy below would then overflow
+    // the undersized buffer). Reject before allocating. (Security review F1.)
+    if (byteLen > static_cast<jlong>(INT32_MAX)) {
+        jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+        env->ThrowNew(oom, "RAW decode result too large for a direct ByteBuffer (>2 GiB)");
+        return nullptr;
+    }
     // The decoded RGB lives in r.rgb (freed when this call returns), so we hand
     // Kotlin a direct ByteBuffer it *owns* (allocateDirect) and memcpy into it.
     // The buffer is direct so the engine can consume it as a LinearImage with no
