@@ -106,6 +106,7 @@ jobs:
           build_run test_diffusion "$G"
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
+          build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           exit $fail
 
   # ---------------------------------------------------------------------------
