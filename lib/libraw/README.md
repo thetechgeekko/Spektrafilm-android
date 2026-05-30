@@ -70,6 +70,49 @@ decode without them), and links it into `libsfraw.so`.
 > **DNG SDK add-on** (lossy / non-standard DNGs) is a separate decision tracked in
 > M2; baseline DNG + CR2/CR3/NEF/ARW/RAF/ORF/RW2 work without it.
 
+## Mobile / Google Pixel DNG decode (native vs fallback)
+
+Most mobile DNGs — including **Google Pixel computational-RAW DNGs** — use one
+of three raw-plane compressions, **all decoded natively** by this module with
+the current build flags:
+
+| Compression tag        | Decodes here? | How                                                   |
+|------------------------|---------------|-------------------------------------------------------|
+| 1 — uncompressed       | ✅ native     | plain unpack                                          |
+| 7 — lossless JPEG/LJ92 | ✅ native     | LibRaw **internal** lossless-JPEG (`lossless_jpeg_load_raw` / `ljpeg_start` / `ljpeg_row`, `src/decoders/dcraw_common.cpp`) — **no libjpeg required** |
+| 8 — DEFLATE/ZIP        | ✅ native     | zlib `inflate()` (`USE_ZLIB`; NDK `libz` linked)      |
+| 6 — old-style JPEG     | ❌ fallback   | needs libjpeg → `LOSSY_JPEG_DNG`                      |
+| 0x884C — lossy JPEG    | ❌ fallback   | needs libjpeg → `LOSSY_JPEG_DNG`                      |
+| 0xCD42 — JPEG-XL       | ❌ fallback   | needs libjxl/dngsdk → `JPEGXL_DNG`                    |
+
+**Key point:** `USE_JPEG` is intentionally OFF and is **not** needed for Pixel
+DNGs. `USE_JPEG` only adds *lossy* baseline-JPEG (0x884C) decode and embedded
+JPEG thumbnails; LibRaw's lossless-JPEG (LJ92) raw decoder is compiled
+unconditionally. (Evidence: libraw.org node/2639 lists `lossless_jpeg_load_raw`
+among the native unpack functions for "Lossless JPEG (Canon, some DNG)".) Pixel
+DNGs therefore decode with the prior wave's flags — **no build change was
+needed**; this wave fixes the *classification/diagnostics*.
+
+> Mobile DNGs commonly embed a large JPEG **preview** in IFD0 with the real
+> Bayer/linear raw in a **SubIFD**. The `dngsniff` sniffer walks IFD0 + SubIFDs
+> + the next-IFD chain and picks the largest **non-reduced** (`NewSubFileType`
+> bit 0 clear) image, so a JPEG preview is never mistaken for the raw
+> compression. The unpack-failure classifier only flags genuinely-unsupported
+> codecs (6 / 0x884C → `LOSSY_JPEG_DNG`, 0xCD42 → `JPEGXL_DNG`); uncompressed /
+> LJ92 / deflate that reach it are treated as real data errors (generic
+> `UNPACK`), never given a false fallback hint.
+
+A host unit test (`src/test/cpp/test_dng_sniffer.cpp`) compiles `raw_decoder.cpp`
+with `-include` (no LibRaw needed — the decoder guards its LibRaw include) and
+exercises the sniffer + classifier against synthesized uncompressed / LJ92 /
+deflate / lossy / old-JPEG / JPEG-XL and Pixel-style preview+SubIFD headers.
+22/22 cases pass:
+
+```
+g++ -std=c++17 -I../../main/cpp -include ../../main/cpp/raw_decoder.cpp \
+    test_dng_sniffer.cpp -o /tmp/test_dng_sniffer && /tmp/test_dng_sniffer
+```
+
 ## rawpy ↔ LibRaw parity
 
 | `rawpy.postprocess`          | value                  | LibRaw (`imgdata.params`)        |
