@@ -55,12 +55,21 @@ object Recipes {
      * image is untouched — only this app-private sidecar JSON is written. [sourceName]
      * is stored purely as a human-readable hint for any future recipe browser.
      */
-    fun save(ctx: Context, key: String, state: ParamsState, sourceName: String) {
+    fun save(
+        ctx: Context,
+        key: String,
+        state: ParamsState,
+        sourceName: String,
+        rotationDegrees: Int = 0,
+    ) {
         val envelope = JSONObject().apply {
             put("recipeVersion", RECIPE_VERSION)
             put("sourceKey", key)
             put("sourceName", sourceName)
             put("updatedAt", System.currentTimeMillis())
+            // The user's MANUAL rotate step (0/90/180/270 CW), persisted alongside the
+            // params. NOT the EXIF baseline, which is derived fresh on every load.
+            put("manualRotationDeg", rotationDegrees)
             // Params payload uses the shared preset schema verbatim.
             put("params", Presets.encode(state))
         }
@@ -80,6 +89,20 @@ object Recipes {
         val params = root.optJSONObject("params") ?: root
         Presets.decode(params, into)
         return true
+    }
+
+    /**
+     * The persisted MANUAL rotation (clockwise) for [key], or [SourceRotation.NONE] if
+     * there is no recipe / no stored rotation. The EXIF baseline is NOT stored here.
+     */
+    fun loadRotation(ctx: Context, key: String?): SourceRotation {
+        if (key == null) return SourceRotation.NONE
+        val f = file(ctx, key)
+        if (!f.isFile) return SourceRotation.NONE
+        return runCatching {
+            val deg = JSONObject(f.readText()).optInt("manualRotationDeg", 0)
+            SourceRotation.fromDegrees(deg)
+        }.getOrDefault(SourceRotation.NONE)
     }
 
     /** Delete the recipe for [key] (clears the saved edit). No-op if none exists. */
