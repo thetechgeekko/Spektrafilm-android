@@ -1,0 +1,164 @@
+/*
+ * Spektrafilm for Android — native engine: print-route digest implementation.
+ * Copyright (C) 2026 Spektrafilm Android contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version. See <https://www.gnu.org/licenses/>.
+ *
+ * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
+ * spektrafilm. Implements runtime/print_digest.h.
+ */
+#include "runtime/print_digest.h"
+
+#include <cmath>
+#include <fstream>
+#include <sstream>
+#include <vector>
+
+#include "kernels/spectral_upsampling.h"
+#include "model/density_curves.h"
+#include "profiles/json_min.h"
+
+namespace spk {
+
+namespace {
+
+// sRGB (linear) -> XYZ with CAT02 chromatic adaptation to the film's reference
+// illuminant (D55), apply_cctf_decoding=False. This is the transform
+// _simple_rgb_to_density_spectral takes for the midgray gray: it calls
+// _rgb_to_film_raw(rgb) with the method-default color_space='sRGB' (NOT the
+// io.input_color_space used by the main expose path, which is ProPhoto RGB).
+// Baked at full double precision from colour.RGB_to_XYZ (the transform is exactly
+// linear). Row-major 3x3: xyz[r] = sum_c M[r][c] * rgb[c].
+constexpr double kSRGBToXyzD55[3][3] = {
+    {0.42623421365907455, 0.37571635923964258, 0.15488745710403823},
+    {0.21812651506394931, 0.71977726742782511, 0.062097551400824694},
+    {0.015618316763516405, 0.099341902396424583, 0.8063581952787553},
+};
+
+inline double clip01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+
+// _rgb_to_tc_b for color_space='sRGB', apply_cctf_decoding=False,
+// reference_illuminant='D55'.
+void srgb_rgb_to_tc_b(const double rgb[3], Vec2* out_tc, double* out_b) {
+    double xyz[3];
+    for (int r = 0; r < 3; ++r) {
+        xyz[r] = kSRGBToXyzD55[r][0] * rgb[0] + kSRGBToXyzD55[r][1] * rgb[1] +
+                 kSRGBToXyzD55[r][2] * rgb[2];
+    }
+    double b = xyz[0] + xyz[1] + xyz[2];
+    double denom = std::fmax(b, 1e-10);
+    Vec2 xy{clip01(xyz[0] / denom), clip01(xyz[1] / denom)};
+    *out_tc = tri2quad(xy);
+    *out_b = std::isnan(b) ? 0.0 : b;
+}
+
+}  // namespace
+
+bool resolve_neutral_cc(const std::string& json_path,
+                        const std::string& print_stock,
+                        const std::string& illuminant,
+                        const std::string& film_stock,
+                        double cc_out[3]) {
+    // Schema default: enlarger.{c,m,y}_filter_neutral == 0 (params_schema.py).
+    cc_out[0] = cc_out[1] = cc_out[2] = 0.0;
+
+    std::ifstream in(json_path, std::ios::binary);
+    if (!in) return false;  // FileNotFoundError -> {} -> defaults.
+    std::ostringstream ss;
+    ss << in.rdbuf();
+
+    json::ValuePtr root;
+    try {
+        root = json::parse(ss.str());
+    } catch (const std::exception&) {
+        return false;
+    }
+    const json::Value& r = *root;
+
+    // filters.get(print_stock, {}).get(illuminant, {}).get(film_stock)
+    if (!r.has(print_stock)) return false;
+    const json::Value& by_illum = r.at(print_stock);
+    if (!by_illum.has(illuminant)) return false;
+    const json::Value& by_film = by_illum.at(illuminant);
+    if (!by_film.has(film_stock)) return false;
+    const json::Value& triple = by_film.at(film_stock);
+    if (!triple.is_array() || triple.size() != 3) return false;
+
+    // c_filter, m_filter, y_filter = (float(value) for value in stock_filters)
+    cc_out[0] = triple[0].as_number();  // C
+    cc_out[1] = triple[1].as_number();  // M
+    cc_out[2] = triple[2].as_number();  // Y
+    return true;
+}
+
+double compute_midgray_exposure_factor(const Profile& film,
+                                       const Profile& print_profile,
+                                       const NdArray& filming_tc_lut,
+                                       const double* filtered_illuminant,
+                                       float gamma) {
+    const int S = film.n_samples;  // 81
+
+    // 1) Filming midgray: rgb=0.184 gray -> film raw (sRGB tc transform) -> log10.
+    const double rgb_mid[3] = {0.184, 0.184, 0.184};
+    Vec2 tc;
+    double b;
+    srgb_rgb_to_tc_b(rgb_mid, &tc, &b);
+    const int L = filming_tc_lut.shape[0];
+    const double scale = static_cast<double>(L - 1);
+    double raw[3];
+    cubic_interp_lut_at_2d(filming_tc_lut, tc.x * scale, tc.y * scale, raw);
+    float log_raw[3];
+    for (int c = 0; c < 3; ++c) {
+        double r = raw[c] * b;  // exposure_compensation_ev == 0 under parity.
+        log_raw[c] = static_cast<float>(std::log10(r + 1e-10));
+    }
+
+    // 2) develop_simple against the RAW film density curves (no nanmin
+    //    normalisation, no DIR couplers), gamma broadcast to all channels.
+    float density_cmy[3];
+    interpolate_exposure_to_density(log_raw, /*npix=*/1,
+                                    film.density_curves.data(),
+                                    film.log_exposure.data(),
+                                    film.n_density_pts, gamma, density_cmy);
+    const double c0 = static_cast<double>(density_cmy[0]);
+    const double c1 = static_cast<double>(density_cmy[1]);
+    const double c2 = static_cast<double>(density_cmy[2]);
+
+    // 3) _exposure_factor against the print sensitivity + filtered illuminant.
+    //    density_spectral[l] = c . channel_density[l] + base_density[l]
+    //    light[l]            = 10^-density_spectral[l] * filtered_illum[l]  (NaN->0)
+    //    raw_k               = sum_l light[l] * print_sens[l,k]
+    //    raw_k               = fmax(raw_k, 1e-10)
+    //    geomean             = exp(mean_k log(raw_k))
+    //    factor              = 1 / geomean
+    double rawk[3] = {0.0, 0.0, 0.0};
+    for (int l = 0; l < S; ++l) {
+        const float* cd =
+            film.channel_density.data() + static_cast<size_t>(l) * 3;
+        const double spectral = c0 * static_cast<double>(cd[0]) +
+                                c1 * static_cast<double>(cd[1]) +
+                                c2 * static_cast<double>(cd[2]) +
+                                static_cast<double>(film.base_density[l]);
+        double light = std::pow(10.0, -spectral) * filtered_illuminant[l];
+        if (std::isnan(light)) light = 0.0;
+        const float* ls =
+            print_profile.log_sensitivity.data() + static_cast<size_t>(l) * 3;
+        for (int k = 0; k < 3; ++k) {
+            double sens = std::pow(10.0, static_cast<double>(ls[k]));
+            if (std::isnan(sens)) sens = 0.0;  // np.nan_to_num
+            rawk[k] += light * sens;
+        }
+    }
+    double log_sum = 0.0;
+    for (int k = 0; k < 3; ++k) {
+        double v = std::fmax(rawk[k], 1e-10);
+        log_sum += std::log(v);
+    }
+    double geomean = std::exp(log_sum / 3.0);
+    return 1.0 / geomean;
+}
+
+}  // namespace spk

@@ -1,0 +1,370 @@
+/*
+ * Spektrafilm for Android — host unit test for the 16-bit PNG writer.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
+ *
+ * Pure host test (no Android / no Gradle). Writes a small known 16-bit RGB
+ * buffer to /tmp with an embedded iCCP blob + tEXt Software tag, then parses
+ * the file back (a minimal independent PNG reader implemented here, no libpng)
+ * and asserts:
+ *
+ *   - PNG signature (8 bytes, correct)
+ *   - IHDR: correct width/height, bit_depth=16, color_type=2 (RGB),
+ *           compression=0, filter=0, interlace=0
+ *   - IHDR CRC32 correct (independently computed)
+ *   - iCCP chunk present when ICC was supplied; absent when not
+ *   - iCCP CRC32 correct
+ *   - tEXt chunk present with "Software\0<value>" when software supplied
+ *   - IDAT present; IDAT CRC32 correct
+ *   - IEND present with 0-length data
+ *   - Pixel round-trip: inflate IDAT, strip filter bytes, byte-swap big->little,
+ *     compare against original uint16 samples bit-exact
+ *
+ * Build (host — no Android):
+ *   g++ -std=c++17 -O2 \
+ *       -I/home/user/wt-lib/lib/pngwriter/src/main/cpp \
+ *       test_png_writer.cpp \
+ *       /home/user/wt-lib/lib/pngwriter/src/main/cpp/png_writer.cpp \
+ *       -lz -o /tmp/test_png_writer
+ *   /tmp/test_png_writer
+ *
+ * Python PIL cross-check (run after the test):
+ *   python3 -c "
+ *   from PIL import Image
+ *   import numpy as np
+ *   img = Image.open('/tmp/sf_png_test_rgb16.png')
+ *   arr = np.array(img, dtype=np.uint16)
+ *   print('mode:', img.mode, 'size:', img.size, 'dtype:', arr.dtype)
+ *   print('first pixel (R,G,B):', arr[0,0])
+ *   print('OK')
+ *   "
+ */
+#include "png_writer.h"
+
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+#include <zlib.h>
+
+using namespace spectrafilm;
+
+namespace {
+
+int g_failures = 0;
+
+#define CHECK(cond, msg)                                                        \
+    do {                                                                        \
+        if (!(cond)) { std::printf("  FAIL: %s\n", (msg)); g_failures++; }      \
+        else         { std::printf("  ok:   %s\n", (msg)); }                    \
+    } while (0)
+
+// ---- read helpers ----------------------------------------------------------
+
+static uint32_t rdBE32(const std::vector<uint8_t>& b, size_t off) {
+    return (static_cast<uint32_t>(b[off])     << 24) |
+           (static_cast<uint32_t>(b[off + 1]) << 16) |
+           (static_cast<uint32_t>(b[off + 2]) <<  8) |
+            static_cast<uint32_t>(b[off + 3]);
+}
+
+static bool readFile(const std::string& path, std::vector<uint8_t>& out) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    out.resize(static_cast<size_t>(sz));
+    size_t got = std::fread(out.data(), 1, out.size(), f);
+    std::fclose(f);
+    return got == out.size();
+}
+
+// ---- PNG chunk iterator ----------------------------------------------------
+
+struct Chunk {
+    uint32_t dataOff;  // offset of data bytes in file
+    uint32_t dataLen;
+    char     type[5];  // NUL-terminated
+    uint32_t crcInFile;
+};
+
+// Parse all chunks starting at byte 8 (after the signature).
+static std::vector<Chunk> parseChunks(const std::vector<uint8_t>& b) {
+    std::vector<Chunk> out;
+    size_t pos = 8;
+    while (pos + 12 <= b.size()) {
+        Chunk c;
+        c.dataLen   = rdBE32(b, pos);
+        c.type[0]   = static_cast<char>(b[pos + 4]);
+        c.type[1]   = static_cast<char>(b[pos + 5]);
+        c.type[2]   = static_cast<char>(b[pos + 6]);
+        c.type[3]   = static_cast<char>(b[pos + 7]);
+        c.type[4]   = '\0';
+        c.dataOff   = static_cast<uint32_t>(pos) + 8;
+        size_t crcPos = pos + 8 + c.dataLen;
+        if (crcPos + 4 > b.size()) break;
+        c.crcInFile = rdBE32(b, crcPos);
+        out.push_back(c);
+        pos = crcPos + 4;
+    }
+    return out;
+}
+
+// Verify the CRC32 of a chunk (type bytes + data bytes).
+static bool verifyCrc(const std::vector<uint8_t>& b, const Chunk& c) {
+    uLong crc = crc32(0L, Z_NULL, 0);
+    // type bytes (4)
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(c.type), 4);
+    // data bytes
+    if (c.dataLen > 0)
+        crc = crc32(crc, &b[c.dataOff], c.dataLen);
+    return static_cast<uint32_t>(crc) == c.crcInFile;
+}
+
+// Decompress zlib data and return raw bytes; returns false on failure.
+static bool zlibDecompress(const uint8_t* src, size_t srcLen,
+                           std::vector<uint8_t>& dst, std::string& errOut) {
+    // Start with a generous initial buffer; resize as needed.
+    dst.resize(srcLen * 4 + 1024);
+    uLong dstLen = static_cast<uLong>(dst.size());
+
+    int rc = Z_BUF_ERROR;
+    while (rc == Z_BUF_ERROR) {
+        dstLen = static_cast<uLong>(dst.size());
+        rc = uncompress(reinterpret_cast<Bytef*>(dst.data()), &dstLen,
+                        reinterpret_cast<const Bytef*>(src),
+                        static_cast<uLong>(srcLen));
+        if (rc == Z_BUF_ERROR) dst.resize(dst.size() * 2);
+    }
+    if (rc != Z_OK) {
+        errOut = "zlib uncompress failed (rc=" + std::to_string(rc) + ")";
+        return false;
+    }
+    dst.resize(static_cast<size_t>(dstLen));
+    return true;
+}
+
+// ---- the main test runner --------------------------------------------------
+
+void runCase(const char* label,
+             const std::vector<uint16_t>& pixels, int W, int H,
+             const PngMetadata& meta) {
+    std::printf("[%s]\n", label);
+
+    std::string path = std::string("/tmp/sf_png_test_") + label + ".png";
+
+    PngWriteResult wr = writePng16ToFile(pixels.data(), W, H, meta, path);
+    CHECK(wr.ok, "writer returned ok");
+    if (!wr.ok) {
+        std::printf("    error: %s\n", wr.error.c_str());
+        return;
+    }
+
+    // Read back.
+    std::vector<uint8_t> file;
+    CHECK(readFile(path, file), "file readable from disk");
+    CHECK(file.size() == wr.bytesWritten, "bytesWritten matches file size");
+    if (file.size() < 8) return;
+
+    // ---- PNG signature (8 bytes) -------------------------------------------
+    static const uint8_t kSig[8] = {0x89,'P','N','G',0x0D,0x0A,0x1A,0x0A};
+    CHECK(std::memcmp(file.data(), kSig, 8) == 0, "PNG signature correct");
+
+    // ---- Chunk inventory ---------------------------------------------------
+    auto chunks = parseChunks(file);
+    CHECK(!chunks.empty(), "at least one chunk found");
+
+    // Find specific chunks by type.
+    auto findChunk = [&](const char* t) -> const Chunk* {
+        for (auto& c : chunks) if (std::strcmp(c.type, t) == 0) return &c;
+        return nullptr;
+    };
+
+    // ---- IHDR chunk --------------------------------------------------------
+    const Chunk* ihdr = findChunk("IHDR");
+    CHECK(ihdr != nullptr, "IHDR chunk present");
+    if (ihdr) {
+        CHECK(verifyCrc(file, *ihdr), "IHDR CRC32 correct");
+        CHECK(ihdr->dataLen == 13, "IHDR data length = 13");
+
+        const uint8_t* d = &file[ihdr->dataOff];
+        uint32_t fw = rdBE32(file, ihdr->dataOff);
+        uint32_t fh = rdBE32(file, ihdr->dataOff + 4);
+        CHECK(fw == static_cast<uint32_t>(W), "IHDR width matches");
+        CHECK(fh == static_cast<uint32_t>(H), "IHDR height matches");
+        CHECK(d[8]  == 16, "IHDR bit_depth = 16");
+        CHECK(d[9]  ==  2, "IHDR color_type = 2 (RGB)");
+        CHECK(d[10] ==  0, "IHDR compression_method = 0");
+        CHECK(d[11] ==  0, "IHDR filter_method = 0");
+        CHECK(d[12] ==  0, "IHDR interlace = 0 (no interlace)");
+    }
+
+    // ---- iCCP chunk --------------------------------------------------------
+    const Chunk* iccp = findChunk("iCCP");
+    if (!meta.iccProfile.empty()) {
+        CHECK(iccp != nullptr, "iCCP chunk present when ICC provided");
+        if (iccp) {
+            CHECK(verifyCrc(file, *iccp), "iCCP CRC32 correct");
+            // Profile name must be "ICC Profile" followed by NUL + compression byte 0.
+            const uint8_t* d = &file[iccp->dataOff];
+            static const char kName[] = "ICC Profile";
+            bool nameOk = (iccp->dataLen > 13) &&
+                          (std::memcmp(d, kName, sizeof(kName) - 1) == 0) &&
+                          (d[11] == 0) && (d[12] == 0);
+            CHECK(nameOk, "iCCP: profile name 'ICC Profile' + NUL + method 0");
+
+            // Decompress the iCCP data and compare with original.
+            const uint8_t* compData = d + 13;  // after name(11) + NUL(1) + method(1)
+            size_t compLen = iccp->dataLen - 13;
+            std::vector<uint8_t> decompressed;
+            std::string zerr;
+            bool dcOk = zlibDecompress(compData, compLen, decompressed, zerr);
+            CHECK(dcOk, "iCCP data decompresses successfully");
+            bool iccMatch = dcOk &&
+                            (decompressed.size() == meta.iccProfile.size()) &&
+                            (std::memcmp(decompressed.data(),
+                                        meta.iccProfile.data(),
+                                        meta.iccProfile.size()) == 0);
+            CHECK(iccMatch, "iCCP decompressed bytes match original ICC profile");
+        }
+    } else {
+        CHECK(iccp == nullptr, "no iCCP chunk when no ICC provided");
+    }
+
+    // ---- tEXt chunk --------------------------------------------------------
+    const Chunk* text = findChunk("tEXt");
+    if (!meta.software.empty()) {
+        CHECK(text != nullptr, "tEXt chunk present");
+        if (text) {
+            CHECK(verifyCrc(file, *text), "tEXt CRC32 correct");
+            // Data layout: "Software\0<value>"
+            static const char kKw[] = "Software";
+            bool kwOk = (text->dataLen > 9) &&
+                        (std::memcmp(&file[text->dataOff], kKw, 8) == 0) &&
+                        (file[text->dataOff + 8] == 0);
+            CHECK(kwOk, "tEXt keyword = 'Software'");
+            if (kwOk) {
+                // Value is the rest after keyword+NUL.
+                std::string val(reinterpret_cast<const char*>(&file[text->dataOff + 9]),
+                                text->dataLen - 9);
+                CHECK(val == meta.software, "tEXt value matches software string");
+            }
+        }
+    }
+
+    // ---- IDAT chunk --------------------------------------------------------
+    const Chunk* idat = findChunk("IDAT");
+    CHECK(idat != nullptr, "IDAT chunk present");
+    if (idat) {
+        CHECK(verifyCrc(file, *idat), "IDAT CRC32 correct");
+
+        // Inflate the IDAT data.
+        std::vector<uint8_t> inflated;
+        std::string zerr;
+        bool inflOk = zlibDecompress(&file[idat->dataOff], idat->dataLen,
+                                     inflated, zerr);
+        CHECK(inflOk, "IDAT data inflates successfully");
+        if (!inflOk) {
+            std::printf("    zlib error: %s\n", zerr.c_str());
+            return;
+        }
+
+        // Expected size after inflate: (1 + W*3*2) * H  (filter byte + row samples)
+        const size_t rowBytes = static_cast<size_t>(W) * 3u * 2u;
+        const size_t filtRowBytes = 1u + rowBytes;
+        CHECK(inflated.size() == filtRowBytes * static_cast<size_t>(H),
+              "IDAT inflated size = (1 + W*3*2)*H");
+
+        // Verify filter bytes are all 0 (None) and pixel samples round-trip.
+        bool pixOk = true;
+        bool filterOk = true;
+        for (int y = 0; y < H && (pixOk || filterOk); ++y) {
+            const uint8_t* row = inflated.data() + y * filtRowBytes;
+            if (row[0] != 0) { filterOk = false; }
+            // Samples start at row+1; each 16-bit sample is big-endian in file.
+            const uint8_t* s = row + 1;
+            for (int x = 0; x < W * 3; ++x) {
+                uint16_t sampleBE = (static_cast<uint16_t>(s[x * 2]) << 8) |
+                                     static_cast<uint16_t>(s[x * 2 + 1]);
+                uint16_t orig = pixels[static_cast<size_t>(y) * W * 3 + x];
+                if (sampleBE != orig) { pixOk = false; }
+            }
+        }
+        CHECK(filterOk, "all scanline filter bytes = 0 (None)");
+        CHECK(pixOk, "all pixel samples round-trip bit-exact (BE->LE)");
+    }
+
+    // ---- IEND chunk --------------------------------------------------------
+    const Chunk* iend = findChunk("IEND");
+    CHECK(iend != nullptr, "IEND chunk present");
+    if (iend) {
+        CHECK(iend->dataLen == 0, "IEND data length = 0");
+        CHECK(verifyCrc(file, *iend), "IEND CRC32 correct");
+    }
+
+    // ---- Chunk order: IHDR must be first, IEND must be last ----------------
+    if (!chunks.empty()) {
+        CHECK(std::strcmp(chunks.front().type, "IHDR") == 0,
+              "IHDR is the first chunk");
+        CHECK(std::strcmp(chunks.back().type, "IEND") == 0,
+              "IEND is the last chunk");
+    }
+
+    std::printf("    file: %s (%zu bytes)\n", path.c_str(), wr.bytesWritten);
+}
+
+}  // namespace
+
+int main() {
+    const int W = 5, H = 4;
+
+    // Deterministic test pattern: full 16-bit range exercised.
+    std::vector<uint16_t> pixels(static_cast<size_t>(W) * H * 3);
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            size_t base = (static_cast<size_t>(y) * W + x) * 3;
+            pixels[base + 0] = static_cast<uint16_t>((x * 65535) / (W - 1));
+            pixels[base + 1] = static_cast<uint16_t>((y * 65535) / (H - 1));
+            pixels[base + 2] = static_cast<uint16_t>(((x + y) & 1) ? 0xFFFF : 0x0001);
+        }
+    }
+    // Force pixels at corners to well-known values for easy manual inspection.
+    pixels[0] = 0x0000; pixels[1] = 0x0000; pixels[2] = 0x0000;  // top-left  = black
+    pixels[(W * H - 1) * 3 + 0] = 0xFFFF;  // bottom-right R
+    pixels[(W * H - 1) * 3 + 1] = 0xFFFF;  // bottom-right G
+    pixels[(W * H - 1) * 3 + 2] = 0xFFFF;  // bottom-right = white
+
+    // Fake ICC blob (arbitrary bytes, odd length to stress word alignment).
+    std::vector<uint8_t> icc;
+    for (int i = 0; i < 149; ++i) icc.push_back(static_cast<uint8_t>(i * 11 + 5));
+
+    // Case 1: full metadata (ICC + software tag).
+    {
+        PngMetadata meta;
+        meta.software  = "Spektrafilm-test";
+        meta.iccProfile = icc;
+        runCase("rgb16", pixels, W, H, meta);
+    }
+
+    // Case 2: no ICC (no iCCP chunk expected).
+    {
+        PngMetadata meta;
+        meta.software = "Spektrafilm-test";
+        // meta.iccProfile is empty by default
+        runCase("no_icc", pixels, W, H, meta);
+    }
+
+    // Case 3: no software string (no tEXt chunk expected).
+    {
+        PngMetadata meta;
+        meta.software   = "";  // empty -> no tEXt
+        meta.iccProfile = icc;
+        runCase("no_software", pixels, W, H, meta);
+    }
+
+    std::printf("\n%s (%d failure%s)\n",
+                g_failures == 0 ? "PASS" : "FAIL",
+                g_failures, g_failures == 1 ? "" : "s");
+    return g_failures == 0 ? 0 : 1;
+}

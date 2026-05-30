@@ -1,0 +1,38 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# NDK / native
+obj/
+**/.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystores / secrets
+*.jks
+*.keystore
+keystore.properties
+
+# Python (engine reference / tooling only)
+__pycache__/
+*.pyc
+.venv/
+
+# Release artifacts (committed deliberately)
+!dist/*.apk
+
+# Kotlin/CMake incremental caches
+.kotlin/
+**/.cxx/

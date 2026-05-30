@@ -1,0 +1,67 @@
+{
+  "case_id": "scan_portra_lensblur",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "scan_film with the camera lens blur ON (camera.lens_blur_um=1650\u00b5m) plus the rest of the spatial branch (halation/scatter/coupler diffusion). Exercises apply_gaussian_blur_um in FilmingStage.expose, applied between the optical diffusion filter and halation: a \u00b5m Gaussian with sigma = lens_blur_um/pixel_size_um broadcast across the 3 channels. For the 64px image pixel_size_um=546.875, so sigma~=3.017 px -> the Young-van Vliet IIR path (sigma>=SMALL_SIGMA_MAX=3) is exercised, a clearly non-trivial blur. Grain off so it stays deterministic/bit-stable.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.4487590789794922,
+      "mean": 0.9320545792579651,
+      "min": 0.09364273399114609,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 1.00845205783844,
+      "mean": 0.3274363875389099,
+      "min": -0.900090217590332,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.7000863552093506,
+      "mean": 0.2417467087507248,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "auto_exposure_method": "center_weighted",
+    "deactivate_spatial_effects": false,
+    "deactivate_stochastic_effects": true,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

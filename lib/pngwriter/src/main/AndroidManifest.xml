@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Spektrafilm for Android — lib:pngwriter manifest (minimal).
+  Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
+  This module ships only a native 16-bit PNG writer + Kotlin facade; no components.
+-->
+<manifest />
