@@ -94,43 +94,64 @@ git tag -a v0.3.0 -m "SpectraFilm v0.3.0"
 git push origin v0.3.0
 ```
 
+**Shortcut for v0.3.0:** the release commit is already pushed as the branch
+**`release/v0.3.0`** (branch pushes succeed even though the build env's tag pushes 403).
+From any machine with normal GitHub access you can tag straight off it — no re-fetch of
+the wave needed:
+
+```bash
+git fetch origin
+git tag -a v0.3.0 origin/release/v0.3.0 -m "SpectraFilm v0.3.0"
+git push origin v0.3.0
+```
+
+Or skip the CLI entirely: GitHub's "Create release" page can create the `v0.3.0` tag
+on the fly with **Target: `release/v0.3.0`** (see §4).
+
 ---
 
 ## 4. Create the GitHub Release
 
 Navigate to https://github.com/thetechgeekko/Spectrafilmandroid/releases/new and:
 
-- [ ] **Tag:** select the tag you just pushed (e.g. `v0.2.0`). Target: `main`.
-- [ ] **Release title:** `SpectraFilm v0.2.0`
-- [ ] **Description:** paste the relevant section from `CHANGELOG.md` (the `## v0.2.0` block).
-  The changelog uses Markdown — GitHub renders it correctly as-is.
-- [ ] **Attach files:**
-  - `dist/SpectraFilm-v0.2.0.apk`
-  - `dist/SpectraFilm-v0.2.0.apk.sha256`
-- [ ] **Mark as pre-release** if this is a development/beta build (currently recommended;
-  flip to "Latest release" once on-device testing closes issue #5).
+- [ ] **Tag:** `v0.3.0`. **Target:** `release/v0.3.0` (or `main` once PR #8 is merged) — GitHub
+  will create the tag on publish if it doesn't exist yet.
+- [ ] **Release title:** `SpectraFilm v0.3.0`
+- [ ] **Description:** paste the template below (mirrors the `## v0.3.0` block in `CHANGELOG.md`).
+- [ ] **Attach files:** `dist/SpectraFilm-v0.3.0.apk` and `dist/SpectraFilm-v0.3.0.apk.sha256`
+  — **BUT** see §2: the committed APK is **debug-signed**. Rebuild with the real keystore and
+  re-attach before publishing a non-pre-release.
+- [ ] **Mark as pre-release** until on-device testing (§ device smoke test) closes issue #5.
 - [ ] Click **Publish release**.
 
 ### Release notes template (paste into the GitHub Release description)
 
 ```
-## SpectraFilm v0.2.0
+## SpectraFilm v0.3.0
 
-Turning the engine into a real, playable tool.
+Lightroom-style UI redesign, new bit-exact engine stages, and a major export/import upgrade.
 
-- **Full parameter surface wired** — every SpektraParams field reaches the engine; defaults stay bit-exact.
-- **RAW/DNG import** via LibRaw (libsfraw.so, arm64/armeabi-v7a/x86_64) → linear ACES; plus photo picker and synthetic demo image.
-- **Full GUI organized like the spektrafilm desktop** — 10 collapsible sections, debounced live preview.
-- **Presets:** 20 built-in researched looks + save / import / export your own as JSON.
-- **28 film/paper stock catalog** with friendly names, ISO, era, character.
-- **Custom adaptive icon** (35 mm frame + spectral strip; Material You monochrome).
-- **Export to gallery** with full-resolution render mask.
-- **Crop/resize geometry stage** (bit-exact) — IOParams crop fields and cubic upscale_factor are now live, matching the spektrafilm _preprocess step. Defaults are a strict no-op.
-- **RAW white-balance UI** — Temperature/Tint sliders + WB-mode dropdown (as-shot / daylight / tungsten / custom) + reset, shown only for RAW/DNG sources; changing WB re-decodes the preview.
-- **Welcome / onboarding, Settings, and in-app About** — credits, attribution, and a "Report an issue" shortcut.
+**UI redesign** — full edge-to-edge layout; pinned preview with a 90° rotate button; a
+horizontal scrollable bottom bar of custom category icons; inline adjustment panel; system
+Back navigates within the app (double-back to exit). Settings (gear) and About ("?") icons.
+
+**Engine (bit-exact vs the spektrafilm reference):** auto-exposure with 7 metering patterns,
+diffusion filters, and camera/scanner lens blur. The print path now works with every
+film/paper combination (previously limited).
+
+**Editing & export:** opt-in "Auto" exposure with a metering-method popup; RAW white-balance;
+a profile-curve browser; non-destructive recipe editing (your edits are saved per-image, the
+original is never touched). Export to 16-bit TIFF, 16-bit PNG, or Google Ultra HDR, with the
+source photo's EXIF preserved (GPS/location is opt-in, off by default for privacy).
+
+**RAW/DNG:** Samsung Expert RAW (DEFLATE-compressed) DNGs now decode; lossy/JPEG-XL DNGs fall
+back to the system decoder. Imported photos are auto-rotated to their correct orientation.
+
+**Under the hood:** memory-safety hardening (reviewed + fuzzed), parity test coverage across
+all new stages.
 
 **Install:** download the APK, enable "Install from unknown sources," open. Min Android 7.0 (API 24).
-Verify the download: `sha256sum SpectraFilm-v0.2.0.apk` and compare to the `.sha256` file.
+Verify: `sha256sum SpectraFilm-v0.3.0.apk` and compare to the `.sha256` file.
 
 Film modeling powered by [spektrafilm](https://github.com/andreavolpato/spektrafilm) by Andrea Volpato.
 Dedicated to the [pixls.us](https://pixls.us) community. GPLv3.
@@ -195,15 +216,19 @@ https://github.com/thetechgeekko/Spectrafilmandroid
 | Issue | Description | Status |
 |-------|-------------|--------|
 | #5 | On-device smoke-test. | **Needs reconciliation.** Issue #5 was closed on GitHub, but the app has never been run on a real physical device in this environment (the sandbox emulator has no `/dev/kvm` — software emulation is too slow and only ever reaches the welcome screen). The CI `android-emulator` job is gated to manual `workflow_dispatch` and also fails in setup on hosted runners. **Recommended action:** reopen #5 (or add a tracking note) until the redesigned UI, rotate→export flow, back-navigation, and Expert RAW import have been confirmed on an actual device. Maintainer: sideload `app/build/outputs/apk/debug/app-debug.apk` and smoke-test. |
-| #6 | Some exposed params are inert (gated in UI). | **Substantially addressed.** Crop/resize geometry, auto-exposure (all 7 metering patterns), and diffusion filters are now ported, bit-exact, and parity-gated. **Remaining gated stages: lens blur and LUT acceleration.** Glare-on-print is a known gap being addressed in a separate work stream. |
-| #7 | Full-res RAW memory/perf risk (no tiling or GPU path yet). | **Open** — deferred to M6/M7 (tiling, NEON SIMD, optional GPU accelerator). |
+| #6 | Some exposed params are inert (gated in UI). | **Substantially addressed.** Crop/resize geometry, auto-exposure (all 7 metering patterns), diffusion filters, and **lens blur (camera + scanner)** are ported, bit-exact, and parity-gated. **Remaining: LUT acceleration** (machinery ported + verified but opt-in/unwired to protect the parity gate) and **glare-on-print** (wired but default-off — it's stochastic, so it can't be made bit-exact vs the reference). |
+| #7 | Full-res RAW memory/perf risk (no tiling or GPU path yet). | **Open** — partial app-side mitigation added (OOM-retry ladder in `decodeRawToLinear`); native tiling/NEON/GPU still deferred to M6/M7. |
 
-> **Maintainer note — version bump and dist APK:** the v0.3.0 feature wave (auto-exposure,
-> diffusion, TIFF export, EXIF copy, Ultra HDR, UI redesign, Expert RAW fix, recipe layer,
-> status pill, profile-curve browser) is committed on the dev branch but `versionCode` /
-> `versionName` in `app/build.gradle.kts` have not yet been bumped to v0.3.0, and no updated
-> APK has been placed in `dist/`. Another agent is handling the version bump in
-> `app/build.gradle.kts`; once that lands, rebuild with `./gradlew :app:assembleDebug` (or
-> `assembleRelease` with a signing key) and copy the result to `dist/SpectraFilm-v0.3.0.apk`
-> along with a regenerated `.sha256`. This is a **maintainer step** — do not merge to `main`
-> or publish a GitHub Release without a current dist APK.
+> **Maintainer note — version & dist APK (DONE this wave):** `versionCode` is bumped to **2** and
+> `versionName` to **0.3.0** in `app/build.gradle.kts`, and `dist/SpectraFilm-v0.3.0.apk` (+ `.sha256`)
+> is committed — rebuilt **with the security fixes**. ⚠️ It is **debug-signed** (the `keystore.properties`
+> fallback). Before publishing a non-pre-release, do §2 (generate the real keystore), run
+> `./gradlew :app:assembleRelease`, and **re-copy** the signed APK to `dist/SpectraFilm-v0.3.0.apk`
+> + regenerate the `.sha256`. The release commit is also pushed as branch **`release/v0.3.0`** for
+> easy tagging/Release creation (see §3/§4).
+>
+> **Security review (DONE this wave):** a pre-release review found 2 blockers + hardening items.
+> Fixed in-code: JNI >2 GiB allocation guards, writer buffer-capacity checks, PNG overflow guard,
+> and **GPS-on-export is now opt-in (default off)**. The remaining blocker is the **debug-signing**
+> above. The DNG sniffer (untrusted-input parser) was **fuzzed** (~795k execs, ASan+UBSan, 0 crashes)
+> via `lib/libraw/src/test/cpp/fuzz_dng_sniffer.cpp`.
