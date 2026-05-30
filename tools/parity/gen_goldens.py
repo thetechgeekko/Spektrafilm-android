@@ -86,6 +86,13 @@ class Case:
     # determinism; a non-default case turns it ON to exercise the metering stage.
     auto_exposure: bool = False
     auto_exposure_method: str = "center_weighted"
+    # Camera lens blur in micrometres (camera.lens_blur_um). Default 0.0 (strict
+    # no-op). A non-default case sets it to exercise the µm Gaussian lens-blur pass
+    # in FilmingStage.expose (applied between the diffusion filter and halation).
+    # lens_blur_um is only honoured when deactivate_spatial_effects is False (the
+    # oracle's digest_params zeroes it otherwise), so a lens-blur case must keep
+    # spatial effects on.
+    lens_blur_um: float = 0.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -123,6 +130,25 @@ CASES = [
         grain_active=False,
         notes="scan_film with spatial effects ON (halation/scatter/diffusion), grain off. "
               "Deterministic target for porting the spatial branches.",
+    ),
+    Case(
+        case_id="scan_portra_lensblur",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=False,   # required: keeps camera.lens_blur_um alive
+        deactivate_stochastic_effects=True,  # grain OFF -> deterministic/bit-stable
+        grain_active=False,
+        lens_blur_um=1650.0,                # NON-default camera lens blur (µm)
+        notes="scan_film with the camera lens blur ON (camera.lens_blur_um=1650µm) "
+              "plus the rest of the spatial branch (halation/scatter/coupler "
+              "diffusion). Exercises apply_gaussian_blur_um in FilmingStage.expose, "
+              "applied between the optical diffusion filter and halation: a µm "
+              "Gaussian with sigma = lens_blur_um/pixel_size_um broadcast across the "
+              "3 channels. For the 64px image pixel_size_um=546.875, so sigma~=3.017 "
+              "px -> the Young-van Vliet IIR path (sigma>=SMALL_SIGMA_MAX=3) is "
+              "exercised, a clearly non-trivial blur. Grain off so it stays "
+              "deterministic/bit-stable.",
     ),
     Case(
         case_id="scan_portra_crop",
@@ -256,6 +282,9 @@ def _build_params(sf, case: Case):
     params.camera.auto_exposure = case.auto_exposure
     params.camera.auto_exposure_method = case.auto_exposure_method
     params.camera.exposure_compensation_ev = 0.0
+    # Camera lens blur (µm). Only meaningful when spatial effects are kept on
+    # (digest_params zeroes it under deactivate_spatial_effects=True).
+    params.camera.lens_blur_um = case.lens_blur_um
     return params
 
 

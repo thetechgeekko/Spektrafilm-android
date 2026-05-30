@@ -14,6 +14,7 @@
  */
 #include <jni.h>
 
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -24,6 +25,28 @@
     Java_com_spectrafilm_engine_SpektraEngine_##name
 
 namespace {
+
+// Throw a java.lang.RuntimeException carrying `msg` so a real, specific failure
+// reaches Kotlin instead of collapsing to a bare null return (which the facade
+// previously surfaced as a misleading "not implemented yet" error). Safe to call
+// even if a pending exception already exists (ThrowNew is a no-op then). Returns
+// after queuing the throw; the caller must return promptly to the JVM.
+void throw_runtime(JNIEnv* env, const char* msg) {
+    if (env->ExceptionCheck()) return;  // don't mask an already-pending exception
+    jclass cls = env->FindClass("java/lang/RuntimeException");
+    if (cls) {
+        env->ThrowNew(cls, msg);
+        env->DeleteLocalRef(cls);
+    }
+}
+
+// Throw a RuntimeException describing an spk_status failure (e.g.
+// "spektra: profile not found"). No-op for SPK_OK.
+void throw_status(JNIEnv* env, spk_status st) {
+    if (st == SPK_OK) return;
+    std::string msg = std::string("spektra: ") + spk_status_str(st);
+    throw_runtime(env, msg.c_str());
+}
 
 // Read a jstring into a std::string (empty on null).
 std::string jstr(JNIEnv* env, jstring s) {
@@ -386,9 +409,15 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
 
 JNI(jlong, nativeCreate)(JNIEnv* env, jobject /*thiz*/, jstring assetDir) {
     std::string dir = jstr(env, assetDir);
-    if (dir.empty()) return 0;  // AAssetManager path not yet wired; require an extracted dir.
+    if (dir.empty()) {
+        // AAssetManager path not yet wired; require an extracted dir.
+        throw_runtime(env, "spektra: assetDir is null/empty (extracted asset "
+                           "directory required)");
+        return 0;
+    }
     spk_engine* eng = nullptr;
-    if (spk_engine_create(dir.c_str(), &eng) != SPK_OK) return 0;
+    spk_status st = spk_engine_create(dir.c_str(), &eng);
+    if (st != SPK_OK) { throw_status(env, st); return 0; }
     return reinterpret_cast<jlong>(eng);
 }
 
@@ -418,33 +447,86 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
                              jobject inBuf, jint w, jint h, jstring /*inCs*/,
                              jobject paramsObj, jboolean preview) {
     spk_engine* eng = reinterpret_cast<spk_engine*>(handle);
-    if (!eng || !inBuf) return nullptr;
+    if (!eng) { throw_runtime(env, "spektra: engine handle is null"); return nullptr; }
+    if (!inBuf) { throw_runtime(env, "spektra: input ByteBuffer is null"); return nullptr; }
+    if (w <= 0 || h <= 0) {
+        throw_runtime(env, "spektra: invalid image dimensions");
+        return nullptr;
+    }
 
     float* in_data = static_cast<float*>(env->GetDirectBufferAddress(inBuf));
-    if (!in_data) return nullptr;
+    if (!in_data) {
+        throw_runtime(env, "spektra: input ByteBuffer is not direct");
+        return nullptr;
+    }
+    // Reject buffers too small for w*h*3 float32 to avoid out-of-bounds reads.
+    // The required byte count is computed in 64-bit to avoid overflow.
+    const jlong cap = env->GetDirectBufferCapacity(inBuf);
+    const int64_t need_bytes =
+        static_cast<int64_t>(w) * h * 3 * static_cast<int64_t>(sizeof(float));
+    if (cap < 0 || static_cast<int64_t>(cap) < need_bytes) {
+        throw_runtime(env, "spektra: input ByteBuffer capacity too small for "
+                           "width*height*3*4 bytes");
+        return nullptr;
+    }
 
     spk_params params;
     ParamStorage store;
-    if (!marshal_params(env, paramsObj, &params, &store)) return nullptr;
+    if (!marshal_params(env, paramsObj, &params, &store)) {
+        throw_runtime(env, "spektra: failed to marshal params");
+        return nullptr;
+    }
 
     spk_image in_img{in_data, w, h, static_cast<int>(SPK_CS_PROPHOTO)};
     spk_image out{};
     spk_status st = preview ? spk_simulate_preview(eng, &in_img, &params, &out)
                             : spk_simulate(eng, &in_img, &params, &out);
-    if (st != SPK_OK || !out.data) return nullptr;
+    if (st != SPK_OK) { throw_status(env, st); return nullptr; }
+    if (!out.data) { throw_runtime(env, "spektra: engine returned no data"); return nullptr; }
 
     // Wrap the output into a Java-managed direct ByteBuffer (allocateDirect), copy
     // the engine buffer into it, then free the C-side allocation. This keeps memory
     // ownership on the JVM heap so the GC reclaims it.
     const size_t n = static_cast<size_t>(out.width) * out.height * 3;
+
+    // Allocate a JVM-managed direct ByteBuffer for the result. Each JNI lookup is
+    // checked + cleared so a failure (e.g. an unexpected R8/ProGuard strip of the
+    // referenced class/method) raises a specific RuntimeException instead of
+    // crashing on a null jclass/jmethodID passed to a later JNI call.
     jclass bbCls = env->FindClass("java/nio/ByteBuffer");
+    if (!bbCls) {
+        env->ExceptionClear();
+        spk_image_free(&out);
+        throw_runtime(env, "spektra: java.nio.ByteBuffer not found");
+        return nullptr;
+    }
     jmethodID allocDirect = env->GetStaticMethodID(bbCls, "allocateDirect",
                                                    "(I)Ljava/nio/ByteBuffer;");
+    if (!allocDirect) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(bbCls);
+        spk_image_free(&out);
+        throw_runtime(env, "spektra: ByteBuffer.allocateDirect not found");
+        return nullptr;
+    }
     jobject outBuf = env->CallStaticObjectMethod(bbCls, allocDirect,
                                                  static_cast<jint>(n * sizeof(float)));
     env->DeleteLocalRef(bbCls);
-    if (!outBuf) { spk_image_free(&out); return nullptr; }
+    if (env->ExceptionCheck() || !outBuf) {
+        // allocateDirect can throw (e.g. OutOfMemoryError) — let a pending
+        // exception propagate; otherwise queue a generic one.
+        spk_image_free(&out);
+        if (!env->ExceptionCheck())
+            throw_runtime(env, "spektra: failed to allocate output ByteBuffer");
+        return nullptr;
+    }
     void* dst = env->GetDirectBufferAddress(outBuf);
+    if (!dst) {
+        env->DeleteLocalRef(outBuf);
+        spk_image_free(&out);
+        throw_runtime(env, "spektra: output ByteBuffer is not direct");
+        return nullptr;
+    }
     std::memcpy(dst, out.data, n * sizeof(float));
 
     int out_w = out.width, out_h = out.height, out_cs = out.color_space;
@@ -452,25 +534,53 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
 
     // Build the SimResult(data: ByteBuffer, width: Int, height: Int, colorSpace: ColorSpace).
     jclass csCls = env->FindClass("com/spectrafilm/engine/ColorSpace");
+    if (!csCls) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(outBuf);
+        throw_runtime(env, "spektra: ColorSpace class not found");
+        return nullptr;
+    }
     jmethodID csValues = env->GetStaticMethodID(csCls, "values",
         "()[Lcom/spectrafilm/engine/ColorSpace;");
-    jobjectArray csArr = static_cast<jobjectArray>(
-        env->CallStaticObjectMethod(csCls, csValues));
+    jobjectArray csArr = nullptr;
+    if (csValues) {
+        csArr = static_cast<jobjectArray>(
+            env->CallStaticObjectMethod(csCls, csValues));
+        if (env->ExceptionCheck()) { env->ExceptionClear(); csArr = nullptr; }
+    } else {
+        env->ExceptionClear();
+    }
     int ord = out_cs;
     int len = csArr ? env->GetArrayLength(csArr) : 0;
     if (ord < 0 || ord >= len) ord = 0;
     jobject csObj = csArr ? env->GetObjectArrayElement(csArr, ord) : nullptr;
+    env->DeleteLocalRef(csCls);
 
     jclass resCls = env->FindClass("com/spectrafilm/engine/SimResult");
+    if (!resCls) {
+        env->ExceptionClear();
+        if (csArr) env->DeleteLocalRef(csArr);
+        if (csObj) env->DeleteLocalRef(csObj);
+        env->DeleteLocalRef(outBuf);
+        throw_runtime(env, "spektra: SimResult class not found");
+        return nullptr;
+    }
     jmethodID resCtor = env->GetMethodID(resCls, "<init>",
         "(Ljava/nio/ByteBuffer;IILcom/spectrafilm/engine/ColorSpace;)V");
-    jobject result = env->NewObject(resCls, resCtor, outBuf, out_w, out_h, csObj);
+    jobject result = nullptr;
+    if (resCtor) {
+        result = env->NewObject(resCls, resCtor, outBuf, out_w, out_h, csObj);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); result = nullptr; }
+    } else {
+        env->ExceptionClear();
+    }
 
     if (csArr) env->DeleteLocalRef(csArr);
     if (csObj) env->DeleteLocalRef(csObj);
-    env->DeleteLocalRef(csCls);
     env->DeleteLocalRef(resCls);
     env->DeleteLocalRef(outBuf);
+    if (!result)
+        throw_runtime(env, "spektra: failed to construct SimResult");
     return result;
 }
 
@@ -484,20 +594,29 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
 JNI(jstring, nativeBakeCubeLut)(JNIEnv* env, jobject /*thiz*/, jlong handle,
                                 jobject paramsObj, jint size) {
     spk_engine* eng = reinterpret_cast<spk_engine*>(handle);
-    if (!eng) return nullptr;
+    if (!eng) { throw_runtime(env, "spektra: engine handle is null"); return nullptr; }
 
     spk_params params;
     ParamStorage store;
-    if (!marshal_params(env, paramsObj, &params, &store)) return nullptr;
+    if (!marshal_params(env, paramsObj, &params, &store)) {
+        throw_runtime(env, "spektra: failed to marshal params");
+        return nullptr;
+    }
 
     size_t needed = 0;
-    spk_status st = spk_bake_cube_lut(eng, &params, size, nullptr, 0, &needed);
+    spk_bake_cube_lut(eng, &params, size, nullptr, 0, &needed);
     // The sizing pass returns SPK_ERR_BAD_ARGS (null buffer) but still sets
-    // `needed`; any other failure (bad profile, internal) is fatal.
-    if (needed == 0) return nullptr;
+    // `needed`; needed==0 means a real failure (bad profile, internal) — surface it.
+    if (needed == 0) {
+        // Re-run to capture the actual status for a meaningful message.
+        spk_status probe = spk_bake_cube_lut(eng, &params, size, nullptr, 0, &needed);
+        throw_status(env, probe == SPK_OK ? SPK_ERR_INTERNAL : probe);
+        return nullptr;
+    }
 
     std::vector<char> buf(needed);
-    st = spk_bake_cube_lut(eng, &params, size, buf.data(), buf.size(), &needed);
-    if (st != SPK_OK) return nullptr;
+    spk_status st = spk_bake_cube_lut(eng, &params, size, buf.data(), buf.size(),
+                                      &needed);
+    if (st != SPK_OK) { throw_status(env, st); return nullptr; }
     return env->NewStringUTF(buf.data());
 }
