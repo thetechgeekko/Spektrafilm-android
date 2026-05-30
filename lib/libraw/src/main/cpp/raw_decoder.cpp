@@ -41,22 +41,37 @@ namespace spectrafilm {
 // ---------------------------------------------------------------------------
 // Minimal in-memory TIFF/DNG sniffer.
 // ---------------------------------------------------------------------------
-// We only need the *compression scheme* of the primary (full-resolution, non-
-// reduced) raw image so we can classify an unpack() failure precisely: a
-// Samsung "Expert RAW" file that fails because it is lossy-JPEG-compressed
-// (needs libjpeg, absent from the NDK) must be reported distinctly from a
-// generic corrupt-file error, so the app can fall back to the platform
-// ImageDecoder. Deliberately small and tolerant: any parse trouble -> unknown.
+// We sniff the *compression scheme* of the primary (full-resolution, non-
+// reduced) raw image. Two uses:
+//   1. To classify an unpack() failure precisely so the app can fall back to
+//      the platform ImageDecoder for the compressions LibRaw cannot decode
+//      without external image libraries (lossy baseline JPEG -> needs libjpeg;
+//      JPEG-XL -> needs libjxl/dngsdk). These are reported distinctly from a
+//      generic corrupt-file error.
+//   2. For diagnostics: naming the compression in error messages.
+//
+// CRITICAL: lossless-JPEG/LJ92 (Compression 7) and uncompressed (1) and deflate
+// (8) all decode NATIVELY (see DecodeStatus doc in raw_decoder.h). LibRaw's
+// internal lossless_jpeg_load_raw handles tag 7 with no libjpeg. So tag 7 must
+// NOT be classified as a fallback case — only genuinely-unsupported lossy JPEG
+// (6 / 0x884C) and JPEG-XL (0xCD42) are.
+//
+// Many mobile/Pixel DNGs put a large JPEG *preview* in IFD0 and the real raw
+// plane in a SubIFD; the IFD walk below (SubIFDs + next-IFD chain, picking the
+// largest non-reduced image) selects the raw plane so a preview is never
+// mistaken for the raw compression. Deliberately small and tolerant: any parse
+// trouble -> unknown.
 namespace dngsniff {
 
 enum Compression {
     kUnknown = -1,
-    kNone = 1,
-    kLossyJpegOld = 6,
-    kJpeg = 7,        // baseline / lossless JPEG (DNG lossless)
-    kDeflate = 8,     // ZIP/DEFLATE (Adobe)
+    kNone = 1,            // uncompressed -> decodes natively
+    kLossyJpegOld = 6,    // old-style JPEG (lossy) -> needs libjpeg (fallback)
+    kLosslessJpeg = 7,    // lossless JPEG / LJ92 -> decodes natively (internal)
+    kDeflate = 8,         // ZIP/DEFLATE (Adobe) -> decodes natively (USE_ZLIB)
     kDeflateAdobe = 0x80B2,
-    kLossyJpeg = 0x884C,  // DNG 1.4 lossy JPEG
+    kLossyJpeg = 0x884C,  // DNG 1.4 lossy baseline JPEG -> needs libjpeg
+    kJpegXL = 0xCD42,     // DNG 1.7 JPEG-XL (52546) -> needs libjxl/dngsdk
 };
 
 struct Reader {
@@ -153,31 +168,58 @@ inline int compressionOf(const uint8_t* data, size_t len, bool* isDng) {
 
 inline bool isDeflate(int c) { return c == kDeflate || c == kDeflateAdobe; }
 inline bool isLossyJpeg(int c) { return c == kLossyJpeg || c == kLossyJpegOld; }
+inline bool isJpegXL(int c) { return c == kJpegXL; }
+// Compressions LibRaw decodes natively in this build (no external image libs).
+inline bool isNativelySupported(int c) {
+    return c == kNone || c == kLosslessJpeg || isDeflate(c);
+}
 
 // Classify an unpack() failure for a compressed DNG into a stable status.
-// Returns SFRAW_ERR_UNPACK if it isn't a recognizable compressed-DNG case.
+// Returns SFRAW_ERR_UNPACK if it isn't a recognizable must-fallback case.
+//
+// Note: this only runs AFTER unpack() has already failed. Uncompressed (1),
+// lossless-JPEG/LJ92 (7) and deflate (8) decode natively, so reaching here with
+// one of those means a genuine data error, not an unsupported codec -> we leave
+// them as SFRAW_ERR_UNPACK rather than mislabeling them as a fallback case.
 inline int classifyUnpackFailure(const uint8_t* data, size_t len) {
     bool isDng = false;
     int comp = compressionOf(data, len, &isDng);
     if (isDng) {
+        if (isJpegXL(comp)) return SFRAW_ERR_JPEGXL_DNG;  // needs libjxl/dngsdk
         if (isLossyJpeg(comp)) {
 #ifndef USE_JPEG
-            return SFRAW_ERR_LOSSY_JPEG_DNG;
+            return SFRAW_ERR_LOSSY_JPEG_DNG;  // needs libjpeg
 #endif
         }
         if (isDeflate(comp)) {
 #ifndef USE_ZLIB
-            return SFRAW_ERR_DEFLATE_DNG;
+            return SFRAW_ERR_DEFLATE_DNG;  // misbuild: rebuild with USE_ZLIB
 #endif
         }
-        // DNG of unknown compression that still failed: the dominant cause for
-        // Samsung Expert RAW is lossy-JPEG, so hint that fallback.
+        // A DNG of unknown/unreadable compression that still failed unpack: the
+        // dominant real-world cause among DNGs LibRaw can't open is an
+        // unsupported lossy codec, so hint the platform fallback.
         if (comp == kUnknown) return SFRAW_ERR_LOSSY_JPEG_DNG;
     }
     return SFRAW_ERR_UNPACK;
 }
 
 }  // namespace dngsniff
+
+// Human-readable DNG Compression name (free function; declared in the header).
+const char* dngCompressionName(int v) {
+    switch (v) {
+        case 1: return "uncompressed (1)";
+        case 6: return "old-style JPEG (6, lossy)";
+        case 7: return "lossless JPEG / LJ92 (7)";
+        case 8: return "deflate / ZIP (8)";
+        case 0x80B2: return "deflate / Adobe (0x80B2)";
+        case 0x884C: return "lossy baseline JPEG (0x884C)";
+        case 0xCD42: return "JPEG-XL (0xCD42)";
+        case -1: return "unknown/none";
+        default: return "other";
+    }
+}
 
 namespace {
 
@@ -384,14 +426,23 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     if (rc != LIBRAW_SUCCESS) {
         result.librawCode = rc;
         result.status = dngsniff::classifyUnpackFailure(srcData, srcLen);
+        // Name the specific compression in the message for diagnosability.
+        bool isDng = false;
+        int comp = dngsniff::compressionOf(srcData, srcLen, &isDng);
+        std::string where = isDng ? std::string(" [DNG compression: ") +
+                                        dngCompressionName(comp) + "]"
+                                  : std::string();
         const char* hint = "";
         if (result.status == SFRAW_ERR_LOSSY_JPEG_DNG)
             hint = " [lossy-JPEG DNG (e.g. Samsung Expert RAW); this build has no "
                    "libjpeg — fall back to platform ImageDecoder]";
+        else if (result.status == SFRAW_ERR_JPEGXL_DNG)
+            hint = " [JPEG-XL DNG; this build has no libjxl/dngsdk — fall back to "
+                   "platform ImageDecoder]";
         else if (result.status == SFRAW_ERR_DEFLATE_DNG)
             hint = " [deflate-compressed DNG; rebuild LibRaw with USE_ZLIB]";
         result.error = std::string("LibRaw unpack() failed: ") +
-                       libraw_strerror(rc) + hint;
+                       libraw_strerror(rc) + where + hint;
         return result;
     }
     applyParityParams(raw, options);

@@ -1,11 +1,15 @@
 # SpectraFilm for Android — Continuous Integration
 #
-# What runs today (before the ImageToolbox host is seeded at M1):
-#   • engine-native  — compiles the C++ engine + JNI bridge into libspektra.so
-#   • parity         — builds the golden-vector comparator and runs its ctest self-test
-#   • python-lint    — byte-compiles the Python parity harness
-# What activates automatically at M1 (when settings.gradle.kts lands):
-#   • android        — Gradle assemble of the app + new modules (skipped until then)
+# Six jobs run on every push / PR / manual dispatch:
+#   • engine-native   — compiles C++ engine + JNI bridge into libspektra.so (host toolchain)
+#   • engine-parity   — deterministic stage parity tests against committed goldens (bit-exact
+#                        gate: scan_portra, print_portra, print_ektar + spatial/crop/autoexp/
+#                        diffusion; runs on push/PR)
+#   • parity          — standalone .spkvec comparator (CMake + ctest self-test)
+#   • python-lint     — byte-compiles the Python parity harness
+#   • android         — Gradle assemble of the full app + modules (NDK-built .so for all ABIs)
+#   • android-emulator— installs APK on KVM AVD, smoke-tests MainActivity; manual
+#                        workflow_dispatch only — fails during setup on hosted runners
 #
 # Film modeling powered by spektrafilm (GPLv3).
 name: CI
@@ -92,7 +96,9 @@ jobs:
             grep -qiE "FAIL" "/tmp/$name.out" && { echo "$name: FAIL"; fail=1; } || echo "$name: ok"
             echo "::endgroup::"
           }
-          build_run test_simulate_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          # Pass $G as argv[4] (goldens root) so the test also asserts print_portra and
+          # print_ektar from the committed goldens (not from a hardcoded /home/user path).
+          build_run test_simulate_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_filming "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_crop_resize "$ASSET" "$G/scan_portra_crop" tests/scan_portra_input_rgb.f64

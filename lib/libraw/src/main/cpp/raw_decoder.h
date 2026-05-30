@@ -39,9 +39,24 @@ struct DecodeOptions {
 };
 
 // Stable decode status codes. These cross to Kotlin (RawDecoder.DecodeStatus)
-// so callers can branch on the failure kind (notably to pick a fallback path
-// for compressed Samsung "Expert RAW" DNGs). Distinct from LibRaw's own
-// LIBRAW_* codes, which are preserved separately in DecodeResult.librawCode.
+// so callers can branch on the failure kind (notably to pick a platform-decoder
+// fallback for the DNG compressions LibRaw cannot decode without external image
+// libraries). Distinct from LibRaw's own LIBRAW_* codes, which are preserved
+// separately in DecodeResult.librawCode.
+//
+// Values are part of the JNI/Kotlin ABI: do NOT renumber existing entries; only
+// append new ones (and add the matching entry to RawDecoder.kt's DecodeStatus).
+//
+// IMPORTANT — what decodes NATIVELY (returns SFRAW_OK, no fallback needed):
+//   * Uncompressed DNG (Compression 1)         — plain mobile/Pixel DNGs
+//   * Lossless-JPEG / LJ92 DNG (Compression 7) — common Google Pixel and other
+//       computational-RAW DNGs. LibRaw decodes these with its OWN internal
+//       lossless-JPEG code (lossless_jpeg_load_raw / ljpeg_start / ljpeg_row in
+//       src/decoders/dcraw_common.cpp), which is compiled unconditionally and
+//       does NOT require USE_JPEG/libjpeg. (USE_JPEG only adds *lossy* baseline
+//       JPEG, below.)
+//   * DEFLATE/ZIP DNG (Compression 8)          — via USE_ZLIB (NDK libz linked).
+//   * Mainstream camera RAW (CR2/CR3/NEF/ARW/RAF/ORF/RW2/...).
 enum DecodeStatus {
     SFRAW_OK = 0,
     SFRAW_ERR_UNKNOWN = 1,
@@ -53,16 +68,26 @@ enum DecodeStatus {
     SFRAW_ERR_NO_MEMORY = 7,
     SFRAW_ERR_FORMAT = 8,         // unexpected processed-image format
 
-    // ---- Compressed-DNG specific (Samsung Expert RAW et al.) ----
+    // ---- DNG compressions that need a platform-decoder fallback ----
     // DEFLATE-compressed DNG but this build lacks zlib (USE_ZLIB). Should not
     // occur in the default build (zlib is enabled); indicates a misbuild.
     SFRAW_ERR_DEFLATE_DNG = 10,
 
-    // Lossy-JPEG-compressed DNG (the common Expert RAW case) but this build
-    // lacks libjpeg (USE_JPEG). The NDK has no libjpeg, so this is the expected
-    // residual limitation. App should fall back to platform ImageDecoder.
+    // Lossy-baseline-JPEG-compressed DNG (DNG 1.4 lossy, Compression 0x884C, and
+    // old-style JPEG, Compression 6). Needs libjpeg (USE_JPEG), which the NDK
+    // does not ship, so this is an expected residual limitation. The app should
+    // fall back to the platform ImageDecoder.
     SFRAW_ERR_LOSSY_JPEG_DNG = 11,
+
+    // JPEG-XL-compressed DNG (Compression 0xCD42 / 52546, DNG 1.7+). Needs
+    // libjxl / the Adobe DNG SDK, neither of which is vendored. App should fall
+    // back to the platform ImageDecoder (Android 14+ decodes JXL).
+    SFRAW_ERR_JPEGXL_DNG = 12,
 };
+
+// Human-readable name for a DNG Compression tag value (for diagnostics / logs).
+// Handles values outside the sniffer's enum too.
+const char* dngCompressionName(int compressionValue);
 
 // Linear scene-referred result. Pixels are interleaved RGB float32, row-major,
 // normalized 16-bit -> [0,1] (value / 65535), in ACES2065-1 primaries.
