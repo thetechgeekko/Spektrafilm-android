@@ -233,6 +233,17 @@ class MainActivity : ComponentActivity() {
         var profiles by remember { mutableStateOf<List<String>>(emptyList()) }
         val state = remember { ParamsState() }
 
+        // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
+        // LinearImage across look/film param edits instead of re-running loadSource() (LibRaw
+        // RAW decode or bitmap decode + sRGB→ProPhoto linearization + EXIF/manual rotation) on
+        // every previewTick. Keyed by the decode-affecting inputs only (URI + kind + RAW WB/
+        // temp/tint + manual rotation + target edge); any change to one of those invalidates it
+        // (the key mismatches → fresh decode). See DecodedSourceCache for the read-only proof
+        // that the same buffer can be re-fed to the engine without a defensive copy. EXPORT and
+        // the 100% magnifier do NOT use this cache — they always decode fresh at MAX_EDGE_PX.
+        val sourceCache = remember { DecodedSourceCache() }
+        DisposableEffect(Unit) { onDispose { sourceCache.invalidate() } }
+
         // bundled catalog (friendly stock names + grouping) and built-in presets
         var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
         var catalogReady by remember { mutableStateOf(false) }
@@ -481,6 +492,34 @@ class MainActivity : ComponentActivity() {
             based.rotated(rotation)
         }
 
+        // PERF: proxy-source loader used ONLY by the interactive preview path. Consults the
+        // single-entry DecodedSourceCache keyed by the decode-affecting inputs (URI + kind +
+        // RAW WB/temp/tint + manual rotation + target edge). On a hit we re-feed the SAME
+        // cached LinearImage to the engine — proven safe because spk_simulate/_preview take
+        // `const spk_image* in` and only read it (see DecodedSourceCache for the full proof),
+        // so no defensive copy is required. On a miss we run the full loadSource() decode and
+        // store the result, dropping any previous cached source (one entry only). When ONLY
+        // look/film params change (the common case while editing sliders) the key is unchanged
+        // and we skip the expensive LibRaw/bitmap decode + linearization + rotation entirely.
+        // EXPORT and the 100% magnifier deliberately call loadSource() directly (full-res,
+        // never cached).
+        suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
+            val cached = sourceCache.get(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+            )
+            if (cached != null) return cached
+            val decoded = loadSource(maxEdge)
+            sourceCache.put(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                img = decoded,
+            )
+            return decoded
+        }
+
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
         //
         // PERF/RACE: each tap previously launched an independent coroutine with no
@@ -533,7 +572,9 @@ class MainActivity : ComponentActivity() {
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     decoding = true
-                    val image = loadSource(state.previewMaxSize.coerceAtLeast(256))
+                    // Cached proxy source: re-decodes only when a decode-affecting key
+                    // (URI/kind/WB/temp/tint/rotation/edge) changed; look-param edits reuse it.
+                    val image = loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256))
                     decoding = false
                     val before = linearToDisplayBitmap(image)
                     val res = e.simulatePreview(image, state.toParams())
