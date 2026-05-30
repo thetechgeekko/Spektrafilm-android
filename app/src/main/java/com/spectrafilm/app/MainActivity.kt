@@ -2,14 +2,17 @@
  * SpectraFilm for Android — app entry. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * Polished tool UI: a live preview at the top, a full parameter panel mirroring the
- * spektrafilm desktop GUI (Input, Import Raw, Simulation incl. camera/enlarger/print/
- * scanner/output, Grain, Preflash, Halation, Couplers, Glare, Experimental, Display),
- * styled after Image Toolbox with collapsible cards and enhanced sliders. Edits rebuild
- * an immutable SpektraParams and trigger a debounced, downscaled preview render. Export
- * runs a full-resolution render behind a blocking full-screen mask, then saves to the
- * gallery. RAW/DNG import (LibRaw -> ACES2065-1), the sRGB photo picker, and the synthetic
- * demo image are all supported, plus named JSON presets (save/apply/delete/import/export).
+ * Lightroom-mobile-style editor: an edge-to-edge near-black canvas with a pinned live
+ * preview, a transparent top bar (back/close + export/save + Settings gear + About "?"),
+ * an inline adjustment panel that slides up when a category is chosen, and a horizontally
+ * scrollable bottom category bar mapping each spektrafilm GUI section (Input, RAW WB,
+ * Simulation, Grain, Preflash, Halation, Couplers, Glare, Experimental, Display, Presets,
+ * Source) to one icon. Edits rebuild an immutable SpektraParams and trigger a debounced,
+ * downscaled preview render. Export renders full-resolution behind a blocking mask then
+ * saves to the gallery. A preview rotate button rotates the decoded source so both the
+ * preview AND the export reflect the orientation. RAW/DNG import (LibRaw -> ACES2065-1),
+ * the sRGB photo picker, the synthetic demo image, named JSON presets, and non-destructive
+ * per-image recipe auto-save/restore are all preserved.
  */
 package com.spectrafilm.app
 
@@ -18,14 +21,31 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -34,11 +54,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
@@ -57,8 +83,25 @@ private enum class SourceKind { DEMO, PHOTO, RAW }
 /** Top-level navigation destinations. */
 private enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT }
 
+/** Adjustment categories shown in the bottom bar; each maps to an existing section. */
+private enum class Category(val label: String) {
+    SIMULATION("Simulation"),
+    INPUT("Input"),
+    RAW_WB("RAW WB"),
+    GRAIN("Grain"),
+    PREFLASH("Preflash"),
+    HALATION("Halation"),
+    COUPLERS("Couplers"),
+    GLARE("Glare"),
+    EXPERIMENTAL("Experimental"),
+    DISPLAY("Display"),
+    PRESETS("Presets"),
+    SOURCE("Source"),
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val settings = AppSettings.from(this)
         setContent {
@@ -69,9 +112,7 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    AppRoot(settings = settings, onThemeChanged = { themeMode = it })
-                }
+                AppRoot(settings = settings, onThemeChanged = { themeMode = it })
             }
         }
     }
@@ -93,9 +134,16 @@ class MainActivity : ComponentActivity() {
         var curvesPrintId by remember { mutableStateOf("") }
         var curvesPrintName by remember { mutableStateOf("") }
 
-        Box(Modifier.fillMaxSize()) {
+        // Back from a pushed sub-screen returns to the editor (root).
+        BackHandler(enabled = screen != Screen.EDITOR) { screen = Screen.EDITOR }
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(SpectraIcons.nearBlackCanvas),
+        ) {
             when (screen) {
-                Screen.EDITOR -> Screen(
+                Screen.EDITOR -> EditorScreen(
                     settings = settings,
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenAbout = { screen = Screen.ABOUT },
@@ -143,23 +191,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** A simple back-arrow top bar wrapping a sub-screen. */
+    /** A simple back-arrow top bar wrapping a sub-screen (inset for status bar). */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun NavScaffold(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-        Column(Modifier.fillMaxSize()) {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
-                },
-            )
-            Box(Modifier.weight(1f)) { content() }
+        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.systemBars),
+            ) {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        TextButton(onClick = onBack) { Text("Back") }
+                    },
+                )
+                Box(Modifier.weight(1f)) { content() }
+            }
         }
     }
 
     @Composable
-    private fun Screen(
+    private fun EditorScreen(
         settings: AppSettings,
         onOpenSettings: () -> Unit,
         onOpenAbout: () -> Unit,
@@ -190,13 +244,16 @@ class MainActivity : ComponentActivity() {
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
 
+        // source rotation (applied to the decoded LinearImage -> preview AND export)
+        var rotation by remember { mutableStateOf(SourceRotation.NONE) }
+
         // LUT export
         var bakingLut by remember { mutableStateOf(false) }
         var pendingLutText by remember { mutableStateOf<String?>(null) }
 
         // viewer modes
         var compareMode by remember { mutableStateOf(false) }
-        var showHistogram by remember { mutableStateOf(true) }
+        var showHistogram by remember { mutableStateOf(false) }
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -209,20 +266,20 @@ class MainActivity : ComponentActivity() {
         var presetName by remember { mutableStateOf("") }
         var selectedPreset by remember { mutableStateOf("") }
 
+        // active adjustment category (null = panel closed)
+        var activeCategory by remember { mutableStateOf<Category?>(null) }
+
         fun refreshPresets() { presetList = Presets.list(ctx) }
 
         // --- non-destructive recipe (sidecar) layer ---
-        // True once the engine + persisted defaults are applied, so the initial
-        // default-load doesn't get auto-saved as a recipe before a source is chosen.
         var recipeReady by remember { mutableStateOf(false) }
-        // Whether the currently loaded source has a saved recipe bound to it.
         var hasRecipe by remember { mutableStateOf(false) }
-        // Serialized baseline of the default (post-app-defaults) editing state. Auto-save
-        // only writes a recipe when the current edit differs from this, so untouched
-        // images never get a sidecar and "Reset edits / clear recipe" stays cleared.
         var defaultsJson by remember { mutableStateOf<String?>(null) }
         val snackbarHost = remember { SnackbarHostState() }
         val recipeKey = Recipes.keyFor(sourceUri)
+
+        // --- double-back-to-exit on the root editor ---
+        var backArmed by remember { mutableStateOf(false) }
 
         // One-time engine init.
         LaunchedEffect(Unit) {
@@ -230,14 +287,11 @@ class MainActivity : ComponentActivity() {
                 val dir = extractAssets(ctx)
                 val e = SpektraEngine(dir.absolutePath)
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
-                // parse bundled data off the main thread
                 StockCatalog.stocks(ctx) // warm the catalog cache
                 val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())
                 withContext(Dispatchers.Main) {
                     engine = e
                     profiles = list
-
-                    // Apply persisted app defaults (output space / preview size / profiles).
                     settings.applyDefaultsTo(state, list)
                     if (list.isNotEmpty()) {
                         if (state.filmProfile !in list) state.filmProfile = list.first()
@@ -247,7 +301,6 @@ class MainActivity : ComponentActivity() {
                     catalogReady = true
                     refreshPresets()
                     status = "ready · ${list.size} profiles"
-                    // Capture the default editing state as the auto-save baseline.
                     defaultsJson = Presets.toJsonString(state)
                     recipeReady = true
                     previewTick++
@@ -256,11 +309,6 @@ class MainActivity : ComponentActivity() {
         }
 
         // --- Non-destructive recipe: restore-on-open ---
-        // When the source changes to a keyed (persistable) image: if a recipe is saved
-        // for its key, load it so the edit is reproduced; otherwise reset to defaults so
-        // one image's edits never bleed onto the next. Keyed on the resolved recipeKey so
-        // it fires once per distinct source. The first run (initial demo source, key null)
-        // is a no-op, preserving the unchanged default-launch behavior.
         var lastRestoredKey by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(recipeKey, recipeReady) {
             if (!recipeReady) return@LaunchedEffect
@@ -277,7 +325,6 @@ class MainActivity : ComponentActivity() {
                     withDismissAction = true,
                 )
             } else {
-                // No recipe for this source — start from defaults (don't inherit prior edits).
                 Recipes.resetToDefaults(state, settings, profiles)
                 previewTick++
             }
@@ -289,6 +336,7 @@ class MainActivity : ComponentActivity() {
         ) { uri ->
             if (uri != null) {
                 sourceUri = uri; sourceKind = SourceKind.PHOTO; sourceName = "picked photo"
+                rotation = SourceRotation.NONE
                 status = "photo selected"; previewTick++
             }
         }
@@ -298,8 +346,6 @@ class MainActivity : ComponentActivity() {
             if (uri != null) {
                 val name = uri.lastPathSegment ?: "raw"
                 if (RawDecoder.isRawFileName(name) || true) {
-                    // Persist read access so the same Uri string re-binds its recipe
-                    // across app sessions (OpenDocument grants are persistable).
                     runCatching {
                         ctx.contentResolver.takePersistableUriPermission(
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
@@ -307,6 +353,7 @@ class MainActivity : ComponentActivity() {
                     }
                     sourceUri = uri; sourceKind = SourceKind.RAW
                     sourceName = "RAW: ${name.substringAfterLast('/')}"
+                    rotation = SourceRotation.NONE
                     status = "RAW selected"; previewTick++
                 }
             }
@@ -329,7 +376,6 @@ class MainActivity : ComponentActivity() {
                     .onFailure { status = "export failed: ${it.message}" }
             }
         }
-        // .cube LUT writer: receives the SAF target and writes the already-baked text.
         val lutExporter = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("*/*")
         ) { uri ->
@@ -342,9 +388,9 @@ class MainActivity : ComponentActivity() {
             pendingLutText = null
         }
 
-        // Decode the current source to a LinearImage capped to [maxEdge].
+        // Decode the current source to a LinearImage capped to [maxEdge], then rotate.
         suspend fun loadSource(maxEdge: Int): LinearImage = withContext(Dispatchers.IO) {
-            when (sourceKind) {
+            val img = when (sourceKind) {
                 SourceKind.RAW -> decodeRawToLinear(
                     ctx, sourceUri!!, state.rawWhiteBalance,
                     state.rawTemperature.toDouble(), state.rawTint.toDouble(), maxEdge,
@@ -352,12 +398,10 @@ class MainActivity : ComponentActivity() {
                 SourceKind.PHOTO -> decodeToLinearProPhoto(ctx, sourceUri!!, maxEdge)
                 SourceKind.DEMO -> syntheticLinearImage(256)
             }
+            img.rotated(rotation)
         }
 
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
-        // We load the source at full native resolution, slice a ~512px window centred on the
-        // point (no resampling), and run the full simulate() on that small image — so the
-        // dye-cloud grain resolves at 1:1 instead of being an upscale of the preview.
         fun openMagnifier(nx: Float, ny: Float) {
             val e = engine ?: return
             magnifierOpen = true
@@ -383,10 +427,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Debounced preview render: re-runs whenever params or source change.
+        // Debounced preview render: re-runs whenever params, source or rotation change.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
-            delay(350) // debounce rapid edits
+            delay(350)
             previewBusy = true
             status = "rendering preview…"
             val result = runCatching {
@@ -403,27 +447,18 @@ class MainActivity : ComponentActivity() {
             previewBusy = false
         }
 
-        // re-trigger preview on any change to the params snapshot.
-        // Raw WB fields (rawWhiteBalance, rawTemperature, rawTint) are pre-decode params;
-        // they're not in SpektraParams/toParams(), so include them explicitly here so that
-        // moving the RAW WB sliders re-decodes and re-renders the preview.
+        // re-trigger preview on any change to the params snapshot / source / rotation.
         val snapshot = state.toParams()
-        LaunchedEffect(snapshot, sourceUri, sourceKind,
+        LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
-        // Whenever the edit changes and a persistable source is loaded, write/update
-        // the sidecar recipe to app-private storage. Debounced so dragging a slider
-        // doesn't thrash the disk. The original image is never written. The RAW WB
-        // fields aren't in SpektraParams, so they're included as keys explicitly.
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
-            delay(700) // debounce edits
+            delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
             if (current != null && current == defaultsJson) {
-                // State equals defaults — no meaningful edit. Don't create a sidecar;
-                // drop any stale one so reverting to defaults clears the recipe too.
                 if (Recipes.exists(ctx, recipeKey)) {
                     withContext(Dispatchers.IO) { Recipes.delete(ctx, recipeKey) }
                 }
@@ -435,144 +470,53 @@ class MainActivity : ComponentActivity() {
             }.onSuccess { hasRecipe = true }
         }
 
-        Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "SpectraFilm",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = onOpenSettings) { Text("Settings") }
-                    TextButton(onClick = onOpenAbout) { Text("About") }
+        // catalog-grouped profile options for the Simulation pickers + Settings.
+        val available = profiles.ifEmpty {
+            listOf(state.filmProfile, state.printProfile).distinct()
+        }
+        val filmGroups = remember(available, catalogReady) {
+            StockCatalog.optionsFor(ctx, available, forFilm = true).toGroups()
+        }
+        val printGroups = remember(available, catalogReady) {
+            StockCatalog.optionsFor(ctx, available, forFilm = false).toGroups()
+        }
+        LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
+
+        // --- back handling on the root editor ---
+        // 1) panel open -> close panel; 2) else double-back-to-exit with one-time hint.
+        BackHandler(enabled = activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = activeCategory == null) {
+            if (backArmed) {
+                finish()
+            } else {
+                backArmed = true
+                scope.launch {
+                    val firstTime = !BackHintStore.hasShown(ctx)
+                    if (firstTime) {
+                        BackHintStore.markShown(ctx)
+                        snackbarHost.currentSnackbarData?.dismiss()
+                        snackbarHost.showSnackbar("Press back again to exit")
+                    }
+                    delay(2000)
+                    backArmed = false
                 }
-                Text(status, style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
-                PreviewPane(
-                    preview = preview,
-                    before = beforePreview,
-                    busy = previewBusy,
-                    compareMode = compareMode,
-                    showHistogram = showHistogram,
-                    onToggleCompare = { compareMode = !compareMode },
-                    onToggleHistogram = { showHistogram = !showHistogram },
-                    onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
-                    onCropCenter = { openMagnifier(0.5f, 0.5f) },
-                )
-
-                SourceCard(
-                    sourceName = sourceName,
-                    onPickPhoto = {
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
-                    onUseDemo = {
-                        sourceUri = null; sourceKind = SourceKind.DEMO
-                        sourceName = "synthetic demo image"; previewTick++
-                    },
-                    hasRecipe = hasRecipe,
-                    onResetEdits = {
-                        // Clear the saved sidecar and restore default editing state.
-                        Recipes.delete(ctx, recipeKey)
-                        Recipes.resetToDefaults(state, settings, profiles)
-                        hasRecipe = false
-                        status = "edits reset · recipe cleared"
-                        previewTick++
-                        scope.launch {
-                            snackbarHost.currentSnackbarData?.dismiss()
-                            snackbarHost.showSnackbar("Edits reset; saved recipe cleared")
-                        }
-                    },
-                )
-
-                PresetCard(
-                    builtInGroups = builtInGroups,
-                    onApplyBuiltIn = { preset ->
-                        BuiltInPresets.apply(preset, state)
-                        status = "applied built-in '${preset.name}'"
-                        previewTick++
-                    },
-                    presets = presetList,
-                    selected = selectedPreset,
-                    name = presetName,
-                    onNameChange = { presetName = it },
-                    onSelect = { selectedPreset = it },
-                    onSave = {
-                        if (presetName.isNotBlank()) {
-                            Presets.save(ctx, presetName, state); refreshPresets()
-                            status = "saved preset '${presetName}'"
-                        }
-                    },
-                    onApply = {
-                        if (selectedPreset.isNotBlank()) {
-                            runCatching { Presets.load(ctx, selectedPreset, state) }
-                                .onSuccess { status = "applied '${selectedPreset}'"; previewTick++ }
-                                .onFailure { status = "apply failed: ${it.message}" }
-                        }
-                    },
-                    onDelete = {
-                        if (selectedPreset.isNotBlank()) {
-                            Presets.delete(ctx, selectedPreset); refreshPresets()
-                            status = "deleted '${selectedPreset}'"; selectedPreset = ""
-                        }
-                    },
-                    onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
-                    onExport = { presetExporter.launch("spectrafilm_preset.json") },
-                )
-
-                // --- parameter sections in spektrafilm order ---
-                // Film/print dropdowns: catalog-grouped friendly names, falling back to raw ids.
-                val available = profiles.ifEmpty {
-                    listOf(state.filmProfile, state.printProfile).distinct()
-                }
-                val filmGroups = remember(available, catalogReady) {
-                    StockCatalog.optionsFor(ctx, available, forFilm = true).toGroups()
-                }
-                val printGroups = remember(available, catalogReady) {
-                    StockCatalog.optionsFor(ctx, available, forFilm = false).toGroups()
-                }
-                // Share the profile groups with the Settings screen's default-profile pickers.
-                LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
-
-                InputSection(state)
-                ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
-                SimulationSection(
-                    s = state,
-                    filmGroups = filmGroups,
-                    printGroups = printGroups,
-                    onOpenFilmCurves = {
-                        onOpenFilmCurves(
-                            state.filmProfile,
-                            StockCatalog.displayName(ctx, state.filmProfile),
-                        )
-                    },
-                    onOpenPrintCurves = {
-                        onOpenPrintCurves(
-                            state.printProfile,
-                            StockCatalog.displayName(ctx, state.printProfile),
-                        )
-                    },
-                )
-                GrainSection(state)
-                PreflashSection(state)
-                HalationSection(state)
-                CouplersSection(state)
-                GlareSection(state)
-                ExperimentalSection(state)
-                DisplaySection(state)
-
-                ExportButton(
-                    enabled = engine != null && !previewBusy && !exporting,
+        // ============================ LAYOUT ============================
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(SpectraIcons.nearBlackCanvas),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                // --- TOP BAR ---
+                EditorTopBar(
+                    canExport = engine != null && !previewBusy && !exporting,
+                    exporting = exporting,
+                    onClose = { finish() },
                     onExport = {
-                        val e = engine ?: return@ExportButton
+                        val e = engine ?: return@EditorTopBar
                         val fmt = settings.exportFormat
                         exporting = true; exportDone = false; status = "rendering full resolution…"
                         scope.launch {
@@ -582,11 +526,8 @@ class MainActivity : ComponentActivity() {
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
-                                        if (fmt == ExportFormat.TIFF) {
-                                            saveSimResultAsTiff(ctx, res)
-                                        } else {
-                                            saveToGallery(ctx, bmp, fmt, settings.exportQuality)
-                                        }
+                                        if (fmt == ExportFormat.TIFF) saveSimResultAsTiff(ctx, res)
+                                        else saveToGallery(ctx, bmp, fmt, settings.exportQuality)
                                     }
                                     bmp to uri
                                 }
@@ -601,60 +542,166 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onOpenSettings = onOpenSettings,
+                    onOpenAbout = onOpenAbout,
                 )
 
-                // Export LUT: bake a 33³ .cube off-main-thread, then save via SAF.
-                Button(
-                    onClick = {
-                        val e = engine ?: return@Button
-                        bakingLut = true
-                        status = "baking .cube LUT…"
-                        scope.launch {
-                            val result = runCatching {
-                                withContext(Dispatchers.Default) { e.bakeCubeLut(state.toParams(), 33) }
-                            }
-                            bakingLut = false
-                            result.onSuccess { cube ->
-                                pendingLutText = cube
-                                val fileName = cubeFileName(
-                                    StockCatalog.displayName(ctx, state.filmProfile),
-                                    StockCatalog.displayName(ctx, state.printProfile),
-                                )
-                                runCatching { lutExporter.launch(fileName) }
-                                    .onFailure { status = "could not open save dialog: ${it.message}" }
-                            }.onFailure {
-                                status = "LUT bake failed: ${it.message}"
-                                Toast.makeText(ctx, "LUT bake failed: ${it.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    enabled = engine != null && !bakingLut && !exporting,
-                    modifier = Modifier.fillMaxWidth(),
+                // --- PREVIEW (pinned, weight) ---
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .heightIn(min = 220.dp),
                 ) {
-                    if (bakingLut) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Baking LUT…")
-                    } else {
-                        Text("Export LUT (.cube, 33³)")
+                    PreviewRegion(
+                        preview = preview,
+                        before = beforePreview,
+                        busy = previewBusy,
+                        compareMode = compareMode,
+                        onToggleCompare = { compareMode = !compareMode },
+                        onRotate = { rotation = rotation.next() },
+                        onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
+                    )
+                }
+
+                // --- ADJUSTMENT PANEL (inline, animated) ---
+                AnimatedVisibility(
+                    visible = activeCategory != null,
+                    enter = expandVertically(animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow,
+                    )) + fadeIn(),
+                    exit = shrinkVertically(animationSpec = spring(
+                        stiffness = Spring.StiffnessMedium,
+                    )) + fadeOut(),
+                ) {
+                    AdjustmentPanel(
+                        category = activeCategory,
+                        onDismiss = { activeCategory = null },
+                    ) {
+                        when (activeCategory) {
+                            Category.INPUT -> InputSection(state)
+                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
+                            Category.SIMULATION -> SimulationSection(
+                                s = state,
+                                filmGroups = filmGroups,
+                                printGroups = printGroups,
+                                onOpenFilmCurves = {
+                                    onOpenFilmCurves(
+                                        state.filmProfile,
+                                        StockCatalog.displayName(ctx, state.filmProfile),
+                                    )
+                                },
+                                onOpenPrintCurves = {
+                                    onOpenPrintCurves(
+                                        state.printProfile,
+                                        StockCatalog.displayName(ctx, state.printProfile),
+                                    )
+                                },
+                            )
+                            Category.GRAIN -> GrainSection(state)
+                            Category.PREFLASH -> PreflashSection(state)
+                            Category.HALATION -> HalationSection(state)
+                            Category.COUPLERS -> CouplersSection(state)
+                            Category.GLARE -> GlareSection(state)
+                            Category.EXPERIMENTAL -> ExperimentalSection(state)
+                            Category.DISPLAY -> DisplaySection(state)
+                            Category.PRESETS -> PresetPanel(
+                                builtInGroups = builtInGroups,
+                                onApplyBuiltIn = { p ->
+                                    BuiltInPresets.apply(p, state)
+                                    status = "applied built-in '${p.name}'"; previewTick++
+                                },
+                                presets = presetList,
+                                selected = selectedPreset,
+                                name = presetName,
+                                onNameChange = { presetName = it },
+                                onSelect = { selectedPreset = it },
+                                onSave = {
+                                    if (presetName.isNotBlank()) {
+                                        Presets.save(ctx, presetName, state); refreshPresets()
+                                        status = "saved preset '${presetName}'"
+                                    }
+                                },
+                                onApply = {
+                                    if (selectedPreset.isNotBlank()) {
+                                        runCatching { Presets.load(ctx, selectedPreset, state) }
+                                            .onSuccess { status = "applied '${selectedPreset}'"; previewTick++ }
+                                            .onFailure { status = "apply failed: ${it.message}" }
+                                    }
+                                },
+                                onDelete = {
+                                    if (selectedPreset.isNotBlank()) {
+                                        Presets.delete(ctx, selectedPreset); refreshPresets()
+                                        status = "deleted '${selectedPreset}'"; selectedPreset = ""
+                                    }
+                                },
+                                onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
+                                onExport = { presetExporter.launch("spectrafilm_preset.json") },
+                                onExportLut = {
+                                    val e = engine ?: return@PresetPanel
+                                    bakingLut = true; status = "baking .cube LUT…"
+                                    scope.launch {
+                                        val r = runCatching {
+                                            withContext(Dispatchers.Default) { e.bakeCubeLut(state.toParams(), 33) }
+                                        }
+                                        bakingLut = false
+                                        r.onSuccess { cube ->
+                                            pendingLutText = cube
+                                            val fileName = cubeFileName(
+                                                StockCatalog.displayName(ctx, state.filmProfile),
+                                                StockCatalog.displayName(ctx, state.printProfile),
+                                            )
+                                            runCatching { lutExporter.launch(fileName) }
+                                                .onFailure { status = "could not open save dialog: ${it.message}" }
+                                        }.onFailure {
+                                            status = "LUT bake failed: ${it.message}"
+                                            Toast.makeText(ctx, "LUT bake failed: ${it.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                bakingLut = bakingLut,
+                            )
+                            Category.SOURCE -> SourcePanel(
+                                sourceName = sourceName,
+                                status = status,
+                                showHistogram = showHistogram,
+                                preview = preview,
+                                onToggleHistogram = { showHistogram = !showHistogram },
+                                hasRecipe = hasRecipe,
+                                onPickPhoto = {
+                                    photoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
+                                onUseDemo = {
+                                    sourceUri = null; sourceKind = SourceKind.DEMO
+                                    sourceName = "synthetic demo image"; rotation = SourceRotation.NONE
+                                    previewTick++
+                                },
+                                onResetEdits = {
+                                    Recipes.delete(ctx, recipeKey)
+                                    Recipes.resetToDefaults(state, settings, profiles)
+                                    hasRecipe = false; rotation = SourceRotation.NONE
+                                    status = "edits reset · recipe cleared"; previewTick++
+                                    scope.launch {
+                                        snackbarHost.currentSnackbarData?.dismiss()
+                                        snackbarHost.showSnackbar("Edits reset; saved recipe cleared")
+                                    }
+                                },
+                            )
+                            null -> {}
+                        }
                     }
                 }
-                Text(
-                    "Bakes the current film + print look into a 33³ .cube 3D LUT. Spatial/" +
-                        "stochastic effects (grain, halation, diffusion, glare) can't be captured " +
-                        "in a 3D LUT and are omitted from the bake.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
 
-                Text(
-                    "Film modeling powered by spektrafilm (GPLv3). Preview is downscaled for " +
-                        "interactivity; export renders at full resolution.",
-                    style = MaterialTheme.typography.bodySmall,
+                // --- BOTTOM CATEGORY BAR ---
+                CategoryBar(
+                    active = activeCategory,
+                    onSelect = { cat ->
+                        activeCategory = if (activeCategory == cat) null else cat
+                    },
                 )
             }
 
@@ -676,126 +723,350 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Recipe restore / status snackbar.
+            // Recipe restore / status snackbar (above the bottom bar / nav).
             SnackbarHost(
                 hostState = snackbarHost,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
             )
         }
     }
 
     // ---------------------------------------------------------------------------
-    // Top-level pieces
+    // New Lightroom-style chrome
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun PreviewPane(
+    private fun EditorTopBar(
+        canExport: Boolean,
+        exporting: Boolean,
+        onClose: () -> Unit,
+        onExport: () -> Unit,
+        onOpenSettings: () -> Unit,
+        onOpenAbout: () -> Unit,
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                    )
+                )
+                .windowInsetsPadding(WindowInsets.statusBars),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PressIconButton(onClick = onClose) {
+                    Icon(
+                        SpectraIcons.SourceImage, contentDescription = "Close",
+                        tint = Color.White,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "SpectraFilm",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.weight(1f))
+                // Export / save
+                PressIconButton(onClick = onExport, enabled = canExport) {
+                    if (exporting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White,
+                        )
+                    } else {
+                        Icon(
+                            SpectraIcons.Presets, contentDescription = "Export to gallery",
+                            tint = if (canExport) Color.White else Color.White.copy(alpha = 0.4f),
+                        )
+                    }
+                }
+                PressIconButton(onClick = onOpenSettings) {
+                    Icon(SpectraIcons.Settings, contentDescription = "Settings", tint = Color.White)
+                }
+                PressIconButton(onClick = onOpenAbout) {
+                    Icon(SpectraIcons.Help, contentDescription = "About", tint = Color.White)
+                }
+            }
+        }
+    }
+
+    /** The pinned preview region on the near-black canvas with a rotate control. */
+    @Composable
+    private fun PreviewRegion(
         preview: Bitmap?,
         before: Bitmap?,
         busy: Boolean,
         compareMode: Boolean,
-        showHistogram: Boolean,
         onToggleCompare: () -> Unit,
-        onToggleHistogram: () -> Unit,
+        onRotate: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
-        onCropCenter: () -> Unit,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(SpectraIcons.nearBlackCanvas)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bmp = preview
+            if (bmp != null) {
+                if (compareMode && before != null) {
+                    CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
+                } else {
+                    ZoomableImage(
+                        bitmap = bmp,
+                        modifier = Modifier.fillMaxSize(),
+                        onPointPicked = onPointPicked,
+                    )
+                }
+            } else {
+                Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
+            }
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    color = Color.White,
+                )
+            }
+
+            // bottom-center controls on a scrim: compare + rotate
+            Row(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircleScrimButton(onClick = onToggleCompare, active = compareMode) {
+                    Icon(
+                        SpectraIcons.Display, contentDescription = "Before / after compare",
+                        tint = Color.White,
+                    )
+                }
+                CircleScrimButton(onClick = onRotate) {
+                    Icon(SpectraIcons.Rotate, contentDescription = "Rotate 90°", tint = Color.White)
+                }
+            }
+        }
+    }
+
+    /** 40dp circular control over a ~35% scrim. */
+    @Composable
+    private fun CircleScrimButton(
+        onClick: () -> Unit,
+        active: Boolean = false,
+        content: @Composable () -> Unit,
+    ) {
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        Box(
+            Modifier
+                .size(40.dp)
+                .scale(if (pressed) 0.9f else 1f)
+                .clip(CircleShape)
+                .background(
+                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                    else Color.Black.copy(alpha = 0.35f)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            IconButton(onClick = onClick, interactionSource = interaction) { content() }
+        }
+    }
+
+    /** A press-scaling icon button used in the top bar. */
+    @Composable
+    private fun PressIconButton(
+        onClick: () -> Unit,
+        enabled: Boolean = true,
+        content: @Composable () -> Unit,
+    ) {
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            interactionSource = interaction,
+            modifier = Modifier.scale(if (pressed) 0.88f else 1f),
+        ) { content() }
+    }
+
+    /** The inline adjustment panel: drag-handle header (swipe down to dismiss) + scrolling content. */
+    @Composable
+    private fun AdjustmentPanel(
+        category: Category?,
+        onDismiss: () -> Unit,
+        content: @Composable ColumnScope.() -> Unit,
+    ) {
+        val maxH = (LocalConfigurationHeightDp() * 0.38f).dp
+        Surface(
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                contentAlignment = Alignment.Center,
+                    .heightIn(max = maxH),
             ) {
-                val bmp = preview
-                if (bmp != null) {
-                    if (compareMode && before != null) {
-                        CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
-                    } else {
-                        ZoomableImage(
-                            bitmap = bmp,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                            onPointPicked = onPointPicked,
+                // drag-handle header: swipe DOWN to dismiss; tap to dismiss too.
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .pointerInput(category) {
+                            detectVerticalDragGestures { _, dragAmount ->
+                                if (dragAmount > 18f) onDismiss()
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier
+                                .padding(top = 8.dp)
+                                .size(width = 36.dp, height = 4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                        )
+                        Text(
+                            category?.label ?: "",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 6.dp),
                         )
                     }
-                } else {
-                    Text("No preview yet", style = MaterialTheme.typography.bodyMedium)
                 }
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
-                }
-            }
-
-            // viewer controls
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = compareMode,
-                    onClick = onToggleCompare,
-                    label = { Text("Compare") },
-                    modifier = Modifier.weight(1f),
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    content = content,
                 )
-                FilterChip(
-                    selected = showHistogram,
-                    onClick = onToggleHistogram,
-                    label = { Text("Histogram") },
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(
-                    onClick = onCropCenter,
-                    enabled = preview != null,
-                    modifier = Modifier.weight(1f),
-                ) { Text("100% crop") }
-            }
-            if (!compareMode) {
-                Text(
-                    "Pinch to zoom · double-tap to 2x · tap a point for a 100% grain crop",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (showHistogram && preview != null) {
-                HistogramCard(preview)
             }
         }
     }
 
+    /** Horizontally scrollable category bar with a sliding pill indicator. */
     @Composable
-    private fun SourceCard(
-        sourceName: String,
-        hasRecipe: Boolean,
-        onPickPhoto: () -> Unit,
-        onOpenRaw: () -> Unit,
-        onUseDemo: () -> Unit,
-        onResetEdits: () -> Unit,
+    private fun CategoryBar(
+        active: Category?,
+        onSelect: (Category) -> Unit,
     ) {
-        var expanded by remember { mutableStateOf(true) }
-        SectionCard("Source image", expanded, { expanded = it }) {
-            Text("Source: $sourceName", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPickPhoto, modifier = Modifier.weight(1f)) { Text("Pick photo") }
-                Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) { Text("Open RAW/DNG") }
-            }
-            OutlinedButton(onClick = onUseDemo, modifier = Modifier.fillMaxWidth()) { Text("Use demo image") }
-            // Non-destructive recipe affordance: shown only when an edit is saved for
-            // this source. Edits are auto-saved as a sidecar; the original is untouched.
-            if (hasRecipe) {
-                Text(
-                    "Edits auto-saved for this image (original never modified).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(onClick = onResetEdits, modifier = Modifier.fillMaxWidth()) {
-                    Text("Reset edits / clear recipe")
+        val items = remember { Category.entries.toList() }
+        val listState = rememberLazyListState()
+        val scope = rememberCoroutineScope()
+
+        // ease the tapped/active category toward center
+        LaunchedEffect(active) {
+            val idx = active?.let { items.indexOf(it) } ?: return@LaunchedEffect
+            scope.launch { listState.animateScrollToItem(idx.coerceAtLeast(0)) }
+        }
+
+        Surface(
+            color = SpectraIcons.nearBlackCanvas,
+            tonalElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            LazyRow(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                itemsIndexed(items) { _, cat ->
+                    CategoryItem(
+                        category = cat,
+                        selected = cat == active,
+                        onClick = { onSelect(cat) },
+                    )
                 }
             }
         }
     }
 
     @Composable
-    private fun PresetCard(
+    private fun CategoryItem(
+        category: Category,
+        selected: Boolean,
+        onClick: () -> Unit,
+    ) {
+        val accent = MaterialTheme.colorScheme.primary
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        Column(
+            Modifier
+                .width(72.dp)
+                .scale(if (pressed) 0.92f else 1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (selected) accent.copy(alpha = 0.18f) else Color.Transparent)
+                .clickableNoRipple(interaction, onClick)
+                .padding(vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = categoryIcon(category),
+                contentDescription = category.label,
+                tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                category.label,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (selected) accent else Color.White.copy(alpha = 0.78f),
+            )
+            // sliding pill indicator
+            Box(
+                Modifier
+                    .padding(top = 2.dp)
+                    .size(width = if (selected) 20.dp else 0.dp, height = 3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (selected) accent else Color.Transparent),
+            )
+        }
+    }
+
+    private fun categoryIcon(c: Category) = when (c) {
+        Category.SIMULATION -> SpectraIcons.Simulation
+        Category.INPUT -> SpectraIcons.Input
+        Category.RAW_WB -> SpectraIcons.ImportRaw
+        Category.GRAIN -> SpectraIcons.Grain
+        Category.PREFLASH -> SpectraIcons.Preflash
+        Category.HALATION -> SpectraIcons.Halation
+        Category.COUPLERS -> SpectraIcons.Couplers
+        Category.GLARE -> SpectraIcons.Glare
+        Category.EXPERIMENTAL -> SpectraIcons.Experimental
+        Category.DISPLAY -> SpectraIcons.Display
+        Category.PRESETS -> SpectraIcons.Presets
+        Category.SOURCE -> SpectraIcons.SourceImage
+    }
+
+    // ---------------------------------------------------------------------------
+    // Panels that wrap existing functionality (preset/source) for the new layout
+    // ---------------------------------------------------------------------------
+
+    @Composable
+    private fun PresetPanel(
         builtInGroups: Map<String, List<BuiltInPreset>>,
         onApplyBuiltIn: (BuiltInPreset) -> Unit,
         presets: List<String>,
@@ -808,84 +1079,151 @@ class MainActivity : ComponentActivity() {
         onDelete: () -> Unit,
         onImport: () -> Unit,
         onExport: () -> Unit,
+        onExportLut: () -> Unit,
+        bakingLut: Boolean,
     ) {
-        var expanded by remember { mutableStateOf(true) }
-        SectionCard("Presets", expanded, { expanded = it }) {
-            // --- built-in presets (bundled, grouped) ---
-            if (builtInGroups.isNotEmpty()) {
-                Text("Built-in looks", style = MaterialTheme.typography.titleSmall)
-                var selectedBuiltIn by remember {
-                    mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
-                }
-                val all = remember(builtInGroups) { builtInGroups.values.flatten() }
-                GroupedDropdown(
-                    label = "Built-in preset",
-                    selectedId = selectedBuiltIn,
-                    groups = builtInGroups.map { (g, ps) ->
-                        DropdownGroup(g, ps.map { DropdownOption(it.id, it.name) })
-                    },
-                    onSelect = { selectedBuiltIn = it },
-                )
-                val current = all.firstOrNull { it.id == selectedBuiltIn }
-                if (current?.description?.isNotBlank() == true) {
-                    Text(
-                        current.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Button(
-                    onClick = { current?.let(onApplyBuiltIn) },
-                    enabled = current != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Apply built-in preset") }
-                Divider()
-                Text("Your presets", style = MaterialTheme.typography.titleSmall)
+        if (builtInGroups.isNotEmpty()) {
+            Text("Built-in looks", style = MaterialTheme.typography.titleSmall)
+            var selectedBuiltIn by remember {
+                mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
             }
-
-            OutlinedTextField(
-                value = name, onValueChange = onNameChange,
-                label = { Text("Preset name") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            val all = remember(builtInGroups) { builtInGroups.values.flatten() }
+            GroupedDropdown(
+                label = "Built-in preset",
+                selectedId = selectedBuiltIn,
+                groups = builtInGroups.map { (g, ps) ->
+                    DropdownGroup(g, ps.map { DropdownOption(it.id, it.name) })
+                },
+                onSelect = { selectedBuiltIn = it },
             )
-            Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("Save current as preset") }
-            if (presets.isNotEmpty()) {
-                Dropdown(
-                    label = "Saved presets",
-                    selected = selected.ifEmpty { presets.first() },
-                    options = presets,
-                    display = { it },
-                    onSelect = onSelect,
+            val current = all.firstOrNull { it.id == selectedBuiltIn }
+            if (current?.description?.isNotBlank() == true) {
+                Text(
+                    current.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onApply, modifier = Modifier.weight(1f)) { Text("Apply") }
-                    OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text("Delete") }
-                }
             }
+            Button(
+                onClick = { current?.let(onApplyBuiltIn) },
+                enabled = current != null,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Apply built-in preset") }
+            Divider()
+            Text("Your presets", style = MaterialTheme.typography.titleSmall)
+        }
+
+        OutlinedTextField(
+            value = name, onValueChange = onNameChange,
+            label = { Text("Preset name") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("Save current as preset") }
+        if (presets.isNotEmpty()) {
+            Dropdown(
+                label = "Saved presets",
+                selected = selected.ifEmpty { presets.first() },
+                options = presets,
+                display = { it },
+                onSelect = onSelect,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import .json") }
-                OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export / share") }
+                Button(onClick = onApply, modifier = Modifier.weight(1f)) { Text("Apply") }
+                OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text("Delete") }
             }
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import .json") }
+            OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export / share") }
+        }
+        Divider()
+        Button(
+            onClick = onExportLut,
+            enabled = !bakingLut,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (bakingLut) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("Baking LUT…")
+            } else {
+                Text("Export LUT (.cube, 33³)")
+            }
+        }
+        Text(
+            "Bakes the current film + print look into a 33³ .cube 3D LUT. Spatial/stochastic " +
+                "effects (grain, halation, diffusion, glare) can't be captured in a 3D LUT and " +
+                "are omitted from the bake.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     @Composable
-    private fun ExportButton(enabled: Boolean, onExport: () -> Unit) {
-        Button(
-            onClick = onExport,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Export (full resolution → gallery)") }
+    private fun SourcePanel(
+        sourceName: String,
+        status: String,
+        showHistogram: Boolean,
+        preview: Bitmap?,
+        onToggleHistogram: () -> Unit,
+        hasRecipe: Boolean,
+        onPickPhoto: () -> Unit,
+        onOpenRaw: () -> Unit,
+        onUseDemo: () -> Unit,
+        onResetEdits: () -> Unit,
+    ) {
+        Text("Source: $sourceName", style = MaterialTheme.typography.bodySmall)
+        Text(status, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onPickPhoto, modifier = Modifier.weight(1f)) { Text("Pick photo") }
+            Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) { Text("Open RAW/DNG") }
+        }
+        OutlinedButton(onClick = onUseDemo, modifier = Modifier.fillMaxWidth()) { Text("Use demo image") }
+
+        FilterChip(
+            selected = showHistogram,
+            onClick = onToggleHistogram,
+            label = { Text("Histogram") },
+        )
+        if (showHistogram && preview != null) {
+            HistogramCard(preview)
+        }
+
+        if (hasRecipe) {
+            Text(
+                "Edits auto-saved for this image (original never modified).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onResetEdits, modifier = Modifier.fillMaxWidth()) {
+                Text("Reset edits / clear recipe")
+            }
+        }
+        Text(
+            "Tip: pinch to zoom · double-tap for 2x · tap a point for a 100% grain crop · " +
+                "use the rotate button under the preview to rotate the image (preview + export).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "Film modeling powered by spektrafilm (GPLv3). Preview is downscaled for " +
+                "interactivity; export renders at full resolution.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     @Composable
     private fun ExportMask(done: Boolean, onDismiss: () -> Unit) {
-        // Scrim filling the whole window, blocking all interaction until dismissed.
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.78f))
-                .pointerInput(Unit) { /* consume all gestures while masked */
+                .pointerInput(Unit) {
                     awaitPointerEventScope { while (true) awaitPointerEvent() }
                 },
             contentAlignment = Alignment.Center,
@@ -921,12 +1259,12 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------------------------
-    // Parameter sections (spektrafilm GUI order/grouping)
+    // Parameter sections (spektrafilm GUI order/grouping) — preserved verbatim
     // ---------------------------------------------------------------------------
 
     @Composable
     private fun InputSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
             Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
                 { s.inputColorSpace = it })
@@ -962,23 +1300,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * RAW white-balance controls. Only meaningful when a RAW/DNG file is loaded;
-     * the section is shown but dims its controls and shows a notice for non-RAW sources
-     * so users understand the context. When [isRaw] is true the controls are fully active
-     * and changes trigger a re-decode + re-render via the [previewTick] mechanism in [Screen].
-     *
-     * Temperature and Tint only take effect when [WhiteBalance.CUSTOM] is selected;
-     * for other modes they are shown at reduced opacity to match the decoder's behaviour.
-     */
     @Composable
     private fun ImportRawSection(s: ParamsState, isRaw: Boolean) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("RAW White Balance", expanded, { expanded = it }) {
             if (!isRaw) {
-                // Not a RAW source — show an informational note; dim the controls.
                 Text(
-                    "Load a RAW/DNG file (\"Open RAW/DNG\" above) to enable RAW white-balance.",
+                    "Load a RAW/DNG file (\"Open RAW/DNG\" in Source) to enable RAW white-balance.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -996,11 +1324,9 @@ class MainActivity : ComponentActivity() {
                         tooltip = "Tint multiplier (active only for RAW files with Custom WB)")
                 }
             } else {
-                // RAW source loaded — full controls, wired to re-decode on change.
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
                 Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
                     { it.name.lowercase() }, { s.rawWhiteBalance = it })
-                // Reset button: restore camera/as-shot WB (default decoder behaviour).
                 OutlinedButton(
                     onClick = {
                         s.rawWhiteBalance = WhiteBalance.AS_SHOT
@@ -1009,8 +1335,6 @@ class MainActivity : ComponentActivity() {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Reset to camera / as-shot WB") }
-                // Temperature & Tint: only used by the decoder in CUSTOM mode.
-                // Dim but keep interactive for the other modes so values are preserved.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1070,7 +1394,6 @@ class MainActivity : ComponentActivity() {
                 { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
                 tooltip = "Add a bias to the auto-exposure of the camera")
 
-            // --- Auto exposure — Lightroom-style expandable metering control ---
             AutoExposureControl(
                 autoExposure = s.autoExposure,
                 autoExposureMethod = s.autoExposureMethod,
@@ -1098,7 +1421,6 @@ class MainActivity : ComponentActivity() {
                 onClick = onOpenPrintCurves,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("View print profile curves") }
-            Dropdown("Print illuminant", s.printIlluminant, PRINT_ILLUMINANTS, { it }, { s.printIlluminant = it })
             EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
                 step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger")
             SwitchRow("Print auto compensation", s.printExposureCompensation,
@@ -1176,7 +1498,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun GrainSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Grain", expanded, { expanded = it }, enabledSwitch = s.grainActive,
             onEnabledChange = { s.grainActive = it }) {
             SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
@@ -1204,7 +1526,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun PreflashSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Preflash", expanded, { expanded = it }) {
             EnhancedSlider("Exposure", s.preflashExposure, 0f..2f, { s.preflashExposure = it },
                 step = 0.005f, decimals = 3, tooltip = "Preflash exposure value in ev for the print")
@@ -1217,7 +1539,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun HalationSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Halation", expanded, { expanded = it }, enabledSwitch = s.halationActive,
             onEnabledChange = { s.halationActive = it }) {
             EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
@@ -1259,7 +1581,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun CouplersSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Couplers", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
             onEnabledChange = { s.couplersActive = it }) {
             EnhancedSlider("Amount", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
@@ -1292,7 +1614,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun GlareSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Glare", expanded, { expanded = it }, enabledSwitch = s.glareActive,
             onEnabledChange = { s.glareActive = it }) {
             EnhancedSlider("Percent", s.glarePercent, 0f..1f, { s.glarePercent = it },
@@ -1306,7 +1628,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun ExperimentalSection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Experimental", expanded, { expanded = it }) {
             EnhancedSlider("Film gamma factor", s.filmGammaFactor, 0f..3f, { s.filmGammaFactor = it },
                 step = 0.05f, decimals = 2, tooltip = "Gamma factor of the negative density curves.")
@@ -1317,7 +1639,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DisplaySection(s: ParamsState) {
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(true) }
         SectionCard("Display", expanded, { expanded = it }) {
             IntSlider("Preview max size", s.previewMaxSize, 128..1024, { s.previewMaxSize = it },
                 tooltip = "Max size of the long edge of the preview image, in pixels.")
@@ -1329,3 +1651,19 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
     }
 }
+
+/** Small helpers kept at file scope. */
+@Composable
+private fun LocalConfigurationHeightDp(): Int =
+    androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+
+private fun Modifier.clickableNoRipple(
+    interactionSource: MutableInteractionSource,
+    onClick: () -> Unit,
+): Modifier = this.then(
+    Modifier.clickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = onClick,
+    )
+)

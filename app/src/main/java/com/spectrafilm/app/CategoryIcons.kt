@@ -110,6 +110,10 @@ private fun ImageVector.Builder.fillPath(pathData: String): ImageVector.Builder 
 
 object SpectraIcons {
 
+    /** Near-black editor canvas colour for the Lightroom-style preview background. */
+    val nearBlackCanvas = Color(0xFF0B0B0D)
+
+
     // -----------------------------------------------------------------------
     // Input — image source / image-in
     // Arrow pointing right into a rectangle (inbound image source).
