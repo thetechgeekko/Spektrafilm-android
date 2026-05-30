@@ -113,6 +113,55 @@ g++ -std=c++17 -I../../main/cpp -include ../../main/cpp/raw_decoder.cpp \
     test_dng_sniffer.cpp -o /tmp/test_dng_sniffer && /tmp/test_dng_sniffer
 ```
 
+## Half-size (proxy) decode — memory and performance option
+
+For large RAW/DNG files (50–200 MP Expert RAW, high-resolution MFT/medium-format
+bodies) the full-resolution path in `dcraw_process()` builds a full 16-bit image
+in RAM before it is normalised to float32 and handed to the engine — a transient
+several hundred MB allocation that is the primary OOM surface on low-RAM devices.
+
+`RawDecoder.Settings` exposes a `halfSize: Boolean` flag (default `false`):
+
+```kotlin
+// Proxy decode — ~¼ the pixel count, ~¼ the peak memory, much faster.
+val proxy: LinearResult = RawDecoder.decodeToLinear(
+    fd,
+    RawDecoder.Settings(halfSize = true),
+)
+// proxy.width  ≈ fullWidth  / 2
+// proxy.height ≈ fullHeight / 2
+```
+
+| Option        | Value  | Effect                                                      |
+|---------------|--------|-------------------------------------------------------------|
+| `halfSize`    | false  | Full-resolution decode (existing behaviour, unchanged).     |
+| `halfSize`    | true   | LibRaw `imgdata.params.half_size = 1`; each 2×2 Bayer cell  |
+|               |        | is averaged into one output pixel (no demosaic).            |
+
+**How it works (LibRaw `half_size`):**
+LibRaw's `half_size` parameter skips the full Bayer demosaic interpolation and
+instead merges each **2×2 Bayer cell** (one R + two G + one B sample) into a
+**single RGB output pixel** using a simple average.  Because the output is
+half the linear dimensions in each axis, the total pixel count is **¼ of the
+full-res decode** — and so is the peak allocation.  LibRaw updates
+`imgdata.sizes` (specifically `S.width` / `S.height`) after `dcraw_process()`,
+and `dcraw_make_mem_image` reports the post-process dimensions, so
+`LinearResult.width * LinearResult.height * 3 == rgb.size()` is always satisfied.
+
+**When to use:**
+- Fast proxy preview of a large Expert RAW on a low-RAM device.
+- "Does this file decode?" health checks where full quality is not needed.
+- App-side thumbnail generation before handing the full-res job to a background
+  worker.
+
+**When NOT to use:**
+- Export (TIFF / PNG / Ultra HDR) — lower quality, wrong dimensions.
+- Engine spectral film simulation — all processing must be at full resolution.
+
+The app module decides when to request `halfSize = true`; the lib only exposes
+the capability.  Existing call sites (`Settings()` / `Settings(whiteBalance = …)`)
+default to `halfSize = false` and are byte-for-byte unchanged.
+
 ## rawpy ↔ LibRaw parity
 
 | `rawpy.postprocess`          | value                  | LibRaw (`imgdata.params`)        |
