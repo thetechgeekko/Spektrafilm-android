@@ -56,11 +56,43 @@ class LinearResult(
 
 object RawDecoder {
 
-    /** Decode settings. Temperature/tint are only used for [WhiteBalance.CUSTOM]. */
+    /**
+     * Decode settings.
+     *
+     * [whiteBalance], [temperatureK], and [tint] control colour science; temperature
+     * and tint are only used for [WhiteBalance.CUSTOM].
+     *
+     * ### Half-size (proxy) decode — [halfSize]
+     *
+     * When `halfSize = true`, LibRaw sets `imgdata.params.half_size = 1` before
+     * `dcraw_process()`.  Instead of running the full Bayer demosaic interpolation,
+     * it averages each **2×2 Bayer cell** into a **single output pixel**.  The result
+     * is an image at roughly **half the linear dimensions** (i.e. **¼ the pixel
+     * count**) of a full-resolution decode.
+     *
+     * **Benefits:**
+     * - Peak native memory is approximately **¼** of a full-res decode — the primary
+     *   OOM surface for 50–200 MP Expert RAW / large DNG files on low-RAM devices.
+     * - Significantly faster: no demosaic neighbourhood search, smaller copy.
+     *
+     * **Limitations / tradeoffs:**
+     * - **Lower quality**: each output pixel is a 2×2 Bayer average, not a full
+     *   neighbourhood demosaic.  Colour aliasing and reduced sharpness are expected.
+     *   This mode is suitable for proxy previews, proxy thumbnails, and fast
+     *   "does it decode?" checks — not for export or spectral film simulation.
+     * - `LinearResult.width` and `LinearResult.height` will be approximately half
+     *   the full-res values.  LibRaw updates `imgdata.sizes` after processing;
+     *   `dcraw_make_mem_image` reports the post-process dimensions, so the returned
+     *   `width * height * 3 == rgb.size()` invariant is always satisfied.
+     *
+     * **Default `false`** → full-resolution decode; existing behaviour is unchanged.
+     */
     data class Settings(
         val whiteBalance: WhiteBalance = WhiteBalance.AS_SHOT,
         val temperatureK: Double = 6504.0,
         val tint: Double = 1.0,
+        /** When true, decode at half linear dimensions (~¼ pixels, ~¼ memory). */
+        val halfSize: Boolean = false,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -88,6 +120,7 @@ object RawDecoder {
     fun decodeToLinear(bytes: ByteArray, settings: Settings = Settings()): LinearResult =
         nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
+            settings.halfSize,
         ).toLinear()
 
     /**
@@ -104,6 +137,7 @@ object RawDecoder {
         return nativeDecodeBuffer(
             direct, direct.remaining(),
             settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
+            settings.halfSize,
         ).toLinear()
     }
 
@@ -114,6 +148,7 @@ object RawDecoder {
     fun decodeToLinear(fd: Int, settings: Settings = Settings()): LinearResult =
         nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
+            settings.halfSize,
         ).toLinear()
 
     /** Decode by reading an InputStream fully into memory (SAF convenience). */
@@ -186,14 +221,17 @@ object RawDecoder {
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
+        halfSize: Boolean,
     ): NativeResult
 
     private external fun nativeDecodeBuffer(
         buffer: ByteBuffer, len: Int, wbMode: Int, temperatureK: Double, tint: Double,
+        halfSize: Boolean,
     ): NativeResult
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
+        halfSize: Boolean,
     ): NativeResult
 
     init {
