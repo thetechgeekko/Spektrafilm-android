@@ -408,6 +408,15 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         sparams.unsharp_amount = p->scanner_unsharp[1];
         sparams.lens_blur = static_cast<double>(p->scanner_lens_blur);
     }
+    // OPT-IN scanner 3D-LUT acceleration (settings.use_scanner_lut, default 0).
+    // When off (the default + parity-gate path) scan() never constructs the LUT and
+    // is byte-identical to the direct spectral evaluation. When on, scan() routes
+    // density_cmy -> log_xyz through the PCHIP 3D LUT at settings.lut_resolution
+    // (clamped), mirroring scanning.py::_density_to_rgb(use_lut=use_scanner_lut).
+    if (p->use_scanner_lut != 0) {
+        sparams.use_lut = true;
+        sparams.lut_resolution = p->lut_resolution;
+    }
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb->data());
@@ -598,6 +607,14 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         sparams.lens_blur = static_cast<double>(p->scanner_lens_blur);
         sparams.unsharp_sigma = p->scanner_unsharp[0];
         sparams.unsharp_amount = p->scanner_unsharp[1];
+    }
+    // OPT-IN scanner 3D-LUT acceleration on the print-scan route (same
+    // settings.use_scanner_lut gate; scan_film == false so scan() picks the print
+    // density-curve domain bounds). Default 0 => never constructed, print goldens
+    // stay bit-exact.
+    if (p->use_scanner_lut != 0) {
+        sparams.use_lut = true;
+        sparams.lut_resolution = p->lut_resolution;
     }
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
