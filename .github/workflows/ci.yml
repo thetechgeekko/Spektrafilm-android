@@ -7,7 +7,8 @@
 #                        diffusion; runs on push/PR)
 #   • parity          — standalone .spkvec comparator (CMake + ctest self-test)
 #   • python-lint     — byte-compiles the Python parity harness
-#   • android         — Gradle assemble of the full app + modules (NDK-built .so for all ABIs)
+#   • android         — JVM unit tests (:app:testDebugUnitTest) + Gradle assemble of the full
+#                        app + modules (NDK-built .so for all ABIs)
 #   • android-emulator— installs APK on KVM AVD, smoke-tests MainActivity; manual
 #                        workflow_dispatch only — fails during setup on hosted runners
 #
@@ -179,6 +180,12 @@ jobs:
 
       - name: Install NDK + CMake
         run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Run JVM unit tests
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Assemble debug APK
         run: |
