@@ -17,6 +17,7 @@
 
 #include "kernels/exponential_filter.h"
 #include "kernels/lut3d.h"
+#include "kernels/parallel.h"
 #include "model/color_output.h"
 #include "model/conversions.h"
 #include "model/emulsion.h"
@@ -193,7 +194,8 @@ void scan(const Profile& film, const ScanningParams& params,
     // bit-for-bit we mirror that: spectral density, light, the XYZ integral, the
     // matrix product and the CCTF are all done in double; only the final write is
     // float32.
-    for (int p = 0; p < npix; ++p) {
+    parallel_for(0, npix, [&](int lo, int hi) {
+    for (int p = lo; p < hi; ++p) {
         double xyz[3];
         if (params.use_lut) {
             // 1-4 replaced by the LUT-interpolated log_xyz (opt-in path). The
@@ -260,6 +262,7 @@ void scan(const Profile& film, const ScanningParams& params,
                      M[c * 3 + 2] * xyz[2];
         }
     }
+    });
 
     // Scanner lens blur (scanner.lens_blur, in pixels): a per-channel 2D Gaussian
     // applied in the linear output space BEFORE the unsharp mask, matching
@@ -295,7 +298,8 @@ void scan(const Profile& film, const ScanningParams& params,
     //    excursions where the gamma encode yields NaN for negative linear RGB.
     const double* Mc = kRGB_to_RGB_CCTF[params.output_color_space];
     const spk_color_space cs = params.output_color_space;
-    for (int p = 0; p < npix; ++p) {
+    parallel_for(0, npix, [&](int lo, int hi) {
+    for (int p = lo; p < hi; ++p) {
         const double* lin = lin_rgb.data() + static_cast<size_t>(p) * 3;
         float* out = rgb_out + static_cast<size_t>(p) * 3;
         for (int c = 0; c < 3; ++c) {
@@ -314,6 +318,7 @@ void scan(const Profile& film, const ScanningParams& params,
             out[c] = static_cast<float>(v);
         }
     }
+    });
 }
 
 }  // namespace spk

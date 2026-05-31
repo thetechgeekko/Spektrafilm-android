@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "kernels/exponential_filter.h"
+#include "kernels/parallel.h"
 #include "kernels/spectral_upsampling.h"
 #include "model/couplers.h"
 #include "model/density_curves.h"
@@ -151,15 +152,17 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
     // (boost_ev==0 -> highlight boost identity; diffusion_filter/lens_blur off;
     //  black/white exposure correction == 1.0 under the goldens.)
     std::vector<double> raw(static_cast<size_t>(npix) * 3);
-    for (int p = 0; p < npix; ++p) {
-        double in[3] = {rgb[p * 3 + 0], rgb[p * 3 + 1], rgb[p * 3 + 2]};
-        Vec2 tc;
-        double b;
-        prophoto_rgb_to_tc_b(in, &tc, &b);
-        double rr[3];
-        cubic_interp_lut_at_2d(tc_lut, tc.x * scale, tc.y * scale, rr);
-        for (int c = 0; c < 3; ++c) raw[p * 3 + c] = rr[c] * b * exp_mult;
-    }
+    parallel_for(0, npix, [&](int lo, int hi) {
+        for (int p = lo; p < hi; ++p) {
+            double in[3] = {rgb[p * 3 + 0], rgb[p * 3 + 1], rgb[p * 3 + 2]};
+            Vec2 tc;
+            double b;
+            prophoto_rgb_to_tc_b(in, &tc, &b);
+            double rr[3];
+            cubic_interp_lut_at_2d(tc_lut, tc.x * scale, tc.y * scale, rr);
+            for (int c = 0; c < 3; ++c) raw[p * 3 + c] = rr[c] * b * exp_mult;
+        }
+    });
 
     // Camera optical diffusion filter (Black Pro-Mist family), applied on the
     // float64 irradiance AFTER the highlight boost and BEFORE lens blur /
