@@ -158,12 +158,14 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 > the `engine-parity` suite runs multithreaded). ~3.2× on a 12 MP scan / 4 cores. Stochastic grain
 > + spatial blurs stay serial.
 >
-> **Native SIMD (NEON) — deferred/declined (2026-05-31, see `docs/DECISION.md`).** Profiling
-> showed the spectral integral is `pow`-dominated (~79%), NEON is only 2-wide float64, `expose`
-> is gather-bound, and the dev/CI environment can't build or perf-validate ARM code. A byte-exact
-> SIMD gains only single-digit %; the only big-win path (a vectorised `exp10`) is ~1e-7 (not
-> byte-exact) and unverifiable on-device. The existing opt-in scanner 3D-LUT already covers
-> approximate acceleration. Revisit only as an opt-in, device-validated fast-path.
+> **Native SIMD (NEON) — landed (2026-05-31, see `docs/DECISION.md`).** The `pow(10,−spectral)`
+> that dominates (~79%) the `scan()` and `print_expose()` spectral integrals is now evaluated with
+> a portable vector `exp10` (`kernels/exp10.h`) that lowers to **NEON `fmla v.2d` on arm64**
+> (verified by disassembly) and to SSE2/AVX on x86. It matches `std::pow` to ≤4 ULP and is
+> **byte-identical at the float32 output** (0/750k mismatches; goldens' `max_abs` unchanged at
+> 5.97e-08; `test_parallel` still 0 across 1↔8 threads). ~1.85× on a 12 MP scan on x86 (more modest
+> on 2-wide NEON f64; armv7 scalarises) → **~6× vs the original scalar/single-thread baseline** with
+> threading. `expose()` (gather-bound) and the per-pixel `10^log_xyz` round-trips stay scalar.
 >
 > Still open in M6: memory tiling for very large RAW (spatial-stage haloing), the optional GPU
 > preview accelerator, profile-catalog UI, APK-size review, and the downscale anti-aliasing

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "kernels/exponential_filter.h"
+#include "kernels/exp10.h"
 #include "kernels/lut3d.h"
 #include "kernels/parallel.h"
 #include "model/color_output.h"
@@ -219,14 +220,40 @@ void scan(const Profile& film, const ScanningParams& params,
             //    plain einsum over wavelengths with NO 5 nm interval factor, so we
             //    integrate without dlambda (the interval cancels against the
             //    normalization's own missing interval).
+            // SIMD: the dominant per-band cost is the 10^(-spectral) transcendental.
+            // We evaluate it kExp10Lanes (2) bands at a time with the vector exp10
+            // (kernels/exp10), which matches std::pow(10,x) to <=4 ULP — byte-identical
+            // after the final float32 cast (see kernels/exp10.h). The spectral madd and
+            // the X/Y/Z accumulation stay in band order (lane 0 then lane 1, then the
+            // odd tail) so the reduction is unchanged and thread-count invariant.
             double X = 0.0, Y = 0.0, Z = 0.0;
-            for (int l = 0; l < S; ++l) {
+            int l = 0;
+            for (; l + kExp10Lanes <= S; l += kExp10Lanes) {
+                exp10_vd negspec;
+                for (int q = 0; q < kExp10Lanes; ++q) {
+                    const float* cd =
+                        film.channel_density.data() + static_cast<size_t>(l + q) * 3;
+                    negspec[q] = -(c0 * static_cast<double>(cd[0]) +
+                                   c1 * static_cast<double>(cd[1]) +
+                                   c2 * static_cast<double>(cd[2]) +
+                                   static_cast<double>(film.base_density[l + q]));
+                }
+                exp10_vd ev = exp10_vec(negspec);
+                for (int q = 0; q < kExp10Lanes; ++q) {
+                    double w = ev[q] * static_cast<double>(illum[l + q]);
+                    if (std::isnan(w)) w = 0.0;
+                    X += w * kCieCmf1931[l + q][0];
+                    Y += w * kCieCmf1931[l + q][1];
+                    Z += w * kCieCmf1931[l + q][2];
+                }
+            }
+            for (; l < S; ++l) {  // odd-band tail (same exp10 arithmetic, scalar).
                 const float* cd = film.channel_density.data() + static_cast<size_t>(l) * 3;
                 double spectral = c0 * static_cast<double>(cd[0]) +
                                   c1 * static_cast<double>(cd[1]) +
                                   c2 * static_cast<double>(cd[2]) +
                                   static_cast<double>(film.base_density[l]);
-                double w = std::pow(10.0, -spectral) * static_cast<double>(illum[l]);
+                double w = exp10_scalar(-spectral) * static_cast<double>(illum[l]);
                 if (std::isnan(w)) w = 0.0;
                 X += w * kCieCmf1931[l][0];
                 Y += w * kCieCmf1931[l][1];
