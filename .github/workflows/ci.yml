@@ -107,6 +107,12 @@ jobs:
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          # Output color spaces: scan_portra final_rgb for all six output spaces
+          # (sRGB / Adobe RGB / ProPhoto / Rec.2020 / ACES2065-1 / linear sRGB) vs the
+          # committed per-space refs in tests/ (argv[3] = ref dir on the runner).
+          build_run test_output_spaces "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$CPP/tests"
+          # Camera/scanner lens-blur spatial parity (film_density_cmy + final_rgb).
+          build_run test_lensblur "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_lensblur" "$LUT" tests/scan_portra_input_rgb.f64
           # Thread-count invariance: per-pixel stages are parallelized (kernels/parallel);
           # the output must be byte-identical at 1 vs 8 workers (scan, print, and the
           # grain+halation branch). Guards the bit-exact parity gate under threading.
