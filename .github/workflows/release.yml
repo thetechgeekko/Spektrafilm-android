@@ -52,6 +52,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install NDK + CMake + build-tools
+        # NDK r27 -> 16 KB-aligned native segments; build-tools 35 -> zipalign -P 16
+        # page-aligns the bundled .so to 16 KB (Android 15 16 KB page requirement).
+        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"
+
       - name: Decode keystore from secret
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}

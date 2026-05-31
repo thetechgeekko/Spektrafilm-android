@@ -178,8 +178,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK + CMake
-        run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
+      - name: Install NDK + CMake + build-tools
+        # NDK r27 gives 16 KB-aligned native LOAD segments (Android 15 16 KB pages);
+        # build-tools 35 provides the zipalign `-P 16` that page-aligns the bundled
+        # .so to 16 KB offsets in the APK.
+        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"
 
       - name: Run JVM unit tests
         run: |
@@ -192,6 +195,29 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Verify 16 KB page compatibility (Android 15)
+        # Guards against a regression of the 16 KB-page fix. Two requirements:
+        #   1. Every bundled .so sits at a 16 KB-aligned offset in the APK zip
+        #      (zipalign -P 16), so a 16 KB-page device can mmap it directly.
+        #   2. Every 64-bit (arm64-v8a / x86_64) .so has 16 KB-aligned PT_LOAD
+        #      segments. 32-bit ABIs always run on 4 KB pages, so they are exempt.
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          # zipalign -c exits 0 when every entry is aligned, non-zero otherwise.
+          # (Don't grep its stdout — the tool prints "succesful", misspelled.)
+          "$BT/zipalign" -c -v -P 16 4 "$APK"
+          rm -rf /tmp/apk16 && mkdir -p /tmp/apk16
+          unzip -oq "$APK" 'lib/arm64-v8a/*' 'lib/x86_64/*' -d /tmp/apk16
+          bad=0
+          for so in $(find /tmp/apk16/lib -name '*.so'); do
+            a=$(readelf -lW "$so" | awk '/LOAD/{print $NF; exit}')
+            if [ "$a" != "0x4000" ]; then echo "NOT 16KB-aligned: ${so#/tmp/apk16/} ($a)"; bad=1; fi
+          done
+          [ "$bad" = 0 ] && echo "All 64-bit native libs are 16 KB-aligned."
+          exit $bad
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

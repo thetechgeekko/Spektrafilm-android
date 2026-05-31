@@ -24,6 +24,11 @@ android {
     namespace = "com.spectrafilm.pngwriter"
     compileSdk = 34
 
+    // NDK r27+ links native LOAD segments with a 16 KB max-page-size by default and
+    // ships a 16 KB-aligned libc++_shared.so — required for Android 15's 16 KB page
+    // devices. The CMake link flag (CMakeLists.txt) pins the alignment explicitly too.
+    ndkVersion = "27.0.12077973"
+
     defaultConfig {
         minSdk = 24
         externalNativeBuild {

@@ -47,6 +47,11 @@
 
 ## Build & verify
 - **App:** `ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :app:assembleDebug`.
+  Requires **NDK r27 (`27.0.12077973`)** + **build-tools 35.0.0** (16 KB page-size fix):
+  `sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"`.
+- **16 KB page check (Android 15):** `build-tools/35.0.0/zipalign -c -P 16 4 <apk>` must pass and
+  every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD` alignment (`readelf -lW`). CI gates
+  this in the `Verify 16 KB page compatibility` step.
 - **Engine parity (the gate):** host tests, from the cpp root, full source set
   `spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp`,
   `g++ -std=c++17 -O3 -ffast-math -fno-finite-math-only -pthread` (the **`-pthread`** is required now
