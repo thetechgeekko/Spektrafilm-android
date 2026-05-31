@@ -38,7 +38,12 @@
   lens blur unwired (no oracle site); downscale (`upscale_factor<1`) AA prefilter; GPU preview /
   EXR export deferred.
 - Release/build: release `isMinifyEnabled = false` (~23 MB un-minified dex — needs R8 keep-rules +
-  device validation); **issue #5 device smoke test never run** (no `/dev/kvm` here).
+  device validation).
+- **Issue #5 device smoke test — DONE (2026-05-31)** on a real Galaxy S25 Ultra (arm64; see
+  `docs/DEVICE_TEST_REPORT.md`): native libs load, 16-bit PNG/TIFF + Ultra HDR + Samsung Expert RAW
+  all verified. It also surfaced a full-res export bug (fixed in PR #21). Follow-up device pass:
+  lossy/JPEG-XL DNG fallback, GPS Settings toggle, visual checks, and the on-device NEON `exp10`
+  speedup magnitude (still unmeasured).
 
 ## Build & verify
 - **App:** `ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :app:assembleDebug`.
