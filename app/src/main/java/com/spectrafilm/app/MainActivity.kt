@@ -559,8 +559,9 @@ class MainActivity : ComponentActivity() {
         // store the result, dropping any previous cached source (one entry only). When ONLY
         // look/film params change (the common case while editing sliders) the key is unchanged
         // and we skip the expensive LibRaw/bitmap decode + linearization + rotation entirely.
-        // EXPORT and the 100% magnifier deliberately call loadSource() directly (full-res,
-        // never cached).
+        // EXPORT calls loadSource(EXPORT_MAX_EDGE_PX) directly — full-resolution, never cached;
+        // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
+        // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
             val cached = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
@@ -812,7 +813,10 @@ class MainActivity : ComponentActivity() {
                                     // GPS/location only when the user opted in (default OFF). Empty
                                     // for the synthetic demo image.
                                     val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = settings.exportKeepGps) }
-                                    val image = loadSource(MAX_EDGE_PX)
+                                    // Full-resolution export (NOT the 2048 px interactive cap) — the
+                                    // proxy-preview vs full-res-export model. Was MAX_EDGE_PX, which
+                                    // silently downscaled e.g. a 12 MP export to ~3 MP.
+                                    val image = loadSource(EXPORT_MAX_EDGE_PX)
                                     val res = e.simulate(image, state.toParams())
                                     val bmp = simResultToBitmap(res.data, res.width, res.height)
                                     val uri = withContext(Dispatchers.IO) {
