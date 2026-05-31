@@ -64,6 +64,11 @@ find_package(Threads REQUIRED)
 
 target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib} Threads::Threads)
 
+# 16 KB page support (Android 15): force every PT_LOAD segment to a 16 KB-aligned
+# p_align so the lib mmaps on devices with a 16 KB page size. NDK r27+ does this by
+# default, but pin it explicitly so the alignment holds on any NDK the build picks up.
+target_link_options(spektra PRIVATE "-Wl,-z,max-page-size=16384")
+
 # M2: link LibRaw here (or keep it in lib:libraw and pass decoded buffers in).
 # target_link_libraries(spektra raw)
 

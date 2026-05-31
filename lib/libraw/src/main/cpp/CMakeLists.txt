@@ -217,4 +217,8 @@ if (ANDROID)
     find_library(android-lib android)
     find_library(jnigraphics-lib jnigraphics)
     target_link_libraries(sfraw ${log-lib} ${android-lib} ${jnigraphics-lib})
+
+    # 16 KB page support (Android 15): force 16 KB-aligned PT_LOAD segments so the
+    # lib mmaps on 16 KB-page devices. NDK r27+ does this by default; pin it anyway.
+    target_link_options(sfraw PRIVATE "-Wl,-z,max-page-size=16384")
 endif ()

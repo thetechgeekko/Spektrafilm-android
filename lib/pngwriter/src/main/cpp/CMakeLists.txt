@@ -45,4 +45,8 @@ target_link_libraries(sfpng ${z-lib})
 if (ANDROID)
     find_library(log-lib log)
     target_link_libraries(sfpng ${log-lib})
+
+    # 16 KB page support (Android 15): force 16 KB-aligned PT_LOAD segments so the
+    # lib mmaps on 16 KB-page devices. NDK r27+ does this by default; pin it anyway.
+    target_link_options(sfpng PRIVATE "-Wl,-z,max-page-size=16384")
 endif ()

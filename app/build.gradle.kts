@@ -21,6 +21,13 @@ android {
     namespace = "com.spectrafilm.app"
     compileSdk = 34
 
+    // build-tools 35.0.0 is the first whose zipalign supports `-P 16`; AGP uses it to
+    // page-align the (uncompressed) bundled .so to 16 KB offsets inside the APK, which
+    // is what lets a 16 KB-page device mmap them. Without it the libs are only 4 KB-
+    // aligned in the zip and fail to load on Android 15 16 KB devices even when their
+    // own ELF segments are 16 KB-aligned.
+    buildToolsVersion = "35.0.0"
+
     defaultConfig {
         applicationId = "com.spectrafilm.app"
         minSdk = 24

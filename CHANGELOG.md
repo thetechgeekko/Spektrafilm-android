@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixes
+- **16 KB page-size compatibility (Android 15)** — the app now loads on devices with a 16 KB
+  memory page size. Two changes were required: (1) the native libraries we build
+  (`libspektra`, `libsfraw`, `libsftiff`, `libsfpng`) are now linked with 16 KB-aligned
+  `PT_LOAD` segments — the build moved to **NDK r27** (16 KB by default) and each `CMakeLists`
+  also pins `-Wl,-z,max-page-size=16384`; and (2) the APK now uses **build-tools 35**, whose
+  `zipalign -P 16` page-aligns the (uncompressed) bundled `.so` to 16 KB offsets in the zip —
+  without this the already-16 KB-aligned prebuilt libs (`libc++_shared`,
+  `libdatastore_shared_counter`, `libandroidx.graphics.path`) still failed to map. A CI guard
+  (`Verify 16 KB page compatibility`) asserts both conditions on every build. 32-bit
+  `armeabi-v7a` is exempt (16 KB pages are a 64-bit-only feature).
 - **Full-resolution export** — exports were silently capped at the 2048 px interactive-preview
   edge, so e.g. a 12 MP photo exported at ~3 MP. The final export render now uses the full
   source resolution (`EXPORT_MAX_EDGE_PX`); the 2048 px cap stays only for the live preview /

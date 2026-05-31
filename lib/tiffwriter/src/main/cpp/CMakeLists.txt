@@ -34,4 +34,8 @@ target_include_directories(sftiff PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if (ANDROID)
     find_library(log-lib log)
     target_link_libraries(sftiff ${log-lib})
+
+    # 16 KB page support (Android 15): force 16 KB-aligned PT_LOAD segments so the
+    # lib mmaps on 16 KB-page devices. NDK r27+ does this by default; pin it anyway.
+    target_link_options(sftiff PRIVATE "-Wl,-z,max-page-size=16384")
 endif ()
