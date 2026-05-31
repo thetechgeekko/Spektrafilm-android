@@ -15,6 +15,7 @@
 #include <cmath>
 #include <vector>
 
+#include "kernels/parallel.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
 
@@ -48,7 +49,8 @@ void print_expose(const Profile& film, const Profile& print_profile,
 
     // The Python reference runs the whole spectral chain in float64 and stores
     // float32 only at the final write. Mirror that exactly.
-    for (int p = 0; p < npix; ++p) {
+    parallel_for(0, npix, [&](int lo, int hi) {
+    for (int p = lo; p < hi; ++p) {
         const float* dcmy = density_cmy + static_cast<size_t>(p) * 3;
         const double c0 = static_cast<double>(dcmy[0]);
         const double c1 = static_cast<double>(dcmy[1]);
@@ -102,6 +104,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
             out[2] = static_cast<float>(std::log10(std::fmax(r2, 0.0) + 1e-10));
         }
     }
+    });
 
     if (diffusion) {
         apply_diffusion_filter_um(raw_buf.data(), width, height,

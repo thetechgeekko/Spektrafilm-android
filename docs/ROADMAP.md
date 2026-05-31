@@ -151,6 +151,15 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 - **Done when:** proxy preview is interactive on a mid-range device; full scan acceptable; GPU
   path (if shipped) matches CPU within visual tolerance.
 
+> **Landed (M6 threading):** the per-pixel hot loops (`expose` spectral upsampling, `scan`
+> density→RGB, `print_expose`) are now multithreaded via a deterministic fork-join helper
+> (`kernels/parallel`). Disjoint contiguous pixel chunks keep the result **byte-identical for any
+> worker count** (parity gate preserved; new `test_parallel` asserts 1- vs 8-thread equality, and
+> the `engine-parity` suite runs multithreaded). ~3.2× on a 12 MP scan / 4 cores. Stochastic grain
+> + spatial blurs stay serial. Still open in M6: native SIMD (NEON), memory tiling for very large
+> RAW (spatial-stage haloing), the optional GPU preview accelerator, profile-catalog UI, and the
+> downscale anti-aliasing prefilter.
+
 ## M7 — Final polish & presentation (requested)
 The "do this when literally everything else is done" list:
 - ✅ **Welcome / onboarding screen** — shipped in v0.2.0. A multi-page intro covering the

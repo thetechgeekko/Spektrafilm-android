@@ -21,6 +21,7 @@ add_library(spektra SHARED
         kernels/spectral_upsampling.cpp     # Hanatos2025 RGB->spectrum (M3)
         kernels/stats.cpp                   # Poisson + Binomial samplers (grain, M6)
         kernels/lut3d.cpp                   # opt-in PCHIP 3D LUT accel (M7, default OFF)
+        kernels/parallel.cpp                # deterministic fork-join per-pixel threading (M6)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):
@@ -54,7 +55,14 @@ target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 find_library(log-lib log)
 find_library(android-lib android)
 find_library(jnigraphics-lib jnigraphics)
-target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib})
+
+# std::thread for the per-pixel fork-join (kernels/parallel). On Android/bionic the
+# pthread symbols live in libc, so Threads::Threads is effectively a no-op there, but
+# requesting it keeps the build correct on hosts where pthread is a separate lib.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib} Threads::Threads)
 
 # M2: link LibRaw here (or keep it in lib:libraw and pass decoded buffers in).
 # target_link_libraries(spektra raw)

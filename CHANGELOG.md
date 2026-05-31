@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Performance (M6)
+- **Multithreaded full-res render** — the engine's per-pixel hot loops (`expose`
+  spectral upsampling, `scan` density→RGB, `print_expose`) now run across all CPU
+  cores via a deterministic fork-join helper (`kernels/parallel`). The image range
+  is split into contiguous, disjoint pixel chunks whose boundaries depend only on
+  (pixel-count, worker-count), so the output is **byte-identical regardless of
+  thread count** — the bit-exact parity gate is preserved. Measured ~3.2× faster on
+  a 12 MP scan on a 4-core host; larger gains on 6–8 core phones. Stochastic grain
+  and the spatial blurs stay serial (grain walks a seeded RNG in pixel order). Worker
+  count follows the core count, overridable via the `SPK_NUM_THREADS` env var; small
+  previews fall back to serial below an 8192-pixel-per-worker floor.
+- New `tests/test_parallel` gate asserts 1-thread vs 8-thread output is byte-identical
+  for the scan route, the print route, and the grain+halation branch; the full
+  `engine-parity` suite also runs multithreaded in CI.
+
 ## v0.4.0 — usability, performance & undo/redo ✨
 
 Builds directly on the v0.3.0 engine/export foundation with an editor-usability overhaul, a
