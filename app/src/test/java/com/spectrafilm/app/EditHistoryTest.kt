@@ -1,0 +1,117 @@
+/*
+ * Spektrafilm for Android — unit tests for the in-session undo/redo store. GPLv3.
+ * Film modeling powered by spektrafilm.
+ *
+ * The first JVM unit tests in the project. EditHistory is pure logic (two bounded
+ * stacks + Compose snapshot flags), so it runs on the plain JVM with no device or
+ * Robolectric — `:app:testDebugUnitTest`.
+ */
+package com.spectrafilm.app
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EditHistoryTest {
+
+    private fun snap(tag: String, rot: Int = 0) = EditSnapshot(paramsJson = tag, rotationDegrees = rot)
+
+    @Test
+    fun emptyHistory_cannotUndoOrRedo() {
+        val h = EditHistory()
+        assertFalse(h.canUndo)
+        assertFalse(h.canRedo)
+        assertNull("undo on empty returns null", h.undo(snap("cur")))
+        assertNull("redo on empty returns null", h.redo(snap("cur")))
+    }
+
+    @Test
+    fun push_enablesUndo_andLeavesRedoDisabled() {
+        val h = EditHistory()
+        h.push(snap("a"))
+        assertTrue(h.canUndo)
+        assertFalse(h.canRedo)
+    }
+
+    @Test
+    fun undo_returnsPushedSnapshot_andMovesCurrentToRedo() {
+        val h = EditHistory()
+        h.push(snap("a"))
+        val restored = h.undo(snap("live"))
+        assertEquals(snap("a"), restored)
+        assertFalse("nothing left to undo", h.canUndo)
+        assertTrue("the live state is now redoable", h.canRedo)
+    }
+
+    @Test
+    fun redo_returnsSnapshot_andRestoresUndo() {
+        val h = EditHistory()
+        h.push(snap("a"))
+        h.undo(snap("live"))                 // redo stack now holds "live"
+        val redone = h.redo(snap("a"))       // caller passes the just-restored "a" as current
+        assertEquals(snap("live"), redone)
+        assertTrue(h.canUndo)
+        assertFalse(h.canRedo)
+    }
+
+    @Test
+    fun push_invalidatesRedoBranch() {
+        val h = EditHistory()
+        h.push(snap("a"))
+        h.undo(snap("live"))                 // canRedo == true
+        assertTrue(h.canRedo)
+        h.push(snap("b"))                    // a fresh edit must drop the redo branch
+        assertFalse("a new edit invalidates redo", h.canRedo)
+        assertNull(h.redo(snap("cur")))
+    }
+
+    @Test
+    fun undoRedo_roundTrip_preservesOrder() {
+        val h = EditHistory()
+        h.push(snap("s1"))
+        h.push(snap("s2"))
+        // current live state is "s3"; undo should walk s3<-s2<-s1
+        assertEquals(snap("s2"), h.undo(snap("s3")))
+        assertEquals(snap("s1"), h.undo(snap("s2")))
+        assertFalse(h.canUndo)
+        // redo should walk back forward to s2 then s3
+        assertEquals(snap("s2"), h.redo(snap("s1")))
+        assertEquals(snap("s3"), h.redo(snap("s2")))
+        assertFalse(h.canRedo)
+    }
+
+    @Test
+    fun cap_dropsOldestUndoEntry() {
+        val h = EditHistory(cap = 2)
+        h.push(snap("s1"))
+        h.push(snap("s2"))
+        h.push(snap("s3"))                   // s1 evicted; undo stack == [s2, s3]
+        assertEquals(snap("s3"), h.undo(snap("live")))
+        assertEquals(snap("s2"), h.undo(snap("s3")))
+        assertFalse("only `cap` entries are retained", h.canUndo)
+        assertNull(h.undo(snap("s2")))
+    }
+
+    @Test
+    fun clear_emptiesBothStacks() {
+        val h = EditHistory()
+        h.push(snap("a"))
+        h.undo(snap("live"))                 // populate redo too
+        h.push(snap("b"))
+        h.clear()
+        assertFalse(h.canUndo)
+        assertFalse(h.canRedo)
+        assertNull(h.undo(snap("cur")))
+        assertNull(h.redo(snap("cur")))
+    }
+
+    @Test
+    fun snapshot_carriesRotation() {
+        val h = EditHistory()
+        h.push(snap("a", rot = 90))
+        val restored = h.undo(snap("live", rot = 270))
+        assertEquals(90, restored?.rotationDegrees)
+    }
+}

@@ -16,6 +16,16 @@
 - New `tests/test_parallel` gate asserts 1-thread vs 8-thread output is byte-identical
   for the scan route, the print route, and the grain+halation branch; the full
   `engine-parity` suite also runs multithreaded in CI.
+- **Vector `exp10` SIMD** (`kernels/exp10.h`) replaces the `pow(10,−spectral)` bottleneck in
+  the scan/print spectral integrals; lowers to NEON `fmla v.2d` on arm64, byte-identical at the
+  float32 output (goldens unchanged).
+
+### Testing & CI
+- **First JVM unit tests** (`:app:testDebugUnitTest`) — `EditHistoryTest` covers the undo/redo
+  store (push/undo/redo, redo-branch invalidation, cap eviction, clear, rotation). Runs on the
+  plain JVM (no device) and is now gated in the `android` CI job.
+- **More parity gates** — `test_output_spaces` (all six output color spaces, not just sRGB) and
+  `test_lensblur` (camera/scanner lens-blur spatial parity) are now in the `engine-parity` CI job.
 
 ## v0.4.0 — usability, performance & undo/redo ✨
 
