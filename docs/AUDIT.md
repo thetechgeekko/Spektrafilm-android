@@ -60,9 +60,14 @@ not a commitment to do all of it.
 - 🟡 **Release build has `isMinifyEnabled = false`** (`app/build.gradle.kts`). The shipped APK
   carries ~23 MB of un-minified `.dex`. Enabling R8 + `shrinkResources` is the biggest size win but
   needs JNI/engine keep-rules and **on-device validation** (a wrong rule → runtime crash).
-- 🟡 **Device smoke test never run** (issue #5) — no real-device validation of rotate→export, EXIF
-  orientation, 16-bit PNG/TIFF, Ultra HDR, Expert RAW import. Relatedly, the **on-device NEON SIMD
-  speedup magnitude** (the `exp10` work) is unmeasured — only x86 was profiled here.
+- ✅ **Device smoke test — DONE** (issue #5, 2026-05-31, Galaxy S25 Ultra / Android 16 / arm64;
+  see `docs/DEVICE_TEST_REPORT.md`). Native libs load; 16-bit PNG/TIFF + Ultra HDR exports verified;
+  **Samsung Expert RAW decodes via LibRaw**; source EXIF retained, GPS stripped. It also **found a
+  real bug** — exports were capped at the 2048 px preview size (12 MP → ~3 MP), fixed in PR #21.
+  Still open from that pass: lossy/JPEG-XL DNG **fallback** branch, the GPS Settings toggle, and the
+  subjective visual checks (rotate→export orientation, presets/grain/AE, recipe persistence).
+- 🟡 **On-device NEON SIMD speedup magnitude** (the `exp10` work) is still unmeasured — only x86 was
+  profiled; a device timing of a large-RAW export would confirm it.
 - ⚪ **`dist/` stops at v0.3.0** (debug-signed APKs). v0.4.0 is tagged on origin and ships via the
   signed `release.yml` workflow as a GitHub Release asset — worth confirming that Release + its
   signed APK actually exist/published.
