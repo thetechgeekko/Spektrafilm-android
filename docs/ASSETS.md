@@ -22,16 +22,24 @@ fujifilm_velvia_100.
 **Print papers:** kodak_portra_endura, kodak_supra_endura, kodak_ultra_endura,
 kodak_endura_premier, kodak_ektacolor_edge, fujifilm_crystal_archive_typeii.
 
-## Spectral-upsampling LUTs (`luts/spectral_upsampling/`, ≈ 10 MB)
+## Spectral-upsampling LUTs (`luts/spectral_upsampling/`, ≈ 5.7 MB bundled)
 
-| File | Size | Purpose |
-|------|------|---------|
-| `irradiance_xy_tc.npy` | 5.7 MB | Triangular-coordinate irradiance-spectra LUT (Hanatos2025 RGB→spectral). |
-| `hanatos_irradiance_xy_coeffs_250304.lut` | 4.1 MB | Polynomial coefficient LUT (deg-4 2D) for spectral reconstruction. |
+| File | Size | Bundled? | Purpose |
+|------|------|----------|---------|
+| `irradiance_xy_tc.npy` | 5.7 MB | **yes** | Triangular-coordinate irradiance-spectra LUT (Hanatos2025 RGB→spectral). Loaded at runtime by the engine. |
+| `hanatos_irradiance_xy_coeffs_250304.lut` | 4.1 MB | **no** (build/test input) | Polynomial coefficient LUT (deg-4 2D) the `.npy` is precomputed from. |
 
 `.npy` is NumPy's array format (header + raw little-endian floats); the C++ loader parses the
 header and mmaps the payload. The `.lut` binary is parsed per spektrafilm's
 `utils/spectral_upsampling.py` struct layout.
+
+> **Note (APK size):** the runtime only loads the precomputed `irradiance_xy_tc.npy`
+> (`spk_engine_create` → `eng->spectra()`); it never reads the coefficient `.lut`. The `.lut`
+> is therefore **not bundled in the APK** — it lives in the spektrafilm source tree
+> (`spektrafilm/src/spektrafilm/data/luts/spectral_upsampling/`) and is consumed only by the
+> host `test_spectral_upsampling` gate (which validates RGB→spectrum from the raw coefficients).
+> Dropping it from `assets/` saves ~4.1 MB in the APK and the same again in on-device storage
+> (assets are extracted to `filesDir` on first run).
 
 ## Color filters (`filters/`)
 - `neutral_print_filters.json` — per-(film,paper) neutral Y/M/C dichroic settings (CC units),
