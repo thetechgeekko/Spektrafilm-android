@@ -206,7 +206,9 @@ jobs:
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -c -v -P 16 4 "$APK" | tail -1 | grep -q "successful"
+          # zipalign -c exits 0 when every entry is aligned, non-zero otherwise.
+          # (Don't grep its stdout — the tool prints "succesful", misspelled.)
+          "$BT/zipalign" -c -v -P 16 4 "$APK"
           rm -rf /tmp/apk16 && mkdir -p /tmp/apk16
           unzip -oq "$APK" 'lib/arm64-v8a/*' 'lib/x86_64/*' -d /tmp/apk16
           bad=0
