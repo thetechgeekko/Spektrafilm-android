@@ -51,8 +51,20 @@ private val SRGB_TO_PROPHOTO = floatArrayOf(
     0.0167029f, 0.1176946f, 0.8656026f,
 )
 
-/** Cap the longest edge for full-resolution renders so on-device memory stays bounded. */
+/** Cap the longest edge for interactive (preview/magnifier) renders so on-device memory stays bounded. */
 const val MAX_EDGE_PX = 2048
+
+/**
+ * Longest-edge cap for the FINAL export render. Export must be full-resolution (the
+ * "proxy preview vs full-res export" model), so this is set high enough to be effectively
+ * native for any phone camera (16384 ≈ 200 MP at 4:3) while still bounding a pathological
+ * input. The engine's per-stage buffers are native (off-Java-heap) allocations, so a
+ * full-res render of a typical 12–50 MP frame fits in device RAM; the RAW decode path also
+ * has an OOM-retry ladder, and the export is wrapped in runCatching, so an over-large source
+ * degrades/fails gracefully rather than crashing. (Was previously capped at MAX_EDGE_PX,
+ * which silently downscaled e.g. a 12 MP export to ~3 MP.)
+ */
+const val EXPORT_MAX_EDGE_PX = 16384
 
 /** Longest-edge cap for fast interactive previews. */
 const val PREVIEW_EDGE_PX = 720

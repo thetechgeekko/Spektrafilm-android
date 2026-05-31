@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixes
+- **Full-resolution export** — exports were silently capped at the 2048 px interactive-preview
+  edge, so e.g. a 12 MP photo exported at ~3 MP. The final export render now uses the full
+  source resolution (`EXPORT_MAX_EDGE_PX`); the 2048 px cap stays only for the live preview /
+  magnifier. (On-device verification: issue #5 report.)
+
 ### Performance (M6)
 - **Multithreaded full-res render** — the engine's per-pixel hot loops (`expose`
   spectral upsampling, `scan` density→RGB, `print_expose`) now run across all CPU
