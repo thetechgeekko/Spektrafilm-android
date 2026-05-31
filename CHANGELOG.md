@@ -22,8 +22,10 @@
 
 ### Testing & CI
 - **First JVM unit tests** (`:app:testDebugUnitTest`) — `EditHistoryTest` covers the undo/redo
-  store (push/undo/redo, redo-branch invalidation, cap eviction, clear, rotation). Runs on the
-  plain JVM (no device) and is now gated in the `android` CI job.
+  store (push/undo/redo, redo-branch invalidation, cap eviction, clear, rotation), and
+  `PresetsRoundTripTest` covers the non-destructive recipe layer (serialize → parse → decode
+  preserves the editing state; missing keys keep defaults; re-serialization is idempotent). Both
+  run on the plain JVM (no device) and are gated in the `android` CI job.
 - **More parity gates** — `test_output_spaces` (all six output color spaces, not just sRGB) and
   `test_lensblur` (camera/scanner lens-blur spatial parity) are now in the `engine-parity` CI job.
 
