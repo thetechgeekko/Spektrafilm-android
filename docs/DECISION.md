@@ -78,3 +78,58 @@ stands; only the *host shell* was deferred.
 - The engine is ported stage-by-stage with a Python↔C++ regression harness driven by
   spektrafilm's existing `.npz` baselines (`tests/baselines/`) so we can prove numerical parity.
 - APK grows by ~17 MB of assets (profiles + LUTs) plus LibRaw `.so` per ABI.
+
+---
+
+# Decision Record — NEON SIMD on the spectral-integration loops (M6)
+
+Status: **Deferred / declined** (M6). Date: 2026-05-31. Supersedes the ROADMAP's
+"native SIMD (NEON)" bullet as a near-term item.
+
+## Context
+
+After the M6 threading change (per-pixel fork-join, ~3.2× on a 12 MP scan, bit-exact), the
+next proposed M6 perf item was hand-vectorising the spectral-integration loops with ARM NEON,
+"stacking on the threading for another big export win, while staying bit-exact." We profiled
+the loops before committing to it.
+
+## What the measurements said (12 MP scan, 1 thread, host x86_64)
+
+1. **`pow(10, −spectral)` dominates the `scan()` band loop: ~79%** of its time (microbench:
+   1908 ms → 401 ms when `pow` is removed). The X/Y/Z spectral integral is the heavy stage
+   (~half the scan-route runtime); `expose()` (RGB→spectrum upsampling) is the other half.
+2. A **byte-exact** SIMD must keep `std::pow` as scalar libm (no vectorised `exp10` reproduces
+   libm `pow` bit-for-bit), so it can only touch the ~21% of madd/accumulate work — and the
+   X/Y/Z accumulation is a cross-band reduction whose order must be preserved. Net byte-exact
+   ceiling on that loop is **single-digit %**, easily lost in restructure overhead.
+3. `expose()` is `pow`-free but bottlenecked on **per-pixel, data-dependent gathers** (bicubic
+   `tc_lut` lookups at per-pixel coordinates), which portable SIMD / NEON cannot vectorise
+   bit-exactly (no efficient portable gather; indices differ per lane).
+4. A vectorised `exp10` *can* reach the rest, but a prototype was **1.6e-7 relative error**
+   (≈ float32 epsilon — within the 1e-4 parity tolerance but **not** byte-identical to libm)
+   and, naively, **0.6× — slower than scalar `pow`**. **NEON has only 2-wide float64**, so the
+   on-device ceiling is 2× on a fraction of a fraction of the runtime.
+5. **No ARM build/run capability** in the dev environment or CI (both x86_64), so any NEON
+   intrinsics — or even portable vector code's NEON lowering — cannot be *perf*-validated on
+   the target architecture from here.
+6. The engine already ships an **opt-in scanner 3D-LUT** (`use_scanner_lut`, default OFF,
+   ~5e-5) that accelerates exactly this density→log_xyz integral. The established project
+   philosophy is therefore **bit-exact by default; approximate acceleration is opt-in**.
+
+## Decision
+
+**Do not pursue NEON SIMD on these loops now.** "Big win **and** byte-exact" is not achievable
+here: the byte-exact gain is marginal (pow-dominated, NEON 2-wide f64, gather-bound `expose`),
+and the only path to a large gain (a vectorised `exp10`) sacrifices byte-identity for a
+~1e-7 drift and an on-device speedup that cannot be validated from this environment. The
+threading change already captured the available bit-exact parallelism.
+
+## Consequences / if revisited
+
+- A vectorised-`exp10` fast-path, if ever wanted, should follow the scanner-LUT precedent:
+  **opt-in, default-OFF**, accuracy-bounded, and **perf-validated on a real ARM device** before
+  being recommended — not a silent change to the default numerical path.
+- Higher-value remaining M6 work is unblocked instead: downscale anti-aliasing prefilter
+  (small, self-contained, bit-exact), profile-catalog UI, APK-size review, and (longer-horizon)
+  the optional GPU **preview** accelerator validated to a *visual* tolerance (never the parity
+  gate). Memory tiling for very large RAW remains the open half of old issue #7.

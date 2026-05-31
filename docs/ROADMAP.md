@@ -156,9 +156,18 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 > (`kernels/parallel`). Disjoint contiguous pixel chunks keep the result **byte-identical for any
 > worker count** (parity gate preserved; new `test_parallel` asserts 1- vs 8-thread equality, and
 > the `engine-parity` suite runs multithreaded). ~3.2× on a 12 MP scan / 4 cores. Stochastic grain
-> + spatial blurs stay serial. Still open in M6: native SIMD (NEON), memory tiling for very large
-> RAW (spatial-stage haloing), the optional GPU preview accelerator, profile-catalog UI, and the
-> downscale anti-aliasing prefilter.
+> + spatial blurs stay serial.
+>
+> **Native SIMD (NEON) — deferred/declined (2026-05-31, see `docs/DECISION.md`).** Profiling
+> showed the spectral integral is `pow`-dominated (~79%), NEON is only 2-wide float64, `expose`
+> is gather-bound, and the dev/CI environment can't build or perf-validate ARM code. A byte-exact
+> SIMD gains only single-digit %; the only big-win path (a vectorised `exp10`) is ~1e-7 (not
+> byte-exact) and unverifiable on-device. The existing opt-in scanner 3D-LUT already covers
+> approximate acceleration. Revisit only as an opt-in, device-validated fast-path.
+>
+> Still open in M6: memory tiling for very large RAW (spatial-stage haloing), the optional GPU
+> preview accelerator, profile-catalog UI, APK-size review, and the downscale anti-aliasing
+> prefilter.
 
 ## M7 — Final polish & presentation (requested)
 The "do this when literally everything else is done" list:
