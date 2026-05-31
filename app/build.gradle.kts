@@ -84,4 +84,7 @@ dependencies {
     implementation(libs.androidx.material3)
 
     testImplementation(libs.junit)
+    // Real org.json on the unit-test classpath (the android.jar stub throws "not
+    // mocked"); lets Presets JSON round-trip be tested on the plain JVM.
+    testImplementation("org.json:json:20231013")
 }
