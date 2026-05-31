@@ -71,8 +71,11 @@ not a commitment to do all of it.
 
 ## E. Dead code / cleanup
 
-- ⚪ **`NotYetActiveNote` + the gated-control wrapper in `Widgets.kt`** are now dead code (zero call
-  sites — every param is wired). Safe to remove.
+- ⚪ **`NotYetActiveNote` in `Widgets.kt`** has no *direct* call sites — but it is **not** dead:
+  its wrapper `GatedBlock` (same file) calls it and is used twice in `MainActivity.kt` to gate
+  genuinely-inert params (the hanatos2025 adaptation toggles + spectral Gaussian blur, and the
+  enlarger lens blur — "no engine call site"). So the widget stays until those params are wired or
+  removed. (Correction: an earlier draft of this audit wrongly listed it as dead code.)
 
 ---
 
