@@ -83,8 +83,9 @@ stands; only the *host shell* was deferred.
 
 # Decision Record — NEON SIMD on the spectral-integration loops (M6)
 
-Status: **Deferred / declined** (M6). Date: 2026-05-31. Supersedes the ROADMAP's
-"native SIMD (NEON)" bullet as a near-term item.
+Status: **Superseded — implemented after all** (M6). Date: 2026-05-31. The deferral
+below records the initial analysis; it was reversed the same day once a path was found
+that clears the bit-exact bar (see "Status update" at the end of this record).
 
 ## Context
 
@@ -133,3 +134,31 @@ threading change already captured the available bit-exact parallelism.
   (small, self-contained, bit-exact), profile-catalog UI, APK-size review, and (longer-horizon)
   the optional GPU **preview** accelerator validated to a *visual* tolerance (never the parity
   gate). Memory tiling for very large RAW remains the open half of old issue #7.
+
+## Status update (2026-05-31) — implemented after all
+
+The deferral above turned on one assumption: that a vectorised `exp10` "sacrifices byte-identity."
+A closer look flipped that conclusion. The engine stores **float32** at the end of the
+integral, and a high-accuracy double `exp10` matches `std::pow` to **≤ ~3e-10 relative** — about
+200× *smaller* than a float32 LSB (~6e-8). So after the final `float32` cast the result is
+**byte-identical** to the scalar path: the parity gate (which is what "bit-exact" means here) is
+untouched. That cleared the only real objection, so the SIMD was implemented:
+
+- **`kernels/exp10.h`** — a portable double-precision vector `exp10` (range-reduce
+  `y = x·log2(10)`, degree-8 minimax `2^r`, exponent built from IEEE-754 bits). It is
+  **fast-math-safe**: the round-to-integer uses truncation (`__builtin_convertvector`) + a
+  branchless nudge, never the `(y + 1.5·2^52) − 1.5·2^52` trick that `-ffast-math` cancels
+  (commit `9ac5b36`). Lowers to **NEON `fmla v.2d` on arm64** (verified by disassembly),
+  SSE2/AVX on x86; armv7 scalarises. Commit `7206831`.
+- Wired into the `scan()` and `print_expose()` band loops: `exp10_vec` evaluates 2 bands at a
+  time; an identical-arithmetic `exp10_scalar` handles the odd-band tail so the result is
+  independent of how `parallel_for` chunks the image.
+
+**Validation (this environment, x86_64):** parity goldens pass with `max_abs` unchanged at
+5.97e-08 (≪ the 1e-4 bar); `test_parallel` is byte-identical across 1↔8 threads; an isolated
+`exp10_vec` vs `std::pow` accuracy check is 2.7e-10 max relative. The ROADMAP M6 note records
+~1.85× on a 12 MP scan on x86 (→ ~6× with threading vs the original scalar single-thread
+baseline). **Caveat carried forward:** the *on-device* (NEON, 2-wide f64) speedup was not
+measured here — there is no ARM build/run in this environment or CI — so the magnitude on real
+hardware should still be confirmed on a device. Correctness on-device follows from the same
+IEEE-754 double ops; only the perf magnitude is unverified.
