@@ -15,6 +15,7 @@
 #include <cmath>
 #include <vector>
 
+#include "kernels/exp10.h"
 #include "kernels/parallel.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
@@ -59,15 +60,39 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // raw[k] = sum_l light[l] * sens[l,k], where
         //   spectral[l] = c.channel_density[l] + base_density[l]   (film dyes)
         //   light[l]    = 10^-spectral[l] * filtered_illuminant[l] (NaN -> 0)
+        // SIMD: 10^(-spectral) (the dominant per-band cost) is evaluated kExp10Lanes
+        // at a time with the vector exp10 (kernels/exp10; <=4 ULP, byte-identical
+        // after the float32 cast). The raw accumulation stays in band order.
         double raw0 = 0.0, raw1 = 0.0, raw2 = 0.0;
-        for (int l = 0; l < S; ++l) {
+        int l = 0;
+        for (; l + kExp10Lanes <= S; l += kExp10Lanes) {
+            exp10_vd negspec;
+            for (int q = 0; q < kExp10Lanes; ++q) {
+                const float* cd =
+                    film.channel_density.data() + static_cast<size_t>(l + q) * 3;
+                negspec[q] = -(c0 * static_cast<double>(cd[0]) +
+                               c1 * static_cast<double>(cd[1]) +
+                               c2 * static_cast<double>(cd[2]) +
+                               static_cast<double>(film.base_density[l + q]));
+            }
+            exp10_vd ev = exp10_vec(negspec);
+            for (int q = 0; q < kExp10Lanes; ++q) {
+                double light = ev[q] * params.filtered_illuminant[l + q];
+                if (std::isnan(light)) light = 0.0;
+                const double* sl = sens.data() + static_cast<size_t>(l + q) * 3;
+                raw0 += light * sl[0];
+                raw1 += light * sl[1];
+                raw2 += light * sl[2];
+            }
+        }
+        for (; l < S; ++l) {  // odd-band tail (same exp10 arithmetic, scalar).
             const float* cd =
                 film.channel_density.data() + static_cast<size_t>(l) * 3;
             const double spectral = c0 * static_cast<double>(cd[0]) +
                                     c1 * static_cast<double>(cd[1]) +
                                     c2 * static_cast<double>(cd[2]) +
                                     static_cast<double>(film.base_density[l]);
-            double light = std::pow(10.0, -spectral) * params.filtered_illuminant[l];
+            double light = exp10_scalar(-spectral) * params.filtered_illuminant[l];
             if (std::isnan(light)) light = 0.0;
             const double* sl = sens.data() + static_cast<size_t>(l) * 3;
             raw0 += light * sl[0];

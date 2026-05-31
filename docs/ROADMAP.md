@@ -156,9 +156,20 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 > (`kernels/parallel`). Disjoint contiguous pixel chunks keep the result **byte-identical for any
 > worker count** (parity gate preserved; new `test_parallel` asserts 1- vs 8-thread equality, and
 > the `engine-parity` suite runs multithreaded). ~3.2× on a 12 MP scan / 4 cores. Stochastic grain
-> + spatial blurs stay serial. Still open in M6: native SIMD (NEON), memory tiling for very large
-> RAW (spatial-stage haloing), the optional GPU preview accelerator, profile-catalog UI, and the
-> downscale anti-aliasing prefilter.
+> + spatial blurs stay serial.
+>
+> **Native SIMD (NEON) — landed (2026-05-31, see `docs/DECISION.md`).** The `pow(10,−spectral)`
+> that dominates (~79%) the `scan()` and `print_expose()` spectral integrals is now evaluated with
+> a portable vector `exp10` (`kernels/exp10.h`) that lowers to **NEON `fmla v.2d` on arm64**
+> (verified by disassembly) and to SSE2/AVX on x86. It matches `std::pow` to ≤4 ULP and is
+> **byte-identical at the float32 output** (0/750k mismatches; goldens' `max_abs` unchanged at
+> 5.97e-08; `test_parallel` still 0 across 1↔8 threads). ~1.85× on a 12 MP scan on x86 (more modest
+> on 2-wide NEON f64; armv7 scalarises) → **~6× vs the original scalar/single-thread baseline** with
+> threading. `expose()` (gather-bound) and the per-pixel `10^log_xyz` round-trips stay scalar.
+>
+> Still open in M6: memory tiling for very large RAW (spatial-stage haloing), the optional GPU
+> preview accelerator, profile-catalog UI, APK-size review, and the downscale anti-aliasing
+> prefilter.
 
 ## M7 — Final polish & presentation (requested)
 The "do this when literally everything else is done" list:
