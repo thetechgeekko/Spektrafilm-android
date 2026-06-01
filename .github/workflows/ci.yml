@@ -123,6 +123,9 @@ jobs:
           # (new look control must not perturb existing goldens); a real S-curve must
           # change the output and stay in [0,1].
           build_run test_tonecurve "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra"
+          # fp16 (half-float) conversion: scalar IEEE-754 round-trip + bulk path agree
+          # (NEON vcvt on arm, scalar on the host runner). No assets needed.
+          build_run test_half
           exit $fail
 
   # ---------------------------------------------------------------------------

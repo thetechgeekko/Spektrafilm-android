@@ -23,6 +23,7 @@ add_library(spektra SHARED
         kernels/lut3d.cpp                   # opt-in PCHIP 3D LUT accel (M7, default OFF)
         kernels/parallel.cpp                # deterministic fork-join per-pixel threading (M6)
         kernels/tonecurve.cpp               # optional 1D tone curve on final display RGB
+        kernels/half.cpp                    # fp16 (NEON) <-> f32 conversion (preview proxy storage)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):
