@@ -25,7 +25,9 @@
 #include <unistd.h>
 #include <vector>
 
+#ifdef __ANDROID__
 #include <android/log.h>
+#endif
 
 #if defined(__has_include)
 #  if __has_include(<libraw/libraw.h>)
@@ -487,56 +489,49 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
         return result;
     }
 
-    result.width  = img->width;
-    result.height = img->height;
-    const size_t pixelCount = static_cast<size_t>(img->width) * img->height;
-    result.rgb.resize(pixelCount * 3);
-
+    const int fullW = img->width;
+    const int fullH = img->height;
     const auto* src = reinterpret_cast<const uint16_t*>(img->data);
     constexpr float kInv16 = 1.0f / 65535.0f;
-    for (size_t i = 0; i < pixelCount * 3; ++i) {
-        result.rgb[i] = static_cast<float>(src[i]) * kInv16;
+
+    // Cap the longest edge to options.maxLongEdge (proxy bound) DURING the uint16->float
+    // copy: subsample img->data straight into the final-sized buffer so we never hold a
+    // second full-resolution float image. LibRaw's half_size is honoured for most Bayer
+    // DNGs, but some (e.g. certain Samsung Expert-RAW DNGs) decode full-resolution
+    // regardless; without this cap result.rgb stays full-res and the JVM-side direct
+    // ByteBuffer (a managed byte[] on Android) OOMs the ART heap. Peak native memory here
+    // is LibRaw's own image + the (small) capped buffer — not two full-res copies.
+    int step = 1;
+    {
+        const int longest = fullW > fullH ? fullW : fullH;
+        if (options.maxLongEdge > 0 && longest > options.maxLongEdge) {
+            while (longest / step > options.maxLongEdge) ++step;
+        }
+    }
+    const int ow = step > 1 ? (fullW + step - 1) / step : fullW;
+    const int oh = step > 1 ? (fullH + step - 1) / step : fullH;
+    result.width = ow;
+    result.height = oh;
+    result.rgb.resize(static_cast<size_t>(ow) * oh * 3);
+    for (int oy = 0; oy < oh; ++oy) {
+        const size_t srow = static_cast<size_t>(oy) * step * fullW;
+        for (int ox = 0; ox < ow; ++ox) {
+            const size_t si = (srow + static_cast<size_t>(ox) * step) * 3;
+            const size_t di = (static_cast<size_t>(oy) * ow + ox) * 3;
+            result.rgb[di]     = static_cast<float>(src[si])     * kInv16;
+            result.rgb[di + 1] = static_cast<float>(src[si + 1]) * kInv16;
+            result.rgb[di + 2] = static_cast<float>(src[si + 2]) * kInv16;
+        }
     }
     LibRaw::dcraw_clear_mem(img);
 
-    applyAcesAdaptation(result.rgb.data(), pixelCount, options);
+    applyAcesAdaptation(result.rgb.data(), static_cast<size_t>(ow) * oh, options);
 
-    // Cap the longest edge to options.maxLongEdge (proxy bound). LibRaw's half_size is
-    // honoured for most Bayer DNGs, but some (e.g. certain Samsung Expert-RAW DNGs)
-    // decode at full resolution regardless; without this cap result.rgb stays full-res
-    // and the JVM-side direct ByteBuffer (a managed byte[] on Android) OOMs the ART heap.
-    {
-        const int longest = result.width > result.height ? result.width : result.height;
-        if (options.maxLongEdge > 0 && longest > options.maxLongEdge) {
-            int step = 1;
-            while (longest / step > options.maxLongEdge) ++step;
-            const int ow = (result.width + step - 1) / step;
-            const int oh = (result.height + step - 1) / step;
-            std::vector<float> dst(static_cast<size_t>(ow) * oh * 3);
-            for (int oy = 0; oy < oh; ++oy) {
-                const size_t srow = static_cast<size_t>(oy) * step * result.width;
-                for (int ox = 0; ox < ow; ++ox) {
-                    const size_t si = (srow + static_cast<size_t>(ox) * step) * 3;
-                    const size_t di = (static_cast<size_t>(oy) * ow + ox) * 3;
-                    dst[di] = result.rgb[si];
-                    dst[di + 1] = result.rgb[si + 1];
-                    dst[di + 2] = result.rgb[si + 2];
-                }
-            }
-            __android_log_print(ANDROID_LOG_INFO, "sfraw",
-                "decoded %dx%d (halfSize=%d) -> capped %dx%d (maxLongEdge=%d, step=%d)",
-                result.width, result.height, options.halfSize ? 1 : 0,
-                ow, oh, options.maxLongEdge, step);
-            result.rgb.swap(dst);
-            result.width = ow;
-            result.height = oh;
-        } else {
-            __android_log_print(ANDROID_LOG_INFO, "sfraw",
-                "decoded %dx%d (halfSize=%d, maxLongEdge=%d, no cap)",
-                result.width, result.height, options.halfSize ? 1 : 0,
-                options.maxLongEdge);
-        }
-    }
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "sfraw",
+        "decoded %dx%d (halfSize=%d) -> %dx%d (maxLongEdge=%d, step=%d)",
+        fullW, fullH, options.halfSize ? 1 : 0, ow, oh, options.maxLongEdge, step);
+#endif
 
     result.colorSpace = "ACES2065-1";
     result.status = SFRAW_OK;
