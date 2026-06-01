@@ -57,4 +57,23 @@ The parity-safe wins (#4, #5) ship first (real interactive smoothness, zero prec
 Then the precision decision below unlocks #2/#3 (proxy-only approximation) and ultimately #1 (GPU),
 which is the only thing that truly reaches Lightroom-class speed.
 
+## Decision (adopted)
+**Proxy approximate, export exact** — Lightroom's model. Interactive *preview* renders may use
+the fast approximate paths (expose/scanner LUT, fp16, and ultimately a GPU compute path); **export
+and the CI parity gate stay bit-exact** against the oracle. Concretely: approximate paths are gated
+behind a preview-only flag; the default/export path is unchanged, so the goldens never see them.
+
+## Measurement caveat (important for whoever builds #1–#3)
+The numbers above are **host x86** (`-O3 -ffast-math`), and are *indicative only* — they did **not**
+behave like the arm target will:
+- the scanner LUT was a **no-op (sometimes slower) at 1 MP** on x86 — the LUT build cost ≈ its
+  savings at small sizes; it only pays off at higher resolutions and on the integral it covers, and
+- the scan-the-negative route timed *slower* than the print route on this host (inverted vs
+  expectation), i.e. the host scheduler/cache behaviour does not predict on-device cost.
+
+**Do not commit the LUT/fp16/GPU work off host timings.** Profile on a real arm64 device
+(`SPK_NUM_THREADS`, a representative 12–24 MP proxy) to (a) confirm the expose integrals are the
+true hotspot on-device and (b) size the LUT resolution / fp16 / tile parameters. The bit-exact
+parity gate (`test_*`) is the guardrail for the *exact* path throughout.
+
 *Film modeling powered by spektrafilm (GPLv3).*
