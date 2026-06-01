@@ -295,6 +295,14 @@ class MainActivity : ComponentActivity() {
         var compareMode by remember { mutableStateOf(false) }
         var showHistogram by remember { mutableStateOf(false) }
 
+        // Experimental GPU LUT preview (Settings → Experimental, default OFF). When on we
+        // keep the latest linear proxy + a baked 3D LUT of the current look; PreviewRegion
+        // GPU-samples them instead of the CPU bitmap. Read at composition — toggling in
+        // Settings applies on the next return to the editor.
+        val gpuEnabled = settings.gpuPreview
+        var gpuProxy by remember { mutableStateOf<LinearImage?>(null) }
+        var gpuLut by remember { mutableStateOf<CubeLut?>(null) }
+
         // interactive crop overlay (Lightroom-style); hosts on top of everything.
         var cropOverlayOpen by remember { mutableStateOf(false) }
 
@@ -691,6 +699,25 @@ class MainActivity : ComponentActivity() {
             previewBusy = false
         }
 
+        // GPU LUT preview feed (experimental, default OFF): after the CPU preview settles,
+        // bake a 33³ .cube of the current look and keep it + the linear proxy for the GPU
+        // path. The proxy decode is a cache hit (the main effect already loaded it), so this
+        // adds only the LUT bake. Cancelled/replaced cleanly when previewTick advances.
+        LaunchedEffect(previewTick, gpuEnabled) {
+            if (!gpuEnabled) { gpuLut = null; gpuProxy = null; return@LaunchedEffect }
+            val e = engine ?: return@LaunchedEffect
+            delay(380)
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    val img = loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256))
+                    val lut = CubeLut.parse(e.bakeCubeLut(state.toParams(), 33))
+                    img to lut
+                }
+            }.onSuccess { (img, lut) ->
+                if (lut != null) { gpuProxy = img; gpuLut = lut }
+            }
+        }
+
         // MEMORY (#2): `preview` and `beforePreview` are intentionally LEFT TO GC, not recycled
         // on swap. Recycling them is NOT provably safe: `preview` is consumed by HistogramCard,
         // which reads its pixels with getPixels() from a background coroutine
@@ -898,6 +925,9 @@ class MainActivity : ComponentActivity() {
                         renderErr = renderErr,
                         compareMode = compareMode,
                         showHistogram = showHistogram,
+                        gpuEnabled = gpuEnabled,
+                        gpuProxy = gpuProxy,
+                        gpuLut = gpuLut,
                         onToggleCompare = { compareMode = !compareMode },
                         onToggleHistogram = { showHistogram = !showHistogram },
                         onRotate = { rotation = rotation.next() },
@@ -1232,6 +1262,9 @@ class MainActivity : ComponentActivity() {
         renderErr: String?,
         compareMode: Boolean,
         showHistogram: Boolean,
+        gpuEnabled: Boolean,
+        gpuProxy: LinearImage?,
+        gpuLut: CubeLut?,
         onToggleCompare: () -> Unit,
         onToggleHistogram: () -> Unit,
         onRotate: () -> Unit,
@@ -1246,18 +1279,23 @@ class MainActivity : ComponentActivity() {
             contentAlignment = Alignment.Center,
         ) {
             val bmp = preview
-            if (bmp != null) {
-                if (compareMode && before != null) {
+            val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null && !compareMode
+            when {
+                // Experimental GPU LUT surface. Beta: no zoom/magnifier/compare yet, so it
+                // only takes over the plain (non-compare) branch once a LUT+proxy exist.
+                gpuActive -> GpuLutPreview(
+                    proxy = gpuProxy!!,
+                    lut = gpuLut!!,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                bmp != null && compareMode && before != null ->
                     CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
-                } else {
-                    ZoomableImage(
-                        bitmap = bmp,
-                        modifier = Modifier.fillMaxSize(),
-                        onPointPicked = onPointPicked,
-                    )
-                }
-            } else {
-                Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
+                bmp != null -> ZoomableImage(
+                    bitmap = bmp,
+                    modifier = Modifier.fillMaxSize(),
+                    onPointPicked = onPointPicked,
+                )
+                else -> Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
             }
 
             // Compact translucent histogram overlaid at the TOP EDGE of the preview
