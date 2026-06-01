@@ -86,7 +86,7 @@ import kotlinx.coroutines.withContext
 private enum class SourceKind { DEMO, PHOTO, RAW }
 
 /** Top-level navigation destinations. */
-private enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT }
+private enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS }
 
 /** Adjustment categories shown in the bottom bar; each maps to an existing section. */
 private enum class Category(val label: String) {
@@ -112,6 +112,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Persist the last fatal stack trace so the in-app Diagnostics screen can show it
+        // after a restart (no permission needed; chains to the platform handler).
+        Diagnostics.installCrashHandler(this)
         val settings = AppSettings.from(this)
         setContent {
             var themeMode by remember { mutableStateOf(settings.theme) }
@@ -178,7 +181,11 @@ class MainActivity : ComponentActivity() {
                         printGroups = settingsPrintGroups,
                         onThemeChanged = onThemeChanged,
                         onShowOnboarding = { showOnboarding = true; screen = Screen.EDITOR },
+                        onOpenDiagnostics = { screen = Screen.DIAGNOSTICS },
                     )
+                }
+                Screen.DIAGNOSTICS -> NavScaffold("Diagnostics", onBack = { screen = Screen.SETTINGS }) {
+                    DiagnosticsScreen()
                 }
                 Screen.ABOUT -> NavScaffold("About", onBack = { screen = Screen.EDITOR }) {
                     AboutScreen()

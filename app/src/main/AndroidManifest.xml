@@ -2,6 +2,10 @@
 <!-- Spektrafilm for Android. GPLv3. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Update check pings the GitHub Releases API; opening the release page uses the browser. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Legacy gallery export (API <= 28) writes to public Pictures storage.
          On API 29+ scoped storage is used via MediaStore and needs no permission. -->
     <uses-permission
