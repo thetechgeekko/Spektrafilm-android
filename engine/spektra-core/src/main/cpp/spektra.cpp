@@ -912,6 +912,18 @@ spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* 
 spk_status spk_simulate_preview(spk_engine* eng, const spk_image* in,
                                 const spk_params* p, spk_image* out) {
     if (!eng || !in || !p || !out || !in->data) return SPK_ERR_BAD_ARGS;
+    // Proxy-approximate / export-exact (docs/PERF_ROADMAP.md): the interactive preview
+    // runs the approximate LUT fast-path (the scanner density->log_xyz spectral integral
+    // is PCHIP-interpolated through a 3D LUT instead of evaluated per pixel, ~5e-5 vs the
+    // direct path — see runtime/stages/scanning.h). spk_simulate (export) keeps the exact
+    // direct spectral evaluation, so the bit-exact parity goldens are untouched. We copy
+    // the caller's params and force the LUT on for the preview only.
+    spk_params pp = *p;
+    if (pp.use_scanner_lut == 0) {
+        pp.use_scanner_lut = 1;
+        if (pp.lut_resolution < 2) pp.lut_resolution = 17;
+    }
+    p = &pp;
     int max_size = p->preview_max_size > 0 ? p->preview_max_size : 640;
     int longest = in->width > in->height ? in->width : in->height;
     if (longest <= max_size) {
