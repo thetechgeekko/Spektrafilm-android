@@ -340,6 +340,11 @@ class MainActivity : ComponentActivity() {
         var presetFullJson by remember { mutableStateOf<String?>(null) }
         var presetAmount by remember { mutableFloatStateOf(1f) }
 
+        // Copy/paste settings (Lightroom-style, backlog #10): a session clipboard holding
+        // a full params snapshot, so a look dialed on one image can be pasted onto another.
+        // Lives at AppRoot scope so it survives switching the source.
+        var settingsClipboard by remember { mutableStateOf<String?>(null) }
+
         // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
         // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
         fun applyWithAmount(apply: () -> Unit) {
@@ -1055,6 +1060,24 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
                                 onExport = { presetExporter.launch("spectrafilm_preset.json") },
+                                onCopySettings = {
+                                    settingsClipboard = runCatching { Presets.toJsonString(state) }.getOrNull()
+                                    status = if (settingsClipboard != null) "settings copied" else "copy failed"
+                                },
+                                canPasteSettings = settingsClipboard != null,
+                                onPasteSettings = {
+                                    settingsClipboard?.let { clip ->
+                                        runCatching { Presets.decode(org.json.JSONObject(clip), state) }
+                                            .onSuccess {
+                                                // Pasting replaces the whole look, so the preset
+                                                // amount blend anchor is now stale — clear it so a
+                                                // later slider move can't overwrite the pasted look.
+                                                presetBaseJson = null; presetFullJson = null; presetAmount = 1f
+                                                status = "settings pasted"; previewTick++
+                                            }
+                                            .onFailure { status = "paste failed: ${it.message}" }
+                                    }
+                                },
                                 onExportLut = {
                                     val e = engine ?: return@PresetPanel
                                     bakingLut = true; status = "baking .cube LUT…"
@@ -1761,6 +1784,9 @@ class MainActivity : ComponentActivity() {
         onDelete: () -> Unit,
         onImport: () -> Unit,
         onExport: () -> Unit,
+        onCopySettings: () -> Unit,
+        canPasteSettings: Boolean,
+        onPasteSettings: () -> Unit,
         onExportLut: () -> Unit,
         bakingLut: Boolean,
     ) {
@@ -1833,6 +1859,15 @@ class MainActivity : ComponentActivity() {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import .json") }
             OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export / share") }
+        }
+        // Copy the current edit and paste it onto another image (session clipboard).
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCopySettings, modifier = Modifier.weight(1f)) { Text("Copy settings") }
+            OutlinedButton(
+                onClick = onPasteSettings,
+                enabled = canPasteSettings,
+                modifier = Modifier.weight(1f),
+            ) { Text("Paste settings") }
         }
         Divider()
         Button(
