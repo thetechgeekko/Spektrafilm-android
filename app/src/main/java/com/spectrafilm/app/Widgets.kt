@@ -9,6 +9,7 @@
  */
 package com.spectrafilm.app
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -72,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -242,9 +244,15 @@ fun EnhancedSlider(
         val steps = if (step > 0f) {
             (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0)
         } else 0
+        // Lightroom-style tactile feedback: a light tick when a drag settles, so an
+        // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
+        val view = LocalView.current
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = { onValueChange(snap(it, range, step)) },
+            onValueChangeFinished = {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            },
             valueRange = range,
             steps = steps,
         )

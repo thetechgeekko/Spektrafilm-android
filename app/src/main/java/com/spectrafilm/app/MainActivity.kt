@@ -127,6 +127,10 @@ class MainActivity : ComponentActivity() {
     private fun AppRoot(settings: AppSettings, onThemeChanged: (ThemeMode) -> Unit) {
         var showOnboarding by remember { mutableStateOf(!settings.seenOnboarding) }
         var screen by remember { mutableStateOf(Screen.EDITOR) }
+        // Hoisted here (not inside EditorScreen) so the open adjustment category survives a
+        // round-trip to Settings/About and back — you return to where you were editing,
+        // Lightroom-style, instead of a collapsed panel.
+        val editorCategory = remember { mutableStateOf<Category?>(null) }
         val ctx = LocalContext.current
 
         // Catalog-grouped profile options for the Settings default-profile pickers.
@@ -150,6 +154,7 @@ class MainActivity : ComponentActivity() {
             when (screen) {
                 Screen.EDITOR -> EditorScreen(
                     settings = settings,
+                    activeCategoryState = editorCategory,
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenAbout = { screen = Screen.ABOUT },
                     onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
@@ -220,6 +225,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun EditorScreen(
         settings: AppSettings,
+        activeCategoryState: MutableState<Category?>,
         onOpenSettings: () -> Unit,
         onOpenAbout: () -> Unit,
         onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
@@ -298,8 +304,9 @@ class MainActivity : ComponentActivity() {
         var presetName by remember { mutableStateOf("") }
         var selectedPreset by remember { mutableStateOf("") }
 
-        // active adjustment category (null = panel closed)
-        var activeCategory by remember { mutableStateOf<Category?>(null) }
+        // active adjustment category (null = panel closed); hoisted to AppRoot so it
+        // survives navigation to Settings/About and back.
+        var activeCategory by activeCategoryState
 
         fun refreshPresets() { presetList = Presets.list(ctx) }
 
