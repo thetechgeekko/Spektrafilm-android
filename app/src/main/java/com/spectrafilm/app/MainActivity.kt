@@ -510,7 +510,16 @@ class MainActivity : ComponentActivity() {
         ) { uri ->
             if (uri != null) {
                 val name = uri.lastPathSegment ?: "raw"
-                if (RawDecoder.isRawFileName(name) || true) {
+                if (McrawContainer.isMcrawFileName(name)) {
+                    // MotionCam RAW-video container: recognized (see McrawContainer /
+                    // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so
+                    // don't set a RAW source that would fail — tell the user instead.
+                    status = "MotionCam .mcraw clips aren't supported yet (RAW-video import in progress)"
+                    scope.launch {
+                        snackbarHost.currentSnackbarData?.dismiss()
+                        snackbarHost.showSnackbar("MotionCam .mcraw import is coming — single RAW/DNG works today")
+                    }
+                } else if (RawDecoder.isRawFileName(name) || true) {
                     runCatching {
                         ctx.contentResolver.takePersistableUriPermission(
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
