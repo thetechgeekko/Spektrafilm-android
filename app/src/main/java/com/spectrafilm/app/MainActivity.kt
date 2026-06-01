@@ -126,6 +126,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun AppRoot(settings: AppSettings, onThemeChanged: (ThemeMode) -> Unit) {
         var showOnboarding by remember { mutableStateOf(!settings.seenOnboarding) }
+        // One-time editor coach marks, shown once onboarding is out of the way.
+        var showEditorCoach by remember { mutableStateOf(!settings.seenEditorCoach) }
         var screen by remember { mutableStateOf(Screen.EDITOR) }
         // Hoisted here (not inside EditorScreen) so the open adjustment category survives a
         // round-trip to Settings/About and back — you return to where you were editing,
@@ -196,6 +198,13 @@ class MainActivity : ComponentActivity() {
                         settings.seenOnboarding = true; showOnboarding = false; screen = Screen.SETTINGS
                     },
                     onReportIssue = { Links.open(ctx, Links.NEW_ISSUE) },
+                )
+            }
+
+            // Editor coach marks: after onboarding, the first time the editor is shown.
+            if (!showOnboarding && showEditorCoach && screen == Screen.EDITOR) {
+                EditorCoachOverlay(
+                    onDismiss = { settings.seenEditorCoach = true; showEditorCoach = false },
                 )
             }
         }

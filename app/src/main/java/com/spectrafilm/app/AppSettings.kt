@@ -33,6 +33,11 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(KEY_SEEN_ONBOARDING, false)
         set(v) { prefs.edit().putBoolean(KEY_SEEN_ONBOARDING, v).apply() }
 
+    /** Whether the one-time editor coach-mark overlay (tap-to-edit / compare / 100%) was shown. */
+    var seenEditorCoach: Boolean
+        get() = prefs.getBoolean(KEY_SEEN_EDITOR_COACH, false)
+        set(v) { prefs.edit().putBoolean(KEY_SEEN_EDITOR_COACH, v).apply() }
+
     var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -93,6 +98,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
     companion object {
         private const val PREFS_NAME = "spectrafilm_settings"
         private const val KEY_SEEN_ONBOARDING = "seen_onboarding"
+        private const val KEY_SEEN_EDITOR_COACH = "seen_editor_coach"
         private const val KEY_THEME = "theme"
         private const val KEY_OUTPUT_CS = "output_color_space"
         private const val KEY_PREVIEW_MAX = "preview_max_size"
