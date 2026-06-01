@@ -38,6 +38,17 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(KEY_SEEN_EDITOR_COACH, false)
         set(v) { prefs.edit().putBoolean(KEY_SEEN_EDITOR_COACH, v).apply() }
 
+    /**
+     * Experimental GPU LUT preview (default OFF). When on, the editor renders the live
+     * preview by GPU-sampling a baked 3D LUT of the current look (instant pan/zoom-free
+     * surface) instead of the CPU bitmap. Beta: spatial effects (grain/halation) and the
+     * zoom/magnifier/compare gestures are not yet on this path — needs on-device GL
+     * verification before promotion.
+     */
+    var gpuPreview: Boolean
+        get() = prefs.getBoolean(KEY_GPU_PREVIEW, false)
+        set(v) { prefs.edit().putBoolean(KEY_GPU_PREVIEW, v).apply() }
+
     var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -99,6 +110,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         private const val PREFS_NAME = "spectrafilm_settings"
         private const val KEY_SEEN_ONBOARDING = "seen_onboarding"
         private const val KEY_SEEN_EDITOR_COACH = "seen_editor_coach"
+        private const val KEY_GPU_PREVIEW = "gpu_preview"
         private const val KEY_THEME = "theme"
         private const val KEY_OUTPUT_CS = "output_color_space"
         private const val KEY_PREVIEW_MAX = "preview_max_size"

@@ -62,6 +62,7 @@ fun SettingsScreen(
     var format by remember { mutableStateOf(settings.exportFormat) }
     var quality by remember { mutableIntStateOf(settings.exportQuality) }
     var keepGps by remember { mutableStateOf(settings.exportKeepGps) }
+    var gpuPreview by remember { mutableStateOf(settings.gpuPreview) }
 
     Column(
         Modifier
@@ -155,6 +156,29 @@ fun SettingsScreen(
                 Switch(
                     checked = keepGps,
                     onCheckedChange = { keepGps = it; settings.exportKeepGps = it },
+                )
+            }
+        }
+
+        // --- Experimental ---
+        SettingsCard("Experimental") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("GPU preview (beta)", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Render the live preview by GPU-sampling a 3D LUT of the current look — " +
+                            "faster, but grain/halation and zoom/compare aren't on this path yet. " +
+                            "Export is unaffected.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = gpuPreview,
+                    onCheckedChange = { gpuPreview = it; settings.gpuPreview = it },
                 )
             }
         }
