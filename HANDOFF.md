@@ -62,6 +62,27 @@
 - The Lightroom APK was decompiled in-env to `/tmp/lrx` (ephemeral) via the android-reverse-
   engineering skill; `aapt2` + `libLrAndroid.so` `strings`/`nm` were the evidence source.
 
+## Known engine/app gaps (authoritative list: `docs/AUDIT.md`, updated 2026-06-01)
+- **AAssetManager path not wired** (`spektra.cpp:828`, `spektra_jni.cpp:413`) — assets are
+  extracted to `filesDir` on first run instead of read from the APK.
+- **`use_enlarger_lut` reserved/unwired** (`spektra.h`) — scanner 3D-LUT is wired+opt-in; the
+  enlarger-side spectral LUT (the real perf lever for the *expose* hotspot) is declared only.
+- **Issue #7 — full-res RAW tiling/GPU still Open**: only app-side mitigations (OOM ladder, fd +
+  half-size proxy, and now the #56 native `maxLongEdge` cap); no native tiling/streaming.
+- **Glare-on-print** wired but default-off (stochastic → not bit-exact); **enlarger lens blur**
+  and **`upscale_factor<1` AA prefilter** intentionally unwired (no oracle call site).
+- **No Kotlin/JVM instrumented UI tests** beyond the host C++ parity + a few JVM unit tests.
+- Doc upkeep: `docs/PRESETS.md` says "20 presets" — bump to 21 when #55 (Neutral preset) merges;
+  `docs/DEVICE_TEST_REPORT.md` is the v0.4.0 device pass (historical). `docs/ENGINE_WIRING_PLAN.md`
+  tracks the 4 once-gated params (now largely wired). `docs/ROADMAP.md` / `docs/RELEASE_CHECKLIST.md`
+  (maintainer-only) hold the milestone + publish state.
+
+## Doc map (what to read for what)
+`CLAUDE.md` build/parity/arch · `docs/AUDIT.md` open items · `docs/IMPROVEMENT_BACKLOG.md` Lightroom
+RE'd feature list · `docs/PERF_ROADMAP.md` perf plan+policy · `docs/RESEARCH_*` the RE studies
+(stack, render, big-files, mcraw, film-character, lens-bokeh) · `docs/PRESETS.md`/`FILM_STOCKS.md`
+content · `docs/maps/` source-project maps.
+
 ## Next steps
 1. Get the user's **v0.6.3 logcat** for the DNG → confirm the `sfraw: decoded …` line shows capped
    dims and no `149817619` OOM, then merge **#56** and cut **v0.6.3**.
