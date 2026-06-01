@@ -20,17 +20,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,8 +54,13 @@ fun SettingsScreen(
     printGroups: List<DropdownGroup>,
     onThemeChanged: (ThemeMode) -> Unit,
     onShowOnboarding: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
 
     // Local mirrors of the persisted values so controls update without a recomposition key.
     var theme by remember { mutableStateOf(settings.theme) }
@@ -181,6 +190,50 @@ fun SettingsScreen(
                     onCheckedChange = { gpuPreview = it; settings.gpuPreview = it },
                 )
             }
+        }
+
+        // --- Updates & diagnostics ---
+        SettingsCard("Updates & diagnostics") {
+            Button(
+                onClick = {
+                    if (checking) return@Button
+                    checking = true; updateStatus = "Checking…"
+                    scope.launch {
+                        val info = AppUpdater.checkForUpdate(ctx)
+                        checking = false
+                        when {
+                            info == null -> updateStatus = "Couldn't check (no connection?)."
+                            info.isNewer -> { pendingUpdate = info; updateStatus = "Update available: ${info.latestTag}" }
+                            else -> updateStatus = "Up to date (${info.currentVersion})."
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (checking) "Checking…" else "Check for updates") }
+            updateStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
+                Text("Diagnostics & logs")
+            }
+        }
+
+        pendingUpdate?.let { info ->
+            AlertDialog(
+                onDismissRequest = { pendingUpdate = null },
+                title = { Text("Update available") },
+                text = {
+                    Text("A newer version (${info.latestTag}) is available. You're on " +
+                        "${info.currentVersion}. Open the release page to download the signed APK?")
+                },
+                confirmButton = {
+                    TextButton(onClick = { AppUpdater.openRelease(ctx, info); pendingUpdate = null }) {
+                        Text("Open release")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { pendingUpdate = null }) { Text("Later") } },
+            )
         }
 
         // --- Help / feedback ---
