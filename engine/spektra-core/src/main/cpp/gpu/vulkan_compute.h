@@ -17,6 +17,7 @@
 #define SPK_GPU_VULKAN_COMPUTE_H
 
 #include <cstddef>
+#include <cstdint>
 
 namespace spk::gpu {
 
@@ -28,6 +29,19 @@ bool available();
 // RGB components) on the GPU, in place. Returns false if the GPU path is unavailable
 // or any Vulkan call failed (caller then falls back to the CPU path). Never throws.
 bool cctf_encode_srgb(float* data, size_t n);
+
+// GPU 81-band spectral SCAN integral (the bottleneck-class kernel, preview-only):
+// density_cmy[npix*3] -> output RGB[npix*3], via per-pixel spectral transmittance
+// (10^-D over 81 bands) -> XYZ -> output RGB + sRGB CCTF. Spectral tables:
+//   dye     : NB*3 per-channel dye densities D_c(lambda)  (band-major c,m,y)
+//   icmf    : NB*3 illuminant-premultiplied CMFs          (band-major X,Y,Z)
+//   xyz2rgb : 9 floats, row-major 3x3 XYZ->output-RGB matrix
+// Returns false if the GPU path is unavailable or any Vulkan call failed (caller
+// falls back to the CPU scan). NOT bit-exact vs the f64 oracle -> preview only; the
+// export + parity-gated path never call this. On-GPU numeric validation vs the CPU
+// reference is pending arm64 GPU hardware (docs/PERF_ROADMAP.md #1).
+bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
+                   const float* dye, const float* icmf, const float* xyz2rgb);
 
 }  // namespace spk::gpu
 
