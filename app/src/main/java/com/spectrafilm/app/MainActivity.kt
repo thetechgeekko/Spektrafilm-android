@@ -2291,6 +2291,25 @@ class MainActivity : ComponentActivity() {
                 step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
                 componentLabels = "σ" to "nm")
             IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it })
+            Divider()
+            // Granular reset scope (backlog #F): restore the grain parameters to engine
+            // defaults without touching the section's on/off switch or other sections.
+            OutlinedButton(
+                onClick = {
+                    val d = PARAM_DEFAULTS
+                    s.grainSublayersActive = d.grainSublayersActive
+                    s.grainParticleAreaUm2 = d.grainParticleAreaUm2
+                    s.grainParticleScale = d.grainParticleScale
+                    s.grainParticleScaleLayers = d.grainParticleScaleLayers
+                    s.grainDensityMin = d.grainDensityMin
+                    s.grainUniformity = d.grainUniformity
+                    s.grainBlur = d.grainBlur
+                    s.grainBlurDyeCloudsUm = d.grainBlurDyeCloudsUm
+                    s.grainMicroStructure = d.grainMicroStructure
+                    s.grainNSubLayers = d.grainNSubLayers
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Reset grain to defaults") }
         }
     }
 
