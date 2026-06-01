@@ -111,11 +111,22 @@ private fun decodeRawAtEdge(
     tint: Double,
     maxEdge: Int,
 ): LinearImage {
-    val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        ?: error("Could not open RAW file")
-    val result = RawDecoder.decodeToLinear(
-        bytes, RawDecoder.Settings(whiteBalance = wb, temperatureK = temperatureK, tint = tint),
-    )
+    val settings = RawDecoder.Settings(whiteBalance = wb, temperatureK = temperatureK, tint = tint)
+    // Decode straight from the file descriptor: LibRaw reads through the fd, so we never
+    // copy the whole RAW file into a single contiguous Java byte[] first. That byte[]
+    // (100-200 MB for a 50MP Samsung Expert-RAW DNG) was itself throwing OutOfMemoryError
+    // on the Java heap (growth limit ~256 MB) before LibRaw ever ran. The fd is duplicated
+    // natively (caller retains ownership), so the ParcelFileDescriptor is closed here.
+    // Fall back to the byte[] path only if the provider's fd can't be decoded (e.g. a
+    // non-seekable/in-memory document provider that LibRaw can't seek).
+    val result = try {
+        ctx.contentResolver.openFileDescriptor(uri, "r")?.use {
+            RawDecoder.decodeToLinear(it.fd, settings)
+        } ?: error("Could not open RAW file")
+    } catch (e: RuntimeException) {
+        val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw e
+        RawDecoder.decodeToLinear(bytes, settings)
+    }
     val w = result.width
     val h = result.height
     val src = result.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
