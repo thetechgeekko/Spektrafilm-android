@@ -342,7 +342,9 @@ void scan(const Profile& film, const ScanningParams& params,
             // np.clip(v, 0, 1): preserve NaN, clamp finite to [0, 1].
             if (v < 0.0) v = 0.0;
             else if (v > 1.0) v = 1.0;
-            out[c] = static_cast<float>(v);
+            // Optional tone curve on the display-referred value (identity no-op by
+            // default; NaN passes through). Applied per channel, in [0,1].
+            out[c] = params.tone_curve.apply(c, static_cast<float>(v));
         }
     }
     });

@@ -33,6 +33,10 @@ extern "C" {
 #define SPK_SPECTRAL_STEP_NM 5
 #define SPK_SPECTRAL_SAMPLES 81
 
+/* Max control points per tone-curve channel (master / R / G / B). 16 matches the
+ * Lightroom point-curve cap and keeps spk_params a fixed-size POD across JNI. */
+#define SPK_TONE_MAX_PTS 16
+
 typedef enum {
     SPK_OK = 0,
     SPK_ERR_BAD_ARGS = 1,
@@ -238,6 +242,20 @@ typedef struct {
     int32_t use_scanner_lut;           /* bool (wired: opt-in scanner LUT) */
     int32_t lut_resolution;            /* LUT steps/axis; clamped to [2,192] */
     int32_t neutral_print_filters_from_database; /* bool */
+
+    /* --- tone curve (NEW, optional; applied to final display RGB) ---
+     * A Lightroom-style point curve on the output RGB, per channel. Control points
+     * are (x,y) in [0,1] with x strictly increasing; a master curve applies to all
+     * channels and per-R/G/B curves apply first. Default OFF / identity:
+     * tone_curve_active = 0 and all counts 0 => strict no-op, so the parity goldens
+     * (which carry no curve) stay bit-exact. A count < 2 for any curve is identity. */
+    int32_t tone_curve_active;         /* bool; 0 => stage skipped entirely */
+    int32_t tone_curve_master_n;       /* master control-point count (0..SPK_TONE_MAX_PTS) */
+    float   tone_curve_master_x[SPK_TONE_MAX_PTS];
+    float   tone_curve_master_y[SPK_TONE_MAX_PTS];
+    int32_t tone_curve_rgb_n[3];       /* per-channel R,G,B point counts */
+    float   tone_curve_rgb_x[3][SPK_TONE_MAX_PTS];
+    float   tone_curve_rgb_y[3][SPK_TONE_MAX_PTS];
 } spk_params;
 
 /* Initialise `p` to the physical defaults that mirror a default-constructed

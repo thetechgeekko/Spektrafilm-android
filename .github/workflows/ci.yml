@@ -118,6 +118,11 @@ jobs:
           # the output must be byte-identical at 1 vs 8 workers (scan, print, and the
           # grain+halation branch). Guards the bit-exact parity gate under threading.
           build_run test_parallel "$ASSET" tests/scan_portra_input_rgb.f64
+          # Optional tone curve on the final display RGB: the default (inactive) and an
+          # identity active curve must reproduce the scan_portra golden bit-for-bit
+          # (new look control must not perturb existing goldens); a real S-curve must
+          # change the output and stay in [0,1].
+          build_run test_tonecurve "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra"
           exit $fail
 
   # ---------------------------------------------------------------------------
