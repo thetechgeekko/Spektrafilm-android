@@ -1,0 +1,41 @@
+#version 450
+// Per-pixel 81-band spectral scan integral (density_cmy -> spectral transmittance ->
+// XYZ -> output RGB + sRGB CCTF), the GPU port of the scanning hot loop. This is the
+// bottleneck-class kernel (an 81-band per-pixel integral), not the tail CCTF op.
+//
+// PREVIEW-ONLY / non-bit-exact by design (GPU float != the f64 oracle path); the
+// export + parity-gated path never call this. On-GPU numeric validation against the
+// CPU reference is pending arm64 GPU hardware. See docs/PERF_ROADMAP.md #1.
+#define NB 81
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly  buffer InBuf  { float cmy[]; };   // npix*3
+layout(std430, binding = 1) writeonly buffer OutBuf { float rgb[]; };   // npix*3
+// Spectral tables (band-major): per-channel dye density D_c(λ) and the illuminant-
+// premultiplied CMFs (illum(λ)*xbar, *ybar, *zbar), plus the XYZ->RGB 3x3.
+layout(std430, binding = 2) readonly buffer Dye { float dye[]; };       // NB*3 (c,m,y)
+layout(std430, binding = 3) readonly buffer Cmf { float icmf[]; };      // NB*3 (X,Y,Z)
+layout(push_constant) uniform Push { uint npix; float m[12]; } pc;      // m = XYZ->RGB row-major (3x4, last col unused)
+
+float cctf(float v){ return (v <= 0.0031308) ? (12.92*v) : (1.055*pow(v,1.0/2.4) - 0.055); }
+
+void main() {
+    uint p = gl_GlobalInvocationID.x;
+    if (p >= pc.npix) return;
+    float c = cmy[p*3u+0u], mch = cmy[p*3u+1u], y = cmy[p*3u+2u];
+    float X = 0.0, Y = 0.0, Z = 0.0;
+    for (int b = 0; b < NB; ++b) {
+        float D = c*dye[b*3+0] + mch*dye[b*3+1] + y*dye[b*3+2];
+        float T = pow(10.0, -D);                 // spectral transmittance
+        X += T*icmf[b*3+0];
+        Y += T*icmf[b*3+1];
+        Z += T*icmf[b*3+2];
+    }
+    // XYZ -> output RGB (3x3 in m[0..2],[4..6],[8..10]).
+    float r = pc.m[0]*X + pc.m[1]*Y + pc.m[2]*Z;
+    float g = pc.m[4]*X + pc.m[5]*Y + pc.m[6]*Z;
+    float bch = pc.m[8]*X + pc.m[9]*Y + pc.m[10]*Z;
+    rgb[p*3u+0u] = clamp(cctf(r), 0.0, 1.0);
+    rgb[p*3u+1u] = clamp(cctf(g), 0.0, 1.0);
+    rgb[p*3u+2u] = clamp(cctf(bch), 0.0, 1.0);
+}
