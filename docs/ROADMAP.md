@@ -60,7 +60,9 @@ scanning. Ship 28 profiles + LUT assets.
 - **Done when:** `simulate(scan_film=true)` on a test image matches spektrafilm within tol.
 - **Landed (2026-05-29):** RAW white-balance UI (Temperature/Tint sliders + WB-mode dropdown
   + reset-to-as-shot) — see progress note below. `scan_film` path itself was already
-  bit-exact in v0.1.0; remaining M3 small items are AAssetManager path + non-sRGB wiring.
+  bit-exact in v0.1.0. Non-sRGB output spaces are now wired (Settings default + per-image
+  dropdown → all six spaces, gated by `test_output_spaces`); only the in-APK AAssetManager
+  path remains from M3.
 
 > **Progress:** the Python engine runs headless here as a live oracle and real goldens are
 > committed (`tools/parity/goldens/`). The **entire `scan_film` path is ported and bit-exact
@@ -80,9 +82,9 @@ scanning. Ship 28 profiles + LUT assets.
 > exports all four `Java_com_spectrafilm_engine_*` symbols. **The scan_film engine is callable
 > from Kotlin.**
 >
-> Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir),
-> non-sRGB output color spaces, and wiring the grain/halation/glare toggles. Then M4 (print
-> route + spatial/stochastic effects + full-pipeline goldens).
+> Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir).
+> [Update: non-sRGB output spaces and the grain/halation/glare toggles were since wired; M4
+> print route + spatial/stochastic effects landed and are parity-gated.]
 >
 > **M3 backlog item landed (2026-05-29):** **RAW white-balance UI** — Temperature/Tint sliders
 > + a WB-mode dropdown (as-shot / daylight / tungsten / custom) + reset-to-as-shot, shown only

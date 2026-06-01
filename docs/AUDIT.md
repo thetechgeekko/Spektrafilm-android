@@ -1,4 +1,4 @@
-# Audit — incomplete / open items (2026-05-31)
+# Audit — incomplete / open items (updated 2026-06-01)
 
 A sweep of the codebase and docs for things that are **not complete**: genuine feature gaps,
 stale docs that misstate status, test-coverage holes, and release/build follow-ups. Grouped by
@@ -17,11 +17,20 @@ not a commitment to do all of it.
 - ⚪ **`use_enlarger_lut` reserved/unwired** (`spektra.h:232`) — the scanner 3D-LUT is wired and
   opt-in; the enlarger-side LUT accel is declared but not implemented.
 - ⚪ **Enlarger lens blur** intentionally unwired (no oracle call site to validate against).
+- ℹ️ **`apply_hanatos2025_adaptation_window`/`_surface` + `spectral_gaussian_blur`** are
+  UI-present (dimmed) + JNI-marshalled but applied by **no** engine stage. Wiring each needs an
+  engine change + a new spektrafilm-oracle golden — see **`docs/ENGINE_WIRING_PLAN.md`** for the
+  per-param plan (oracle refs, C++ hook points, parity strategy). `use_enlarger_lut` and enlarger
+  lens blur are covered there too.
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
   rescale has no low-pass prefilter for minification.
-- ⚪ **GPU preview accelerator**, **EXR / 32-bit-float TIFF export** — explicitly deferred M6/M7.
+- ⚪ **GPU preview accelerator** — a default-OFF experimental GPU LUT preview path now exists
+  (`LutGpuPreview.kt`, Settings → Experimental; renderer + cube parser unit-tested), but it is
+  **unverified on a real GPU** (no GPU/emulator in CI) and the GPU surface lacks zoom/magnifier/
+  compare. Needs on-device verification before promotion. **EXR / 32-bit-float TIFF export** —
+  still deferred M6/M7.
 - ⚪ **`RawCoilDecoder`** uses a "naive ACES→sRGB approximation" (`RawCoilDecoder.kt:75`, TODO) for
   the optional Coil gallery-decode path; not the main edit pipeline.
 
@@ -43,11 +52,11 @@ not a commitment to do all of it.
   Kotlin layer is untested by automation — export (`ImagePipeline`), recipe/sidecar persistence,
   undo/redo (`EditHistory`), `DecodedSourceCache`, `EngineHelpers`, `RawDecoder` JNI marshaling,
   `PngWriter` JVM overload. Only C++ host tests + the LibRaw C++ unit/fuzz tests exist.
-- 🟡 **Parity tests that exist but are NOT run in CI `engine-parity`:**
-  - `test_output_spaces` — only **sRGB** is gated (via `test_simulate_e2e`); Adobe RGB / ProPhoto /
-    Rec.2020 / ACES2065-1 / linear sRGB are **not** continuously guarded.
-  - `test_lensblur` — camera/scanner lens-blur parity is not gated (despite `HANDOFF.md` claiming it
-    is — another stale claim).
+- ✅ **(Resolved 2026-06-01) `test_output_spaces`, `test_lensblur`, `test_parallel` are now gated**
+  in CI `engine-parity` (`.github/workflows/ci.yml`): all six output color spaces, camera/scanner
+  lens-blur parity, and thread-count invariance run on every push/PR. The earlier "not gated" /
+  stale-`HANDOFF` claims no longer apply.
+- 🟡 **Parity tests that exist but are still NOT gated:**
   - `test_params_passthrough`, `test_bake_lut` — not gated.
   - (`test_printing`/`test_scanning` are effectively subsumed by `test_simulate_e2e`; `test_grain`/
     `test_grain_sublayer` are statistical and run locally; `test_spectral_upsampling` needs the
