@@ -1,0 +1,129 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A native-C++ Android port of the [spektrafilm](https://github.com/andreavolpato/spektrafilm)
+spectral film-simulation engine, driven by a Jetpack Compose UI. The engine reconstructs spectra
+from RGB and runs a physically-based virtual **negative → enlarger → print → scan** pipeline.
+GPLv3 (derivative of GPLv3 spektrafilm).
+
+**The prime directive is bit-exact parity with the upstream spektrafilm oracle.** Every engine
+stage was ported parity-first against golden vectors captured from the real Python engine. Any
+change to `engine/spektra-core/src/main/cpp/**` must keep the host parity suite green (see below).
+"Bit-exact" = within parity tolerance (`max_abs ≤ 1e-4`, `rms ≤ 1e-5`) of the oracle **and**
+byte-identical across thread counts — not necessarily byte-identical across CPU architectures
+(`-ffast-math` FMA contraction differs by arch).
+
+## Module layout
+
+Gradle modules actually built (`settings.gradle.kts`):
+- **`:app`** — `com.spectrafilm.app`, the application. All UI lives here (~27 Kotlin files in
+  `app/src/main/java/com/spectrafilm/app/`): `MainActivity`, the Lightroom-style editor
+  (`Viewer`, `ParamsState`, `ImagePipeline`, `CropOverlay`, `CategoryIcons`/`SpectraIcons`),
+  presets/recipes, settings, profile-curve browser, diagnostics.
+- **`:engine:spektra-core`** — `com.spectrafilm.engine`. NDK C++ engine (`libspektra.so`) + the
+  Kotlin facade `SpektraEngine` / `SpektraParams`. Bundles film/paper profiles, spectral LUTs,
+  and ICC profiles under `src/main/assets/spektra/`.
+- **`:lib:libraw`** — `libsfraw.so`, LibRaw → linear ACES RGB for RAW/DNG import.
+- **`:lib:tiffwriter`** (`libsftiff.so`) and **`:lib:pngwriter`** (`libsfpng.so`) — 16-bit
+  TIFF/PNG export writers.
+
+Ignore `feature/film-emulation/` and the aspirational `core/`/55-feature layout described in
+`docs/ARCHITECTURE.md` — that doc is the *target* (ImageToolbox-host) design; `feature:film-emulation`
+is **not** in `settings.gradle.kts` and is not compiled. The real app is the standalone `:app` module.
+
+## Engine architecture (C++, `engine/spektra-core/src/main/cpp/`)
+
+- **`spektra_jni.cpp`** — JNI bridge; the single native boundary. Buffers cross as direct
+  `ByteBuffer` (interleaved float32 RGB, row-major) to avoid per-pixel JNI calls.
+- **`spektra.cpp` / `spektra.h`** — top-level `simulate` / `simulate_preview` orchestration.
+- **`runtime/stages/`** — the pipeline stages in order: `filming` (RGB → spectral via Hanatos2025
+  LUT → camera raw → film density CMY, with DIR couplers), `printing` (film CMY → enlarger
+  dichroic Y/M/C filters → print paper density), `scanning` (density → spectral radiance → CIE
+  XYZ → output RGB), plus `crop_resize` and `autoexposure` geometry/metering stages.
+- **`model/`** — photographic math: `spectral`, `density_curves`, `emulsion`, `couplers`,
+  `diffusion` (halation + in-emulsion scatter), `grain` (Poisson-binomial particle model),
+  `color_filters`, `color_output`, `glare`.
+- **`kernels/`** — hot numeric primitives: `spectral_upsampling`, `gaussian`/`exponential_filter`
+  (spatial convs), `interp`/`lut3d`, `stats` (samplers), `exp10.h` (vector `exp10` → NEON `fmla`
+  on arm64, replaces `pow(10,−x)` in the spectral integrals), and `parallel` (deterministic
+  fork-join per-pixel threading — output is byte-identical for any worker count).
+- **`profiles/`** + **`io/npy_lut.cpp`** — profile JSON + `.npy`/`.lut` asset loaders.
+
+Two quality modes mirror upstream: **preview** (downscaled, default 640px, for interactive
+tuning) and **scan** (full-res, for export). Decode + simulate run off the main thread.
+
+## Build commands
+
+Required toolchain (Android 15 16 KB page support): **NDK r27 (`27.0.12077973`)**,
+**CMake 3.22.1**, **build-tools 35.0.0** (first `zipalign` with `-P 16`).
+`sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"`.
+
+```bash
+# Debug APK (builds libspektra/libsfraw/libsftiff/libsfpng .so for all 3 ABIs)
+ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
+  ./gradlew :app:assembleDebug
+
+# JVM unit tests (the only automated test layer for the Kotlin code)
+./gradlew :app:testDebugUnitTest
+
+# Lint (abortOnError = true; baseline at app/lint-baseline.xml)
+./gradlew :app:lint
+```
+
+16 KB page check (CI gates this): `build-tools/35.0.0/zipalign -c -P 16 4 <apk>` must pass, and
+every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD` alignment (`readelf -lW`).
+
+## Engine host-parity tests (the real gate)
+
+Stage tests live in `engine/spektra-core/src/main/cpp/tests/` and run on the **host** g++
+toolchain (not NDK) — they are not part of the Android library. After any engine change, run them.
+Compile a single test against the full source set (note `-pthread` is required for
+`kernels/parallel`):
+
+```bash
+cd engine/spektra-core/src/main/cpp
+CPP=$(pwd)
+ASSET=../assets/spektra
+SRC="spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp"
+g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
+  -DSPK_TEST_DIR="\"$CPP/tests\"" \
+  tests/test_simulate_e2e.cpp $SRC -o /tmp/test_simulate_e2e
+# then run with the args the CI `engine-parity` job uses (see .github/workflows/ci.yml)
+```
+
+A test passes when its output contains no `FAIL` line. CI `engine-parity` gates: `simulate_e2e`,
+`filming`, `spatial`, `crop_resize`, `autoexposure`, `diffusion` (+`_e2e`), `lut_accel`,
+`scanner_lut_e2e`, `output_spaces`, `lensblur`, and **`test_parallel`** (thread-invariance). The
+exact per-test argv is in `.github/workflows/ci.yml` — copy from there rather than guessing.
+
+- **`SPK_NUM_THREADS`** overrides `hardware_concurrency()` (parity tests pin 1 vs 8 to prove
+  byte-identical output).
+- Engine `CMAKE_CXX_FLAGS_RELEASE` is `-O3 -ffast-math -fno-finite-math-only`.
+  **`-fno-finite-math-only` is required** — the scanning stage relies on NaN propagation through
+  `density_to_light` to match spektrafilm's profile null handling. Do not strip it.
+- `tools/parity/` is the standalone `.spkvec` golden-vector comparator (CMake + ctest self-test,
+  CI `parity` job). Goldens live in `tools/parity/goldens/` and `tests/*.spkvec`.
+
+## CI jobs (`.github/workflows/ci.yml`)
+
+`engine-native` (host C++ build of libspektra), `engine-parity` (stage parity gate), `parity`
+(.spkvec comparator self-test), `python-lint`, `android` (`:app:testDebugUnitTest` + full assemble
+for all ABIs), `android-emulator` (manual dispatch only). `release.yml` builds a signed APK from
+keystore secrets on a `v*` tag push and creates the GitHub Release.
+
+## Conventions / gotchas
+
+- Current version: `versionCode 4` / `versionName 0.5.0`, `minSdk 24`, `targetSdk`/`compileSdk 34`.
+  ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
+- Commit with `-c commit.gpgsign=false` (the signing server rejects signing here).
+- Release signing: drop `keystore.properties` (`storeFile`/`storePassword`/`keyAlias`/`keyPassword`)
+  in the repo root; absent it, release falls back to debug signing.
+- Release `isMinifyEnabled = false` (un-minified dex ~23 MB; R8 keep-rules not yet validated).
+- **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
+- Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
+  so `Presets` JSON round-trips on the plain JVM.
+- `HANDOFF.md` carries the latest session state; `docs/AUDIT.md` tracks open/incomplete items with
+  severity. Stage-by-stage parity numbers and the porting map are in `docs/`.
