@@ -18,6 +18,7 @@
 
 #include <cstdint>
 
+#include "kernels/tonecurve.h"
 #include "profiles/profile.h"
 #include "spektra.h"  // spk_color_space
 
@@ -101,6 +102,13 @@ struct ScanningParams {
     bool use_lut = false;
     int lut_resolution = 32;
     double grain_density_min[3] = {0.07, 0.08, 0.12};
+
+    // OPTIONAL Lightroom-style tone curve on the final display-referred RGB, applied
+    // per channel right after CCTF encode + clip (kernels/tonecurve). Default
+    // inactive => strict no-op (apply() returns the input unchanged), so existing
+    // parity goldens — which carry no curve — stay bit-exact. This is a NEW look
+    // control beyond the spektrafilm oracle, gated like grain/glare.
+    ToneCurveSet tone_curve;
 };
 
 // scan(): run the scanning stage on an (h x w x 3) row-major density_cmy image.

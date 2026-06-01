@@ -22,6 +22,7 @@ add_library(spektra SHARED
         kernels/stats.cpp                   # Poisson + Binomial samplers (grain, M6)
         kernels/lut3d.cpp                   # opt-in PCHIP 3D LUT accel (M7, default OFF)
         kernels/parallel.cpp                # deterministic fork-join per-pixel threading (M6)
+        kernels/tonecurve.cpp               # optional 1D tone curve on final display RGB
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):

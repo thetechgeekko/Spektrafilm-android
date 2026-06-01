@@ -53,6 +53,26 @@
 
 namespace {
 
+// Build the scanning-stage tone curve from the flat spk_params control points.
+// Inactive (the default) => an inactive set whose apply() is a strict no-op. Point
+// counts are clamped to [0, SPK_TONE_MAX_PTS]; a count < 2 yields an identity curve.
+spk::ToneCurveSet build_tone_curve_set(const spk_params* p) {
+    spk::ToneCurveSet set;
+    if (p->tone_curve_active == 0) { set.active = false; return set; }
+    set.active = true;
+    auto clampN = [](int n) {
+        if (n < 0) return 0;
+        return n > SPK_TONE_MAX_PTS ? SPK_TONE_MAX_PTS : n;
+    };
+    set.master = spk::build_tone_curve_1d(p->tone_curve_master_x, p->tone_curve_master_y,
+                                          clampN(p->tone_curve_master_n));
+    for (int c = 0; c < 3; ++c) {
+        set.rgb[c] = spk::build_tone_curve_1d(p->tone_curve_rgb_x[c], p->tone_curve_rgb_y[c],
+                                              clampN(p->tone_curve_rgb_n[c]));
+    }
+    return set;
+}
+
 // D55 standard illuminant (colour SDS_ILLUMINANTS['D55']) aligned to the
 // 380..780 @5nm working shape, normalised by mean — the film reference
 // illuminant for the bundled negative profiles. Baked at full double precision
@@ -417,6 +437,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         sparams.use_lut = true;
         sparams.lut_resolution = p->lut_resolution;
     }
+    sparams.tone_curve = build_tone_curve_set(p);
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb->data());
@@ -616,6 +637,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         sparams.use_lut = true;
         sparams.lut_resolution = p->lut_resolution;
     }
+    sparams.tone_curve = build_tone_curve_set(p);
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
               final_rgb->data());
@@ -809,6 +831,13 @@ void spk_default_params(spk_params* p) {
     p->lut_resolution = 17;
     p->preview_max_size = 640;
     p->neutral_print_filters_from_database = 1;
+
+    // tone curve: OFF / identity by default (strict no-op => goldens stay bit-exact).
+    p->tone_curve_active = 0;
+    p->tone_curve_master_n = 0;
+    p->tone_curve_rgb_n[0] = 0;
+    p->tone_curve_rgb_n[1] = 0;
+    p->tone_curve_rgb_n[2] = 0;
 }
 
 const char* spk_status_str(spk_status s) {
