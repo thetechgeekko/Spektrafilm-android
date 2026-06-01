@@ -629,12 +629,12 @@
       "id": "neutral_adobe_like",
       "name": "Neutral (Adobe-like)",
       "group": "Neutral",
-      "description": "A clean, Lightroom-default-style starting point: film character minimised (no grain/halation/glare, DIR couplers off), slightly cooler and a touch darker to track Adobe Color's neutral medium-contrast baseline. Use as a base, then dial in a film look.",
+      "description": "A clean, Lightroom-default-style starting point: full negative->print positive path with film character minimised (no grain/halation/glare, DIR couplers off), slightly darker to track Adobe Color's neutral medium-contrast baseline. Use as a base, then dial in a film look.",
       "params": {
         "filmProfile": "kodak_portra_400",
         "printProfile": "kodak_portra_endura",
         "io": {
-          "scanFilm": true,
+          "scanFilm": false,
           "outputColorSpace": "SRGB"
         },
         "camera": {
