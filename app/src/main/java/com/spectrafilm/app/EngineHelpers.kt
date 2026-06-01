@@ -156,15 +156,38 @@ private fun decodeRawAtEdge(
     }
     val w = result.width
     val h = result.height
-    val src = result.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
 
     val longest = max(w, h)
     var step = 1
     while (longest / step > maxEdge) step++
+
+    // result.data is now a NATIVE, off-heap buffer (malloc + NewDirectByteBuffer; see
+    // raw_decoder_jni.cpp) rather than a JVM-managed ByteBuffer.allocateDirect (which on
+    // Android is a non-movable byte[] on the ~256 MB ART heap). For EXPORT-scale targets
+    // we hand that off-heap buffer straight to the engine — keeping the full-res ~140 MB
+    // off the managed heap is the actual OOM fix, modelled on Lightroom — and the caller
+    // close()s the returned LinearImage to free it. For PREVIEW/magnifier-scale targets we
+    // copy into a small managed buffer and free the native original right away, so the
+    // proxy decode + preview cache lifecycle (which reuses the buffer across renders and
+    // relies on GC) is unchanged.
+    val exportScale = maxEdge > HALF_DECODE_EDGE_THRESHOLD
+
     if (step <= 1) {
-        return LinearImage(result.data, w, h, colorSpace = result.colorSpace)
+        if (exportScale) {
+            return LinearImage(
+                result.data, w, h, colorSpace = result.colorSpace,
+                onClose = { RawDecoder.freeOffHeap(it) },
+            )
+        }
+        val managed = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
+        managed.asFloatBuffer().put(result.data.order(ByteOrder.nativeOrder()).asFloatBuffer())
+        RawDecoder.freeOffHeap(result.data)
+        return LinearImage(managed, w, h, colorSpace = result.colorSpace)
     }
 
+    // Native ignored the maxLongEdge cap (some DNGs do): box-downsample into a managed
+    // proxy, then free the off-heap native original.
+    val src = result.data.order(ByteOrder.nativeOrder()).asFloatBuffer()
     val outW = (w + step - 1) / step
     val outH = (h + step - 1) / step
     val out = ByteBuffer.allocateDirect(outW * outH * 3 * 4).order(ByteOrder.nativeOrder())
@@ -179,8 +202,7 @@ private fun decodeRawAtEdge(
             oi += 3
         }
     }
-    // The full-resolution native float buffer (result.data) and the file byte[] are now
-    // unreferenced once this returns the smaller `out` LinearImage -> eligible for prompt GC.
+    RawDecoder.freeOffHeap(result.data)
     return LinearImage(out, outW, outH, colorSpace = result.colorSpace)
 }
 

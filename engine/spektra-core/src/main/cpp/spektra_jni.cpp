@@ -15,6 +15,7 @@
 #include <jni.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -522,14 +523,19 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
     if (st != SPK_OK) { throw_status(env, st); return nullptr; }
     if (!out.data) { throw_runtime(env, "spektra: engine returned no data"); return nullptr; }
 
-    // Wrap the output into a Java-managed direct ByteBuffer (allocateDirect), copy
-    // the engine buffer into it, then free the C-side allocation. This keeps memory
-    // ownership on the JVM heap so the GC reclaims it.
+    // Hand the output back as a NATIVE (off-heap) direct ByteBuffer rather than a
+    // JVM-managed one. `ByteBuffer.allocateDirect` is backed on Android by a
+    // non-movable byte[] on the ART managed heap, so a full-res result (~140 MB) plus
+    // the equally large RAW input buffer blows the ~256 MB heap-growth limit at export
+    // (OutOfMemoryError). Adobe Lightroom's native engine keeps full-res pixels in
+    // native memory and never crosses them to the Java heap; we mirror that here by
+    // malloc'ing the result and wrapping it with NewDirectByteBuffer. The Kotlin
+    // SimResult owns it and frees it via SimResult.freeDirectBuffer (below).
     const size_t n = static_cast<size_t>(out.width) * out.height * 3;
 
-    // Guard against >2 GiB: allocateDirect takes a jint, so a larger byte count
-    // would truncate and the full memcpy below would overflow the buffer. Computed
-    // in int64 to avoid its own overflow. (Security review F2.)
+    // Guard against >2 GiB: NewDirectByteBuffer takes a jlong capacity, but the Kotlin
+    // side reads it through a jint-indexed FloatBuffer, so keep the existing 2 GiB cap.
+    // Computed in int64 to avoid its own overflow. (Security review F2.)
     const int64_t out_bytes = static_cast<int64_t>(n) * static_cast<int64_t>(sizeof(float));
     if (out_bytes > static_cast<int64_t>(INT32_MAX)) {
         spk_image_free(&out);
@@ -537,54 +543,37 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         return nullptr;
     }
 
-    // Allocate a JVM-managed direct ByteBuffer for the result. Each JNI lookup is
-    // checked + cleared so a failure (e.g. an unexpected R8/ProGuard strip of the
-    // referenced class/method) raises a specific RuntimeException instead of
-    // crashing on a null jclass/jmethodID passed to a later JNI call.
-    jclass bbCls = env->FindClass("java/nio/ByteBuffer");
-    if (!bbCls) {
-        env->ExceptionClear();
+    void* native_buf = std::malloc(static_cast<size_t>(out_bytes));
+    if (!native_buf) {
         spk_image_free(&out);
-        throw_runtime(env, "spektra: java.nio.ByteBuffer not found");
+        jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+        if (oom) env->ThrowNew(oom, "spektra: failed to allocate native output buffer");
+        else throw_runtime(env, "spektra: failed to allocate native output buffer");
         return nullptr;
     }
-    jmethodID allocDirect = env->GetStaticMethodID(bbCls, "allocateDirect",
-                                                   "(I)Ljava/nio/ByteBuffer;");
-    if (!allocDirect) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(bbCls);
-        spk_image_free(&out);
-        throw_runtime(env, "spektra: ByteBuffer.allocateDirect not found");
-        return nullptr;
-    }
-    jobject outBuf = env->CallStaticObjectMethod(bbCls, allocDirect,
-                                                 static_cast<jint>(n * sizeof(float)));
-    env->DeleteLocalRef(bbCls);
-    if (env->ExceptionCheck() || !outBuf) {
-        // allocateDirect can throw (e.g. OutOfMemoryError) — let a pending
-        // exception propagate; otherwise queue a generic one.
-        spk_image_free(&out);
-        if (!env->ExceptionCheck())
-            throw_runtime(env, "spektra: failed to allocate output ByteBuffer");
-        return nullptr;
-    }
-    void* dst = env->GetDirectBufferAddress(outBuf);
-    if (!dst) {
-        env->DeleteLocalRef(outBuf);
-        spk_image_free(&out);
-        throw_runtime(env, "spektra: output ByteBuffer is not direct");
-        return nullptr;
-    }
-    std::memcpy(dst, out.data, n * sizeof(float));
+    std::memcpy(native_buf, out.data, static_cast<size_t>(out_bytes));
 
+    // Capture dims BEFORE freeing the engine-side image.
     int out_w = out.width, out_h = out.height, out_cs = out.color_space;
-    spk_image_free(&out);
+    spk_image_free(&out);  // engine-side copy no longer needed
+
+    jobject outBuf = env->NewDirectByteBuffer(native_buf, out_bytes);
+    if (env->ExceptionCheck() || !outBuf) {
+        std::free(native_buf);
+        if (!env->ExceptionCheck())
+            throw_runtime(env, "spektra: failed to wrap native output buffer");
+        return nullptr;
+    }
 
     // Build the SimResult(data: ByteBuffer, width: Int, height: Int, colorSpace: ColorSpace).
+    // NOTE: NewDirectByteBuffer does NOT take ownership — if SimResult is never
+    // constructed below, the Kotlin side can't free native_buf, so every failure
+    // path from here on must std::free(native_buf) to avoid leaking the result.
     jclass csCls = env->FindClass("com/spectrafilm/engine/ColorSpace");
     if (!csCls) {
         env->ExceptionClear();
         env->DeleteLocalRef(outBuf);
+        std::free(native_buf);
         throw_runtime(env, "spektra: ColorSpace class not found");
         return nullptr;
     }
@@ -610,6 +599,7 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         if (csArr) env->DeleteLocalRef(csArr);
         if (csObj) env->DeleteLocalRef(csObj);
         env->DeleteLocalRef(outBuf);
+        std::free(native_buf);
         throw_runtime(env, "spektra: SimResult class not found");
         return nullptr;
     }
@@ -627,9 +617,29 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
     if (csObj) env->DeleteLocalRef(csObj);
     env->DeleteLocalRef(resCls);
     env->DeleteLocalRef(outBuf);
-    if (!result)
+    if (!result) {
+        // SimResult construction failed: nothing on the Kotlin side will free the
+        // native result buffer, so release it here.
+        std::free(native_buf);
         throw_runtime(env, "spektra: failed to construct SimResult");
+        return nullptr;
+    }
     return result;
+}
+
+/*
+ * SimResult.freeDirectBuffer(buf) — release a native (malloc + NewDirectByteBuffer)
+ * engine-output buffer. Called from SimResult.close(). Named to match the Kotlin
+ * @JvmStatic companion method (Java_com_spectrafilm_engine_SimResult_freeDirectBuffer),
+ * NOT the SpektraEngine JNI() macro. free(nullptr) is a no-op, and freeing a buffer
+ * whose address can't be resolved is skipped.
+ */
+extern "C" JNIEXPORT void JNICALL
+Java_com_spectrafilm_engine_SimResult_freeDirectBuffer(JNIEnv* env, jclass /*clazz*/,
+                                                       jobject buf) {
+    if (!buf) return;
+    void* p = env->GetDirectBufferAddress(buf);
+    if (p) std::free(p);
 }
 
 /*

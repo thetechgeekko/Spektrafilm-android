@@ -16,26 +16,75 @@ package com.spectrafilm.engine
 
 import java.nio.ByteBuffer
 
-/** A linear, scene-referred image: interleaved RGB float32, row-major. */
+/**
+ * A linear, scene-referred image: interleaved RGB float32, row-major.
+ *
+ * MEMORY OWNERSHIP — full-resolution buffers live OFF the managed heap. A
+ * full-res RAW decode is ~140 MB; allocated as a JVM-managed direct ByteBuffer
+ * (`ByteBuffer.allocateDirect`, which on Android is a non-movable `byte[]` on the
+ * ART heap) two of those at export time blow the ~256 MB heap-growth limit
+ * (OutOfMemoryError). Following Adobe Lightroom — whose native engine keeps all
+ * full-res pixels in native memory and never crosses them to the Java heap — the
+ * large RAW/engine buffers are allocated natively (`malloc` + `NewDirectByteBuffer`)
+ * and reclaimed via [onClose]. Small/proxy buffers stay managed ([onClose] null),
+ * so the GC handles them and [close] is a no-op.
+ *
+ * [close] must be called when an off-heap image is no longer needed (native memory
+ * is NOT tracked by the GC). It is idempotent and safe on managed images.
+ */
 class LinearImage(
     val data: ByteBuffer,        // direct buffer, length = width*height*3*4 bytes
     val width: Int,
     val height: Int,
     val colorSpace: String = "ProPhoto RGB",
-) {
+    private val onClose: ((ByteBuffer) -> Unit)? = null,
+) : AutoCloseable {
     init {
         require(data.isDirect) { "LinearImage requires a direct ByteBuffer" }
         require(width > 0 && height > 0) { "invalid dimensions ${width}x$height" }
     }
+
+    private var closed = false
+
+    /** Free the backing native buffer if this image owns one; no-op for managed buffers. */
+    override fun close() {
+        if (closed) return
+        closed = true
+        onClose?.invoke(data)
+    }
 }
 
-/** Result of a simulation: display-referred RGB in [SpektraParams.io].outputColorSpace. */
+/**
+ * Result of a simulation: display-referred RGB in [SpektraParams.io].outputColorSpace.
+ *
+ * The engine output buffer is allocated in NATIVE memory (`malloc` +
+ * `NewDirectByteBuffer`), off the ART managed heap (see [LinearImage]). Call [close]
+ * once the result has been consumed (turned into a Bitmap, or written to a file) to
+ * free it; it is idempotent.
+ */
 class SimResult(
     val data: ByteBuffer,
     val width: Int,
     val height: Int,
     val colorSpace: ColorSpace,
-)
+) : AutoCloseable {
+
+    private var closed = false
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        freeDirectBuffer(data)
+    }
+
+    companion object {
+        /**
+         * Free a native (`NewDirectByteBuffer`-wrapped `malloc`) engine-output buffer.
+         * Implemented in spektra_jni.cpp; libspektra is already loaded by [SpektraEngine].
+         */
+        @JvmStatic external fun freeDirectBuffer(buf: ByteBuffer)
+    }
+}
 
 class SpektraEngine(assetDir: String? = null) : AutoCloseable {
 

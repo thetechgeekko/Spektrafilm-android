@@ -162,6 +162,15 @@ object RawDecoder {
     fun decodeToLinear(stream: InputStream, settings: Settings = Settings()): LinearResult =
         decodeToLinear(stream.readBytes(), settings)
 
+    /**
+     * Free a native (off-heap) RAW result buffer. The full-resolution decode hands back
+     * a [LinearResult.data] / [NativeResult.data] backed by `malloc` + `NewDirectByteBuffer`
+     * (NOT `ByteBuffer.allocateDirect`), so it lives outside the ART managed heap and is
+     * NOT reclaimed by the GC — the owner must free it explicitly when done. Safe to call
+     * with any direct buffer this object produced; a no-op on a null/unmapped buffer.
+     */
+    fun freeOffHeap(buf: ByteBuffer) = nativeFree(buf)
+
     private fun NativeResult.toLinear(): LinearResult {
         // Native gives little-/native-endian float32; tag the byte order so callers
         // reading as a FloatBuffer get correct values.
@@ -240,6 +249,9 @@ object RawDecoder {
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
         halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
+
+    /** Free a native (malloc + NewDirectByteBuffer) result buffer (see [freeOffHeap]). */
+    private external fun nativeFree(buffer: ByteBuffer)
 
     init {
         System.loadLibrary("sfraw")

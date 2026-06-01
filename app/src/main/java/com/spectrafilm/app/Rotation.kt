@@ -105,7 +105,12 @@ fun LinearImage.flippedHorizontal(): LinearImage {
             dst.put(d + 2, src.get(s + 2))
         }
     }
-    return LinearImage(outBuf, w, h, colorSpace)
+    // This op allocated a fresh managed buffer, so the input is no longer needed. If it
+    // owns an off-heap native buffer (a full-res export decode) free it now; close() is a
+    // no-op for the common managed (allocateDirect) inputs.
+    val flippedResult = LinearImage(outBuf, w, h, colorSpace)
+    close()
+    return flippedResult
 }
 
 /**
@@ -123,7 +128,9 @@ fun LinearImage.rotated(rotation: SourceRotation): LinearImage {
     fun newBuffer(n: Int): ByteBuffer =
         ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder())
 
-    return when (rotation) {
+    // Each non-NONE branch allocates a fresh managed buffer; free the input afterwards so
+    // an off-heap full-res export source is reclaimed (no-op for managed inputs).
+    val rotated = when (rotation) {
         SourceRotation.CW90 -> {
             val nw = h
             val nh = w
@@ -176,6 +183,8 @@ fun LinearImage.rotated(rotation: SourceRotation): LinearImage {
             }
             LinearImage(outBuf, nw, nh, colorSpace)
         }
-        SourceRotation.NONE -> this
+        SourceRotation.NONE -> this  // unreachable: NONE returned at the top
     }
+    close()
+    return rotated
 }

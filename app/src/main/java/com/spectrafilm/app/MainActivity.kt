@@ -668,8 +668,11 @@ class MainActivity : ComponentActivity() {
                     withContext(Dispatchers.Default) {
                         val full = loadSource(MAX_EDGE_PX)
                         val crop = cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX)
-                        val res = e.simulate(crop, state.toParams())
-                        simResultToBitmap(res.data, res.width, res.height)
+                        // SimResult holds a native off-heap buffer; close() frees it once the
+                        // bitmap copy is made.
+                        e.simulate(crop, state.toParams()).use { res ->
+                            simResultToBitmap(res.data, res.width, res.height)
+                        }
                     }
                 }
                 if (!isActive) {
@@ -713,8 +716,9 @@ class MainActivity : ComponentActivity() {
                     // Pass 1 (coarse, optional): paint first pixels ~4x sooner.
                     if (coarseEdge > 0) {
                         val coarseImg = loadSource(coarseEdge)
-                        val cres = e.simulatePreview(coarseImg, state.toParams())
-                        val cbmp = simResultToBitmap(cres.data, cres.width, cres.height)
+                        val cbmp = e.simulatePreview(coarseImg, state.toParams()).use { cres ->
+                            simResultToBitmap(cres.data, cres.width, cres.height)
+                        }
                         if (isActive) withContext(Dispatchers.Main) {
                             preview = cbmp
                             status = "refining…"
@@ -726,8 +730,10 @@ class MainActivity : ComponentActivity() {
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
-                    val res = e.simulatePreview(image, state.toParams())
-                    before to simResultToBitmap(res.data, res.width, res.height)
+                    val after = e.simulatePreview(image, state.toParams()).use { res ->
+                        simResultToBitmap(res.data, res.width, res.height)
+                    }
+                    before to after
                 }
             }
             decoding = false
@@ -925,17 +931,30 @@ class MainActivity : ComponentActivity() {
                                     // Full-resolution export (NOT the 2048 px interactive cap) — the
                                     // proxy-preview vs full-res-export model. Was MAX_EDGE_PX, which
                                     // silently downscaled e.g. a 12 MP export to ~3 MP.
+                                    // Full-res RAW input and engine output are NATIVE off-heap
+                                    // buffers (~140 MB each) — the whole point of the OOM fix.
+                                    // Close the input as soon as the engine has consumed it, and
+                                    // the result once it's been turned into a bitmap and written,
+                                    // so neither lingers in native memory.
                                     val image = loadSource(EXPORT_MAX_EDGE_PX)
-                                    val res = e.simulate(image, state.toParams())
-                                    val bmp = simResultToBitmap(res.data, res.width, res.height)
-                                    val uri = withContext(Dispatchers.IO) {
-                                        when (exportFmt) {
-                                            ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
-                                            ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res)
-                                            else -> saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
-                                        }
+                                    val res = try {
+                                        e.simulate(image, state.toParams())
+                                    } finally {
+                                        image.close()
                                     }
-                                    bmp to uri
+                                    try {
+                                        val bmp = simResultToBitmap(res.data, res.width, res.height)
+                                        val uri = withContext(Dispatchers.IO) {
+                                            when (exportFmt) {
+                                                ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
+                                                ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res)
+                                                else -> saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
+                                            }
+                                        }
+                                        bmp to uri
+                                    } finally {
+                                        res.close()
+                                    }
                                 }
                             }
                             result.onSuccess { (bmp, _) ->

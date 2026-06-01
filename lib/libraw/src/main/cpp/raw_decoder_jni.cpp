@@ -17,6 +17,7 @@
 #include <jni.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -87,44 +88,75 @@ jobject toJavaResult(JNIEnv* env, const spectrafilm::DecodeResult& r) {
 
     const jlong byteLen =
         static_cast<jlong>(r.rgb.size()) * static_cast<jlong>(sizeof(float));
-    // Guard against >2 GiB: ByteBuffer.allocateDirect takes a jint, so a larger
-    // length would truncate (and the full 64-bit memcpy below would then overflow
-    // the undersized buffer). Reject before allocating. (Security review F1.)
+    // Guard against >2 GiB: the Kotlin side reads this through a jint-indexed
+    // FloatBuffer, so keep the 2 GiB cap even though NewDirectByteBuffer takes a
+    // jlong. Reject before allocating. (Security review F1.)
     if (byteLen > static_cast<jlong>(INT32_MAX)) {
         jclass oom = env->FindClass("java/lang/OutOfMemoryError");
         env->ThrowNew(oom, "RAW decode result too large for a direct ByteBuffer (>2 GiB)");
         return nullptr;
     }
-    // The decoded RGB lives in r.rgb (freed when this call returns), so we hand
-    // Kotlin a direct ByteBuffer it *owns* (allocateDirect) and memcpy into it.
-    // The buffer is direct so the engine can consume it as a LinearImage with no
-    // further copy.
-    jclass bbClass = env->FindClass("java/nio/ByteBuffer");
-    jmethodID allocDirect =
-        env->GetStaticMethodID(bbClass, "allocateDirect", "(I)Ljava/nio/ByteBuffer;");
-    jobject owned = env->CallStaticObjectMethod(
-        bbClass, allocDirect, static_cast<jint>(byteLen));
-    if (owned == nullptr) {
+    // Hand Kotlin a NATIVE (off-heap) direct ByteBuffer rather than a JVM-managed one.
+    // ByteBuffer.allocateDirect is backed on Android by a non-movable byte[] on the ART
+    // managed heap, so a full-res result (~140 MB for a 12 MP DNG) hits the ~256 MB
+    // heap-growth limit — and two of them (RAW input + engine output) at export time
+    // guarantee an OutOfMemoryError. Adobe Lightroom keeps full-res pixels in native
+    // memory and never crosses them to the Java heap; we mirror that by malloc'ing the
+    // result and wrapping it with NewDirectByteBuffer. The Kotlin owner frees it via
+    // RawDecoder.freeOffHeap (nativeFree below). The buffer is direct so the engine can
+    // consume it as a LinearImage with no further copy.
+    void* native_buf = std::malloc(static_cast<size_t>(byteLen));
+    if (native_buf == nullptr) {
         jclass oom = env->FindClass("java/lang/OutOfMemoryError");
-        env->ThrowNew(oom, "failed to allocate direct buffer for RAW result");
+        env->ThrowNew(oom, "failed to allocate native buffer for RAW result");
         return nullptr;
     }
-    void* dst = env->GetDirectBufferAddress(owned);
-    if (dst != nullptr) {
-        std::memcpy(dst, r.rgb.data(), static_cast<size_t>(byteLen));
+    std::memcpy(native_buf, r.rgb.data(), static_cast<size_t>(byteLen));
+    jobject owned = env->NewDirectByteBuffer(native_buf, byteLen);
+    if (owned == nullptr) {
+        std::free(native_buf);
+        jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+        env->ThrowNew(oom, "failed to wrap native buffer for RAW result");
+        return nullptr;
     }
 
+    // NewDirectByteBuffer does NOT take ownership, so if NativeResult is never built
+    // the Kotlin side can't free native_buf — guard the remaining failure paths.
     jclass resClass = env->FindClass("com/spectrafilm/libraw/RawDecoder$NativeResult");
-    jmethodID ctor = env->GetMethodID(
+    jmethodID ctor = resClass ? env->GetMethodID(
         resClass, "<init>",
-        "(Ljava/nio/ByteBuffer;IILjava/lang/String;)V");
+        "(Ljava/nio/ByteBuffer;IILjava/lang/String;)V") : nullptr;
+    if (ctor == nullptr) {
+        env->ExceptionClear();
+        std::free(native_buf);
+        jclass ise = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(ise, "RawDecoder$NativeResult constructor not found");
+        return nullptr;
+    }
     jstring cs = env->NewStringUTF(r.colorSpace.c_str());
-    return env->NewObject(
+    jobject result = env->NewObject(
         resClass, ctor, owned, static_cast<jint>(r.width),
         static_cast<jint>(r.height), cs);
+    if (result == nullptr) {
+        // Construction threw (e.g. OOM building NativeResult): free the orphaned buffer.
+        std::free(native_buf);
+    }
+    return result;
 }
 
 }  // namespace
+
+/*
+ * nativeFree(buf) — release a native (malloc + NewDirectByteBuffer) RAW result buffer
+ * handed to Kotlin by toJavaResult. Called from RawDecoder.freeOffHeap. free(nullptr)
+ * is a no-op; a buffer whose direct address can't be resolved is skipped. Defined
+ * OUTSIDE the anonymous namespace so it keeps external linkage and JNI can find it.
+ */
+JNI(void, nativeFree)(JNIEnv* env, jobject /*thiz*/, jobject buf) {
+    if (!buf) return;
+    void* p = env->GetDirectBufferAddress(buf);
+    if (p) std::free(p);
+}
 
 /*
  * nativeDecodeBytes(bytes, wbMode, temperatureK, tint, halfSize) -> NativeResult
