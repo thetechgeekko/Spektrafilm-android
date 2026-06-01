@@ -42,6 +42,32 @@ Spektrafilm already separates an interactive cap (`MAX_EDGE_PX = 2048`, our prox
 Net: interactive editing of a 50 MP DNG now peaks at the proxy's memory (~¼ of before), and the
 preview path no longer allocates a multi-hundred-MB transient.
 
+## Evidence — static RE of `libLrAndroid.so` (Lightroom `com.adobe.lrmobile`)
+
+Decompiled the Lightroom APK in-env (android-reverse-engineering skill); extracted these
+concrete symbols from the native engine `libLrAndroid.so` (`strings`/`nm`), confirming the
+proxy + bounded-cap + pyramid + tile model above:
+
+- **Proxy negative + bounded preview cap** (the Smart-Preview store):
+  `NegativeCacheLargePreviewSize`, `NegativeCacheMaximumSize`, `NegativeCachePath`,
+  and bridge methods `ICBIsProxyNegative`, `ICBGeneratePreview`,
+  `ICBGeneratePreviewAndKeepIt`, `ICBGetAndReleasePreviewJpegBytes`. The decoded "negative"
+  is cached with a *maximum size* and a *large-preview size* — i.e. a capped proxy, not the
+  full original.
+- **Multi-resolution pyramid / mipmap**: `cr_base_pyramid`, log strings
+  `"Choosing RPTM Pyramid Level = %u"`, `"Computed pyramid level %d"`, `"MipMap: level %d"`,
+  `GuideMipMapMethod`. Render runs off a precomputed image pyramid.
+- **Render levels (coarse→fine) + pause/refresh**: `ICBSetRenderLevel`, `ICBRenderAsync`,
+  `ICBRenderLayerAsync`, `ICBPauseRendering`, `ICBRefreshRendering`, `ICBCheckNeedsRefresh`,
+  `ICBSetRenderCallback`.
+- **Tiled processing**: `cr_cpu_const_tile_buffer`, `cr_cpu_dirty_tile_buffer` (+ the
+  `cr_*_cache` family for per-stage intermediate caching).
+
+Mapping to Spektrafilm: our `MAX_EDGE_PX` proxy cap == `NegativeCacheLargePreviewSize`; our
+half-size proxy decode == decoding the negative at the proxy resolution rather than full;
+our export-only full-res decode == LR using the original only on export. The pyramid /
+render-level / tiling symbols are the deeper native items we have **not** matched yet (below).
+
 ## Not yet (true parity, larger native work)
 
 - **Native tiling / pyramid decode** for full-res export of very large files (LibRaw still
