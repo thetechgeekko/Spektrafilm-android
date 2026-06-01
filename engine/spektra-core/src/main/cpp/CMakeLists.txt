@@ -49,6 +49,7 @@ add_library(spektra SHARED
         runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
         runtime/stages/autoexposure.cpp      # center-weighted metering -> EV gain (M7)
         gpu/vulkan_compute.cpp               # OPT-IN Vulkan compute fast-path (stub unless SPK_ENABLE_VULKAN)
+        ml/segmentation.cpp                  # OPT-IN LiteRT subject/sky masking (stub unless SPK_ENABLE_LITERT)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -76,6 +77,29 @@ if(SPK_ENABLE_VULKAN)
     find_library(vulkan-lib vulkan)
     target_compile_definitions(spektra PRIVATE SPK_ENABLE_VULKAN=1)
     target_link_libraries(spektra ${vulkan-lib})
+endif()
+
+# OPT-IN Intel oneTBB parallel backend (default OFF). When ON, kernels/parallel.h
+# schedules the per-pixel stages through tbb::parallel_for (simple_partitioner over the
+# same fixed chunk boundaries -> still bit-identical across thread counts). Default
+# builds keep the dependency-free fork-join and are unchanged. Provide oneTBB via the
+# toolchain/find_package or a pinned FetchContent (mirroring lib:libraw) when enabling.
+option(SPK_USE_TBB "Use Intel oneTBB as the parallel-for backend" OFF)
+if(SPK_USE_TBB)
+    find_package(TBB REQUIRED)
+    target_compile_definitions(spektra PRIVATE SPK_USE_TBB=1)
+    target_link_libraries(spektra TBB::tbb)
+endif()
+
+# OPT-IN LiteRT (TFLite) ML masking (default OFF). When ON, ml/segmentation.cpp runs a
+# bundled segmentation model via libtensorflowlite_c (subject/sky masks — a feature,
+# not part of the bit-exact render path). Default builds compile the stub and link
+# nothing extra; enabling additionally requires vendoring the model + runtime.
+option(SPK_ENABLE_LITERT "Build the LiteRT ML segmentation path" OFF)
+if(SPK_ENABLE_LITERT)
+    find_library(tflite-lib tensorflowlite_c)
+    target_compile_definitions(spektra PRIVATE SPK_ENABLE_LITERT=1)
+    target_link_libraries(spektra ${tflite-lib})
 endif()
 
 # 16 KB page support (Android 15): force every PT_LOAD segment to a 16 KB-aligned
