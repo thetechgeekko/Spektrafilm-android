@@ -14,7 +14,7 @@
  *
  * Honoured spk_params for the scan_film parity case (scan_portra defaults):
  *   - film_profile          -> profile JSON loaded from <asset_dir>/profiles/<id>.json
- *   - scan_film             -> selects this route (false => print route, TODO M4)
+ *   - scan_film             -> selects this route (false => print route, implemented + parity-gated)
  *   - exposure_compensation_ev -> FilmingParams.exposure_compensation_ev
  *   - density_curve_gamma   -> FilmingParams.density_curve_gamma (broadcast to CMY)
  *   - output_color_space    -> ScanningParams.output_color_space (all six spaces:
