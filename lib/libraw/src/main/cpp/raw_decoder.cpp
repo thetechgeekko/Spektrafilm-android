@@ -25,6 +25,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include <android/log.h>
+
 #if defined(__has_include)
 #  if __has_include(<libraw/libraw.h>)
 #    include <libraw/libraw.h>
@@ -498,6 +500,43 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     LibRaw::dcraw_clear_mem(img);
 
     applyAcesAdaptation(result.rgb.data(), pixelCount, options);
+
+    // Cap the longest edge to options.maxLongEdge (proxy bound). LibRaw's half_size is
+    // honoured for most Bayer DNGs, but some (e.g. certain Samsung Expert-RAW DNGs)
+    // decode at full resolution regardless; without this cap result.rgb stays full-res
+    // and the JVM-side direct ByteBuffer (a managed byte[] on Android) OOMs the ART heap.
+    {
+        const int longest = result.width > result.height ? result.width : result.height;
+        if (options.maxLongEdge > 0 && longest > options.maxLongEdge) {
+            int step = 1;
+            while (longest / step > options.maxLongEdge) ++step;
+            const int ow = (result.width + step - 1) / step;
+            const int oh = (result.height + step - 1) / step;
+            std::vector<float> dst(static_cast<size_t>(ow) * oh * 3);
+            for (int oy = 0; oy < oh; ++oy) {
+                const size_t srow = static_cast<size_t>(oy) * step * result.width;
+                for (int ox = 0; ox < ow; ++ox) {
+                    const size_t si = (srow + static_cast<size_t>(ox) * step) * 3;
+                    const size_t di = (static_cast<size_t>(oy) * ow + ox) * 3;
+                    dst[di] = result.rgb[si];
+                    dst[di + 1] = result.rgb[si + 1];
+                    dst[di + 2] = result.rgb[si + 2];
+                }
+            }
+            __android_log_print(ANDROID_LOG_INFO, "sfraw",
+                "decoded %dx%d (halfSize=%d) -> capped %dx%d (maxLongEdge=%d, step=%d)",
+                result.width, result.height, options.halfSize ? 1 : 0,
+                ow, oh, options.maxLongEdge, step);
+            result.rgb.swap(dst);
+            result.width = ow;
+            result.height = oh;
+        } else {
+            __android_log_print(ANDROID_LOG_INFO, "sfraw",
+                "decoded %dx%d (halfSize=%d, maxLongEdge=%d, no cap)",
+                result.width, result.height, options.halfSize ? 1 : 0,
+                options.maxLongEdge);
+        }
+    }
 
     result.colorSpace = "ACES2065-1";
     result.status = SFRAW_OK;

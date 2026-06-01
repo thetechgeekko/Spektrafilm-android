@@ -93,6 +93,13 @@ object RawDecoder {
         val tint: Double = 1.0,
         /** When true, decode at half linear dimensions (~¼ pixels, ~¼ memory). */
         val halfSize: Boolean = false,
+        /**
+         * Hard cap on the decoded image's longest edge in pixels (0 = no cap). When >0,
+         * the native decoder box-downsamples the result to fit BEFORE handing back the
+         * direct buffer, so the allocation is bounded even if [halfSize] didn't reduce the
+         * dimensions (some DNGs ignore LibRaw's half_size and decode full-resolution).
+         */
+        val maxLongEdge: Int = 0,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -120,7 +127,7 @@ object RawDecoder {
     fun decodeToLinear(bytes: ByteArray, settings: Settings = Settings()): LinearResult =
         nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
 
     /**
@@ -137,7 +144,7 @@ object RawDecoder {
         return nativeDecodeBuffer(
             direct, direct.remaining(),
             settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
     }
 
@@ -148,7 +155,7 @@ object RawDecoder {
     fun decodeToLinear(fd: Int, settings: Settings = Settings()): LinearResult =
         nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
 
     /** Decode by reading an InputStream fully into memory (SAF convenience). */
@@ -221,17 +228,17 @@ object RawDecoder {
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
 
     private external fun nativeDecodeBuffer(
         buffer: ByteBuffer, len: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
 
     init {

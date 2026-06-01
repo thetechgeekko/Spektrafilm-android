@@ -54,6 +54,15 @@ struct DecodeOptions {
     //
     // Default false → full-resolution decode; existing behaviour is unchanged.
     bool halfSize = false;
+
+    // Hard cap on the output's longest edge (pixels). 0 = no cap. When > 0 and the
+    // decoded image's longest edge exceeds it, the result is box-downsampled (integer
+    // step) to fit BEFORE result.rgb is returned — so the caller's direct-buffer
+    // allocation is bounded regardless of whether `halfSize` actually reduced the
+    // dimensions. Some DNGs ignore LibRaw's half_size and decode full-resolution; a
+    // 4080×3060 result is a ~150 MB float buffer that OOMs the managed heap when wrapped
+    // in a Java-backed direct ByteBuffer. Proxy-grade (nearest-step subsample).
+    int maxLongEdge = 0;
 };
 
 // Stable decode status codes. These cross to Kotlin (RawDecoder.DecodeStatus)

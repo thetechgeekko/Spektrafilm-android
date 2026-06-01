@@ -132,6 +132,12 @@ private fun decodeRawAtEdge(
 ): LinearImage {
     val settings = RawDecoder.Settings(
         whiteBalance = wb, temperatureK = temperatureK, tint = tint, halfSize = halfSize,
+        // Hard cap the NATIVE decode to the target edge: some DNGs ignore LibRaw half_size
+        // and decode full-resolution, and the result's direct ByteBuffer is a managed
+        // byte[] on Android — a 4080x3060 buffer is ~150 MB and OOMs the ART heap. With
+        // this cap the native decoder downsamples before returning, so the allocation is
+        // bounded by maxEdge regardless of half_size.
+        maxLongEdge = maxEdge,
     )
     // Decode straight from the file descriptor: LibRaw reads through the fd, so we never
     // copy the whole RAW file into a single contiguous Java byte[] first. That byte[]

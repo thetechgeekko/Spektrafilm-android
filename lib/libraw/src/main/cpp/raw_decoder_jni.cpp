@@ -28,7 +28,7 @@
 namespace {
 
 spectrafilm::DecodeOptions readOptions(jint wbMode, jdouble temperatureK, jdouble tint,
-                                       jboolean halfSize) {
+                                       jboolean halfSize, jint maxLongEdge) {
     spectrafilm::DecodeOptions opts;
     // Must match RawDecoder.WhiteBalance.nativeMode ordinals in Kotlin.
     switch (wbMode) {
@@ -44,6 +44,7 @@ spectrafilm::DecodeOptions readOptions(jint wbMode, jdouble temperatureK, jdoubl
     // pixels) using 2x2 Bayer averaging instead of full demosaic. Intended for
     // fast, low-memory proxy decodes of large RAW/DNG files.
     opts.halfSize = (halfSize != JNI_FALSE);
+    opts.maxLongEdge = maxLongEdge > 0 ? maxLongEdge : 0;
     return opts;
 }
 
@@ -133,7 +134,7 @@ jobject toJavaResult(JNIEnv* env, const spectrafilm::DecodeResult& r) {
  */
 JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject /*thiz*/, jbyteArray bytes,
                                 jint wbMode, jdouble temperatureK, jdouble tint,
-                                jboolean halfSize) {
+                                jboolean halfSize, jint maxLongEdge) {
     if (bytes == nullptr) {
         jclass ise = env->FindClass("java/lang/IllegalArgumentException");
         env->ThrowNew(ise, "null RAW byte[]");
@@ -143,7 +144,7 @@ JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject /*thiz*/, jbyteArray bytes,
     jbyte* ptr = env->GetByteArrayElements(bytes, nullptr);
     spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
         reinterpret_cast<const uint8_t*>(ptr), static_cast<size_t>(len),
-        readOptions(wbMode, temperatureK, tint, halfSize));
+        readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge));
     env->ReleaseByteArrayElements(bytes, ptr, JNI_ABORT);
     return toJavaResult(env, result);
 }
@@ -155,7 +156,7 @@ JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject /*thiz*/, jbyteArray bytes,
  */
 JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject /*thiz*/, jobject directBuf,
                                  jint len, jint wbMode, jdouble temperatureK, jdouble tint,
-                                 jboolean halfSize) {
+                                 jboolean halfSize, jint maxLongEdge) {
     void* addr = (directBuf != nullptr) ? env->GetDirectBufferAddress(directBuf) : nullptr;
     if (addr == nullptr) {
         jclass ise = env->FindClass("java/lang/IllegalArgumentException");
@@ -164,19 +165,19 @@ JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject /*thiz*/, jobject directBu
     }
     spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
         reinterpret_cast<const uint8_t*>(addr), static_cast<size_t>(len),
-        readOptions(wbMode, temperatureK, tint, halfSize));
+        readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge));
     return toJavaResult(env, result);
 }
 
 /*
- * nativeDecodeFd(fd, wbMode, temperatureK, tint, halfSize) -> NativeResult
+ * nativeDecodeFd(fd, wbMode, temperatureK, tint, halfSize, maxLongEdge) -> NativeResult
  * Decodes from a file descriptor (e.g. ParcelFileDescriptor.detachFd()).
  * halfSize: if JNI_TRUE, decode at half linear dimensions (proxy mode).
  */
 JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject /*thiz*/, jint fd,
                              jint wbMode, jdouble temperatureK, jdouble tint,
-                             jboolean halfSize) {
+                             jboolean halfSize, jint maxLongEdge) {
     spectrafilm::DecodeResult result = spectrafilm::decodeFromFd(
-        fd, readOptions(wbMode, temperatureK, tint, halfSize));
+        fd, readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge));
     return toJavaResult(env, result);
 }
