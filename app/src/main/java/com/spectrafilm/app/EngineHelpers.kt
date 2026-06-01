@@ -8,6 +8,7 @@ import android.content.Context
 import android.net.Uri
 import android.graphics.Bitmap
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import java.io.File
@@ -110,6 +111,32 @@ fun decodeRawToLinear(
     }
 }
 
+/**
+ * Read [uri] fully into a direct (native) [ByteBuffer], streaming in 1 MB chunks so the
+ * only managed allocation is the small reusable chunk — never a file-sized Java byte[].
+ * This is the OOM-safe input for LibRaw's buffer decode path when fd decode isn't usable.
+ * Returns null if the stream can't be opened or the file exceeds the 2 GiB direct-buffer
+ * limit.
+ */
+private fun readUriToDirectBuffer(ctx: Context, uri: Uri): ByteBuffer? {
+    val pfd = ctx.contentResolver.openFileDescriptor(uri, "r") ?: return null
+    return pfd.use {
+        val size = it.statSize
+        if (size <= 0L || size > Int.MAX_VALUE) return@use null
+        val buf = ByteBuffer.allocateDirect(size.toInt()).order(ByteOrder.nativeOrder())
+        java.io.FileInputStream(it.fileDescriptor).use { input ->
+            val chunk = ByteArray(1 shl 20)
+            while (true) {
+                val n = input.read(chunk)
+                if (n < 0) break
+                buf.put(chunk, 0, n)
+            }
+        }
+        buf.flip()
+        buf
+    }
+}
+
 /** Smallest longest-edge cap the RAW OOM-retry ladder will fall back to before giving up. */
 private const val MIN_RAW_FALLBACK_EDGE = 512
 
@@ -144,9 +171,18 @@ private fun decodeRawAtEdge(
         ctx.contentResolver.openFileDescriptor(uri, "r")?.use {
             RawDecoder.decodeToLinear(it.fd, settings)
         } ?: error("Could not open RAW file")
+    } catch (e: RawDecodeException) {
+        // A real decode verdict (lossy-JPEG / JPEG-XL Expert-RAW DNG LibRaw can't decode):
+        // let it propagate so loadSource routes to the platform decoder fallback.
+        throw e
     } catch (e: RuntimeException) {
-        val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw e
-        RawDecoder.decodeToLinear(bytes, settings)
+        // The fd-direct decode failed for a non-verdict reason (some providers/fds LibRaw
+        // can't open by file descriptor). Retry from the file bytes — but read them into a
+        // DIRECT (native) ByteBuffer, never a Java byte[]: a 100-200 MB DNG as a managed
+        // byte[] is itself the OutOfMemoryError ("Failed to allocate a <fileSize> byte
+        // allocation", growth limit ~256 MB). The direct buffer lives in native memory.
+        val direct = readUriToDirectBuffer(ctx, uri) ?: throw e
+        RawDecoder.decodeToLinear(direct, settings)
     }
     val w = result.width
     val h = result.height
