@@ -27,6 +27,18 @@
 #include <thread>
 #include <vector>
 
+// OPT-IN Intel oneTBB backend (CMake SPK_USE_TBB, default OFF). When enabled the
+// per-pixel stages are scheduled through tbb::parallel_for instead of the hand-rolled
+// fork-join below. The chunk boundaries are still the SAME pure function of
+// (count, threads) and a simple_partitioner is used, so the result stays
+// BIT-IDENTICAL across thread counts — the thread-invariance the parity gate requires.
+// Default builds (no TBB) are unchanged and carry no dependency.
+#ifdef SPK_USE_TBB
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/simple_partitioner.h>
+#endif
+
 namespace spk {
 
 // Worker count for parallel_for. Honours the SPK_NUM_THREADS environment
@@ -63,6 +75,25 @@ void parallel_for(int begin, int end, const Body& body) {
 
     // Ceil-divide so the chunk boundaries are fixed by (count, nthreads) alone.
     const int chunk = (count + nthreads - 1) / nthreads;
+
+#ifdef SPK_USE_TBB
+    // oneTBB backend: schedule the SAME fixed chunks via tbb::parallel_for with a
+    // simple_partitioner (no dynamic re-splitting), so each chunk maps 1:1 to a fixed
+    // [cb, ce) and the output is identical regardless of how TBB distributes them.
+    const int nchunks = (count + chunk - 1) / chunk;
+    tbb::parallel_for(
+        tbb::blocked_range<int>(0, nchunks, 1),
+        [&](const tbb::blocked_range<int>& r) {
+            for (int t = r.begin(); t < r.end(); ++t) {
+                const int cb = begin + t * chunk;
+                if (cb >= end) continue;
+                const int ce = std::min(cb + chunk, end);
+                body(cb, ce);
+            }
+        },
+        tbb::simple_partitioner());
+    return;
+#else
     std::vector<std::thread> workers;
     workers.reserve(static_cast<size_t>(nthreads - 1));
     for (int t = 1; t < nthreads; ++t) {
@@ -74,6 +105,7 @@ void parallel_for(int begin, int end, const Body& body) {
     // The calling thread runs the first chunk while the workers run theirs.
     body(begin, std::min(begin + chunk, end));
     for (auto& w : workers) w.join();
+#endif  // SPK_USE_TBB
 }
 
 }  // namespace spk
