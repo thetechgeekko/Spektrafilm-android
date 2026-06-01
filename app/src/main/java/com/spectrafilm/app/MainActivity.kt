@@ -627,7 +627,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Debounced preview render: re-runs whenever params, source or rotation change.
+        // Debounced, PROGRESSIVE preview render: re-runs whenever params, source or rotation
+        // change. Like Lightroom's loupe, a fast coarse pass paints the new look almost
+        // immediately, then a full-resolution pass refines it — so dragging a slider feels
+        // responsive instead of waiting one ~full render per settle.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
             delay(350)
@@ -635,12 +638,31 @@ class MainActivity : ComponentActivity() {
             renderErr = null
             status = "rendering preview…"
             val renderStart = System.currentTimeMillis()
+            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+            // Coarse edge = half the preview edge, but only when that is still a meaningful
+            // step down (>=256px and the full edge is large enough to be worth a two-pass
+            // render). The coarse source is decoded FRESH (loadSource, not the cache) so it
+            // never evicts the single-entry cached full-res proxy that look-param edits reuse
+            // — a cache put(coarse) then put(full) would thrash and re-decode the full source
+            // every render.
+            val coarseEdge = (fullEdge / 2).let { if (it >= 256 && fullEdge > 512) it else 0 }
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     decoding = true
-                    // Cached proxy source: re-decodes only when a decode-affecting key
-                    // (URI/kind/WB/temp/tint/rotation/edge) changed; look-param edits reuse it.
-                    val image = loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256))
+                    // Pass 1 (coarse, optional): paint first pixels ~4x sooner.
+                    if (coarseEdge > 0) {
+                        val coarseImg = loadSource(coarseEdge)
+                        val cres = e.simulatePreview(coarseImg, state.toParams())
+                        val cbmp = simResultToBitmap(cres.data, cres.width, cres.height)
+                        if (isActive) withContext(Dispatchers.Main) {
+                            preview = cbmp
+                            status = "refining…"
+                        }
+                    }
+                    // Pass 2 (full): cached proxy source — re-decodes only when a decode-
+                    // affecting key (URI/kind/WB/temp/tint/rotation/edge) changed; look-param
+                    // edits reuse it.
+                    val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
                     val res = e.simulatePreview(image, state.toParams())
