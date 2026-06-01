@@ -93,6 +93,13 @@ object RawDecoder {
         val tint: Double = 1.0,
         /** When true, decode at half linear dimensions (~¼ pixels, ~¼ memory). */
         val halfSize: Boolean = false,
+        /**
+         * Hard cap on the decoded image's longest edge in pixels (0 = no cap). When >0,
+         * the native decoder box-downsamples the result to fit BEFORE handing back the
+         * direct buffer, so the allocation is bounded even if [halfSize] didn't reduce the
+         * dimensions (some DNGs ignore LibRaw's half_size and decode full-resolution).
+         */
+        val maxLongEdge: Int = 0,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -120,7 +127,7 @@ object RawDecoder {
     fun decodeToLinear(bytes: ByteArray, settings: Settings = Settings()): LinearResult =
         nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
 
     /**
@@ -137,7 +144,7 @@ object RawDecoder {
         return nativeDecodeBuffer(
             direct, direct.remaining(),
             settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
     }
 
@@ -148,12 +155,21 @@ object RawDecoder {
     fun decodeToLinear(fd: Int, settings: Settings = Settings()): LinearResult =
         nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
-            settings.halfSize,
+            settings.halfSize, settings.maxLongEdge,
         ).toLinear()
 
     /** Decode by reading an InputStream fully into memory (SAF convenience). */
     fun decodeToLinear(stream: InputStream, settings: Settings = Settings()): LinearResult =
         decodeToLinear(stream.readBytes(), settings)
+
+    /**
+     * Free a native (off-heap) RAW result buffer. The full-resolution decode hands back
+     * a [LinearResult.data] / [NativeResult.data] backed by `malloc` + `NewDirectByteBuffer`
+     * (NOT `ByteBuffer.allocateDirect`), so it lives outside the ART managed heap and is
+     * NOT reclaimed by the GC — the owner must free it explicitly when done. Safe to call
+     * with any direct buffer this object produced; a no-op on a null/unmapped buffer.
+     */
+    fun freeOffHeap(buf: ByteBuffer) = nativeFree(buf)
 
     private fun NativeResult.toLinear(): LinearResult {
         // Native gives little-/native-endian float32; tag the byte order so callers
@@ -221,18 +237,21 @@ object RawDecoder {
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
 
     private external fun nativeDecodeBuffer(
         buffer: ByteBuffer, len: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean,
+        halfSize: Boolean, maxLongEdge: Int,
     ): NativeResult
+
+    /** Free a native (malloc + NewDirectByteBuffer) result buffer (see [freeOffHeap]). */
+    private external fun nativeFree(buffer: ByteBuffer)
 
     init {
         System.loadLibrary("sfraw")

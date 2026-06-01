@@ -180,8 +180,27 @@ fun decodeViaPlatform(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Linea
     } else {
         decodeDownscaled(ctx, uri, maxEdge)
     }
-    val safe = if (bmp.config == Bitmap.Config.ARGB_8888) bmp
+    // Hard cap to maxEdge BEFORE the linear conversion. ImageDecoder.setTargetSampleSize
+    // (and BitmapFactory inSampleSize) are only hints and are IGNORED for some DNG/RAW
+    // decoders, which then hand back a full-resolution bitmap. bitmapToLinearProPhoto would
+    // then allocateDirect(w*h*3*4) — on Android a managed (non-movable) byte[] — and a
+    // 4080x3060 DNG is a ~150 MB allocation that OOMs the ART heap ("Failed to allocate a
+    // 149817619 byte allocation"). Downscale the bitmap (cheap native op) so the float
+    // buffer is bounded by maxEdge regardless of whether the decoder honoured the hint.
+    val argb = if (bmp.config == Bitmap.Config.ARGB_8888) bmp
     else bmp.copy(Bitmap.Config.ARGB_8888, false).also { bmp.recycle() }
+    val longest = max(argb.width, argb.height)
+    val safe = if (longest <= maxEdge) {
+        argb
+    } else {
+        val scale = maxEdge.toFloat() / longest
+        Bitmap.createScaledBitmap(
+            argb,
+            (argb.width * scale).toInt().coerceAtLeast(1),
+            (argb.height * scale).toInt().coerceAtLeast(1),
+            true,
+        ).also { argb.recycle() }
+    }
     try {
         return bitmapToLinearProPhoto(safe)
     } finally {

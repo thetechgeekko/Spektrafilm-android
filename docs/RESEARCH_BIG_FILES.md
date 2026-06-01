@@ -38,9 +38,24 @@ Spektrafilm already separates an interactive cap (`MAX_EDGE_PX = 2048`, our prox
 3. **Graceful ladder.** If a full-res export decode OOMs, the retry first flips to a half-size
    decode (¼ memory, keeps more resolution than dropping the cap), then shrinks the output cap,
    then surfaces a catchable error instead of crashing.
+4. **Full-res pixels live OFF the managed heap** (the export OOM fix). On Android,
+   `ByteBuffer.allocateDirect` is backed by a **non-movable `byte[]` on the ART managed heap**
+   (~256 MB growth limit), so a full-res RAW input (~140 MB for a 12 MP DNG) *plus* the engine's
+   equally large output buffer cannot coexist — export threw
+   `OutOfMemoryError "Failed to allocate a 149817619 byte allocation … growth limit 268435456"`
+   even after the proxy/cap work above. Lightroom never crosses full-res pixels to the Java heap
+   at all (see Evidence). We mirror that: the RAW decode result (`raw_decoder_jni.cpp`) and the
+   engine output (`spektra_jni.cpp`) are now allocated with **`malloc` + `NewDirectByteBuffer`**
+   — true native memory, off the ART heap, multi-GB headroom — and freed explicitly
+   (`RawDecoder.freeOffHeap` / `SimResult.freeDirectBuffer`) via `LinearImage`/`SimResult`
+   becoming `AutoCloseable`. Proxy/preview-scale buffers (≤ `HALF_DECODE_EDGE_THRESHOLD`) stay
+   managed/GC'd, so the preview cache lifecycle is unchanged; only export-scale buffers are
+   off-heap and closed by the caller.
 
-Net: interactive editing of a 50 MP DNG now peaks at the proxy's memory (~¼ of before), and the
-preview path no longer allocates a multi-hundred-MB transient.
+Net: interactive editing of a 50 MP DNG now peaks at the proxy's memory (~¼ of before), the
+preview path no longer allocates a multi-hundred-MB transient, and **full-res export of a 12 MP
+DNG no longer OOMs** — the two ~140 MB buffers now sit in native memory instead of fighting over
+the 256 MB Java heap.
 
 ## Evidence — static RE of `libLrAndroid.so` (Lightroom `com.adobe.lrmobile`)
 
@@ -62,6 +77,16 @@ proxy + bounded-cap + pyramid + tile model above:
   `ICBSetRenderCallback`.
 - **Tiled processing**: `cr_cpu_const_tile_buffer`, `cr_cpu_dirty_tile_buffer` (+ the
   `cr_*_cache` family for per-stage intermediate caching).
+- **Pixels never touch the Java heap — native off-heap buffers.** Across *all* of LR's native
+  libs (`libLrAndroid.so`, `libimaging.so`, `libcapture.so`, `libvfexporterlib-native-lib.so`,
+  `libkernel.so`) there is **zero** `NewDirectByteBuffer` / `GetDirectBufferAddress` /
+  `allocateDirect` — i.e. no image pixel buffer is ever surfaced to Java. Large buffers use the
+  **Intel oneTBB scalable allocator** (`scalable_malloc`, `scalable_posix_memalign`, `mmap` via
+  `rml::internal::mmapTHP`) — native, `mmap`-backed, off the ART heap. The engine holds the
+  image for its whole life behind a native handle (`ICBConstructor`/`ICBDestructor`) and only
+  ever hands Java a small **compressed JPEG** (`ICBGetAndReleasePreviewJpegBytes`) or the final
+  export file — never raw pixels. This is the direct evidence behind "What we do" item 4: keep
+  full-res pixels in native memory, not on the managed heap.
 
 Mapping to Spektrafilm: our `MAX_EDGE_PX` proxy cap == `NegativeCacheLargePreviewSize`; our
 half-size proxy decode == decoding the negative at the proxy resolution rather than full;
