@@ -332,6 +332,25 @@ class MainActivity : ComponentActivity() {
         var presetName by remember { mutableStateOf("") }
         var selectedPreset by remember { mutableStateOf("") }
 
+        // Preset "amount" (Lightroom-style): the look active just before a preset was
+        // applied (base) and the full applied preset, kept as flat-schema JSON so the
+        // amount slider can cross-fade between them. presetAmount is the live mix; null
+        // base/full means no preset has been applied since load (slider hidden).
+        var presetBaseJson by remember { mutableStateOf<String?>(null) }
+        var presetFullJson by remember { mutableStateOf<String?>(null) }
+        var presetAmount by remember { mutableFloatStateOf(1f) }
+
+        // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
+        // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
+        fun applyWithAmount(apply: () -> Unit) {
+            val base = runCatching { Presets.toJsonString(state) }.getOrNull()
+            apply()
+            val full = runCatching { Presets.toJsonString(state) }.getOrNull()
+            if (base != null && full != null) {
+                presetBaseJson = base; presetFullJson = full; presetAmount = 1f
+            }
+        }
+
         // active adjustment category (null = panel closed); hoisted to AppRoot so it
         // survives navigation to Settings/About and back.
         var activeCategory by activeCategoryState
@@ -992,8 +1011,23 @@ class MainActivity : ComponentActivity() {
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
                                 onApplyBuiltIn = { p ->
-                                    BuiltInPresets.apply(p, state)
+                                    applyWithAmount { BuiltInPresets.apply(p, state) }
                                     status = "applied built-in '${p.name}'"; previewTick++
+                                },
+                                amount = presetAmount,
+                                amountEnabled = presetFullJson != null,
+                                onAmountChange = { a ->
+                                    presetAmount = a
+                                    val base = presetBaseJson; val full = presetFullJson
+                                    if (base != null && full != null) {
+                                        runCatching {
+                                            val blended = PresetAmount.blend(
+                                                org.json.JSONObject(base), org.json.JSONObject(full), a,
+                                            )
+                                            Presets.decode(blended, state)
+                                        }
+                                        previewTick++
+                                    }
                                 },
                                 presets = presetList,
                                 selected = selectedPreset,
@@ -1008,7 +1042,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onApply = {
                                     if (selectedPreset.isNotBlank()) {
-                                        runCatching { Presets.load(ctx, selectedPreset, state) }
+                                        runCatching { applyWithAmount { Presets.load(ctx, selectedPreset, state) } }
                                             .onSuccess { status = "applied '${selectedPreset}'"; previewTick++ }
                                             .onFailure { status = "apply failed: ${it.message}" }
                                     }
@@ -1065,6 +1099,7 @@ class MainActivity : ComponentActivity() {
                                 onResetEdits = {
                                     Recipes.delete(ctx, recipeKey)
                                     Recipes.resetToDefaults(state, settings, profiles)
+                                    presetBaseJson = null; presetFullJson = null; presetAmount = 1f
                                     hasRecipe = false; rotation = SourceRotation.NONE
                                     // Reset clears history: the defaults become the new
                                     // empty-history baseline (you can't undo back across a
@@ -1713,6 +1748,9 @@ class MainActivity : ComponentActivity() {
     private fun PresetPanel(
         builtInGroups: Map<String, List<BuiltInPreset>>,
         onApplyBuiltIn: (BuiltInPreset) -> Unit,
+        amount: Float,
+        amountEnabled: Boolean,
+        onAmountChange: (Float) -> Unit,
         presets: List<String>,
         selected: String,
         name: String,
@@ -1755,6 +1793,22 @@ class MainActivity : ComponentActivity() {
             ) { Text("Apply built-in preset") }
             Divider()
             Text("Your presets", style = MaterialTheme.typography.titleSmall)
+        }
+
+        // Lightroom-style preset amount: cross-fade the last-applied preset against the
+        // look that preceded it. Shown only once a preset has been applied this session.
+        if (amountEnabled) {
+            EnhancedSlider(
+                label = "Preset amount",
+                value = amount * 100f,
+                range = 0f..100f,
+                step = 1f,
+                decimals = 0,
+                default = 100f,
+                tooltip = "Mix the applied preset over the previous look (0% = before, 100% = full).",
+                onValueChange = { onAmountChange((it / 100f).coerceIn(0f, 1f)) },
+            )
+            Divider()
         }
 
         OutlinedTextField(
