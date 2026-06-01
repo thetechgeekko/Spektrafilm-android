@@ -184,6 +184,41 @@ void read_diffusion_filter(JNIEnv* env, jobject df,
     *bloom_size = call_float(env, df, "getBloomSize");
 }
 
+// Read the packed tone-curve float[] from SpektraParams.toneCurvePacked() into the
+// flat spk_params fields. Layout: [active, mN, (x,y)*mN, rN, (x,y)*rN, gN, ..., bN, ...].
+// Per-channel counts are clamped to SPK_TONE_MAX_PTS. Absent/short array leaves the
+// tone curve OFF (the spk_default_params value), so this is a strict no-op by default.
+void read_tone_curve(JNIEnv* env, jobject params, spk_params* out) {
+    jobject arrObj = call_obj(env, params, "toneCurvePacked", "()[F");
+    if (!arrObj) { env->ExceptionClear(); return; }
+    jfloatArray arr = static_cast<jfloatArray>(arrObj);
+    jsize len = env->GetArrayLength(arr);
+    if (len < 1) { env->DeleteLocalRef(arrObj); return; }
+    std::vector<float> v(static_cast<size_t>(len));
+    env->GetFloatArrayRegion(arr, 0, len, v.data());
+    env->DeleteLocalRef(arrObj);
+
+    size_t i = 0;
+    out->tone_curve_active = (v[i++] != 0.0f) ? 1 : 0;
+    auto read_channel = [&](int32_t* n, float* xs, float* ys) {
+        *n = 0;
+        if (i >= v.size()) return;
+        int cnt = static_cast<int>(v[i++]);
+        if (cnt < 0) cnt = 0;
+        int kept = cnt > SPK_TONE_MAX_PTS ? SPK_TONE_MAX_PTS : cnt;
+        for (int k = 0; k < cnt; ++k) {
+            if (i + 1 >= v.size()) break;
+            float x = v[i++], y = v[i++];
+            if (k < kept) { xs[k] = x; ys[k] = y; }
+        }
+        *n = kept;
+    };
+    read_channel(&out->tone_curve_master_n, out->tone_curve_master_x, out->tone_curve_master_y);
+    for (int c = 0; c < 3; ++c) {
+        read_channel(&out->tone_curve_rgb_n[c], out->tone_curve_rgb_x[c], out->tone_curve_rgb_y[c]);
+    }
+}
+
 bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* store) {
     // Top-level: filmProfile / printProfile (String), and the nested objects.
     store->film_profile = jstr(env,
@@ -394,6 +429,9 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
         out->neutral_print_filters_from_database =
             call_bool(env, settings, "getNeutralPrintFiltersFromDatabase") ? 1 : 0;
     }
+
+    // Tone curve (top-level packed float[]); OFF by default => no-op.
+    read_tone_curve(env, params, out);
 
     if (camera) env->DeleteLocalRef(camera);
     if (enlarger) env->DeleteLocalRef(enlarger);
