@@ -8,6 +8,7 @@ import android.content.Context
 import android.net.Uri
 import android.graphics.Bitmap
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import java.io.File
@@ -144,7 +145,16 @@ private fun decodeRawAtEdge(
         ctx.contentResolver.openFileDescriptor(uri, "r")?.use {
             RawDecoder.decodeToLinear(it.fd, settings)
         } ?: error("Could not open RAW file")
+    } catch (e: RawDecodeException) {
+        // A real decode verdict (e.g. lossy-JPEG / JPEG-XL Expert-RAW DNG that LibRaw
+        // can't decode): let it propagate so loadSource routes to the platform decoder
+        // fallback (decodeViaPlatform, which downsamples). Do NOT read the whole file
+        // into a byte[] here — for a ~150 MB DNG that contiguous Java allocation is
+        // itself the OutOfMemoryError we are trying to avoid.
+        throw e
     } catch (e: RuntimeException) {
+        // Only a non-RawDecode failure (e.g. an fd the provider won't let LibRaw seek):
+        // fall back to the byte[] path for the rare non-seekable/in-memory provider.
         val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw e
         RawDecoder.decodeToLinear(bytes, settings)
     }

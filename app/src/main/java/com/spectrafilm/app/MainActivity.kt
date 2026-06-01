@@ -600,7 +600,14 @@ class MainActivity : ComponentActivity() {
                             applyExifBaseline = true
                             decodeViaPlatform(ctx, uri!!, maxEdge)
                         }
-                        else -> throw e
+                        else -> {
+                            // Any other LibRaw decode verdict: still try the downsampling
+                            // platform decoder rather than failing (or worse, OOMing on a
+                            // full-file read), since LibRaw won't produce pixels here anyway.
+                            dngFallbackNotice = true
+                            applyExifBaseline = true
+                            decodeViaPlatform(ctx, uri!!, maxEdge)
+                        }
                     }
                 } catch (e: RuntimeException) {
                     // Defensive: any other native decode failure on a DNG/RAW still tries
