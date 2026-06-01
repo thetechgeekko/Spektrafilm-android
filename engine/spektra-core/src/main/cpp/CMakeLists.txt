@@ -48,6 +48,7 @@ add_library(spektra SHARED
         runtime/print_digest.cpp             # native neutral CC + midgray digest (M5)
         runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
         runtime/stages/autoexposure.cpp      # center-weighted metering -> EV gain (M7)
+        gpu/vulkan_compute.cpp               # OPT-IN Vulkan compute fast-path (stub unless SPK_ENABLE_VULKAN)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -64,6 +65,18 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib} Threads::Threads)
+
+# OPT-IN GPU (Vulkan compute) fast-path — docs/PERF_ROADMAP.md #1. OFF by default:
+# the default library is byte-identical (gpu/vulkan_compute.cpp compiles to a stub that
+# reports unavailable). When -DSPK_ENABLE_VULKAN=ON, the real compute path is compiled
+# and libvulkan is linked. Preview-only / non-bit-exact by design (GPU float != oracle),
+# so the export + parity-gated path never call it.
+option(SPK_ENABLE_VULKAN "Build the Vulkan compute GPU fast-path (preview-only)" OFF)
+if(SPK_ENABLE_VULKAN)
+    find_library(vulkan-lib vulkan)
+    target_compile_definitions(spektra PRIVATE SPK_ENABLE_VULKAN=1)
+    target_link_libraries(spektra ${vulkan-lib})
+endif()
 
 # 16 KB page support (Android 15): force every PT_LOAD segment to a 16 KB-aligned
 # p_align so the lib mmaps on devices with a 16 KB page size. NDK r27+ does this by
