@@ -66,9 +66,6 @@ const val MAX_EDGE_PX = 2048
  */
 const val EXPORT_MAX_EDGE_PX = 16384
 
-/** Longest-edge cap for fast interactive previews. */
-const val PREVIEW_EDGE_PX = 720
-
 /** Inverse sRGB CCTF: display sRGB (0..1) -> scene-linear (0..1). */
 private fun srgbToLinear(c: Float): Float =
     if (c <= 0.04045f) c / 12.92f else Math.pow(((c + 0.055) / 1.055), 2.4).toFloat()
