@@ -1068,7 +1068,13 @@ class MainActivity : ComponentActivity() {
                                 onPasteSettings = {
                                     settingsClipboard?.let { clip ->
                                         runCatching { Presets.decode(org.json.JSONObject(clip), state) }
-                                            .onSuccess { status = "settings pasted"; previewTick++ }
+                                            .onSuccess {
+                                                // Pasting replaces the whole look, so the preset
+                                                // amount blend anchor is now stale — clear it so a
+                                                // later slider move can't overwrite the pasted look.
+                                                presetBaseJson = null; presetFullJson = null; presetAmount = 1f
+                                                status = "settings pasted"; previewTick++
+                                            }
                                             .onFailure { status = "paste failed: ${it.message}" }
                                     }
                                 },

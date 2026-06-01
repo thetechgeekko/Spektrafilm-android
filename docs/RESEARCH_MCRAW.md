@@ -113,10 +113,23 @@ chooses which frame of the clip to develop (MotionCam clips are short bursts/vid
 - Memory: one frame is a single still (≈ same as a DNG) — no streaming needed for v1.
 - The CFA `sensorArrangment` string → DNG CFA mapping is the only fiddly bit; `example.cpp` has it.
 
-### Licensing (blocker to resolve first)
-Spektrafilm is GPLv3. Confirm `motioncam-decoder`'s license is GPL-compatible before vendoring;
-if it is permissive (MIT/BSD/Apache-2.0) it folds into GPLv3 fine. Record it in `NOTICE.md`.
-SIMDE is permissive. **Do not vendor until license is verified.**
+### Licensing — RESOLVED
+`motioncam-decoder` is **Apache-2.0**, which is GPLv3-compatible (Apache-2.0 → GPLv3 one-way), so
+it folds into Spektrafilm's GPLv3 cleanly. SIMDE is permissive. Record both in `NOTICE.md` when the
+`lib:mcraw` module lands. No licensing blocker remains.
+
+### Container read sequence (from `Decoder.cpp`, for an exact reimplementation)
+`init()` reads the `Header`, then a camera-level `METADATA` `Item`, then seeks
+`EOF − (sizeof(Item) + sizeof(BufferIndex))` to read the trailing `BufferIndex` (validate
+`magicNumber == 0x8A905612`), then seeks `indexDataOffset` and reads `numOffsets` × `BufferOffset`.
+No endianness conversion — fields are native little-endian (Android arm64/x86). `getFrames()`
+returns the `timestamp` of each `BufferOffset`, in stored order.
+
+### Pre-flight parser (first slice)
+A pure-Kotlin `McrawContainer` reader implements exactly the read sequence above (validate v3
+header, walk the footer `BufferIndex` + `BufferOffset[]`, list frame timestamps) — no native code,
+so the UI can reject junk and offer a frame picker before paying for a native decode. The pixel
+codec (`Decode`/`DecodeLegacy`) stays owned by the vendored native lib.
 
 ---
 *Reverse-engineered from public MotionCam decoder sources. Film modeling powered by spektrafilm (GPLv3).*
