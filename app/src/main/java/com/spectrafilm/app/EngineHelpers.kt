@@ -58,8 +58,15 @@ fun syntheticLinearImage(size: Int): LinearImage {
 
 /**
  * Decode a camera RAW/DNG [uri] to a scene-linear ACES2065-1 [LinearImage] via LibRaw.
- * The native decode is full-resolution; if the longest edge exceeds [maxEdge] the linear
- * float buffer is box-downsampled (integer step) to keep memory and render time bounded.
+ *
+ * Lightroom-style big-file handling: rather than always decoding at full native
+ * resolution (a 50-200MP DNG is a multi-hundred-MB float transient — the thing that
+ * OOMs), we decode a reduced *proxy* for interactive/preview-scale targets and reserve
+ * the full-resolution decode for export. Lightroom does the same with Smart Previews
+ * (it edits a ~2560px proxy and only reaches for the original on export / deep zoom).
+ * Concretely, when [maxEdge] is at or below [HALF_DECODE_EDGE_THRESHOLD] we ask LibRaw
+ * for a half-size decode (averages each Bayer 2x2 -> 1/4 the pixels and memory), then
+ * box-downsample the rest of the way to [maxEdge]. Export-scale targets decode full-res.
  *
  * [wb]/[temperatureK]/[tint] mirror the GUI "Import Raw" white-balance controls.
  */
@@ -71,22 +78,26 @@ fun decodeRawToLinear(
     tint: Double,
     maxEdge: Int = MAX_EDGE_PX,
 ): LinearImage {
-    // Issue #7 mitigation (app-side, conservative): LibRaw decodes at FULL native
-    // resolution into a float32 buffer (12 bytes/px) BEFORE we box-downsample to maxEdge,
-    // a multi-hundred-MB transient for 50-200MP RAW. True tiling needs native work and is
-    // out of scope. Here we (1) guard the decode against OutOfMemoryError and retry at a
-    // progressively smaller cap (the *output* shrinks; the native full-res decode is
-    // unavoidable without native tiling, but a smaller target frees the downsample buffer
-    // and the surviving LinearImage so a borderline device can still produce a usable
-    // preview), and (2) surface a clear error rather than crash if even the smallest cap
-    // fails. The display-quality difference of a smaller cap is preferable to an app crash.
+    // Issue #7 mitigation: even with the fd decode (no full-file Java byte[]), LibRaw
+    // still expands the RAW to a float32 buffer (12 bytes/px) natively. For preview-scale
+    // targets we cut that 4x up front with a half-size decode (the proxy); for export we
+    // start full-res and only fall back to half on OOM. The retry ladder then (1) flips to
+    // a half-size decode if a full-res one OOMs, and (2) shrinks the output cap, so a
+    // borderline device still yields a usable image rather than crashing.
     var attemptEdge = maxEdge.coerceAtLeast(MIN_RAW_FALLBACK_EDGE)
+    var halfSize = maxEdge <= HALF_DECODE_EDGE_THRESHOLD
     while (true) {
         try {
-            return decodeRawAtEdge(ctx, uri, wb, temperatureK, tint, attemptEdge)
+            return decodeRawAtEdge(ctx, uri, wb, temperatureK, tint, attemptEdge, halfSize)
         } catch (oom: OutOfMemoryError) {
             // Encourage the collector to reclaim the failed transient before retrying.
             System.gc()
+            if (!halfSize) {
+                // First fallback: halve the native decode (1/4 the memory) before shrinking
+                // the output — preserves more output resolution than dropping the cap would.
+                halfSize = true
+                continue
+            }
             if (attemptEdge <= MIN_RAW_FALLBACK_EDGE) {
                 // Out of headroom even at the smallest cap: surface a clear, catchable error
                 // (the caller's runCatching turns this into a user-visible status, not a crash).
@@ -102,6 +113,13 @@ fun decodeRawToLinear(
 /** Smallest longest-edge cap the RAW OOM-retry ladder will fall back to before giving up. */
 private const val MIN_RAW_FALLBACK_EDGE = 512
 
+/**
+ * At or below this target longest-edge, decode the RAW at half native resolution (the
+ * interactive proxy). Above it (export-scale), decode full-res. The preview/magnifier cap
+ * (MAX_EDGE_PX = 2048) sits below this; EXPORT_MAX_EDGE_PX is far above.
+ */
+private const val HALF_DECODE_EDGE_THRESHOLD = 4096
+
 /** Single RAW decode + box-downsample attempt at a specific [maxEdge] (see [decodeRawToLinear]). */
 private fun decodeRawAtEdge(
     ctx: Context,
@@ -110,8 +128,11 @@ private fun decodeRawAtEdge(
     temperatureK: Double,
     tint: Double,
     maxEdge: Int,
+    halfSize: Boolean,
 ): LinearImage {
-    val settings = RawDecoder.Settings(whiteBalance = wb, temperatureK = temperatureK, tint = tint)
+    val settings = RawDecoder.Settings(
+        whiteBalance = wb, temperatureK = temperatureK, tint = tint, halfSize = halfSize,
+    )
     // Decode straight from the file descriptor: LibRaw reads through the fd, so we never
     // copy the whole RAW file into a single contiguous Java byte[] first. That byte[]
     // (100-200 MB for a 50MP Samsung Expert-RAW DNG) was itself throwing OutOfMemoryError
