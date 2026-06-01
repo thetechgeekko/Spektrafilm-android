@@ -1,6 +1,30 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 — Lightroom-feel editor wave ✨
+
+A usability/feel pass informed by a deep reverse-engineering study of Lightroom mobile, plus
+the Android 15 compatibility + full-resolution export fixes.
+
+### Editor
+- **Progressive preview** — slider edits now paint a fast coarse pass first, then refine to full
+  resolution, so tuning feels immediate instead of waiting one full render per change. The coarse
+  source is decoded separately so it never evicts the cached full-res proxy that look-edits reuse.
+- **Slider haptics** — a light tactile tick when a slider drag settles.
+- **Double-tap to reset a slider** — double-tap any value pill to snap that control back to its
+  neutral default (with a haptic), Lightroom-style. Wired across all 50 single-value sliders.
+- **Editor coach marks** — a one-time tip overlay (tap-a-category / before-after / 100% inspect /
+  pinch-zoom) the first time the editor opens.
+- **Sticky adjustment category** — the open adjustment section now survives a trip to Settings/
+  About and back, so you return to where you were editing.
+- **GPU preview (beta, opt-in)** — Settings → Experimental adds a GPU LUT preview path (renders the
+  live preview by GPU-sampling a 3D LUT of the current look). Default OFF; export and the bit-exact
+  film core are unaffected; grain/halation and zoom/compare are not on this path yet.
+
+### Research / docs
+- `docs/RESEARCH_LENS_BOKEH.md`, `docs/RESEARCH_FILM_CHARACTER.md`, `docs/IMPROVEMENT_BACKLOG.md`,
+  `docs/ENGINE_WIRING_PLAN.md` — a reverse-engineering + film-imaging research wave guiding the
+  next feature cycle (masking/local adjust, tone curve, color grading, depth-aware bokeh, lens/
+  scatter character). Design studies only; no behavior change.
 
 ### Fixes
 - **16 KB page-size compatibility (Android 15)** — the app now loads on devices with a 16 KB
