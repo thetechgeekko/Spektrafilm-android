@@ -34,6 +34,8 @@ import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.ScannerParams
 import com.spectrafilm.engine.SettingsParams
 import com.spectrafilm.engine.SpektraParams
+import com.spectrafilm.engine.ToneCurveChannel
+import com.spectrafilm.engine.ToneCurveParams
 import com.spectrafilm.libraw.WhiteBalance
 
 /** Input color-space option labels matching spektrafilm's RGBColorSpaces enum values. */
@@ -171,6 +173,15 @@ class ParamsState {
     var filmGammaFactor by mutableFloatStateOf(1f)
     var printGammaFactor by mutableFloatStateOf(1f)
 
+    // --- Tone curve (Lightroom-style, applied to final display RGB) ---
+    // Points are (x, y) in [0,1], x increasing; < 2 points = identity. Inactive by
+    // default => the engine skips the stage (bit-exact with no curve).
+    var toneCurveActive by mutableStateOf(false)
+    var toneCurveMaster by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
+    var toneCurveRed by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
+    var toneCurveGreen by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
+    var toneCurveBlue by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
+
     // --- Display / settings ---
     var previewMaxSize by mutableIntStateOf(640)
 
@@ -274,6 +285,13 @@ class ParamsState {
 
         filmGammaFactor = p.filmRender.densityCurveGamma
         printGammaFactor = p.printRender.densityCurveGamma
+
+        val tc = p.toneCurve
+        toneCurveActive = tc.active
+        toneCurveMaster = tc.master.points
+        toneCurveRed = tc.red.points
+        toneCurveGreen = tc.green.points
+        toneCurveBlue = tc.blue.points
 
         previewMaxSize = p.settings.previewMaxSize
     }
@@ -391,6 +409,13 @@ class ParamsState {
                 roughness = glareRoughness,
                 blur = glareBlur,
             ),
+        ),
+        toneCurve = ToneCurveParams(
+            active = toneCurveActive,
+            master = ToneCurveChannel(toneCurveMaster),
+            red = ToneCurveChannel(toneCurveRed),
+            green = ToneCurveChannel(toneCurveGreen),
+            blue = ToneCurveChannel(toneCurveBlue),
         ),
     )
 }

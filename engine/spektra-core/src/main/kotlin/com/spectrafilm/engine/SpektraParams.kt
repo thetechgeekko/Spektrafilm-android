@@ -163,6 +163,28 @@ data class SettingsParams(
     val neutralPrintFiltersFromDatabase: Boolean = true,
 )
 
+/** Max control points per tone-curve channel; mirrors SPK_TONE_MAX_PTS in spektra.h. */
+const val TONE_CURVE_MAX_POINTS = 16
+
+/**
+ * One tone-curve channel: control points (x, y in [0,1], x strictly increasing).
+ * Fewer than 2 points is an identity (no-op) channel.
+ */
+data class ToneCurveChannel(val points: List<Pair<Float, Float>> = emptyList())
+
+/**
+ * Lightroom-style point tone curve on the final display-referred RGB. [active] gates
+ * the whole stage (default off => the engine skips it and stays bit-exact). [master]
+ * applies to all channels; [red]/[green]/[blue] apply per channel first.
+ */
+data class ToneCurveParams(
+    val active: Boolean = false,
+    val master: ToneCurveChannel = ToneCurveChannel(),
+    val red: ToneCurveChannel = ToneCurveChannel(),
+    val green: ToneCurveChannel = ToneCurveChannel(),
+    val blue: ToneCurveChannel = ToneCurveChannel(),
+)
+
 /**
  * Top-level engine parameters, mirroring RuntimePhotoParams. `filmProfile` / `printProfile`
  * are profile ids resolved from bundled assets (see docs/ASSETS.md).
@@ -177,4 +199,22 @@ data class SpektraParams(
     val scanner: ScannerParams = ScannerParams(),
     val io: IoParams = IoParams(),
     val settings: SettingsParams = SettingsParams(),
-)
+    val toneCurve: ToneCurveParams = ToneCurveParams(),
+) {
+    /**
+     * Pack the tone curve into a flat float[] for the JNI bridge:
+     *   [active, masterN, (x,y)*masterN, redN, (x,y)*redN, greenN, ..., blueN, ...]
+     * Each channel is capped at [TONE_CURVE_MAX_POINTS]. Read by spektra_jni's
+     * read_tone_curve(). Kept as one array so marshalling is a single JNI call.
+     */
+    fun toneCurvePacked(): FloatArray {
+        val out = ArrayList<Float>(8)
+        out.add(if (toneCurve.active) 1f else 0f)
+        for (ch in listOf(toneCurve.master, toneCurve.red, toneCurve.green, toneCurve.blue)) {
+            val pts = ch.points.take(TONE_CURVE_MAX_POINTS)
+            out.add(pts.size.toFloat())
+            for ((x, y) in pts) { out.add(x); out.add(y) }
+        }
+        return out.toFloatArray()
+    }
+}

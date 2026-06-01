@@ -92,6 +92,22 @@ object Presets {
 
     private fun JSONObject.f(key: String, def: Float) = optDouble(key, def.toDouble()).toFloat()
 
+    private fun pointsToJson(pts: List<Pair<Float, Float>>): JSONArray {
+        val arr = JSONArray()
+        for ((x, y) in pts) arr.put(JSONArray().put(x.toDouble()).put(y.toDouble()))
+        return arr
+    }
+
+    private fun jsonToPoints(arr: JSONArray?): List<Pair<Float, Float>> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<Pair<Float, Float>>(arr.length())
+        for (i in 0 until arr.length()) {
+            val p = arr.optJSONArray(i) ?: continue
+            out.add(p.getDouble(0).toFloat() to p.getDouble(1).toFloat())
+        }
+        return out
+    }
+
     private fun diffJson(d: DiffusionState) = JSONObject()
         .put("active", d.active).put("family", d.family)
         .put("strength", d.strength.toDouble()).put("spatialScale", d.spatialScale.toDouble())
@@ -232,6 +248,14 @@ object Presets {
             put("printGammaFactor", s.printGammaFactor.toDouble())
         })
 
+        put("toneCurve", JSONObject().apply {
+            put("active", s.toneCurveActive)
+            put("master", pointsToJson(s.toneCurveMaster))
+            put("red", pointsToJson(s.toneCurveRed))
+            put("green", pointsToJson(s.toneCurveGreen))
+            put("blue", pointsToJson(s.toneCurveBlue))
+        })
+
         put("display", JSONObject().apply {
             put("previewMaxSize", s.previewMaxSize)
         })
@@ -356,6 +380,14 @@ object Presets {
         o.optJSONObject("experimental")?.let { ex ->
             s.filmGammaFactor = ex.f("filmGammaFactor", s.filmGammaFactor)
             s.printGammaFactor = ex.f("printGammaFactor", s.printGammaFactor)
+        }
+
+        o.optJSONObject("toneCurve")?.let { t ->
+            s.toneCurveActive = t.optBoolean("active", s.toneCurveActive)
+            s.toneCurveMaster = jsonToPoints(t.optJSONArray("master"))
+            s.toneCurveRed = jsonToPoints(t.optJSONArray("red"))
+            s.toneCurveGreen = jsonToPoints(t.optJSONArray("green"))
+            s.toneCurveBlue = jsonToPoints(t.optJSONArray("blue"))
         }
 
         o.optJSONObject("display")?.let { d ->
