@@ -2039,7 +2039,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("View film profile curves") }
             EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
-                { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2,
+                { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
                 tooltip = "Add a bias to the auto-exposure of the camera")
 
             AutoExposureControl(
@@ -2075,9 +2075,9 @@ class MainActivity : ComponentActivity() {
                 { s.printExposureCompensation = it },
                 "Auto adjust the print exposure for the camera exposure compensation ev")
             EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
-                step = 1f, decimals = 0, tooltip = "Y filter shift from neutral, in Kodak CC units")
+                step = 1f, decimals = 0, default = 0f, tooltip = "Y filter shift from neutral, in Kodak CC units")
             EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
-                step = 1f, decimals = 0, tooltip = "M filter shift from neutral, in Kodak CC units")
+                step = 1f, decimals = 0, default = 0f, tooltip = "M filter shift from neutral, in Kodak CC units")
             GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
                 EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
                     step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur")
@@ -2129,7 +2129,7 @@ class MainActivity : ComponentActivity() {
                 EnhancedSlider("Spatial scale", d.spatialScale, 0f..4f, { d.spatialScale = it },
                     step = 0.1f, decimals = 2, tooltip = "Multiplier on the image-plane PSF widths.")
                 EnhancedSlider("Halo warmth", d.haloWarmth, -1.5f..1.5f, { d.haloWarmth = it },
-                    step = 0.05f, decimals = 2, tooltip = "Additive offset on the halo warmth axis.")
+                    step = 0.05f, decimals = 2, default = 0f, tooltip = "Additive offset on the halo warmth axis.")
                 EnhancedSlider("Core intensity", d.coreIntensity, 0f..4f, { d.coreIntensity = it },
                     step = 0.05f, decimals = 2)
                 EnhancedSlider("Core size", d.coreSize, 0.1f..4f, { d.coreSize = it }, step = 0.05f, decimals = 2)
@@ -2178,9 +2178,9 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Exposure", s.preflashExposure, 0f..2f, { s.preflashExposure = it },
                 step = 0.005f, decimals = 3, tooltip = "Preflash exposure value in ev for the print")
             EnhancedSlider("Y filter shift", s.preflashYFilterShift, -20f..20f, { s.preflashYFilterShift = it },
-                step = 1f, decimals = 0, tooltip = "Shift the Y filter from neutral for the preflash (Kodak CC)")
+                step = 1f, decimals = 0, default = 0f, tooltip = "Shift the Y filter from neutral for the preflash (Kodak CC)")
             EnhancedSlider("M filter shift", s.preflashMFilterShift, -20f..20f, { s.preflashMFilterShift = it },
-                step = 1f, decimals = 0, tooltip = "Shift the M filter from neutral for the preflash (Kodak CC)")
+                step = 1f, decimals = 0, default = 0f, tooltip = "Shift the M filter from neutral for the preflash (Kodak CC)")
         }
     }
 

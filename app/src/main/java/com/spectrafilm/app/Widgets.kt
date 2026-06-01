@@ -19,7 +19,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -225,6 +227,7 @@ private fun Modifier.clickableImpl(onClick: () -> Unit): Modifier {
  * An enhanced single-value slider: a labelled row with the current value shown in a
  * pill, snapping to [step] and clamped to [range]. [tooltip] is rendered as helper text.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EnhancedSlider(
     label: String,
@@ -235,18 +238,38 @@ fun EnhancedSlider(
     step: Float = 0f,
     decimals: Int = 2,
     tooltip: String? = null,
+    default: Float? = null,
 ) {
+    val view = LocalView.current
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            ValuePill(formatValue(value, decimals))
+            // Double-tap the value pill to reset to the parameter's neutral default
+            // (Lightroom-style), with a tick of haptic feedback. Only resettable when a
+            // default is supplied and the value isn't already there.
+            val resettable = default != null && value != default
+            ValuePill(
+                formatValue(value, decimals),
+                modifier = if (default != null) {
+                    Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                        onDoubleClick = if (resettable) {
+                            {
+                                onValueChange(snap(default, range, step))
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                        } else null,
+                    )
+                } else Modifier,
+            )
         }
         val steps = if (step > 0f) {
             (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0)
         } else 0
         // Lightroom-style tactile feedback: a light tick when a drag settles, so an
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
-        val view = LocalView.current
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = { onValueChange(snap(it, range, step)) },
@@ -267,8 +290,9 @@ fun EnhancedSlider(
 }
 
 @Composable
-private fun ValuePill(text: String) {
+private fun ValuePill(text: String, modifier: Modifier = Modifier) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
