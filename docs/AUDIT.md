@@ -36,10 +36,13 @@ not a commitment to do all of it.
 
 ## B. Stale / inaccurate docs (status drift)
 
-- 🔴 **`HANDOFF.md` is stale** — describes the v0.3.0 wave (HEAD `b12492e`, branch
-  `claude/sharp-allen-I7wQK`, draft PR #8, "remaining = 5 external gates", dist debug-signed). It
-  predates v0.4.0, the signed-release workflow, M6 threading (#13), the vector `exp10` SIMD (#16),
-  and the APK-size cleanup (#15). Should be refreshed or retired.
+- ✅ **`HANDOFF.md` refreshed** (PR #58, "handoff-refresh-postoom") — now reflects v0.6.3 /
+  `versionCode 8`, the off-heap export-OOM fix, and the current `main` trunk. The earlier stale
+  v0.3.0-wave description no longer applies.
+- ✅ **`docs/PRESETS.md` preset count fixed** (2026-06-01) — was "20 curated presets" while
+  `presets.json` ships **21** (the `neutral_adobe_like` "Neutral (Adobe-like)" preset, added in
+  #55, was undocumented). The intro count, the group list, and `README.md` are now 21, and the
+  Neutral preset has its own documented section.
 - 🟡 **`spektra.cpp:17`** — comment still says `scan_film=false => print route, TODO M4`, but the
   print route is fully implemented and parity-gated. Stale comment.
 - 🟡 **ROADMAP M3 note** (`docs/ROADMAP.md:63,83`) lists "remaining M3 small items: AAssetManager
@@ -48,10 +51,15 @@ not a commitment to do all of it.
 
 ## C. Test-coverage gaps
 
-- 🔴 **No Kotlin/JVM or instrumented (`androidTest`) tests anywhere.** The entire app + library
-  Kotlin layer is untested by automation — export (`ImagePipeline`), recipe/sidecar persistence,
-  undo/redo (`EditHistory`), `DecodedSourceCache`, `EngineHelpers`, `RawDecoder` JNI marshaling,
-  `PngWriter` JVM overload. Only C++ host tests + the LibRaw C++ unit/fuzz tests exist.
+- 🟡 **JVM unit tests exist but instrumented (`androidTest`) coverage is still absent.**
+  `:app:testDebugUnitTest` now ships **6 suites / 30 tests, all green** (verified on-device-class
+  toolchain 2026-06-01): `EditHistoryTest` (undo/redo store), `PresetsRoundTripTest`
+  (recipe/sidecar serialize↔parse), `ToneCurveParamsTest`, `CubeLutTest` (GPU-preview LUT parser),
+  `McrawContainerTest` (`.mcraw` footer parser), `AppUpdaterTest`. The earlier "no Kotlin tests
+  anywhere" claim is **resolved**. Remaining holes: no automation for `ImagePipeline` export
+  quantisation, `DecodedSourceCache`, `EngineHelpers`, or `RawDecoder`/`PngWriter` JNI marshaling
+  (these need Robolectric or an instrumented device run). Only C++ host tests + the LibRaw
+  C++ unit/fuzz tests cover the native layer.
 - ✅ **(Resolved 2026-06-01) `test_output_spaces`, `test_lensblur`, `test_parallel` are now gated**
   in CI `engine-parity` (`.github/workflows/ci.yml`): all six output color spaces, camera/scanner
   lens-blur parity, and thread-count invariance run on every push/PR. The earlier "not gated" /
@@ -75,6 +83,12 @@ not a commitment to do all of it.
   real bug** — exports were capped at the 2048 px preview size (12 MP → ~3 MP), fixed in PR #21.
   Still open from that pass: lossy/JPEG-XL DNG **fallback** branch, the GPS Settings toggle, and the
   subjective visual checks (rotate→export orientation, presets/grain/AE, recipe persistence).
+- ✅ **Re-validated on-device at v0.6.3 (2026-06-01, same SM-S948W / Android 16 / arm64).** Fresh
+  `:app:assembleDebug` (JBR 21 + NDK r27 + build-tools 35) → install → launch (COLD 404 ms, no
+  `UnsatisfiedLinkError`; `libspektra.so` loads on arm64) → **full-resolution export = 3060×4080
+  with NO `OutOfMemoryError` / no `149817619`** (the PR #56 off-heap export fix holds). Default
+  export is 8-bit PNG **by Settings choice** (the 16-bit path is `ExportFormat.PNG16`/TIFF). Lint
+  (`:app:lintDebug`) and the 30 JVM unit tests are green on the same toolchain.
 - 🟡 **On-device NEON SIMD speedup magnitude** (the `exp10` work) is still unmeasured — only x86 was
   profiled; a device timing of a large-RAW export would confirm it.
 - ⚪ **`dist/` stops at v0.3.0** (debug-signed APKs). v0.4.0 is tagged on origin and ships via the
