@@ -1,8 +1,8 @@
 # Spektrafilm Android — Session Handoff
 
 ## State (2026-06-01)
-- **`main` is the trunk.** Current on `main`: **`versionCode 5` / `versionName 0.6.0`** (tags
-  `v0.3.0`/`v0.4.0` on origin; 0.5.0/0.6.0 cut via PRs). Host engine parity suite is **bit-exact /
+- **`main` is the trunk.** Current on `main`: **`versionCode 8` / `versionName 0.6.3`** (tags
+  `v0.3.0`/`v0.4.0` on origin; 0.5.0–0.6.3 cut via PRs). Host engine parity suite is **bit-exact /
   green**; `:app:assembleDebug` builds + packages `libspektra.so` (+ `libsfraw`/`libsftiff`/
   `libsfpng`, and the opt-in `gpu`/`ml` stubs) for `arm64-v8a`, `armeabi-v7a`, `x86_64`.
 - Workflow: feature branch → **draft PR into `main`** → maintainer merges. `origin/HEAD` may still
@@ -13,28 +13,31 @@
   `-c commit.gpgsign=false`. Keep the "Film modeling powered by spektrafilm" attribution. Never put
   the model identifier in committed artifacts.
 
-## 🔴 Open / in-flight (most important first)
-1. **RAW import OOM on a real Galaxy S25 (Android 16) — fix in PR #56, awaiting on-device confirm.**
-   - Symptom (every build through v0.6.2): `OutOfMemoryError "Failed to allocate a 149817619 byte
-     allocation"` on loading a DNG, then a toast; app survives but no image.
-   - **Root cause (confirmed):** `149,817,619 = 4080×3060×3×4` = the **full-res decoded linear
-     buffer**, NOT the file. This DNG **ignores LibRaw `half_size`** and decodes full-resolution;
-     the result's direct `ByteBuffer` is a **managed (non-movable) byte[] on Android**, so ~150 MB
-     blows the ART growth limit (~256 MB). Earlier theories (full-file `readBytes`, compressed-DNG
-     fallback) were wrong/partial — #43/#44/#53/#54.
-   - **Fix = PR #56** (`claude/sharp-allen-platform-oom`): native `DecodeOptions.maxLongEdge` —
-     `raw_decoder` subsamples `img->data` straight into a final-sized buffer (no full-res float
-     copy), plumbed JNI → `RawDecoder.Settings` → `EngineHelpers` (`maxLongEdge = maxEdge`). Also
-     downsamples the platform-decoder fallback bitmap, and logs `sfraw: decoded WxH …` so the next
-     logcat shows the real dims. Built as **v0.6.3 (8)** APK, delivered to the user; **waiting on
-     their logcat** to confirm no OOM + a render. Codex P2s on #56 already addressed (host-build
-     `#ifdef __ANDROID__` log guard; single-alloc subsample).
-   - **Test DNG:** the user's `raw_test.bin` (~24.9 MB, 4080×3060 Bayer, from Google Drive). A
-     decoded linear-ACES copy was at `/tmp/dng_lin_aces.f32` — `/tmp` does NOT persist across
-     sessions; re-download from the user if needed.
-2. **Open PRs:** **#56** (the RAW OOM fix — merge this), **#55** (`Neutral (Adobe-like)` preset +
-   `docs/RESEARCH_LIGHTROOM_RENDER.md`; Codex P2 fixed → `scanFilm=false` print path). **Superseded,
-   close without merge:** #53, #54 (their intent is folded into #56).
+## 🟢 Just resolved — RAW export OOM (merged, device-confirmed)
+- **RAW import/export OOM on a real Galaxy S25 (Android 16) — FIXED in PR #56 (merged), confirmed
+  on-device.** Symptom (every build through v0.6.2): `OutOfMemoryError "Failed to allocate a
+  149817619 byte allocation … growth limit 268435456"` on loading/exporting a DNG.
+- **Root cause (two parts):** `149,817,619 ≈ 4080×3060×3×4` = the **full-res decoded linear float
+  buffer** (~140 MB). On Android `ByteBuffer.allocateDirect` is a **non-movable `byte[]` on the
+  ART managed heap** (256 MB growth limit) — NOT native memory — so the full-res RAW input plus
+  the engine's equally large output buffer can't coexist there. The earlier `maxLongEdge` cap fixed
+  only the **preview** path; export is uncapped by design and still OOMed.
+- **Fix (PR #56):** learned from Lightroom (RE'd: zero `NewDirectByteBuffer`/`allocateDirect` in its
+  native libs — all full-res pixels live in oneTBB `scalable_malloc`/`mmap` native memory behind a
+  handle, only a compressed JPEG crosses to Java). We now allocate the RAW result
+  (`raw_decoder_jni.cpp`) and engine output (`spektra_jni.cpp`) with **`malloc` + `NewDirectByteBuffer`**
+  (true off-heap), freed explicitly; `LinearImage`/`SimResult` are `AutoCloseable`; export-scale
+  buffers are closed by the caller while proxy/preview buffers stay managed/GC'd. Also folded #54
+  (rethrow `RawDecodeException` → platform decoder; direct-buffer file fallback). Engine C++ math
+  untouched → parity unaffected. Detail in `docs/RESEARCH_BIG_FILES.md`.
+- **Device confirm (v0.6.3 (8), SM-S948W / Android 16):** export logged
+  `sfraw: decoded 3060x4080 (halfSize=0) -> 3060x4080 (step=1)` twice with **no `149817619`, no
+  OOM, no crash** — app stayed responsive.
+- **Test DNG:** the user's `raw_test.bin` (~24.9 MB, 4080×3060 Bayer, from Google Drive). A decoded
+  linear-ACES copy was at `/tmp/dng_lin_aces.f32` — `/tmp` does NOT persist across sessions;
+  re-download from the user if needed.
+- **PR housekeeping done:** #56 merged; #55 (Neutral preset) merged; #57 (this handoff's prior
+  refresh) merged; #53/#54 closed (absorbed into #56). No RAW-OOM PRs remain open.
 
 ## What landed since v0.4.0 (merged to `main`)
 - **Lightroom-RE feature wave** (from `docs/IMPROVEMENT_BACKLOG.md`, RE'd off `com.adobe.lrmobile`):
@@ -49,9 +52,12 @@
   SPIR-V port of the spectral scan integral (#48/#52), fp16 NEON conversion (#49), oneTBB backend +
   LiteRT ML stub (#50). **GPU speedup is UNPROVEN** — needs a physical arm64 GPU device (sandbox has
   no KVM/GPU; the x86 emulator is the wrong ISA and mis-traps our `-O2` vectorized copy).
-- **Big-file RAW** (the OOM saga): fd decode (#43), half-size proxy (#44) — both only covered the
-  LibRaw *success* path; #56 is the real fix.
-- `CLAUDE.md` (#34); v0.5.0/v0.6.0 release bumps.
+- **Big-file RAW** (the OOM saga): fd decode (#43), half-size proxy (#44) covered the LibRaw
+  *success/preview* path; the native `maxLongEdge` cap (#56) fixed preview; **off-heap `malloc` +
+  `NewDirectByteBuffer` for the full-res RAW input + engine output (#56)** is the real export fix
+  (device-confirmed) — the Lightroom-style "full-res pixels never on the Java heap" model.
+- **`Neutral (Adobe-like)` preset** + `docs/RESEARCH_LIGHTROOM_RENDER.md` (#55).
+- `CLAUDE.md` (#34); v0.5.0–0.6.3 release bumps.
 
 ## RE assets / where the analysis lives
 - `docs/RESEARCH_LIGHTROOM_STACK.md` — LR stack (C++ "CR" engine + oneTBB + Vulkan/OpenCL/Metal +
@@ -67,13 +73,18 @@
   extracted to `filesDir` on first run instead of read from the APK.
 - **`use_enlarger_lut` reserved/unwired** (`spektra.h`) — scanner 3D-LUT is wired+opt-in; the
   enlarger-side spectral LUT (the real perf lever for the *expose* hotspot) is declared only.
-- **Issue #7 — full-res RAW tiling/GPU still Open**: only app-side mitigations (OOM ladder, fd +
-  half-size proxy, and now the #56 native `maxLongEdge` cap); no native tiling/streaming.
+- **Issue #7 — full-res RAW tiling/GPU still Open**: mitigations now = OOM ladder, fd + half-size
+  proxy, `maxLongEdge` preview cap, and **off-heap native buffers for full-res export (#56)** —
+  the export OOM is resolved for typical phone DNGs. Still no native **tiling/streaming**, so a
+  *pathologically* large DNG (single buffer > native headroom) is unbounded; tiling is the
+  remaining work. The fd-failure file fallback uses `allocateDirect` (still managed) → a possible
+  off-heap follow-up.
 - **Glare-on-print** wired but default-off (stochastic → not bit-exact); **enlarger lens blur**
   and **`upscale_factor<1` AA prefilter** intentionally unwired (no oracle call site).
 - **No Kotlin/JVM instrumented UI tests** beyond the host C++ parity + a few JVM unit tests.
-- Doc upkeep: `docs/PRESETS.md` says "20 presets" — bump to 21 when #55 (Neutral preset) merges;
-  `docs/DEVICE_TEST_REPORT.md` is the v0.4.0 device pass (historical). `docs/ENGINE_WIRING_PLAN.md`
+- Doc upkeep: `docs/PRESETS.md` still says "20 presets" — bump to **21** now that #55 (Neutral
+  preset) is merged; `docs/DEVICE_TEST_REPORT.md` is the v0.4.0 device pass (historical).
+  `docs/ENGINE_WIRING_PLAN.md`
   tracks the 4 once-gated params (now largely wired). `docs/ROADMAP.md` / `docs/RELEASE_CHECKLIST.md`
   (maintainer-only) hold the milestone + publish state.
 
@@ -84,9 +95,13 @@ RE'd feature list · `docs/PERF_ROADMAP.md` perf plan+policy · `docs/RESEARCH_*
 content · `docs/maps/` source-project maps.
 
 ## Next steps
-1. Get the user's **v0.6.3 logcat** for the DNG → confirm the `sfraw: decoded …` line shows capped
-   dims and no `149817619` OOM, then merge **#56** and cut **v0.6.3**.
-2. Merge **#55** (neutral preset). Close #53/#54.
-3. Performance parity: the only path to Lightroom-class speed is the **GPU (Vulkan) compute** port
+1. **Cut a `v0.6.3` release tag** (`release.yml` builds the signed APK + GitHub Release on a `v*`
+   tag). Main is at `versionCode 8` / `0.6.3` with the device-confirmed export OOM fix.
+2. **Bump `docs/PRESETS.md` to 21 presets** (Neutral preset merged via #55).
+3. **Issue #7 — native RAW tiling/streaming** for *pathologically* large DNGs (export OOM is
+   resolved for typical phone DNGs via off-heap buffers; a single buffer larger than native
+   headroom is still unbounded). Optional smaller follow-up: make the fd-failure file fallback
+   off-heap too (currently `allocateDirect` = managed).
+4. Performance parity: the only path to Lightroom-class speed is the **GPU (Vulkan) compute** port
    (kernels exist, off by default) — it needs **on-device arm64 profiling/validation** to wire in
    and prove. Policy: **approximate proxy / exact export** (see `PERF_ROADMAP.md`).
