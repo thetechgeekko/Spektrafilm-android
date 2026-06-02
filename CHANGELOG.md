@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.7.0 — engine completion: APK-direct assets + enlarger LUT 🎞️
+
+Closes the two long-standing engine remainders, both verified on-device (Galaxy S25 Ultra,
+Android 16, arm64) and parity-gated. No change to the bit-exact default/export path.
+
+### Engine
+- **Assets read directly from the APK (AAssetManager).** Profiles, the spectral upsampling LUT,
+  and neutral print filters are now read straight from the packaged assets via `AAssetManager`,
+  so the app no longer extracts the ~17 MB `spektra/` tree to internal storage on first launch
+  (faster first run, no duplicate on-device copy). The on-disk path is preserved as a fallback;
+  all Android-only code is `#ifdef __ANDROID__`-guarded so the host parity build is unchanged.
+- **Enlarger 3D-LUT acceleration wired (`use_enlarger_lut`).** The print-expose spectral integral
+  can now be PCHIP-interpolated through a per-channel 3D LUT (the print-side analogue of the
+  scanner LUT), mirroring the spektrafilm oracle. Opt-in and **default-off**, so the default and
+  export renders stay bit-exact; the new `test_enlarger_lut_e2e` gates it in CI. This was the last
+  reserved engine LUT flag.
+
+### Docs / quality
+- Preset count corrected to **21** (the "Neutral (Adobe-like)" preset is now documented), AUDIT
+  refreshed to current truth, and an on-device v0.7.0 re-validation recorded (full-res export with
+  no OOM, presets re-render, rotate→export dimension swap).
+
 ## v0.5.0 — Lightroom-feel editor wave ✨
 
 A usability/feel pass informed by a deep reverse-engineering study of Lightroom mobile, plus
