@@ -412,11 +412,17 @@ class MainActivity : ComponentActivity() {
             status = "redo"
         }
 
-        // One-time engine init.
+        // One-time engine init. Prefer reading bundled assets straight from the APK
+        // (no ~17 MB extraction to filesDir); fall back to the extract-then-create
+        // path if the AAssetManager engine can't be created.
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
-                val dir = extractAssets(ctx)
-                val e = SpektraEngine(dir.absolutePath)
+                val e = runCatching {
+                    SpektraEngine.fromAssets(ctx.applicationContext.assets)
+                }.getOrElse {
+                    val dir = extractAssets(ctx)
+                    SpektraEngine(dir.absolutePath)
+                }
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
                 StockCatalog.stocks(ctx) // warm the catalog cache
                 val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())

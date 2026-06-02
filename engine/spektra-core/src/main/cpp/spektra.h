@@ -233,12 +233,15 @@ typedef struct {
      *     on, density_cmy->log_xyz is PCHIP-interpolated through a per-channel 3D
      *     LUT built at lut_resolution; result is within ~5e-5 of the direct path
      *     (NOT bit-exact by design). Gated by tests/test_scanner_lut_e2e.cpp.
-     *   use_enlarger_lut: RESERVED / not yet wired. The oracle also LUT-accelerates
-     *     the enlarger expose (printing.py via spectral_compute_enlarger), but that
-     *     path is materially more involved (full enlarger spectral chain) and is
-     *     left for a follow-up; this flag is read by JNI but currently inert in the
-     *     native print path. Wiring scanner-only keeps this pass low-risk. */
-    int32_t use_enlarger_lut;          /* bool (RESERVED, not yet wired) */
+     *   use_enlarger_lut: WIRED (opt-in, default off). LUT-accelerates the enlarger
+     *     expose on the print route (printing.cpp::print_expose), mirroring the
+     *     oracle's spectral_compute_enlarger: cmy film density ->
+     *     _film_cmy_to_print_log_raw is PCHIP-interpolated through a per-channel 3D
+     *     LUT built at lut_resolution over [-grain.density_min, nanmax(film density
+     *     curves)]. Within ~5e-5 of the direct path (NOT bit-exact by design); the
+     *     default (off) path is byte-identical. Gated by
+     *     tests/test_enlarger_lut_e2e.cpp. */
+    int32_t use_enlarger_lut;          /* bool (wired: opt-in enlarger LUT) */
     int32_t use_scanner_lut;           /* bool (wired: opt-in scanner LUT) */
     int32_t lut_resolution;            /* LUT steps/axis; clamped to [2,192] */
     int32_t neutral_print_filters_from_database; /* bool */
@@ -266,10 +269,23 @@ void spk_default_params(spk_params* p);
 
 /* Lifecycle ------------------------------------------------------------------- */
 
-/* Create an engine. `asset_dir` is the on-device path where bundled assets
- * (profiles/, luts/, filters/, icc/) were extracted, or NULL to use the AAssetManager
- * wired via JNI. */
+/* Create an engine reading bundled assets from a filesystem directory. `asset_dir`
+ * is the on-device path where bundled assets (profiles/, luts/, filters/, icc/)
+ * were extracted; must be non-NULL. To read assets straight from the APK without
+ * extraction, use spk_engine_create_asset_manager instead. */
 spk_status spk_engine_create(const char* asset_dir, spk_engine** out);
+
+/* Create an engine that reads its bundled assets directly from the APK via
+ * Android's AAssetManager (no on-device extraction needed). `aasset_manager` is a
+ * `void*` that must be an `AAssetManager*` (obtained on the JNI side via
+ * `AAssetManager_fromJava`). Asset paths are resolved relative to `assets/spektra/`
+ * inside the APK. The AAssetManager (and the Java AssetManager backing it) MUST
+ * outlive the engine — the caller is responsible for keeping it alive.
+ *
+ * Only available on Android; on a non-Android host this returns SPK_ERR_BAD_ARGS
+ * (host parity tests use the filesystem path via spk_engine_create). */
+spk_status spk_engine_create_asset_manager(void* aasset_manager, spk_engine** out);
+
 void       spk_engine_destroy(spk_engine*);
 
 /* Profile catalog: returns a newline-separated, NUL-terminated list of available

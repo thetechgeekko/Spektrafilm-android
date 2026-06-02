@@ -16,11 +16,55 @@
 #include <vector>
 
 #include "kernels/exp10.h"
+#include "kernels/lut3d.h"
 #include "kernels/parallel.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
 
 namespace spk {
+
+namespace {
+
+// Context + adapter for the OPT-IN enlarger 3D-LUT. Samples the SAME
+// _film_cmy_to_print_log_raw transform the direct path evaluates: from a film
+// CMY density triple, the spectral integral against the (precomputed) print
+// sensitivity and filtered illuminant, times the midgray exposure factor, then
+// log10. Scalar libm exp10 here (the LUT is an approximation anyway; the direct
+// per-pixel path keeps its byte-exact exp10_vec SIMD untouched).
+struct EnlargerLutCtx {
+    const float* channel_density;     // film dyes, (S*3,) row-major [l*3+k]
+    const float* base_density;        // film base, (S,)
+    const double* sens;               // print sensitivity, (S*3,) [l*3+k]
+    const double* filtered_illuminant; // enlarger illuminant * dichroic, (S,)
+    int S;
+    double exposure_factor_midgray;
+};
+
+void cmy_to_print_log_raw_fn(const double in[3], double out[3], void* vctx) {
+    const EnlargerLutCtx& c = *static_cast<const EnlargerLutCtx*>(vctx);
+    double raw0 = 0.0, raw1 = 0.0, raw2 = 0.0;
+    for (int l = 0; l < c.S; ++l) {
+        const float* cd = c.channel_density + static_cast<size_t>(l) * 3;
+        const double spectral = in[0] * static_cast<double>(cd[0]) +
+                                in[1] * static_cast<double>(cd[1]) +
+                                in[2] * static_cast<double>(cd[2]) +
+                                static_cast<double>(c.base_density[l]);
+        double light = std::pow(10.0, -spectral) * c.filtered_illuminant[l];
+        if (std::isnan(light)) light = 0.0;
+        const double* sl = c.sens + static_cast<size_t>(l) * 3;
+        raw0 += light * sl[0];
+        raw1 += light * sl[1];
+        raw2 += light * sl[2];
+    }
+    raw0 *= c.exposure_factor_midgray;
+    raw1 *= c.exposure_factor_midgray;
+    raw2 *= c.exposure_factor_midgray;
+    out[0] = std::log10(std::fmax(raw0, 0.0) + 1e-10);
+    out[1] = std::log10(std::fmax(raw1, 0.0) + 1e-10);
+    out[2] = std::log10(std::fmax(raw2, 0.0) + 1e-10);
+}
+
+}  // namespace
 
 void print_expose(const Profile& film, const Profile& print_profile,
                   const PrintingParams& params, const float* density_cmy,
@@ -48,10 +92,75 @@ void print_expose(const Profile& film, const Profile& print_profile,
         }
     }
 
+    // OPT-IN enlarger 3D-LUT acceleration (params.use_enlarger_lut, default
+    // false). Mirrors printing.py::expose routing _film_cmy_to_print_log_raw
+    // through SpectralLUTService.spectral_compute_enlarger(use_lut=...): when on,
+    // a per-channel uniform PCHIP 3D LUT is built over the film-density domain
+    // [data_min, data_max] = [-grain.density_min, nanmax(film.density_curves)] at
+    // params.lut_resolution steps (utils.lut.compute_with_lut) and the film
+    // density image is interpolated to log_raw_print instead of evaluating the
+    // spectral integral per pixel. The LUT covers EXACTLY the cmy ->
+    // _film_cmy_to_print_log_raw step; the 10^lr * print_exposure * bw tail
+    // (+ optional diffusion) below is shared with the direct path. Interpolation
+    // is NOT bit-exact vs the direct evaluation (~5e-5), so it is OPT-IN and the
+    // default path (use_enlarger_lut == false) never even constructs the LUT,
+    // staying byte-identical to the per-pixel exp10_vec integral.
+    std::vector<double> lut_lr;  // (npix*3) when use_enlarger_lut, else empty
+    if (params.use_enlarger_lut) {
+        // Per-channel domain bounds (printing.py::expose):
+        //   data_min = -film_render.grain.density_min
+        //   data_max =  np.nanmax(film.data.density_curves, axis=0)
+        double xmin[3], xmax[3];
+        const int N = film.n_density_pts;
+        double cmax[3] = {-INFINITY, -INFINITY, -INFINITY};
+        for (int nrow = 0; nrow < N; ++nrow) {
+            const float* dc =
+                film.density_curves.data() + static_cast<size_t>(nrow) * 3;
+            for (int c = 0; c < 3; ++c) {
+                double v = static_cast<double>(dc[c]);
+                if (!std::isnan(v) && v > cmax[c]) cmax[c] = v;  // np.nanmax
+            }
+        }
+        for (int c = 0; c < 3; ++c) {
+            xmin[c] = -params.grain_density_min[c];
+            xmax[c] = cmax[c];
+        }
+
+        int steps = params.lut_resolution;
+        if (steps < 2) steps = 2;
+        if (steps > 192) steps = 192;
+
+        EnlargerLutCtx ctx;
+        ctx.channel_density = film.channel_density.data();
+        ctx.base_density = film.base_density.data();
+        ctx.sens = sens.data();
+        ctx.filtered_illuminant = params.filtered_illuminant;
+        ctx.S = S;
+        ctx.exposure_factor_midgray = params.exposure_factor_midgray;
+        Lut3D lut =
+            build_lut_3d(xmin, xmax, steps, {}, &cmy_to_print_log_raw_fn, &ctx);
+
+        lut_lr.resize(static_cast<size_t>(npix) * 3);
+        std::vector<double> dens_d(static_cast<size_t>(npix) * 3);
+        for (size_t i = 0; i < dens_d.size(); ++i)
+            dens_d[i] = static_cast<double>(density_cmy[i]);
+        apply_lut_3d_pchip(lut, dens_d.data(), width, height, lut_lr.data());
+    }
+
     // The Python reference runs the whole spectral chain in float64 and stores
     // float32 only at the final write. Mirror that exactly.
     parallel_for(0, npix, [&](int lo, int hi) {
     for (int p = lo; p < hi; ++p) {
+        // log_raw_print = _film_cmy_to_print_log_raw(cmy). Either interpolated
+        // from the opt-in enlarger LUT or evaluated directly (the default,
+        // byte-exact path — its exp10_vec SIMD is left untouched).
+        double lr0, lr1, lr2;
+        if (params.use_enlarger_lut) {
+            const double* lr = lut_lr.data() + static_cast<size_t>(p) * 3;
+            lr0 = lr[0];
+            lr1 = lr[1];
+            lr2 = lr[2];
+        } else {
         const float* dcmy = density_cmy + static_cast<size_t>(p) * 3;
         const double c0 = static_cast<double>(dcmy[0]);
         const double c1 = static_cast<double>(dcmy[1]);
@@ -106,9 +215,10 @@ void print_expose(const Profile& film, const Profile& print_profile,
         raw2 *= params.exposure_factor_midgray;
 
         // _film_cmy_to_print_log_raw returns log10(max(raw,0) + 1e-10).
-        double lr0 = std::log10(std::fmax(raw0, 0.0) + 1e-10);
-        double lr1 = std::log10(std::fmax(raw1, 0.0) + 1e-10);
-        double lr2 = std::log10(std::fmax(raw2, 0.0) + 1e-10);
+        lr0 = std::log10(std::fmax(raw0, 0.0) + 1e-10);
+        lr1 = std::log10(std::fmax(raw1, 0.0) + 1e-10);
+        lr2 = std::log10(std::fmax(raw2, 0.0) + 1e-10);
+        }  // end direct (non-LUT) path
 
         // expose(): raw = 10^log_raw; raw *= print_exposure * bw_correction;
         // then the optical diffusion filter (if active) runs on `raw`; finally

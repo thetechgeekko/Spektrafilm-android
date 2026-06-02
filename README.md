@@ -56,7 +56,7 @@ color space.
   to the source; original RAW untouched; re-renders on open/export.
 - ✅ **Engine/render status pill** — persistent readout on the preview canvas showing
   decoding / rendering / exporting / error / last-render-ms.
-- ✅ **Presets:** 20 built-in researched film→print looks + **save / import / export** your own.
+- ✅ **Presets:** 21 built-in researched film→print looks + **save / import / export** your own.
 - ✅ **6 output color spaces** — sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES2065-1, linear.
 - ✅ **Native engine** (`libspektra.so`) + **`libsfraw.so`** (LibRaw) for arm64-v8a /
   armeabi-v7a / x86_64, driven from a redesigned Jetpack Compose UI.

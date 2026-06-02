@@ -1,6 +1,6 @@
 # Spektrafilm Built-in Presets
 
-Spektrafilm ships 20 curated presets, each pairing a film stock with a print medium and a
+Spektrafilm ships 21 curated presets, each pairing a film stock with a print medium and a
 small set of complementary engine tweaks to reproduce a coherent, recognizable look. The
 machine-readable definitions live in
 `engine/spektra-core/src/main/assets/spektra/presets.json`; this document is the design
@@ -35,8 +35,8 @@ Key knobs used here:
 - **`enlarger.*`** — left at neutral database values throughout; the bundled neutral print
   filters already balance each paper, so we avoid arbitrary color casts.
 
-Presets are grouped: Portrait, Landscape, Slide / Chrome, Cinema, Low Light / Night, and
-Nostalgic / Consumer.
+Presets are grouped: Portrait, Landscape, Slide / Chrome, Cinema, Low Light / Night,
+Nostalgic / Consumer, and Neutral.
 
 ---
 
@@ -214,6 +214,21 @@ Tuning: `grain.blur 0.55` + `agxParticleScale [1.0, 1.2, 2.3]` (chunky), neutral
 **Fujifilm C200 → Crystal Archive Type II.** The economical everyday negative: crisp, slightly
 cool color with accurate skin — cleaner and finer-grained than the 400 consumer stocks.
 Tuning: neutral contrast, `grain.blur 0.65` (finer than the 400s), `halation 0.9`.
+
+---
+
+## Neutral
+
+### Neutral (Adobe-like)  (`neutral_adobe_like`)
+**Kodak Portra 400 → Portra Endura, film character minimised.** Not a film *look* but a clean,
+Lightroom-default-style **starting point**: the full negative→print positive path with the
+emulsion's personality dialled out, so you can build a look on top of a neutral base instead of
+fighting an existing one. Derived from a reverse-engineering study of Lightroom's default render
+(Adobe Color DCP + medium-contrast baseline) — see `docs/RESEARCH_LIGHTROOM_RENDER.md`.
+Tuning: `io.scanFilm false` (print path) with **grain, halation, glare, and DIR couplers all
+OFF**, `densityCurveGamma 1.0`, `autoExposure true`, and `exposureCompensationEv -0.2` to sit
+slightly darker and track Adobe Color's neutral medium-contrast baseline. Use it as a base, then
+dial in any film stock or look.
 
 ---
 

@@ -52,6 +52,15 @@ bool resolve_neutral_cc(const std::string& json_path,
                         const std::string& film_stock,
                         double cc_out[3]);
 
+// As resolve_neutral_cc, but resolving from an in-memory JSON string (for
+// asset-backed loading on Android, where neutral_print_filters.json lives in the
+// APK asset store). The file-path overload above is a thin wrapper around this.
+bool resolve_neutral_cc_string(const std::string& json_text,
+                               const std::string& print_stock,
+                               const std::string& illuminant,
+                               const std::string& film_stock,
+                               double cc_out[3]);
+
 // Compute the midgray exposure normalisation factor natively.
 //
 //   density_spectral_midgray = compute_density_spectral(

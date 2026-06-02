@@ -35,11 +35,16 @@
 #include <cmath>
 #include <cstring>
 #include <dirent.h>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#ifdef __ANDROID__
+#include <android/asset_manager.h>
+#endif
 
 #include "io/npy_lut.h"
 #include "profiles/profile.h"
@@ -113,26 +118,114 @@ bool ends_with(const std::string& s, const std::string& suf) {
 
 }  // namespace
 
+// Relative (to the spektra/ asset root) paths of the bundled assets. The
+// filesystem mode joins these onto asset_dir; the AAssetManager mode passes them
+// (prefixed by asset_base) to AAssetManager_open.
+namespace {
+constexpr char kSpectraLutRel[] = "luts/spectral_upsampling/irradiance_xy_tc.npy";
+constexpr char kNeutralFiltersRel[] = "filters/neutral_print_filters.json";
+}  // namespace
+
 // Engine: holds asset paths and lazily caches the spectra LUT (shared across calls).
+//
+// Two asset-I/O modes, both reading the SAME relative paths (relative to the
+// spektra/ asset root, e.g. "profiles/foo.json"):
+//   - Filesystem mode (default, used by the host parity tests): assets live under
+//     `asset_dir` on disk; spk_read_asset() opens asset_dir/<rel> with ifstream.
+//     This path is byte-for-byte the historical behavior and is the parity gate.
+//   - AAssetManager mode (Android only): assets live in the APK; spk_read_asset()
+//     opens <asset_base>/<rel> via AAssetManager_open. Selected only when the
+//     engine is created with spk_engine_create_asset_manager.
 struct spk_engine {
-    std::string asset_dir;        // root containing profiles/ and luts/
-    std::string profiles_dir;     // <asset_dir>/profiles
-    std::string spectra_lut_path; // <asset_dir>/luts/spectral_upsampling/irradiance_xy_tc.npy
-    std::string neutral_filters_path; // <asset_dir>/filters/neutral_print_filters.json
+    std::string asset_dir;        // root containing profiles/ and luts/ (FS mode)
+    std::string profiles_dir;     // <asset_dir>/profiles (FS mode)
+
+#ifdef __ANDROID__
+    // AAssetManager mode (null in filesystem mode). Not owned: the Java
+    // AssetManager (and thus this pointer) must outlive the engine — the Kotlin
+    // side keeps it referenced (see SpektraEngine). When non-null, spk_read_asset
+    // and spk_engine_list_profiles take the AAsset path instead of the FS path.
+    AAssetManager* asset_mgr = nullptr;
+    // Subdir inside the APK assets/ where the bundled tree lives (the app stores
+    // its assets under assets/spektra/...), prepended to every relative path for
+    // the AAsset case. AAssetManager paths are relative to assets/.
+    std::string asset_base = "spektra";
+    bool use_asset_mgr() const { return asset_mgr != nullptr; }
+#else
+    bool use_asset_mgr() const { return false; }
+#endif
 
     std::mutex lut_mutex;
     bool lut_loaded = false;
     spk::NdArray spectra_lut;
-
-    const spk::NdArray& spectra() {
-        std::lock_guard<std::mutex> g(lut_mutex);
-        if (!lut_loaded) {
-            spectra_lut = spk::load_npy(spectra_lut_path);
-            lut_loaded = true;
-        }
-        return spectra_lut;
-    }
 };
+
+// Read a bundled asset by its path relative to the spektra/ asset root (e.g.
+// "profiles/kodak_portra_400.json") into `out`. Returns false on open failure.
+// In AAssetManager mode (Android) it opens via AAssetManager_open; otherwise it
+// reads asset_dir/<rel_path> with std::ifstream (the historical, parity-gated
+// behavior). Throws nothing.
+static bool spk_read_asset(spk_engine* eng, const std::string& rel_path,
+                           std::vector<char>& out) {
+    if (!eng) return false;
+#ifdef __ANDROID__
+    if (eng->use_asset_mgr()) {
+        std::string full = eng->asset_base.empty()
+                               ? rel_path
+                               : eng->asset_base + "/" + rel_path;
+        AAsset* a = AAssetManager_open(eng->asset_mgr, full.c_str(),
+                                       AASSET_MODE_BUFFER);
+        if (!a) return false;
+        off_t len = AAsset_getLength(a);
+        out.resize(len > 0 ? static_cast<size_t>(len) : 0);
+        bool ok = true;
+        if (len > 0) {
+            int read = AAsset_read(a, out.data(), static_cast<size_t>(len));
+            ok = (read == static_cast<int>(len));
+        }
+        AAsset_close(a);
+        return ok;
+    }
+#endif
+    // Filesystem mode: read asset_dir/<rel_path> — historical ifstream behavior.
+    std::string path = eng->asset_dir;
+    if (!path.empty() && path.back() != '/') path += '/';
+    path += rel_path;
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return false;
+    std::streamsize size = in.tellg();
+    if (size < 0) return false;
+    in.seekg(0, std::ios::beg);
+    out.resize(static_cast<size_t>(size));
+    if (size > 0 && !in.read(out.data(), size)) return false;
+    return true;
+}
+
+// Lazily load + cache the Hanatos2025 spectra LUT (shared across calls), reading
+// it through spk_read_asset so it works in both filesystem and AAssetManager
+// modes. Throws std::runtime_error if the asset can't be read or parsed.
+static const spk::NdArray& engine_spectra(spk_engine* eng) {
+    std::lock_guard<std::mutex> g(eng->lut_mutex);
+    if (!eng->lut_loaded) {
+        std::vector<char> buf;
+        if (!spk_read_asset(eng, kSpectraLutRel, buf))
+            throw std::runtime_error("spektra: cannot read spectra LUT asset");
+        eng->spectra_lut = spk::parse_npy(buf.data(), buf.size(), kSpectraLutRel);
+        eng->lut_loaded = true;
+    }
+    return eng->spectra_lut;
+}
+
+// Load a film/print profile by id (e.g. "kodak_portra_400") through spk_read_asset.
+// Throws std::runtime_error if the asset can't be read; load_profile_string
+// throws on parse failure.
+static spk::Profile load_engine_profile(spk_engine* eng, const std::string& id) {
+    std::vector<char> buf;
+    std::string rel = std::string("profiles/") + id + ".json";
+    if (!spk_read_asset(eng, rel, buf))
+        throw std::runtime_error("spektra: cannot read profile asset " + rel);
+    return spk::load_profile_string(std::string(buf.data(), buf.size()));
+}
 
 namespace {
 
@@ -330,9 +423,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // 1) Load the film profile.
     spk::Profile film;
     try {
-        std::string path = join_path(eng->profiles_dir,
-                                     std::string(p->film_profile) + ".json");
-        film = spk::load_profile_file(path);
+        film = load_engine_profile(eng, p->film_profile);
     } catch (const std::exception&) {
         return SPK_ERR_PROFILE_NOT_FOUND;
     }
@@ -395,7 +486,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // 3) Build the Hanatos2025 filming tc_lut (D55 reference illuminant).
     spk::NdArray tc_lut;
     try {
-        tc_lut = spk::build_filming_tc_lut(film, eng->spectra(), kD55Illuminant);
+        tc_lut = spk::build_filming_tc_lut(film, engine_spectra(eng), kD55Illuminant);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -472,10 +563,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // 1) Load film + print profiles.
     spk::Profile film, prnt;
     try {
-        film = spk::load_profile_file(
-            join_path(eng->profiles_dir, std::string(p->film_profile) + ".json"));
-        prnt = spk::load_profile_file(
-            join_path(eng->profiles_dir, std::string(p->print_profile) + ".json"));
+        film = load_engine_profile(eng, p->film_profile);
+        prnt = load_engine_profile(eng, p->print_profile);
     } catch (const std::exception&) {
         return SPK_ERR_PROFILE_NOT_FOUND;
     }
@@ -492,7 +581,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //    both by the filming expose and by the native midgray digest below.
     spk::NdArray tc_lut;
     try {
-        tc_lut = spk::build_filming_tc_lut(film, eng->spectra(), kD55Illuminant);
+        tc_lut = spk::build_filming_tc_lut(film, engine_spectra(eng), kD55Illuminant);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -509,8 +598,17 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     const std::string print_stock = !prnt.stock.empty() ? prnt.stock : p->print_profile;
     double neutral_cc[3];
     if (p->neutral_print_filters_from_database) {
-        spk::resolve_neutral_cc(eng->neutral_filters_path, print_stock, "TH-KG3",
-                                film_stock, neutral_cc);
+        // Read neutral_print_filters.json via the asset abstraction (FS or AAsset),
+        // then resolve from the in-memory bytes. A missing/unreadable asset yields
+        // defaults {0,0,0}, mirroring the Python FileNotFoundError branch.
+        std::vector<char> nf;
+        if (spk_read_asset(eng, kNeutralFiltersRel, nf)) {
+            spk::resolve_neutral_cc_string(std::string(nf.data(), nf.size()),
+                                           print_stock, "TH-KG3", film_stock,
+                                           neutral_cc);
+        } else {
+            neutral_cc[0] = neutral_cc[1] = neutral_cc[2] = 0.0;
+        }
     } else {
         // Use the schema neutral CC values directly (filter_enlarger_source uses
         // [c_filter_neutral, m_filter_neutral, y_filter_neutral] in CMY order).
@@ -534,6 +632,20 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         film, prnt, tc_lut, pparams.filtered_illuminant, pg);
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
+    // OPT-IN enlarger 3D-LUT acceleration (settings.use_enlarger_lut, default 0).
+    // When off (the default + parity-gate path) print_expose never builds the LUT
+    // and is byte-identical to the direct spectral integral. When on, print_expose
+    // routes film density_cmy -> print log_raw through the PCHIP 3D LUT at
+    // settings.lut_resolution (clamped), mirroring printing.py::expose
+    // (spectral_compute_enlarger, use_lut=use_enlarger_lut). The print-route final
+    // scan() still honours use_scanner_lut independently below.
+    if (p->use_enlarger_lut != 0) {
+        pparams.use_enlarger_lut = true;
+        pparams.lut_resolution = p->lut_resolution;
+        pparams.grain_density_min[0] = static_cast<double>(p->grain_density_min[0]);
+        pparams.grain_density_min[1] = static_cast<double>(p->grain_density_min[1]);
+        pparams.grain_density_min[2] = static_cast<double>(p->grain_density_min[2]);
+    }
     // Spatial branch toggle for the print route (mirrors the negative scan:
     // deactivate_spatial_effects=False enables the spatial filters). Driven by
     // halation_active, matching run_scan_film.
@@ -854,16 +966,29 @@ const char* spk_status_str(spk_status s) {
 
 spk_status spk_engine_create(const char* asset_dir, spk_engine** out) {
     if (!out) return SPK_ERR_BAD_ARGS;
-    if (!asset_dir) return SPK_ERR_BAD_ARGS;  // AAssetManager path is wired via JNI (TODO).
+    if (!asset_dir) return SPK_ERR_BAD_ARGS;  // filesystem mode requires a dir.
     auto eng = std::make_unique<spk_engine>();
     eng->asset_dir = asset_dir;
     eng->profiles_dir = join_path(eng->asset_dir, "profiles");
-    eng->spectra_lut_path =
-        join_path(eng->asset_dir, "luts/spectral_upsampling/irradiance_xy_tc.npy");
-    eng->neutral_filters_path =
-        join_path(eng->asset_dir, "filters/neutral_print_filters.json");
     *out = eng.release();
     return SPK_OK;
+}
+
+spk_status spk_engine_create_asset_manager(void* aasset_manager, spk_engine** out) {
+    if (!out) return SPK_ERR_BAD_ARGS;
+#ifdef __ANDROID__
+    if (!aasset_manager) return SPK_ERR_BAD_ARGS;
+    auto eng = std::make_unique<spk_engine>();
+    eng->asset_mgr = static_cast<AAssetManager*>(aasset_manager);
+    // asset_base defaults to "spektra" (the bundled tree lives at assets/spektra/).
+    // FS dirs (asset_dir/profiles_dir) stay empty: spk_read_asset uses the AAsset
+    // path when asset_mgr is non-null.
+    *out = eng.release();
+    return SPK_OK;
+#else
+    (void)aasset_manager;
+    return SPK_ERR_BAD_ARGS;  // no AAssetManager off Android (host tests use FS mode).
+#endif
 }
 
 void spk_engine_destroy(spk_engine* eng) { delete eng; }
@@ -871,18 +996,38 @@ void spk_engine_destroy(spk_engine* eng) { delete eng; }
 spk_status spk_engine_list_profiles(spk_engine* eng, char* buf, size_t buf_len,
                                     size_t* needed) {
     if (!eng) return SPK_ERR_BAD_ARGS;
-    DIR* d = opendir(eng->profiles_dir.c_str());
-    if (!d) return SPK_ERR_ASSET_IO;
     std::string list;
-    struct dirent* ent;
-    while ((ent = readdir(d)) != nullptr) {
-        std::string name = ent->d_name;
-        if (ends_with(name, ".json")) {
-            if (!list.empty()) list += '\n';
-            list += name.substr(0, name.size() - 5);  // strip ".json"
+#ifdef __ANDROID__
+    if (eng->use_asset_mgr()) {
+        std::string dir = eng->asset_base.empty()
+                              ? std::string("profiles")
+                              : eng->asset_base + "/profiles";
+        AAssetDir* ad = AAssetManager_openDir(eng->asset_mgr, dir.c_str());
+        if (!ad) return SPK_ERR_ASSET_IO;
+        const char* fname;
+        while ((fname = AAssetDir_getNextFileName(ad)) != nullptr) {
+            std::string name = fname;
+            if (ends_with(name, ".json")) {
+                if (!list.empty()) list += '\n';
+                list += name.substr(0, name.size() - 5);  // strip ".json"
+            }
         }
+        AAssetDir_close(ad);
+    } else
+#endif
+    {
+        DIR* d = opendir(eng->profiles_dir.c_str());
+        if (!d) return SPK_ERR_ASSET_IO;
+        struct dirent* ent;
+        while ((ent = readdir(d)) != nullptr) {
+            std::string name = ent->d_name;
+            if (ends_with(name, ".json")) {
+                if (!list.empty()) list += '\n';
+                list += name.substr(0, name.size() - 5);  // strip ".json"
+            }
+        }
+        closedir(d);
     }
-    closedir(d);
 
     size_t req = list.size() + 1;  // include NUL
     if (needed) *needed = req;
