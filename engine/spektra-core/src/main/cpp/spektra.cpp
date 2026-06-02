@@ -632,6 +632,20 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         film, prnt, tc_lut, pparams.filtered_illuminant, pg);
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
+    // OPT-IN enlarger 3D-LUT acceleration (settings.use_enlarger_lut, default 0).
+    // When off (the default + parity-gate path) print_expose never builds the LUT
+    // and is byte-identical to the direct spectral integral. When on, print_expose
+    // routes film density_cmy -> print log_raw through the PCHIP 3D LUT at
+    // settings.lut_resolution (clamped), mirroring printing.py::expose
+    // (spectral_compute_enlarger, use_lut=use_enlarger_lut). The print-route final
+    // scan() still honours use_scanner_lut independently below.
+    if (p->use_enlarger_lut != 0) {
+        pparams.use_enlarger_lut = true;
+        pparams.lut_resolution = p->lut_resolution;
+        pparams.grain_density_min[0] = static_cast<double>(p->grain_density_min[0]);
+        pparams.grain_density_min[1] = static_cast<double>(p->grain_density_min[1]);
+        pparams.grain_density_min[2] = static_cast<double>(p->grain_density_min[2]);
+    }
     // Spatial branch toggle for the print route (mirrors the negative scan:
     // deactivate_spatial_effects=False enables the spatial filters). Driven by
     // halation_active, matching run_scan_film.

@@ -108,6 +108,7 @@ jobs:
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64
           # Output color spaces: scan_portra final_rgb for all six output spaces
           # (sRGB / Adobe RGB / ProPhoto / Rec.2020 / ACES2065-1 / linear sRGB) vs the
           # committed per-space refs in tests/ (argv[3] = ref dir on the runner).

@@ -23,8 +23,14 @@ not a commitment to do all of it.
 - 🟡 **Memory tiling for very large RAW** (old issue #7) — still open. Only app-side mitigation
   exists (OOM-retry ladder in `decodeRawToLinear`, opt-in half-size decode). No native tiling /
   streaming / GPU path. The full-res scan holds several float buffers of `npix*3` at once.
-- ⚪ **`use_enlarger_lut` reserved/unwired** (`spektra.h:232`) — the scanner 3D-LUT is wired and
-  opt-in; the enlarger-side LUT accel is declared but not implemented.
+- ✅ **`use_enlarger_lut` wired (2026-06-01).** The enlarger-side 3D-LUT now accelerates the
+  print-expose spectral integral in `printing.cpp::print_expose` (PCHIP LUT of
+  `_film_cmy_to_print_log_raw` over `[-grain.density_min, nanmax(film.density_curves)]`),
+  mirroring the scanner LUT and the oracle's `spectral_compute_enlarger`. Opt-in / default-off →
+  the default path is **byte-identical** (verified: `test_simulate_e2e` `print_portra` unchanged
+  at 5.11e-07). LUT path converges with resolution (res 17 ≈1.1e-4, res 64 ≈1.9e-6 vs direct) —
+  the print-expose integral is less smooth than the scanner's, so its bands are looser. Gated by
+  the new `test_enlarger_lut_e2e` in CI `engine-parity`. No reserved engine LUT flag remains.
 - ⚪ **Enlarger lens blur** intentionally unwired (no oracle call site to validate against).
 - ℹ️ **`apply_hanatos2025_adaptation_window`/`_surface` + `spectral_gaussian_blur`** are
   UI-present (dimmed) + JNI-marshalled but applied by **no** engine stage. Wiring each needs an

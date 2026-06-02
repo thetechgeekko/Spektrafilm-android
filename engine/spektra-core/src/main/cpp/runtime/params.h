@@ -148,6 +148,20 @@ struct PrintingParams {
     // µm->pixel conversion (only consumed when diffusion_filter.active).
     DiffusionFilterParams diffusion_filter;
     double pixel_size_um = 0.0;
+
+    // OPT-IN enlarger 3D-LUT acceleration (settings.use_enlarger_lut, default
+    // false). Mirrors printing.py::expose routing _film_cmy_to_print_log_raw
+    // through SpectralLUTService.spectral_compute_enlarger(use_lut=...): a
+    // per-channel uniform PCHIP 3D LUT over the film-density domain
+    // [data_min, data_max] = [-grain.density_min, nanmax(film.density_curves)]
+    // at lut_resolution steps replaces the per-pixel print-expose spectral
+    // integral. OFF by default -> the LUT is never built and print_expose is
+    // byte-identical to the direct spectral evaluation (the parity-gate path).
+    // The LUT is an interpolation -> NOT bit-exact vs direct (documented ~5e-5),
+    // so it is strictly opt-in (the scanner-LUT precedent, scanning.cpp).
+    bool use_enlarger_lut = false;
+    int lut_resolution = 32;
+    double grain_density_min[3] = {0.07, 0.08, 0.12};
 };
 
 // Enlarger illuminant on the 81-band working shape for a given illuminant id.

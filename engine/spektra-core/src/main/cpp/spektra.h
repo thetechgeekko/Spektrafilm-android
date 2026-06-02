@@ -233,12 +233,15 @@ typedef struct {
      *     on, density_cmy->log_xyz is PCHIP-interpolated through a per-channel 3D
      *     LUT built at lut_resolution; result is within ~5e-5 of the direct path
      *     (NOT bit-exact by design). Gated by tests/test_scanner_lut_e2e.cpp.
-     *   use_enlarger_lut: RESERVED / not yet wired. The oracle also LUT-accelerates
-     *     the enlarger expose (printing.py via spectral_compute_enlarger), but that
-     *     path is materially more involved (full enlarger spectral chain) and is
-     *     left for a follow-up; this flag is read by JNI but currently inert in the
-     *     native print path. Wiring scanner-only keeps this pass low-risk. */
-    int32_t use_enlarger_lut;          /* bool (RESERVED, not yet wired) */
+     *   use_enlarger_lut: WIRED (opt-in, default off). LUT-accelerates the enlarger
+     *     expose on the print route (printing.cpp::print_expose), mirroring the
+     *     oracle's spectral_compute_enlarger: cmy film density ->
+     *     _film_cmy_to_print_log_raw is PCHIP-interpolated through a per-channel 3D
+     *     LUT built at lut_resolution over [-grain.density_min, nanmax(film density
+     *     curves)]. Within ~5e-5 of the direct path (NOT bit-exact by design); the
+     *     default (off) path is byte-identical. Gated by
+     *     tests/test_enlarger_lut_e2e.cpp. */
+    int32_t use_enlarger_lut;          /* bool (wired: opt-in enlarger LUT) */
     int32_t use_scanner_lut;           /* bool (wired: opt-in scanner LUT) */
     int32_t lut_resolution;            /* LUT steps/axis; clamped to [2,192] */
     int32_t neutral_print_filters_from_database; /* bool */
