@@ -98,29 +98,28 @@ std::string header_value(const std::string& hdr, const std::string& key) {
 
 }  // namespace
 
-NdArray load_npy(const std::string& path) {
-    std::vector<char> buf = read_all(path);
-    if (buf.size() < 12) throw std::runtime_error(path + ": too small for .npy");
+NdArray parse_npy(const char* data, size_t len, const std::string& path) {
+    if (len < 12) throw std::runtime_error(path + ": too small for .npy");
 
     static const char kMagic[6] = {'\x93', 'N', 'U', 'M', 'P', 'Y'};
-    if (std::memcmp(buf.data(), kMagic, 6) != 0)
+    if (std::memcmp(data, kMagic, 6) != 0)
         throw std::runtime_error(path + ": not a .npy file (bad magic)");
 
-    uint8_t major = static_cast<uint8_t>(buf[6]);
+    uint8_t major = static_cast<uint8_t>(data[6]);
     size_t header_len;
     size_t data_off;
     if (major == 1) {
-        header_len = rd_u16le(buf.data() + 8);
+        header_len = rd_u16le(data + 8);
         data_off = 10 + header_len;
     } else if (major == 2) {
-        header_len = rd_u32le(buf.data() + 8);
+        header_len = rd_u32le(data + 8);
         data_off = 12 + header_len;
     } else {
         throw std::runtime_error(path + ": unsupported .npy version");
     }
-    if (data_off > buf.size()) throw std::runtime_error(path + ": truncated header");
+    if (data_off > len) throw std::runtime_error(path + ": truncated header");
 
-    std::string hdr(buf.data() + (data_off - header_len), header_len);
+    std::string hdr(data + (data_off - header_len), header_len);
 
     std::string descr = header_value(hdr, "descr");
     std::string fortran = header_value(hdr, "fortran_order");
@@ -145,7 +144,7 @@ NdArray load_npy(const std::string& path) {
 
     size_t n = arr.count();
     arr.data.resize(n);
-    const char* p = buf.data() + data_off;
+    const char* p = data + data_off;
 
     // Supported little-endian float dtypes. '<f2'/'|f2', '<f4', '<f8'.
     int itemsize;
@@ -155,7 +154,7 @@ NdArray load_npy(const std::string& path) {
     else if (descr == "<f8" || descr == "=f8" || descr == "f8") { itemsize = 8; kind = 8; }
     else throw std::runtime_error(path + ": unsupported dtype '" + descr + "'");
 
-    if (data_off + n * static_cast<size_t>(itemsize) > buf.size())
+    if (data_off + n * static_cast<size_t>(itemsize) > len)
         throw std::runtime_error(path + ": truncated payload");
 
     for (size_t idx = 0; idx < n; ++idx) {
@@ -174,6 +173,11 @@ NdArray load_npy(const std::string& path) {
         }
     }
     return arr;
+}
+
+NdArray load_npy(const std::string& path) {
+    std::vector<char> buf = read_all(path);
+    return parse_npy(buf.data(), buf.size(), path);
 }
 
 NdArray load_coeffs_lut(const std::string& path) {

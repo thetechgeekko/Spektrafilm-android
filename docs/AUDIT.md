@@ -7,10 +7,19 @@ not a commitment to do all of it.
 
 ## A. Feature gaps (engine / app)
 
-- 🟡 **AAssetManager path not wired** (`spektra.cpp:828`, `spektra_jni.cpp:413`). The engine can't
-  read assets directly from the APK; `EngineHelpers.extractAssets()` copies the whole `spektra/`
-  tree to `filesDir` on first launch. Works, but costs first-run time + duplicate on-device
-  storage. Long-standing M3 remainder.
+- ✅ **AAssetManager path wired (2026-06-01).** The native engine now reads profiles, the spectral
+  LUT, and neutral filters **directly from the APK** via `AAssetManager`, so the ~17 MB first-run
+  extraction to `filesDir` is skipped. New C API `spk_engine_create_asset_manager(void*, ...)` +
+  JNI `nativeCreateFromAssets(AssetManager)` + Kotlin `SpektraEngine.fromAssets(assets)`;
+  `MainActivity` tries `fromAssets` first and falls back to the old extract path on failure. All
+  AAsset code is `#ifdef __ANDROID__`-guarded so the host parity build is unchanged; the three
+  loaders gained `parse_*`-from-bytes entry points with the path-based APIs kept as thin wrappers.
+  **Verified:** on-device arm64 parity still `ALL PASS` (max_abs 5.96e-08, FS path byte-identical);
+  fresh-data launch on SM-S948W creates the engine with **no `files/spektra` extraction** and no
+  crash (i.e. `fromAssets` succeeded, no fallback). The long-standing M3 remainder is closed.
+  (Full render/export visual re-confirm pending a screen-unlocked device pass.)
+- 🟡 **Memory tiling for very large RAW** (old issue #7) — still open. Only app-side mitigation
+  exists (OOM-retry ladder in `decodeRawToLinear`, opt-in half-size decode). No native tiling /
 - 🟡 **Memory tiling for very large RAW** (old issue #7) — still open. Only app-side mitigation
   exists (OOM-retry ladder in `decodeRawToLinear`, opt-in half-size decode). No native tiling /
   streaming / GPU path. The full-res scan holds several float buffers of `npix*3` at once.

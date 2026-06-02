@@ -14,6 +14,7 @@
  */
 package com.spectrafilm.engine
 
+import android.content.res.AssetManager
 import java.nio.ByteBuffer
 
 /**
@@ -86,9 +87,23 @@ class SimResult(
     }
 }
 
-class SpektraEngine(assetDir: String? = null) : AutoCloseable {
+class SpektraEngine private constructor(
+    handle: Long,
+    // Held ONLY to keep the AssetManager alive for the engine's lifetime when the
+    // engine was created in AAssetManager mode: the native AAssetManager* obtained
+    // via AAssetManager_fromJava is valid only while this Java AssetManager is
+    // referenced. Null in filesystem (extracted-dir) mode.
+    private val assetManager: AssetManager? = null,
+) : AutoCloseable {
 
-    private val handle: Long = nativeCreate(assetDir)
+    private val handle: Long = handle
+
+    /** Filesystem mode: read bundled assets from an extracted [assetDir] on disk. */
+    constructor(assetDir: String? = null) : this(nativeCreate(assetDir), null)
+
+    init {
+        require(handle != 0L) { "spektra: engine creation returned a null handle" }
+    }
 
     /** Available film/print profile ids bundled in assets (see docs/ASSETS.md). */
     fun listProfiles(): List<String> =
@@ -133,7 +148,6 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
     }
 
     // --- native bridge (see spektra_jni.cpp) ---
-    private external fun nativeCreate(assetDir: String?): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeListProfiles(handle: Long): String
     private external fun nativeSimulate(
@@ -146,5 +160,25 @@ class SpektraEngine(assetDir: String? = null) : AutoCloseable {
 
     companion object {
         init { System.loadLibrary("spektra") }
+
+        // Engine constructors. Both are JNI instance-less (the C++ side ignores the
+        // receiver); kept @JvmStatic so the secondary constructors can call them
+        // before `this` exists.
+        @JvmStatic private external fun nativeCreate(assetDir: String?): Long
+        @JvmStatic private external fun nativeCreateFromAssets(assetManager: AssetManager): Long
+
+        /**
+         * Create an engine that reads bundled assets directly from the APK via the
+         * app's [AssetManager] — NO on-device extraction of the ~17 MB spektra/ tree.
+         * Pass `context.applicationContext.assets` so the AssetManager (and thus the
+         * native `AAssetManager*`) stays alive for the app's lifetime. The returned
+         * engine retains [assetManager] to guarantee that.
+         *
+         * Prefer [createFromAssetsOrExtract] unless you specifically want to fail
+         * (rather than fall back) when the AAssetManager path is unavailable.
+         */
+        @JvmStatic
+        fun fromAssets(assetManager: AssetManager): SpektraEngine =
+            SpektraEngine(nativeCreateFromAssets(assetManager), assetManager)
     }
 }

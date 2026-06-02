@@ -266,10 +266,23 @@ void spk_default_params(spk_params* p);
 
 /* Lifecycle ------------------------------------------------------------------- */
 
-/* Create an engine. `asset_dir` is the on-device path where bundled assets
- * (profiles/, luts/, filters/, icc/) were extracted, or NULL to use the AAssetManager
- * wired via JNI. */
+/* Create an engine reading bundled assets from a filesystem directory. `asset_dir`
+ * is the on-device path where bundled assets (profiles/, luts/, filters/, icc/)
+ * were extracted; must be non-NULL. To read assets straight from the APK without
+ * extraction, use spk_engine_create_asset_manager instead. */
 spk_status spk_engine_create(const char* asset_dir, spk_engine** out);
+
+/* Create an engine that reads its bundled assets directly from the APK via
+ * Android's AAssetManager (no on-device extraction needed). `aasset_manager` is a
+ * `void*` that must be an `AAssetManager*` (obtained on the JNI side via
+ * `AAssetManager_fromJava`). Asset paths are resolved relative to `assets/spektra/`
+ * inside the APK. The AAssetManager (and the Java AssetManager backing it) MUST
+ * outlive the engine — the caller is responsible for keeping it alive.
+ *
+ * Only available on Android; on a non-Android host this returns SPK_ERR_BAD_ARGS
+ * (host parity tests use the filesystem path via spk_engine_create). */
+spk_status spk_engine_create_asset_manager(void* aasset_manager, spk_engine** out);
+
 void       spk_engine_destroy(spk_engine*);
 
 /* Profile catalog: returns a newline-separated, NUL-terminated list of available

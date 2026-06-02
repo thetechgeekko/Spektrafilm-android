@@ -53,6 +53,12 @@ struct NdArray {
 // Throws std::runtime_error on any malformed/unsupported input.
 NdArray load_npy(const std::string& path);
 
+// Parse a NumPy .npy from an in-memory buffer (the bytes that load_npy would have
+// read from `path`). Used for asset-backed loading on Android, where the file
+// lives in the APK asset store and is read via AAssetManager into memory. `name`
+// is only used in error messages. Same dtype/version support as load_npy.
+NdArray parse_npy(const char* data, size_t len, const std::string& name);
+
 // Load the Hanatos coefficient .lut file (hanatos_irradiance_xy_coeffs_*.lut).
 //
 // Binary layout (decoded from _load_coeffs_lut, all native/'=' little-endian):

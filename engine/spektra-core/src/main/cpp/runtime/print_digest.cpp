@@ -57,22 +57,17 @@ void srgb_rgb_to_tc_b(const double rgb[3], Vec2* out_tc, double* out_b) {
 
 }  // namespace
 
-bool resolve_neutral_cc(const std::string& json_path,
-                        const std::string& print_stock,
-                        const std::string& illuminant,
-                        const std::string& film_stock,
-                        double cc_out[3]) {
+bool resolve_neutral_cc_string(const std::string& json_text,
+                               const std::string& print_stock,
+                               const std::string& illuminant,
+                               const std::string& film_stock,
+                               double cc_out[3]) {
     // Schema default: enlarger.{c,m,y}_filter_neutral == 0 (params_schema.py).
     cc_out[0] = cc_out[1] = cc_out[2] = 0.0;
 
-    std::ifstream in(json_path, std::ios::binary);
-    if (!in) return false;  // FileNotFoundError -> {} -> defaults.
-    std::ostringstream ss;
-    ss << in.rdbuf();
-
     json::ValuePtr root;
     try {
-        root = json::parse(ss.str());
+        root = json::parse(json_text);
     } catch (const std::exception&) {
         return false;
     }
@@ -92,6 +87,26 @@ bool resolve_neutral_cc(const std::string& json_path,
     cc_out[1] = triple[1].as_number();  // M
     cc_out[2] = triple[2].as_number();  // Y
     return true;
+}
+
+bool resolve_neutral_cc(const std::string& json_path,
+                        const std::string& print_stock,
+                        const std::string& illuminant,
+                        const std::string& film_stock,
+                        double cc_out[3]) {
+    // Thin file-reading wrapper around resolve_neutral_cc_string: read the JSON
+    // database from disk then delegate. A missing/unreadable file -> defaults
+    // {0,0,0} and false, mirroring the Python FileNotFoundError "use defaults"
+    // branch (the string overload also returns false on parse failure).
+    std::ifstream in(json_path, std::ios::binary);
+    if (!in) {  // FileNotFoundError -> {} -> defaults.
+        cc_out[0] = cc_out[1] = cc_out[2] = 0.0;
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return resolve_neutral_cc_string(ss.str(), print_stock, illuminant, film_stock,
+                                     cc_out);
 }
 
 double compute_midgray_exposure_factor(const Profile& film,

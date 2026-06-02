@@ -20,6 +20,10 @@
 #include <string>
 #include <vector>
 
+#ifdef __ANDROID__
+#include <android/asset_manager_jni.h>
+#endif
+
 #include "spektra.h"
 
 #define JNI(ret, name) extern "C" JNIEXPORT ret JNICALL \
@@ -458,6 +462,38 @@ JNI(jlong, nativeCreate)(JNIEnv* env, jobject /*thiz*/, jstring assetDir) {
     spk_status st = spk_engine_create(dir.c_str(), &eng);
     if (st != SPK_OK) { throw_status(env, st); return 0; }
     return reinterpret_cast<jlong>(eng);
+}
+
+/*
+ * nativeCreateFromAssets(assetManager) -> engine handle (Long).
+ * Builds an engine that reads its bundled assets directly from the APK via the
+ * app's AssetManager (no on-device extraction). The Kotlin side must keep the
+ * AssetManager referenced for the engine's lifetime — AAssetManager_fromJava
+ * returns a pointer valid only while the Java AssetManager is alive. Returns 0
+ * (with a thrown RuntimeException) on failure so the Kotlin side can fall back to
+ * the extract-then-create path.
+ */
+JNI(jlong, nativeCreateFromAssets)(JNIEnv* env, jobject /*thiz*/,
+                                   jobject assetManager) {
+#ifdef __ANDROID__
+    if (!assetManager) {
+        throw_runtime(env, "spektra: assetManager is null");
+        return 0;
+    }
+    AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
+    if (!mgr) {
+        throw_runtime(env, "spektra: AAssetManager_fromJava returned null");
+        return 0;
+    }
+    spk_engine* eng = nullptr;
+    spk_status st = spk_engine_create_asset_manager(mgr, &eng);
+    if (st != SPK_OK) { throw_status(env, st); return 0; }
+    return reinterpret_cast<jlong>(eng);
+#else
+    (void)assetManager;
+    throw_runtime(env, "spektra: AAssetManager mode unavailable (not Android)");
+    return 0;
+#endif
 }
 
 JNI(void, nativeDestroy)(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
