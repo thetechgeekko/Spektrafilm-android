@@ -29,6 +29,7 @@ Goldens are generated from the synthetic 64×64 ramp+Macbeth test image
 | `print_ektar`  | kodak_ektar_100   | kodak_supra_endura  | print       | off   | off                | all 4 |
 | `scan_portra_spatial` | kodak_portra_400 | kodak_portra_endura | scan_film | off | spatial ON         | film_density_cmy, final_rgb (+) |
 | `scan_portra_crop`    | kodak_portra_400 | kodak_portra_endura | scan_film | off | off (crop+upscale) | film_density_cmy, final_rgb |
+| `scan_portra_lensblur` | kodak_portra_400 | kodak_portra_endura | scan_film | off | spatial ON (camera/scanner lens blur) | film_density_cmy, final_rgb |
 | `scan_portra_autoexp` | kodak_portra_400 | kodak_portra_endura | scan_film | off | off (auto-exposure ON) | film_log_raw, film_density_cmy, final_rgb |
 | `scan_portra_autoexp_matrix` | kodak_portra_400 | kodak_portra_endura | scan_film | off | off (auto-exposure ON, `matrix` metering) | film_log_raw, film_density_cmy, final_rgb |
 | `scan_diffusion` | kodak_portra_400 | kodak_portra_endura | scan_film | off | spatial ON + camera optical diffusion ON (strength 0.8) | film_log_raw, film_density_cmy, final_rgb |
@@ -42,6 +43,9 @@ Rationale:
   coupled to profile data (density curves, dye spectra) rather than the math.
 - `scan_portra_spatial` / `scan_portra_crop` exercise the spatial branch and the
   crop+cubic-upscale geometry stage respectively (still deterministic: grain off).
+- `scan_portra_lensblur` exercises the camera/scanner lens-blur spatial effect
+  (deterministic Gaussian/exponential filter port, grain off). Tested by
+  `tests/test_lensblur.cpp`, which asserts film_density_cmy + final_rgb bit-exact.
 - `scan_portra_autoexp` is the NON-default auto-exposure case: it flips
   `camera.auto_exposure = True` (method `center_weighted`) to exercise
   `FilmingStage.auto_exposure` in `pipeline._preprocess` — the image is metered
@@ -140,26 +144,23 @@ float64 irradiance. They get a dedicated stage-isolation golden + host test:
 Deterministic cases (all of the above) gate tightly: `max_abs ≤ 1e-4`,
 `rms ≤ 1e-5` (well above float32 epsilon; see per-case `manifest.json`).
 
-## CI: build_run lines to ADD to the `engine-parity` job
+## CI gating (`engine-parity` job)
 
-The `.github/` workflow is OUT OF SCOPE for this change; add these lines to the
-`engine-parity` job's `build_run` block (alongside the existing
-`build_run test_*` lines) so the new gates run in CI. They use the same `SRC`
-full-source set, `DEF`, and `$G` (goldens root) the existing lines use:
+All of the cases and stage-isolation tests above are ALREADY gated in CI. The
+authoritative list of gated tests and their exact argv is the `engine-parity`
+job's `build_run` block in `.github/workflows/ci.yml` — treat that file as the
+source of truth and copy argv from there rather than from this doc. As of this
+writing it gates: `test_simulate_e2e`, `test_filming`, `test_spatial`,
+`test_crop_resize`, `test_autoexposure`, `test_diffusion`, `test_diffusion_e2e`,
+`test_lut_accel`, `test_scanner_lut_e2e`, `test_enlarger_lut_e2e`,
+`test_output_spaces`, `test_lensblur`, `test_parallel`, `test_tonecurve`, and
+`test_half`. They share the same `SRC` full-source set, `DEF`, and `$G` (goldens
+root) the other lines use.
 
-```sh
-build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
-build_run test_lut_accel "$G"
-build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
-```
-
-The existing `build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp"
-tests/scan_portra_input_rgb.f64` line needs NO change — `test_autoexposure.cpp`
-now gates BOTH the `center_weighted` and the new `matrix` (`scan_portra_autoexp_matrix`)
-goldens from the same binary (it derives the matrix golden dir from argv[4]=`$G`,
-which the existing line does not pass; to also gate the matrix golden in CI, add
-`"$G"` as a 4th arg, i.e. `build_run test_autoexposure "$ASSET"
-"$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64 "$G"`).
+`test_autoexposure` already receives `"$G"` as its 4th arg in ci.yml, so the same
+binary gates BOTH the `center_weighted` (`scan_portra_autoexp`) and the `matrix`
+(`scan_portra_autoexp_matrix`) goldens (it derives the matrix golden dir from
+argv[4]=`$G`) — no change needed.
 
 ## Future cases (not yet gating)
 
@@ -168,9 +169,11 @@ which the existing line does not pass; to also gate the matrix golden in CI, add
   (per-channel mean/variance, local autocorrelation) within a looser band, not
   element-wise. Documented in `README.md` → "Grain & stochastic taps". Add once
   `model/grain.py` is ported (Stage 3).
-- **Spatial-effects-on** (halation, glare, DIR diffusion, lens blur): deterministic
+- **Spatial-effects-on** (halation, glare, DIR diffusion): deterministic
   but sensitive to the Gaussian/exponential filter port. Add per-effect as
-  `utils/fast_gaussian_filter.py` / `model/diffusion.py` land.
+  `utils/fast_gaussian_filter.py` / `model/diffusion.py` land. (Camera/scanner
+  **lens blur** has landed — see `scan_portra_lensblur` above; optical
+  **diffusion** is covered by `scan_diffusion` / `diffusion_bpm`.)
 - **Positive stock** (e.g. `fujifilm_velvia_100`): exercises the `is_positive`
   coupler-preset branch in `params_builder._apply_film_specifics`.
 - **Mallett2019 RGB→raw** (`settings.rgb_to_raw_method = "mallett2019"`): the

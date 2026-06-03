@@ -29,6 +29,11 @@ Ranked by value/effort. Evidence = the symbols/libs each is grounded in.
    pipeline. Our 81-band spectral buffers are float32; fp16 storage ~halves memory + bandwidth
    on the per-pixel loops (NEON `fmla` on fp16). *Med, CPU-only, no new deps.* High value for
    big-image headroom (compounds with the proxy decode).
+   **Partly shipped (groundwork):** the conversion kernel exists — `kernels/half.{h,cpp}`
+   (`float_to_half`/`half_to_float`, vectorised via NEON `vcvt` with a `vcvt`/scalar runtime
+   split and an exact scalar fallback), gated by the `test_half` CI job. It is *preview-proxy
+   storage* groundwork; fp16 is **not yet threaded through the full pipeline buffers**, and the
+   export + parity-gated path stays float32 (fp16 is lossy).
 2. **Image pyramid + render levels (coarse→fine progressive)** — `cr_base_pyramid`,
    `ICBSetRenderLevel`, `"Choosing RPTM Pyramid Level"`. Show a coarse render instantly, refine
    in place. Makes the spectral pipeline *feel* instant. *Large.* Backlog #H.

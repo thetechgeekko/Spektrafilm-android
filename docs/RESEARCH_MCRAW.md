@@ -3,7 +3,7 @@
 MotionCam (and MotionCam Pro) record RAW **video/bursts** into a single `.mcraw` container
 instead of a folder of DNGs (30× 4000×3000 frames ≈ 234 MB lossless-compressed vs ≈ 686 MB as
 uncompressed DNGs). Spektrafilm today imports single stills only (DNG/CR2/CR3/NEF/ARW/RAF/ORF/RW2
-via LibRaw — `RawDecoder.kt:107`). This doc reverse-engineers the `.mcraw` format and lays out a
+via LibRaw — `lib/libraw/src/main/kotlin/com/spectrafilm/libraw/RawDecoder.kt:114`). This doc reverse-engineers the `.mcraw` format and lays out a
 low-risk path to import a frame from one into the existing engine pipeline. ("Un-mcraw" the file.)
 
 Evidence base: the canonical decoder published by MotionCam's author —
@@ -82,10 +82,11 @@ per frame (tinydng: `SetImageData` + `SetCFAPattern` from `sensorArrangment` + `
 The current still path (file:line, from the RAW-import map):
 
 ```
-MainActivity.kt:503   rawPicker (SAF OpenDocument, no MIME filter)
-MainActivity.kt:508   RawDecoder.isRawFileName(name)         ← extension gate
-RawDecoder.kt:107     RAW_EXTENSIONS = {dng,cr2,cr3,nef,arw,raf,orf,rw2}
-EngineHelpers.kt:66   decodeRawToLinear() → RawDecoder.decodeToLinear(bytes/fd)
+MainActivity.kt:517   rawPicker (SAF OpenDocument, no MIME filter)
+MainActivity.kt:531   RawDecoder.isRawFileName(name)         ← extension gate
+lib/libraw/src/main/kotlin/com/spectrafilm/libraw/RawDecoder.kt:114
+                      RAW_EXTENSIONS = {dng,cr2,cr3,nef,arw,raf,orf,rw2}
+EngineHelpers.kt:74   decodeRawToLinear() → RawDecoder.decodeToLinear(bytes/fd)
 raw_decoder_jni.cpp   nativeDecodeFd → decodeFromFd() (LibRaw → ACES2065-1 float RGB)
 → LinearImage → SpektraEngine.simulate/simulatePreview
 ```
