@@ -1,5 +1,20 @@
 # Maintainer Release Checklist
 
+> **⚠️ LARGELY OBSOLETE — releases are automated; do NOT commit APKs.** Releasing is now handled by
+> `.github/workflows/release.yml`: pushing a `v*` tag builds a **signed** APK (from keystore
+> secrets) and publishes it + its `.sha256` as a **GitHub Release** asset via `gh release create`.
+> v0.7.0 already shipped this way. Consequently:
+> - **Do not** copy/commit APKs into `dist/` — that directory was **removed** (the old committed
+>   APKs were stale, 16 KB-page-misaligned and debug-signed). Ignore every `dist/`-commit step below.
+> - Signing is **not** a debug-fallback in CI — it is real, from secrets.
+> - The "cannot push tags / cannot create Releases" premise no longer holds for the release pipeline.
+> - **Missing here and worth adding:** the **16 KB-page-alignment gate** (`zipalign -c -P 16` + every
+>   arm64/x86_64 `.so` must show `LOAD 0x4000` via `readelf -lW`) — this is a hard Android-15 release
+>   requirement that CI enforces but this checklist never mentions.
+>
+> The version-specific (v0.3.0) tag/notes template below is kept only as a historical example. This
+> file should be rewritten to "how to cut a tag + what `release.yml` does."
+
 This document is for the **project maintainer only**. It covers publishing steps that cannot be
 automated from the development environment (git tag proxy restrictions, no GitHub Release API in
 the tooling, no `edit-repository` MCP method).

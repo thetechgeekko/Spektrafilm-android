@@ -22,6 +22,21 @@ Android 16, arm64) and parity-gated. No change to the bit-exact default/export p
   refreshed to current truth, and an on-device v0.7.0 re-validation recorded (full-res export with
   no OOM, presets re-render, rotate→export dimension swap).
 
+## v0.6.x — RAW export out-of-memory fix 🧠
+
+Device-confirmed fix for the OutOfMemoryError on loading/exporting large RAW/DNG files
+(reproduced on a real Galaxy S25, Android 16). No change to the bit-exact render/export result.
+
+### Fixed
+- **Full-resolution RAW + engine buffers moved off the ART managed heap.** A full-res decoded
+  linear float buffer is ~140 MB; on Android `ByteBuffer.allocateDirect` is a non-movable `byte[]`
+  on the ~256 MB managed heap, so the full-res RAW input plus the engine's equally-large output
+  could not coexist there and OOMed on export. Following Lightroom, those large buffers are now
+  allocated natively (`malloc` + `NewDirectByteBuffer`) and reclaimed explicitly via
+  `AutoCloseable` (`LinearImage`/`SimResult`), keeping the full-res pixels off the managed heap.
+- Supporting work: file-descriptor RAW decode, an opt-in half-size decode + OOM-retry ladder for
+  borderline-memory devices, and direct-buffer file fallbacks.
+
 ## v0.5.0 — Lightroom-feel editor wave ✨
 
 A usability/feel pass informed by a deep reverse-engineering study of Lightroom mobile, plus
@@ -251,4 +266,5 @@ on Android. Dedicated to the [pixls.us](https://pixls.us) community.
 - On-device RAW/DNG import (LibRaw module scaffolded).
 - Non-destructive recipe/preset editing; richer editing UI.
 
-**APK:** [`dist/SpectraFilm-v0.1.0.apk`](dist/SpectraFilm-v0.1.0.apk) (min Android 7.0).
+**APK:** see the [GitHub Releases](../../releases) page (min Android 7.0). *(Historical `dist/`
+APKs were removed from the repo — they were stale, 16 KB-page-misaligned and debug-signed.)*

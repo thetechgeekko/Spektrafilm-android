@@ -1,7 +1,8 @@
 # Bundled assets
 
 All ship under `engine/spektra-core/src/main/assets/spektra/`, sourced from spektrafilm's
-`src/spektrafilm/data/` (GPLv3). Total ≈ **17 MB**.
+`src/spektrafilm/data/` (GPLv3). Total ≈ **13 MB** (the dominant items are the 5.7 MB spectral LUT
+and the 28 profile JSONs; the 4.1 MB coefficient `.lut` is **not** bundled — see below).
 
 ## Film & paper profiles (`profiles/`, 28 JSON files)
 
@@ -38,12 +39,22 @@ header and mmaps the payload. The `.lut` binary is parsed per spektrafilm's
 > is therefore **not bundled in the APK** — it lives in the spektrafilm source tree
 > (`spektrafilm/src/spektrafilm/data/luts/spectral_upsampling/`) and is consumed only by the
 > host `test_spectral_upsampling` gate (which validates RGB→spectrum from the raw coefficients).
-> Dropping it from `assets/` saves ~4.1 MB in the APK and the same again in on-device storage
-> (assets are extracted to `filesDir` on first run).
+> Dropping it from `assets/` saves ~4.1 MB in the APK. (As of v0.7.0 the engine reads bundled
+> assets **directly from the APK** via `AAssetManager` — there is no longer a first-run extraction
+> to `filesDir`; the extract path is kept only as a fallback.)
+
+## Catalog & presets (loaded by the app, also under `spektra/`)
+- `catalog.json` — the 28-stock film/paper catalog (id, display name, group, ISO, era) the UI
+  stock-picker reads. 1:1 with the `profiles/*.json` files. See `docs/FILM_STOCKS.md`.
+- `presets.json` — the 21 built-in look presets (film/print pairing + param tweaks). See
+  `docs/PRESETS.md`.
 
 ## Color filters (`filters/`)
 - `neutral_print_filters.json` — per-(film,paper) neutral Y/M/C dichroic settings (CC units),
-  used when `settings.neutral_print_filters_from_database = true`.
+  used when `settings.neutral_print_filters_from_database = true`. **This is the only `filters/`
+  file loaded at runtime.**
+- `dichroics/`, `heat_absorbing/`, `lens_transmission/` — reference CSV source data carried over
+  from spektrafilm; **not loaded** (the engine hardcodes the equivalent constants). Provenance only.
 
 ## ICC profiles (`icc/`)
 Output-color-space ICC profiles (sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES variants) embedded
@@ -54,5 +65,5 @@ on export to match spektrafilm's color management.
 - `STANDARD_OBSERVER_CMFS`: CIE 1931 2° color-matching functions, shape `(81, 3)`.
 
 ## APK-size note
-~17 MB of assets + LibRaw `.so` per ABI. If size matters we can (a) split per ABI, (b)
-quantize/recompress LUTs, or (c) deliver profiles/LUTs as an on-demand asset pack. Tracked in M6.
+~13 MB of assets + the native `.so`s per ABI. If size matters we can (a) split per ABI, (b)
+quantize/recompress LUTs, or (c) deliver profiles/LUTs as an on-demand asset pack.

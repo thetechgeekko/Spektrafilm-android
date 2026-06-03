@@ -1,5 +1,10 @@
 # M1 — Bootstrapping the host (ImageToolbox) into this repo
 
+> **⚠️ OBSOLETE — describes a path NOT taken.** This is the M1 plan to seed an ImageToolbox host
+> into the repo. That architecture was abandoned: the app shipped as a standalone `:app` module,
+> there is no `build-logic/`/`core/`, and `:feature:film-emulation` is not in `settings.gradle.kts`.
+> Steps below are archaeology. For the real build/setup see `CLAUDE.md`.
+
 This repo currently holds the **plan + engine contract** (M0). M1 seeds the **host
 application** by importing the ImageToolbox source, then wiring in our three new modules.
 Do this on the development branch (`claude/sharp-allen-I7wQK`).

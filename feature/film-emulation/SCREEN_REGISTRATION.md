@@ -1,5 +1,10 @@
 # Wiring `feature:film-emulation` into the host (do at M1)
 
+> **⚠️ OBSOLETE — dead module.** `feature/film-emulation/` is uncompiled (not in
+> `settings.gradle.kts`) and the ImageToolbox host (`core/`, `build-logic/`) it targets was never
+> built. The live UI is the standalone `:app` module. This file documents a module that cannot run
+> in this repo as-is; kept only for reference.
+
 This module is self-contained but inert until the ImageToolbox host is seeded.
 Three host edits activate it. Apply them once the host (`app/`, `core/`,
 `build-logic/`, `gradle/libs.versions.toml`, `settings.gradle.kts`) is present.

@@ -1,5 +1,13 @@
 # Roadmap
 
+> **⚠️ Frozen pre-v0.5.0 — read `CHANGELOG.md` + `HANDOFF.md` for current state.** The milestone
+> notes below stop around v0.4.0 and now misstate several shipped items: `use_enlarger_lut` is
+> **wired** (opt-in/default-off, gated by `test_enlarger_lut_e2e`), the **AAssetManager** APK-direct
+> asset path is **done** (not "the sole remaining M3 item"), and release **signing is done**
+> (`release.yml` publishes a signed APK on `v*` tag — it is *not* a blocker; v0.7.0 shipped signed).
+> Treat M3/M4 as complete. This doc needs a refresh pass; the milestone *structure* below is still
+> a useful overview.
+
 Milestones are vertical slices. Each ends with something demonstrable and a parity gate.
 
 > **Scope & fidelity (confirmed):** we port the **true spektrafilm engine in full**, to a

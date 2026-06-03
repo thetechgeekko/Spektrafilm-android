@@ -1,5 +1,13 @@
 # RAW / DNG editing on Android
 
+> **ℹ️ Note (integration paths updated).** The decode *science* below (rawpy == LibRaw, ACES /
+> 16-bit / linear / camera-WB settings) is correct and shipped in the **`:lib:libraw`** module
+> (`libsfraw.so`, `RawDecoder.kt`) consumed by the standalone **`:app`**. Ignore the references to
+> `feature:film-emulation` / a Coil `Decoder.Factory` / ImageToolbox's save pipeline — that host was
+> never built. Also note two things this doc predates: the **off-heap decode + half-size/OOM ladder**
+> (see `RawDecoder.kt` / `EngineHelpers.kt` and `docs/RESEARCH_BIG_FILES.md`) and the **MotionCam
+> `.mcraw`** import path (`McrawContainer.kt`, see `docs/RESEARCH_MCRAW.md`).
+
 Goal: open camera RAW (incl. **DNG**) on device and feed the engine a **linear, scene-referred
 RGB** buffer that matches what spektrafilm gets from `rawpy` on desktop.
 

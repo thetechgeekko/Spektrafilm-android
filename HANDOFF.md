@@ -1,5 +1,23 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-03) — audit + cleanup + Android lifecycle fixes (PR #60)
+Work this session lives on branch `claude/intelligent-johnson-DEOqK` (draft **PR #60**, CI green):
+- **Removed committed `dist/*.apk`** (+`.sha256`) — stale (v0.1–0.3), **16 KB-page-misaligned**
+  (project `.so`s LOAD-aligned `0x1000` → `dlopen`-fail on Android 15 16 KB devices), and
+  **debug-signed**. Dropped the `!dist/*.apk` un-ignore. Releases ship via `release.yml`.
+- **Closed an ICC license gap** — `icc/ellelstone` (CC BY-SA 3.0) + `icc/saucecontrol` (MIT) ship in
+  the APK but were unattributed; added the `NOTICE.md` section + the two `LICENSE-*` files.
+- **Three Android lifecycle bugs fixed (compile+CI verified):** native engine leaked on every
+  config change → now a process-scoped `EngineHolder` singleton; edit session lost on process death
+  → `rememberSaveable` for source URI/kind/name + rotation; `DecodedSourceCache` now `close()`s
+  evicted entries; `SpektraEngine.close()` made idempotent.
+- **Doc re-sync** — corrected the docs that drifted from v0.7.0 reality (engine README "M0" banner,
+  ENGINE_WIRING_PLAN §3 enlarger-LUT, AUDIT/ASSETS/CHANGELOG, aspirational-doc banners). Still TODO:
+  a full `docs/RELEASE_CHECKLIST.md` rewrite and `docs/ROADMAP.md` status flips.
+- **Known open (deliberately deferred):** inert marshalled engine params (UV/IR filter, preflash,
+  spectral blur — wire-or-strip decision); latent int32 `npix*3` overflow (>715 MP, unreachable via
+  the app); build posture (`targetSdk 34`→35, lint baseline, emulator CI gate).
+
 ## State (2026-06-02)
 - **`main` is the trunk.** Current on `main`: **`versionCode 9` / `versionName 0.7.0`** (PR #59
   merged). **`v0.7.0` is tagged + RELEASED** — `release.yml` built and published the **signed**
