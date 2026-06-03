@@ -121,7 +121,9 @@ fun linearToDisplayBitmap(img: LinearImage): Bitmap {
 fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
     val src = decodeDownscaled(ctx, uri, maxEdge)
     try {
-        return bitmapToLinearProPhoto(src)
+        // Export-scale (anything above the preview cap) decodes a full-res photo whose linear
+        // float buffer (w*h*3*4) is large — 144 MB at 12 MP — so keep it OFF the managed heap.
+        return bitmapToLinearProPhoto(src, offHeap = maxEdge > MAX_EDGE_PX)
     } finally {
         src.recycle()
     }
@@ -132,28 +134,45 @@ fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): 
  * float [LinearImage] (same inverse-CCTF + sRGB->ProPhoto matrix as
  * [decodeToLinearProPhoto]). Used by both the photo-picker path and the lossy/JPEG-XL
  * DNG ImageDecoder fallback (display-referred). Does not recycle [src].
+ *
+ * When [offHeap] is true the linear float buffer is allocated NATIVELY (malloc +
+ * NewDirectByteBuffer) instead of `ByteBuffer.allocateDirect` (which on Android is a
+ * non-movable byte[] on the ~256 MB ART heap) — for a full-res photo (e.g. 12 MP -> 144 MB)
+ * the managed allocation OOMs the export. The returned [LinearImage] frees it via onClose.
+ * Pixels are read band-by-band so the transient int scratch is a few MB, not IntArray(w*h).
  */
-fun bitmapToLinearProPhoto(src: Bitmap): LinearImage {
+fun bitmapToLinearProPhoto(src: Bitmap, offHeap: Boolean = false): LinearImage {
     val w = src.width
     val h = src.height
-    val pixels = IntArray(w * h)
-    src.getPixels(pixels, 0, w, 0, 0, w, h)
-
-    val buf = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
+    val nativeBuf = if (offHeap) SimResult.allocDirectBuffer(w.toLong() * h * 3 * 4) else null
+    val buf = (nativeBuf ?: ByteBuffer.allocateDirect(w * h * 3 * 4)).order(ByteOrder.nativeOrder())
     val f = buf.asFloatBuffer()
     val m = SRGB_TO_PROPHOTO
-    for (p in pixels.indices) {
-        val argb = pixels[p]
-        val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
-        val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
-        val bl = srgbToLinear((argb and 0xFF) / 255f)
-        val pr = m[0] * rl + m[1] * gl + m[2] * bl
-        val pg = m[3] * rl + m[4] * gl + m[5] * bl
-        val pb = m[6] * rl + m[7] * gl + m[8] * bl
-        val i = p * 3
-        f.put(i, pr); f.put(i + 1, pg); f.put(i + 2, pb)
+    // Read pixels in horizontal strips: avoids a full IntArray(w*h) (4 B/px) managed spike.
+    val bandRows = (1024 * 1024 / w).coerceIn(1, h)
+    val rowPix = IntArray(w * bandRows)
+    var y = 0
+    while (y < h) {
+        val rows = minOf(bandRows, h - y)
+        src.getPixels(rowPix, 0, w, 0, y, w, rows)
+        var k = 0
+        var i = y * w * 3
+        repeat(w * rows) {
+            val argb = rowPix[k++]
+            val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
+            val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
+            val bl = srgbToLinear((argb and 0xFF) / 255f)
+            f.put(i, m[0] * rl + m[1] * gl + m[2] * bl)
+            f.put(i + 1, m[3] * rl + m[4] * gl + m[5] * bl)
+            f.put(i + 2, m[6] * rl + m[7] * gl + m[8] * bl)
+            i += 3
+        }
+        y += rows
     }
-    return LinearImage(buf, w, h, colorSpace = "ProPhoto RGB")
+    return LinearImage(
+        buf, w, h, colorSpace = "ProPhoto RGB",
+        onClose = if (nativeBuf != null) { b -> SimResult.freeDirectBuffer(b) } else null,
+    )
 }
 
 /**
@@ -202,7 +221,7 @@ fun decodeViaPlatform(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Linea
         ).also { argb.recycle() }
     }
     try {
-        return bitmapToLinearProPhoto(safe)
+        return bitmapToLinearProPhoto(safe, offHeap = maxEdge > MAX_EDGE_PX)
     } finally {
         safe.recycle()
     }
