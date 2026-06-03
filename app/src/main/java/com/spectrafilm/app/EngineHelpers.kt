@@ -255,11 +255,22 @@ private fun decodeRawAtEdge(
  * full resolution the dye-cloud grain resolves at 1:1 — this is the backing for the 100%
  * grain magnifier, not an upscale of the downscaled preview.
  */
-fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage {
+fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage =
+    cropLinearImageRect(src, nx, ny, cropEdge, cropEdge)
+
+/**
+ * Rectangular generalization of [cropLinearImage]: crop a [cropW]×[cropH] native-pixel window
+ * out of [src], centred on the normalized point ([nx], [ny]). Clamped to the image bounds, no
+ * resampling. This backs the Lightroom-style zoom loupe (render the visible viewport region at
+ * native resolution) as well as the square 100% magnifier.
+ */
+fun cropLinearImageRect(
+    src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int,
+): LinearImage {
     val w = src.width
     val h = src.height
-    val cw = min(cropEdge, w)
-    val ch = min(cropEdge, h)
+    val cw = cropW.coerceIn(1, w)
+    val ch = cropH.coerceIn(1, h)
     val cxPx = (nx.coerceIn(0f, 1f) * w).toInt()
     val cyPx = (ny.coerceIn(0f, 1f) * h).toInt()
     val x0 = (cxPx - cw / 2).coerceIn(0, w - cw)
@@ -282,6 +293,10 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
 
 /** Native pixel edge of the full-resolution magnifier crop. */
 const val MAGNIFIER_CROP_PX = 512
+
+/** Max long-edge (px) of a Lightroom-zoom ROI render — bounds cost/memory to ~screen resolution
+ *  while still being far sharper than the upscaled ~640px proxy. */
+const val ROI_RENDER_MAX_PX = 1600
 
 /**
  * In-memory cache of the decoded *proxy-resolution source* [LinearImage], so that interactive

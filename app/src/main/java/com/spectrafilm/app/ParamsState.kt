@@ -297,7 +297,7 @@ class ParamsState {
     }
 
     /** Build an immutable SpektraParams from current state. */
-    fun toParams(): SpektraParams = SpektraParams(
+    fun toParams(previewMaxSizeOverride: Int? = null): SpektraParams = SpektraParams(
         filmProfile = filmProfile,
         printProfile = printProfile,
         camera = CameraParams(
@@ -346,7 +346,7 @@ class ParamsState {
             applyHanatos2025AdaptationWindow = adaptationWindow,
             applyHanatos2025AdaptationSurface = adaptationSurface,
             spectralGaussianBlur = spectralGaussianBlur,
-            previewMaxSize = previewMaxSize,
+            previewMaxSize = previewMaxSizeOverride ?: previewMaxSize,
         ),
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,

@@ -333,6 +333,16 @@ class MainActivity : ComponentActivity() {
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
+        // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
+        // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
+        var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
+        val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
+        DisposableEffect(roiOverlay) {
+            val current = roiOverlay
+            onDispose { current?.bitmap?.let { if (!it.isRecycled) it.recycle() } }
+        }
+
         // presets
         var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
         var presetName by remember { mutableStateOf("") }
@@ -706,6 +716,45 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
+        // source) at ~screen resolution via the FAST preview path, then overlay it sharply on the
+        // graphicsLayer-scaled proxy. Modeled on openMagnifier's last-wins cancellation. Memory is
+        // bounded by ROI_RENDER_MAX_PX (a few MB), independent of source megapixels — this is the
+        // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
+        // while cropping or comparing (those branches own the gestures / have no zoom).
+        fun renderRoi(roi: RoiRect) {
+            val e = engine ?: return
+            if (cropOverlayOpen || compareMode) return
+            roiJobRef.value?.cancel()
+            roiJobRef.value = scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.Default) {
+                        val full = loadSource(MAX_EDGE_PX)
+                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
+                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
+                        val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                        e.simulatePreview(
+                            crop, state.toParams(previewMaxSizeOverride = ROI_RENDER_MAX_PX),
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                    }
+                }
+                if (!isActive) {
+                    // Superseded (cancelled): drop this render so it neither lands nor leaks.
+                    result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
+                    return@launch
+                }
+                // On success publish; the prior overlay's bitmap is recycled by the
+                // DisposableEffect(roiOverlay) below when it leaves composition (safe timing).
+                // On failure keep the scaled proxy (no overlay change, no status noise).
+                result.onSuccess { roiOverlay = RoiOverlay(it, roi.cxN, roi.cyN, roi.wN, roi.hN) }
+            }
+        }
+
+        fun clearRoi() {
+            roiJobRef.value?.cancel()
+            roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
+        }
+
         // Debounced, PROGRESSIVE preview render: re-runs whenever params, source or rotation
         // change. Like Lightroom's loupe, a fast coarse pass paints the new look almost
         // immediately, then a full-resolution pass refines it — so dragging a slider feels
@@ -1011,6 +1060,10 @@ class MainActivity : ComponentActivity() {
                         onRotate = { rotation = rotation.next() },
                         onEditCrop = { cropOverlayOpen = true },
                         onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
+                        renderKey = previewTick,
+                        roiOverlay = roiOverlay,
+                        onRoiSettled = { renderRoi(it) },
+                        onRoiCleared = { clearRoi() },
                     )
                 }
 
@@ -1382,6 +1435,10 @@ class MainActivity : ComponentActivity() {
         onRotate: () -> Unit,
         onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
+        renderKey: Int,
+        roiOverlay: RoiOverlay?,
+        onRoiSettled: (RoiRect) -> Unit,
+        onRoiCleared: () -> Unit,
     ) {
         Box(
             Modifier
@@ -1406,6 +1463,12 @@ class MainActivity : ComponentActivity() {
                     bitmap = bmp,
                     modifier = Modifier.fillMaxSize(),
                     onPointPicked = onPointPicked,
+                    // Lightroom-style zoom: render the visible region at native resolution
+                    // (renderKey = previewTick so an edit while zoomed re-renders the crop).
+                    renderKey = renderKey,
+                    onRoiSettled = onRoiSettled,
+                    onRoiCleared = onRoiCleared,
+                    roiOverlay = roiOverlay,
                 )
                 else -> Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
             }
