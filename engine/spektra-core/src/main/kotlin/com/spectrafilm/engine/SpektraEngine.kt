@@ -84,6 +84,16 @@ class SimResult(
          * Implemented in spektra_jni.cpp; libspektra is already loaded by [SpektraEngine].
          */
         @JvmStatic external fun freeDirectBuffer(buf: ByteBuffer)
+
+        /**
+         * Allocate an OFF-HEAP direct [ByteBuffer] of [size] bytes (native `malloc` +
+         * `NewDirectByteBuffer`), or null on failure. Unlike `ByteBuffer.allocateDirect`
+         * (a non-movable `byte[]` on the ~256 MB ART heap on Android), this lives in native
+         * memory — use it for large export staging buffers so they don't OOM the managed
+         * heap. The caller MUST release it with [freeDirectBuffer]; NEVER pass a managed
+         * `allocateDirect` buffer to [freeDirectBuffer].
+         */
+        @JvmStatic external fun allocDirectBuffer(size: Long): ByteBuffer?
     }
 }
 
