@@ -127,6 +127,12 @@ jobs:
           # fp16 (half-float) conversion: scalar IEEE-754 round-trip + bulk path agree
           # (NEON vcvt on arm, scalar on the host runner). No assets needed.
           build_run test_half
+          # Bake a 17^3 .cube 3D LUT for the default scan_film look from the
+          # BUNDLED assets (argv[1] = asset dir): validates the .cube header,
+          # the N^3 data-line count, value sanity, non-degeneracy (not identity/
+          # constant), and that two bakes are byte-identical (the stochastic
+          # toggles are forced off internally so the bake is deterministic).
+          build_run test_bake_lut "$ASSET"
           exit $fail
 
   # ---------------------------------------------------------------------------

@@ -1,12 +1,19 @@
 # Roadmap
 
-> **⚠️ Frozen pre-v0.5.0 — read `CHANGELOG.md` + `HANDOFF.md` for current state.** The milestone
-> notes below stop around v0.4.0 and now misstate several shipped items: `use_enlarger_lut` is
-> **wired** (opt-in/default-off, gated by `test_enlarger_lut_e2e`), the **AAssetManager** APK-direct
-> asset path is **done** (not "the sole remaining M3 item"), and release **signing is done**
-> (`release.yml` publishes a signed APK on `v*` tag — it is *not* a blocker; v0.7.0 shipped signed).
-> Treat M3/M4 as complete. This doc needs a refresh pass; the milestone *structure* below is still
-> a useful overview.
+> **ℹ️ Status synced to v0.7.0 — read `CHANGELOG.md` + `HANDOFF.md` + `docs/AUDIT.md` for the
+> live snapshot.** The milestone *structure* below is still a useful overview, and the per-item
+> status markers have been corrected to match the merged state:
+> - ✅ **`use_enlarger_lut` is wired** (2026-06-01) — opt-in/default-off, default path
+>   byte-identical, gated by `test_enlarger_lut_e2e`. No reserved engine LUT flag remains.
+> - ✅ **AAssetManager APK-direct asset load is done** (2026-06-01) — the engine reads profiles,
+>   the spectral LUT, and neutral filters straight from the APK; the first-run extraction to
+>   `filesDir` is skipped. This was the last M3 remainder; it is closed.
+> - ✅ **Release signing is in place** — `release.yml` builds and publishes a signed APK on a
+>   `v*` tag from keystore secrets; locally, release signing reads `keystore.properties` and only
+>   falls back to debug signing when that file is **absent**. The signing mechanism exists; there
+>   is no "debug-signed release" blocker.
+>
+> Treat M3 and M4 as complete (see the v0.7.0 progress note below).
 
 Milestones are vertical slices. Each ends with something demonstrable and a parity gate.
 
@@ -37,9 +44,21 @@ Milestones are vertical slices. Each ends with something demonstrable and a pari
 > HDR export, Expert RAW DEFLATE fix, and a **major Lightroom-style UI redesign** (edge-to-edge,
 > pinned preview + 90° rotate, horizontal scrollable category bar, inline panel, back navigation).
 > Issue #6 is essentially resolved: lens blur (camera+scanner) and scanner LUT acceleration are
-> now wired too (the latter opt-in/default-off, default path byte-identical). Minor remainders:
-> `use_enlarger_lut` is reserved/unwired, and glare-on-print is wired but default-off (stochastic,
-> so not bit-exact). No UI-exposed param is falsely gated anymore.
+> now wired too (the latter opt-in/default-off, default path byte-identical). Glare-on-print is
+> wired but default-off (stochastic, so not bit-exact). No UI-exposed param is falsely gated anymore.
+>
+> **Progress note (v0.7.0, `versionCode 9`):** the two remaining "reserved" items from the v0.3.0
+> wave have since landed. **`use_enlarger_lut` is wired** (2026-06-01) — the enlarger-side 3D LUT
+> now accelerates the print-expose spectral integral (mirroring the scanner LUT); it is
+> opt-in/default-off so the default path stays byte-identical (`test_simulate_e2e print_portra`
+> unchanged at 5.11e-07), and it is parity-gated by `test_enlarger_lut_e2e`. **The AAssetManager
+> APK-direct asset path is done** (2026-06-01) — the engine loads profiles/LUT/filters from the
+> APK with no first-run extraction (on-device arm64 parity still `ALL PASS`). On the release side,
+> `release.yml` ships a signed APK on a `v*` tag and local release builds read `keystore.properties`
+> (debug fallback only when it is absent) — so there is no debug-signed release blocker. Only minor,
+> by-design items remain: bit-exact glare-on-print is impossible (stochastic), and a handful of UI
+> toggles (`apply_hanatos2025_*`, `spectral_gaussian_blur`, enlarger lens blur) are still unwired
+> pending new oracle goldens (tracked in `docs/AUDIT.md` + `docs/ENGINE_WIRING_PLAN.md`).
 
 ## M0 — Foundation  ✅ (this commit)
 Architecture decided, both repos mapped, port plan written, RAW/licensing strategy fixed,
@@ -60,7 +79,7 @@ options; WB modes (as-shot/daylight/tungsten/custom).
 - Optional: register `RawDecoder` in Coil for full-res gallery open.
 - **Done when:** a DNG opens in-app at full resolution; linear values match rawpy within tol.
 
-## M3 — Engine core (`engine:spektra-core`) — scanning path first  🚧 in progress
+## M3 — Engine core (`engine:spektra-core`) — scanning path first  ✅ complete
 Port the cheapest end-to-end path to prove the boundary: `scan_film` (skip print).
 Stage order: params/profiles → density curves/emulsion → spectral upsampling → filming →
 scanning. Ship 28 profiles + LUT assets.
@@ -69,8 +88,8 @@ scanning. Ship 28 profiles + LUT assets.
 - **Landed (2026-05-29):** RAW white-balance UI (Temperature/Tint sliders + WB-mode dropdown
   + reset-to-as-shot) — see progress note below. `scan_film` path itself was already
   bit-exact in v0.1.0. Non-sRGB output spaces are now wired (Settings default + per-image
-  dropdown → all six spaces, gated by `test_output_spaces`); only the in-APK AAssetManager
-  path remains from M3.
+  dropdown → all six spaces, gated by `test_output_spaces`). The in-APK AAssetManager path —
+  the last M3 remainder — landed 2026-06-01, so **M3 is complete**.
 
 > **Progress:** the Python engine runs headless here as a live oracle and real goldens are
 > committed (`tools/parity/goldens/`). The **entire `scan_film` path is ported and bit-exact
@@ -90,9 +109,10 @@ scanning. Ship 28 profiles + LUT assets.
 > exports all four `Java_com_spectrafilm_engine_*` symbols. **The scan_film engine is callable
 > from Kotlin.**
 >
-> Remaining (small): in-APK `AAssetManager` path (currently needs an extracted asset dir).
 > [Update: non-sRGB output spaces and the grain/halation/glare toggles were since wired; M4
-> print route + spatial/stochastic effects landed and are parity-gated.]
+> print route + spatial/stochastic effects landed and are parity-gated. The in-APK
+> `AAssetManager` path — the last remainder noted here — landed 2026-06-01; the engine no
+> longer needs an extracted asset dir.]
 >
 > **M3 backlog item landed (2026-05-29):** **RAW white-balance UI** — Temperature/Tint sliders
 > + a WB-mode dropdown (as-shot / daylight / tungsten / custom) + reset-to-as-shot, shown only
@@ -101,13 +121,14 @@ scanning. Ship 28 profiles + LUT assets.
 > preserved. (Issue #6 note: the `rawTemperature`/`rawTint` fields were already in `RawDecoder`
 > — this completes the UI surface for that path.)
 
-## M4 — Full negative→print→scan + look effects  🚧 in progress
+## M4 — Full negative→print→scan + look effects  ✅ complete
 Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filters.
 - Golden vectors green for print density + final RGB across ≥3 film/paper pairs.
 - **Done when:** full pipeline matches spektrafilm baselines; grain visible on upscaled crops.
-- **Landed (issue #6 — essentially resolved):** crop/resize, auto-exposure, diffusion, lens blur
-  (camera+scanner), and scanner LUT acceleration (opt-in) all ported & parity-gated. Minor
-  remainders: `use_enlarger_lut` reserved, glare-on-print default-off (stochastic).
+- **Landed (issue #6 — resolved):** crop/resize, auto-exposure, diffusion, lens blur
+  (camera+scanner), scanner LUT acceleration (opt-in), and the enlarger LUT (`use_enlarger_lut`,
+  opt-in/default-off, gated by `test_enlarger_lut_e2e`) all ported & parity-gated. Only minor,
+  by-design remainder: glare-on-print is default-off and stochastic (can't be bit-exact gated).
 
 > **Progress:** the **printing stage** (enlarger spectral calc + dichroic Y/M/C filters +
 > print expose/develop) and the full **negative→print→scan route** are ported and **bit-exact**
@@ -135,11 +156,12 @@ Add printing stage, DIR couplers, grain, halation/scatter, glare, diffusion filt
 > a strict no-op; parity on all existing goldens is byte-identical. A new `scan_portra_crop`
 > golden gates the non-default path (max_abs ≈ 2e-7).
 >
-> **#6 is essentially resolved** — lens blur (camera+scanner) and scanner LUT acceleration
-> are now wired and parity-gated (LUT opt-in/default-off, default path byte-identical). The
-> crop/diffusion UI "not yet active" badges were removed. Minor remainders: `use_enlarger_lut`
-> reserved/unwired; glare-on-print wired but default-off (stochastic, not bit-exact).
-> Downscale (`upscale_factor < 1`) anti-aliasing prefilter is a documented follow-up.
+> **#6 is resolved** — lens blur (camera+scanner) and scanner LUT acceleration are now wired and
+> parity-gated (LUT opt-in/default-off, default path byte-identical). The crop/diffusion UI "not
+> yet active" badges were removed. The **enlarger LUT (`use_enlarger_lut`) was since wired too**
+> (2026-06-01, opt-in/default-off, gated by `test_enlarger_lut_e2e`). Minor remainder:
+> glare-on-print is wired but default-off (stochastic, not bit-exact). Downscale
+> (`upscale_factor < 1`) anti-aliasing prefilter is a documented follow-up.
 
 ## M5 — UI/UX + non-destructive editing (`feature:film-emulation`)
 Full `RuntimePhotoParams` control surface (camera/enlarger/scanner/grain/halation/couplers/
@@ -197,9 +219,12 @@ The "do this when literally everything else is done" list:
   at https://github.com/thetechgeekko/Spectrafilmandroid/ by the maintainer (the env cannot
   push via the API). Ready-to-paste text is in `docs/RELEASE_CHECKLIST.md`.
 - **Remaining (M7/polish):** the gated engine stages are now live (crop, auto-exposure,
-  diffusion, lens blur, scanner LUT accel); only `use_enlarger_lut` (reserved) and bit-exact
-  glare-on-print (stochastic) remain, both minor/by-design. The real release blocker is the
-  **signed release key** (currently debug-signed fallback; see `docs/RELEASE_CHECKLIST.md`).
+  diffusion, lens blur, scanner LUT accel, **enlarger LUT**). Only bit-exact glare-on-print
+  (stochastic) remains by-design, plus a few still-unwired UI toggles (`apply_hanatos2025_*`,
+  `spectral_gaussian_blur`, enlarger lens blur) pending new oracle goldens — see `docs/AUDIT.md`.
+  Release signing is **in place**: `release.yml` publishes a signed APK on a `v*` tag, and local
+  release builds read `keystore.properties` (debug fallback only when that file is absent), so
+  there is no debug-signed release blocker.
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
