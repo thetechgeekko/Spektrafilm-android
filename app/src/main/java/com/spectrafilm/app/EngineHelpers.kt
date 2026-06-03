@@ -376,16 +376,36 @@ class DecodedSourceCache {
     fun invalidate() { image?.close(); key = null; image = null }
 }
 
-/** Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap. */
+/**
+ * Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap.
+ *
+ * Filled BAND-BY-BAND: the destination ARGB_8888 Bitmap is native memory (Android 8+), and
+ * the only managed-heap cost is the int scratch we copy through `setPixels`. Writing one
+ * horizontal strip at a time bounds that scratch to `w * bandRows` ints (~a few MB) instead
+ * of a single `IntArray(w*h)` — which for a full-res export (e.g. 36 MP → 144 MB) overflowed
+ * the ~256 MB ART heap and OOMed the export (device-reported on a 36 MP source). Peak managed
+ * allocation is now independent of image megapixels.
+ */
 fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
     val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
-    val px = IntArray(w * h)
-    for (p in 0 until w * h) {
-        val i = p * 3
-        val r = (min(1f, maxOf(0f, f.get(i))) * 255f + 0.5f).toInt()
-        val g = (min(1f, maxOf(0f, f.get(i + 1))) * 255f + 0.5f).toInt()
-        val b = (min(1f, maxOf(0f, f.get(i + 2))) * 255f + 0.5f).toInt()
-        px[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)  // native; no full IntArray
+    // ~4 MB scratch per strip (1M ints), at least one row, at most the whole image.
+    val bandRows = (1024 * 1024 / w).coerceIn(1, h)
+    val strip = IntArray(w * bandRows)
+    var y = 0
+    while (y < h) {
+        val rows = minOf(bandRows, h - y)
+        var k = 0
+        var i = y * w * 3
+        repeat(w * rows) {
+            val r = (min(1f, maxOf(0f, f.get(i))) * 255f + 0.5f).toInt()
+            val g = (min(1f, maxOf(0f, f.get(i + 1))) * 255f + 0.5f).toInt()
+            val b = (min(1f, maxOf(0f, f.get(i + 2))) * 255f + 0.5f).toInt()
+            strip[k++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            i += 3
+        }
+        bmp.setPixels(strip, 0, w, 0, y, w, rows)
+        y += rows
     }
-    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    return bmp
 }
