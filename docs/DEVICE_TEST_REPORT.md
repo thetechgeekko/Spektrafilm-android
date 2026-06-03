@@ -1,5 +1,9 @@
 # Spektrafilm — On-Device Test Report (issue #5 verification)
 
+> **⚠️ Historical.** This is the **v0.4.0 (versionCode 3)** device pass. It is superseded by later
+> on-device re-validations recorded in `docs/AUDIT.md` (the v0.6.3 export-OOM confirmation) and
+> `HANDOFF.md` (v0.7.0). Kept as the original issue-#5 evidence record; do not read it as current.
+
 **Date:** 2026-05-31 · **APK:** `app-debug.apk` built from `main` @ **v0.4.0** (`versionCode 3`),
 package `com.spectrafilm.app` · **Driven via `adb` on the host laptop** (the build sandbox has no
 `/dev/kvm` / USB passthrough, so this is the on-device verification CI could not do).

@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -274,10 +275,15 @@ class MainActivity : ComponentActivity() {
         var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
         var catalogReady by remember { mutableStateOf(false) }
 
-        // image / result state
-        var sourceUri by remember { mutableStateOf<Uri?>(null) }
-        var sourceKind by remember { mutableStateOf(SourceKind.DEMO) }
-        var sourceName by remember { mutableStateOf("synthetic demo image") }
+        // image / result state. The source identity (uri/kind/name) and the manual
+        // rotation survive process death via rememberSaveable so a recreated Activity
+        // restores the loaded image instead of silently dropping the user back on the
+        // demo image. Uri is Parcelable and the enums are Serializable, so the default
+        // autoSaver stores them. The decode + recipe-restore re-run off the restored
+        // source via the post-init render (previewTick) and the recipe-open effect.
+        var sourceUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+        var sourceKind by rememberSaveable { mutableStateOf(SourceKind.DEMO) }
+        var sourceName by rememberSaveable { mutableStateOf("synthetic demo image") }
         var preview by remember { mutableStateOf<Bitmap?>(null) }
         var beforePreview by remember { mutableStateOf<Bitmap?>(null) }
         var status by remember { mutableStateOf("initializing…") }
@@ -292,7 +298,7 @@ class MainActivity : ComponentActivity() {
         // source rotation (applied to the decoded LinearImage -> preview AND export).
         // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
         // (see loadSource) and is NOT persisted in the recipe.
-        var rotation by remember { mutableStateOf(SourceRotation.NONE) }
+        var rotation by rememberSaveable { mutableStateOf(SourceRotation.NONE) }
 
         // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
         // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
@@ -326,6 +332,16 @@ class MainActivity : ComponentActivity() {
         // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+        // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
+        // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
+        var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
+        val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
+        DisposableEffect(roiOverlay) {
+            val current = roiOverlay
+            onDispose { current?.bitmap?.let { if (!it.isRecycled) it.recycle() } }
+        }
 
         // presets
         var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -412,17 +428,14 @@ class MainActivity : ComponentActivity() {
             status = "redo"
         }
 
-        // One-time engine init. Prefer reading bundled assets straight from the APK
-        // (no ~17 MB extraction to filesDir); fall back to the extract-then-create
-        // path if the AAssetManager engine can't be created.
+        // One-time engine init. The engine is a process-scoped singleton (see
+        // EngineHolder): immutable + thread-safe after construction, so it is reused
+        // across Activity recreations instead of being re-created and leaked on every
+        // configuration change. EngineHolder also handles the AAssetManager-then-extract
+        // fallback. Created off the main thread (asset wiring is heavy on first call).
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
-                val e = runCatching {
-                    SpektraEngine.fromAssets(ctx.applicationContext.assets)
-                }.getOrElse {
-                    val dir = extractAssets(ctx)
-                    SpektraEngine(dir.absolutePath)
-                }
+                val e = EngineHolder.get(ctx)
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
                 StockCatalog.stocks(ctx) // warm the catalog cache
                 val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())
@@ -701,6 +714,45 @@ class MainActivity : ComponentActivity() {
                 }
                 magnifierRendering = false
             }
+        }
+
+        // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
+        // source) at ~screen resolution via the FAST preview path, then overlay it sharply on the
+        // graphicsLayer-scaled proxy. Modeled on openMagnifier's last-wins cancellation. Memory is
+        // bounded by ROI_RENDER_MAX_PX (a few MB), independent of source megapixels — this is the
+        // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
+        // while cropping or comparing (those branches own the gestures / have no zoom).
+        fun renderRoi(roi: RoiRect) {
+            val e = engine ?: return
+            if (cropOverlayOpen || compareMode) return
+            roiJobRef.value?.cancel()
+            roiJobRef.value = scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.Default) {
+                        val full = loadSource(MAX_EDGE_PX)
+                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
+                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
+                        val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                        e.simulatePreview(
+                            crop, state.toParams(previewMaxSizeOverride = ROI_RENDER_MAX_PX),
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                    }
+                }
+                if (!isActive) {
+                    // Superseded (cancelled): drop this render so it neither lands nor leaks.
+                    result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
+                    return@launch
+                }
+                // On success publish; the prior overlay's bitmap is recycled by the
+                // DisposableEffect(roiOverlay) below when it leaves composition (safe timing).
+                // On failure keep the scaled proxy (no overlay change, no status noise).
+                result.onSuccess { roiOverlay = RoiOverlay(it, roi.cxN, roi.cyN, roi.wN, roi.hN) }
+            }
+        }
+
+        fun clearRoi() {
+            roiJobRef.value?.cancel()
+            roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
         // Debounced, PROGRESSIVE preview render: re-runs whenever params, source or rotation
@@ -1008,6 +1060,10 @@ class MainActivity : ComponentActivity() {
                         onRotate = { rotation = rotation.next() },
                         onEditCrop = { cropOverlayOpen = true },
                         onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
+                        renderKey = previewTick,
+                        roiOverlay = roiOverlay,
+                        onRoiSettled = { renderRoi(it) },
+                        onRoiCleared = { clearRoi() },
                     )
                 }
 
@@ -1379,6 +1435,10 @@ class MainActivity : ComponentActivity() {
         onRotate: () -> Unit,
         onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
+        renderKey: Int,
+        roiOverlay: RoiOverlay?,
+        onRoiSettled: (RoiRect) -> Unit,
+        onRoiCleared: () -> Unit,
     ) {
         Box(
             Modifier
@@ -1403,6 +1463,12 @@ class MainActivity : ComponentActivity() {
                     bitmap = bmp,
                     modifier = Modifier.fillMaxSize(),
                     onPointPicked = onPointPicked,
+                    // Lightroom-style zoom: render the visible region at native resolution
+                    // (renderKey = previewTick so an edit while zoomed re-renders the crop).
+                    renderKey = renderKey,
+                    onRoiSettled = onRoiSettled,
+                    onRoiCleared = onRoiCleared,
+                    roiOverlay = roiOverlay,
                 )
                 else -> Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
             }

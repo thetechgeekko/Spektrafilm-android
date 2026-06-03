@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +58,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlin.math.min
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -75,11 +81,20 @@ private const val MAX_ZOOM = 8f
  * coordinates (0..1, 0..1) for the magnifier; it is invoked on a single tap when not zoomed
  * past fit, otherwise a single tap is ignored (the gesture is treated as a pan inspect).
  */
+@OptIn(FlowPreview::class)
 @Composable
 fun ZoomableImage(
     bitmap: Bitmap,
     modifier: Modifier = Modifier,
     onPointPicked: ((Float, Float) -> Unit)? = null,
+    // Lightroom-style zoom: when zoomed past fit, [onRoiSettled] fires (debounced) with the
+    // visible region so the caller can render that crop at native resolution and pass it back
+    // as [roiOverlay]; [onRoiCleared] fires when zoom returns to fit. [renderKey] (e.g. the
+    // preview tick) re-fires the settle so an edit while zoomed re-renders the sharp region.
+    renderKey: Int = 0,
+    onRoiSettled: ((RoiRect) -> Unit)? = null,
+    onRoiCleared: (() -> Unit)? = null,
+    roiOverlay: RoiOverlay? = null,
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -87,6 +102,21 @@ fun ZoomableImage(
 
     val image = remember(bitmap) { bitmap.asImageBitmap() }
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+
+    // Drive the sharp ROI render off the zoom/pan transform (and re-fire on a param edit via
+    // renderKey). Debounced so we render on settle, not every gesture frame; the instantly
+    // graphicsLayer-scaled proxy stays visible until the sharp crop lands (progressive, like
+    // the two-pass preview). Reverts to the proxy when zoom returns to fit.
+    if (onRoiSettled != null) {
+        LaunchedEffect(renderKey, aspect) {
+            snapshotFlow { Triple(scale, offset, viewSize) }
+                .debounce(280L)
+                .collectLatest { (s, o, v) ->
+                    val roi = viewportRoiNormalized(v, s, o, aspect)
+                    if (roi == null) onRoiCleared?.invoke() else onRoiSettled(roi)
+                }
+        }
+    }
 
     // Clamp the pan so the (scaled) content stays within the view bounds.
     fun clampOffset(raw: Offset, s: Float): Offset {
@@ -148,7 +178,81 @@ fun ZoomableImage(
                     translationY = offset.y,
                 ),
         )
+
+        // Sharp ROI overlay: project the cached crop's normalized rect through the SAME
+        // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
+        // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
+        val ov = roiOverlay
+        if (ov != null && scale > 1.01f && viewSize.width > 0) {
+            val roiImage = remember(ov.bitmap) { ov.bitmap.asImageBitmap() }
+            Canvas(Modifier.fillMaxSize()) {
+                val p0 = imageNormToView(
+                    ov.cxN - ov.wN / 2f, ov.cyN - ov.hN / 2f, viewSize, scale, offset, aspect,
+                )
+                val p1 = imageNormToView(
+                    ov.cxN + ov.wN / 2f, ov.cyN + ov.hN / 2f, viewSize, scale, offset, aspect,
+                )
+                val dstW = (p1.x - p0.x).toInt()
+                val dstH = (p1.y - p0.y).toInt()
+                if (dstW > 0 && dstH > 0) {
+                    drawImage(
+                        image = roiImage,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize(roiImage.width, roiImage.height),
+                        dstOffset = IntOffset(p0.x.toInt(), p0.y.toInt()),
+                        dstSize = IntSize(dstW, dstH),
+                    )
+                }
+            }
+        }
     }
+}
+
+/** A normalized image rectangle (centre + size, all in 0..1) — the visible region under zoom. */
+data class RoiRect(val cxN: Float, val cyN: Float, val wN: Float, val hN: Float)
+
+/** A sharp region-of-interest render plus the normalized image rect it represents, so the
+ *  overlay tracks pan/zoom (and survives a stale frame) by re-projecting that rect. */
+class RoiOverlay(
+    val bitmap: Bitmap,
+    val cxN: Float, val cyN: Float, val wN: Float, val hN: Float,
+)
+
+/** The fitted (zoom=1) image rectangle inside [view] under ContentScale.Fit: (left, top, w, h). */
+private fun fitRect(view: IntSize, aspect: Float): FloatArray {
+    val viewAspect = view.width.toFloat() / view.height.toFloat()
+    val fitW: Float
+    val fitH: Float
+    if (aspect > viewAspect) { fitW = view.width.toFloat(); fitH = fitW / aspect }
+    else { fitH = view.height.toFloat(); fitW = fitH * aspect }
+    val left = view.width / 2f - fitW / 2f
+    val top = view.height / 2f - fitH / 2f
+    return floatArrayOf(left, top, fitW, fitH)
+}
+
+/** Inverse of the viewport transform: a view-space point → normalized image coords (UNclamped). */
+internal fun mapViewToImageNorm(
+    p: Offset, view: IntSize, scale: Float, offset: Offset, aspect: Float,
+): Offset {
+    val cx = view.width / 2f
+    val cy = view.height / 2f
+    // Undo the graphicsLayer transform (scale about centre, then translate).
+    val ux = (p.x - cx - offset.x) / scale + cx
+    val uy = (p.y - cy - offset.y) / scale + cy
+    val (left, top, fitW, fitH) = fitRect(view, aspect)
+    return Offset((ux - left) / fitW, (uy - top) / fitH)
+}
+
+/** Forward transform: normalized image coords → view-space point under the current zoom/pan. */
+internal fun imageNormToView(
+    nx: Float, ny: Float, view: IntSize, scale: Float, offset: Offset, aspect: Float,
+): Offset {
+    val (left, top, fitW, fitH) = fitRect(view, aspect)
+    val ux = left + nx * fitW
+    val uy = top + ny * fitH
+    val cx = view.width / 2f
+    val cy = view.height / 2f
+    return Offset((ux - cx) * scale + cx + offset.x, (uy - cy) * scale + cy + offset.y)
 }
 
 /**
@@ -157,36 +261,35 @@ fun ZoomableImage(
  * tap fell on the letterbox margin (outside the image).
  */
 private fun viewToImageNormalized(
-    tap: Offset,
-    view: IntSize,
-    scale: Float,
-    offset: Offset,
-    aspect: Float,
+    tap: Offset, view: IntSize, scale: Float, offset: Offset, aspect: Float,
 ): Offset? {
     if (view.width == 0 || view.height == 0) return null
-    // The fitted (zoom=1) image rectangle inside the view (letterboxed).
-    val viewAspect = view.width.toFloat() / view.height.toFloat()
-    val fitW: Float
-    val fitH: Float
-    if (aspect > viewAspect) {
-        fitW = view.width.toFloat()
-        fitH = fitW / aspect
-    } else {
-        fitH = view.height.toFloat()
-        fitW = fitH * aspect
-    }
-    val cx = view.width / 2f
-    val cy = view.height / 2f
-    // Undo the graphicsLayer transform (scale about centre, then translate).
-    val ux = (tap.x - cx - offset.x) / scale + cx
-    val uy = (tap.y - cy - offset.y) / scale + cy
-    // Position within the fitted image rectangle.
-    val left = cx - fitW / 2f
-    val top = cy - fitH / 2f
-    val nx = (ux - left) / fitW
-    val ny = (uy - top) / fitH
-    if (nx < 0f || nx > 1f || ny < 0f || ny > 1f) return null
-    return Offset(nx, ny)
+    val n = mapViewToImageNorm(tap, view, scale, offset, aspect)
+    if (n.x < 0f || n.x > 1f || n.y < 0f || n.y > 1f) return null
+    return n
+}
+
+/**
+ * The visible image region under the current zoom/pan, as a normalized centre + size, or null
+ * when not zoomed past fit (so the caller reverts to the proxy). Maps the viewport's corners
+ * through the inverse transform and clamps to the image bounds. Pure — unit-tested.
+ */
+internal fun viewportRoiNormalized(
+    view: IntSize, scale: Float, offset: Offset, aspect: Float,
+): RoiRect? {
+    if (view.width == 0 || view.height == 0 || scale <= 1.01f) return null
+    val a = mapViewToImageNorm(Offset(0f, 0f), view, scale, offset, aspect)
+    val b = mapViewToImageNorm(
+        Offset(view.width.toFloat(), view.height.toFloat()), view, scale, offset, aspect,
+    )
+    val nx0 = min(a.x, b.x).coerceIn(0f, 1f)
+    val ny0 = min(a.y, b.y).coerceIn(0f, 1f)
+    val nx1 = max(a.x, b.x).coerceIn(0f, 1f)
+    val ny1 = max(a.y, b.y).coerceIn(0f, 1f)
+    val wN = nx1 - nx0
+    val hN = ny1 - ny0
+    if (wN <= 0f || hN <= 0f) return null
+    return RoiRect((nx0 + nx1) / 2f, (ny0 + ny1) / 2f, wN, hN)
 }
 
 /**

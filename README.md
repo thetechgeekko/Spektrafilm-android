@@ -78,9 +78,10 @@ lossy-DNG fallback are queued follow-ups.
 
 ## Install
 
-Grab the APK from [**`dist/`**](dist/) (or the **CI build artifact** on the latest green run),
-enable "install from unknown sources," and open it. Min Android 7.0 (API 24). Pick a photo or a
-RAW/DNG, choose a preset or tune the parameters, and export to your gallery.
+Grab the signed APK from the [**GitHub Releases**](../../releases/latest) page (or the **CI build
+artifact** on the latest green run), enable "install from unknown sources," and open it. Min
+Android 7.0 (API 24). Pick a photo or a RAW/DNG, choose a preset or tune the parameters, and
+export to your gallery.
 
 ---
 

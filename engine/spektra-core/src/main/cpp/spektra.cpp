@@ -36,6 +36,7 @@
 #include <cstring>
 #include <dirent.h>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -158,6 +159,21 @@ struct spk_engine {
     std::mutex lut_mutex;
     bool lut_loaded = false;
     spk::NdArray spectra_lut;
+
+    // Per-render setup caches (PERF). Every simulate() otherwise re-parses the
+    // film/print profile JSON and rebuilds the filming tc_lut from scratch, even
+    // on an interactive slider drag that changed nothing about the profile. Both
+    // are keyed PURELY by the profile id, which maps to an immutable bundled
+    // asset, so a cache entry can never go stale across param changes — the
+    // returned value is byte-identical to a fresh parse/build (a memo, not an
+    // approximation). build_filming_tc_lut depends only on (film profile, the
+    // immutable spectra LUT, the D55 constant); the hanatos window/surface/blur
+    // toggles are hardcoded constants, not params, so it too is a pure function
+    // of the film id. Never evicted (28 bundled profiles, bounded), so node
+    // references stay valid. Guarded by cache_mutex.
+    std::mutex cache_mutex;
+    std::map<std::string, spk::Profile> profile_cache;   // id -> parsed Profile
+    std::map<std::string, spk::NdArray> tc_lut_cache;    // film id -> filming tc_lut
 };
 
 // Read a bundled asset by its path relative to the spektra/ asset root (e.g.
@@ -220,11 +236,40 @@ static const spk::NdArray& engine_spectra(spk_engine* eng) {
 // Throws std::runtime_error if the asset can't be read; load_profile_string
 // throws on parse failure.
 static spk::Profile load_engine_profile(spk_engine* eng, const std::string& id) {
+    {
+        std::lock_guard<std::mutex> g(eng->cache_mutex);
+        auto it = eng->profile_cache.find(id);
+        if (it != eng->profile_cache.end()) return it->second;  // copy of cached parse
+    }
     std::vector<char> buf;
     std::string rel = std::string("profiles/") + id + ".json";
     if (!spk_read_asset(eng, rel, buf))
         throw std::runtime_error("spektra: cannot read profile asset " + rel);
-    return spk::load_profile_string(std::string(buf.data(), buf.size()));
+    spk::Profile parsed = spk::load_profile_string(std::string(buf.data(), buf.size()));
+    std::lock_guard<std::mutex> g(eng->cache_mutex);
+    // Insert if still absent (another thread may have raced us); either way the
+    // stored value equals a fresh parse, so the result is identical.
+    return eng->profile_cache.emplace(id, std::move(parsed)).first->second;
+}
+
+// Cached filming tc_lut, keyed by film id. build_filming_tc_lut is a pure
+// function of (film profile, the immutable spectra LUT, the D55 constant) — see
+// the cache note on spk_engine — so memoizing it by film id is byte-identical to
+// rebuilding it every call. Returns a reference into the never-evicted cache map
+// (node references stay valid). Throws on build failure (caller maps to
+// SPK_ERR_ASSET_IO, as the inline build did).
+static const spk::NdArray& engine_tc_lut(spk_engine* eng,
+                                         const std::string& film_id,
+                                         const spk::Profile& film) {
+    {
+        std::lock_guard<std::mutex> g(eng->cache_mutex);
+        auto it = eng->tc_lut_cache.find(film_id);
+        if (it != eng->tc_lut_cache.end()) return it->second;
+    }
+    spk::NdArray lut = spk::build_filming_tc_lut(film, engine_spectra(eng),
+                                                 kD55Illuminant);
+    std::lock_guard<std::mutex> g(eng->cache_mutex);
+    return eng->tc_lut_cache.emplace(film_id, std::move(lut)).first->second;
 }
 
 namespace {
@@ -483,13 +528,16 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         apply_user_halation(fparams.halation, p);
     }
 
-    // 3) Build the Hanatos2025 filming tc_lut (D55 reference illuminant).
-    spk::NdArray tc_lut;
+    // 3) Build (or reuse the engine-cached) Hanatos2025 filming tc_lut (D55
+    //    reference illuminant). Cached by film id — byte-identical to rebuilding
+    //    (see engine_tc_lut / the spk_engine cache note).
+    const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut = spk::build_filming_tc_lut(film, engine_spectra(eng), kD55Illuminant);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
+    const spk::NdArray& tc_lut = *tc_lut_ptr;
 
     // 4) expose(): the image runs as float64 (ProPhoto linear). `rgb` was built
     //    by preprocess_geometry above (crop/rescale applied, float64), matching
@@ -577,14 +625,17 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         return SPK_ERR_INTERNAL;  // print profile lacks printing fields
     }
 
-    // 2) Build the Hanatos2025 filming tc_lut (D55 reference illuminant). Needed
-    //    both by the filming expose and by the native midgray digest below.
-    spk::NdArray tc_lut;
+    // 2) Build (or reuse the engine-cached) Hanatos2025 filming tc_lut (D55
+    //    reference illuminant). Needed both by the filming expose and by the
+    //    native midgray digest below. Cached by film id — byte-identical to
+    //    rebuilding (see engine_tc_lut / the spk_engine cache note).
+    const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut = spk::build_filming_tc_lut(film, engine_spectra(eng), kD55Illuminant);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
+    const spk::NdArray& tc_lut = *tc_lut_ptr;
 
     // 3) Native print digest for ANY (film, paper) pair:
     //    (a) neutral dichroic CC resolved from neutral_print_filters.json

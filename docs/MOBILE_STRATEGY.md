@@ -23,7 +23,7 @@ informed by how Adobe Lightroom mobile (and other modern mobile RAW editors) act
 |--------------------|--------|--------------|
 | **Smart Previews**: edits run on a lossy DNG proxy (long edge 2560 px, ~2% size); **export re-renders from the full-res original**. | [Adobe: Smart Previews](https://helpx.adobe.com/lightroom-classic/help/lightroom-smart-previews.html) | Adopt the proxy/preview model — which is *exactly* spektrafilm's `preview` vs `scan` split (`settings.preview_max_size`). Interactive sliders run on a downscaled **linear** proxy; the full pipeline runs at full resolution only on export. Raise the default proxy size toward a "smart-preview"-like long edge (≈1280–2560) for quality, configurable. |
 | **Non-destructive**: every edit is a recipe/sidecar (XMP); the original file is never modified; edits re-applied on view/export. | [Adobe non-destructive editing](https://lifeafterphotoshop.com/non-destructive-editing-and-how-it-works/) | Add a **non-destructive recipe layer**: the edit is a serialized `SpektraParams` stored as a sidecar keyed to the source RAW; the original is untouched; re-render on demand. Enables presets (the 28 stocks + saved params), history, and "extract preset" like Lightroom. |
-| **GPU-accelerated editing** for slider responsiveness; same pipeline, faster. | [ACR GPU FAQ](https://helpx.adobe.com/camera-raw/kb/acr-gpu-faq.html) | GPU is a **later, optional accelerator for the preview path only** — see the precision note below. It is never the parity-bearing implementation. |
+| **GPU-accelerated editing** for slider responsiveness; same pipeline, faster. | [ACR GPU FAQ](https://helpx.adobe.com/camera-raw/kb/acr-gpu-faq.html) | GPU is an **optional accelerator for the preview path only** — see the precision note below. It is never the parity-bearing implementation. A first, **experimental** step already ships (default-OFF): `LutGpuPreview.kt`, an OpenGL ES 3.0 loupe that GPU-samples a baked 3D LUT of the current look. It captures only the pointwise look (grain/halation forced off) and is not a substitute for the CPU render; export stays CPU. |
 | Imports RAW/DNG/JPEG/TIFF; exports JPEG/DNG/TIFF — **no EXR**. | Lightroom format support | Be photo-app pragmatic: ingest RAW/DNG (LibRaw) + JPEG/PNG/16-bit TIFF; export 16-bit TIFF + high-quality JPEG (+ optional baked DNG). **Defer EXR / 32-bit-float-TIFF I/O** (spektrafilm's OpenImageIO niche) behind the same writer interface for a later milestone. Internal pipeline stays 32-bit float. |
 
 Reference open-source corroboration: [RapidRAW](https://github.com/CyberTimon/RapidRAW) — a modern
@@ -39,9 +39,13 @@ Therefore:
 - **The parity-bearing engine is CPU C++/NDK** (deterministic IEEE float, with NEON/SIMD where it
   helps). This is what `tools/parity` gates to bit-exact tolerance against Python. (Confirms the
   M0 decision — now with a hard justification.)
-- **A GPU path (Vulkan / OpenGL ES compute) is an optional M6 accelerator for the interactive
-  preview only**, validated against the CPU golden vectors within a *visual* tolerance — it never
-  becomes the parity gate, and export always uses the CPU engine.
+- **A GPU path is an optional accelerator for the interactive preview only**, validated against
+  the CPU golden vectors within a *visual* tolerance — it never becomes the parity gate, and
+  export always uses the CPU engine. A full Vulkan/GLES *compute* port of the per-pixel kernels
+  remains future (M6) work. What exists today is a narrower, **experimental and default-OFF**
+  first step: `LutGpuPreview.kt`, an OpenGL ES 3.0 *graphics* loupe that trilinearly samples a
+  baked 3D LUT of the current look (a different technique than a compute port — it captures only
+  the pointwise transform, with grain/halation forced off, and is not yet verified on a real GPU).
 
 ## Scope verdict for "everything"
 
@@ -57,7 +61,9 @@ sRGB/AdobeRGB/ProPhoto/Rec2020/ACES with ICC on export.
 proxy-preview vs full-res-export; device color management for on-screen.
 
 **Deferred (not capability we lose, just niche file formats / later optimization):** EXR &
-32-bit-float TIFF I/O; the GPU preview accelerator; `lensfunpy` lens correction (unused upstream).
+32-bit-float TIFF I/O; the full GPU *compute* preview accelerator (an experimental default-OFF
+GLES LUT loupe, `LutGpuPreview.kt`, is already in the tree); `lensfunpy` lens correction (unused
+upstream).
 
 **Dropped (not part of the engine):** the napari/Qt GUI (reimplemented in Compose),
 `plotting.py`, and unused upstream modules (`parametric`, `stocks`, `calibration_targets`).

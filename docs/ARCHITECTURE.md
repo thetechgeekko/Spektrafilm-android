@@ -1,5 +1,13 @@
 # Target Architecture — Spektrafilm for Android
 
+> **⚠️ Aspirational — NOT the shipped architecture.** This document describes an early *target*
+> design where the app would be a **fork of ImageToolbox** hosting `feature:film-emulation`. That
+> design was **never built**. The real app is a **standalone `:app` module** (`com.spectrafilm.app`)
+> — there is no `core/`/`build-logic/` ImageToolbox host, `feature:film-emulation` is **not** in
+> `settings.gradle.kts` (uncompiled dead code), the RAW lib produces `libsfraw.so` (not
+> `liblibraw.so`), and `targetSdk`/`compileSdk` is **34**. The native-engine rationale below is
+> still accurate. For the real layout see `CLAUDE.md` and `engine/spektra-core/README.md`.
+
 ## Module map
 
 ```

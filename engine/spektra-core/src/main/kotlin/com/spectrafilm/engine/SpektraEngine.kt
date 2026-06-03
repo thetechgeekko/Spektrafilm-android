@@ -84,6 +84,16 @@ class SimResult(
          * Implemented in spektra_jni.cpp; libspektra is already loaded by [SpektraEngine].
          */
         @JvmStatic external fun freeDirectBuffer(buf: ByteBuffer)
+
+        /**
+         * Allocate an OFF-HEAP direct [ByteBuffer] of [size] bytes (native `malloc` +
+         * `NewDirectByteBuffer`), or null on failure. Unlike `ByteBuffer.allocateDirect`
+         * (a non-movable `byte[]` on the ~256 MB ART heap on Android), this lives in native
+         * memory — use it for large export staging buffers so they don't OOM the managed
+         * heap. The caller MUST release it with [freeDirectBuffer]; NEVER pass a managed
+         * `allocateDirect` buffer to [freeDirectBuffer].
+         */
+        @JvmStatic external fun allocDirectBuffer(size: Long): ByteBuffer?
     }
 }
 
@@ -97,6 +107,8 @@ class SpektraEngine private constructor(
 ) : AutoCloseable {
 
     private val handle: Long = handle
+
+    @Volatile private var destroyed = false
 
     /** Filesystem mode: read bundled assets from an extracted [assetDir] on disk. */
     constructor(assetDir: String? = null) : this(nativeCreate(assetDir), null)
@@ -143,8 +155,12 @@ class SpektraEngine private constructor(
         nativeBakeCubeLut(handle, params, size)
             ?: error("spektra: bakeCubeLut returned null (handle=$handle)")
 
+    /** Destroy the native engine. Idempotent — a second call is a no-op (no double free). */
+    @Synchronized
     override fun close() {
-        if (handle != 0L) nativeDestroy(handle)
+        if (destroyed || handle == 0L) return
+        destroyed = true
+        nativeDestroy(handle)
     }
 
     // --- native bridge (see spektra_jni.cpp) ---

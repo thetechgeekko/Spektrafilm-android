@@ -1,0 +1,55 @@
+/*
+ * Spektrafilm for Android.
+ * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
+ * Film modeling powered by spektrafilm (GPLv3).
+ */
+package com.spectrafilm.app
+
+import android.content.Context
+import com.spectrafilm.engine.SpektraEngine
+
+/**
+ * Process-scoped owner of the single native [SpektraEngine].
+ *
+ * The engine is immutable after construction — it only holds read-only bundled
+ * profiles + LUTs, and its `simulate` path has no shared mutable state — so one
+ * instance is reused for the whole process across Activity recreations
+ * (configuration changes, returning from background, etc.).
+ *
+ * This fixes a native-memory leak: the editor used to create a fresh engine in a
+ * `LaunchedEffect(Unit)` on every recomposition-from-scratch (e.g. every rotation)
+ * and never destroyed the previous one, orphaning its ~17 MB-class native state
+ * each time.
+ *
+ * We deliberately never [SpektraEngine.close] the shared engine during the app's
+ * life. The only safe moment to release the native handle is process death, which
+ * the OS handles for us — closing on composition dispose would race a render
+ * coroutine still executing inside `nativeSimulate` and free the handle out from
+ * under it (use-after-free). A single immutable engine per process avoids both the
+ * leak and that race.
+ */
+object EngineHolder {
+    @Volatile private var instance: SpektraEngine? = null
+
+    /**
+     * Return the shared engine, creating it on first use. Heavy on the first call
+     * (asset wiring); call off the main thread.
+     */
+    fun get(ctx: Context): SpektraEngine {
+        instance?.let { return it }
+        return synchronized(this) {
+            instance ?: create(ctx).also { instance = it }
+        }
+    }
+
+    /**
+     * Prefer reading bundled assets straight from the APK (no ~17 MB extraction to
+     * filesDir); fall back to the extract-then-create path if the AAssetManager
+     * engine can't be created.
+     */
+    private fun create(ctx: Context): SpektraEngine {
+        val app = ctx.applicationContext
+        return runCatching { SpektraEngine.fromAssets(app.assets) }
+            .getOrElse { SpektraEngine(extractAssets(app).absolutePath) }
+    }
+}

@@ -1,11 +1,13 @@
-# Engine wiring plan — the 4 gated parameters
+# Engine wiring plan — the gated parameters
 
-Status snapshot 2026-06-01. These parameters are present in the app UI (dimmed via
-`GatedBlock`) and marshalled across JNI into `spk_params`, but the native engine does
-**not** yet apply them. Wiring each requires an engine change **plus** a new
-spektrafilm-oracle golden to keep the bit-exact parity gate honest — so this work needs
-a session with the `spektrafilm` Python oracle available (it lives at `../spektrafilm`)
-to regenerate goldens. None of it is doable from the Android repo alone.
+Status snapshot 2026-06-01, updated 2026-06-03. **§3 (`use_enlarger_lut`) is now WIRED**
+(shipped in v0.7.0, opt-in/default-off, gated by `test_enlarger_lut_e2e`). The remaining
+items below (§1 hanatos window/surface, §2 spectral_gaussian_blur) are still present in the
+app UI (dimmed via `GatedBlock`) and marshalled across JNI into `spk_params`, but the native
+engine does **not** yet apply them; §4 (enlarger lens blur) is intentionally not wireable.
+Wiring each of §1/§2 requires an engine change **plus** a new spektrafilm-oracle golden to
+keep the bit-exact parity gate honest — so that work needs a session with the `spektrafilm`
+Python oracle available (it lives at `../spektrafilm`) to regenerate goldens.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
@@ -27,8 +29,8 @@ and/or a **surface** term, read from the profile.
 - `spektrafilm/.../runtime/services/spectral_lut_compute.py:50-67` — toggles feed the
   LUT build + cache key.
 
-**Current C++.** `runtime/stages/filming.cpp` (`build_hanatos2025_tc_lut`, see
-`filming.h:39`) **hardcodes** `apply_window=true, apply_surface=false,
+**Current C++.** `runtime/stages/filming.cpp` (`build_filming_tc_lut`, see
+`filming.h:47`) **hardcodes** `apply_window=true, apply_surface=false,
 spectral_gaussian_blur=0`. The profile loader (`profiles/profile.cpp:132`) already parses
 `hanatos2025_adaptation_window_params`; confirm it also parses `_surface_params`.
 
@@ -70,29 +72,20 @@ construction exactly.
 
 ---
 
-## 3. `use_enlarger_lut`
+## 3. `use_enlarger_lut` — ✅ WIRED (v0.7.0)
 
 **What it is.** Opt-in 3-D LUT acceleration of the **enlarger** (print-expose) spectral
-integral — the print-side analogue of the already-wired scanner LUT.
+integral — the print-side analogue of the scanner LUT.
+
+**Status.** Shipped. `printing.cpp::print_expose` PCHIP-interpolates the print-expose
+integral through a per-channel LUT when `params.use_enlarger_lut` is set (opt-in,
+**default-off** → the default/export path stays bit-exact). Gated by `test_enlarger_lut_e2e`
+in CI `engine-parity`. This was the last reserved engine LUT flag; no reserved flag remains.
 
 **Oracle reference.**
 - `spektrafilm/.../runtime/stages/printing.py:53` — `use_lut=self._settings.use_enlarger_lut`.
 - `spektrafilm/.../runtime/services/spectral_lut_compute.py:88-104` — enlarger LUT memory +
   build/cache.
-
-**Current C++.** `spektra.h:232` marks it RESERVED. The scanner LUT path
-(`kernels/lut3d`, `use_scanner_lut`, gated by `test_scanner_lut_e2e`) is the working
-template. Enlarger side declared but unimplemented.
-
-**Wire.** Mirror the scanner-LUT integration in `runtime/stages/printing.cpp`: build/cache
-an enlarger 3-D LUT at `lut_resolution`, sample with the existing PCHIP path, guard behind
-`p->use_enlarger_lut`. Default OFF → exact non-LUT path unchanged.
-
-**Parity.** Oracle `print_portra` golden with `use_enlarger_lut=true`; new
-`test_enlarger_lut_e2e` mirroring `test_scanner_lut_e2e`. (LUT accel is an approximation —
-match the oracle's LUT path, not the exact path.)
-
-**Risk.** Medium-low — close clone of a proven, gated path.
 
 ---
 

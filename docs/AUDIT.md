@@ -1,4 +1,4 @@
-# Audit — incomplete / open items (updated 2026-06-01)
+# Audit — incomplete / open items (updated 2026-06-03)
 
 A sweep of the codebase and docs for things that are **not complete**: genuine feature gaps,
 stale docs that misstate status, test-coverage holes, and release/build follow-ups. Grouped by
@@ -18,8 +18,6 @@ not a commitment to do all of it.
   fresh-data launch on SM-S948W creates the engine with **no `files/spektra` extraction** and no
   crash (i.e. `fromAssets` succeeded, no fallback). The long-standing M3 remainder is closed.
   (Full render/export visual re-confirm pending a screen-unlocked device pass.)
-- 🟡 **Memory tiling for very large RAW** (old issue #7) — still open. Only app-side mitigation
-  exists (OOM-retry ladder in `decodeRawToLinear`, opt-in half-size decode). No native tiling /
 - 🟡 **Memory tiling for very large RAW** (old issue #7) — still open. Only app-side mitigation
   exists (OOM-retry ladder in `decodeRawToLinear`, opt-in half-size decode). No native tiling /
   streaming / GPU path. The full-res scan holds several float buffers of `npix*3` at once.
@@ -51,18 +49,17 @@ not a commitment to do all of it.
 
 ## B. Stale / inaccurate docs (status drift)
 
-- ✅ **`HANDOFF.md` refreshed** (PR #58, "handoff-refresh-postoom") — now reflects v0.6.3 /
-  `versionCode 8`, the off-heap export-OOM fix, and the current `main` trunk. The earlier stale
-  v0.3.0-wave description no longer applies.
+- ✅ **`HANDOFF.md` current** — reflects v0.7.0 / `versionCode 9`, the AAssetManager + enlarger-LUT
+  completion, and the off-heap export-OOM fix. The earlier stale v0.3.0-wave description no longer
+  applies.
 - ✅ **`docs/PRESETS.md` preset count fixed** (2026-06-01) — was "20 curated presets" while
   `presets.json` ships **21** (the `neutral_adobe_like` "Neutral (Adobe-like)" preset, added in
   #55, was undocumented). The intro count, the group list, and `README.md` are now 21, and the
   Neutral preset has its own documented section.
-- 🟡 **`spektra.cpp:17`** — comment still says `scan_film=false => print route, TODO M4`, but the
-  print route is fully implemented and parity-gated. Stale comment.
-- 🟡 **ROADMAP M3 note** (`docs/ROADMAP.md:63,83`) lists "remaining M3 small items: AAssetManager
-  path + **non-sRGB wiring**", but non-sRGB output **is** wired (output color space in Settings +
-  per-image dropdown → `ParamsState.outputColorSpace`). Only AAssetManager remains.
+- 🟡 **`docs/ROADMAP.md` is frozen pre-v0.5.0** — it still flags `use_enlarger_lut` as
+  reserved/unwired (×4), AAssetManager as the sole remaining M3 item, and a "debug-signed release"
+  blocker. All three are shipped (enlarger LUT wired + gated; AAssetManager wired; v0.7.0 signed via
+  `release.yml`). ROADMAP needs status flips + a v0.5.0/v0.6.x/v0.7.0 progress note.
 
 ## C. Test-coverage gaps
 
@@ -106,11 +103,12 @@ not a commitment to do all of it.
   (`:app:lintDebug`) and the 30 JVM unit tests are green on the same toolchain.
 - 🟡 **On-device NEON SIMD speedup magnitude** (the `exp10` work) is still unmeasured — only x86 was
   profiled; a device timing of a large-RAW export would confirm it.
-- ⚪ **`dist/` stops at v0.3.0** (debug-signed APKs). v0.4.0 is tagged on origin and ships via the
-  signed `release.yml` workflow as a GitHub Release asset — worth confirming that Release + its
-  signed APK actually exist/published.
-- ⚪ **Local tags `v0.1.0`/`v0.2.0` were never pushed** to origin (origin has only `v0.3.0`,
-  `v0.4.0`) — minor history gap.
+- ✅ **Committed `dist/*.apk` removed (2026-06-03).** The repo no longer commits release binaries;
+  they were stale (v0.1–0.3 while the repo was v0.7.0), **16 KB-page-misaligned** (every project
+  `.so` LOAD-aligned `0x1000` → `dlopen`-fail on Android 15 16 KB devices) and **debug-signed**.
+  Releases ship via the signed `release.yml` workflow as GitHub Release assets; the `!dist/*.apk`
+  un-ignore was removed so they don't return.
+- ⚪ **Local tags `v0.1.0`/`v0.2.0` were never pushed** to origin — minor history gap.
 
 ## E. Dead code / cleanup
 
@@ -123,9 +121,11 @@ not a commitment to do all of it.
 ---
 
 ### Highest-value next actions (suggested, not committed)
-1. Refresh or retire **`HANDOFF.md`** (🔴 — actively misleading).
-2. Add **`test_output_spaces` + `test_lensblur`** to the `engine-parity` CI gate (🟡 — closes a
-   real bit-exact coverage hole with existing tests).
-3. First **Kotlin unit tests** for the pure-logic layer (`EditHistory`, sidecar JSON round-trip,
-   `ExportFormat`) — no device needed (🔴 coverage, 🟡 effort).
-4. Maintainer/device items: R8 enablement + the #5 device smoke test (need a real device).
+1. **Re-sync the frozen docs** to v0.7.0: rewrite `docs/RELEASE_CHECKLIST.md` (it still tells the
+   maintainer to commit APKs to the removed `dist/` and omits the 16 KB-page check) and flip the
+   stale status markers in `docs/ROADMAP.md` (🔴 — actively misleading).
+2. **Wire or strip the inert engine params** (`apply_hanatos_*`, `spectral_gaussian_blur`,
+   camera UV/IR, preflash, scanner white/black corrections) — UI toggles that currently do nothing.
+3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
+   JVM tests can't reach (needs a device/Robolectric).
+4. Maintainer/device items: R8 enablement + a screen-unlocked visual re-confirm pass.

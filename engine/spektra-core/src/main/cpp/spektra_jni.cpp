@@ -679,6 +679,25 @@ Java_com_spectrafilm_engine_SimResult_freeDirectBuffer(JNIEnv* env, jclass /*cla
 }
 
 /*
+ * SimResult.allocDirectBuffer(size) -> ByteBuffer (malloc + NewDirectByteBuffer) or null.
+ * An OFF-HEAP direct buffer of `size` bytes, NOT on the ART managed heap (unlike
+ * ByteBuffer.allocateDirect, which on Android is a non-movable byte[] counting against the
+ * ~256 MB heap-growth limit). Used for large export staging buffers (e.g. the 16-bit
+ * TIFF/PNG quantise buffer, ~600 MB at 100 MP). The caller MUST free it with
+ * freeDirectBuffer(). Returns null on bad size or OOM (caller falls back to managed).
+ */
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_spectrafilm_engine_SimResult_allocDirectBuffer(JNIEnv* env, jclass /*clazz*/,
+                                                        jlong size) {
+    if (size <= 0) return nullptr;
+    void* p = std::malloc(static_cast<size_t>(size));
+    if (!p) return nullptr;
+    jobject buf = env->NewDirectByteBuffer(p, size);
+    if (!buf) { std::free(p); return nullptr; }  // wrap failed -> don't leak
+    return buf;
+}
+
+/*
  * nativeBakeCubeLut(handle, paramsObj, size) -> String (.cube text) or null.
  * Marshals the params (reusing marshal_params), bakes a size^3 3D LUT of the
  * current film look, and returns the .cube text. The bake forces all spatial /

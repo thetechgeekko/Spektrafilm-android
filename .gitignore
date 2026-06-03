@@ -30,8 +30,8 @@ __pycache__/
 *.pyc
 .venv/
 
-# Release artifacts (committed deliberately)
-!dist/*.apk
+# Release artifacts are published to GitHub Releases (see release.yml), NOT committed.
+# (Historical dist/*.apk were removed: stale, 4 KB-page-misaligned, and debug-signed.)
 
 # Kotlin/CMake incremental caches
 .kotlin/

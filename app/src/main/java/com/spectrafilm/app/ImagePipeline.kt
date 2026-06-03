@@ -121,7 +121,9 @@ fun linearToDisplayBitmap(img: LinearImage): Bitmap {
 fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): LinearImage {
     val src = decodeDownscaled(ctx, uri, maxEdge)
     try {
-        return bitmapToLinearProPhoto(src)
+        // Export-scale (anything above the preview cap) decodes a full-res photo whose linear
+        // float buffer (w*h*3*4) is large — 144 MB at 12 MP — so keep it OFF the managed heap.
+        return bitmapToLinearProPhoto(src, offHeap = maxEdge > MAX_EDGE_PX)
     } finally {
         src.recycle()
     }
@@ -132,28 +134,45 @@ fun decodeToLinearProPhoto(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): 
  * float [LinearImage] (same inverse-CCTF + sRGB->ProPhoto matrix as
  * [decodeToLinearProPhoto]). Used by both the photo-picker path and the lossy/JPEG-XL
  * DNG ImageDecoder fallback (display-referred). Does not recycle [src].
+ *
+ * When [offHeap] is true the linear float buffer is allocated NATIVELY (malloc +
+ * NewDirectByteBuffer) instead of `ByteBuffer.allocateDirect` (which on Android is a
+ * non-movable byte[] on the ~256 MB ART heap) — for a full-res photo (e.g. 12 MP -> 144 MB)
+ * the managed allocation OOMs the export. The returned [LinearImage] frees it via onClose.
+ * Pixels are read band-by-band so the transient int scratch is a few MB, not IntArray(w*h).
  */
-fun bitmapToLinearProPhoto(src: Bitmap): LinearImage {
+fun bitmapToLinearProPhoto(src: Bitmap, offHeap: Boolean = false): LinearImage {
     val w = src.width
     val h = src.height
-    val pixels = IntArray(w * h)
-    src.getPixels(pixels, 0, w, 0, 0, w, h)
-
-    val buf = ByteBuffer.allocateDirect(w * h * 3 * 4).order(ByteOrder.nativeOrder())
+    val nativeBuf = if (offHeap) SimResult.allocDirectBuffer(w.toLong() * h * 3 * 4) else null
+    val buf = (nativeBuf ?: ByteBuffer.allocateDirect(w * h * 3 * 4)).order(ByteOrder.nativeOrder())
     val f = buf.asFloatBuffer()
     val m = SRGB_TO_PROPHOTO
-    for (p in pixels.indices) {
-        val argb = pixels[p]
-        val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
-        val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
-        val bl = srgbToLinear((argb and 0xFF) / 255f)
-        val pr = m[0] * rl + m[1] * gl + m[2] * bl
-        val pg = m[3] * rl + m[4] * gl + m[5] * bl
-        val pb = m[6] * rl + m[7] * gl + m[8] * bl
-        val i = p * 3
-        f.put(i, pr); f.put(i + 1, pg); f.put(i + 2, pb)
+    // Read pixels in horizontal strips: avoids a full IntArray(w*h) (4 B/px) managed spike.
+    val bandRows = (1024 * 1024 / w).coerceIn(1, h)
+    val rowPix = IntArray(w * bandRows)
+    var y = 0
+    while (y < h) {
+        val rows = minOf(bandRows, h - y)
+        src.getPixels(rowPix, 0, w, 0, y, w, rows)
+        var k = 0
+        var i = y * w * 3
+        repeat(w * rows) {
+            val argb = rowPix[k++]
+            val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
+            val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
+            val bl = srgbToLinear((argb and 0xFF) / 255f)
+            f.put(i, m[0] * rl + m[1] * gl + m[2] * bl)
+            f.put(i + 1, m[3] * rl + m[4] * gl + m[5] * bl)
+            f.put(i + 2, m[6] * rl + m[7] * gl + m[8] * bl)
+            i += 3
+        }
+        y += rows
     }
-    return LinearImage(buf, w, h, colorSpace = "ProPhoto RGB")
+    return LinearImage(
+        buf, w, h, colorSpace = "ProPhoto RGB",
+        onClose = if (nativeBuf != null) { b -> SimResult.freeDirectBuffer(b) } else null,
+    )
 }
 
 /**
@@ -202,7 +221,7 @@ fun decodeViaPlatform(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Linea
         ).also { argb.recycle() }
     }
     try {
-        return bitmapToLinearProPhoto(safe)
+        return bitmapToLinearProPhoto(safe, offHeap = maxEdge > MAX_EDGE_PX)
     } finally {
         safe.recycle()
     }
@@ -633,34 +652,44 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
     val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
     val nSamples = w * h * 3
 
-    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
-    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
-    for (i in 0 until nSamples) {
-        val v = floatBuf.get(i).coerceIn(0f, 1f)
-        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
-        // Write as little-endian uint16 (low byte first).
-        rgb16Buf.put((u16 and 0xFF).toByte())
-        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
-    }
-    rgb16Buf.flip()
-
     val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
     val exifCs = exifColorSpaceFor(result.colorSpace)
 
     // Write to a temp file in cacheDir first; this avoids holding a MediaStore
     // output stream open for the entire (potentially large) TiffWriter write.
     val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
-    TiffWriter.write(
-        rgb16 = rgb16Buf,
-        width = w,
-        height = h,
-        outPath = tmpFile.absolutePath,
-        icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
-        exifColorSpace = exifCs,
-        software = "Spektrafilm",
-        dateTime = dateTime,
-        packBits = false,        // Uncompressed baseline for maximum compatibility
-    )
+
+    // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
+    // ByteBuffer.allocateDirect is a managed byte[] on Android — at 100 MP that's ~600 MB on
+    // the ~256 MB ART heap and OOMs. Allocate natively (malloc + NewDirectByteBuffer); fall
+    // back to managed only if the native alloc fails. Freed after the writer consumes it (it
+    // is not needed for the MediaStore move below).
+    val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
+    val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
+        .order(ByteOrder.LITTLE_ENDIAN)
+    try {
+        for (i in 0 until nSamples) {
+            val v = floatBuf.get(i).coerceIn(0f, 1f)
+            val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+            // Write as little-endian uint16 (low byte first).
+            rgb16Buf.put((u16 and 0xFF).toByte())
+            rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+        }
+        rgb16Buf.flip()
+        TiffWriter.write(
+            rgb16 = rgb16Buf,
+            width = w,
+            height = h,
+            outPath = tmpFile.absolutePath,
+            icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
+            exifColorSpace = exifCs,
+            software = "Spektrafilm",
+            dateTime = dateTime,
+            packBits = false,        // Uncompressed baseline for maximum compatibility
+        )
+    } finally {
+        if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+    }
 
     val name = "Spektrafilm_${System.currentTimeMillis()}.tif"
     val resolver = ctx.contentResolver
@@ -723,27 +752,36 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
     val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
     val nSamples = w * h * 3
 
-    // Quantise float [0,1] -> uint16 [0,65535] into a direct ByteBuffer (LE uint16).
-    val rgb16Buf = ByteBuffer.allocateDirect(nSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
-    for (i in 0 until nSamples) {
-        val v = floatBuf.get(i).coerceIn(0f, 1f)
-        val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
-        rgb16Buf.put((u16 and 0xFF).toByte())
-        rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
-    }
-    rgb16Buf.flip()
-
     // Write to a temp file in cacheDir first; avoids holding a MediaStore output stream
     // open for the whole (potentially large) PNG deflate.
     val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.png")
-    PngWriter.write(
-        rgb16 = rgb16Buf,
-        width = w,
-        height = h,
-        outPath = tmpFile.absolutePath,
-        icc = null,              // No ICC assets bundled yet
-        software = "Spektrafilm",
-    )
+
+    // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
+    // ByteBuffer.allocateDirect is a managed byte[] on Android — ~600 MB at 100 MP → ART OOM.
+    // Allocate natively, falling back to managed only if the native alloc fails; freed after
+    // the writer consumes it.
+    val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
+    val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
+        .order(ByteOrder.LITTLE_ENDIAN)
+    try {
+        for (i in 0 until nSamples) {
+            val v = floatBuf.get(i).coerceIn(0f, 1f)
+            val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+            rgb16Buf.put((u16 and 0xFF).toByte())
+            rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+        }
+        rgb16Buf.flip()
+        PngWriter.write(
+            rgb16 = rgb16Buf,
+            width = w,
+            height = h,
+            outPath = tmpFile.absolutePath,
+            icc = null,              // No ICC assets bundled yet
+            software = "Spektrafilm",
+        )
+    } finally {
+        if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+    }
 
     val name = "Spektrafilm_${System.currentTimeMillis()}.png"
     val resolver = ctx.contentResolver

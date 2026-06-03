@@ -255,11 +255,22 @@ private fun decodeRawAtEdge(
  * full resolution the dye-cloud grain resolves at 1:1 — this is the backing for the 100%
  * grain magnifier, not an upscale of the downscaled preview.
  */
-fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage {
+fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage =
+    cropLinearImageRect(src, nx, ny, cropEdge, cropEdge)
+
+/**
+ * Rectangular generalization of [cropLinearImage]: crop a [cropW]×[cropH] native-pixel window
+ * out of [src], centred on the normalized point ([nx], [ny]). Clamped to the image bounds, no
+ * resampling. This backs the Lightroom-style zoom loupe (render the visible viewport region at
+ * native resolution) as well as the square 100% magnifier.
+ */
+fun cropLinearImageRect(
+    src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int,
+): LinearImage {
     val w = src.width
     val h = src.height
-    val cw = min(cropEdge, w)
-    val ch = min(cropEdge, h)
+    val cw = cropW.coerceIn(1, w)
+    val ch = cropH.coerceIn(1, h)
     val cxPx = (nx.coerceIn(0f, 1f) * w).toInt()
     val cyPx = (ny.coerceIn(0f, 1f) * h).toInt()
     val x0 = (cxPx - cw / 2).coerceIn(0, w - cw)
@@ -282,6 +293,10 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
 
 /** Native pixel edge of the full-resolution magnifier crop. */
 const val MAGNIFIER_CROP_PX = 512
+
+/** Max long-edge (px) of a Lightroom-zoom ROI render — bounds cost/memory to ~screen resolution
+ *  while still being far sharper than the upscaled ~640px proxy. */
+const val ROI_RENDER_MAX_PX = 1600
 
 /**
  * In-memory cache of the decoded *proxy-resolution source* [LinearImage], so that interactive
@@ -339,32 +354,58 @@ class DecodedSourceCache {
         return if (k == key) image else null
     }
 
-    /** Store [img] as the single cached entry, dropping any previous one (GC reclaims it). */
+    /** Store [img] as the single cached entry, releasing any previous one. */
     @Synchronized
     fun put(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
         temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
         img: LinearImage,
     ) {
+        // Release the previous entry. This cache only holds proxy-scale (previewMaxSize
+        // <= 1024, well below HALF_DECODE_EDGE_THRESHOLD) MANAGED buffers, so close() is
+        // a no-op the GC then reclaims; closing also correctly frees the native buffer
+        // were an off-heap image ever cached, instead of leaking it (native memory is
+        // not GC-tracked). Guarded against re-putting the same instance.
+        image?.takeIf { it !== img }?.close()
         key = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
-        image = img // previous LinearImage (and its direct buffer) is now unreferenced -> GC
+        image = img
     }
 
-    /** Drop the cached entry (e.g. on teardown). */
+    /** Drop the cached entry (e.g. on teardown), releasing its buffer. */
     @Synchronized
-    fun invalidate() { key = null; image = null }
+    fun invalidate() { image?.close(); key = null; image = null }
 }
 
-/** Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap. */
+/**
+ * Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap.
+ *
+ * Filled BAND-BY-BAND: the destination ARGB_8888 Bitmap is native memory (Android 8+), and
+ * the only managed-heap cost is the int scratch we copy through `setPixels`. Writing one
+ * horizontal strip at a time bounds that scratch to `w * bandRows` ints (~a few MB) instead
+ * of a single `IntArray(w*h)` — which for a full-res export (e.g. 36 MP → 144 MB) overflowed
+ * the ~256 MB ART heap and OOMed the export (device-reported on a 36 MP source). Peak managed
+ * allocation is now independent of image megapixels.
+ */
 fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
     val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
-    val px = IntArray(w * h)
-    for (p in 0 until w * h) {
-        val i = p * 3
-        val r = (min(1f, maxOf(0f, f.get(i))) * 255f + 0.5f).toInt()
-        val g = (min(1f, maxOf(0f, f.get(i + 1))) * 255f + 0.5f).toInt()
-        val b = (min(1f, maxOf(0f, f.get(i + 2))) * 255f + 0.5f).toInt()
-        px[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)  // native; no full IntArray
+    // ~4 MB scratch per strip (1M ints), at least one row, at most the whole image.
+    val bandRows = (1024 * 1024 / w).coerceIn(1, h)
+    val strip = IntArray(w * bandRows)
+    var y = 0
+    while (y < h) {
+        val rows = minOf(bandRows, h - y)
+        var k = 0
+        var i = y * w * 3
+        repeat(w * rows) {
+            val r = (min(1f, maxOf(0f, f.get(i))) * 255f + 0.5f).toInt()
+            val g = (min(1f, maxOf(0f, f.get(i + 1))) * 255f + 0.5f).toInt()
+            val b = (min(1f, maxOf(0f, f.get(i + 2))) * 255f + 0.5f).toInt()
+            strip[k++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            i += 3
+        }
+        bmp.setPixels(strip, 0, w, 0, y, w, rows)
+        y += rows
     }
-    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    return bmp
 }

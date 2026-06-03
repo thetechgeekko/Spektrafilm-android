@@ -1,5 +1,10 @@
 # Technical map — Image Toolbox (the host app)
 
+> **⚠️ Reference only — the ImageToolbox host was never adopted.** Spektrafilm shipped as a
+> standalone `:app` module, not a fork of ImageToolbox. This remains an accurate survey of the
+> *external* ImageToolbox project, but every "the pattern we follow / what we reuse / where we slot
+> in" passage describes integration work that did not happen. See `docs/ARCHITECTURE.md`'s banner.
+
 Source: `T8RIN/ImageToolbox`, Kotlin/Jetpack Compose, Apache-2.0. Produced by surveying the
 actual source + `ARCHITECTURE.md`. This is the reference for hosting the Spektrafilm port.
 

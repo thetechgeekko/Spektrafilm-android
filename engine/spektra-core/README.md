@@ -3,24 +3,29 @@
 Native (C++/NDK) port of spektrafilm's `runtime` + `model` packages, exposed to the app through
 a thin JNI + Kotlin facade.
 
-> **Status: contract only (M0).** This directory currently defines the *API surface* — the C++
-> header, the JNI bridge signatures, and the Kotlin facade/params. The implementation
-> (`spektra.cpp` and the per-stage `.cpp` files) is filled in across M3–M4 per
-> `../../docs/PORTING_PLAN.md`, gated by the golden-vector parity harness.
+> **Status: shipped.** The engine is fully implemented, bit-exact against the spektrafilm
+> oracle (golden-vector parity harness, `max_abs ≤ 1e-4` / `rms ≤ 1e-5`, byte-identical across
+> thread counts), NEON-accelerated (`kernels/exp10.h`), and ships in released APKs (v0.7.0+).
+> The C++ header, JNI bridge, and Kotlin facade/params are the stable contract; see
+> `../../docs/PORTING_PLAN.md` for the upstream module map and the parity strategy.
 
-## Layout (target)
+## Layout
 
 ```
 spektra-core/
-├── build.gradle.kts                     # convention plugins + externalNativeBuild(CMake)
+├── build.gradle.kts                     # externalNativeBuild(CMake)
 ├── src/main/cpp/
 │   ├── CMakeLists.txt                   # builds libspektra.so
 │   ├── spektra.h                        # ★ engine C API (the contract)
-│   ├── spektra.cpp                      # engine entry (stub in M0)
-│   ├── spektra_jni.cpp                  # JNI ↔ C API bridge (stub in M0)
+│   ├── spektra.cpp                      # engine entry (simulate / simulate_preview)
+│   ├── spektra_jni.cpp                  # JNI ↔ C API bridge
 │   ├── model/                           # density_curves, couplers, grain, diffusion, ...
-│   ├── runtime/                         # pipeline + stages (filming/printing/scanning)
-│   └── kernels/                         # gaussian, interp_lut, stats, spectral_upsampling
+│   ├── runtime/                         # pipeline + stages/ (filming/printing/scanning,
+│   │                                    #   crop_resize, autoexposure)
+│   ├── kernels/                         # gaussian, interp/lut3d, stats, exp10, parallel, half
+│   ├── io/                              # npy/.lut asset loaders
+│   ├── profiles/                        # profile JSON loaders
+│   └── tests/                           # host g++ parity tests (see CLAUDE.md)
 ├── src/main/kotlin/com/spectrafilm/engine/
 │   ├── SpektraEngine.kt                 # ★ Kotlin facade (loads .so, marshals buffers)
 │   └── SpektraParams.kt                 # ★ params mirror of RuntimePhotoParams

@@ -24,8 +24,9 @@ glare), 1200×900 ≈ 1.07 MP:
 Scanner 3D-LUT (`use_scanner_lut`) on the **print route**: 1.12 s → 1.10 s (res 17), **no real
 gain** — and *slower* at res 33 (LUT build cost). **Conclusion: the final scan is not the
 bottleneck.** The cost is the per-pixel **81-band spectral integrals in the filming and print
-*expose* stages** (run once each, per pixel), which are *not* LUT-accelerated today
-(`use_enlarger_lut` is reserved/unwired).
+*expose* stages** (run once each, per pixel), which are *not* LUT-accelerated on the default path
+(`use_enlarger_lut` is now wired but opt-in / default-off — the exact non-LUT path is the parity
+gate).
 
 At ~0.8 MP/s on 4 cores, a 12 MP proxy ≈ 15 s on CPU — orders of magnitude off Lightroom's
 GPU pipeline. CPU micro-opt alone won't close that; the gap is **architectural (GPU)**.
@@ -41,8 +42,8 @@ GPU pipeline. CPU micro-opt alone won't close that; the gap is **architectural (
 
 | # | Item | Speedup (est.) | Bit-exact? | Effort |
 |---|------|---------------|-----------|--------|
-| 1 | **Vulkan compute** port of the per-pixel spectral kernels (expose/print/scan) | **10–50×** (the real Lightroom lever) | No (GPU rounding) | XL — needs device + a compute-shader port |
-| 2 | **Enlarger/expose spectral LUT** (wire the reserved `use_enlarger_lut`; LUT the filming+print expose integrals like the scanner LUT) | ~3–8× on the print route | No (~5e-5) | M–L, native |
+| 1 | **Vulkan compute** port of the per-pixel spectral kernels (expose/print/scan) | **10–50×** (the real Lightroom lever) | No (GPU rounding) | XL — needs device + a compute-shader port. *NB:* an experimental default-OFF OpenGL ES **3D-LUT loupe** (`app/.../LutGpuPreview.kt`) is already in the tree — a different technique (a baked pointwise-look LUT sampled by GLES graphics, grain/halation forced off), **not** this per-kernel compute port; it does not subsume this item. |
+| 2 | **Enlarger/expose spectral LUT** (`use_enlarger_lut` is now wired, opt-in/default-off; it LUT-accelerates the print expose integral like the scanner LUT — could extend to filming) | ~3–8× on the print route | No (~5e-5) | M–L, native |
 | 3 | **fp16 intermediate buffers** on the proxy path | ~1.5–2× + ½ memory/bandwidth | No (fp16) | M, native (NEON `__fp16`) |
 | 4 | **Per-stage caches** — recompute only the changed stage across edits (LR's `cr_*_cache`) | big for slider drags | Yes (cached, identical) | M, engine state |
 | 5 | **Pause/refresh render on gesture** (LR `ICBPauseRendering`) | perceptual | Yes | S |
