@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -259,9 +260,35 @@ int main(int argc, char** argv) {
         spk_image_free(&ektar_out);
     }
 
+    // --- Cache-hit correctness (engine profile/tc_lut PERF caches) -----------
+    // A scan_portra render on the SAME, now warm-cached engine (kodak_portra_400
+    // profile + tc_lut were loaded during the scan/print blocks above) must be
+    // BYTE-IDENTICAL to a render on a FRESH engine (cold parse + build). This
+    // guards the id-keyed caches against any cross-param staleness — exact
+    // equality, not tolerance, since a cached entry is the same data as a fresh
+    // parse/build (a memo, not an approximation).
+    p.scan_film = 1;  // restore the scan_portra route (the print block set it 0).
+    bool pass_cache = false;
+    spk_image warm{}, cold{};
+    spk_engine* eng_cold = nullptr;
+    spk_status stw = spk_simulate(eng, &in_img, &p, &warm);
+    spk_status stc = spk_engine_create(asset_dir.c_str(), &eng_cold);
+    if (stc == SPK_OK) stc = spk_simulate(eng_cold, &in_img, &p, &cold);
+    if (stw == SPK_OK && stc == SPK_OK && warm.data && cold.data) {
+        pass_cache = (std::memcmp(warm.data, cold.data, n * sizeof(float)) == 0);
+        std::printf("[cache warm==cold scan_portra] -> %s\n",
+                    pass_cache ? "PASS (byte-identical)" : "FAIL");
+    } else {
+        std::fprintf(stderr, "cache-hit check setup failed (warm=%s cold=%s)\n",
+                     spk_status_str(stw), spk_status_str(stc));
+    }
+    if (warm.data) spk_image_free(&warm);
+    if (cold.data) spk_image_free(&cold);
+    if (eng_cold) spk_engine_destroy(eng_cold);
+
     spk_engine_destroy(eng);
     bool all = pass && pass_print_cmy && pass_print_rgb &&
-               pass_ektar_cmy && pass_ektar_rgb;
+               pass_ektar_cmy && pass_ektar_rgb && pass_cache;
     std::printf("%s\n", all ? "ALL PASS" : "FAIL");
     return all ? 0 : 1;
 }
