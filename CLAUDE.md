@@ -96,8 +96,9 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 
 A test passes when its output contains no `FAIL` line. CI `engine-parity` gates: `simulate_e2e`,
 `filming`, `spatial`, `crop_resize`, `autoexposure`, `diffusion` (+`_e2e`), `lut_accel`,
-`scanner_lut_e2e`, `output_spaces`, `lensblur`, and **`test_parallel`** (thread-invariance). The
-exact per-test argv is in `.github/workflows/ci.yml` — copy from there rather than guessing.
+`scanner_lut_e2e`, `enlarger_lut_e2e`, `output_spaces`, `lensblur`, `tonecurve`, `half`, and
+**`test_parallel`** (thread-invariance). The exact per-test argv is in
+`.github/workflows/ci.yml` — copy from there rather than guessing.
 
 - **`SPK_NUM_THREADS`** overrides `hardware_concurrency()` (parity tests pin 1 vs 8 to prove
   byte-identical output).
@@ -116,7 +117,7 @@ keystore secrets on a `v*` tag push and creates the GitHub Release.
 
 ## Conventions / gotchas
 
-- Current version: `versionCode 4` / `versionName 0.5.0`, `minSdk 24`, `targetSdk`/`compileSdk 34`.
+- Current version: `versionCode 9` / `versionName 0.7.0`, `minSdk 24`, `targetSdk`/`compileSdk 34`.
   ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
 - Commit with `-c commit.gpgsign=false` (the signing server rejects signing here).
 - Release signing: drop `keystore.properties` (`storeFile`/`storePassword`/`keyAlias`/`keyPassword`)

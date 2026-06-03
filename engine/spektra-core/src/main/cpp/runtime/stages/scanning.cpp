@@ -31,8 +31,11 @@ namespace {
 
 // Context for the cmy_to_log_xyz spectral integral (scanning.py::cmy_to_log_xyz):
 // the closure over the profile's channel_density / base_density, the scan
-// illuminant and its normalization. Shared by the per-pixel direct path AND the
-// LUT-build callback so the LUT samples EXACTLY the same transform.
+// illuminant and its normalization. Used by the LUT-build callback (the opt-in
+// use_lut path). The per-pixel DIRECT path does NOT call cmy_to_log_xyz; it
+// inlines the same math with the vector exp10 (kernels/exp10) instead of
+// std::pow below, so the LUT samples an equivalent transform to within the
+// exp10-vs-pow tolerance (<=4 ULP/band), not a byte-identical one.
 struct CmyToLogXyzCtx {
     const float* channel_density;  // (S*3,) row-major [l*3 + k]
     const float* base_density;     // (S,)
@@ -44,8 +47,10 @@ struct CmyToLogXyzCtx {
 
 // One cmy triple -> log_xyz (a 3-vector). Mirrors scanning.py::cmy_to_log_xyz for
 // a single pixel: spectral density -> 10^-D * illuminant (NaN->0) -> XYZ integral
-// / normalization -> log10(fmax(xyz, 0) + 1e-10). The direct path's steps 1-4 are
-// byte-for-byte this routine, so the LUT samples the identical transform.
+// / normalization -> log10(fmax(xyz, 0) + 1e-10). This LUT-build routine uses
+// std::pow(10,-D); the direct per-pixel path (below) computes steps 1-4 with the
+// vector exp10 equivalent (<=4 ULP/band), so the two agree to that tolerance --
+// not bit-for-bit. The remaining LUT error is dominated by the PCHIP sampling.
 inline void cmy_to_log_xyz(const CmyToLogXyzCtx& ctx, const double cmy[3],
                            double log_xyz[3]) {
     const double c0 = cmy[0], c1 = cmy[1], c2 = cmy[2];

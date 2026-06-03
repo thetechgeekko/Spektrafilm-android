@@ -49,3 +49,19 @@ Full-resolution RAW/DNG decoding uses **LibRaw**.
 
 The 28 film/paper JSON profiles and the spectral-upsampling LUT binaries originate from
 the spektrafilm project and are redistributed under GPLv3. See `docs/ASSETS.md`.
+
+## ICC color profiles
+
+The bundled ICC profiles under `engine/spektra-core/src/main/assets/spektra/icc/` are
+redistributed from two upstream sets (carried over from spektrafilm's asset bundle) so the
+export writers can embed a correct color interpretation. They are kept under their original
+upstream filenames for traceability. See `engine/spektra-core/src/main/assets/spektra/icc/README.md`.
+
+- **`icc/ellelstone/` — Elle Stone's well-behaved ICC profiles.** Copyright 2016, Elle Stone
+  (http://ninedegreesbelow.com/). Licensed under **Creative Commons Attribution-ShareAlike 3.0
+  Unported (CC BY-SA 3.0)**; attribution required. Upstream:
+  https://github.com/ellelstone/elles_icc_profiles — license text:
+  `icc/ellelstone/LICENSE-CC-BY-SA-3.0`. (CC BY-SA 3.0 is one-way compatible into GPLv3.)
+- **`icc/saucecontrol/` — Compact ICC Profiles** by Clinton Ingram. Licensed under the **MIT
+  License**. Upstream: https://github.com/saucecontrol/Compact-ICC-Profiles — license text:
+  `icc/saucecontrol/LICENSE-MIT`.
