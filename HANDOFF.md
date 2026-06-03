@@ -1,24 +1,82 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-03) — audit + cleanup + Android lifecycle fixes (PR #60)
-Work this session lives on branch `claude/intelligent-johnson-DEOqK` (draft **PR #60**, CI green):
-- **Removed committed `dist/*.apk`** (+`.sha256`) — stale (v0.1–0.3), **16 KB-page-misaligned**
-  (project `.so`s LOAD-aligned `0x1000` → `dlopen`-fail on Android 15 16 KB devices), and
-  **debug-signed**. Dropped the `!dist/*.apk` un-ignore. Releases ship via `release.yml`.
-- **Closed an ICC license gap** — `icc/ellelstone` (CC BY-SA 3.0) + `icc/saucecontrol` (MIT) ship in
-  the APK but were unattributed; added the `NOTICE.md` section + the two `LICENSE-*` files.
-- **Three Android lifecycle bugs fixed (compile+CI verified):** native engine leaked on every
-  config change → now a process-scoped `EngineHolder` singleton; edit session lost on process death
-  → `rememberSaveable` for source URI/kind/name + rotation; `DecodedSourceCache` now `close()`s
-  evicted entries; `SpektraEngine.close()` made idempotent.
-- **Doc re-sync** — corrected the docs that drifted from v0.7.0 reality (engine README "M0" banner,
-  ENGINE_WIRING_PLAN §3 enlarger-LUT, AUDIT/ASSETS/CHANGELOG, aspirational-doc banners). Still TODO:
-  a full `docs/RELEASE_CHECKLIST.md` rewrite and `docs/ROADMAP.md` status flips.
-- **Known open (deliberately deferred):** inert marshalled engine params (UV/IR filter, preflash,
-  spectral blur — wire-or-strip decision); latent int32 `npix*3` overflow (>715 MP, unreachable via
-  the app); build posture (`targetSdk 34`→35, lint baseline, emulator CI gate).
+## State (2026-06-03) — audit + cleanup + lifecycle fixes + render-speed/zoom (PR #60)
+All this session's work is on branch `claude/intelligent-johnson-DEOqK` (draft **PR #60**, **CI
+green** on every job — engine-parity, parity comparator, python-lint, engine-native, android
+assemble; emulator skipped as designed). **6 commits, +845 / −367, working tree clean.** Trunk is
+still v0.7.0 / versionCode 9; nothing here is merged (merging is policy-gated — needs user
+go-ahead).
+
+**Environment note:** this container now has the **full Android toolchain installed at
+`/opt/android-sdk`** (NDK `27.0.12077973`, CMake 3.22.1, build-tools 35, platforms 34+35) — so a
+web/CI session can build the app AND run `:app:testDebugUnitTest` end-to-end. `local.properties`
+(git-ignored) points `sdk.dir` there. A freshly-built arm64 `libspektra.so` was confirmed
+`0x4000`-aligned (the current build IS 16 KB-correct; only the old committed `dist/` APKs were not).
+
+What landed (commit → what):
+- `213a421` **chore(cleanup/license):** removed the committed `dist/*.apk` (+`.sha256`) — stale
+  (v0.1–0.3), **16 KB-page-misaligned** (`dlopen`-fail on Android 15 16 KB devices), debug-signed;
+  dropped the `!dist/*.apk` un-ignore. Closed the **ICC license gap** (`NOTICE.md` ICC section +
+  `icc/ellelstone/LICENSE-CC-BY-SA-3.0` + `icc/saucecontrol/LICENSE-MIT`). Fixed a false
+  `scanning.cpp` comment + CLAUDE.md version.
+- `cf8f2d1` **fix(app): three 🔴 Android lifecycle bugs** (compile+CI verified): native engine
+  leaked on every config change → process-scoped `EngineHolder` singleton (engine is immutable +
+  thread-safe, so never closed mid-life → no use-after-free); edit session lost on process death →
+  `rememberSaveable` for source URI/kind/name + rotation; `DecodedSourceCache.put/invalidate` now
+  `close()` evicted entries; `SpektraEngine.close()` made idempotent.
+- `3b33904` + `6a0f5dc` **docs: full re-sync to v0.7.0 reality** (two passes, agent-swarm + verified
+  against code): engine README "M0 contract only" → "shipped"; `ENGINE_WIRING_PLAN.md` §3 enlarger
+  LUT marked **wired** + fixed wrong fn name (`build_filming_tc_lut`); **`RELEASE_CHECKLIST.md`
+  rewritten** (was telling maintainers to commit APKs to the removed `dist/`, no 16 KB check → now
+  the real `release.yml` flow); AUDIT/ASSETS/CHANGELOG (added the missing v0.6.x RAW-OOM entry)/
+  RAW_DNG; `tools/parity/cases.md` (+lensblur case); `RESEARCH_MCRAW` line-refs; GPU/fp16 framing;
+  ⚠️ banners on the never-built ImageToolbox-host docs (ARCHITECTURE, IMAGETOOLBOX_MAP, bootstrap,
+  SCREEN_REGISTRATION).
+- `54d4d3d` **perf(engine): profile + filming tc_lut cache** (PARITY-SAFE). Every `simulate` was
+  re-parsing the profile JSON and rebuilding the tc_lut; now memoized on `spk_engine` keyed by
+  **immutable profile id** → byte-identical (a memo, not an approximation). **Verified byte-exact:**
+  host parity suite ALL-PASS unchanged + a new `test_simulate_e2e` **warm-engine-vs-fresh-engine
+  `memcmp`** assertion; thread-invariance intact. This is the down-payment on the bigger §3 stage
+  cache.
+- `af09449` **feat(viewer): Lightroom-style zoom** — zoom past fit now renders the **visible region
+  at ~screen resolution** (ROI render via the existing magnifier primitive `cropLinearImageRect` +
+  `simulatePreview`, debounced last-wins, overlaid sharp on the scaled proxy), instead of
+  GPU-scaling the 640px proxy. **Zero engine/C++ change**, memory bounded to screen res (sidesteps
+  full-res OOM). New `ZoomViewportTest` (7 cases) proves the transform math.
+
+**Verified this session:** host engine-parity ALL-PASS + byte-identical (1 vs 8 threads);
+`:app:assembleDebug` + `:app:testDebugUnitTest` **BUILD SUCCESSFUL, 37/37 unit tests** (incl. new
+`ZoomViewportTest`); PR #60 CI green.
+
+**GPU rendering — investigated (no code).** Verdict: GPU can be a **preview-only accelerator,
+never export** (parity is bit-exact-vs-oracle AND byte-identical-across-threads; GPU float varies by
+vendor, the expose integrals are float64, and `-fno-finite-math-only` NaN handling is
+implementation-defined on GPU). The existing `gpu/vulkan_compute.cpp` + SPIR-V is **dead scaffolding**
+(default-OFF, zero callers) and covers the **scan** stage — NOT the measured hotspot (the filming/
+print **expose** integrals, which have no GPU kernel). `LutGpuPreview.kt` is a default-off pointwise
+`.cube` loupe, not a pipeline render. A real GPU render path is **XL and hardware-blocked** (no arm64
+GPU here to validate cross-vendor).
+
+**Next steps (ranked, best speed-per-effort first):**
+1. **§3 per-stage cache** (cache `film_density_cmy` so print/scan-only edits skip the two most
+   expensive stages) — biggest interactive win, **bit-exact**, host-verifiable. Builds directly on
+   `54d4d3d`. Needs a double-render correctness test like the one added this session.
+2. **Filming-expose LUT for preview** (the print side is wired as `use_enlarger_lut`; extend the LUT
+   technique to the filming expose, where the cost actually is) — preview-only, exact path stays the
+   gate.
+3. **On-device verification pass** — the zoom UX (overlay registration, sharpness, gesture feel) and
+   the lifecycle fixes are unit/compile/CI verified but need a real device/display (this container
+   has none). Un-gate/fix the `android-emulator` CI job while there.
+4. **fp16 preview buffers** (`kernels/half` exists + tested) — ~1.5–2×, preview-only.
+5. **GPU compute** — last; only after 1–4 and with real devices. Target a fused filming→print→scan
+   per-pixel kernel, NOT the existing scan-only shader; grain/spatial stay on CPU.
+6. **Still deferred** (from the audit): inert marshalled engine params (UV/IR filter, preflash,
+   spectral blur — wire-or-strip decision + a new oracle golden); latent int32 `npix*3` overflow
+   (>715 MP, unreachable via the app's 16384px export cap); build posture (`targetSdk 34`→35, lint
+   baseline masks 26 dep warnings, emulator CI gate is manual-only).
 
 ## State (2026-06-02)
+- **`main` is the trunk.** Current on `main`: **`versionCode 9` / `versionName 0.7.0`** (PR #59
 - **`main` is the trunk.** Current on `main`: **`versionCode 9` / `versionName 0.7.0`** (PR #59
   merged). **`v0.7.0` is tagged + RELEASED** — `release.yml` built and published the **signed**
   `Spektrafilm-v0.7.0.apk` (21.5 MB) + `.sha256` to the GitHub Release (run success, `apksigner
