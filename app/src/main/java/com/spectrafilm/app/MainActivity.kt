@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -274,10 +275,15 @@ class MainActivity : ComponentActivity() {
         var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
         var catalogReady by remember { mutableStateOf(false) }
 
-        // image / result state
-        var sourceUri by remember { mutableStateOf<Uri?>(null) }
-        var sourceKind by remember { mutableStateOf(SourceKind.DEMO) }
-        var sourceName by remember { mutableStateOf("synthetic demo image") }
+        // image / result state. The source identity (uri/kind/name) and the manual
+        // rotation survive process death via rememberSaveable so a recreated Activity
+        // restores the loaded image instead of silently dropping the user back on the
+        // demo image. Uri is Parcelable and the enums are Serializable, so the default
+        // autoSaver stores them. The decode + recipe-restore re-run off the restored
+        // source via the post-init render (previewTick) and the recipe-open effect.
+        var sourceUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+        var sourceKind by rememberSaveable { mutableStateOf(SourceKind.DEMO) }
+        var sourceName by rememberSaveable { mutableStateOf("synthetic demo image") }
         var preview by remember { mutableStateOf<Bitmap?>(null) }
         var beforePreview by remember { mutableStateOf<Bitmap?>(null) }
         var status by remember { mutableStateOf("initializing…") }
@@ -292,7 +298,7 @@ class MainActivity : ComponentActivity() {
         // source rotation (applied to the decoded LinearImage -> preview AND export).
         // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
         // (see loadSource) and is NOT persisted in the recipe.
-        var rotation by remember { mutableStateOf(SourceRotation.NONE) }
+        var rotation by rememberSaveable { mutableStateOf(SourceRotation.NONE) }
 
         // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
         // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
@@ -412,17 +418,14 @@ class MainActivity : ComponentActivity() {
             status = "redo"
         }
 
-        // One-time engine init. Prefer reading bundled assets straight from the APK
-        // (no ~17 MB extraction to filesDir); fall back to the extract-then-create
-        // path if the AAssetManager engine can't be created.
+        // One-time engine init. The engine is a process-scoped singleton (see
+        // EngineHolder): immutable + thread-safe after construction, so it is reused
+        // across Activity recreations instead of being re-created and leaked on every
+        // configuration change. EngineHolder also handles the AAssetManager-then-extract
+        // fallback. Created off the main thread (asset wiring is heavy on first call).
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
-                val e = runCatching {
-                    SpektraEngine.fromAssets(ctx.applicationContext.assets)
-                }.getOrElse {
-                    val dir = extractAssets(ctx)
-                    SpektraEngine(dir.absolutePath)
-                }
+                val e = EngineHolder.get(ctx)
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
                 StockCatalog.stocks(ctx) // warm the catalog cache
                 val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())

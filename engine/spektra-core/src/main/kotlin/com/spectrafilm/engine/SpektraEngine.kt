@@ -98,6 +98,8 @@ class SpektraEngine private constructor(
 
     private val handle: Long = handle
 
+    @Volatile private var destroyed = false
+
     /** Filesystem mode: read bundled assets from an extracted [assetDir] on disk. */
     constructor(assetDir: String? = null) : this(nativeCreate(assetDir), null)
 
@@ -143,8 +145,12 @@ class SpektraEngine private constructor(
         nativeBakeCubeLut(handle, params, size)
             ?: error("spektra: bakeCubeLut returned null (handle=$handle)")
 
+    /** Destroy the native engine. Idempotent — a second call is a no-op (no double free). */
+    @Synchronized
     override fun close() {
-        if (handle != 0L) nativeDestroy(handle)
+        if (destroyed || handle == 0L) return
+        destroyed = true
+        nativeDestroy(handle)
     }
 
     // --- native bridge (see spektra_jni.cpp) ---

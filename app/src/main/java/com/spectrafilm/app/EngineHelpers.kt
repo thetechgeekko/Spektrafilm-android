@@ -339,20 +339,26 @@ class DecodedSourceCache {
         return if (k == key) image else null
     }
 
-    /** Store [img] as the single cached entry, dropping any previous one (GC reclaims it). */
+    /** Store [img] as the single cached entry, releasing any previous one. */
     @Synchronized
     fun put(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
         temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
         img: LinearImage,
     ) {
+        // Release the previous entry. This cache only holds proxy-scale (previewMaxSize
+        // <= 1024, well below HALF_DECODE_EDGE_THRESHOLD) MANAGED buffers, so close() is
+        // a no-op the GC then reclaims; closing also correctly frees the native buffer
+        // were an off-heap image ever cached, instead of leaking it (native memory is
+        // not GC-tracked). Guarded against re-putting the same instance.
+        image?.takeIf { it !== img }?.close()
         key = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
-        image = img // previous LinearImage (and its direct buffer) is now unreferenced -> GC
+        image = img
     }
 
-    /** Drop the cached entry (e.g. on teardown). */
+    /** Drop the cached entry (e.g. on teardown), releasing its buffer. */
     @Synchronized
-    fun invalidate() { key = null; image = null }
+    fun invalidate() { image?.close(); key = null; image = null }
 }
 
 /** Display-referred float RGB (0..1, already CCTF-encoded by the engine) → ARGB_8888 bitmap. */
