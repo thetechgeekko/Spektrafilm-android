@@ -51,6 +51,7 @@
 #include "io/npy_lut.h"
 #include "model/color_filters.h"
 #include "profiles/profile.h"
+#include "runtime/color_reference.h"
 #include "runtime/params.h"
 #include "runtime/print_digest.h"
 #include "runtime/stages/autoexposure.h"
@@ -720,6 +721,28 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // 4) expose(): the image runs as float64 (ProPhoto linear). `rgb` was built
     //    by preprocess_geometry above (crop/rescale applied, float64), matching
     //    the Python pipeline.
+    // Scanner BLACK/WHITE correction (scan_film route). Active only when a
+    // correction is enabled AND the film is POSITIVE (color_reference.py returns a
+    // no-op for negative film + the scan_film negative route). For positive film we
+    // measure the reference Y values from the film density curves, build the shared
+    // affine (m, q, midgray_corrected), and apply the FILMING exposure correction
+    // here + the XYZ correction in scan() below. For negative film everything stays
+    // a strict no-op so the default scan goldens are bit-exact.
+    spk::ColorCorrection bw_corr;  // inactive by default
+    const bool bw_on = (p->scanner_white_correction != 0) ||
+                       (p->scanner_black_correction != 0);
+    if (bw_on && film.is_positive()) {
+        double y_black, y_white;
+        spk::measure_scanfilm_references(film, &y_black, &y_white);
+        bw_corr = spk::build_color_correction(
+            y_black, y_white,
+            spk::remove_srgb_cctf(static_cast<double>(p->scanner_black_level)),
+            spk::remove_srgb_cctf(static_cast<double>(p->scanner_white_level)),
+            p->scanner_black_correction != 0, p->scanner_white_correction != 0);
+        fparams.bw_exposure_correction =
+            spk::exposure_correction_factor(film, bw_corr, /*filming_positive=*/true);
+    }
+
     std::vector<float> log_raw(static_cast<size_t>(npix) * 3);
     spk::expose(rgb.data(), width, height, fparams, tc_lut, log_raw.data());
     if (tap_log_raw) *tap_log_raw = log_raw;
@@ -755,6 +778,13 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         sparams.lut_resolution = p->lut_resolution;
     }
     sparams.tone_curve = build_tone_curve_set(p);
+    // Scanner BLACK/WHITE XYZ correction (scan_film route): apply the shared affine
+    // (m, q) per pixel in scan(). Inactive (strict no-op) for negative film.
+    if (bw_corr.active) {
+        sparams.bw_xyz_correction = true;
+        sparams.bw_xyz_m = bw_corr.m;
+        sparams.bw_xyz_q = bw_corr.q;
+    }
 
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb->data());
@@ -921,6 +951,54 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     if (pparams.diffusion_filter.active)
         pparams.pixel_size_um = resize_pixel_size_um;
 
+    // Scanner BLACK/WHITE correction (print route). Active only when a correction is
+    // enabled AND the print paper is NEGATIVE (color_reference.py's
+    // black_white_printing_exposure_correction computes only for print.type ==
+    // 'negative'; the xyz correction is active on the whole print route). The two
+    // reference Y values come from develop_simple of the print reference log_raw
+    // vectors, which are _film_cmy_to_print_log_raw of the film black/white
+    // reference CMY densities (cmy_film_black = -grain.density_min, cmy_film_white =
+    // nanmax(film.density_curves)) through the LIVE enlarger params (pparams must be
+    // fully built — filtered illuminant, midgray factor, preflash — by here). We
+    // then set the PRINTING exposure correction (pparams.bw_exposure_correction,
+    // already plumbed into print_expose) + the XYZ correction in the print scan()
+    // below. Default-off / non-negative-paper => strict no-op, so the print goldens
+    // stay bit-exact.
+    spk::ColorCorrection bw_corr;  // inactive by default
+    const bool bw_on = (p->scanner_white_correction != 0) ||
+                       (p->scanner_black_correction != 0);
+    if (bw_on && prnt.is_negative()) {
+        // cmy_film_black = -grain.density_min; cmy_film_white = nanmax(film curves).
+        double cmy_film_black[3] = {
+            -static_cast<double>(p->grain_density_min[0]),
+            -static_cast<double>(p->grain_density_min[1]),
+            -static_cast<double>(p->grain_density_min[2])};
+        double cmy_film_white[3] = {-INFINITY, -INFINITY, -INFINITY};
+        for (int n = 0; n < film.n_density_pts; ++n) {
+            const float* dc =
+                film.density_curves.data() + static_cast<size_t>(n) * 3;
+            for (int k = 0; k < 3; ++k) {
+                double v = static_cast<double>(dc[k]);
+                if (!std::isnan(v) && v > cmy_film_white[k]) cmy_film_white[k] = v;
+            }
+        }
+        double log_raw_black[3], log_raw_white[3];
+        spk::print_reference_log_raw(film, prnt, pparams, cmy_film_black,
+                                     log_raw_black);
+        spk::print_reference_log_raw(film, prnt, pparams, cmy_film_white,
+                                     log_raw_white);
+        double y_black, y_white;
+        spk::measure_print_references(prnt, log_raw_black, log_raw_white, pg,
+                                      &y_black, &y_white);
+        bw_corr = spk::build_color_correction(
+            y_black, y_white,
+            spk::remove_srgb_cctf(static_cast<double>(p->scanner_black_level)),
+            spk::remove_srgb_cctf(static_cast<double>(p->scanner_white_level)),
+            p->scanner_black_correction != 0, p->scanner_white_correction != 0);
+        pparams.bw_exposure_correction = spk::exposure_correction_factor(
+            prnt, bw_corr, /*filming_positive=*/false);
+    }
+
     // 4) Filming stage (rgb -> film density_cmy), reusing the bit-exact port.
     //    The print route runs the negative with spatial+stochastic effects off
     //    (matching the print_portra parity toggles), so only the pointwise
@@ -1058,6 +1136,14 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         sparams.lut_resolution = p->lut_resolution;
     }
     sparams.tone_curve = build_tone_curve_set(p);
+    // Scanner BLACK/WHITE XYZ correction (print route): apply the shared affine
+    // (m, q) per pixel in scan(). Inactive (strict no-op) by default / when the
+    // print paper is not negative.
+    if (bw_corr.active) {
+        sparams.bw_xyz_correction = true;
+        sparams.bw_xyz_m = bw_corr.m;
+        sparams.bw_xyz_q = bw_corr.q;
+    }
     final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
               final_rgb->data());

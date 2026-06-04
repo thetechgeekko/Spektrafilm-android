@@ -41,6 +41,17 @@ struct FilmingParams {
     // Exposure (auto-exposure off, exposure_compensation_ev == 0 under goldens).
     double exposure_compensation_ev = 0.0;
 
+    // Scanner BLACK/WHITE filming exposure correction (color_reference.py::
+    // black_white_filming_exposure_correction), applied in expose() as a scalar
+    // multiplier on the raw irradiance (raw *= bw_exposure_correction), right
+    // where filming.py does `raw *= black_white_filming_exposure_correction()`
+    // (after halation, before log10). It is 1.0 (a STRICT no-op) on every parity
+    // route EXCEPT scan_film with a POSITIVE film: the oracle returns 1.0 for
+    // negative film and for the print route, so all existing goldens (negative
+    // film) stay bit-exact. The factor is computed by the caller via
+    // color_reference.h::exposure_correction_factor(filming_positive=true).
+    double bw_exposure_correction = 1.0;
+
     // Density-curve gamma (scalar broadcast to all three channels).
     float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};
 

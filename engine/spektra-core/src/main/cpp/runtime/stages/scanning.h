@@ -103,6 +103,21 @@ struct ScanningParams {
     int lut_resolution = 32;
     double grain_density_min[3] = {0.07, 0.08, 0.12};
 
+    // Scanner BLACK/WHITE XYZ correction (color_reference.py::
+    // black_white_xyz_correction): a scan-time tone anchor that maps the measured
+    // CIE Y at the reference black/white densities to the (sRGB-decoded) target
+    // levels via the affine y_corrected = clip(m*Y + q, 0, 1), then rescales the
+    // whole XYZ triple by y_corrected / (Y + 1e-10). Applied per pixel right after
+    // the density->XYZ step and BEFORE add_glare + XYZ->RGB, exactly matching
+    // scanning.py::_density_to_rgb. m/q are built by the caller from the route's
+    // reference Y values (color_reference.h). bw_xyz_correction defaults OFF (the
+    // four scanner_*_correction params default to false), a STRICT no-op, so every
+    // pre-existing golden stays bit-exact. The oracle skips this correction on the
+    // scan_film negative route (and for negative scans the caller leaves it off).
+    bool bw_xyz_correction = false;
+    double bw_xyz_m = 1.0;
+    double bw_xyz_q = 0.0;
+
     // OPTIONAL Lightroom-style tone curve on the final display-referred RGB, applied
     // per channel right after CCTF encode + clip (kernels/tonecurve). Default
     // inactive => strict no-op (apply() returns the input unchanged), so existing

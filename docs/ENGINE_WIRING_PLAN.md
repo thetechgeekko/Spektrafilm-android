@@ -15,10 +15,13 @@ gated by the `print_portra_preflash` golden pinned to oracle **c1d0e44** + `test
 the UI sliders were already live. §4 (enlarger lens blur) remains intentionally not wireable (no
 oracle call site).
 
-All **LUT-build-path** inert params are now wired, and the print-route preflash is wired. One
-inert param remains as a **scoped follow-up** (real oracle call site, but a higher-complexity
-multi-stage port, so it warrants its own PR — see §7): `scanner_white/black_correction` +
-`_white/black_level` (spans filming/printing/scanning). Only §4 stays gated by design.
+All **LUT-build-path** inert params are now wired, the print-route preflash is wired, and the
+multi-stage **scanner black/white corrections** (`scanner_white/black_correction` +
+`_white/black_level`) are now WIRED too (§7 — `runtime/color_reference.{h,cpp}`, gated by the
+`print_portra_bwcorr` + `scan_provia_bwcorr` goldens pinned to oracle **c1d0e44** +
+`test_scanner_bwcorr_e2e`; the UI sliders were already live). **Every inert engine param with a
+real oracle call site is now wired** — only §4 (enlarger lens blur, no oracle call site) stays
+gated by design.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
@@ -179,14 +182,37 @@ live preflash params on every call.
 
 ---
 
-## 7. Scanner white/black corrections (`scanner_white/black_correction`, `_white/black_level`) — wireable follow-up
+## 7. Scanner white/black corrections (`scanner_white/black_correction`, `_white/black_level`) — ✅ WIRED
 
 **What it is.** A scan-time tone-anchor correction that maps measured Y at the reference
 black/white densities to target levels (and back-corrects the filming/printing exposure).
 
-**Status.** Inert (marshalled, consumed by no stage). Wireable, but the **highest-complexity**
-remaining item — it spans three stages with film/print-type and `scan_film` branches. Scoped as
-its own PR with multiple goldens (negative-scan, positive-scan, print routes).
+**Status. WIRED (this PR).** Ported to the new native module `runtime/color_reference.{h,cpp}`
+(`ColorReferenceService`). The shared affine `correction_func(y)=clip(m*y+q,0,1)` with
+`m=(white_level-black_level)/(y_white-y_black+1e-10)`, `q=black_level-m*y_black` is built once per
+render from the route-appropriate reference Y values, then applied:
+- **Scanning XYZ correction** (`scanning.cpp`, `ScanningParams::bw_xyz_correction/m/q`): per pixel
+  `xyz *= clip(m*Y+q,0,1)/(Y+1e-10)`, right after density→XYZ, before glare + XYZ→RGB. Active on
+  every route except `scan_film`+negative film.
+- **Printing exposure correction** (print route + negative paper): folded into the already-plumbed
+  `PrintingParams::bw_exposure_correction` (`print_expose` already multiplied by it). References
+  via `print_reference_log_raw` (`printing.cpp`) → `develop_simple` → `cmy_to_log_xyz` on the print
+  profile.
+- **Filming exposure correction** (`scan_film`+positive film): new `FilmingParams::bw_exposure_correction`,
+  applied in `filming.cpp::expose` as `raw *= factor` (after halation, before log10). References
+  from the film density curves directly (`cmy_black=nanmax(film.density_curves)`, `cmy_white=0`).
+
+The white/black levels are sRGB-decoded exactly as colour's `_remove_sRGB_cctf` (cctf decode ×
+the `RGB_to_RGB(sRGB,sRGB)` mean row-sum residue `1.0000282666666667`). Default (both corrections
+off) is a strict no-op — all pre-existing goldens reproduce bit-exactly. Not folded into the
+film-density memo key (print-route corrections don't touch the negative's film density; the
+`scan_film` route doesn't use that cache).
+
+**Gate.** Two goldens pinned to oracle **c1d0e44** — `print_portra_bwcorr` (print route: printing
+exposure + XYZ) and `scan_provia_bwcorr` (`scan_film`+positive film: filming exposure + XYZ, DIR
+couplers off to isolate the separately-un-gated positive-film coupler branch) — plus
+`tests/test_scanner_bwcorr_e2e.cpp` in CI `engine-parity`. All four validation gates green
+(default byte-identity, correction-on within tol, thread-invariance 1≡8, JVM).
 
 **Oracle reference.**
 - `spektrafilm/.../runtime/services/color_reference.py` — `ColorReferenceService`:

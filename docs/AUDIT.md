@@ -75,9 +75,35 @@ not a commitment to do all of it.
   (`print_expose` re-runs with live preflash params on every call; a film-cache HIT serves the
   unchanged negative). The UI sliders were already live + JNI-marshalled; only the engine
   consumption was missing. Gated by the `print_portra_preflash` golden (oracle **c1d0e44**) +
-  `test_preflash_e2e` in CI `engine-parity`. The remaining inert param (scanner white/black
-  corrections) is wireable against a c1d0e44 call site but is higher-complexity (spans
-  filming/printing/scanning) — see the next-actions list.
+  `test_preflash_e2e` in CI `engine-parity`.
+- ✅ **Scanner black/white corrections** (`scanner_white_correction` / `_black_correction` /
+  `_white_level` / `_black_level`) **WIRED (this PR).** Port of
+  `runtime/services/color_reference.py` (`ColorReferenceService`) +
+  `runtime/pipeline.py:45-46`, new native module `runtime/color_reference.{h,cpp}`. A scan-time
+  tone anchor that maps the measured CIE Y at the reference black/white densities to the
+  sRGB-decoded target levels via the shared affine `y_corrected = clip(m*Y+q, 0, 1)`
+  (`_correction_fucntion`), where `m=(white_level-black_level)/(y_white-y_black+1e-10)`,
+  `q=black_level-m*y_black`. It is applied in two coupled places, each route-gated:
+  (a) the **scanning XYZ correction** (`black_white_xyz_correction`, every route except
+  `scan_film`+negative film): per pixel `xyz *= clip(m*Y+q,0,1)/(Y+1e-10)` in `scanning.cpp`;
+  (b) an **exposure correction** re-anchoring midgray — the **printing** exposure correction
+  (`black_white_printing_exposure_correction`, print route + negative paper) folded into the
+  already-plumbed `PrintingParams::bw_exposure_correction`, and the **filming** exposure
+  correction (`black_white_filming_exposure_correction`, `scan_film`+positive film) folded into a
+  new `FilmingParams::bw_exposure_correction` (`raw *= factor` after halation, before log10). The
+  level decode reproduces colour's `_remove_sRGB_cctf` bit-for-bit (cctf decode × the
+  near-identity `RGB_to_RGB(sRGB,sRGB)` mean row-sum residue `1.0000282666666667`). Defaults
+  (both corrections false) are a STRICT no-op — every pre-existing golden reproduces bit-exactly,
+  and the `scan_film`+negative route (the default scan goldens) is a no-op by construction. NOT
+  folded into the film-density memo key: on the print route the corrections only touch
+  `print_expose`/`scan`, not the negative's film density (filming correction is 1.0 for negative
+  film), so a film-cache HIT serves the unchanged negative; the `scan_film` route never consults
+  that cache. The UI sliders were already live + JNI-marshalled; only the engine consumption was
+  missing. Gated by two goldens (oracle **c1d0e44**): `print_portra_bwcorr` (print route: printing
+  exposure + XYZ corrections) and `scan_provia_bwcorr` (`scan_film`+positive film: filming
+  exposure + XYZ corrections, DIR couplers off to isolate the un-gated positive-film coupler
+  branch) + `test_scanner_bwcorr_e2e` in CI `engine-parity`. **This closes audit-action-#2: all
+  named inert engine params are now wired or explicitly resolved.**
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
@@ -186,10 +212,14 @@ not a commitment to do all of it.
      Default-off no-op, full 4-gate parity (`print_portra_preflash` golden pinned to c1d0e44 +
      `test_preflash_e2e`). See §A.
    - **`scanner_white_correction` / `_black_correction` / `_white_level` / `_black_level` —
-     the LAST #2 follow-up, wireable (highest complexity).** Oracle call site:
-     `runtime/services/color_reference.py` + `runtime/pipeline.py:45-46`. Spans THREE stages
-     (filming exposure correction, printing exposure correction, scanning XYZ correction) with
-     branches on film/print type and `scan_film`; needs the most careful port + multiple goldens.
+     WIRED (this PR), the LAST #2 follow-up.** Oracle call site:
+     `runtime/services/color_reference.py` (`ColorReferenceService`) + `runtime/pipeline.py:45-46`,
+     ported to `runtime/color_reference.{h,cpp}`. Spans THREE stages (filming exposure correction
+     for `scan_film`+positive film, printing exposure correction for the print route + negative
+     paper, scanning XYZ correction for every route except `scan_film`+negative) via the shared
+     affine `clip(m*Y+q,0,1)`. Default-off strict no-op; full 4-gate parity with TWO goldens pinned
+     to c1d0e44 (`print_portra_bwcorr` + `scan_provia_bwcorr`) + `test_scanner_bwcorr_e2e`. **With
+     this, every named inert engine param from action #2 is resolved — action #2 is CLOSED.** See §A.
 3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).
 4. Maintainer/device items: a release-build (R8-enabled) on-device smoke + screen-unlocked visual

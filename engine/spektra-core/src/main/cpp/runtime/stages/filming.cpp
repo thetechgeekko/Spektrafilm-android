@@ -452,6 +452,16 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
                           params.pixel_size_um);
     }
 
+    // Scanner BLACK/WHITE filming exposure correction (color_reference.py::
+    // black_white_filming_exposure_correction), applied here as filming.py does
+    // (`raw *= black_white_filming_exposure_correction()`, after halation, before
+    // log10). 1.0 (a strict no-op) on every route except scan_film + positive film,
+    // so the default goldens (negative film) stay bit-exact.
+    if (params.bw_exposure_correction != 1.0) {
+        const double c = params.bw_exposure_correction;
+        for (int i = 0; i < npix * 3; ++i) raw[i] *= c;
+    }
+
     // log_raw = log10(fmax(raw, 0) + 1e-10).
     for (int i = 0; i < npix * 3; ++i) {
         double lr = std::log10(std::fmax(raw[i], 0.0) + 1e-10);
