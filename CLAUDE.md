@@ -94,10 +94,14 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 # then run with the args the CI `engine-parity` job uses (see .github/workflows/ci.yml)
 ```
 
-A test passes when its output contains no `FAIL` line. CI `engine-parity` gates: `simulate_e2e`,
-`filming`, `spatial`, `crop_resize`, `autoexposure`, `diffusion` (+`_e2e`), `lut_accel`,
-`scanner_lut_e2e`, `enlarger_lut_e2e`, `output_spaces`, `lensblur`, `tonecurve`, `half`, and
-**`test_parallel`** (thread-invariance). The exact per-test argv is in
+A test passes when its output contains no `FAIL` line. CI `engine-parity` gates (23 tests):
+`simulate_e2e`, `filming`, `spatial`, `crop_resize`, `autoexposure`, `diffusion` (+`_e2e`),
+`lut_accel`, `scanner_lut_e2e`, `enlarger_lut_e2e`, `output_spaces`, `lensblur`, `tonecurve`,
+`half`, `bake_lut`, `params_passthrough`, the spektral-param wiring gates
+`spectral_blur_e2e`, `hanatos_surface_e2e`, `camera_uvir_e2e`, `preflash_e2e`,
+`scanner_bwcorr_e2e`, `provia_couplers_e2e` (the last gates the positive-film DIR-coupler path),
+and **`test_parallel`** (thread-invariance). The param-wiring goldens are pinned to oracle SHA
+`c1d0e44` (see `tools/parity/setup_env.sh`). The exact per-test argv is in
 `.github/workflows/ci.yml` — copy from there rather than guessing.
 
 - **`SPK_NUM_THREADS`** overrides `hardware_concurrency()` (parity tests pin 1 vs 8 to prove

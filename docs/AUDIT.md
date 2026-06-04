@@ -111,7 +111,7 @@ not a commitment to do all of it.
   (positive branch: `density_silver = nanmax(density_curves) - density`, interpolate the
   `-density` curve) was already correct — fed the oracle's exact inputs it reproduced the result
   to 2.38e-7. The divergence was the **inhibitor matrix**: `runtime/params.cpp`'s
-  `digest_dir_couplers_params` ported the negative/positive coupler-gamma branch of
+  `digest_filming_params` ported the negative/positive coupler-gamma branch of
   `params_builder._apply_film_specifics` (lines 112-122) but **omitted the per-stock override**
   (lines 149-158) that overwrites the generic positive default `(0.12,0.08,0.06)` with the
   provia values `gamma_samelayer_rgb=(0.156,0.104,0.078)` (and matching interlayer terms;
