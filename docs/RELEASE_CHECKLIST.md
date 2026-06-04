@@ -44,6 +44,14 @@ The single `build-signed-apk` job (Ubuntu runner) then:
 
 - [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `9` / `"0.7.0"`).
 - [ ] Update `CHANGELOG.md` for the new version.
+- [ ] Note: the release build now runs **R8** (`isMinifyEnabled = true`, `app/build.gradle.kts:53`).
+  This is **Stage 1 — shrink only, `-dontobfuscate`** (`app/proguard-rules.pro:2`), with explicit
+  keep-rules for the four name-based JNI boundaries (`com.spectrafilm.engine.**`, `RawDecoder`,
+  `TiffWriter`, `PngWriter`, `native <methods>`) and enum value/`valueOf` persistence. Because the
+  JNI symbols resolve classes/methods by literal string from C++, a missing keep-rule surfaces only
+  at runtime — sanity-check that a release build still loads native libs and exports/decodes before
+  publishing (the `android-emulator` job is manual-only and not a standing gate). Obfuscation
+  (Stage 2) is still deferred.
 - [ ] Confirm CI is green on `main`. The relevant gating jobs in `.github/workflows/ci.yml` are:
   - `engine-native` — host C++ build of libspektra.
   - `engine-parity` — the stage parity gate (deterministic goldens, thread-invariance).
@@ -123,6 +131,8 @@ used for the `gh release` calls.)
 - `.github/workflows/ci.yml:32-176` (gating jobs), `:208-228` (16 KB `zipalign -P 16` +
   `readelf -lW` `LOAD 0x4000` check).
 - `app/build.gradle.kts:10-17` (keystore.properties read), `:35-36` (versionCode 9 / 0.7.0),
-  `:53-59` (`isMinifyEnabled = false`, real-keystore-else-debug signing).
+  `:53` (`isMinifyEnabled = true` — R8 shrink), `:60-66` (real-keystore-else-debug signing).
+- `app/proguard-rules.pro` (R8 Stage-1 keep-rules: JNI boundary classes + enum persistence,
+  `-dontobfuscate`).
 </content>
 </invoke>

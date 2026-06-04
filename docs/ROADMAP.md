@@ -55,10 +55,21 @@ Milestones are vertical slices. Each ends with something demonstrable and a pari
 > APK-direct asset path is done** (2026-06-01) — the engine loads profiles/LUT/filters from the
 > APK with no first-run extraction (on-device arm64 parity still `ALL PASS`). On the release side,
 > `release.yml` ships a signed APK on a `v*` tag and local release builds read `keystore.properties`
-> (debug fallback only when it is absent) — so there is no debug-signed release blocker. Only minor,
-> by-design items remain: bit-exact glare-on-print is impossible (stochastic), and a handful of UI
-> toggles (`apply_hanatos2025_*`, enlarger lens blur) are still unwired
-> pending new oracle goldens (tracked in `docs/AUDIT.md` + `docs/ENGINE_WIRING_PLAN.md`).
+> (debug fallback only when it is absent) — so there is no debug-signed release blocker. **R8 is now
+> enabled** (2026-06-04) — `isMinifyEnabled = true`, Stage 1 *shrink only* (`-dontobfuscate`) with
+> keep-rules for the four name-based JNI boundaries and enum persistence (`app/proguard-rules.pro`);
+> Stage 2 obfuscation is deferred. Only minor, by-design items remain: bit-exact glare-on-print is
+> impossible (stochastic), and a handful of UI toggles (`apply_hanatos2025_*`, enlarger lens blur)
+> are still unwired pending new oracle goldens (tracked in `docs/AUDIT.md` +
+> `docs/ENGINE_WIRING_PLAN.md`).
+>
+> **Milestone progress (v0.5.0 → v0.6.x → v0.7.0):** v0.5.0 landed the Lightroom-feel editor wave;
+> the v0.6.x line fixed the full-resolution / off-heap RAW export OOM (PR #56) and bumped through
+> `versionCode 5→8`. v0.7.0 (`versionCode 9`) closed the last M3/M4 remainders — `use_enlarger_lut`
+> wired+gated, the AAssetManager APK-direct asset path, the hanatos2025 adaptation window/surface
+> (PR #69) and `spectral_gaussian_blur` (PR #68) now wired, the parity oracle pinned to `c1d0e44`
+> (PR #67) — and enabled signed releases via `release.yml` plus R8 Stage-1 shrink. **M3 and M4 are
+> complete.**
 
 ## M0 — Foundation  ✅ (this commit)
 Architecture decided, both repos mapped, port plan written, RAW/licensing strategy fixed,
@@ -200,8 +211,9 @@ gate; export stays on the CPU engine. Optional "bake to 3D `.cube` LUT" export. 
 > threading. `expose()` (gather-bound) and the per-pixel `10^log_xyz` round-trips stay scalar.
 >
 > Still open in M6: memory tiling for very large RAW (spatial-stage haloing), the optional GPU
-> preview accelerator, profile-catalog UI, APK-size review, and the downscale anti-aliasing
-> prefilter.
+> preview accelerator, profile-catalog UI, and the downscale anti-aliasing prefilter. **APK-size
+> review landed** (2026-06-04): R8 Stage-1 shrink is now on (`isMinifyEnabled = true`, no
+> obfuscation, JNI/enum keep-rules — `app/proguard-rules.pro`); Stage-2 obfuscation deferred.
 
 ## M7 — Final polish & presentation (requested)
 The "do this when literally everything else is done" list:
@@ -224,7 +236,8 @@ The "do this when literally everything else is done" list:
   enlarger lens blur) pending new oracle goldens — see `docs/AUDIT.md`.
   Release signing is **in place**: `release.yml` publishes a signed APK on a `v*` tag, and local
   release builds read `keystore.properties` (debug fallback only when that file is absent), so
-  there is no debug-signed release blocker.
+  there is no debug-signed release blocker. **R8 is enabled** (Stage-1 shrink, no obfuscation,
+  JNI/enum keep-rules); Stage-2 obfuscation remains the only deferred size item.
 
 ## Cross-cutting
 - CI: build all ABIs; run golden-vector parity tests; lint.
