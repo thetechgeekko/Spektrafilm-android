@@ -17,17 +17,19 @@
  * and the print route (enlarger y_filter_shift). Also confirms the default run
  * still matches the committed scan_portra final_rgb golden (the parity anchor).
  *
+ * Self-contained: the only external input is a valid engine + the committed
+ * input vector. It loads NO oracle golden (this is a live/dead probe, not a
+ * bit-exact gate), so it runs against the BUNDLED engine assets.
+ *   argv[1] = asset dir (default: ../assets/spektra relative to cpp root)
+ *   argv[2] = input .f64 (default: the committed tests/scan_portra_input_rgb.f64)
+ *
  * Build (host):
- *   g++ -std=c++17 -O2 -I <cpp_root> -I <tools/parity> \
- *     tests/test_params_passthrough.cpp spektra.cpp \
- *     runtime/stages/filming.cpp runtime/stages/scanning.cpp \
- *     runtime/stages/printing.cpp runtime/params.cpp runtime/print_digest.cpp \
- *     model/couplers.cpp model/density_curves.cpp model/color_output.cpp \
- *     model/emulsion.cpp model/conversions.cpp model/spectral.cpp \
- *     model/glare.cpp model/diffusion.cpp model/grain.cpp model/color_filters.cpp \
- *     kernels/spectral_upsampling.cpp kernels/interp.cpp kernels/gaussian.cpp \
- *     kernels/exponential_filter.cpp kernels/stats.cpp \
- *     io/npy_lut.cpp profiles/profile.cpp -o /tmp/test_params_passthrough
+ *   g++ -std=c++17 -O2 -pthread -I <cpp_root> -I <tools/parity> \
+ *     -DSPK_TEST_DIR="\"<cpp_root>/tests\"" \
+ *     tests/test_params_passthrough.cpp \
+ *     spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp \
+ *     runtime/*.cpp runtime/stages/*.cpp -o /tmp/test_params_passthrough
+ *   /tmp/test_params_passthrough <asset_dir> <input.f64>
  */
 #include <cmath>
 #include <cstdint>
@@ -40,15 +42,20 @@
 
 namespace {
 
-const char* kAssetDir = "/home/user/spektrafilm/src/spektrafilm/data";
-const char* kInputF64 =
-    "/home/user/Spectrafilmandroid/engine/spektra-core/src/main/cpp/tests/"
-    "scan_portra_input_rgb.f64";
+// Defaults assume the CWD is the cpp root (as the engine-parity CI job does,
+// `cd "$CPP"`). Both are overridable via argv so the test is self-contained
+// against the BUNDLED engine assets — no Python-oracle data dir required.
+const char* kAssetDir = "../assets/spektra";
+#ifdef SPK_TEST_DIR
+const char* kInputF64 = SPK_TEST_DIR "/scan_portra_input_rgb.f64";
+#else
+const char* kInputF64 = "tests/scan_portra_input_rgb.f64";
+#endif
 
 constexpr int kW = 64, kH = 64;
 
-bool load_input(std::vector<float>* out) {
-    std::ifstream f(kInputF64, std::ios::binary);
+bool load_input(const char* path, std::vector<float>* out) {
+    std::ifstream f(path, std::ios::binary);
     if (!f) return false;
     std::vector<double> d(static_cast<size_t>(kW) * kH * 3);
     f.read(reinterpret_cast<char*>(d.data()),
@@ -96,17 +103,20 @@ void check_changes(const char* name, double d, double thresh) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const char* asset_dir = argc > 1 ? argv[1] : kAssetDir;
+    const char* input_path = argc > 2 ? argv[2] : kInputF64;
+
     std::vector<float> rgb;
-    if (!load_input(&rgb)) {
-        std::fprintf(stderr, "cannot load %s\n", kInputF64);
+    if (!load_input(input_path, &rgb)) {
+        std::fprintf(stderr, "cannot load %s\n", input_path);
         return 2;
     }
     spk_image in{rgb.data(), kW, kH, (int)SPK_CS_PROPHOTO};
 
     spk_engine* eng = nullptr;
-    if (spk_engine_create(kAssetDir, &eng) != SPK_OK || !eng) {
-        std::fprintf(stderr, "engine create failed (asset dir %s)\n", kAssetDir);
+    if (spk_engine_create(asset_dir, &eng) != SPK_OK || !eng) {
+        std::fprintf(stderr, "engine create failed (asset dir %s)\n", asset_dir);
         return 2;
     }
 
