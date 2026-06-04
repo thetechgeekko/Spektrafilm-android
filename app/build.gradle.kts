@@ -50,7 +50,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             // Use the real release keystore when keystore.properties is present,
             // otherwise fall back to debug signing so assembleRelease works in CI.
             signingConfig = if (hasReleaseKeystore) {
