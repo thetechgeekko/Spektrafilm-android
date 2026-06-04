@@ -295,6 +295,59 @@ void print_expose(const Profile& film, const Profile& print_profile,
     }
 }
 
+void print_reference_log_raw(const Profile& film, const Profile& print_profile,
+                             const PrintingParams& params, const double cmy_film[3],
+                             double log_raw_out[3]) {
+    const int S = film.n_samples;
+    // print sensitivity = nan_to_num(10**log_sensitivity).
+    std::vector<double> sens(static_cast<size_t>(S) * 3);
+    for (int l = 0; l < S; ++l) {
+        for (int k = 0; k < 3; ++k) {
+            double v = std::pow(10.0, static_cast<double>(
+                          print_profile.log_sensitivity[static_cast<size_t>(l) * 3 + k]));
+            if (std::isnan(v)) v = 0.0;
+            sens[static_cast<size_t>(l) * 3 + k] = v;
+        }
+    }
+    // Constant preflash 3-vector (= 0 when preflash off), matching print_expose.
+    double preflash_raw[3] = {0.0, 0.0, 0.0};
+    if (params.preflash_exposure > 0.0) {
+        for (int l = 0; l < S; ++l) {
+            double light = std::pow(10.0, -static_cast<double>(film.base_density[l])) *
+                           params.preflash_illuminant[l];
+            if (std::isnan(light)) light = 0.0;
+            const double* sl = sens.data() + static_cast<size_t>(l) * 3;
+            preflash_raw[0] += light * sl[0];
+            preflash_raw[1] += light * sl[1];
+            preflash_raw[2] += light * sl[2];
+        }
+        preflash_raw[0] *= params.preflash_exposure;
+        preflash_raw[1] *= params.preflash_exposure;
+        preflash_raw[2] *= params.preflash_exposure;
+    }
+    // raw[k] = sum_l 10^-(film spectral density) * filtered_illuminant[l] * sens[l,k].
+    double raw0 = 0.0, raw1 = 0.0, raw2 = 0.0;
+    for (int l = 0; l < S; ++l) {
+        const float* cd = film.channel_density.data() + static_cast<size_t>(l) * 3;
+        const double spectral = cmy_film[0] * static_cast<double>(cd[0]) +
+                                cmy_film[1] * static_cast<double>(cd[1]) +
+                                cmy_film[2] * static_cast<double>(cd[2]) +
+                                static_cast<double>(film.base_density[l]);
+        double light = std::pow(10.0, -spectral) * params.filtered_illuminant[l];
+        if (std::isnan(light)) light = 0.0;
+        const double* sl = sens.data() + static_cast<size_t>(l) * 3;
+        raw0 += light * sl[0];
+        raw1 += light * sl[1];
+        raw2 += light * sl[2];
+    }
+    raw0 = raw0 * params.exposure_factor_midgray + preflash_raw[0];
+    raw1 = raw1 * params.exposure_factor_midgray + preflash_raw[1];
+    raw2 = raw2 * params.exposure_factor_midgray + preflash_raw[2];
+    log_raw_out[0] = std::log10(std::fmax(raw0, 0.0) + 1e-10);
+    log_raw_out[1] = std::log10(std::fmax(raw1, 0.0) + 1e-10);
+    log_raw_out[2] = std::log10(std::fmax(raw2, 0.0) + 1e-10);
+}
+
 void print_develop(const Profile& print_profile, const PrintingParams& params,
                    const float* log_raw_print, int npix,
                    float* density_cmy_out) {

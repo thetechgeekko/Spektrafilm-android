@@ -141,6 +141,18 @@ jobs:
           # PRINT-stage effect (scan_film=False), changing print_density_cmy + final_rgb
           # but NOT the film taps. Golden pinned to oracle c1d0e44.
           build_run test_preflash_e2e "$ASSET" "$G/print_portra_preflash" tests/scan_portra_input_rgb.f64 "$G"
+          # Scanner BLACK/WHITE corrections (scanner.black/white_correction +
+          # black/white_level) -> runtime/services/color_reference.py
+          # (ColorReferenceService): a scan-time tone anchor that maps the measured
+          # CIE Y at the reference black/white densities to the (sRGB-decoded) target
+          # levels via clip(m*Y+q,0,1), back-applied as an exposure correction to the
+          # print (or filming) raw AND as a per-pixel XYZ rescale in scanning. Two
+          # routes: CASE A print (portra->endura, negative paper) fires the printing
+          # exposure + scanning XYZ corrections (film taps UNCHANGED); CASE B scan_film
+          # on a POSITIVE film (provia, DIR couplers off to isolate the un-gated
+          # positive coupler branch) fires the filming exposure + scanning XYZ
+          # corrections. Goldens pinned to oracle c1d0e44.
+          build_run test_scanner_bwcorr_e2e "$ASSET" "$G/print_portra_bwcorr" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

@@ -50,6 +50,19 @@ void print_develop(const Profile& print_profile, const PrintingParams& params,
                    const float* log_raw_print, int npix,
                    float* density_cmy_out);
 
+// _film_cmy_to_print_log_raw for a SINGLE film CMY density triple (printing.py:
+// _film_cmy_to_print_log_raw): the spectral integral of the film transmittance
+// against the enlarger filtered illuminant + print sensitivity, times the midgray
+// factor, plus the constant preflash term, then log10 floor. Used to build the
+// scanner black/white reference log_raw vectors (color_reference_service's
+// log_raw_print_black/white) from the film black/white reference CMY densities.
+// Evaluates with the same scalar libm exp10/pow math as the LUT-build path (the
+// references are scalars, not the per-pixel SIMD path), giving the byte-exact
+// reference the oracle's _film_cmy_to_print_log_raw produces to <=4 ULP.
+void print_reference_log_raw(const Profile& film, const Profile& print_profile,
+                             const PrintingParams& params, const double cmy_film[3],
+                             double log_raw_out[3]);
+
 }  // namespace spk
 
 #endif  // SPK_RUNTIME_STAGES_PRINTING_H

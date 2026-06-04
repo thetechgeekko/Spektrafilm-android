@@ -147,6 +147,30 @@ class Case:
     preflash_exposure: float = 0.0
     preflash_y_filter_shift: float = 0.0
     preflash_m_filter_shift: float = 0.0
+    # Scanner BLACK/WHITE corrections (scanner.black_correction / white_correction,
+    # black_level / white_level): a scan-time tone anchor that maps the measured CIE
+    # Y at the reference black/white densities to the (sRGB-decoded) target levels.
+    # Default OFF (both corrections false) is a STRICT no-op. The oracle
+    # (runtime/services/color_reference.py::ColorReferenceService) spans three stages
+    # but route-gates each: filming exposure correction (scan_film + POSITIVE film),
+    # printing exposure correction (print route + NEGATIVE paper), and the scanning
+    # XYZ correction (every route EXCEPT scan_film + negative film). A correction
+    # case therefore picks a route that fires the corrections: the print route
+    # (negative paper) exercises the printing-exposure + xyz corrections; a
+    # scan_film case with a POSITIVE film exercises the filming-exposure + xyz
+    # corrections. The references / m,q are profile + route dependent but constant
+    # across pixels, so a correction case stays deterministic/bit-stable.
+    scanner_black_correction: bool = False
+    scanner_white_correction: bool = False
+    scanner_black_level: float = 0.01
+    scanner_white_level: float = 0.98
+    # DIR couplers (film_render.dir_couplers.active). Default True (schema default).
+    # A case may turn them OFF to isolate a stage from the coupler path. This is the
+    # one knob the scan_provia_bwcorr case sets: the POSITIVE-film DIR-coupler branch
+    # is a separate, currently un-parity-gated code path in the native engine (all
+    # other goldens are negative film), so the positive-film correction case keeps
+    # the couplers OFF to isolate the SCANNER correction it is testing.
+    dir_couplers_active: bool = True
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -398,6 +422,71 @@ CASES = [
               "(scan_film=False); spatial+grain off so it is deterministic/bit-stable. "
               "Tested by tests/test_preflash_e2e.cpp.",
     ),
+    Case(
+        case_id="print_portra_bwcorr",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=False,                    # PRINT route: negative paper (endura).
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        scanner_black_correction=True,      # NON-default: both corrections ON
+        scanner_white_correction=True,
+        scanner_black_level=0.01,
+        scanner_white_level=0.98,
+        notes="print route with the SCANNER BLACK/WHITE CORRECTIONS ON "
+              "(scanner.black_correction=white_correction=True, black_level=0.01, "
+              "white_level=0.98). Exercises runtime/services/color_reference.py on "
+              "the print route (negative paper): the PRINTING exposure correction "
+              "(black_white_printing_exposure_correction multiplies the print raw by "
+              "10**(le(density_midgray_corrected) - le(density_midgray)) re-anchoring "
+              "midgray on the print characteristic) AND the SCANNING XYZ correction "
+              "(black_white_xyz_correction rescales each pixel's XYZ by "
+              "clip(m*Y+q,0,1)/(Y+1e-10)). The references y_black/y_white come from "
+              "develop_simple of the print reference log_raw (= _film_cmy_to_print_"
+              "log_raw of the film black/white reference CMY through the live "
+              "enlarger) -> cmy_to_log_xyz on the print profile; the levels are "
+              "sRGB-decoded (_remove_sRGB_cctf). Both corrections are constant across "
+              "pixels (profile + route dependent only), so spatial+grain stay off and "
+              "the case is deterministic/bit-stable. Changes print_density_cmy "
+              "(printing exposure correction) + final_rgb (both). Tested by "
+              "tests/test_scanner_bwcorr_e2e.cpp.",
+    ),
+    Case(
+        case_id="scan_provia_bwcorr",
+        film_profile="fujifilm_provia_100f",  # POSITIVE film -> filming corr fires
+        print_profile="kodak_portra_endura",
+        scan_film=True,                     # scan_film route on a POSITIVE film.
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        scanner_black_correction=True,      # NON-default: both corrections ON
+        scanner_white_correction=True,
+        scanner_black_level=0.01,
+        scanner_white_level=0.98,
+        dir_couplers_active=False,          # isolate the SCANNER correction (the
+                                            # positive-film DIR-coupler branch is a
+                                            # separate, un-gated native code path).
+        notes="scan_film route on a POSITIVE film (fujifilm_provia_100f) with the "
+              "SCANNER BLACK/WHITE CORRECTIONS ON. Exercises the OTHER two "
+              "color_reference.py branches: the FILMING exposure correction "
+              "(black_white_filming_exposure_correction, active only for scan_film + "
+              "positive film: raw *= 1/exposure_correction re-anchoring midgray on "
+              "the film characteristic, applied in filming.expose after halation, "
+              "before log10) AND the SCANNING XYZ correction. Here the references "
+              "y_black/y_white come from the FILM density curves directly "
+              "(cmy_black = nanmax(film.density_curves), cmy_white = 0) -> "
+              "cmy_to_log_xyz on the film profile. Together with print_portra_bwcorr "
+              "this covers all THREE correction code paths. DIR couplers are OFF: the "
+              "positive-film DIR-coupler branch is a separate, currently un-parity-"
+              "gated native code path (every other golden is negative film), so the "
+              "couplers are kept off to ISOLATE the scanner correction under test "
+              "(with couplers on, the positive-film develop itself diverges ~0.32 "
+              "independently of this correction). Positive film + spatial/grain off "
+              "keep it deterministic/bit-stable. Changes film_log_raw / "
+              "film_density_cmy (filming correction) + final_rgb (both). Tested by "
+              "tests/test_scanner_bwcorr_e2e.cpp.",
+    ),
 ]
 
 
@@ -524,6 +613,12 @@ def _build_params(sf, case: Case):
     params.enlarger.preflash_exposure = case.preflash_exposure
     params.enlarger.preflash_y_filter_shift = case.preflash_y_filter_shift
     params.enlarger.preflash_m_filter_shift = case.preflash_m_filter_shift
+    # Scanner black/white corrections. Default OFF (strict no-op).
+    params.scanner.black_correction = case.scanner_black_correction
+    params.scanner.white_correction = case.scanner_white_correction
+    params.scanner.black_level = case.scanner_black_level
+    params.scanner.white_level = case.scanner_white_level
+    params.film_render.dir_couplers.active = case.dir_couplers_active
     return params
 
 
@@ -603,6 +698,10 @@ def generate_case(sf, case: Case, size: int) -> dict:
             "diffusion_spatial_scale": case.diffusion_spatial_scale,
             "diffusion_halo_warmth": case.diffusion_halo_warmth,
             "spectral_gaussian_blur": case.spectral_gaussian_blur,
+            "scanner_black_correction": case.scanner_black_correction,
+            "scanner_white_correction": case.scanner_white_correction,
+            "scanner_black_level": case.scanner_black_level,
+            "scanner_white_level": case.scanner_white_level,
         },
         "notes": case.notes,
         "taps": written,

@@ -272,7 +272,21 @@ void scan(const Profile& film, const ScanningParams& params,
             xyz[2] = std::pow(10.0, std::log10(std::fmax(Z * inv_norm, 0.0) + 1e-10));
         }
 
-        // (black/white XYZ correction skipped: negative film scan route.)
+        // Scanner BLACK/WHITE XYZ correction (color_reference.py::
+        // black_white_xyz_correction): y = xyz[Y]; y_corrected = clip(m*y+q, 0, 1);
+        // scale = y_corrected / (y + 1e-10); xyz *= scale. Default OFF (the four
+        // scanner_*_correction params default false) => skipped, so the negative
+        // scan_film route and every pre-existing golden stay bit-exact.
+        if (params.bw_xyz_correction) {
+            double y = xyz[1];
+            double yc = params.bw_xyz_m * y + params.bw_xyz_q;
+            if (yc < 0.0) yc = 0.0;
+            else if (yc > 1.0) yc = 1.0;
+            double scale = yc / (y + 1e-10);
+            xyz[0] *= scale;
+            xyz[1] *= scale;
+            xyz[2] *= scale;
+        }
 
         // add_glare (print route only): xyz += glare[p] * illuminant_xyz. On the
         // scan_film route glare is None (do_glare false) so this is skipped.

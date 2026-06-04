@@ -47,6 +47,7 @@ add_library(spektra SHARED
         model/color_filters.cpp              # dichroic Y/M/C enlarger filters (M4)
         runtime/stages/printing.cpp          # film density -> print density CMY (M4)
         runtime/print_digest.cpp             # native neutral CC + midgray digest (M5)
+        runtime/color_reference.cpp          # scanner black/white correction (ColorReferenceService)
         runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
         runtime/stages/autoexposure.cpp      # center-weighted metering -> EV gain (M7)
         gpu/vulkan_compute.cpp               # OPT-IN Vulkan compute fast-path (stub unless SPK_ENABLE_VULKAN)
