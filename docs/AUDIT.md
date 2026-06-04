@@ -193,9 +193,14 @@ not a commitment to do all of it.
 - ✅ **R8 enabled (2026-06-04, `a28d30d`).** `isMinifyEnabled = true` (`app/build.gradle.kts:53`),
   **Stage 1 — shrink only, `-dontobfuscate`** (`app/proguard-rules.pro`), with keep-rules for the
   four name-based JNI boundaries (`com.spectrafilm.engine.**`, `RawDecoder`, `TiffWriter`,
-  `PngWriter`, `native <methods>`) and enum value/`valueOf` persistence. Remaining: on-device
-  release-build smoke (JNI keep-rules surface only at runtime) and Stage-2 obfuscation. `shrinkResources`
-  not yet enabled.
+  `PngWriter`, `native <methods>`) and enum value/`valueOf` persistence.
+  **On-device release-build smoke — DONE (2026-06-04, SM-S948W / Android 16 / arm64).** A
+  minified release APK ran full RAW import → preview render (`render mode=preview … 187–268ms`) →
+  full-res **12 MP PNG and TIFF export** (`export format=PNG/TIFF 3000x4000 12000000px ok`), with
+  `libsftiff.so` loading via `nativeloader … ok` immediately before the TIFF write — i.e. the
+  name-based JNI keep-rules (engine + RAW/TIFF/PNG writers) all resolve at runtime under R8, no
+  `UnsatisfiedLinkError`/crash/OOM. Captured via the in-app diagnostics `Spektra` breadcrumbs.
+  Remaining: Stage-2 obfuscation; `shrinkResources` not yet enabled.
 - ✅ **Device smoke test — DONE** (issue #5, 2026-05-31, Galaxy S25 Ultra / Android 16 / arm64;
   see `docs/DEVICE_TEST_REPORT.md`). Native libs load; 16-bit PNG/TIFF + Ultra HDR exports verified;
   **Samsung Expert RAW decodes via LibRaw**; source EXIF retained, GPS stripped. It also **found a
@@ -257,5 +262,6 @@ not a commitment to do all of it.
      this, every named inert engine param from action #2 is resolved — action #2 is CLOSED.** See §A.
 3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).
-4. Maintainer/device items: a release-build (R8-enabled) on-device smoke + screen-unlocked visual
-   re-confirm pass; Stage-2 obfuscation. (R8 Stage-1 shrink itself is now enabled — see §D.)
+4. Maintainer/device items: the R8 release-build on-device smoke is **DONE** (2026-06-04, see §D —
+   import→render→full-res PNG/TIFF export validated under minify). Remaining: a screen-unlocked
+   subjective visual re-confirm pass; R8 Stage-2 obfuscation; `shrinkResources`.
