@@ -104,6 +104,15 @@ jobs:
           build_run test_filming "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_spatial "$ASSET/profiles/kodak_portra_400.json" "$G/scan_portra_spatial" "$LUT" tests/scan_portra_input_rgb.f64
           build_run test_crop_resize "$ASSET" "$G/scan_portra_crop" tests/scan_portra_input_rgb.f64
+          # Downscale (upscale_factor < 1, MINIFICATION) anti-aliasing prefilter:
+          # skimage.transform.rescale defaults anti_aliasing=True for a shrinking
+          # output dimension (order>0), running scipy.ndimage.gaussian_filter
+          # (sigma = max(0,(in/out-1)/2) per spatial axis, mode='mirror') BEFORE the
+          # order=3 cubic zoom. Without it the full pipeline diverges ~1.8e-1 from
+          # the oracle; crop_resize.cpp now ports that prefilter (no-op for
+          # factor>=1, so the upscale goldens stay byte-identical). Golden
+          # (scan_portra_downscale, 64->32) pinned to oracle c1d0e44.
+          build_run test_downscale "$ASSET" "$G/scan_portra_downscale" tests/scan_portra_input_rgb.f64
           build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_diffusion "$G"
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"

@@ -125,8 +125,24 @@ not a commitment to do all of it.
   byte-identical at `SPK_NUM_THREADS` 1 vs 8).
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
-- ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
-  rescale has no low-pass prefilter for minification.
+- ✅ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter (RESOLVED).** The UI exposes
+  `upscale_factor` as a `0..4` slider (`MainActivity.kt:2129`), so sub-unity (minifying) values are
+  reachable on the parity-gated `crop_and_rescale` preprocess (NOT the preview proxy — that is the
+  separate `preview_max_size` path). At oracle `c1d0e44`, `ResizingService.crop_and_rescale`
+  (`runtime/services/resize.py:25`) calls `skimage.transform.rescale(image, factor, order=3)` with
+  `anti_aliasing` left at its default. skimage 0.26 resolves `anti_aliasing=None` to **True** whenever
+  an output dimension shrinks with `order>0` (`transform/_warps.py:178-183`), running
+  `scipy.ndimage.gaussian_filter` with `sigma = max(0, (input/output - 1)/2)` per axis, `mode='mirror'`
+  (`_warps.py:195-214`) BEFORE the cubic zoom. The C++ `rescale_cubic_rgb` previously skipped this, so a
+  full-pipeline minifying case diverged from the oracle by `final_rgb` max_abs **1.78e-1** /
+  `film_density_cmy` **3.95e-1**. Fix: port scipy's gaussian_filter1d kernel
+  (`radius = int(4*sigma + 0.5)`, normalised `exp(-0.5 k²/σ²)`, `mirror` boundary) as a separable
+  prefilter in `crop_resize.cpp`, applied only when `factor < 1` (`sigma == 0` for `factor >= 1`, so the
+  upscale path stays byte-identical and every pre-existing golden reproduces bit-exactly). After the fix
+  the minifying case matches `c1d0e44` to `final_rgb` max_abs **5.96e-8** / `film_density_cmy`
+  **2.38e-7**. Gated by the new `scan_portra_downscale` golden (oracle `c1d0e44`) +
+  `test_downscale.cpp` in CI `engine-parity` (asserts the 32×32 geometry, both taps within tol, with a
+  genuine on-vs-off delta).
 - ⚪ **GPU preview accelerator** — a default-OFF experimental GPU LUT preview path now exists
   (`LutGpuPreview.kt`, Settings → Experimental; renderer + cube parser unit-tested), but it is
   **unverified on a real GPU** (no GPU/emulator in CI) and the GPU surface lacks zoom/magnifier/

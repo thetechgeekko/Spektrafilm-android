@@ -246,6 +246,23 @@ CASES = [
               "exercises the crop integer-slice + skimage rescale(order=3) port.",
     ),
     Case(
+        case_id="scan_portra_downscale",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        upscale_factor=0.5,
+        notes="scan_film with a sub-unity upscale_factor=0.5 (MINIFICATION). "
+              "Exercises the skimage.transform.rescale anti-aliasing PREFILTER: for "
+              "an output dimension that shrinks, skimage defaults anti_aliasing=True "
+              "and runs scipy.ndimage.gaussian_filter (sigma = max(0,(in/out-1)/2) = "
+              "0.5 per spatial axis, mode='mirror') BEFORE the order=3 cubic zoom. "
+              "The 64x64 input is downsized to 32x32. Spatial/grain off so it stays "
+              "bit-stable; gates the downscale-prefilter parity path.",
+    ),
+    Case(
         case_id="scan_portra_autoexp",
         film_profile="kodak_portra_400",
         print_profile="kodak_portra_endura",

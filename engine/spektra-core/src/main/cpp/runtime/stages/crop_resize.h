@@ -33,16 +33,18 @@
  * no-op on the pixels: only pixel_size_um is computed (which it already was at
  * the call sites). This keeps the existing goldens byte-identical.
  *
- * SCOPE NOTE — anti-aliasing. The param is named `upscale_factor` and the
- * physically meaningful / UI-exposed use is upscaling (factor >= 1). skimage's
- * rescale enables a Gaussian anti-aliasing prefilter ONLY when an output
- * dimension shrinks (factor < 1); that path additionally runs
- * scipy.ndimage.gaussian_filter (a different kernel from the engine's
- * fast_gaussian_filter port) before the cubic zoom. This stage reproduces the
- * upscale path bit-exact; a downscale (factor < 1) is performed WITHOUT the
- * anti-aliasing prefilter, so it is NOT bit-exact vs skimage for factor < 1.
- * Bit-exact downscaling would require porting scipy's gaussian_filter and is
- * left for a follow-up if the UI ever exposes sub-unity factors.
+ * ANTI-ALIASING (factor < 1, minification). skimage's rescale enables a Gaussian
+ * anti-aliasing prefilter whenever an output dimension shrinks (factor < 1) and
+ * order > 0: with anti_aliasing left at its default (None), skimage 0.26 resolves
+ * it to True and runs scipy.ndimage.gaussian_filter with
+ * sigma = max(0, (input/output - 1) / 2) per spatial axis (mode='mirror') BEFORE
+ * the cubic zoom. This stage reproduces that prefilter bit-exact (see
+ * gaussian_prefilter_line / build_gaussian_kernel in crop_resize.cpp): scipy's
+ * gaussian_filter1d kernel — radius = int(4*sigma + 0.5), normalised
+ * exp(-0.5*k^2/sigma^2), 'mirror' boundary. For factor >= 1 sigma == 0, so the
+ * prefilter is a strict no-op and the upscale path (and every existing golden)
+ * stays byte-identical. The whole stage is therefore bit-exact vs the oracle for
+ * both upscale and downscale.
  */
 #ifndef SPK_RUNTIME_STAGES_CROP_RESIZE_H
 #define SPK_RUNTIME_STAGES_CROP_RESIZE_H
