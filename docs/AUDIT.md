@@ -99,9 +99,12 @@ not a commitment to do all of it.
 
 ## D. Release / build follow-ups
 
-- 🟡 **Release build has `isMinifyEnabled = false`** (`app/build.gradle.kts`). The shipped APK
-  carries ~23 MB of un-minified `.dex`. Enabling R8 + `shrinkResources` is the biggest size win but
-  needs JNI/engine keep-rules and **on-device validation** (a wrong rule → runtime crash).
+- ✅ **R8 enabled (2026-06-04, `a28d30d`).** `isMinifyEnabled = true` (`app/build.gradle.kts:53`),
+  **Stage 1 — shrink only, `-dontobfuscate`** (`app/proguard-rules.pro`), with keep-rules for the
+  four name-based JNI boundaries (`com.spectrafilm.engine.**`, `RawDecoder`, `TiffWriter`,
+  `PngWriter`, `native <methods>`) and enum value/`valueOf` persistence. Remaining: on-device
+  release-build smoke (JNI keep-rules surface only at runtime) and Stage-2 obfuscation. `shrinkResources`
+  not yet enabled.
 - ✅ **Device smoke test — DONE** (issue #5, 2026-05-31, Galaxy S25 Ultra / Android 16 / arm64;
   see `docs/DEVICE_TEST_REPORT.md`). Native libs load; 16-bit PNG/TIFF + Ultra HDR exports verified;
   **Samsung Expert RAW decodes via LibRaw**; source EXIF retained, GPS stripped. It also **found a
@@ -135,11 +138,12 @@ not a commitment to do all of it.
 ---
 
 ### Highest-value next actions (suggested, not committed)
-1. **Re-sync the frozen docs** to v0.7.0: rewrite `docs/RELEASE_CHECKLIST.md` (it still tells the
-   maintainer to commit APKs to the removed `dist/` and omits the 16 KB-page check) and flip the
-   stale status markers in `docs/ROADMAP.md` (🔴 — actively misleading).
+1. ✅ **Re-sync the frozen docs** to v0.7.0 — `docs/RELEASE_CHECKLIST.md` rewritten to the
+   `release.yml` signed-tag flow (no `dist/`) with the explicit 16 KB-page gate, and the stale
+   `docs/ROADMAP.md` status markers flipped. Both also reflect R8 Stage-1 shrink now being enabled.
 2. **Wire or strip the remaining inert engine params** (`apply_hanatos_*`,
    camera UV/IR, preflash, scanner white/black corrections) — UI toggles that currently do nothing.
 3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).
-4. Maintainer/device items: R8 enablement + a screen-unlocked visual re-confirm pass.
+4. Maintainer/device items: a release-build (R8-enabled) on-device smoke + screen-unlocked visual
+   re-confirm pass; Stage-2 obfuscation. (R8 Stage-1 shrink itself is now enabled — see §D.)
