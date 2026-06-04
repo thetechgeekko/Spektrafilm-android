@@ -640,7 +640,10 @@ class MainActivity : ComponentActivity() {
             }
             // EXIF baseline (when applicable) first, then the user's manual rotate steps.
             val based = if (applyExifBaseline) img.applyExif(exif) else img
-            based.rotated(rotation)
+            based.rotated(rotation).also {
+                // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
+                Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
+            }
         }
 
         // PERF: proxy-source loader used ONLY by the interactive preview path. Consults the
@@ -804,9 +807,11 @@ class MainActivity : ComponentActivity() {
             result.onSuccess { (before, after) ->
                 beforePreview = before; preview = after
                 lastRenderMs = System.currentTimeMillis() - renderStart
+                Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
                 renderErr = null
                 status = "preview ready"
             }.onFailure {
+                Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
                 renderErr = it.message?.take(60)
                 status = "preview error: ${it.message}"
             }
@@ -1022,9 +1027,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             result.onSuccess { (bmp, _) ->
+                                Diag.i("export format=${exportFmt.name} ${bmp.width}x${bmp.height} ${bmp.width * bmp.height}px ok")
                                 preview = bmp; exportDone = true
                                 status = "saved to Pictures/Spektrafilm"
                             }.onFailure {
+                                Diag.w("export format=${exportFmt.name} failed: ${it.message}")
                                 exporting = false
                                 status = "export failed: ${it.message}"
                                 Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()

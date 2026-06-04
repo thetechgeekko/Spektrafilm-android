@@ -18,12 +18,37 @@ package com.spectrafilm.app
 import android.content.Context
 import android.content.Intent
 import android.os.Process
+import android.util.Log
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * Single-TAG breadcrumb logger for the key engine/IO lifecycle points (engine create,
+ * decode, render, export). These `Log.i("Spektra", …)` lines are what make a field
+ * `logcat` — and the in-app [Diagnostics] report, which snapshots this process's own
+ * logcat — actually diagnostic: from a capture you can tell whether the native engine
+ * loaded, whether a render ran (mode + pixels + elapsed), and whether an export
+ * succeeded (format + dims + bytes). Previously none of that was logged, so a device
+ * capture was indistinguishable framework noise.
+ *
+ * Policy: ONE tag ("Spektra"); NO PII — never log file paths or content URIs, only the
+ * source KIND and pixel DIMENSIONS. Not stripped in release (proguard-rules.pro has no
+ * `-assumenosideeffects` for android.util.Log), which is intentional: field captures
+ * come from release builds, so the breadcrumbs must survive into the shipped APK.
+ */
+object Diag {
+    const val TAG = "Spektra"
+
+    fun i(msg: String) = Log.i(TAG, msg)
+    fun w(msg: String) = Log.w(TAG, msg)
+    fun e(msg: String, t: Throwable? = null) {
+        if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+    }
+}
 
 object Diagnostics {
     private const val DIR = "diag"
