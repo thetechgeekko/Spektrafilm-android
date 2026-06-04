@@ -107,6 +107,12 @@ jobs:
           build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_diffusion "$G"
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
+          # Spectral-domain Gaussian blur of the reconstructed-spectra LUT
+          # (settings.spectral_gaussian_blur=5): blurs HANATOS2025_SPECTRA_LUT along
+          # its spectral axis inside compute_hanatos2025_tc_lut (scipy.ndimage.
+          # gaussian_filter sigma=(0,0,5), mode='reflect', truncate=4), changing the
+          # filming tc_lut and every downstream tap. Golden pinned to oracle c1d0e44.
+          build_run test_spectral_blur_e2e "$ASSET" "$G/scan_spectral_blur" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

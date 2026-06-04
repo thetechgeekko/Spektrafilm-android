@@ -106,6 +106,15 @@ class Case:
     diffusion_strength: float = 0.5
     diffusion_spatial_scale: float = 1.0
     diffusion_halo_warmth: float = 0.0
+    # Spectral-domain Gaussian blur of the reconstructed-spectra LUT
+    # (settings.spectral_gaussian_blur). Default 0.0 is a strict no-op. A non-zero
+    # value blurs HANATOS2025_SPECTRA_LUT along its spectral axis with
+    # scipy.ndimage.gaussian_filter(sigma=(0,0,sigma)) inside
+    # compute_hanatos2025_tc_lut, changing the filming tc_lut and therefore every
+    # downstream tap. It is NOT gated by deactivate_spatial_effects (it lives in
+    # the LUT-build path, not the per-pixel spatial branch), so a blur case can
+    # keep spatial/grain off and stay bit-stable.
+    spectral_gaussian_blur: float = 0.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -243,6 +252,27 @@ CASES = [
               "so spatial effects are kept on. Grain off so it stays "
               "deterministic/bit-stable. Tested by tests/test_diffusion_e2e.cpp.",
     ),
+    Case(
+        case_id="scan_spectral_blur",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,    # blur lives in the LUT build, not the
+        deactivate_stochastic_effects=True, # spatial branch -> can stay all-off
+        grain_active=False,
+        spectral_gaussian_blur=5.0,         # NON-default: sigma=5 (band-index units)
+        notes="scan_film with the SPECTRAL GAUSSIAN BLUR ON "
+              "(settings.spectral_gaussian_blur=5.0). Exercises the optional blur in "
+              "compute_hanatos2025_tc_lut: HANATOS2025_SPECTRA_LUT is blurred along "
+              "its spectral axis (axis 2) with scipy.ndimage.gaussian_filter("
+              "sigma=(0,0,5.0)) (SciPy defaults order=0, mode='reflect', "
+              "truncate=4.0) BEFORE the sensitivity contraction, changing the "
+              "filming tc_lut and therefore film_log_raw / film_density_cmy / "
+              "final_rgb. The blur is independent of deactivate_spatial_effects "
+              "(it is in the LUT-build path, not the per-pixel spatial branch), so "
+              "spatial + grain are kept off and the case stays deterministic/"
+              "bit-stable. Tested by tests/test_spectral_blur_e2e.cpp.",
+    ),
 ]
 
 
@@ -352,6 +382,9 @@ def _build_params(sf, case: Case):
     params.camera.diffusion_filter.strength = case.diffusion_strength
     params.camera.diffusion_filter.spatial_scale = case.diffusion_spatial_scale
     params.camera.diffusion_filter.halo_warmth = case.diffusion_halo_warmth
+    # Spectral-domain Gaussian blur of the spectra LUT. Lives in settings, not the
+    # spatial branch, so it is honoured regardless of deactivate_spatial_effects.
+    params.settings.spectral_gaussian_blur = case.spectral_gaussian_blur
     return params
 
 
@@ -430,6 +463,7 @@ def generate_case(sf, case: Case, size: int) -> dict:
             "diffusion_strength": case.diffusion_strength,
             "diffusion_spatial_scale": case.diffusion_spatial_scale,
             "diffusion_halo_warmth": case.diffusion_halo_warmth,
+            "spectral_gaussian_blur": case.spectral_gaussian_blur,
         },
         "notes": case.notes,
         "taps": written,
