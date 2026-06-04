@@ -659,8 +659,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     //    (mirroring deactivate_spatial_effects=False under scan_portra_spatial).
     const bool spatial = (p->halation_active != 0);
     const bool grain = (p->grain_active != 0);
-    spk::FilmingParams fparams =
-        spk::digest_filming_params(film.is_negative(), spatial);
+    spk::FilmingParams fparams = spk::digest_filming_params(
+        film.is_negative(), spatial,
+        !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     const float g = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = g;
@@ -1003,7 +1004,9 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //    The print route runs the negative with spatial+stochastic effects off
     //    (matching the print_portra parity toggles), so only the pointwise
     //    DIR-coupler user params apply here.
-    spk::FilmingParams fparams = spk::digest_filming_params(film.is_negative());
+    spk::FilmingParams fparams = spk::digest_filming_params(
+        film.is_negative(), /*spatial_effects=*/false,
+        !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = fg;

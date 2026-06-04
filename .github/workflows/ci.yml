@@ -153,6 +153,16 @@ jobs:
           # positive coupler branch) fires the filming exposure + scanning XYZ
           # corrections. Goldens pinned to oracle c1d0e44.
           build_run test_scanner_bwcorr_e2e "$ASSET" "$G/print_portra_bwcorr" tests/scan_portra_input_rgb.f64 "$G"
+          # POSITIVE-film DIR-coupler develop path: scan_film route on a POSITIVE film
+          # (fujifilm_provia_100f) with the DIR couplers ON. Every other golden is
+          # negative film, so this is the only gate on the positive branch of
+          # model/couplers.py (density_silver = nanmax(density_curves) - density,
+          # interpolate the -density curve) AND on the provia stock-specific
+          # DIR-coupler gamma override in params_builder._apply_film_specifics
+          # (gamma_samelayer_rgb=(0.156,0.104,0.078)) applied after the generic
+          # positive default — without it the inhibitor matrix is wrong and
+          # film_density_cmy diverges ~0.32. Golden pinned to oracle c1d0e44.
+          build_run test_provia_couplers_e2e "$ASSET" "$G/scan_provia_couplers" tests/scan_portra_input_rgb.f64
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64
