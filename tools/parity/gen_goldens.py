@@ -115,6 +115,17 @@ class Case:
     # the LUT-build path, not the per-pixel spatial branch), so a blur case can
     # keep spatial/grain off and stay bit-stable.
     spectral_gaussian_blur: float = 0.0
+    # Hanatos2025 sensitivity-adaptation toggles
+    # (settings.apply_hanatos2025_adaptation_window / _surface). The defaults match
+    # the schema (window ON, surface OFF) so a default case reproduces the existing
+    # goldens. A non-default case turns the surface ON: the filming tc_lut is
+    # multiplied by 2**surface, where surface is the per-LUT-cell, per-channel poly4
+    # log-exposure correction (eval_poly4_log_exposure_surface) evaluated at the
+    # film reference-illuminant chromaticity, inside compute_hanatos2025_tc_lut. It
+    # lives in the LUT-build path (not the spatial branch), so a surface case can
+    # keep spatial/grain off and stay bit-stable.
+    apply_hanatos_window: bool = True
+    apply_hanatos_surface: bool = False
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -273,6 +284,52 @@ CASES = [
               "spatial + grain are kept off and the case stays deterministic/"
               "bit-stable. Tested by tests/test_spectral_blur_e2e.cpp.",
     ),
+    Case(
+        case_id="scan_portra_surface",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,    # surface lives in the LUT build, not the
+        deactivate_stochastic_effects=True, # spatial branch -> can stay all-off
+        grain_active=False,
+        apply_hanatos_window=True,          # window stays ON (schema default)
+        apply_hanatos_surface=True,         # NON-default: log-exposure surface ON
+        notes="scan_film with the HANATOS2025 LOG-EXPOSURE-CORRECTION SURFACE ON "
+              "(settings.apply_hanatos2025_adaptation_surface=True; window left ON). "
+              "Exercises the apply_surface branch of compute_hanatos2025_tc_lut: "
+              "after the window-weighted spectra contraction, the filming tc_lut is "
+              "multiplied per-cell, per-channel by 2**surface, where surface = "
+              "eval_poly4_log_exposure_surface(profile.hanatos2025_adaptation_surface"
+              "_params, illuminant_xy=_illuminant_to_xy(film.reference_illuminant), "
+              "model='poly4') — a degree-4 2D polynomial over the (L,L) tc grid, "
+              "centred at tri2quad(illuminant_xy), passed through hanika_sigmoid("
+              "raw, max=2.0). This changes the filming tc_lut and therefore "
+              "film_log_raw / film_density_cmy / final_rgb. The surface is "
+              "independent of deactivate_spatial_effects (it is in the LUT-build "
+              "path), so spatial + grain are kept off and the case stays "
+              "deterministic/bit-stable. Tested by tests/test_hanatos_surface_e2e.cpp.",
+    ),
+    Case(
+        case_id="scan_portra_nowindow",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        apply_hanatos_window=False,         # NON-default: erf4 window OFF
+        apply_hanatos_surface=False,
+        notes="scan_film with the HANATOS2025 ERF4 WINDOW OFF "
+              "(settings.apply_hanatos2025_adaptation_window=False, surface also off). "
+              "Exercises the apply_window=False branch of compute_hanatos2025_tc_lut: "
+              "the spectra LUT is contracted against the BARE sensitivity (no erf4 "
+              "band-pass and no white-balance normalisation), changing the filming "
+              "tc_lut and therefore film_log_raw / film_density_cmy / final_rgb. "
+              "Confirms the window toggle is genuinely wired (its default-on path is "
+              "the existing scan_portra golden). Independent of the spatial branch, "
+              "so spatial + grain stay off and the case is deterministic/bit-stable. "
+              "Tested by tests/test_hanatos_surface_e2e.cpp.",
+    ),
 ]
 
 
@@ -385,6 +442,11 @@ def _build_params(sf, case: Case):
     # Spectral-domain Gaussian blur of the spectra LUT. Lives in settings, not the
     # spatial branch, so it is honoured regardless of deactivate_spatial_effects.
     params.settings.spectral_gaussian_blur = case.spectral_gaussian_blur
+    # Hanatos2025 sensitivity-adaptation toggles. Window defaults ON, surface
+    # defaults OFF (schema defaults); a case may flip the surface on to exercise the
+    # poly4 log-exposure-correction surface in compute_hanatos2025_tc_lut.
+    params.settings.apply_hanatos2025_adaptation_window = case.apply_hanatos_window
+    params.settings.apply_hanatos2025_adaptation_surface = case.apply_hanatos_surface
     return params
 
 

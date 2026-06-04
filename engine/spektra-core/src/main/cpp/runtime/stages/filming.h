@@ -21,9 +21,10 @@
  *            (grain inactive => identity)
  *
  * The Hanatos2025 sensitivity-adaptation tc_lut is built here from the spectra
- * LUT, the profile sensitivity (10**log_sensitivity) and the erf4 spectral
- * band-pass window (apply_window=True, apply_surface=False, no spectral blur),
- * matching utils/spectral_upsampling.py::compute_hanatos2025_tc_lut.
+ * LUT and the profile sensitivity (10**log_sensitivity), with the optional erf4
+ * spectral band-pass window (apply_window, default on), poly4 log-exposure-
+ * correction surface (apply_surface, default off) and spectral Gaussian blur
+ * (default 0) — matching utils/spectral_upsampling.py::compute_hanatos2025_tc_lut.
  */
 #ifndef SPK_RUNTIME_STAGES_FILMING_H
 #define SPK_RUNTIME_STAGES_FILMING_H
@@ -51,9 +52,22 @@ namespace spk {
 // truncate=4.0) BEFORE the sensitivity contraction, exactly as
 // compute_hanatos2025_tc_lut does upstream. The default 0.0 is a strict no-op so
 // the default engine path stays bit-exact with the existing goldens.
+//
+// `apply_window` / `apply_surface` mirror hanatos2025_adaptation.apply_window /
+// apply_surface (settings.apply_hanatos2025_adaptation_window / _surface):
+//   - apply_window (default true): fold the white-balance-preserving erf4
+//     band-pass `window` into the per-channel sensitivity before the spectra
+//     contraction. With it off, the bare sensitivity is contracted.
+//   - apply_surface (default false): after the contraction, multiply the tc_lut by
+//     2**surface, where surface is the per-cell, per-channel poly4 log-exposure
+//     correction (eval_poly4_log_exposure_surface) evaluated at the film reference
+//     illuminant chromaticity. No-op unless the profile carries surface_params.
+// The default (window on, surface off) reproduces the pre-existing goldens
+// bit-exactly.
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
                              const double* illuminant,
-                             float spectral_gaussian_blur = 0.0f);
+                             float spectral_gaussian_blur = 0.0f,
+                             bool apply_window = true, bool apply_surface = false);
 
 // expose(): rgb (npix,3, linear ProPhoto, double — the pipeline runs the image
 // as float64) -> log_raw (npix,3). Reuses the project's verified cubic-2D LUT

@@ -36,10 +36,18 @@ not a commitment to do all of it.
   0.0 is a strict no-op (all pre-existing goldens reproduce bit-exactly). The UI slider is
   un-gated. Gated by the `scan_spectral_blur` golden (oracle **c1d0e44**) + `test_spectral_blur_e2e`
   in CI `engine-parity`.
-- ℹ️ **`apply_hanatos2025_adaptation_window`/`_surface`** are UI-present (dimmed) + JNI-marshalled
-  but applied by **no** engine stage. Wiring each needs an engine change + a new spektrafilm-oracle
-  golden — see **`docs/ENGINE_WIRING_PLAN.md`** for the per-param plan (oracle refs, C++ hook
-  points, parity strategy). `use_enlarger_lut` and enlarger lens blur are covered there too.
+- ✅ **`apply_hanatos2025_adaptation_window`/`_surface`** WIRED. `build_filming_tc_lut` now threads
+  both toggles: `apply_window` (default on) folds the white-balance-preserving erf4 band-pass into
+  the per-channel sensitivity before the spectra contraction; `apply_surface` (default off)
+  multiplies the resulting tc_lut per-cell, per-channel by `2**surface`, where `surface` is the
+  poly4 log-exposure-correction surface (`eval_poly4_log_exposure_surface`) evaluated at the film
+  reference-illuminant chromaticity, matching `compute_hanatos2025_tc_lut`'s apply_surface branch.
+  The profile loader parses `hanatos2025_adaptation_surface_params`; the tc_lut + print-route memo
+  cache keys fold both toggles. The default (window on, surface off) is a strict no-op (all
+  pre-existing goldens reproduce bit-exactly). Both UI toggles are un-gated. Gated by the
+  `scan_portra_surface` + `scan_portra_nowindow` goldens (oracle **c1d0e44**) +
+  `test_hanatos_surface_e2e` in CI `engine-parity`. This was the last wireable §1 item; §4
+  (enlarger lens blur) stays unwired by design.
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
@@ -118,11 +126,11 @@ not a commitment to do all of it.
 ## E. Dead code / cleanup
 
 - ⚪ **`NotYetActiveNote` in `Widgets.kt`** has no *direct* call sites — but it is **not** dead:
-  its wrapper `GatedBlock` (same file) calls it and is used to gate genuinely-inert params (the
-  hanatos2025 adaptation toggles, and the enlarger lens blur — "no engine call site"). The spectral
-  Gaussian blur was previously gated here but is now wired and un-gated. So the widget stays until
-  the remaining params are wired or removed. (Correction: an earlier draft of this audit wrongly
-  listed it as dead code.)
+  its wrapper `GatedBlock` (same file) calls it and is still used to gate the **enlarger lens blur**
+  (§4 — "no engine call site", intentionally unwired). The spectral Gaussian blur and the
+  hanatos2025 adaptation window/surface toggles were previously gated here but are now wired and
+  un-gated. So the widget stays as long as §4 (or any future inert param) is gated. (Correction: an
+  earlier draft of this audit wrongly listed it as dead code.)
 
 ---
 

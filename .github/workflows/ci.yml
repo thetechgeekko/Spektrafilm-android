@@ -113,6 +113,15 @@ jobs:
           # gaussian_filter sigma=(0,0,5), mode='reflect', truncate=4), changing the
           # filming tc_lut and every downstream tap. Golden pinned to oracle c1d0e44.
           build_run test_spectral_blur_e2e "$ASSET" "$G/scan_spectral_blur" tests/scan_portra_input_rgb.f64 "$G"
+          # Hanatos2025 sensitivity-adaptation window/surface toggles
+          # (settings.apply_hanatos2025_adaptation_window / _surface). The SURFACE
+          # branch multiplies the filming tc_lut per-cell by 2**surface, where
+          # surface = eval_poly4_log_exposure_surface(profile.surface_params,
+          # illuminant_xy=_illuminant_to_xy(film.reference_illuminant), model='poly4')
+          # inside compute_hanatos2025_tc_lut, changing the filming tc_lut and every
+          # downstream tap. Also checks the WINDOW-OFF case. Goldens pinned to oracle
+          # c1d0e44.
+          build_run test_hanatos_surface_e2e "$ASSET" "$G/scan_portra_surface" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

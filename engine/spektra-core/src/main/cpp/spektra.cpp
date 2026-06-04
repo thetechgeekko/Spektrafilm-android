@@ -299,28 +299,34 @@ static spk::Profile load_engine_profile(spk_engine* eng, const std::string& id) 
     return eng->profile_cache.emplace(id, std::move(parsed)).first->second;
 }
 
-// Cached filming tc_lut, keyed by (film id, spectral_gaussian_blur). For the
-// default blur==0 the key is just the film id and the cached LUT is byte-identical
-// to rebuilding it (build_filming_tc_lut is a pure function of film profile, the
-// immutable spectra LUT, the D55 constant, and the blur sigma). A non-zero blur
-// gets its own cache slot so two different sigmas never collide. Returns a
-// reference into the never-evicted cache map (node references stay valid). Throws
-// on build failure (caller maps to SPK_ERR_ASSET_IO, as the inline build did).
+// Cached filming tc_lut, keyed by (film id, spectral_gaussian_blur, apply_window,
+// apply_surface). For the DEFAULT toggles (blur==0, window on, surface off) the key
+// is just the film id and the cached LUT is byte-identical to rebuilding it
+// (build_filming_tc_lut is a pure function of film profile, the immutable spectra
+// LUT, the D55 constant, the blur sigma, and the window/surface toggles). A
+// non-default toggle (or non-zero blur) gets its own cache slot so distinct
+// adaptations never collide. Returns a reference into the never-evicted cache map
+// (node references stay valid). Throws on build failure (caller maps to
+// SPK_ERR_ASSET_IO, as the inline build did).
 static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                          const std::string& film_id,
                                          const spk::Profile& film,
-                                         float spectral_gaussian_blur) {
-    // Compose a key that folds the blur sigma's exact IEEE-754 bytes so distinct
-    // sigmas (or float jitter) never alias. blur==0 keeps the bare film-id key,
+                                         float spectral_gaussian_blur,
+                                         bool apply_window, bool apply_surface) {
+    // Compose a key that folds the blur sigma's exact IEEE-754 bytes plus the
+    // window/surface toggles so distinct adaptations (or float jitter) never alias.
+    // The DEFAULT (blur==0, window on, surface off) keeps the bare film-id key,
     // preserving the existing cache behaviour for the default path.
     std::string key = film_id;
-    if (spectral_gaussian_blur > 0.0f) {
+    if (spectral_gaussian_blur > 0.0f || !apply_window || apply_surface) {
         key.push_back('|');
         const unsigned char* b =
             reinterpret_cast<const unsigned char*>(&spectral_gaussian_blur);
         for (size_t i = 0; i < sizeof(float); ++i) {
             key.push_back(static_cast<char>(b[i]));
         }
+        key.push_back(apply_window ? 'W' : 'w');
+        key.push_back(apply_surface ? 'S' : 's');
     }
     {
         std::lock_guard<std::mutex> g(eng->cache_mutex);
@@ -329,7 +335,8 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
     }
     spk::NdArray lut = spk::build_filming_tc_lut(film, engine_spectra(eng),
                                                  kD55Illuminant,
-                                                 spectral_gaussian_blur);
+                                                 spectral_gaussian_blur,
+                                                 apply_window, apply_surface);
     std::lock_guard<std::mutex> g(eng->cache_mutex);
     return eng->tc_lut_cache.emplace(key, std::move(lut)).first->second;
 }
@@ -383,6 +390,13 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     // MUST be part of the print-route memo key (blur defaults to 0 -> no-op, key
     // unchanged from before for the default path).
     h = fnv1a64(h, &p->spectral_gaussian_blur, sizeof(p->spectral_gaussian_blur));
+    // hanatos2025 window/surface adaptation toggles also change the filming tc_lut
+    // (and therefore film_density_cmy), so they MUST be part of the print-route memo
+    // key — otherwise toggling them returns a stale cached film_density_cmy. The
+    // DEFAULTS (window=1, surface=0) keep the key unchanged from before for the
+    // default path... but fold them ALWAYS so the digest is honest.
+    h = fnv1a64(h, &p->apply_hanatos_window, sizeof(p->apply_hanatos_window));
+    h = fnv1a64(h, &p->apply_hanatos_surface, sizeof(p->apply_hanatos_surface));
     // 5) DIR-coupler pointwise params (the only spatial-independent coupler inputs).
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -666,7 +680,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     //    (see engine_tc_lut / the spk_engine cache note).
     const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
+                                    p->apply_hanatos_window != 0,
+                                    p->apply_hanatos_surface != 0);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -764,7 +780,9 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //    rebuilding (see engine_tc_lut / the spk_engine cache note).
     const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
+                                    p->apply_hanatos_window != 0,
+                                    p->apply_hanatos_surface != 0);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
