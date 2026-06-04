@@ -7,8 +7,9 @@
 #                        diffusion; runs on push/PR)
 #   • parity          — standalone .spkvec comparator (CMake + ctest self-test)
 #   • python-lint     — byte-compiles the Python parity harness
-#   • android         — JVM unit tests (:app:testDebugUnitTest) + Gradle assemble of the full
-#                        app + modules (NDK-built .so for all ABIs)
+#   • android         — JVM unit tests (:app:testDebugUnitTest) + :app:lint (abortOnError gate
+#                        for NewApi/correctness) + Gradle assemble of the full app + modules
+#                        (NDK-built .so for all ABIs)
 #   • android-emulator— installs APK on KVM AVD, smoke-tests MainActivity; manual
 #                        workflow_dispatch only — fails during setup on hosted runners
 #
@@ -209,6 +210,27 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Lint (:app:lint)
+        # Android lint with abortOnError=true (baseline at app/lint-baseline.xml):
+        # fails the job on any lint error. This gates correctness/NewApi issues such
+        # as the unguarded API-28 getLongVersionCode call that previously slipped
+        # through because lint ran only locally, never in PR CI. No flags are passed
+        # that would downgrade errors to warnings.
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:lint --stacktrace
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: warn
 
       - name: Assemble debug APK
         run: |
