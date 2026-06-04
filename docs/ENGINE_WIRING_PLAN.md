@@ -6,9 +6,17 @@ Status snapshot 2026-06-01, updated 2026-06-04. **§3 (`use_enlarger_lut`) is WI
 golden pinned to oracle **c1d0e44** + `test_spectral_blur_e2e`). **§1 (hanatos
 window/surface) is now WIRED** (default window-on/surface-off is a strict no-op, gated by the
 `scan_portra_surface` + `scan_portra_nowindow` goldens pinned to oracle **c1d0e44** +
-`test_hanatos_surface_e2e`); both UI toggles are un-gated. §4 (enlarger lens blur) remains
-intentionally not wireable (no oracle call site). All wireable gated engine params are now
-wired; only §4 stays gated by design.
+`test_hanatos_surface_e2e`); both UI toggles are un-gated. **§5 (camera UV/IR cut band-pass
+`camera.filter_uv`/`filter_ir`) is now WIRED** (default amplitudes 0 are a strict no-op, gated
+by the `scan_portra_uvir` golden pinned to oracle **c1d0e44** + `test_camera_uvir_e2e`); the UI
+sliders were already live. §4 (enlarger lens blur) remains intentionally not wireable (no oracle
+call site).
+
+All **LUT-build-path** inert params are now wired. Two inert params remain as **scoped
+follow-ups** (real oracle call sites, but higher-complexity multi-stage ports, so each warrants
+its own PR — see §6/§7): `preflash_exposure` + `preflash_y/m_filter_shift` (print route) and
+`scanner_white/black_correction` + `_white/black_level` (spans filming/printing/scanning). Only
+§4 stays gated by design.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
@@ -110,6 +118,63 @@ in CI `engine-parity`. This was the last reserved engine LUT flag; no reserved f
 The oracle has **no enlarger-stage lens-blur call site** (only camera + scanner lens blur
 exist, both wired + gated by `test_lensblur`). The `GatedBlock` note "no engine call site"
 is accurate. Leave gated unless the oracle adds one upstream.
+
+---
+
+## 5. Camera UV/IR cut band-pass (`camera.filter_uv` / `filter_ir`) — ✅ WIRED
+
+**What it is.** The camera UV/IR cut filter: a band-pass on the profile sensitivity that
+attenuates the UV and IR tails before the RGB→raw spectral contraction.
+
+**Status.** Wired (2026-06-04). `build_filming_tc_lut` applies the band-pass to the
+sensitivity BEFORE the spectra contraction, gated on `filter_uv[0] > 0 || filter_ir[0] > 0`
+(default amplitudes 0 → strict no-op, default/export path stays bit-exact). The tc_lut +
+print-route memo cache keys fold the band-pass triples. The UI "UV filter" / "IR filter"
+sliders + the JNI marshalling were already present; only the engine consumption was missing.
+Gated by `test_camera_uvir_e2e` + the `scan_portra_uvir` golden (oracle **c1d0e44**).
+
+**Oracle reference.**
+- `spektrafilm/.../runtime/stages/filming.py:99-104` — `if filter_uv[0]>0 or filter_ir[0]>0:`
+  builds `compute_band_pass_filter`, tiles it across channels, and
+  `sensitivity *= band_pass_filter / normalization` (per-channel WB normalisation against the
+  film reference illuminant).
+- `spektrafilm/.../model/color_filters.py:88-107` — `sigmoid_erf` + `compute_band_pass_filter`
+  (`band = filter_uv * filter_ir`, each `1-amp + amp*sigmoid_erf`, amp clipped to [0,1]).
+
+---
+
+## 6. Preflash (`preflash_exposure` / `preflash_y_filter_shift` / `_m_filter_shift`) — wireable follow-up
+
+**What it is.** A uniform pre-exposure of the print paper through (optionally shifted) enlarger
+filters, lifting print shadows. Print route only.
+
+**Status.** Inert (marshalled into `spk_params`, consumed by no stage). Wireable against a real
+oracle call site; scoped as its own PR (print-route engine change + new golden + parity test).
+
+**Oracle reference.**
+- `spektrafilm/.../runtime/stages/printing.py:92-101` — `_compute_raw_preflash`: when
+  `preflash_exposure > 0`, adds `raw_preflash * preflash_exposure` to the print expose, where
+  `raw_preflash` is the (base-density) print response under the preflash-filtered illuminant.
+- `spektrafilm/.../runtime/services/filter_enlarger_source.py:29-32` —
+  `preflash_filtered_illuminant`: `m_filter = m_filter_neutral + preflash_m_filter_shift`,
+  `y_filter = y_filter_neutral + preflash_y_filter_shift`.
+
+---
+
+## 7. Scanner white/black corrections (`scanner_white/black_correction`, `_white/black_level`) — wireable follow-up
+
+**What it is.** A scan-time tone-anchor correction that maps measured Y at the reference
+black/white densities to target levels (and back-corrects the filming/printing exposure).
+
+**Status.** Inert (marshalled, consumed by no stage). Wireable, but the **highest-complexity**
+remaining item — it spans three stages with film/print-type and `scan_film` branches. Scoped as
+its own PR with multiple goldens (negative-scan, positive-scan, print routes).
+
+**Oracle reference.**
+- `spektrafilm/.../runtime/services/color_reference.py` — `ColorReferenceService`:
+  `black_white_filming_exposure_correction` (filming), `black_white_printing_exposure_correction`
+  (printing), `black_white_xyz_correction` (scanning), `_correction_fucntion` (the `m*y+q` map).
+- `spektrafilm/.../runtime/pipeline.py:45-46` — wires the four params into the service.
 
 ---
 

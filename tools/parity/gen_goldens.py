@@ -126,6 +126,16 @@ class Case:
     # keep spatial/grain off and stay bit-stable.
     apply_hanatos_window: bool = True
     apply_hanatos_surface: bool = False
+    # Camera UV/IR cut band-pass filter (camera.filter_uv / filter_ir), each
+    # (amp, wavelength_nm, width_nm). Defaults (amp 0) are a strict no-op. A non-
+    # default case sets a non-zero amplitude to exercise compute_band_pass_filter in
+    # FilmingStage._rgb_to_film_raw: the band-pass multiplies the profile sensitivity
+    # (with per-channel white-balance normalisation) BEFORE the spectra contraction,
+    # changing the filming tc_lut and every downstream tap. It lives in the LUT-build
+    # path (not the spatial branch), so a band-pass case can keep spatial/grain off
+    # and stay bit-stable.
+    filter_uv: tuple = (0.0, 410.0, 8.0)
+    filter_ir: tuple = (0.0, 675.0, 15.0)
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -330,6 +340,28 @@ CASES = [
               "so spatial + grain stay off and the case is deterministic/bit-stable. "
               "Tested by tests/test_hanatos_surface_e2e.cpp.",
     ),
+    Case(
+        case_id="scan_portra_uvir",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        filter_uv=(1.0, 410.0, 8.0),        # NON-default: UV cut ON (amp=1)
+        filter_ir=(1.0, 675.0, 15.0),       # NON-default: IR cut ON (amp=1)
+        notes="scan_film with the CAMERA UV/IR CUT BAND-PASS ON "
+              "(camera.filter_uv=(1,410,8), filter_ir=(1,675,15)). Exercises "
+              "compute_band_pass_filter in FilmingStage._rgb_to_film_raw: the "
+              "band-pass = filter_uv*filter_ir (each 1-amp + amp*sigmoid_erf) "
+              "multiplies the profile sensitivity with a per-channel white-balance "
+              "normalisation against the film reference illuminant, BEFORE the "
+              "spectra contraction inside compute_hanatos2025_tc_lut. It changes the "
+              "filming tc_lut and therefore film_log_raw / film_density_cmy / "
+              "final_rgb. Lives in the LUT-build path (not the spatial branch), so "
+              "spatial + grain stay off and the case is deterministic/bit-stable. "
+              "Tested by tests/test_camera_uvir_e2e.cpp.",
+    ),
 ]
 
 
@@ -447,6 +479,11 @@ def _build_params(sf, case: Case):
     # poly4 log-exposure-correction surface in compute_hanatos2025_tc_lut.
     params.settings.apply_hanatos2025_adaptation_window = case.apply_hanatos_window
     params.settings.apply_hanatos2025_adaptation_surface = case.apply_hanatos_surface
+    # Camera UV/IR cut band-pass filter. Lives in the LUT-build path (the band-pass
+    # is folded into the sensitivity before compute_hanatos2025_tc_lut), so it is
+    # honoured regardless of deactivate_spatial_effects. Defaults (amp 0) no-op.
+    params.camera.filter_uv = tuple(case.filter_uv)
+    params.camera.filter_ir = tuple(case.filter_ir)
     return params
 
 

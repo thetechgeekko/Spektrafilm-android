@@ -57,6 +57,38 @@ void prophoto_rgb_to_tc_b(const double rgb[3], Vec2* out_tc, double* out_b) {
     *out_b = std::isnan(b) ? 0.0 : b;
 }
 
+// compute_band_pass_filter(filter_uv, filter_ir): the camera UV/IR cut filter
+// (model/color_filters.py). filter_uv/ir = (amp, wavelength_nm, width_nm). Each is
+//   sigmoid_erf(x, center, width) = 0.5*(1 + erf((x - center)/width))
+//   filter_uv = 1-amp_uv + amp_uv*sigmoid_erf(wl, wl_uv, +width_uv)
+//   filter_ir = 1-amp_ir + amp_ir*sigmoid_erf(wl, wl_ir, -width_ir)
+//   band_pass = filter_uv * filter_ir            (common across channels)
+// amp is clipped to [0,1] (np.clip), exactly as the oracle. Note width enters the
+// erf argument as a plain divisor (NOT scaled by sqrt(2)) — unlike the erf4 window
+// above — so this matches scipy.special.erf((x-center)/width) verbatim.
+void eval_camera_band_pass(const float* filter_uv, const float* filter_ir,
+                           const std::vector<float>& wavelengths,
+                           std::vector<double>* band_pass /* (S,) common */) {
+    double amp_uv = static_cast<double>(filter_uv[0]);
+    double wl_uv = static_cast<double>(filter_uv[1]);
+    double width_uv = static_cast<double>(filter_uv[2]);
+    double amp_ir = static_cast<double>(filter_ir[0]);
+    double wl_ir = static_cast<double>(filter_ir[1]);
+    double width_ir = static_cast<double>(filter_ir[2]);
+    if (amp_uv < 0.0) amp_uv = 0.0; else if (amp_uv > 1.0) amp_uv = 1.0;  // np.clip
+    if (amp_ir < 0.0) amp_ir = 0.0; else if (amp_ir > 1.0) amp_ir = 1.0;
+    int S = static_cast<int>(wavelengths.size());
+    band_pass->resize(S);
+    for (int s = 0; s < S; ++s) {
+        double wl = static_cast<double>(wavelengths[s]);
+        double sig_uv = 0.5 * (1.0 + std::erf((wl - wl_uv) / width_uv));
+        double sig_ir = 0.5 * (1.0 + std::erf((wl - wl_ir) / (-width_ir)));
+        double f_uv = 1.0 - amp_uv + amp_uv * sig_uv;
+        double f_ir = 1.0 - amp_ir + amp_ir * sig_ir;
+        (*band_pass)[s] = f_uv * f_ir;
+    }
+}
+
 // eval_erf4_spectral_bandpass(window_params): common band-pass replicated across
 // the 3 channels. params = [c_uv, sigma_uv, c_ir, sigma_ir].
 //   edge_uv = 0.5*(1 + erf((wl - c_uv)/(sigma_uv*sqrt2)))
@@ -215,7 +247,8 @@ NdArray blur_spectra_lut_spectral(const NdArray& lut, double sigma) {
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
                              const double* illuminant,
                              float spectral_gaussian_blur, bool apply_window,
-                             bool apply_surface) {
+                             bool apply_surface, const float* filter_uv,
+                             const float* filter_ir) {
     // Optional spectral-domain blur of the spectra LUT (default 0 -> no-op). Done
     // up front, before the sensitivity contraction, matching upstream
     // compute_hanatos2025_tc_lut.
@@ -238,6 +271,36 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
             if (std::isnan(v) || std::isinf(v)) v = 0.0;  // np.nan_to_num
             sens[s * 3 + c] = v;
         }
+
+    // Camera UV/IR band-pass cut filter (filming.py::_rgb_to_film_raw, applied to
+    // `sensitivity` BEFORE it is handed to compute_hanatos2025_tc_lut). Gated on
+    // `filter_uv[0] > 0 OR filter_ir[0] > 0` exactly like the oracle, so the
+    // default (amp 0/0) is a strict no-op. The band-pass is common across channels;
+    // per-channel white-balance normalisation preserves the channel response to the
+    // film reference illuminant:
+    //   norm[c] = sum_s sens[s,c]*band[s]*illu[s] / sum_s sens[s,c]*illu[s]
+    //   sens[s,c] *= band[s] / norm[c]
+    // `illuminant` is the film reference illuminant (the same SPD the window
+    // normalisation uses), matching standard_illuminant(film.reference_illuminant).
+    if (filter_uv != nullptr && filter_ir != nullptr &&
+        (filter_uv[0] > 0.0f || filter_ir[0] > 0.0f)) {
+        std::vector<double> band;
+        eval_camera_band_pass(filter_uv, filter_ir, film.wavelengths, &band);
+        double bnum[3] = {0, 0, 0}, bden[3] = {0, 0, 0};
+        for (int s = 0; s < S; ++s) {
+            double ill = illuminant[s];
+            for (int c = 0; c < 3; ++c) {
+                double se = sens[s * 3 + c];
+                bnum[c] += se * band[s] * ill;
+                bden[c] += se * ill;
+            }
+        }
+        double bnorm[3];
+        for (int c = 0; c < 3; ++c) bnorm[c] = bnum[c] / bden[c];
+        for (int s = 0; s < S; ++s)
+            for (int c = 0; c < 3; ++c)
+                sens[s * 3 + c] *= band[s] / bnorm[c];
+    }
 
     // Per-channel sensitivity weights folded into the spectra contraction. When
     // apply_window is on, this is sens[s,c]*window[s]/norm[c] (white-balance-
