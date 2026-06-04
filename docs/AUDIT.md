@@ -46,8 +46,22 @@ not a commitment to do all of it.
   cache keys fold both toggles. The default (window on, surface off) is a strict no-op (all
   pre-existing goldens reproduce bit-exactly). Both UI toggles are un-gated. Gated by the
   `scan_portra_surface` + `scan_portra_nowindow` goldens (oracle **c1d0e44**) +
-  `test_hanatos_surface_e2e` in CI `engine-parity`. This was the last wireable §1 item; §4
-  (enlarger lens blur) stays unwired by design.
+  `test_hanatos_surface_e2e` in CI `engine-parity`.
+- ✅ **Camera UV/IR cut band-pass (`camera.filter_uv` / `filter_ir`)** WIRED (2026-06-04).
+  `build_filming_tc_lut` now applies the camera UV/IR cut filter to the profile sensitivity BEFORE
+  the spectra contraction, mirroring `FilmingStage._rgb_to_film_raw` →
+  `model/color_filters.py::compute_band_pass_filter`: `band = filter_uv*filter_ir` (each
+  `1-amp + amp*sigmoid_erf`, amp clipped to [0,1]) multiplies the sensitivity with a per-channel
+  white-balance normalisation against the film reference illuminant. Gated on
+  `filter_uv[0] > 0 || filter_ir[0] > 0` exactly like the oracle, so the default amplitudes (0,0)
+  are a strict no-op (all pre-existing goldens reproduce bit-exactly). The UI sliders ("UV filter"
+  / "IR filter") were already present + JNI-marshalled; only the engine consumption was missing.
+  The tc_lut + print-route memo cache keys fold the band-pass triples. Gated by the
+  `scan_portra_uvir` golden (oracle **c1d0e44**) + `test_camera_uvir_e2e` in CI `engine-parity`.
+  This was the last self-contained §1 LUT-build-path wiring; §4 (enlarger lens blur) stays unwired
+  by design. The remaining inert params (preflash, scanner white/black corrections) are wireable
+  against c1d0e44 call sites but are higher-complexity (print/scan-route, multi-stage) follow-ups —
+  see the next-actions list.
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
@@ -141,8 +155,23 @@ not a commitment to do all of it.
 1. ✅ **Re-sync the frozen docs** to v0.7.0 — `docs/RELEASE_CHECKLIST.md` rewritten to the
    `release.yml` signed-tag flow (no `dist/`) with the explicit 16 KB-page gate, and the stale
    `docs/ROADMAP.md` status markers flipped. Both also reflect R8 Stage-1 shrink now being enabled.
-2. **Wire or strip the remaining inert engine params** (`apply_hanatos_*`,
-   camera UV/IR, preflash, scanner white/black corrections) — UI toggles that currently do nothing.
+2. **Wire or strip the remaining inert engine params.** Investigated end-to-end against the pinned
+   oracle (c1d0e44); none were stale and none were "no oracle call site" (C). Status:
+   - `apply_hanatos2025_*` (window/surface) — **already WIRED** (#69, verified). No action.
+   - `spectral_gaussian_blur` — **already WIRED** (#68). No action.
+   - **camera UV/IR cut (`camera.filter_uv`/`filter_ir`) — WIRED (2026-06-04, this PR).** Lowest-risk
+     wireable param: self-contained in the LUT-build path, default-off no-op, full 4-gate parity
+     (`scan_portra_uvir` golden + `test_camera_uvir_e2e`). See §A.
+   - **`preflash_exposure` / `preflash_y/m_filter_shift` — wireable follow-up.** Oracle call site:
+     `runtime/stages/printing.py:92-101` (`_compute_raw_preflash`) +
+     `runtime/services/filter_enlarger_source.py:29-32`. Print-route only; adds a preflash raw term
+     to the print expose. Needs an engine change in `printing.cpp::print_expose` + a `print_*_preflash`
+     golden + a parity test.
+   - **`scanner_white_correction` / `_black_correction` / `_white_level` / `_black_level` —
+     wireable follow-up (highest complexity).** Oracle call site:
+     `runtime/services/color_reference.py` + `runtime/pipeline.py:45-46`. Spans THREE stages
+     (filming exposure correction, printing exposure correction, scanning XYZ correction) with
+     branches on film/print type and `scan_film`; needs the most careful port + multiple goldens.
 3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).
 4. Maintainer/device items: a release-build (R8-enabled) on-device smoke + screen-unlocked visual

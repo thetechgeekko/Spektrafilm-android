@@ -64,10 +64,21 @@ namespace spk {
 //     illuminant chromaticity. No-op unless the profile carries surface_params.
 // The default (window on, surface off) reproduces the pre-existing goldens
 // bit-exactly.
+//
+// `filter_uv` / `filter_ir` mirror camera.filter_uv / filter_ir (each
+// (amp, wavelength_nm, width_nm)): the optional UV/IR cut band-pass applied to the
+// profile sensitivity BEFORE the spectra contraction, matching
+// filming.py::_rgb_to_film_raw -> model/color_filters.py::compute_band_pass_filter.
+// It is gated on `filter_uv[0] > 0 || filter_ir[0] > 0`, with a per-channel
+// white-balance normalisation against `illuminant`. The default amplitudes (0,0)
+// are a strict no-op, so the default engine path stays bit-exact. Either pointer may
+// be null (treated as no band-pass).
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
                              const double* illuminant,
                              float spectral_gaussian_blur = 0.0f,
-                             bool apply_window = true, bool apply_surface = false);
+                             bool apply_window = true, bool apply_surface = false,
+                             const float* filter_uv = nullptr,
+                             const float* filter_ir = nullptr);
 
 // expose(): rgb (npix,3, linear ProPhoto, double — the pipeline runs the image
 // as float64) -> log_raw (npix,3). Reuses the project's verified cubic-2D LUT

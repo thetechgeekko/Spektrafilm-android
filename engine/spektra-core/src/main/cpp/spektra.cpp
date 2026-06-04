@@ -312,13 +312,20 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                          const std::string& film_id,
                                          const spk::Profile& film,
                                          float spectral_gaussian_blur,
-                                         bool apply_window, bool apply_surface) {
+                                         bool apply_window, bool apply_surface,
+                                         const float* filter_uv,
+                                         const float* filter_ir) {
     // Compose a key that folds the blur sigma's exact IEEE-754 bytes plus the
-    // window/surface toggles so distinct adaptations (or float jitter) never alias.
-    // The DEFAULT (blur==0, window on, surface off) keeps the bare film-id key,
-    // preserving the existing cache behaviour for the default path.
+    // window/surface toggles and the camera UV/IR band-pass so distinct adaptations
+    // (or float jitter) never alias. The DEFAULT (blur==0, window on, surface off,
+    // band-pass amplitudes 0) keeps the bare film-id key, preserving the existing
+    // cache behaviour for the default path.
+    const bool band_pass_on =
+        filter_uv != nullptr && filter_ir != nullptr &&
+        (filter_uv[0] > 0.0f || filter_ir[0] > 0.0f);
     std::string key = film_id;
-    if (spectral_gaussian_blur > 0.0f || !apply_window || apply_surface) {
+    if (spectral_gaussian_blur > 0.0f || !apply_window || apply_surface ||
+        band_pass_on) {
         key.push_back('|');
         const unsigned char* b =
             reinterpret_cast<const unsigned char*>(&spectral_gaussian_blur);
@@ -327,6 +334,19 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
         }
         key.push_back(apply_window ? 'W' : 'w');
         key.push_back(apply_surface ? 'S' : 's');
+        // Fold the band-pass triples' exact bytes only when active, so the default
+        // (off) key is unchanged.
+        if (band_pass_on) {
+            key.push_back('B');
+            const unsigned char* fu =
+                reinterpret_cast<const unsigned char*>(filter_uv);
+            const unsigned char* fr =
+                reinterpret_cast<const unsigned char*>(filter_ir);
+            for (size_t i = 0; i < 3 * sizeof(float); ++i)
+                key.push_back(static_cast<char>(fu[i]));
+            for (size_t i = 0; i < 3 * sizeof(float); ++i)
+                key.push_back(static_cast<char>(fr[i]));
+        }
     }
     {
         std::lock_guard<std::mutex> g(eng->cache_mutex);
@@ -336,7 +356,8 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
     spk::NdArray lut = spk::build_filming_tc_lut(film, engine_spectra(eng),
                                                  kD55Illuminant,
                                                  spectral_gaussian_blur,
-                                                 apply_window, apply_surface);
+                                                 apply_window, apply_surface,
+                                                 filter_uv, filter_ir);
     std::lock_guard<std::mutex> g(eng->cache_mutex);
     return eng->tc_lut_cache.emplace(key, std::move(lut)).first->second;
 }
@@ -397,6 +418,12 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     // default path... but fold them ALWAYS so the digest is honest.
     h = fnv1a64(h, &p->apply_hanatos_window, sizeof(p->apply_hanatos_window));
     h = fnv1a64(h, &p->apply_hanatos_surface, sizeof(p->apply_hanatos_surface));
+    // Camera UV/IR band-pass cut filter also modifies the filming tc_lut (and thus
+    // film_density_cmy) on the print route, so it MUST be part of the memo key.
+    // Defaults (amp 0/0) keep the key unchanged for the default path; fold ALWAYS
+    // so the digest is honest.
+    h = fnv1a64(h, p->camera_filter_uv, sizeof(p->camera_filter_uv));
+    h = fnv1a64(h, p->camera_filter_ir, sizeof(p->camera_filter_ir));
     // 5) DIR-coupler pointwise params (the only spatial-independent coupler inputs).
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -682,7 +709,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     try {
         tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
                                     p->apply_hanatos_window != 0,
-                                    p->apply_hanatos_surface != 0);
+                                    p->apply_hanatos_surface != 0,
+                                    p->camera_filter_uv, p->camera_filter_ir);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -782,7 +810,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     try {
         tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
                                     p->apply_hanatos_window != 0,
-                                    p->apply_hanatos_surface != 0);
+                                    p->apply_hanatos_surface != 0,
+                                    p->camera_filter_uv, p->camera_filter_ir);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
