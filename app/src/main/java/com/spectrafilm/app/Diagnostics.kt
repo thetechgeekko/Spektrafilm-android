@@ -100,7 +100,12 @@ object Diagnostics {
 
     fun appVersion(context: Context): String = runCatching {
         val pi = context.packageManager.getPackageInfo(context.packageName, 0)
-        "${pi.versionName} (${pi.longVersionCode})"
+        val versionCode: Long = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            pi.longVersionCode
+        } else {
+            @Suppress("DEPRECATION") pi.versionCode.toLong()
+        }
+        "${pi.versionName} ($versionCode)"
     }.getOrDefault("unknown")
 
     /** Fire a share-sheet with the report text. */
