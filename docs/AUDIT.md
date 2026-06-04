@@ -30,11 +30,16 @@ not a commitment to do all of it.
   the print-expose integral is less smooth than the scanner's, so its bands are looser. Gated by
   the new `test_enlarger_lut_e2e` in CI `engine-parity`. No reserved engine LUT flag remains.
 - ⚪ **Enlarger lens blur** intentionally unwired (no oracle call site to validate against).
-- ℹ️ **`apply_hanatos2025_adaptation_window`/`_surface` + `spectral_gaussian_blur`** are
-  UI-present (dimmed) + JNI-marshalled but applied by **no** engine stage. Wiring each needs an
-  engine change + a new spektrafilm-oracle golden — see **`docs/ENGINE_WIRING_PLAN.md`** for the
-  per-param plan (oracle refs, C++ hook points, parity strategy). `use_enlarger_lut` and enlarger
-  lens blur are covered there too.
+- ✅ **`spectral_gaussian_blur`** WIRED. `build_filming_tc_lut` blurs the Hanatos2025 spectra LUT
+  along its spectral axis (scipy.ndimage.gaussian_filter sigma=(0,0,σ), mode='reflect',
+  truncate=4.0) before the sensitivity contraction, matching `compute_hanatos2025_tc_lut`. Default
+  0.0 is a strict no-op (all pre-existing goldens reproduce bit-exactly). The UI slider is
+  un-gated. Gated by the `scan_spectral_blur` golden (oracle **c1d0e44**) + `test_spectral_blur_e2e`
+  in CI `engine-parity`.
+- ℹ️ **`apply_hanatos2025_adaptation_window`/`_surface`** are UI-present (dimmed) + JNI-marshalled
+  but applied by **no** engine stage. Wiring each needs an engine change + a new spektrafilm-oracle
+  golden — see **`docs/ENGINE_WIRING_PLAN.md`** for the per-param plan (oracle refs, C++ hook
+  points, parity strategy). `use_enlarger_lut` and enlarger lens blur are covered there too.
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
@@ -113,10 +118,11 @@ not a commitment to do all of it.
 ## E. Dead code / cleanup
 
 - ⚪ **`NotYetActiveNote` in `Widgets.kt`** has no *direct* call sites — but it is **not** dead:
-  its wrapper `GatedBlock` (same file) calls it and is used twice in `MainActivity.kt` to gate
-  genuinely-inert params (the hanatos2025 adaptation toggles + spectral Gaussian blur, and the
-  enlarger lens blur — "no engine call site"). So the widget stays until those params are wired or
-  removed. (Correction: an earlier draft of this audit wrongly listed it as dead code.)
+  its wrapper `GatedBlock` (same file) calls it and is used to gate genuinely-inert params (the
+  hanatos2025 adaptation toggles, and the enlarger lens blur — "no engine call site"). The spectral
+  Gaussian blur was previously gated here but is now wired and un-gated. So the widget stays until
+  the remaining params are wired or removed. (Correction: an earlier draft of this audit wrongly
+  listed it as dead code.)
 
 ---
 
@@ -124,7 +130,7 @@ not a commitment to do all of it.
 1. **Re-sync the frozen docs** to v0.7.0: rewrite `docs/RELEASE_CHECKLIST.md` (it still tells the
    maintainer to commit APKs to the removed `dist/` and omits the 16 KB-page check) and flip the
    stale status markers in `docs/ROADMAP.md` (🔴 — actively misleading).
-2. **Wire or strip the inert engine params** (`apply_hanatos_*`, `spectral_gaussian_blur`,
+2. **Wire or strip the remaining inert engine params** (`apply_hanatos_*`,
    camera UV/IR, preflash, scanner white/black corrections) — UI toggles that currently do nothing.
 3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).

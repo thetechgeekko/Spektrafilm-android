@@ -57,7 +57,7 @@ Milestones are vertical slices. Each ends with something demonstrable and a pari
 > `release.yml` ships a signed APK on a `v*` tag and local release builds read `keystore.properties`
 > (debug fallback only when it is absent) — so there is no debug-signed release blocker. Only minor,
 > by-design items remain: bit-exact glare-on-print is impossible (stochastic), and a handful of UI
-> toggles (`apply_hanatos2025_*`, `spectral_gaussian_blur`, enlarger lens blur) are still unwired
+> toggles (`apply_hanatos2025_*`, enlarger lens blur) are still unwired
 > pending new oracle goldens (tracked in `docs/AUDIT.md` + `docs/ENGINE_WIRING_PLAN.md`).
 
 ## M0 — Foundation  ✅ (this commit)
@@ -220,8 +220,8 @@ The "do this when literally everything else is done" list:
   push via the API). Ready-to-paste text is in `docs/RELEASE_CHECKLIST.md`.
 - **Remaining (M7/polish):** the gated engine stages are now live (crop, auto-exposure,
   diffusion, lens blur, scanner LUT accel, **enlarger LUT**). Only bit-exact glare-on-print
-  (stochastic) remains by-design, plus a few still-unwired UI toggles (`apply_hanatos2025_*`,
-  `spectral_gaussian_blur`, enlarger lens blur) pending new oracle goldens — see `docs/AUDIT.md`.
+  (stochastic) remains by-design, plus a couple still-unwired UI toggles (`apply_hanatos2025_*`,
+  enlarger lens blur) pending new oracle goldens — see `docs/AUDIT.md`.
   Release signing is **in place**: `release.yml` publishes a signed APK on a `v*` tag, and local
   release builds read `keystore.properties` (debug fallback only when that file is absent), so
   there is no debug-signed release blocker.

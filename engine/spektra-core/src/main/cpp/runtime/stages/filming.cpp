@@ -79,8 +79,90 @@ void eval_erf4_window(const double* window_params, const std::vector<float>& wav
 
 }  // namespace
 
-NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
-                             const double* illuminant) {
+namespace {
+
+// 1-D Gaussian blur of the spectra LUT along its spectral axis (axis 2), in
+// float64, mirroring scipy.ndimage.gaussian_filter(lut, sigma=(0,0,sigma)) with
+// the SciPy defaults order=0, mode='reflect', truncate=4.0. The first two LUT
+// axes get sigma 0 (no blur). Ports compute_hanatos2025_tc_lut's optional blur.
+//
+// SciPy's gaussian_filter1d: radius lw = int(truncate*sigma + 0.5); the symmetric
+// weights w[k] = exp(-0.5*(k/sigma)^2) for k in [-lw,lw], normalised; the result
+// is correlate1d with mode='reflect' (d c b a | a b c d | d c b a). The kernel is
+// symmetric so correlate == convolve. All arithmetic stays in double to match
+// the oracle's np.double LUT path.
+NdArray blur_spectra_lut_spectral(const NdArray& lut, double sigma) {
+    const int ni = lut.shape[0];
+    const int nj = lut.shape[1];
+    const int ns = lut.shape[2];  // spectral axis length
+
+    // SciPy: lw = int(truncate*sd + 0.5), truncate=4.0.
+    int lw = static_cast<int>(4.0 * sigma + 0.5);
+    if (lw < 0) lw = 0;
+    if (lw == 0) return lut;  // degenerate kernel {1.0} -> identity
+
+    // Weights: exp(-0.5/sigma^2 * x^2) over x in [-lw, lw], then normalise.
+    const int ksize = 2 * lw + 1;
+    std::vector<double> w(ksize);
+    double wsum = 0.0;
+    const double inv2s2 = 0.5 / (sigma * sigma);
+    for (int k = 0; k < ksize; ++k) {
+        double x = static_cast<double>(k - lw);
+        double v = std::exp(-inv2s2 * x * x);
+        w[k] = v;
+        wsum += v;
+    }
+    for (int k = 0; k < ksize; ++k) w[k] /= wsum;
+
+    NdArray out;
+    out.shape = lut.shape;
+    out.data.assign(lut.data.size(), 0.0);
+
+    // reflect(i, n): scipy.ndimage mode='reflect'.
+    auto reflect = [](int i, int n) -> int {
+        if (i >= 0 && i < n) return i;
+        if (i >= -n && i < 0) return -i - 1;
+        if (i >= n && i < 2 * n) return 2 * n - 1 - i;
+        int period = 2 * n;
+        i = i % period;
+        if (i < 0) i += period;
+        if (i >= n) i = period - 1 - i;
+        return i;
+    };
+
+    for (int i = 0; i < ni; ++i) {
+        for (int j = 0; j < nj; ++j) {
+            const double* in = &lut.data[(static_cast<size_t>(i) * nj + j) * ns];
+            double* o = &out.data[(static_cast<size_t>(i) * nj + j) * ns];
+            for (int s = 0; s < ns; ++s) {
+                double acc = 0.0;
+                for (int k = -lw; k <= lw; ++k) {
+                    acc += w[k + lw] * in[reflect(s + k, ns)];
+                }
+                o[s] = acc;
+            }
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
+                             const double* illuminant,
+                             float spectral_gaussian_blur) {
+    // Optional spectral-domain blur of the spectra LUT (default 0 -> no-op). Done
+    // up front, before the sensitivity contraction, matching upstream
+    // compute_hanatos2025_tc_lut.
+    NdArray spectra_lut_blurred;
+    const bool do_blur = spectral_gaussian_blur > 0.0f;
+    if (do_blur) {
+        spectra_lut_blurred =
+            blur_spectra_lut_spectral(spectra_lut_in,
+                                      static_cast<double>(spectral_gaussian_blur));
+    }
+    const NdArray& spectra_lut = do_blur ? spectra_lut_blurred : spectra_lut_in;
+
     int S = film.n_samples;  // 81
     // sensitivity = nan_to_num(10**log_sensitivity)  (S,3)
     std::vector<double> sens(static_cast<size_t>(S) * 3);

@@ -44,8 +44,16 @@ namespace spk {
 //
 // `illuminant` is the film reference illuminant on the 81-band working shape
 // (D55 for the bundled negative profiles). `spectra_lut` is irradiance_xy_tc.npy.
+//
+// `spectral_gaussian_blur` mirrors hanatos2025_adaptation.spectral_gaussian_blur:
+// when > 0 the spectra LUT is blurred along its spectral axis (axis 2) with a
+// 1-D Gaussian (scipy.ndimage.gaussian_filter sigma=(0,0,sigma), mode='reflect',
+// truncate=4.0) BEFORE the sensitivity contraction, exactly as
+// compute_hanatos2025_tc_lut does upstream. The default 0.0 is a strict no-op so
+// the default engine path stays bit-exact with the existing goldens.
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
-                             const double* illuminant);
+                             const double* illuminant,
+                             float spectral_gaussian_blur = 0.0f);
 
 // expose(): rgb (npix,3, linear ProPhoto, double — the pipeline runs the image
 // as float64) -> log_raw (npix,3). Reuses the project's verified cubic-2D LUT

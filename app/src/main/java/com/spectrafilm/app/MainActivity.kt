@@ -2112,15 +2112,16 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                 { it.name.lowercase() }, { s.spectralUpsampling = it })
-            GatedBlock("The hanatos2025 adaptation toggles and spectral Gaussian blur (spectral-blur) are not wired into the engine yet.") {
+            GatedBlock("The hanatos2025 adaptation toggles are not wired into the engine yet.") {
                 SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
                     "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
                 SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
                     "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
-                EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
-                    { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
-                    tooltip = "Sigma in nm for Gaussian blur applied to reconstructed spectra.", default = PARAM_DEFAULTS.spectralGaussianBlur)
             }
+            EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
+                { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
+                tooltip = "Gaussian blur sigma applied to the reconstructed spectra (spectral-axis " +
+                    "samples; each sample is 5 nm). 0 = off.", default = PARAM_DEFAULTS.spectralGaussianBlur)
             TripleSlider("UV filter", s.filterUv, 0f..800f, { s.filterUv = it }, step = 1f, decimals = 0,
                 tooltip = "Filter UV light (amplitude, wavelength cutoff nm, sigma nm).",
                 componentLabels = Triple("amp", "λ", "σ"))

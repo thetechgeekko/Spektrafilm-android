@@ -299,24 +299,39 @@ static spk::Profile load_engine_profile(spk_engine* eng, const std::string& id) 
     return eng->profile_cache.emplace(id, std::move(parsed)).first->second;
 }
 
-// Cached filming tc_lut, keyed by film id. build_filming_tc_lut is a pure
-// function of (film profile, the immutable spectra LUT, the D55 constant) — see
-// the cache note on spk_engine — so memoizing it by film id is byte-identical to
-// rebuilding it every call. Returns a reference into the never-evicted cache map
-// (node references stay valid). Throws on build failure (caller maps to
-// SPK_ERR_ASSET_IO, as the inline build did).
+// Cached filming tc_lut, keyed by (film id, spectral_gaussian_blur). For the
+// default blur==0 the key is just the film id and the cached LUT is byte-identical
+// to rebuilding it (build_filming_tc_lut is a pure function of film profile, the
+// immutable spectra LUT, the D55 constant, and the blur sigma). A non-zero blur
+// gets its own cache slot so two different sigmas never collide. Returns a
+// reference into the never-evicted cache map (node references stay valid). Throws
+// on build failure (caller maps to SPK_ERR_ASSET_IO, as the inline build did).
 static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                          const std::string& film_id,
-                                         const spk::Profile& film) {
+                                         const spk::Profile& film,
+                                         float spectral_gaussian_blur) {
+    // Compose a key that folds the blur sigma's exact IEEE-754 bytes so distinct
+    // sigmas (or float jitter) never alias. blur==0 keeps the bare film-id key,
+    // preserving the existing cache behaviour for the default path.
+    std::string key = film_id;
+    if (spectral_gaussian_blur > 0.0f) {
+        key.push_back('|');
+        const unsigned char* b =
+            reinterpret_cast<const unsigned char*>(&spectral_gaussian_blur);
+        for (size_t i = 0; i < sizeof(float); ++i) {
+            key.push_back(static_cast<char>(b[i]));
+        }
+    }
     {
         std::lock_guard<std::mutex> g(eng->cache_mutex);
-        auto it = eng->tc_lut_cache.find(film_id);
+        auto it = eng->tc_lut_cache.find(key);
         if (it != eng->tc_lut_cache.end()) return it->second;
     }
     spk::NdArray lut = spk::build_filming_tc_lut(film, engine_spectra(eng),
-                                                 kD55Illuminant);
+                                                 kD55Illuminant,
+                                                 spectral_gaussian_blur);
     std::lock_guard<std::mutex> g(eng->cache_mutex);
-    return eng->tc_lut_cache.emplace(film_id, std::move(lut)).first->second;
+    return eng->tc_lut_cache.emplace(key, std::move(lut)).first->second;
 }
 
 // FNV-1a 64-bit over raw bytes. Used to build the print-route film_density_cmy
@@ -339,7 +354,7 @@ static inline uint64_t fnv1a64(uint64_t h, const void* data, size_t n) {
 //   - width, height, input color_space,
 //   - film_profile string bytes,
 //   - exposure_compensation_ev, density_curve_gamma (the FILM gamma, not print gamma),
-//     rgb_to_raw_method,
+//     rgb_to_raw_method, spectral_gaussian_blur (blurs the filming tc_lut),
 //   - the DIR pointwise params (active, amount, inhibition same/inter-layer),
 //   - DEFENSIVELY: the geometry params (crop, crop_center, crop_size, upscale_factor,
 //     film_format_mm) and the currently-forced-off toggles (grain/spatial/halation/
@@ -364,6 +379,10 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     h = fnv1a64(h, &p->density_curve_gamma, sizeof(p->density_curve_gamma));
     int32_t rgb2raw = static_cast<int32_t>(p->rgb_to_raw_method);
     h = fnv1a64(h, &rgb2raw, sizeof(rgb2raw));
+    // Spectral-domain blur of the filming tc_lut changes film_density_cmy, so it
+    // MUST be part of the print-route memo key (blur defaults to 0 -> no-op, key
+    // unchanged from before for the default path).
+    h = fnv1a64(h, &p->spectral_gaussian_blur, sizeof(p->spectral_gaussian_blur));
     // 5) DIR-coupler pointwise params (the only spatial-independent coupler inputs).
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -647,7 +666,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     //    (see engine_tc_lut / the spk_engine cache note).
     const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -745,7 +764,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //    rebuilding (see engine_tc_lut / the spk_engine cache note).
     const spk::NdArray* tc_lut_ptr = nullptr;
     try {
-        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film);
+        tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur);
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }

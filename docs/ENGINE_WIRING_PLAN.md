@@ -1,13 +1,15 @@
 # Engine wiring plan — the gated parameters
 
-Status snapshot 2026-06-01, updated 2026-06-03. **§3 (`use_enlarger_lut`) is now WIRED**
-(shipped in v0.7.0, opt-in/default-off, gated by `test_enlarger_lut_e2e`). The remaining
-items below (§1 hanatos window/surface, §2 spectral_gaussian_blur) are still present in the
-app UI (dimmed via `GatedBlock`) and marshalled across JNI into `spk_params`, but the native
-engine does **not** yet apply them; §4 (enlarger lens blur) is intentionally not wireable.
-Wiring each of §1/§2 requires an engine change **plus** a new spektrafilm-oracle golden to
-keep the bit-exact parity gate honest — so that work needs a session with the `spektrafilm`
-Python oracle available (it lives at `../spektrafilm`) to regenerate goldens.
+Status snapshot 2026-06-01, updated 2026-06-04. **§3 (`use_enlarger_lut`) is WIRED**
+(shipped in v0.7.0, opt-in/default-off, gated by `test_enlarger_lut_e2e`). **§2
+(`spectral_gaussian_blur`) is now WIRED** (default-off no-op, gated by the `scan_spectral_blur`
+golden pinned to oracle **c1d0e44** + `test_spectral_blur_e2e`). The remaining item §1 (hanatos
+window/surface) is still present in the app UI (dimmed via `GatedBlock`) and marshalled across
+JNI into `spk_params`, but the native engine does **not** yet apply it; §4 (enlarger lens blur)
+is intentionally not wireable. Wiring §1 requires an engine change **plus** a new
+spektrafilm-oracle golden to keep the bit-exact parity gate honest — so that work needs a session
+with the `spektrafilm` Python oracle available (it lives at `../spektrafilm`) to regenerate
+goldens.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
@@ -49,26 +51,30 @@ cases; gate in `engine-parity`. Window-on/surface-off stays the existing default
 
 ---
 
-## 2. `spectral_gaussian_blur`
+## 2. `spectral_gaussian_blur` — ✅ WIRED
 
-**What it is.** A Gaussian blur (sigma in **nm**) applied to the reconstructed spectra
-before sensitivity integration — softens the spectral upsampling.
+**What it is.** A 1-D Gaussian blur applied to the reconstructed-spectra LUT
+(`HANATOS2025_SPECTRA_LUT`) along its **spectral axis** before sensitivity integration —
+softens the spectral upsampling. Sigma is in spectral-axis **samples** (each working-shape
+band is 5 nm); upstream's `profiles/io.py:110` comment "sigma in nm" refers to the band
+spacing, but the actual `scipy.ndimage.gaussian_filter` sigma is in array-index units.
 
-**Oracle reference.** Same files as §1; `profiles/io.py:110` documents "sigma in nm for
-gaussian blur of the spectra". Applied inside `compute_hanatos2025_tc_lut`.
+**Oracle reference.** `utils/spectral_upsampling.py::compute_hanatos2025_tc_lut` (line ~333):
+when `spectral_gaussian_blur > 0`, `spectra_lut = scipy.ndimage.gaussian_filter(spectra_lut,
+(0, 0, sigma))` — i.e. blur axis 2 only, with the SciPy defaults `order=0, mode='reflect',
+truncate=4.0`. The LUT is loaded as `np.double` (float64), so the blur runs in float64.
 
-**Current C++.** Struct field plumbed (`spektra.h:223`, JNI `spektra_jni.cpp:389`), init 0
-(`spektra.cpp:806`), **never read** in any stage.
+**Wired C++.** `build_filming_tc_lut` (`runtime/stages/filming.cpp`) now takes a
+`spectral_gaussian_blur` arg. When `> 0` it blurs `spectra_lut` along its spectral axis with a
+float64 1-D Gaussian (radius `int(4.0*sigma+0.5)`, kernel `exp(-0.5*(x/sigma)^2)` normalised,
+`reflect` boundary) BEFORE the sensitivity contraction. `engine_tc_lut` folds the sigma into
+the tc_lut cache key, and the print-route `film_density_cmy` memo key folds it too. `sigma==0`
+is an exact no-op (all pre-existing goldens reproduce bit-exactly).
 
-**Wire.** In the tc_lut builder, before integrating, convolve `spectra_lut` along the
-81-band axis with a Gaussian kernel whose sigma (nm) → bands using the working-shape band
-spacing. Reuse `kernels/gaussian` if a 1-D separable variant fits; else a small dedicated
-1-D conv. `sigma==0` must be an exact no-op (preserve current goldens).
-
-**Parity.** Oracle golden with `spectral_gaussian_blur > 0`; new `test_filming` case.
-
-**Risk.** Medium. Band-axis convolution + nm→band mapping must match the oracle's kernel
-construction exactly.
+**Parity.** `scan_spectral_blur` golden (`settings.spectral_gaussian_blur=5.0`) generated at
+oracle **c1d0e44**; gated by `tests/test_spectral_blur_e2e.cpp` in CI `engine-parity`. Verified
+within tol (film_log_raw max_abs≈1.2e-7, final_rgb max_abs≈6e-8) and byte-identical at
+`SPK_NUM_THREADS` 1 vs 8.
 
 ---
 
