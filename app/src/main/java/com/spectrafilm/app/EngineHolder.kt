@@ -50,6 +50,13 @@ object EngineHolder {
     private fun create(ctx: Context): SpektraEngine {
         val app = ctx.applicationContext
         return runCatching { SpektraEngine.fromAssets(app.assets) }
-            .getOrElse { SpektraEngine(extractAssets(app).absolutePath) }
+            .onSuccess { Diag.i("engine create ok via=fromAssets") }
+            .getOrElse { fromAssetsErr ->
+                Diag.w("engine create via=fromAssets failed (${fromAssetsErr.message}); falling back to extract")
+                runCatching { SpektraEngine(extractAssets(app).absolutePath) }
+                    .onSuccess { Diag.i("engine create ok via=extract") }
+                    .onFailure { Diag.e("engine create via=extract failed", it) }
+                    .getOrThrow()
+            }
     }
 }
