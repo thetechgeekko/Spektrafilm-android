@@ -122,7 +122,10 @@ keystore secrets on a `v*` tag push and creates the GitHub Release.
 - Commit with `-c commit.gpgsign=false` (the signing server rejects signing here).
 - Release signing: drop `keystore.properties` (`storeFile`/`storePassword`/`keyAlias`/`keyPassword`)
   in the repo root; absent it, release falls back to debug signing.
-- Release `isMinifyEnabled = false` (un-minified dex ~23 MB; R8 keep-rules not yet validated).
+- Release `isMinifyEnabled = true` (R8 shrink via `proguard-rules.pro`: `-dontobfuscate` + JNI/enum
+  keep-rules). The R8 release path is **not exercised by CI** (the `android` job builds debug, where
+  minify is off), and a wrong keep-rule fails only as a runtime crash — smoke-test a release build on
+  a device before tagging.
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
 - Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
   so `Presets` JSON round-trips on the plain JVM.
