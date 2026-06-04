@@ -149,6 +149,25 @@ struct PrintingParams {
     DiffusionFilterParams diffusion_filter;
     double pixel_size_um = 0.0;
 
+    // Enlarger PREFLASH (a uniform pre-exposure flash of the print paper before
+    // the image exposure). Mirrors printing.py::_compute_raw_preflash, which adds
+    // a constant per-print-channel raw_preflash 3-vector to `raw` AFTER the midgray
+    // exposure factor and BEFORE the log10 inside _film_cmy_to_print_log_raw:
+    //   light_preflash[l] = 10^-base_density[l] * preflash_illuminant[l]   (NaN->0)
+    //   raw_preflash[k]   = sum_l light_preflash[l] * sensitivity[l,k]
+    //   raw[k] += raw_preflash[k] * preflash_exposure
+    // The preflash illuminant is color_enlarger(enlarger light source, CC =
+    // [c_neutral, m_neutral + preflash_m_filter_shift, y_neutral +
+    // preflash_y_filter_shift]) — its OWN filter shifts, independent of the image
+    // exposure's m/y shifts (filter_enlarger_source.preflash_filtered_illuminant).
+    // The 3-vector is constant across pixels, so it is precomputed once in
+    // print_expose against the print sensitivity + film base density. Schema
+    // default preflash_exposure 0.0 => the term is exactly zero (the oracle's
+    // `if preflash_exposure > 0` guard returns a zero 3-vector), a STRICT no-op,
+    // so default params stay bit-exact. 81 samples on the working shape.
+    double preflash_illuminant[81] = {0.0};
+    double preflash_exposure = 0.0;
+
     // OPT-IN enlarger 3D-LUT acceleration (settings.use_enlarger_lut, default
     // false). Mirrors printing.py::expose routing _film_cmy_to_print_log_raw
     // through SpectralLUTService.spectral_compute_enlarger(use_lut=...): a

@@ -59,9 +59,25 @@ not a commitment to do all of it.
   The tc_lut + print-route memo cache keys fold the band-pass triples. Gated by the
   `scan_portra_uvir` golden (oracle **c1d0e44**) + `test_camera_uvir_e2e` in CI `engine-parity`.
   This was the last self-contained §1 LUT-build-path wiring; §4 (enlarger lens blur) stays unwired
-  by design. The remaining inert params (preflash, scanner white/black corrections) are wireable
-  against c1d0e44 call sites but are higher-complexity (print/scan-route, multi-stage) follow-ups —
-  see the next-actions list.
+  by design.
+- ✅ **Enlarger preflash (`preflash_exposure` / `preflash_y_filter_shift` / `preflash_m_filter_shift`)**
+  WIRED (2026-06-04). `printing.cpp::print_expose` now adds the preflash raw term to the print
+  exposure, mirroring `printing.py::_compute_raw_preflash` +
+  `runtime/services/filter_enlarger_source.py::preflash_filtered_illuminant`: a uniform
+  pre-exposure flash of the print paper. The preflash illuminant is
+  `color_enlarger(enlarger source, CC=[c_neutral, m_neutral+preflash_m, y_neutral+preflash_y])`
+  (its OWN filter shifts, NOT the image-exposure shifts); the constant per-channel
+  `raw_preflash = sum_l 10^-base_density[l] * preflash_illuminant[l] * sens[l,k]` is scaled by
+  `preflash_exposure` and added to the print raw AFTER the midgray factor, BEFORE the log10.
+  Gated on `preflash_exposure > 0` exactly like the oracle, so the default (0) is a strict no-op
+  (all pre-existing goldens reproduce bit-exactly). Print route only — affects `print_density_cmy`
+  + `final_rgb`, NOT the film taps, so it is correctly NOT folded into the film-density memo key
+  (`print_expose` re-runs with live preflash params on every call; a film-cache HIT serves the
+  unchanged negative). The UI sliders were already live + JNI-marshalled; only the engine
+  consumption was missing. Gated by the `print_portra_preflash` golden (oracle **c1d0e44**) +
+  `test_preflash_e2e` in CI `engine-parity`. The remaining inert param (scanner white/black
+  corrections) is wireable against a c1d0e44 call site but is higher-complexity (spans
+  filming/printing/scanning) — see the next-actions list.
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic
@@ -159,16 +175,18 @@ not a commitment to do all of it.
    oracle (c1d0e44); none were stale and none were "no oracle call site" (C). Status:
    - `apply_hanatos2025_*` (window/surface) — **already WIRED** (#69, verified). No action.
    - `spectral_gaussian_blur` — **already WIRED** (#68). No action.
-   - **camera UV/IR cut (`camera.filter_uv`/`filter_ir`) — WIRED (2026-06-04, this PR).** Lowest-risk
+   - **camera UV/IR cut (`camera.filter_uv`/`filter_ir`) — WIRED (2026-06-04, #72).** Lowest-risk
      wireable param: self-contained in the LUT-build path, default-off no-op, full 4-gate parity
      (`scan_portra_uvir` golden + `test_camera_uvir_e2e`). See §A.
-   - **`preflash_exposure` / `preflash_y/m_filter_shift` — wireable follow-up.** Oracle call site:
-     `runtime/stages/printing.py:92-101` (`_compute_raw_preflash`) +
-     `runtime/services/filter_enlarger_source.py:29-32`. Print-route only; adds a preflash raw term
-     to the print expose. Needs an engine change in `printing.cpp::print_expose` + a `print_*_preflash`
-     golden + a parity test.
+   - **`preflash_exposure` / `preflash_y/m_filter_shift` — WIRED (2026-06-04, this PR).** Oracle
+     call site: `runtime/stages/printing.py:92-101` (`_compute_raw_preflash`) +
+     `runtime/services/filter_enlarger_source.py:29-32`. Print-route only; `printing.cpp::print_expose`
+     adds the constant preflash raw 3-vector to the print expose (after the midgray factor, before
+     log10), built from the preflash-filtered illuminant + film base density + print sensitivity.
+     Default-off no-op, full 4-gate parity (`print_portra_preflash` golden pinned to c1d0e44 +
+     `test_preflash_e2e`). See §A.
    - **`scanner_white_correction` / `_black_correction` / `_white_level` / `_black_level` —
-     wireable follow-up (highest complexity).** Oracle call site:
+     the LAST #2 follow-up, wireable (highest complexity).** Oracle call site:
      `runtime/services/color_reference.py` + `runtime/pipeline.py:45-46`. Spans THREE stages
      (filming exposure correction, printing exposure correction, scanning XYZ correction) with
      branches on film/print type and `scan_film`; needs the most careful port + multiple goldens.

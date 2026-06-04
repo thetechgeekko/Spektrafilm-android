@@ -129,6 +129,18 @@ jobs:
           # compute_hanatos2025_tc_lut (FilmingStage._rgb_to_film_raw), changing the
           # filming tc_lut and every downstream tap. Golden pinned to oracle c1d0e44.
           build_run test_camera_uvir_e2e "$ASSET" "$G/scan_portra_uvir" tests/scan_portra_input_rgb.f64 "$G"
+          # Enlarger PREFLASH (enlarger.preflash_exposure / preflash_y_filter_shift /
+          # preflash_m_filter_shift): a uniform pre-exposure flash of the print paper
+          # before the image exposure. printing.py::_compute_raw_preflash adds a constant
+          # per-print-channel raw_preflash 3-vector (= sum_l 10^-base_density[l] *
+          # preflash_illuminant[l] * sens[l,k]) * preflash_exposure to the print raw,
+          # AFTER the midgray factor and BEFORE the log10 inside
+          # _film_cmy_to_print_log_raw. The preflash illuminant is color_enlarger(enlarger
+          # source, CC=[c_neutral, m_neutral+preflash_m, y_neutral+preflash_y]) — its OWN
+          # filter shifts (filter_enlarger_source.preflash_filtered_illuminant). It is a
+          # PRINT-stage effect (scan_film=False), changing print_density_cmy + final_rgb
+          # but NOT the film taps. Golden pinned to oracle c1d0e44.
+          build_run test_preflash_e2e "$ASSET" "$G/print_portra_preflash" tests/scan_portra_input_rgb.f64 "$G"
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

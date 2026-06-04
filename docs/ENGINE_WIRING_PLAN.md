@@ -9,14 +9,16 @@ window/surface) is now WIRED** (default window-on/surface-off is a strict no-op,
 `test_hanatos_surface_e2e`); both UI toggles are un-gated. **§5 (camera UV/IR cut band-pass
 `camera.filter_uv`/`filter_ir`) is now WIRED** (default amplitudes 0 are a strict no-op, gated
 by the `scan_portra_uvir` golden pinned to oracle **c1d0e44** + `test_camera_uvir_e2e`); the UI
-sliders were already live. §4 (enlarger lens blur) remains intentionally not wireable (no oracle
-call site).
+sliders were already live. **§6 (enlarger preflash `preflash_exposure` /
+`preflash_y/m_filter_shift`) is now WIRED** (default `preflash_exposure` 0 is a strict no-op,
+gated by the `print_portra_preflash` golden pinned to oracle **c1d0e44** + `test_preflash_e2e`);
+the UI sliders were already live. §4 (enlarger lens blur) remains intentionally not wireable (no
+oracle call site).
 
-All **LUT-build-path** inert params are now wired. Two inert params remain as **scoped
-follow-ups** (real oracle call sites, but higher-complexity multi-stage ports, so each warrants
-its own PR — see §6/§7): `preflash_exposure` + `preflash_y/m_filter_shift` (print route) and
-`scanner_white/black_correction` + `_white/black_level` (spans filming/printing/scanning). Only
-§4 stays gated by design.
+All **LUT-build-path** inert params are now wired, and the print-route preflash is wired. One
+inert param remains as a **scoped follow-up** (real oracle call site, but a higher-complexity
+multi-stage port, so it warrants its own PR — see §7): `scanner_white/black_correction` +
+`_white/black_level` (spans filming/printing/scanning). Only §4 stays gated by design.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
@@ -143,21 +145,37 @@ Gated by `test_camera_uvir_e2e` + the `scan_portra_uvir` golden (oracle **c1d0e4
 
 ---
 
-## 6. Preflash (`preflash_exposure` / `preflash_y_filter_shift` / `_m_filter_shift`) — wireable follow-up
+## 6. Preflash (`preflash_exposure` / `preflash_y_filter_shift` / `_m_filter_shift`) — ✅ WIRED
 
 **What it is.** A uniform pre-exposure of the print paper through (optionally shifted) enlarger
 filters, lifting print shadows. Print route only.
 
-**Status.** Inert (marshalled into `spk_params`, consumed by no stage). Wireable against a real
-oracle call site; scoped as its own PR (print-route engine change + new golden + parity test).
+**Status.** WIRED (2026-06-04). `print_expose` now adds the preflash raw term to the print
+exposure when `preflash_exposure > 0`. Default `preflash_exposure` 0 is a strict no-op (mirrors
+the oracle's `if preflash_exposure > 0` guard), so the default print path stays byte-identical.
+The UI sliders were already live (no un-gate needed). Gated by `test_preflash_e2e` + the
+`print_portra_preflash` golden (oracle **c1d0e44**).
 
-**Oracle reference.**
-- `spektrafilm/.../runtime/stages/printing.py:92-101` — `_compute_raw_preflash`: when
-  `preflash_exposure > 0`, adds `raw_preflash * preflash_exposure` to the print expose, where
-  `raw_preflash` is the (base-density) print response under the preflash-filtered illuminant.
-- `spektrafilm/.../runtime/services/filter_enlarger_source.py:29-32` —
-  `preflash_filtered_illuminant`: `m_filter = m_filter_neutral + preflash_m_filter_shift`,
-  `y_filter = y_filter_neutral + preflash_y_filter_shift`.
+**Oracle reference (read at c1d0e44).**
+- `runtime/stages/printing.py:92-101` — `_compute_raw_preflash`: when `preflash_exposure > 0`,
+  returns `raw_preflash * preflash_exposure`, where
+  `raw_preflash[k] = sum_l (10^-base_density[l] * preflash_illuminant[l]) * sensitivity[l,k]`.
+  It is added to `raw` in `_film_cmy_to_print_log_raw` **after** the midgray exposure factor and
+  **before** the `log10(fmax(raw,0)+1e-10)`. The term is constant across pixels (depends only on
+  film base density, the preflash illuminant, and print sensitivity).
+- `runtime/services/filter_enlarger_source.py:29-32` — `preflash_filtered_illuminant`:
+  `color_enlarger(light_source, CC=[c_filter_neutral, m_filter_neutral + preflash_m_filter_shift,
+  y_filter_neutral + preflash_y_filter_shift])` — its OWN shifts off the neutral CC, **not** the
+  image-exposure `m_filter_shift`/`y_filter_shift`.
+
+**Native mapping.** `PrintingParams` gained `preflash_illuminant[81]` + `preflash_exposure`;
+`spektra.cpp::run_print` builds the preflash illuminant via `color_enlarger` from the un-shifted
+neutral CC + the preflash shifts; `printing.cpp::print_expose` precomputes the constant
+`raw_preflash` 3-vector once and adds it after the midgray factor (both the direct per-pixel path
+and the opt-in enlarger 3D-LUT context). Preflash affects the print expose only, NOT the film
+density, so it is correctly excluded from `compute_film_cache_key` (the film-density memo): a
+print-route film-cache HIT returns the same negative density and `print_expose` re-runs with the
+live preflash params on every call.
 
 ---
 

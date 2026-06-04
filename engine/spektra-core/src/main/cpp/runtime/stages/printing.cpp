@@ -38,6 +38,11 @@ struct EnlargerLutCtx {
     const double* filtered_illuminant; // enlarger illuminant * dichroic, (S,)
     int S;
     double exposure_factor_midgray;
+    // Constant per-print-channel preflash raw 3-vector (already scaled by
+    // preflash_exposure), added to raw AFTER the midgray factor. {0,0,0} when
+    // preflash is off, so the LUT samples the exact same transform as the direct
+    // path (printing.py::_film_cmy_to_print_log_raw, raw += _compute_raw_preflash).
+    double preflash_raw[3];
 };
 
 void cmy_to_print_log_raw_fn(const double in[3], double out[3], void* vctx) {
@@ -59,6 +64,9 @@ void cmy_to_print_log_raw_fn(const double in[3], double out[3], void* vctx) {
     raw0 *= c.exposure_factor_midgray;
     raw1 *= c.exposure_factor_midgray;
     raw2 *= c.exposure_factor_midgray;
+    raw0 += c.preflash_raw[0];  // raw += _compute_raw_preflash (0 when off)
+    raw1 += c.preflash_raw[1];
+    raw2 += c.preflash_raw[2];
     out[0] = std::log10(std::fmax(raw0, 0.0) + 1e-10);
     out[1] = std::log10(std::fmax(raw1, 0.0) + 1e-10);
     out[2] = std::log10(std::fmax(raw2, 0.0) + 1e-10);
@@ -90,6 +98,33 @@ void print_expose(const Profile& film, const Profile& print_profile,
             if (std::isnan(v)) v = 0.0;  // np.nan_to_num
             sens[static_cast<size_t>(l) * 3 + k] = v;
         }
+    }
+
+    // PREFLASH (printing.py::_compute_raw_preflash): a uniform pre-exposure flash
+    // of the print paper. When enlarger.preflash_exposure > 0 the print raw gets a
+    // constant per-channel term added (after the midgray factor, before log10):
+    //   light_preflash[l] = 10^-base_density[l] * preflash_illuminant[l]  (NaN->0)
+    //   raw_preflash[k]   = sum_l light_preflash[l] * sens[l,k]
+    //   preflash_raw[k]   = raw_preflash[k] * preflash_exposure
+    // The term is constant across pixels (it depends only on the film base density,
+    // the preflash-filtered enlarger illuminant, and the print sensitivity), so it
+    // is computed once here. preflash_exposure == 0 (the default / no-preflash
+    // guard `if preflash_exposure > 0`) => preflash_raw stays {0,0,0}, a STRICT
+    // no-op that keeps the default path byte-identical.
+    double preflash_raw[3] = {0.0, 0.0, 0.0};
+    if (params.preflash_exposure > 0.0) {
+        for (int l = 0; l < S; ++l) {
+            double light = std::pow(10.0, -static_cast<double>(film.base_density[l])) *
+                           params.preflash_illuminant[l];
+            if (std::isnan(light)) light = 0.0;  // density_to_light NaN -> 0
+            const double* sl = sens.data() + static_cast<size_t>(l) * 3;
+            preflash_raw[0] += light * sl[0];
+            preflash_raw[1] += light * sl[1];
+            preflash_raw[2] += light * sl[2];
+        }
+        preflash_raw[0] *= params.preflash_exposure;
+        preflash_raw[1] *= params.preflash_exposure;
+        preflash_raw[2] *= params.preflash_exposure;
     }
 
     // OPT-IN enlarger 3D-LUT acceleration (params.use_enlarger_lut, default
@@ -137,6 +172,9 @@ void print_expose(const Profile& film, const Profile& print_profile,
         ctx.filtered_illuminant = params.filtered_illuminant;
         ctx.S = S;
         ctx.exposure_factor_midgray = params.exposure_factor_midgray;
+        ctx.preflash_raw[0] = preflash_raw[0];
+        ctx.preflash_raw[1] = preflash_raw[1];
+        ctx.preflash_raw[2] = preflash_raw[2];
         Lut3D lut =
             build_lut_3d(xmin, xmax, steps, {}, &cmy_to_print_log_raw_fn, &ctx);
 
@@ -209,10 +247,15 @@ void print_expose(const Profile& film, const Profile& print_profile,
             raw2 += light * sl[2];
         }
 
-        // raw *= exposure_factor_midgray (midgray normalisation; preflash += 0).
+        // raw *= exposure_factor_midgray (midgray normalisation), then
+        // raw += _compute_raw_preflash (the constant preflash 3-vector; {0,0,0}
+        // when preflash is off, so this is a strict no-op on the default path).
         raw0 *= params.exposure_factor_midgray;
         raw1 *= params.exposure_factor_midgray;
         raw2 *= params.exposure_factor_midgray;
+        raw0 += preflash_raw[0];
+        raw1 += preflash_raw[1];
+        raw2 += preflash_raw[2];
 
         // _film_cmy_to_print_log_raw returns log10(max(raw,0) + 1e-10).
         lr0 = std::log10(std::fmax(raw0, 0.0) + 1e-10);
