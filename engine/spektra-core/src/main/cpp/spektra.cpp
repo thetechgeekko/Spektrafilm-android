@@ -33,6 +33,7 @@
 #include "spektra.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <dirent.h>
 #include <fstream>
@@ -174,7 +175,53 @@ struct spk_engine {
     std::mutex cache_mutex;
     std::map<std::string, spk::Profile> profile_cache;   // id -> parsed Profile
     std::map<std::string, spk::NdArray> tc_lut_cache;    // film id -> filming tc_lut
+
+    // PRINT-ROUTE film_density_cmy memo (PERF). Unlike profile_cache/tc_lut_cache
+    // above — which are keyed by an IMMUTABLE bundled-asset id and so can never go
+    // stale — this single-slot cache is keyed by a CONTENT+PARAM DIGEST
+    // (compute_film_cache_key): a 64-bit FNV-1a hash folding the post-preprocess
+    // expose-input buffer (image content + auto-exposure + crop/rescale results)
+    // plus every filming-side input param. The key is therefore NOT an id; it is a
+    // fingerprint of the exact inputs to expose()+develop(). On the PRINT route
+    // (run_print) the filming step runs spatial-OFF and grain-OFF, so its output is
+    // a PURE deterministic function of those inputs with NO stochastic/grain state —
+    // making the memo byte-identical to a fresh expose+develop (a memo, not an
+    // approximation), exactly like the 54d4d3d tc_lut memo. It lets a downstream-only
+    // edit (printing/scanning/tone-curve params) reuse filming and skip expose+develop.
+    // Single-slot (only the most recent inputs); replaced on every miss. Scope is the
+    // print route ONLY — run_scan_film never consults it. Guarded by film_cache_mutex.
+    struct FilmCacheEntry {
+        int width = 0;
+        int height = 0;
+        std::vector<float> film_density_cmy;
+    };
+    std::mutex film_cache_mutex;
+    uint64_t film_cache_key = 0;        // 0 == empty slot (no valid entry yet)
+    bool film_cache_valid = false;      // guards the all-zero-key edge case
+    FilmCacheEntry film_cache;
+    uint64_t film_cache_hits = 0;       // host-test observability (NOT public ABI)
+    uint64_t film_cache_misses = 0;
 };
+
+// Host-only accessors for the print-route film_density_cmy cache counters. The host
+// parity tests compile spektra.cpp directly into their binary and read these to
+// assert the cache actually engaged, WITHOUT touching spektra.h / the public ABI /
+// JNI. Gated on the HOST build (!__ANDROID__) so they never enter the shipped
+// libspektra.so; not declared in any header — tests forward-declare them. The host
+// parity job (engine-parity) builds with the host g++ toolchain, so __ANDROID__ is
+// undefined and these are available there without needing an extra -D flag.
+#ifndef __ANDROID__
+uint64_t spk_test_film_cache_hits(spk_engine* eng) {
+    if (!eng) return 0;
+    std::lock_guard<std::mutex> g(eng->film_cache_mutex);
+    return eng->film_cache_hits;
+}
+uint64_t spk_test_film_cache_misses(spk_engine* eng) {
+    if (!eng) return 0;
+    std::lock_guard<std::mutex> g(eng->film_cache_mutex);
+    return eng->film_cache_misses;
+}
+#endif
 
 // Read a bundled asset by its path relative to the spektra/ asset root (e.g.
 // "profiles/kodak_portra_400.json") into `out`. Returns false on open failure.
@@ -270,6 +317,73 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                                  kD55Illuminant);
     std::lock_guard<std::mutex> g(eng->cache_mutex);
     return eng->tc_lut_cache.emplace(film_id, std::move(lut)).first->second;
+}
+
+// FNV-1a 64-bit over raw bytes. Used to build the print-route film_density_cmy
+// cache key by folding the IEEE-754 bytes of every filming-side input.
+static inline uint64_t fnv1a64(uint64_t h, const void* data, size_t n) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < n; ++i) {
+        h ^= static_cast<uint64_t>(p[i]);
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+// Compute the single-slot film_density_cmy cache key for the PRINT route. The key
+// is a 64-bit FNV-1a hash folding EVERY input that the print-route filming step
+// (expose + develop, spatial-OFF / grain-OFF) consumes, so two calls collide IFF
+// their film_density_cmy is byte-identical:
+//   - the POST-preprocess `rgb` float64 buffer (the actual expose() input): this
+//     already folds in image content + auto-exposure + crop/rescale geometry,
+//   - width, height, input color_space,
+//   - film_profile string bytes,
+//   - exposure_compensation_ev, density_curve_gamma (the FILM gamma, not print gamma),
+//     rgb_to_raw_method,
+//   - the DIR pointwise params (active, amount, inhibition same/inter-layer),
+//   - DEFENSIVELY: the geometry params (crop, crop_center, crop_size, upscale_factor,
+//     film_format_mm) and the currently-forced-off toggles (grain/spatial/halation/
+//     diffusion/lens_blur) — so a future change that begins to influence filming can
+//     never silently reuse a stale entry.
+// IMPORTANT: the rgb buffer is the post-preprocess expose input, so geometry params
+// are already reflected in it; folding them too is belt-and-suspenders, not required.
+static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width,
+                                       int height, int input_color_space,
+                                       const spk_params* p) {
+    uint64_t h = 0xcbf29ce484222325ULL;  // FNV offset basis
+    // 1) The expose input buffer (content + AE + crop/rescale already baked in).
+    h = fnv1a64(h, rgb.data(), rgb.size() * sizeof(double));
+    // 2) Geometry / domain scalars.
+    h = fnv1a64(h, &width, sizeof(width));
+    h = fnv1a64(h, &height, sizeof(height));
+    h = fnv1a64(h, &input_color_space, sizeof(input_color_space));
+    // 3) Film profile id bytes (NULL-safe).
+    if (p->film_profile) h = fnv1a64(h, p->film_profile, std::strlen(p->film_profile));
+    // 4) Filming pointwise params that change film_density_cmy.
+    h = fnv1a64(h, &p->exposure_compensation_ev, sizeof(p->exposure_compensation_ev));
+    h = fnv1a64(h, &p->density_curve_gamma, sizeof(p->density_curve_gamma));
+    int32_t rgb2raw = static_cast<int32_t>(p->rgb_to_raw_method);
+    h = fnv1a64(h, &rgb2raw, sizeof(rgb2raw));
+    // 5) DIR-coupler pointwise params (the only spatial-independent coupler inputs).
+    h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
+    h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
+    h = fnv1a64(h, &p->dir_inhibition_samelayer, sizeof(p->dir_inhibition_samelayer));
+    h = fnv1a64(h, &p->dir_inhibition_interlayer, sizeof(p->dir_inhibition_interlayer));
+    // 6) DEFENSIVE: geometry params (already folded via `rgb`, repeated for safety)
+    //    + the currently-forced-off toggles. If any of these ever start influencing
+    //    the print-route filming output, the key changes and the memo can't go stale.
+    h = fnv1a64(h, &p->crop, sizeof(p->crop));
+    h = fnv1a64(h, p->crop_center, sizeof(p->crop_center));
+    h = fnv1a64(h, p->crop_size, sizeof(p->crop_size));
+    h = fnv1a64(h, &p->upscale_factor, sizeof(p->upscale_factor));
+    h = fnv1a64(h, &p->film_format_mm, sizeof(p->film_format_mm));
+    h = fnv1a64(h, &p->grain_active, sizeof(p->grain_active));
+    h = fnv1a64(h, &p->halation_active, sizeof(p->halation_active));
+    h = fnv1a64(h, &p->glare_active, sizeof(p->glare_active));
+    h = fnv1a64(h, &p->camera_diffusion_active, sizeof(p->camera_diffusion_active));
+    h = fnv1a64(h, &p->lens_blur_um, sizeof(p->lens_blur_um));
+    h = fnv1a64(h, &p->auto_exposure, sizeof(p->auto_exposure));
+    return h;
 }
 
 namespace {
@@ -736,13 +850,65 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
 
     // `rgb` (float64, crop/rescale applied) built by preprocess_geometry above.
 
-    std::vector<float> film_log_raw(static_cast<size_t>(npix) * 3);
-    spk::expose(rgb.data(), width, height, fparams, tc_lut, film_log_raw.data());
-    if (tap_log_raw) *tap_log_raw = film_log_raw;
-
+    // Print-route film_density_cmy memo. On this route filming runs spatial-OFF and
+    // grain-OFF (set above: dir spatial=false, diffusion_filter.active=false, and
+    // run_print never touches grain), so expose()+develop() is a PURE deterministic
+    // function of (rgb, width, height, color_space, filming params) with NO
+    // stochastic/grain state. We can therefore memoize the developed film_density_cmy
+    // in a single content-hashed slot on the engine and skip expose+develop on the
+    // next call whose filming inputs are byte-identical (a downstream-only edit such
+    // as enlarger filters, scanner, or tone curve). Everything downstream runs
+    // unchanged on every call, so the cache is transparent and bit-exact.
+    //
+    // Cache is BYPASSED (always recompute) when:
+    //   (a) a debug tap (log_raw / film_density_cmy) is requested — keeps the tap
+    //       path byte-identical to today and avoids caching tap-only renders, AND
+    //   (b) DEFENSIVELY, if the print-route filming step would ever run with the
+    //       spatial OR grain branch on — converts a future parity break into a safe
+    //       bypass rather than serving a stochastic/spatial result from the memo.
     std::vector<float> film_density_cmy(static_cast<size_t>(npix) * 3);
-    spk::develop(film_log_raw.data(), width, height, film, fparams,
-                 film_density_cmy.data());
+    const bool tap_bypass = (tap_log_raw != nullptr) || (tap_film_density_cmy != nullptr);
+    // print_spatial/print_stochastic are the print route's branch toggles; on this
+    // route the filming step is run pointwise regardless, but if either branch is on
+    // we refuse to cache (and the recompute path below is unaffected).
+    const bool stochastic_or_spatial = print_spatial || print_stochastic;
+    const bool use_film_cache = !tap_bypass && !stochastic_or_spatial;
+
+    bool film_cache_hit = false;
+    if (use_film_cache) {
+        const uint64_t key = compute_film_cache_key(rgb, width, height,
+                                                    in->color_space, p);
+        std::lock_guard<std::mutex> g(eng->film_cache_mutex);
+        if (eng->film_cache_valid && eng->film_cache_key == key &&
+            eng->film_cache.width == width && eng->film_cache.height == height &&
+            eng->film_cache.film_density_cmy.size() == film_density_cmy.size()) {
+            // HIT: copy the cached buffer out BY VALUE while holding the lock.
+            film_density_cmy = eng->film_cache.film_density_cmy;
+            ++eng->film_cache_hits;
+            film_cache_hit = true;
+        }
+        // MISS path is handled after unlocking (we don't compute under the lock).
+    }
+
+    if (!film_cache_hit) {
+        std::vector<float> film_log_raw(static_cast<size_t>(npix) * 3);
+        spk::expose(rgb.data(), width, height, fparams, tc_lut, film_log_raw.data());
+        if (tap_log_raw) *tap_log_raw = film_log_raw;
+        spk::develop(film_log_raw.data(), width, height, film, fparams,
+                     film_density_cmy.data());
+        if (use_film_cache) {
+            // Store {width, height, film_density_cmy} + key under the lock, count miss.
+            const uint64_t key = compute_film_cache_key(rgb, width, height,
+                                                        in->color_space, p);
+            std::lock_guard<std::mutex> g(eng->film_cache_mutex);
+            eng->film_cache.width = width;
+            eng->film_cache.height = height;
+            eng->film_cache.film_density_cmy = film_density_cmy;
+            eng->film_cache_key = key;
+            eng->film_cache_valid = true;
+            ++eng->film_cache_misses;
+        }
+    }
     if (tap_film_density_cmy) *tap_film_density_cmy = film_density_cmy;
 
     // 4) Printing stage (film density -> enlarger expose -> print develop).
