@@ -46,7 +46,8 @@ static const double kEnlargerTHKG3[81] = {
     0.41455292589926274,
 };
 
-FilmingParams digest_filming_params(bool is_negative, bool spatial_effects) {
+FilmingParams digest_filming_params(bool is_negative, bool spatial_effects,
+                                    const char* stock) {
     FilmingParams p;
     p.spatial_effects = spatial_effects;
 
@@ -92,6 +93,32 @@ FilmingParams digest_filming_params(bool is_negative, bool spatial_effects) {
         dc.gamma_interlayer_g_to_rb[1] = 0.06;
         dc.gamma_interlayer_b_to_rg[0] = 0.06;
         dc.gamma_interlayer_b_to_rg[1] = 0.06;
+    }
+
+    // Per-stock DIR-coupler gamma overrides (_apply_film_specifics applies these
+    // AFTER the negative/positive matrix, overwriting it for specific stocks).
+    // Mirrors params_builder.py:149-158.
+    const std::string stk = stock ? stock : "";
+    if (stk == "fujifilm_velvia_100") {
+        dc.gamma_samelayer_rgb[0] = 0.108;
+        dc.gamma_samelayer_rgb[1] = 0.072;
+        dc.gamma_samelayer_rgb[2] = 0.054;
+        dc.gamma_interlayer_r_to_gb[0] = 0.108;
+        dc.gamma_interlayer_r_to_gb[1] = 0.054;
+        dc.gamma_interlayer_g_to_rb[0] = 0.072;
+        dc.gamma_interlayer_g_to_rb[1] = 0.054;
+        dc.gamma_interlayer_b_to_rg[0] = 0.054;
+        dc.gamma_interlayer_b_to_rg[1] = 0.054;
+    } else if (stk == "fujifilm_provia_100f") {
+        dc.gamma_samelayer_rgb[0] = 0.156;
+        dc.gamma_samelayer_rgb[1] = 0.104;
+        dc.gamma_samelayer_rgb[2] = 0.078;
+        dc.gamma_interlayer_r_to_gb[0] = 0.156;
+        dc.gamma_interlayer_r_to_gb[1] = 0.078;
+        dc.gamma_interlayer_g_to_rb[0] = 0.104;
+        dc.gamma_interlayer_g_to_rb[1] = 0.078;
+        dc.gamma_interlayer_b_to_rg[0] = 0.078;
+        dc.gamma_interlayer_b_to_rg[1] = 0.078;
     }
 
     return p;

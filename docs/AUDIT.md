@@ -104,6 +104,25 @@ not a commitment to do all of it.
   exposure + XYZ corrections, DIR couplers off to isolate the un-gated positive-film coupler
   branch) + `test_scanner_bwcorr_e2e` in CI `engine-parity`. **This closes audit-action-#2: all
   named inert engine params are now wired or explicitly resolved.**
+- ✅ **POSITIVE-film DIR-coupler parity gap RESOLVED (2026-06-04).** Surfaced by #74: the
+  `scan_film` route on a POSITIVE film (e.g. `fujifilm_provia_100f`) with DIR couplers ON
+  diverged ~0.32 from the oracle, while couplers-OFF matched to ~2.4e-7 — so the gap was isolated
+  to the positive-film coupler develop. Root cause: the coupler *math* in `model/couplers.cpp`
+  (positive branch: `density_silver = nanmax(density_curves) - density`, interpolate the
+  `-density` curve) was already correct — fed the oracle's exact inputs it reproduced the result
+  to 2.38e-7. The divergence was the **inhibitor matrix**: `runtime/params.cpp`'s
+  `digest_dir_couplers_params` ported the negative/positive coupler-gamma branch of
+  `params_builder._apply_film_specifics` (lines 112-122) but **omitted the per-stock override**
+  (lines 149-158) that overwrites the generic positive default `(0.12,0.08,0.06)` with the
+  provia values `gamma_samelayer_rgb=(0.156,0.104,0.078)` (and matching interlayer terms;
+  `fujifilm_velvia_100` likewise). The digest had no access to the stock string. Fix: thread the
+  profile `info.stock` into `digest_filming_params` and apply the velvia/provia gamma overrides
+  AFTER the positive branch (mirroring the oracle order). With the right matrix the full pipeline
+  matches: `film_density_cmy` 0.3206 → 2.38e-7, `final_rgb` 0.158 → 2.27e-7. The override only
+  matches the two Fuji positive stocks, so every pre-existing (negative-film) golden reproduces
+  bit-exactly. Gated by the new `scan_provia_couplers` golden (oracle **c1d0e44**, couplers ON) +
+  `test_provia_couplers_e2e` in CI `engine-parity` (also asserts couplers on-vs-off ACTIVE and
+  byte-identical at `SPK_NUM_THREADS` 1 vs 8).
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ⚪ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter** — documented follow-up; the cubic

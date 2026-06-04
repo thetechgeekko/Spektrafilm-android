@@ -487,6 +487,31 @@ CASES = [
               "film_density_cmy (filming correction) + final_rgb (both). Tested by "
               "tests/test_scanner_bwcorr_e2e.cpp.",
     ),
+    Case(
+        case_id="scan_provia_couplers",
+        film_profile="fujifilm_provia_100f",  # POSITIVE film
+        print_profile="kodak_portra_endura",
+        scan_film=True,                     # scan_film route on a POSITIVE film.
+        deactivate_spatial_effects=True,    # pointwise couplers (no diffusion), no halation
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        dir_couplers_active=True,           # DIR couplers ON -> exercises the
+                                            # POSITIVE-film coupler develop path.
+        notes="scan_film route on a POSITIVE film (fujifilm_provia_100f) with the DIR "
+              "COUPLERS ON (every other golden is negative film; the positive-film "
+              "coupler develop is a distinct branch in model/couplers.py: "
+              "compute_density_curves_before_dir_couplers / "
+              "compute_exposure_correction_dir_couplers use density_silver = "
+              "nanmax(density_curves) - density and interpolate the -density curve). "
+              "The provia stock also carries a stock-specific DIR-coupler gamma "
+              "override in params_builder._apply_film_specifics "
+              "(gamma_samelayer_rgb=(0.156,0.104,0.078), matching interlayer terms) "
+              "applied AFTER the generic positive default (0.12,0.08,0.06); the native "
+              "digest must reproduce that override or the inhibitor matrix is wrong. "
+              "Spatial+grain OFF keep it deterministic/bit-stable. Changes "
+              "film_density_cmy (couplers) + final_rgb. Tested by "
+              "tests/test_provia_couplers_e2e.cpp.",
+    ),
 ]
 
 

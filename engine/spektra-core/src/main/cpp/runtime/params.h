@@ -101,14 +101,19 @@ struct FilmingParams {
 
 // Build digested filming params for a film type, mirroring
 // digest_params -> _apply_film_specifics under the parity toggles.
-// `is_negative` selects the negative/positive coupler gamma matrix.
+// `is_negative` selects the negative/positive coupler gamma matrix; `stock`
+// (the profile info.stock string, may be null/empty) selects the per-stock DIR
+// coupler gamma override (_apply_film_specifics applies the negative/positive
+// matrix first, then overwrites it for specific stocks — currently
+// fujifilm_provia_100f and fujifilm_velvia_100).
 //
 // When `spatial_effects` is false (the default, spatial-OFF goldens):
 //   dir_couplers.diffusion_size_um == 0 (pointwise), halation.active == false.
 // When `spatial_effects` is true (scan_portra_spatial):
 //   dir_couplers diffusion (size 20µm, tail 200µm, weight 0.06) is enabled and
 //   the digested HalationParams (scatter + back-reflection) are filled.
-FilmingParams digest_filming_params(bool is_negative, bool spatial_effects = false);
+FilmingParams digest_filming_params(bool is_negative, bool spatial_effects = false,
+                                    const char* stock = nullptr);
 
 // Fill p.grain from the schema GrainParams defaults and activate it. Mirrors the
 // digest under deactivate_stochastic_effects=False (grain.active stays True) and
