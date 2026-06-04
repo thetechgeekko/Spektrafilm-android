@@ -129,8 +129,9 @@ keystore secrets on a `v*` tag push and creates the GitHub Release.
   in the repo root; absent it, release falls back to debug signing.
 - Release `isMinifyEnabled = true` (R8 shrink via `proguard-rules.pro`: `-dontobfuscate` + JNI/enum
   keep-rules). The R8 release path is **not exercised by CI** (the `android` job builds debug, where
-  minify is off), and a wrong keep-rule fails only as a runtime crash — smoke-test a release build on
-  a device before tagging.
+  minify is off), and a wrong keep-rule fails only as a runtime crash — so smoke-test a release build
+  on a device before tagging. (Last validated 2026-06-04 on SM-S948W/Android 16: minified build did
+  full RAW import → render → 12 MP PNG/TIFF export, JNI libs load under R8 — see `docs/AUDIT.md` §D.)
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
 - Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
   so `Presets` JSON round-trips on the plain JVM.
