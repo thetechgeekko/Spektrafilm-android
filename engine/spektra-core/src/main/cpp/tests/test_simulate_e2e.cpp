@@ -41,6 +41,14 @@
 #include "spkvec_io.h"
 #include "spektra.h"
 
+// Host-only accessors for the print-route film_density_cmy cache counters. Defined
+// in spektra.cpp on the HOST build (#ifndef __ANDROID__); the host parity build
+// compiles spektra.cpp directly into this binary, so they are available without any
+// extra -D flag. Forward-declared here so the test can assert the cache engaged
+// WITHOUT adding anything to spektra.h / the public ABI.
+extern uint64_t spk_test_film_cache_hits(spk_engine* eng);
+extern uint64_t spk_test_film_cache_misses(spk_engine* eng);
+
 namespace {
 
 const char* kAssetDir   = "/home/user/spektrafilm/src/spektrafilm/data";
@@ -286,9 +294,174 @@ int main(int argc, char** argv) {
     if (cold.data) spk_image_free(&cold);
     if (eng_cold) spk_engine_destroy(eng_cold);
 
+    // --- Print-route film_density_cmy memo: HIT/MISS byte-identity ------------
+    // The print route (run_print) memoizes the developed film_density_cmy in a
+    // single content+param-hashed slot on the engine and skips expose+develop when
+    // ONLY downstream (printing/scanning/tone-curve) params change. These scenarios
+    // prove (1) a downstream-only edit on a WARM engine is BYTE-IDENTICAL to the
+    // same edit on a FRESH (cold) engine AND that the cache HIT (filming reused),
+    // and (2) a FILMING-side edit MISSES the cache but is still byte-identical.
+    //
+    // Base print-route params P0 (kodak_portra_400 -> kodak_portra_endura,
+    // scan_film=0), warmed once on `eng` so the slot holds its film_density_cmy.
+    auto make_p0 = []() {
+        spk_params q{};
+        q.film_profile = "kodak_portra_400";
+        q.print_profile = "kodak_portra_endura";
+        spk_default_params(&q);
+        q.exposure_compensation_ev = 0.0f;
+        q.auto_exposure = 0;
+        q.density_curve_gamma = 1.0f;
+        q.grain_active = 0;       // print route: spatial + stochastic OFF -> cache on
+        q.halation_active = 0;
+        q.dir_couplers_active = 1;
+        q.glare_active = 0;
+        q.scan_film = 0;          // negative -> print -> scan route
+        q.output_color_space = SPK_CS_SRGB;
+        q.output_cctf_encoding = 1;
+        q.rgb_to_raw_method = SPK_RGB2RAW_HANATOS2025;
+        q.preview_max_size = 640;
+        return q;
+    };
+
+    // Run `pp` on warm `eng`, compare byte-for-byte to a FRESH cold engine running
+    // the SAME pp; returns true on exact equality (n is the scan_portra pixel count,
+    // identical geometry for this fixture). Each call leaves `eng` warm.
+    auto print_byte_identical = [&](const char* label, const spk_params* pp) -> bool {
+        spk_image w{}, c{};
+        spk_engine* ec = nullptr;
+        spk_status sw = spk_simulate(eng, &in_img, pp, &w);
+        spk_status sc = spk_engine_create(asset_dir.c_str(), &ec);
+        if (sc == SPK_OK) sc = spk_simulate(ec, &in_img, pp, &c);
+        bool ok = false;
+        if (sw == SPK_OK && sc == SPK_OK && w.data && c.data) {
+            ok = (std::memcmp(w.data, c.data, n * sizeof(float)) == 0);
+            std::printf("[%s warm==cold] -> %s\n", label,
+                        ok ? "PASS (byte-identical)" : "FAIL");
+        } else {
+            std::fprintf(stderr, "[%s] setup failed (warm=%s cold=%s)\n", label,
+                         spk_status_str(sw), spk_status_str(sc));
+        }
+        if (w.data) spk_image_free(&w);
+        if (c.data) spk_image_free(&c);
+        if (ec) spk_engine_destroy(ec);
+        return ok;
+    };
+
+    bool pass_film_cache = true;
+    {
+        // Warm the slot with P0 (this is a MISS that populates the cache).
+        spk_params p0 = make_p0();
+        spk_image warm0{};
+        if (spk_simulate(eng, &in_img, &p0, &warm0) == SPK_OK && warm0.data) {
+            spk_image_free(&warm0);
+        }
+
+        // Scenario A: downstream-only edits must HIT (filming reused) AND be
+        // byte-identical to a fresh cold engine. Each edit changes nothing that
+        // feeds filming, so the slot (still holding P0's film_density_cmy) must hit.
+        struct DownEdit { const char* label; void (*apply)(spk_params*); };
+        DownEdit downs[] = {
+            {"film_cache A: y_filter_shift", [](spk_params* q){ q->y_filter_shift = 0.05f; }},
+            {"film_cache A: output_color_space", [](spk_params* q){ q->output_color_space = SPK_CS_ADOBE_RGB; }},
+            {"film_cache A: tone_curve S", [](spk_params* q){
+                q->tone_curve_active = 1;
+                q->tone_curve_master_n = 3;
+                q->tone_curve_master_x[0] = 0.0f; q->tone_curve_master_y[0] = 0.0f;
+                q->tone_curve_master_x[1] = 0.5f; q->tone_curve_master_y[1] = 0.45f;
+                q->tone_curve_master_x[2] = 1.0f; q->tone_curve_master_y[2] = 1.0f;
+            }},
+        };
+        for (const auto& d : downs) {
+            // NOTE: re-warm the slot with P0 before each downstream edit so the
+            // "hit" assertion is about THIS edit (the previous edit may itself have
+            // populated the slot).
+            spk_params pw = make_p0();
+            spk_image rew{};
+            if (spk_simulate(eng, &in_img, &pw, &rew) == SPK_OK && rew.data) spk_image_free(&rew);
+            uint64_t hits0 = spk_test_film_cache_hits(eng);
+
+            spk_params pe2 = make_p0();
+            d.apply(&pe2);
+            bool bi = print_byte_identical(d.label, &pe2);
+            uint64_t hits1 = spk_test_film_cache_hits(eng);
+            // These are genuine downstream-only edits: nothing feeding filming
+            // changes, so the slot (still holding P0's film_density_cmy) must HIT.
+            bool hit_ok = (hits1 > hits0);
+            std::printf("[%s cache-hit] hits %llu->%llu -> %s\n", d.label,
+                        (unsigned long long)hits0, (unsigned long long)hits1,
+                        hit_ok ? "PASS" : "FAIL");
+            pass_film_cache = pass_film_cache && bi && hit_ok;
+        }
+
+        // Scenario A (bypass): enabling the halation spatial master toggle trips the
+        // spektra.cpp cache guard (bypass when `halation_active || grain_active`), so
+        // the film_density_cmy cache machinery is NOT consulted at all. scanner_unsharp
+        // only takes effect once the spatial branch is on, so this case necessarily
+        // sets halation_active=1 — meaning it exercises the BYPASS path, not a cache
+        // hit. On a true bypass the cache block is skipped entirely, so NEITHER the
+        // hit NOR the miss counter moves; the output must still be byte-identical to a
+        // fresh cold engine.
+        {
+            const char* label = "film_cache A: scanner_unsharp(+halation) cache-bypass";
+            // Re-warm the slot with P0 so a hit would be possible if the guard were
+            // absent; the bypass must leave both counters untouched regardless.
+            spk_params pw = make_p0();
+            spk_image rew{};
+            if (spk_simulate(eng, &in_img, &pw, &rew) == SPK_OK && rew.data) spk_image_free(&rew);
+            uint64_t hits0 = spk_test_film_cache_hits(eng);
+            uint64_t miss0 = spk_test_film_cache_misses(eng);
+
+            spk_params pe2 = make_p0();
+            pe2.halation_active = 1;            // bypass trigger (spatial branch ON)
+            pe2.scanner_unsharp[0] = 1.0f; pe2.scanner_unsharp[1] = 0.5f;
+            bool bi = print_byte_identical(label, &pe2);
+            uint64_t hits1 = spk_test_film_cache_hits(eng);
+            uint64_t miss1 = spk_test_film_cache_misses(eng);
+            // Bypass semantics: cache untouched (no hit AND no miss), byte-identical.
+            bool bypass_ok = (hits1 == hits0) && (miss1 == miss0);
+            std::printf("[%s] hits %llu->%llu misses %llu->%llu -> %s\n", label,
+                        (unsigned long long)hits0, (unsigned long long)hits1,
+                        (unsigned long long)miss0, (unsigned long long)miss1,
+                        bypass_ok ? "PASS" : "FAIL");
+            pass_film_cache = pass_film_cache && bi && bypass_ok;
+        }
+
+        // Scenario B: FILMING-side edits must MISS (filming recomputed) but still be
+        // byte-identical to a fresh cold engine.
+        struct FilmEdit { const char* label; void (*apply)(spk_params*); };
+        FilmEdit films[] = {
+            {"film_cache B: exposure_compensation_ev", [](spk_params* q){ q->exposure_compensation_ev = 0.7f; }},
+            {"film_cache B: density_curve_gamma", [](spk_params* q){ q->density_curve_gamma = 0.9f; }},
+            {"film_cache B: dir_amount", [](spk_params* q){ q->dir_amount = 0.5f; }},
+            {"film_cache B: film_profile", [](spk_params* q){
+                q->film_profile = "kodak_ektar_100";
+                q->print_profile = "kodak_supra_endura";
+            }},
+        };
+        for (const auto& f : films) {
+            // Re-warm with P0 so the slot holds P0's filming output; the edit then
+            // changes a filming input and must MISS.
+            spk_params pw = make_p0();
+            spk_image rew{};
+            if (spk_simulate(eng, &in_img, &pw, &rew) == SPK_OK && rew.data) spk_image_free(&rew);
+            uint64_t miss0 = spk_test_film_cache_misses(eng);
+
+            spk_params pe2 = make_p0();
+            f.apply(&pe2);
+            bool bi = print_byte_identical(f.label, &pe2);
+            uint64_t miss1 = spk_test_film_cache_misses(eng);
+            bool miss_ok = (miss1 > miss0);
+            std::printf("[%s cache-miss] misses %llu->%llu -> %s\n", f.label,
+                        (unsigned long long)miss0, (unsigned long long)miss1,
+                        miss_ok ? "PASS" : "FAIL");
+            pass_film_cache = pass_film_cache && bi && miss_ok;
+        }
+    }
+
     spk_engine_destroy(eng);
     bool all = pass && pass_print_cmy && pass_print_rgb &&
-               pass_ektar_cmy && pass_ektar_rgb && pass_cache;
+               pass_ektar_cmy && pass_ektar_rgb && pass_cache && pass_film_cache;
     std::printf("%s\n", all ? "ALL PASS" : "FAIL");
     return all ? 0 : 1;
 }
