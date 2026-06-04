@@ -2,52 +2,62 @@
 
 Status snapshot 2026-06-01, updated 2026-06-04. **§3 (`use_enlarger_lut`) is WIRED**
 (shipped in v0.7.0, opt-in/default-off, gated by `test_enlarger_lut_e2e`). **§2
-(`spectral_gaussian_blur`) is now WIRED** (default-off no-op, gated by the `scan_spectral_blur`
-golden pinned to oracle **c1d0e44** + `test_spectral_blur_e2e`). The remaining item §1 (hanatos
-window/surface) is still present in the app UI (dimmed via `GatedBlock`) and marshalled across
-JNI into `spk_params`, but the native engine does **not** yet apply it; §4 (enlarger lens blur)
-is intentionally not wireable. Wiring §1 requires an engine change **plus** a new
-spektrafilm-oracle golden to keep the bit-exact parity gate honest — so that work needs a session
-with the `spektrafilm` Python oracle available (it lives at `../spektrafilm`) to regenerate
-goldens.
+(`spectral_gaussian_blur`) is WIRED** (default-off no-op, gated by the `scan_spectral_blur`
+golden pinned to oracle **c1d0e44** + `test_spectral_blur_e2e`). **§1 (hanatos
+window/surface) is now WIRED** (default window-on/surface-off is a strict no-op, gated by the
+`scan_portra_surface` + `scan_portra_nowindow` goldens pinned to oracle **c1d0e44** +
+`test_hanatos_surface_e2e`); both UI toggles are un-gated. §4 (enlarger lens blur) remains
+intentionally not wireable (no oracle call site). All wireable gated engine params are now
+wired; only §4 stays gated by design.
 
 Bit-exact tolerance (per `HANDOFF.md`): `max_abs ≤ 1e-4`, `rms ≤ 1e-5`, and
 byte-identical across thread counts.
 
 ---
 
-## 1. `apply_hanatos2025_adaptation_window` / `_surface`
+## 1. `apply_hanatos2025_adaptation_window` / `_surface` — ✅ WIRED
 
 **What it is.** The Hanatos2025 sensitivity-adaptation `tc_lut` (built in the filming
-stage) optionally multiplies the per-band sensitivity by an erf4 spectral **window**
-and/or a **surface** term, read from the profile.
+stage) optionally folds an erf4 spectral **window** into the per-band sensitivity AND/OR
+multiplies the resulting tc_lut by a **log-exposure-correction surface** term, both read
+from the profile.
 
-**Oracle reference.**
-- `spektrafilm/src/spektrafilm/profiles/io.py:110-121` — profile carries
+**Oracle reference (verified at c1d0e44, not taken on trust).**
+- `spektrafilm/src/spektrafilm/profiles/io.py:107-138` — profile carries
   `apply_window`, `apply_surface`, `spectral_gaussian_blur`,
   `hanatos2025_adaptation_window_params`, `hanatos2025_adaptation_surface_params`.
+  Runtime defaults are window **on**, surface **off** (`runtime/params_schema.py:189-190`).
 - `spektrafilm/.../utils/spectral_upsampling.py::compute_hanatos2025_tc_lut` — the
-  reference math: `sensitivity * window (* surface) / norm`.
+  reference math. **IMPORTANT:** the window and surface are NOT the same kind of term.
+  - **window** (`apply_window`): `eval_erf4_spectral_bandpass(window_params)` → a common
+    per-band `(S,)` erf4 band-pass, white-balance-normalised per channel
+    (`window /= norm`), folded into `sensitivity` before the spectra contraction.
+  - **surface** (`apply_surface`): `eval_log_exposure_correction_surface(surface_params,
+    illuminant_xy, model='poly4')` → a per-LUT-cell, per-channel `(L,L,3)` degree-4 2D
+    polynomial (`poly2d_deg4`, centred at `tri2quad(_illuminant_to_xy(reference_illuminant))`,
+    passed through `hanika_sigmoid(raw, max=2.0)`); the tc_lut is then multiplied by
+    `2**surface`. This is a separate post-contraction step, NOT an erf4 bandpass.
 - `spektrafilm/.../runtime/services/spectral_lut_compute.py:50-67` — toggles feed the
   LUT build + cache key.
 
-**Current C++.** `runtime/stages/filming.cpp` (`build_filming_tc_lut`, see
-`filming.h:47`) **hardcodes** `apply_window=true, apply_surface=false,
-spectral_gaussian_blur=0`. The profile loader (`profiles/profile.cpp:132`) already parses
-`hanatos2025_adaptation_window_params`; confirm it also parses `_surface_params`.
+**Wired C++.** `build_filming_tc_lut` (`runtime/stages/filming.cpp`) now takes
+`apply_window` / `apply_surface` args (defaults true/false). `apply_window` gates the erf4
+window fold (unchanged math); `apply_surface` evaluates `eval_poly4_surface` (port of
+`eval_poly4_log_exposure_surface`) over the `(L,L)` tc grid at the film reference-illuminant
+chromaticity — computed in C++ from the same illuminant SPD integrated against the CIE 1931
+2° CMFs (xy reproduces the oracle to ~3e-9) — and multiplies the tc_lut by `2**surface`.
+The profile loader (`profiles/profile.cpp`) now parses
+`hanatos2025_adaptation_surface_params` (a `(3, cols)` matrix). Both the tc_lut cache key
+(`engine_tc_lut`) and the print-route `film_density_cmy` memo key
+(`compute_film_cache_key`) fold the two toggles. The default (window on, surface off) is a
+strict no-op.
 
-**Wire.**
-1. Pass `p->apply_hanatos_window` / `p->apply_hanatos_surface` into the tc_lut builder.
-2. When surface on, multiply by `eval_erf4_spectral_bandpass(surface_params)` (mirror the
-   window path already present).
-3. Parse `hanatos2025_adaptation_surface_params` in `profile.cpp` if not already.
-
-**Parity.** Generate `scan_portra_surface` goldens from the oracle with
-`apply_surface=true` (and a window-off variant). Add `test_filming` / `test_simulate_e2e`
-cases; gate in `engine-parity`. Window-on/surface-off stays the existing default golden.
-
-**Risk.** Medium. Touches the tc_lut hot path; default behavior must stay byte-identical
-(only the non-default toggles change output).
+**Parity.** `scan_portra_surface` golden (`apply_surface=true`, window left on) and
+`scan_portra_nowindow` golden (`apply_window=false`) generated at oracle **c1d0e44**; gated
+by `tests/test_hanatos_surface_e2e.cpp` in CI `engine-parity`. Verified within tol
+(surface film_log_raw max_abs≈1.2e-7, final_rgb max_abs≈6e-8; window-off similar) and
+byte-identical at `SPK_NUM_THREADS` 1 vs 8. Surface on-vs-off final-RGB delta ≈9.3e-2 and
+window on-vs-off ≈1.8e-1 confirm both toggles are genuinely active, not no-ops.
 
 ---
 

@@ -136,6 +136,28 @@ Profile load_profile_string(const std::string& json_text) {
         for (size_t i = 0; i < wp.size(); ++i)
             p.window_params.push_back(wp[i].as_number());
     }
+    // hanatos2025 log-exposure-correction surface params: a (3, cols) matrix, one
+    // degree-4 2D polynomial per channel. Mirrors profiles/io.py
+    // hanatos2025_adaptation_surface_params (np.asarray -> _empty_matrix if absent).
+    if (data.has("hanatos2025_adaptation_surface_params")) {
+        const json::Value& sp = data.at("hanatos2025_adaptation_surface_params");
+        if (sp.is_array() && sp.size() > 0) {
+            if (sp.size() != 3)
+                throw std::runtime_error("Profile: surface_params expected 3 rows");
+            int cols = -1;
+            for (size_t r = 0; r < sp.size(); ++r) {
+                const json::Value& row = sp[r];
+                if (!row.is_array())
+                    throw std::runtime_error("Profile: surface_params row expected array");
+                if (cols < 0) cols = static_cast<int>(row.size());
+                else if (static_cast<int>(row.size()) != cols)
+                    throw std::runtime_error("Profile: surface_params ragged rows");
+                for (size_t k = 0; k < row.size(); ++k)
+                    p.surface_params.push_back(row[k].as_number());
+            }
+            p.surface_params_cols = cols;
+        }
+    }
 
     // Validation mirroring profiles/io.py::_validate_profile (subset).
     if (cd_rows != p.n_samples)

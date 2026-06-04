@@ -2112,12 +2112,10 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                 { it.name.lowercase() }, { s.spectralUpsampling = it })
-            GatedBlock("The hanatos2025 adaptation toggles are not wired into the engine yet.") {
-                SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
-                    "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
-                SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
-                    "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
-            }
+            SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
+                "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
+            SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
+                "Apply the hanatos2025 surface adaptation polynomial when reconstructing spectra.")
             EnhancedSlider("Spectral gaussian blur", s.spectralGaussianBlur, 0f..20f,
                 { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
                 tooltip = "Gaussian blur sigma applied to the reconstructed spectra (spectral-axis " +

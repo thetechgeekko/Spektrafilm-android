@@ -61,6 +61,12 @@ struct Profile {
     // hanatos2025 spectral band-pass window params (erf4 model):
     // [c_uv, sigma_uv, c_ir, sigma_ir]. Empty if absent.
     std::vector<double> window_params;
+    // hanatos2025 log-exposure-correction surface params (poly4 model): a
+    // (3, surface_params_cols) matrix flattened row-major as [ch*cols + k], one
+    // degree-4 2D polynomial per channel (coefficient c0 is unused by poly2d_deg4).
+    // Empty if absent. Used only when apply_hanatos2025_adaptation_surface is on.
+    std::vector<double> surface_params;     // (3*cols,) row-major
+    int surface_params_cols = 0;            // per-channel coeff count (15 for poly4)
 
     bool is_negative() const { return type == "negative"; }
     bool is_positive() const { return type == "positive"; }

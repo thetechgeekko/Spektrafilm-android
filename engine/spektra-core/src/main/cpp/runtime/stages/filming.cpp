@@ -77,6 +77,70 @@ void eval_erf4_window(const double* window_params, const std::vector<float>& wav
     }
 }
 
+// ---- hanatos2025 log-exposure-correction surface (poly4 model) ----
+// Mirrors spectral_upsampling.py::eval_poly4_log_exposure_surface +
+// compute_hanatos2025_tc_lut's `raw_lut *= 2**surface`. The surface is a per-LUT-
+// cell, per-channel log-exposure correction evaluated over the same (L, L) tc grid
+// as the spectra LUT's first two axes, multiplied into the tc_lut as 2**surface.
+
+constexpr double kHanatos2025MaxCorrectionStops = 2.0;  // _HANATOS2025_MAX_CORRECTION_STOPS
+
+// _tri2quad: triangular chromaticity -> square coords (scalar).
+inline void tri2quad(double tx, double ty, double* qx, double* qy) {
+    double y = ty / std::fmax(1.0 - tx, 1e-10);
+    double x = (1.0 - tx) * (1.0 - tx);
+    *qx = x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
+    *qy = y < 0.0 ? 0.0 : (y > 1.0 ? 1.0 : y);
+}
+
+// hanika_sigmoid: algebraic sigmoid bounded to [-max_val, max_val].
+inline double hanika_sigmoid(double z, double max_val) {
+    return z / std::sqrt(1.0 + (z / max_val) * (z / max_val));
+}
+
+// poly2d_deg4(x, y; params, center): degree-4 2D polynomial. `params` is the
+// per-channel coefficient row [c0..c14]; c0 is unused (the centre is the zero-
+// correction point). Mirrors spectral_upsampling.py::poly2d_deg4.
+inline double poly2d_deg4(double tcx, double tcy, const double* params, double cx,
+                          double cy) {
+    double x = tcx - cx;
+    double y = tcy - cy;
+    double x2 = x * x, y2 = y * y;
+    double xy_term = x * y;
+    double x3 = x2 * x, y3 = y2 * y;
+    double c1 = params[1], c2 = params[2], c3 = params[3], c4 = params[4],
+           c5 = params[5], c6 = params[6], c7 = params[7], c8 = params[8],
+           c9 = params[9], c10 = params[10], c11 = params[11], c12 = params[12],
+           c13 = params[13], c14 = params[14];
+    return c1 * x + c2 * y + c3 * x2 + c4 * y2 + c5 * xy_term + c6 * x3 + c7 * y3 +
+           c8 * (x2 * y) + c9 * (x * y2) + c10 * (x2 * x2) + c11 * (y2 * y2) +
+           c12 * (x3 * y) + c13 * (x2 * y2) + c14 * (x * y3);
+}
+
+// eval_poly4_log_exposure_surface over the (L, L) tc grid (tc_base = linspace(0,1,L),
+// tc[i,j] = (tc_base[i], tc_base[j]) with indexing='ij'). Writes surface[(i*L+j)*3+c].
+// center_tc = tri2quad(illuminant_xy). Stores the per-cell log-exposure correction
+// (in stops) — the caller multiplies the tc_lut by 2**surface.
+void eval_poly4_surface(const double* surface_params, int cols, int L,
+                        double illu_xy_x, double illu_xy_y,
+                        std::vector<double>* surface /* (L*L*3,) */) {
+    double cx, cy;
+    tri2quad(illu_xy_x, illu_xy_y, &cx, &cy);
+    surface->assign(static_cast<size_t>(L) * L * 3, 0.0);
+    for (int i = 0; i < L; ++i) {
+        double tcx = (L > 1) ? static_cast<double>(i) / (L - 1) : 0.0;
+        for (int j = 0; j < L; ++j) {
+            double tcy = (L > 1) ? static_cast<double>(j) / (L - 1) : 0.0;
+            double* o = &(*surface)[(static_cast<size_t>(i) * L + j) * 3];
+            for (int c = 0; c < 3; ++c) {
+                const double* pp = &surface_params[static_cast<size_t>(c) * cols];
+                double raw = poly2d_deg4(tcx, tcy, pp, cx, cy);
+                o[c] = hanika_sigmoid(raw, kHanatos2025MaxCorrectionStops);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 namespace {
@@ -150,7 +214,8 @@ NdArray blur_spectra_lut_spectral(const NdArray& lut, double sigma) {
 
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
                              const double* illuminant,
-                             float spectral_gaussian_blur) {
+                             float spectral_gaussian_blur, bool apply_window,
+                             bool apply_surface) {
     // Optional spectral-domain blur of the spectra LUT (default 0 -> no-op). Done
     // up front, before the sensitivity contraction, matching upstream
     // compute_hanatos2025_tc_lut.
@@ -174,28 +239,36 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
             sens[s * 3 + c] = v;
         }
 
-    // window (common across channels) via erf4, then per-channel white-balance
-    // normalisation: window[s,c] /= norm[c].
-    std::vector<double> window;
-    eval_erf4_window(film.window_params.data(), film.wavelengths, &window);
-
-    double num[3] = {0, 0, 0}, den[3] = {0, 0, 0};
-    for (int s = 0; s < S; ++s) {
-        double ill = illuminant[s];
-        for (int c = 0; c < 3; ++c) {
-            double se = sens[s * 3 + c];
-            num[c] += se * ill * window[s];
-            den[c] += se * ill;
-        }
-    }
-    double norm[3];
-    for (int c = 0; c < 3; ++c) norm[c] = num[c] / den[c];
-
-    // sens_window[s,c] = sens[s,c] * window[s] / norm[c]
+    // Per-channel sensitivity weights folded into the spectra contraction. When
+    // apply_window is on, this is sens[s,c]*window[s]/norm[c] (white-balance-
+    // preserving erf4 band-pass); otherwise it is the bare sensitivity. Mirrors
+    // compute_hanatos2025_tc_lut's apply_window branch.
     std::vector<double> sw(static_cast<size_t>(S) * 3);
-    for (int s = 0; s < S; ++s)
-        for (int c = 0; c < 3; ++c)
-            sw[s * 3 + c] = sens[s * 3 + c] * window[s] / norm[c];
+    if (apply_window) {
+        // window (common across channels) via erf4, then per-channel white-balance
+        // normalisation: window[s,c] /= norm[c].
+        std::vector<double> window;
+        eval_erf4_window(film.window_params.data(), film.wavelengths, &window);
+
+        double num[3] = {0, 0, 0}, den[3] = {0, 0, 0};
+        for (int s = 0; s < S; ++s) {
+            double ill = illuminant[s];
+            for (int c = 0; c < 3; ++c) {
+                double se = sens[s * 3 + c];
+                num[c] += se * ill * window[s];
+                den[c] += se * ill;
+            }
+        }
+        double norm[3];
+        for (int c = 0; c < 3; ++c) norm[c] = num[c] / den[c];
+
+        for (int s = 0; s < S; ++s)
+            for (int c = 0; c < 3; ++c)
+                sw[s * 3 + c] = sens[s * 3 + c] * window[s] / norm[c];
+    } else {
+        for (int s = 0; s < S; ++s)
+            for (int c = 0; c < 3; ++c) sw[s * 3 + c] = sens[s * 3 + c];
+    }
 
     // tc_lut[i,j,c] = sum_s spectra_lut[i,j,s] * sens_window[s,c]
     int L = spectra_lut.shape[0];
@@ -217,6 +290,35 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
             o[0] = acc[0];
             o[1] = acc[1];
             o[2] = acc[2];
+        }
+    }
+
+    // Optional log-exposure-correction surface: raw_lut *= 2**surface, where
+    // surface is the per-cell, per-channel poly4 correction over the (L, L) tc grid
+    // evaluated at the film's reference illuminant chromaticity. Mirrors
+    // compute_hanatos2025_tc_lut's apply_surface branch (model='poly4'). The
+    // reference illuminant chromaticity is computed from the SAME illuminant SPD
+    // used for the window normalisation, integrated against the CIE 1931 2deg CMFs
+    // (xy is scale-invariant, so the SPD's normalisation is irrelevant).
+    if (apply_surface && film.surface_params_cols > 0 &&
+        static_cast<int>(film.surface_params.size()) == 3 * film.surface_params_cols) {
+        double xyz[3] = {0, 0, 0};
+        for (int s = 0; s < S; ++s) {
+            double ill = illuminant[s];
+            xyz[0] += ill * static_cast<double>(kCieCmf1931[s][0]);
+            xyz[1] += ill * static_cast<double>(kCieCmf1931[s][1]);
+            xyz[2] += ill * static_cast<double>(kCieCmf1931[s][2]);
+        }
+        double sum_xyz = xyz[0] + xyz[1] + xyz[2];
+        double illu_xy_x = xyz[0] / sum_xyz;
+        double illu_xy_y = xyz[1] / sum_xyz;
+
+        std::vector<double> surface;
+        eval_poly4_surface(film.surface_params.data(), film.surface_params_cols, L,
+                           illu_xy_x, illu_xy_y, &surface);
+        size_t ncell = static_cast<size_t>(L) * L * 3;
+        for (size_t k = 0; k < ncell; ++k) {
+            tc_lut.data[k] *= std::pow(2.0, surface[k]);
         }
     }
     return tc_lut;
