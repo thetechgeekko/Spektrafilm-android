@@ -133,6 +133,11 @@ jobs:
           # constant), and that two bakes are byte-identical (the stochastic
           # toggles are forced off internally so the bake is deterministic).
           build_run test_bake_lut "$ASSET"
+          # spk_params pass-through (live/dead probe, not a bit-exact gate):
+          # perturbing each newly-wired field one at a time MUST measurably change
+          # the output. Self-contained — runs against the BUNDLED assets (argv[1])
+          # and the committed input vector (argv[2]); loads no oracle golden.
+          build_run test_params_passthrough "$ASSET" tests/scan_portra_input_rgb.f64
           exit $fail
 
   # ---------------------------------------------------------------------------
