@@ -371,15 +371,11 @@ int main(int argc, char** argv) {
                 q->tone_curve_master_x[1] = 0.5f; q->tone_curve_master_y[1] = 0.45f;
                 q->tone_curve_master_x[2] = 1.0f; q->tone_curve_master_y[2] = 1.0f;
             }},
-            {"film_cache A: scanner_unsharp", [](spk_params* q){
-                q->halation_active = 1;             // enable the spatial branch so unsharp is honoured
-                q->scanner_unsharp[0] = 1.0f; q->scanner_unsharp[1] = 0.5f;
-            }},
         };
         for (const auto& d : downs) {
             // NOTE: re-warm the slot with P0 before each downstream edit so the
             // "hit" assertion is about THIS edit (the previous edit may itself have
-            // populated or — for the spatial one — bypassed the slot).
+            // populated the slot).
             spk_params pw = make_p0();
             spk_image rew{};
             if (spk_simulate(eng, &in_img, &pw, &rew) == SPK_OK && rew.data) spk_image_free(&rew);
@@ -389,15 +385,46 @@ int main(int argc, char** argv) {
             d.apply(&pe2);
             bool bi = print_byte_identical(d.label, &pe2);
             uint64_t hits1 = spk_test_film_cache_hits(eng);
-            // The spatial (scanner_unsharp) edit turns the print spatial branch ON,
-            // which DEFENSIVELY bypasses the cache (no hit expected) — but it must
-            // still be byte-identical. All other downstream edits must HIT.
-            bool spatial_edit = (pe2.halation_active != 0);
-            bool hit_ok = spatial_edit ? true : (hits1 > hits0);
+            // These are genuine downstream-only edits: nothing feeding filming
+            // changes, so the slot (still holding P0's film_density_cmy) must HIT.
+            bool hit_ok = (hits1 > hits0);
             std::printf("[%s cache-hit] hits %llu->%llu -> %s\n", d.label,
                         (unsigned long long)hits0, (unsigned long long)hits1,
                         hit_ok ? "PASS" : "FAIL");
             pass_film_cache = pass_film_cache && bi && hit_ok;
+        }
+
+        // Scenario A (bypass): enabling the halation spatial master toggle trips the
+        // spektra.cpp cache guard (bypass when `halation_active || grain_active`), so
+        // the film_density_cmy cache machinery is NOT consulted at all. scanner_unsharp
+        // only takes effect once the spatial branch is on, so this case necessarily
+        // sets halation_active=1 — meaning it exercises the BYPASS path, not a cache
+        // hit. On a true bypass the cache block is skipped entirely, so NEITHER the
+        // hit NOR the miss counter moves; the output must still be byte-identical to a
+        // fresh cold engine.
+        {
+            const char* label = "film_cache A: scanner_unsharp(+halation) cache-bypass";
+            // Re-warm the slot with P0 so a hit would be possible if the guard were
+            // absent; the bypass must leave both counters untouched regardless.
+            spk_params pw = make_p0();
+            spk_image rew{};
+            if (spk_simulate(eng, &in_img, &pw, &rew) == SPK_OK && rew.data) spk_image_free(&rew);
+            uint64_t hits0 = spk_test_film_cache_hits(eng);
+            uint64_t miss0 = spk_test_film_cache_misses(eng);
+
+            spk_params pe2 = make_p0();
+            pe2.halation_active = 1;            // bypass trigger (spatial branch ON)
+            pe2.scanner_unsharp[0] = 1.0f; pe2.scanner_unsharp[1] = 0.5f;
+            bool bi = print_byte_identical(label, &pe2);
+            uint64_t hits1 = spk_test_film_cache_hits(eng);
+            uint64_t miss1 = spk_test_film_cache_misses(eng);
+            // Bypass semantics: cache untouched (no hit AND no miss), byte-identical.
+            bool bypass_ok = (hits1 == hits0) && (miss1 == miss0);
+            std::printf("[%s] hits %llu->%llu misses %llu->%llu -> %s\n", label,
+                        (unsigned long long)hits0, (unsigned long long)hits1,
+                        (unsigned long long)miss0, (unsigned long long)miss1,
+                        bypass_ok ? "PASS" : "FAIL");
+            pass_film_cache = pass_film_cache && bi && bypass_ok;
         }
 
         // Scenario B: FILMING-side edits must MISS (filming recomputed) but still be
