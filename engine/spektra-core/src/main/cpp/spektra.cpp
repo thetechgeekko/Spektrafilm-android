@@ -49,6 +49,7 @@
 #endif
 
 #include "io/npy_lut.h"
+#include "model/color_filters.h"
 #include "profiles/profile.h"
 #include "runtime/params.h"
 #include "runtime/print_digest.h"
@@ -847,6 +848,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         neutral_cc[1] = p->m_filter_neutral;
         neutral_cc[2] = p->y_filter_neutral;
     }
+    // Preserve the UN-SHIFTED neutral CC for the preflash filtered illuminant,
+    // which applies its OWN m/y shifts to the neutral values (NOT the image
+    // exposure's m/y shifts) per filter_enlarger_source.preflash_filtered_illuminant.
+    const double base_neutral_cc[3] = {neutral_cc[0], neutral_cc[1], neutral_cc[2]};
     // filtered_illuminant CC = [c_neutral, m_neutral + m_shift, y_neutral + y_shift]
     // (filter_enlarger_source.filtered_illuminant). Shifts default to 0, so the
     // resolved neutral CC is used unchanged under the parity defaults.
@@ -863,6 +868,26 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         film, prnt, tc_lut, pparams.filtered_illuminant, pg);
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
+
+    // Enlarger PREFLASH (printing.py::_compute_raw_preflash via
+    // filter_enlarger_source.preflash_filtered_illuminant). The preflash flashes
+    // the paper through the enlarger with its OWN filter shifts off the neutral CC:
+    //   preflash CC = [c_neutral, m_neutral + preflash_m_filter_shift,
+    //                  y_neutral + preflash_y_filter_shift]
+    // (the image-exposure m/y shifts are NOT applied to the preflash). print_expose
+    // then adds raw_preflash * preflash_exposure (a constant per-channel 3-vector,
+    // = sum_l 10^-base_density[l] * preflash_illuminant[l] * sens[l,k]) to the print
+    // raw, after the midgray factor. preflash_exposure default 0.0 => print_expose's
+    // `if preflash_exposure > 0` guard makes it a STRICT no-op.
+    pparams.preflash_exposure = static_cast<double>(p->preflash_exposure);
+    if (pparams.preflash_exposure > 0.0) {
+        double preflash_cc[3] = {
+            base_neutral_cc[0],
+            base_neutral_cc[1] + static_cast<double>(p->preflash_m_filter_shift),
+            base_neutral_cc[2] + static_cast<double>(p->preflash_y_filter_shift),
+        };
+        spk::color_enlarger(enl, preflash_cc, pparams.preflash_illuminant);
+    }
     // OPT-IN enlarger 3D-LUT acceleration (settings.use_enlarger_lut, default 0).
     // When off (the default + parity-gate path) print_expose never builds the LUT
     // and is byte-identical to the direct spectral integral. When on, print_expose

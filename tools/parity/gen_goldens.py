@@ -136,6 +136,17 @@ class Case:
     # and stay bit-stable.
     filter_uv: tuple = (0.0, 410.0, 8.0)
     filter_ir: tuple = (0.0, 675.0, 15.0)
+    # Enlarger PREFLASH (enlarger.preflash_exposure / preflash_y_filter_shift /
+    # preflash_m_filter_shift): a uniform pre-exposure flash of the print paper
+    # before the image exposure. Default preflash_exposure 0.0 is a strict no-op
+    # (the oracle's `if preflash_exposure > 0` guard returns a zero raw_preflash).
+    # A non-default case turns it on with its own y/m filter shifts to exercise
+    # printing.py::_compute_raw_preflash + preflash_filtered_illuminant. Lives in
+    # the PRINT route only (scan_film=False), so a preflash case must set
+    # scan_film=False; spatial/grain stay off so it is deterministic/bit-stable.
+    preflash_exposure: float = 0.0
+    preflash_y_filter_shift: float = 0.0
+    preflash_m_filter_shift: float = 0.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -362,6 +373,31 @@ CASES = [
               "spatial + grain stay off and the case is deterministic/bit-stable. "
               "Tested by tests/test_camera_uvir_e2e.cpp.",
     ),
+    Case(
+        case_id="print_portra_preflash",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=False,                    # PRINT route: preflash is a print-stage effect
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        preflash_exposure=0.15,             # NON-default: enlarger preflash ON
+        preflash_y_filter_shift=-10.0,      # NON-default preflash Y filter shift (Kodak CC)
+        preflash_m_filter_shift=5.0,        # NON-default preflash M filter shift (Kodak CC)
+        notes="print route with the ENLARGER PREFLASH ON "
+              "(enlarger.preflash_exposure=0.15, preflash_y_filter_shift=-10, "
+              "preflash_m_filter_shift=5). Exercises printing.py::_compute_raw_preflash "
+              "+ filter_enlarger_source.preflash_filtered_illuminant: a uniform "
+              "pre-exposure flash of the print paper. The preflash filtered illuminant "
+              "is color_enlarger(enlarger source, CC=[c_neutral, m_neutral+preflash_m, "
+              "y_neutral+preflash_y]) — its OWN filter shifts, NOT the image-exposure "
+              "shifts. print_expose adds a constant per-channel raw_preflash 3-vector "
+              "(= sum_l 10^-base_density[l] * preflash_illuminant[l] * sens[l,k]) * "
+              "preflash_exposure to the print raw, AFTER the midgray factor and BEFORE "
+              "the log10, changing print_density_cmy and final_rgb. Print stage only "
+              "(scan_film=False); spatial+grain off so it is deterministic/bit-stable. "
+              "Tested by tests/test_preflash_e2e.cpp.",
+    ),
 ]
 
 
@@ -484,6 +520,10 @@ def _build_params(sf, case: Case):
     # honoured regardless of deactivate_spatial_effects. Defaults (amp 0) no-op.
     params.camera.filter_uv = tuple(case.filter_uv)
     params.camera.filter_ir = tuple(case.filter_ir)
+    # Enlarger preflash (print route only). Default exposure 0.0 is a strict no-op.
+    params.enlarger.preflash_exposure = case.preflash_exposure
+    params.enlarger.preflash_y_filter_shift = case.preflash_y_filter_shift
+    params.enlarger.preflash_m_filter_shift = case.preflash_m_filter_shift
     return params
 
 
