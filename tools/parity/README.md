@@ -80,6 +80,36 @@ with a clear, actionable message — it never half-writes goldens. **Reading and
 inspecting existing `.spkvec` goldens, and building/running the C++ comparator, do
 NOT require spektrafilm.**
 
+### Oracle provenance — the goldens are pinned to ONE upstream commit
+
+The committed goldens are **reproducible only at one exact upstream commit**.
+Upstream `spektrafilm` HEAD has drifted, so generating from HEAD will NOT match.
+
+| | |
+|---|---|
+| Oracle repo | `https://github.com/andreavolpato/spektrafilm` |
+| **Pinned oracle SHA** | **`c1d0e44b962d80a51ea096d33faea346e4f3836c`** — "docs: update high-res banner", 2026-05-23 |
+| Drift commit (first BAD) | `a9bccd6bf58764811eeb69883cdc9d86ab64ee18` — "feat: tap inject/collect system for runtime", 2026-05-23 (immediate child of the pin) |
+
+At the pinned SHA, regenerating **every** `gen_goldens.py` case reproduces the
+committed `.spkvec` files **bit-exactly** (`max_abs = 0`, `rms = 0` for all taps:
+`film_log_raw`, `film_density_cmy`, `print_density_cmy`, `final_rgb`). The drift
+commit `a9bccd6` ("tap inject/collect system") changed the filming raw-scaling
+semantics — at it and every later commit up to HEAD, `film_log_raw` diverges
+(`max_abs ≈ 4.44` vs the committed golden). That is why the oracle SHA must be
+pinned: a fresh clone defaults to HEAD and silently produces non-matching goldens.
+
+`tools/parity/setup_env.sh` exports `SPEKTRAFILM_ORACLE_SHA` and warns if your
+`SPEKTRAFILM_SRC` checkout is not on it. To reproduce the goldens:
+
+```bash
+git clone https://github.com/andreavolpato/spektrafilm /tmp/spektrafilm
+git -C /tmp/spektrafilm checkout c1d0e44b962d80a51ea096d33faea346e4f3836c
+export SPEKTRAFILM_SRC=/tmp/spektrafilm/src
+source tools/parity/setup_env.sh
+python tools/parity/gen_goldens.py     # regenerates the committed goldens bit-exactly
+```
+
 ### Commands
 
 ```bash

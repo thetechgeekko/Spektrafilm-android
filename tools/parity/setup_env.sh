@@ -6,14 +6,52 @@
 # numeric stack + a few stubs so `import spektrafilm` succeeds without those heavy libs.
 #
 # Usage:
+#   git clone https://github.com/andreavolpato/spektrafilm /path/to/spektrafilm
+#   git -C /path/to/spektrafilm checkout "$SPEKTRAFILM_ORACLE_SHA"   # see below
 #   export SPEKTRAFILM_SRC=/path/to/spektrafilm/src      # the package source root
 #   source tools/parity/setup_env.sh
 #   python tools/parity/gen_goldens.py --case scan_portra
 #
 # This is what produced the committed goldens under tools/parity/goldens/.
+#
+# ORACLE PROVENANCE — the committed goldens are REPRODUCIBLE ONLY at this exact
+# upstream spektrafilm commit. Regenerating them at this SHA reproduces every
+# committed gen_goldens case bit-exactly (max_abs=0, rms=0). Upstream's HEAD has
+# since drifted (see SPEKTRAFILM_ORACLE_DRIFT below), so you MUST check this SHA
+# out before generating, or the goldens will not match.
+#
+#   SPEKTRAFILM_ORACLE_REPO = https://github.com/andreavolpato/spektrafilm
+#   SPEKTRAFILM_ORACLE_SHA  = c1d0e44b962d80a51ea096d33faea346e4f3836c
+#     ("docs: update high-res banner", 2026-05-23) — last commit at which the
+#     committed goldens reproduce bit-exactly.
+#   SPEKTRAFILM_ORACLE_DRIFT = a9bccd6bf58764811eeb69883cdc9d86ab64ee18
+#     ("feat: tap inject/collect system for runtime", 2026-05-23) — the immediate
+#     child of the pinned SHA. It changed the filming raw-scaling semantics
+#     (film_log_raw max_abs jumps to ~4.44 vs the committed golden); every commit
+#     from here to upstream HEAD diverges. This is why the SHA must be pinned.
 set -euo pipefail
 
+# The pinned oracle commit the committed goldens were generated from. Exported so
+# callers / tooling can `git checkout "$SPEKTRAFILM_ORACLE_SHA"` reproducibly.
+export SPEKTRAFILM_ORACLE_REPO="https://github.com/andreavolpato/spektrafilm"
+export SPEKTRAFILM_ORACLE_SHA="c1d0e44b962d80a51ea096d33faea346e4f3836c"
+
 : "${SPEKTRAFILM_SRC:=/home/user/spektrafilm/src}"
+
+# If SPEKTRAFILM_SRC is a git working tree, verify it is on the pinned oracle SHA
+# (or offer the exact checkout command). A mismatch silently produces goldens that
+# will NOT match the committed ones, so warn loudly rather than fail.
+_spk_repo_root="$(git -C "${SPEKTRAFILM_SRC}" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "${_spk_repo_root}" ]; then
+  _spk_head="$(git -C "${_spk_repo_root}" rev-parse HEAD 2>/dev/null || true)"
+  if [ "${_spk_head}" != "${SPEKTRAFILM_ORACLE_SHA}" ]; then
+    echo "WARNING: spektrafilm checkout is NOT on the pinned oracle SHA." >&2
+    echo "  HEAD   = ${_spk_head:-<unknown>}" >&2
+    echo "  pinned = ${SPEKTRAFILM_ORACLE_SHA}" >&2
+    echo "  Goldens will only reproduce after:" >&2
+    echo "    git -C ${_spk_repo_root} checkout ${SPEKTRAFILM_ORACLE_SHA}" >&2
+  fi
+fi
 
 # 1) Real numeric dependencies the engine actually uses.
 python3 -m pip install --quiet numba opt_einsum scikit-image exiv2 || {
