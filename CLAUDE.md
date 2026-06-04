@@ -94,8 +94,9 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 # then run with the args the CI `engine-parity` job uses (see .github/workflows/ci.yml)
 ```
 
-A test passes when its output contains no `FAIL` line. CI `engine-parity` gates (23 tests):
-`simulate_e2e`, `filming`, `spatial`, `crop_resize`, `autoexposure`, `diffusion` (+`_e2e`),
+A test passes when its output contains no `FAIL` line. CI `engine-parity` gates (24 tests):
+`simulate_e2e`, `filming`, `spatial`, `crop_resize`, `downscale` (minification AA prefilter),
+`autoexposure`, `diffusion` (+`_e2e`),
 `lut_accel`, `scanner_lut_e2e`, `enlarger_lut_e2e`, `output_spaces`, `lensblur`, `tonecurve`,
 `half`, `bake_lut`, `params_passthrough`, the spektral-param wiring gates
 `spectral_blur_e2e`, `hanatos_surface_e2e`, `camera_uvir_e2e`, `preflash_e2e`,

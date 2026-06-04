@@ -1,5 +1,75 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-04) — oracle pin + finish all inert engine params + positive-film coupler fix
+
+A web/CI session on branch `claude/intelligent-johnson-DEOqK`. **Ten PRs (#67–#76), ALL MERGED to
+`main`.** Trunk stays v0.7.0 / versionCode 9. Every engine change was validated against four gates:
+(1) default byte-identity — all pre-existing goldens stay bit-exact, (2) feature-on within parity
+tol (`max_abs ≤ 1e-4`, `rms ≤ 1e-5`) vs an oracle golden, (3) thread-invariance at
+`SPK_NUM_THREADS` 1 vs 8, (4) JVM unit tests.
+
+**Environment note (this container):** the **host g++ parity suite runs here** (unlike the Windows
+box described in the 2026-06-02 section, which had no host libc++). The **spektrafilm oracle is
+reachable**: `git clone https://github.com/andreavolpato/spektrafilm /tmp/spektrafilm_clone &&
+git -C /tmp/spektrafilm_clone checkout c1d0e44`, then `export
+SPEKTRAFILM_SRC=/tmp/spektrafilm_clone/src && source tools/parity/setup_env.sh` (Python 3.11
+PYTHONPATH shim; do NOT `pip install`; SEED=20260529). Goldens regenerate via
+`tools/parity/gen_goldens.py`.
+
+**① Parity oracle PINNED (#67) — the keystone.** The committed goldens had no recorded provenance
+and upstream had drifted: regenerating from today's tip diverged `film_log_raw ~4.44`. Bisected the
+upstream history and pinned the oracle to **`c1d0e44`** — at that SHA all 9 `gen_goldens` cases ×
+all taps reproduce **bit-exactly** (`max_abs=0`). Drift commit identified: **`a9bccd6`** ("tap
+inject/collect system", sole parent `c1d0e44`) changed the filming raw-scaling. Recorded
+`SPEKTRAFILM_ORACLE_SHA` in `tools/parity/setup_env.sh` + provenance in `tools/parity/README.md`.
+**This made every subsequent golden reproducible** — do NOT regenerate goldens from upstream tip; use `c1d0e44`.
+
+**② All inert marshalled engine params now WIRED + gated (audit action #2 CLOSED).** Each was a UI
+slider + JNI-marshalled param that NO engine stage consumed (the slider lied to the user). Spec for
+each verified by reading the oracle at `c1d0e44` (NOT trusting `ENGINE_WIRING_PLAN.md`, which was
+wrong about the surface term):
+- `spectral_gaussian_blur` (#68) — blurs the Hanatos2025 spectra LUT along its spectral axis in
+  `build_filming_tc_lut`; default 0 = strict no-op.
+- `apply_hanatos2025_window/surface` (#69) — window = erf4 bandpass; **surface = per-LUT-cell
+  degree-4 2D polynomial** (`2**surface`), NOT an erf4 (plan was wrong).
+- camera UV/IR cut (#72) — `filter_uv*filter_ir` band-pass on sensitivity in `build_filming_tc_lut`.
+- enlarger preflash (#73) — print-stage uniform pre-exposure; correctly NOT folded into the
+  film-density cache key (print-expose is never cached), only the print route.
+- scanner white/black corrections (#74) — three route-gated corrections sharing one
+  `_correction_function` across filming/printing/scanning; new `runtime/color_reference.{h,cpp}`.
+- §4 enlarger lens blur stays **honestly gated** (no oracle call site) — do not wire.
+
+**③ Positive-film DIR-coupler parity gap FIXED (#75).** Surfaced by #74: positive film
+(Provia/Velvia) via the `scan_film` route with DIR couplers ON diverged **~0.32** from the oracle
+(negatives were always fine). Root cause: `digest_filming_params` applied the generic positive
+coupler-gamma default `(0.12,0.08,0.06)` but omitted the oracle's **per-stock override**
+(`params_builder._apply_film_specifics`) → provia `(0.156,0.104,0.078)`, velvia
+`(0.108,0.072,0.054)`. Fix threads the stock string through and applies the override after the
+positive branch — stock-gated, so negatives stay bit-exact. Golden regenerated from `c1d0e44`
+**byte-identically** + upstream gamma values confirmed line-by-line. (NB: the first crew on this
+left it uncommitted with a garbled report; it was independently re-verified before shipping.)
+
+**④ Docs synced (#70, #71, #76).** `RELEASE_CHECKLIST`/`ROADMAP` were already mostly fixed; the real
+drift was R8 — **`isMinifyEnabled` was flipped to `true`** (release minify ON via
+`proguard-rules.pro`), so `CLAUDE.md` + docs were corrected. `CLAUDE.md`'s engine-parity gate list
+synced to the actual **23 tests** in `ci.yml`.
+
+**CI gotcha seen this session:** the `android` assemble job intermittently flakes on a corrupt
+Android-SDK/emulator download during `setup-android` ("Error on ZipFile unknown archive") — NOT a
+code failure. If engine host build + engine-parity are green but `android` is red with that log,
+re-run the failed job (`rerun_failed_jobs`); it can't be re-run until the run's other jobs finish.
+
+**Remaining backlog — DEVICE-GATED (cannot be done in a no-hardware container):**
+1. **R8 on-device validation.** Release minify is now ON, but CI only assembles **debug** (minify
+   off), so the R8 shrink path is **unexercised** — a wrong keep-rule in `proguard-rules.pro`
+   surfaces only as a runtime crash. Smoke-test a **release** build on a real device before the next
+   tag. (`-dontobfuscate` + JNI/enum keep-rules are in place.)
+2. **Instrumented (`androidTest`) coverage** for JNI marshalling + export quantisation
+   (`ImagePipeline`/`DecodedSourceCache`/`EngineHelpers`/`RawDecoder`/`PngWriter`) — needs a
+   device or Robolectric.
+3. Lower priority (non-device, from AUDIT): memory tiling for very large RAW; downscale
+   (`upscale_factor < 1`) anti-aliasing prefilter; GPU preview on-device verification.
+
 ## State (2026-06-03) — audit + cleanup + lifecycle fixes + render-speed/zoom (PR #60)
 All this session's work is on branch `claude/intelligent-johnson-DEOqK` (draft **PR #60**, **CI
 green** on every job — engine-parity, parity comparator, python-lint, engine-native, android

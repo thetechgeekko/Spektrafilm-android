@@ -79,6 +79,51 @@ void cubic_weights(double t, double w[4]) {
     w[3] = (1.0 / 6.0) * t * t * t;
 }
 
+// ----------------------------------------------------------------------------
+// scipy.ndimage.gaussian_filter1d kernel (order=0, truncate=4.0), applied along
+// one axis with the 'mirror' boundary. This is the anti-aliasing PREFILTER that
+// skimage.transform.rescale runs BEFORE the cubic zoom whenever an output
+// dimension shrinks (anti_aliasing defaults to True for that case with order>0).
+// sigma here is scipy's std-dev = max(0, (input/output - 1) / 2) per spatial
+// axis; sigma == 0 makes this a strict identity (the upscale path is untouched).
+//
+// Reproduces scipy bit-exactly: radius = int(truncate*sigma + 0.5); the kernel
+// is phi[k] = exp(-0.5 * k^2 / sigma^2) for k in [-radius, radius], normalised to
+// sum 1; correlation with the same NI_EXTEND_MIRROR index map (mirror_index)
+// scipy uses. Verified against skimage 0.26 (max_abs == 0) for factors < 1.
+void gaussian_prefilter_line(double* line, int n, const double* kernel,
+                             int radius, std::vector<double>* scratch) {
+    if (radius <= 0 || n <= 1) return;
+    scratch->assign(line, line + n);
+    const double* src = scratch->data();
+    for (int i = 0; i < n; ++i) {
+        double acc = 0.0;
+        for (int k = -radius; k <= radius; ++k)
+            acc += kernel[k + radius] * src[mirror_index(i + k, n)];
+        line[i] = acc;
+    }
+}
+
+// Build the normalised scipy gaussian_filter1d kernel for the given sigma.
+// Returns the kernel radius (0 when sigma <= 0 -> no filtering).
+int build_gaussian_kernel(double sigma, std::vector<double>* kernel) {
+    kernel->clear();
+    if (!(sigma > 0.0)) return 0;
+    const double truncate = 4.0;  // scipy default
+    const int radius = static_cast<int>(truncate * sigma + 0.5);
+    if (radius <= 0) return 0;
+    const double sigma2 = sigma * sigma;
+    kernel->resize(static_cast<size_t>(2 * radius + 1));
+    double sum = 0.0;
+    for (int k = -radius; k <= radius; ++k) {
+        const double v = std::exp(-0.5 / sigma2 * static_cast<double>(k) * k);
+        (*kernel)[k + radius] = v;
+        sum += v;
+    }
+    for (double& v : *kernel) v /= sum;
+    return radius;
+}
+
 }  // namespace
 
 // scipy.ndimage.zoom(order=3, mode='mirror', grid_mode=True) for interleaved RGB,
@@ -93,6 +138,9 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
     if (ow < 1) ow = 1;
 
     // Input value range for the final clip (over all channels, like skimage).
+    // NOTE: skimage clips to the range of the (gaussian-prefiltered) input that
+    // feeds ndi.zoom, so this is computed BEFORE the anti-aliasing prefilter —
+    // a gaussian blur cannot push values outside the original [min, max].
     double in_min = in[0], in_max = in[0];
     const size_t in_n = static_cast<size_t>(w) * h * 3;
     for (size_t i = 1; i < in_n; ++i) {
@@ -100,9 +148,52 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
         if (in[i] > in_max) in_max = in[i];
     }
 
-    // 1) Prefilter the input into B-spline coefficients along both spatial axes.
-    //    Channels are independent. Work buffer holds (h x w x 3) doubles.
+    // 0) Anti-aliasing prefilter (skimage anti_aliasing, defaults ON when an
+    //    output dimension shrinks). factors = input/output per spatial axis;
+    //    sigma = max(0, (factor - 1) / 2). For factor >= 1 (upscale / identity
+    //    output size) sigma == 0 and this is a strict no-op, so every existing
+    //    (upscaling) golden stays byte-identical. Applied separably per axis with
+    //    scipy's 'mirror' boundary, matching skimage.transform.rescale exactly.
     std::vector<double> coef(in, in + in_n);
+    {
+        const double fac_x = static_cast<double>(w) / static_cast<double>(ow);
+        const double fac_y = static_cast<double>(h) / static_cast<double>(oh);
+        std::vector<double> ker_x, ker_y;
+        const int rad_x = build_gaussian_kernel(std::max(0.0, (fac_x - 1.0) / 2.0), &ker_x);
+        const int rad_y = build_gaussian_kernel(std::max(0.0, (fac_y - 1.0) / 2.0), &ker_y);
+        if (rad_x > 0 || rad_y > 0) {
+            std::vector<double> scratch;
+            // Along rows (width axis).
+            if (rad_x > 0) {
+                std::vector<double> line(w);
+                for (int y = 0; y < h; ++y) {
+                    for (int c = 0; c < 3; ++c) {
+                        for (int x = 0; x < w; ++x)
+                            line[x] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                        gaussian_prefilter_line(line.data(), w, ker_x.data(), rad_x, &scratch);
+                        for (int x = 0; x < w; ++x)
+                            coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[x];
+                    }
+                }
+            }
+            // Along columns (height axis).
+            if (rad_y > 0) {
+                std::vector<double> line(h);
+                for (int x = 0; x < w; ++x) {
+                    for (int c = 0; c < 3; ++c) {
+                        for (int y = 0; y < h; ++y)
+                            line[y] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                        gaussian_prefilter_line(line.data(), h, ker_y.data(), rad_y, &scratch);
+                        for (int y = 0; y < h; ++y)
+                            coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[y];
+                    }
+                }
+            }
+        }
+    }
+
+    // 1) Prefilter the (anti-aliased) input into B-spline coefficients along both
+    //    spatial axes. Channels are independent. Buffer holds (h x w x 3) doubles.
     // Along rows (x / width axis): for each row y and channel c, filter w samples.
     {
         std::vector<double> line(w);
