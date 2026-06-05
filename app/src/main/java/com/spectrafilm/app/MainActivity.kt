@@ -1573,6 +1573,9 @@ class MainActivity : ComponentActivity() {
             // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
             var gpuBroken by remember { mutableStateOf(false) }
             var gpuZoomHandoff by remember { mutableStateOf(false) }
+            // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
+            // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
+            var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
             val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
                 !compareMode && !gpuBroken && !gpuZoomHandoff
             when {
@@ -1581,7 +1584,8 @@ class MainActivity : ComponentActivity() {
                     lut = gpuLut!!,
                     modifier = Modifier.fillMaxSize(),
                     onPointPicked = onPointPicked,
-                    onZoomStart = { gpuZoomHandoff = true },
+                    onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
+                    onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
                     onUnavailable = {
                         gpuBroken = true
                         Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
@@ -1592,6 +1596,7 @@ class MainActivity : ComponentActivity() {
                 bmp != null -> ZoomableImage(
                     bitmap = bmp,
                     modifier = Modifier.fillMaxSize(),
+                    initialScale = gpuZoomInitial,
                     onPointPicked = onPointPicked,
                     // Lightroom-style zoom: render the visible region at native resolution
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
@@ -2263,8 +2268,12 @@ class MainActivity : ComponentActivity() {
                 { s.inputColorSpace = it })
             SwitchRow("Apply CCTF decoding", s.inputCctfDecoding, { s.inputCctfDecoding = it },
                 "Apply the inverse cctf transfer function of the color space")
-            Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
-                { it.name.lowercase() }, { s.spectralUpsampling = it })
+            // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
+            // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
+            GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
+                Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
+                    { it.name.lowercase() }, { s.spectralUpsampling = it })
+            }
             SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
                 "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
             SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
