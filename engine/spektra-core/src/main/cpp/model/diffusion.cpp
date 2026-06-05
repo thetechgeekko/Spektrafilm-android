@@ -8,7 +8,8 @@
  * version. See <https://www.gnu.org/licenses/>.
  *
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
- * spektrafilm. Implements model/diffusion.h (apply_halation_um).
+ * spektrafilm. Implements model/diffusion.h (apply_highlight_boost,
+ * apply_halation_um, apply_diffusion_filter_um).
  */
 #include "model/diffusion.h"
 
@@ -52,7 +53,9 @@ void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
 
     const size_t total = static_cast<size_t>(w) * h * 3;
 
-    // Step 1 (highlight boost): boost_ev==0 -> identity. Not applied here.
+    // Step 1 (highlight boost) is applied earlier in FilmingStage.expose via the
+    // separate apply_highlight_boost pass (matching filming.py, which calls
+    // boost_highlights before apply_halation_um). Not repeated here.
 
     // Step 2: in-emulsion scatter.
     //   scattered = (1 - w_s) * G(sigma_c) * raw  +  w_s * Exp(lambda_t) * raw
@@ -451,6 +454,54 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     const size_t total = static_cast<size_t>(w) * h * 3;
     for (size_t i = 0; i < total; ++i)
         raw[i] = (1.0 - p_s) * raw[i] + p_s * blurred[i];
+}
+
+void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params) {
+    // Port of spektrafilm/utils/numba_boost_hightlights.py::boost_highlights, called
+    // by filming.py::expose as boost_highlights(raw, boost_ev, boost_range,
+    // protect_ev) with the default midgray = 0.184. boost_ev <= 0 is a strict
+    // identity (the oracle's `if boost_ev == 0: return x` no-op).
+    const double boost_ev = params.boost_ev;
+    if (boost_ev <= 0.0) return;
+    if (w <= 0 || h <= 0) return;
+    const double boost_range = params.boost_range;
+    const double protect_ev = params.protect_ev;
+    const double midgray = 0.184;  // boost_highlights default; filming.py passes none.
+    const size_t total = static_cast<size_t>(w) * h * 3;
+
+    // max_raw = np.max(x). A plain reduction; max is order-independent, so this is
+    // byte-identical for any worker count (the boost stays thread-invariant).
+    double max_raw = raw[0];
+    for (size_t i = 1; i < total; ++i)
+        if (raw[i] > max_raw) max_raw = raw[i];
+    if (max_raw == 0.0) {
+        for (size_t i = 0; i < total; ++i) raw[i] = 0.0;
+        return;
+    }
+
+    // raw_x0 = clip(midgray * 2^protect_ev, 0, max_raw). raw_x0 == max_raw -> identity.
+    double raw_x0 = midgray * std::pow(2.0, protect_ev);
+    if (raw_x0 < 0.0) raw_x0 = 0.0;
+    if (raw_x0 > max_raw) raw_x0 = max_raw;
+    if (raw_x0 == max_raw) return;
+
+    const double a = std::pow(28.0, 1.0 - boost_range);
+    const double x0 = raw_x0 / max_raw;
+    const double denom = std::exp(a * (1.0 - x0)) - a * (1.0 - x0) - 1.0;
+    // denom > 0 for all valid params (exp(t) > 1 + t for t = a(1-x0) > 0); the oracle
+    // raises here, but the engine path must never throw, so guard defensively.
+    if (denom <= 0.0) return;
+    const double k = (std::pow(2.0, boost_ev) - 1.0) / denom;
+    const double inv_max_raw = 1.0 / max_raw;
+    const double boost_scale = k * max_raw;
+
+    for (size_t i = 0; i < total; ++i) {
+        const double xv = raw[i];
+        if (xv > raw_x0) {
+            const double dx = (xv - raw_x0) * inv_max_raw;
+            raw[i] = xv + boost_scale * (std::exp(a * dx) - a * dx - 1.0);
+        }
+    }
 }
 
 }  // namespace spk

@@ -150,6 +150,25 @@ not a commitment to do all of it.
   bit-exactly. Gated by the new `scan_provia_couplers` golden (oracle **c1d0e44**, couplers ON) +
   `test_provia_couplers_e2e` in CI `engine-parity` (also asserts couplers on-vs-off ACTIVE and
   byte-identical at `SPK_NUM_THREADS` 1 vs 8).
+- ✅ **Highlight boost (`halation.boost_ev` / `boost_range` / `protect_ev`) WIRED (2026-06-05).**
+  Found inert: the "Boost EV" / "Boost range" / "Protect EV" sliders (`MainActivity.kt:2447`) were
+  live + JNI-marshalled (`spektra.h:186-188`, `getBoostEv/Range/ProtectEv`) and reached the native
+  `HalationParams`, but the engine **dropped them** (`diffusion.cpp` Step 1 was an identity stub),
+  so the sliders did nothing — the one remaining unported piece of engine math
+  (`utils/numba_boost_hightlights.py`). Now ported: `model/diffusion.cpp::apply_highlight_boost`
+  reproduces `boost_highlights` (midgray=0.184), called from `filming.cpp::expose` right after the
+  exposure-comp scale and BEFORE the diffusion filter / lens blur / halation (filming.py:58-60). It
+  lifts every raw value above `raw_x0 = clip(0.184·2^protect_ev, 0, max(raw))` by
+  `k·max_raw·(exp(a·dx)−a·dx−1)`, `a = 28^(1−boost_range)`,
+  `k = (2^boost_ev−1)/(exp(a(1−x0))−a(1−x0)−1)`. It is NOT a spatial effect (the oracle's
+  `params_builder` zeroes only the scatter/halation sigmas under `deactivate_spatial_effects`,
+  never `boost_ev`), so the three params are threaded into `fparams.halation` in BOTH routes
+  regardless of the spatial flag, and folded into `compute_film_cache_key` (the print-route memo).
+  `boost_ev == 0` (schema/UI default) is a strict no-op → every pre-existing golden reproduces
+  bit-exactly. Gated by the new `scan_portra_boost` golden (oracle **c1d0e44**) +
+  `test_highlight_boost_e2e` in CI `engine-parity` (film taps + final_rgb within tol, boost
+  on-vs-off ACTIVE, and byte-identical at `SPK_NUM_THREADS` 1 vs 8). **This was the last inert
+  engine param; no UI-exposed engine param is now a silent no-op.**
 - ⚪ **Glare-on-print** wired but default-OFF and not bit-exact (stochastic per-pixel lognormal) —
   by design, can't be parity-gated.
 - ✅ **Downscale (`upscale_factor < 1`) anti-aliasing prefilter (RESOLVED).** The UI exposes

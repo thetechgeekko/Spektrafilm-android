@@ -426,6 +426,15 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     // so the digest is honest.
     h = fnv1a64(h, p->camera_filter_uv, sizeof(p->camera_filter_uv));
     h = fnv1a64(h, p->camera_filter_ir, sizeof(p->camera_filter_ir));
+    // Highlight boost (numba_boost_hightlights.boost_highlights) runs in expose()
+    // BEFORE the log10, so it changes film_density_cmy and MUST be part of the
+    // print-route memo key — otherwise a boost edit returns a stale cached negative.
+    // boost_ev defaults to 0 (a strict no-op); fold all three ALWAYS so the digest is
+    // honest. (Adding to the hash only forces a one-time recompute; the cached value
+    // is always the correct recompute, so this is parity-transparent.)
+    h = fnv1a64(h, &p->halation_boost_ev, sizeof(p->halation_boost_ev));
+    h = fnv1a64(h, &p->halation_boost_range, sizeof(p->halation_boost_range));
+    h = fnv1a64(h, &p->halation_protect_ev, sizeof(p->halation_protect_ev));
     // 5) DIR-coupler pointwise params (the only spatial-independent coupler inputs).
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -704,6 +713,17 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         // halation user params (everything except the preset-baked sigma/strength).
         apply_user_halation(fparams.halation, p);
     }
+
+    // Highlight boost is NOT a spatial effect: the oracle applies boost_highlights in
+    // filming.expose regardless of deactivate_spatial_effects (params_builder.py only
+    // zeroes the scatter/halation sigmas, never boost_ev), and apply_highlight_boost
+    // gates on boost_ev > 0. Thread the three boost params into fparams.halation
+    // UNCONDITIONALLY so the boost is reachable on the spatial-OFF path too (where the
+    // block above is skipped). Idempotent when spatial is ON. boost_ev defaults to 0
+    // (schema/UI) -> a strict no-op, so default goldens stay bit-exact.
+    fparams.halation.boost_ev = p->halation_boost_ev;
+    fparams.halation.boost_range = p->halation_boost_range;
+    fparams.halation.protect_ev = p->halation_protect_ev;
 
     // 3) Build (or reuse the engine-cached) Hanatos2025 filming tc_lut (D55
     //    reference illuminant). Cached by film id — byte-identical to rebuilding
@@ -1021,6 +1041,14 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // branch). fparams.spatial_effects stays false -> the filming stage gate
     // skips it regardless.
     fparams.diffusion_filter.active = false;
+    // Highlight boost is NOT a spatial effect (it runs in filming.expose regardless of
+    // deactivate_spatial_effects). The print route's negative-filming runs spatial-OFF,
+    // so thread the boost params in directly; apply_highlight_boost gates on
+    // boost_ev > 0. Folded into compute_film_cache_key, so a boost edit busts the
+    // film-density memo. boost_ev defaults to 0 -> a strict no-op.
+    fparams.halation.boost_ev = p->halation_boost_ev;
+    fparams.halation.boost_range = p->halation_boost_range;
+    fparams.halation.protect_ev = p->halation_protect_ev;
 
     // `rgb` (float64, crop/rescale applied) built by preprocess_geometry above.
 

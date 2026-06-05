@@ -1,0 +1,80 @@
+{
+  "case_id": "scan_portra_boost",
+  "film_profile": "kodak_portra_400",
+  "generator": "gen_goldens.py",
+  "image": {
+    "input_color_space": "ProPhoto RGB (linear)",
+    "kind": "synthetic_ramp_macbeth",
+    "seed": 20260529,
+    "shape": [
+      64,
+      64,
+      3
+    ],
+    "size": 64
+  },
+  "notes": "Highlight boost ON in filming.expose (utils/numba_boost_hightlights.boost_highlights, called with midgray=0.184): lifts every raw value above raw_x0 = clip(0.184*2^protect_ev, 0, max(raw)) by k*max_raw*(exp(a*dx)-a*dx-1), a=28^(1-boost_range), k=(2^boost_ev-1)/(exp(a(1-x0))-a(1-x0)-1). It is pointwise + deterministic and NOT gated by deactivate_spatial_effects (params_builder.py only zeroes the scatter/halation sigmas, never boost_ev), so spatial+grain stay OFF and it is bit-stable. Changes the film taps (film_log_raw/film_density_cmy) and final_rgb. Tested by tests/test_highlight_boost_e2e.cpp.",
+  "print_profile": "kodak_portra_endura",
+  "scan_film": true,
+  "spkvec_version": 1,
+  "taps": {
+    "film_density_cmy": {
+      "file": "film_density_cmy.spkvec",
+      "max": 1.8809031248092651,
+      "mean": 0.9533132910728455,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "film_log_raw": {
+      "file": "film_log_raw.spkvec",
+      "max": 1.959246277809143,
+      "mean": 0.36082443594932556,
+      "min": -3.5808303356170654,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    },
+    "final_rgb": {
+      "file": "final_rgb.spkvec",
+      "max": 0.8630610108375549,
+      "mean": 0.2413242608308792,
+      "min": 0.0,
+      "shape": [
+        64,
+        64,
+        3
+      ]
+    }
+  },
+  "toggles": {
+    "auto_exposure": false,
+    "auto_exposure_method": "center_weighted",
+    "deactivate_spatial_effects": true,
+    "deactivate_stochastic_effects": true,
+    "diffusion_active": false,
+    "diffusion_family": "black_pro_mist",
+    "diffusion_halo_warmth": 0.0,
+    "diffusion_spatial_scale": 1.0,
+    "diffusion_strength": 0.5,
+    "exposure_compensation_ev": 0.0,
+    "grain_active": false,
+    "lens_blur_um": 0.0,
+    "normalize_print_exposure": true,
+    "print_exposure_compensation": true,
+    "scanner_black_correction": false,
+    "scanner_black_level": 0.01,
+    "scanner_white_correction": false,
+    "scanner_white_level": 0.98,
+    "spectral_gaussian_blur": 0.0
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

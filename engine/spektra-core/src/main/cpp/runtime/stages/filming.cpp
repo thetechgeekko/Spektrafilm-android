@@ -396,8 +396,8 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
 
     // Compute the float64 pre-log irradiance `raw` for every pixel.
     // raw = rgb_to_raw_hanatos2025(rgb) * brightness * 2^exposure_comp_ev.
-    // (boost_ev==0 -> highlight boost identity; diffusion_filter/lens_blur off;
-    //  black/white exposure correction == 1.0 under the goldens.)
+    // (diffusion_filter/lens_blur off; black/white exposure correction == 1.0 under
+    //  the goldens.)
     std::vector<double> raw(static_cast<size_t>(npix) * 3);
     parallel_for(0, npix, [&](int lo, int hi) {
         for (int p = lo; p < hi; ++p) {
@@ -410,6 +410,17 @@ void expose(const double* rgb, int width, int height, const FilmingParams& param
             for (int c = 0; c < 3; ++c) raw[p * 3 + c] = rr[c] * b * exp_mult;
         }
     });
+
+    // Highlight boost (numba_boost_hightlights.boost_highlights), applied on the
+    // float64 irradiance AFTER exposure compensation and BEFORE the diffusion filter
+    // / lens blur / halation — matching filming.py::expose, which calls
+    // boost_highlights(raw, halation.boost_ev, halation.boost_range,
+    // halation.protect_ev) right after `raw *= 2**exposure_compensation_ev`. It is
+    // NOT gated by params.spatial_effects: the oracle's digest_params zeroes only the
+    // scatter/halation sigmas under deactivate_spatial_effects (params_builder.py),
+    // never boost_ev, so the boost fires whenever boost_ev > 0. boost_ev == 0
+    // (schema/UI default) is a strict identity -> default goldens stay bit-exact.
+    apply_highlight_boost(raw.data(), width, height, params.halation);
 
     // Camera optical diffusion filter (Black Pro-Mist family), applied on the
     // float64 irradiance AFTER the highlight boost and BEFORE lens blur /
