@@ -1,5 +1,45 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
+
+Continuation of the PR #85 work below. All pushed; CI green. Net since that section:
+
+- **GPU preview REVERTED to default OFF** (commit `6494f21`). On SM-S948W the default-on GPU
+  fit preview broke the editor: its `GLSurfaceView` (`GpuPreviewSurface`) churned (BLASTBufferQueue
+  "rejecting buffer" every frame, 87 dropped frames, 898ms Davey) as the preview area resized during
+  panel animations, grew over the bottom controls (hid the export button), and could show a black
+  surface — user saw "can't render" + "export not clickable". Root-caused by a 3-agent swarm:
+  (1) the preview Box has `weight(1f)` and the AdjustmentPanel `AnimatedVisibility(expandVertically)`
+  grows in the SAME Column → preview shrinks every frame → SurfaceView reallocates every frame; fix =
+  float the panel as a bottom **overlay** so preview height is constant. (2) `LutRenderer` uses
+  `RENDERMODE_WHEN_DIRTY` + a redraw only in the AndroidView `update` lambda → can stay black; needs a
+  guaranteed redraw. Export button is NOT overlaid (it's in EditorTopBar); it was greyed only because
+  `canExport = engine!=null && !previewBusy && !exporting` and `previewBusy` stuck true under the jank
+  — the `exporting` flag resets fine via `ExportMask` onDismiss (MainActivity ~1369-1373; agent's
+  "lockout bug" was a false positive). GPU code kept as an opt-in toggle (Settings, experimental).
+- **Battery: settle debounce raised** (commit `72cc807`) — preview render 350→500ms (MainActivity
+  ~819), Lightroom-zoom ROI 280→500ms (Viewer.kt ~178). Device logcat showed the drain is active-use
+  all-core CPU: each render maxes all cores ~1s; renders started then cancelled ("coroutine scope left
+  the composition"); ONE pinch fired 5 overlapping full RAW 2048px decodes (ROI re-fires every 280ms,
+  each cancels the coroutine but LibRaw keeps decoding on its thread). Debounce trims frequency only.
+  STILL OPEN: (a) single-flight the zoom 2048 decode (one decode per gesture, in a stable scope so a
+  cancelled ROI render doesn't abandon+rerun it); (b) resize-safe GPU offload (the real per-edit win).
+- **Install/signing fixed (device).** Committed a stable `debug.keystore` + pinned the debug
+  signingConfig (commit `58ed0be`) so every build shares one signature (no more "App not installed"
+  signature-mismatch). CRITICAL: build distributable debug APKs with plain `./gradlew :app:assembleDebug`
+  — do NOT use `-Pandroid.injected.build.abi=...` (it stamps `android:testOnly=true`, which blocks
+  tap-install; only `adb install -t` works).
+- **NEW skill: `brutalist-re`** at `.claude/skills/brutalist-re/` — Android reverse-engineering
+  (jadx/vineflower/dex2jar/apktool; decompile + exhaustive API/secret/manifest extraction), adapted
+  from SimoneAvogadro/android-reverse-engineering-skill (Apache-2.0) with a blunt, exhaustive
+  "brutalist" operating mode. Scoped to user-provided / authorized targets. Unrelated to the film app;
+  parked here only because this is the persistent repo. (User asked to persist it.)
+
+**Next-session TODO:** single-flight zoom decode (battery); re-enable GPU properly (panel-as-overlay +
+guaranteed GL redraw) and device-verify before default-on; on-device smoke of zoom/presets/export.
+
+---
+
 ## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — PR #85 (DRAFT, unmerged): zoom/OOM fix, GPU fit preview, preset rebuild, grain/halation verification
 
 Triggered by a device logcat showing an `OutOfMemoryError` storm ("Failed to allocate a
