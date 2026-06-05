@@ -150,6 +150,23 @@ jobs:
           # PRINT-stage effect (scan_film=False), changing print_density_cmy + final_rgb
           # but NOT the film taps. Golden pinned to oracle c1d0e44.
           build_run test_preflash_e2e "$ASSET" "$G/print_portra_preflash" tests/scan_portra_input_rgb.f64 "$G"
+          # PRINT-route EXPOSURE-COMPENSATION midgray balance
+          # (camera.exposure_compensation_ev + enlarger.print_exposure_compensation /
+          # normalize_print_exposure). PrintingStage._compute_exposure_factor_midgray
+          # (printing.py c1d0e44 L104-118) selects the midgray factor by a 4-case
+          # branch over (print_exposure_compensation, normalize_print_exposure) using
+          # the UNcompensated midgray (rgb=0.184) and the COMPENSATED midgray
+          # (rgb=0.184*2^exposure_compensation_ev) from
+          # FilmingStage._compute_density_spectral_midgray_to_balance_print (filming.py
+          # c1d0e44 L125-134). The native engine previously hardcoded ev==0 and always
+          # returned the UNcompensated factor, mis-balancing the print whenever EV!=0.
+          # Two goldens (both EV=1.5): print_portra_evcomp (comp+normalize ON ->
+          # factor_midgray_comp) and print_portra_evcomp_nonorm (comp ON, normalize OFF
+          # -> factor_midgray_comp/factor_midgray) pin both EV-active branches. At EV=0
+          # the compensated gray equals the uncompensated gray, so every existing print
+          # golden stays byte-identical. Goldens pinned to oracle c1d0e44. The test also
+          # asserts EV on-vs-off and the norm/no-norm branch both produce a real delta.
+          build_run test_print_evcomp_e2e "$ASSET" "$G/print_portra_evcomp" tests/scan_portra_input_rgb.f64 "$G"
           # Scanner BLACK/WHITE corrections (scanner.black/white_correction +
           # black/white_level) -> runtime/services/color_reference.py
           # (ColorReferenceService): a scan-time tone anchor that maps the measured
