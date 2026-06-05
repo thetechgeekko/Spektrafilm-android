@@ -1,5 +1,75 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — highlight-boost WIRED + LUT-load speedup; arm64 APK to device
+
+Parallel session, ran ALONGSIDE the `intelligent-johnson` param-wiring session below. Trunk stays
+v0.7.0 / versionCode 9. **Two PRs, BOTH MERGED to `main`:**
+
+- **#82 (merge `c913b45`, commit `7a87cad`) — Highlight boost WIRED.** This **CLOSES open
+  param-wiring finding #1** below ("`boost_ev`/`boost_range`/`protect_ev` INERT … the next one to
+  do"). Ported `utils/numba_boost_hightlights.py::boost_highlights` →
+  `model/diffusion.cpp::apply_highlight_boost`, called from `filming.cpp::expose` right after the
+  EV-comp scale and BEFORE diffusion/lens-blur/halation (matching `filming.py:58-60`, midgray=0.184).
+  **Key plumbing fix:** the boost params were only threaded into `fparams.halation` inside the
+  `if(spatial)` block, so they were dropped on the default spatial-OFF path — now threaded
+  UNCONDITIONALLY in BOTH `run_scan_film` and `run_print`, and folded into `compute_film_cache_key`
+  (the print-route film-density memo). New `scan_portra_boost` golden (oracle `c1d0e44`) +
+  `test_highlight_boost_e2e` (film taps + final within tol, on-vs-off ACTIVE, thread-invariant 1≡8).
+  `boost_ev=0` default → strict no-op; full suite **26/26 byte-identical**. So param-wiring #1 is
+  DONE; **#2–#5 (Mallett2019, spatial-conflation, print-route grain/spatial, dead sliders) remain
+  open** per the section below — those are the other branch's findings.
+
+- **#83 (merge `540b257`, commit `cfa4e16`) — spectra-LUT load ~2× faster.** Replaced the per-element
+  `std::ldexp` in `io/npy_lut.cpp::rd_f16le` (~3M libm calls loading the 192×192×81 spectra LUT) with
+  branchless integer half→binary32→double. **BIT-IDENTICAL** — verified EXHAUSTIVELY over all 65536
+  half patterns + the asset's ~3M elements (0 mismatches), full parity suite stays byte-identical.
+  3.1× faster conversion; one-time engine-create LUT load **36ms→17ms** (host). One-time/cached cost,
+  NOT a per-render lever. Also corrected a stale `docs/AUDIT.md` §C claim + added a PERF note.
+
+**On-device APK delivered (user's Galaxy S26 Ultra / arm64).** The container had **NO Android SDK** —
+installed NDK r27 (`27.0.12077973`) / CMake 3.22.1 / build-tools 35 at `/opt/android-sdk` (may NOT
+persist across containers). Built an **arm64-v8a debug APK** via
+`./gradlew :app:assembleDebug -Pandroid.injected.build.abi=arm64-v8a` → outputs to
+**`app/build/intermediates/apk/debug/app-debug.apk`** (NOT the usual `outputs/`). Verified
+`com.spectrafilm.app` v0.7.0/vc9, 19.4 MB, debug-signed, **16KB-aligned**, all 4 engine libs
+(libspektra/libsfraw/libsftiff/libsfpng) present. Sent to the user. **AWAITING their in-app logcat**
+(tags `Spektra`/`sfraw`) from a RAW import → render → boost-adjust → export pass — to verify boost +
+startup on-device and start closing the device-gated items.
+
+**Environment (reproduce next session):**
+- Host parity suite runs here (g++). **Oracle reproduction VALIDATED:** pip-installed numpy 2.4.6 /
+  scipy 1.17.1 / numba 0.65.1 / colour 0.4.7 / skimage 0.26.0, cloned oracle to
+  `/tmp/spektrafilm_clone` @ `c1d0e44`, and regenerating `scan_portra` reproduced the committed
+  golden **bit-identically**. `/tmp` + the pip env do NOT persist — re-clone + re-install via
+  `tools/parity/setup_env.sh` (which `pip install`s `numba opt_einsum scikit-image exiv2`; add
+  `colour-science`). The "do NOT pip install" note = don't install the full spektrafilm package, the
+  targeted math-stack install IS the sanctioned path.
+- **Profiles fully ported:** all 28 profile JSON + 184 supporting assets are **byte-identical** to
+  upstream `c1d0e44` (sha256-verified). Only upstream file not shipped: the build-only coeffs `.lut`
+  (runtime loads only the pre-baked `.npy`) — correct to omit.
+- `gen_goldens.py` now carries a `scan_portra_boost` case (Case fields boost_ev/boost_range/protect_ev).
+
+**User directives this session:** (1) **Do NOT change any `.github/workflows/` files** — "everything
+works there." (2) On the `.lut`→`.bin` idea: do NOT convert (measured net-negative — the `.lut` isn't
+even a runtime file; the runtime `.npy` load is one-time/cached and dominated by f16→f64 conversion,
+which the rd_f16le opt already fixed).
+
+**Remaining ledger (honest):**
+- ✅ **By-design closed (verified):** enlarger lens blur (NO oracle call site — `lens_blur_um` has
+  exactly one consumer, `filming.py:66`, the CAMERA blur, already ported); glare-on-print (stochastic).
+- 🔒 **Hardware-gated (the S26 now partly unblocks these):** instrumented `androidTest`, GPU
+  on-device verify, R8 Stage-2 + on-device smoke, on-device NEON timing, RAW-tiling validation.
+- 📋 **Feature-adds (scope decisions, not gaps):** 32-bit-float TIFF export (feasible host-side, no
+  new dependency — the next clean candidate), EXR export (needs a new native encoder dependency),
+  native RAW tiling for pathologically large DNGs.
+- The 4 OPEN param-wiring findings (#2–#5) below are the **other branch's** — coordinate so the two
+  sessions don't collide on shared engine files (do engine fixes ONE AT A TIME).
+
+**Next steps:** (1) receive + analyze the S26 logcat → verify boost/startup on-device. (2) Offer a
+release(R8) APK if the user wants the minified path re-validated with the new code. (3) 32-bit-float
+TIFF export if wanted. (4) Param-wiring #2 (Mallett2019) needs a user DECISION (implement vs remove
+the dropdown) before touching it.
+
 ## State (2026-06-05) — full param-wiring audit + print EV-comp fix; R8 validated on-device
 
 Continuation of the 2026-06-04 session on branch `claude/intelligent-johnson-DEOqK`. All PRs below
