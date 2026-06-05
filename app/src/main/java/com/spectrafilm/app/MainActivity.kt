@@ -308,6 +308,18 @@ class MainActivity : ComponentActivity() {
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
+        // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
+        // being dragged, so the live DRAFT pass runs only during a drag and a discrete edit
+        // (switch/dropdown) goes straight to the crisp settle render — no draft flicker, and the
+        // continuous-draft cost is bounded to actual drags. Remembered so its identity is stable
+        // across recompositions; provided to sliders via LocalSliderInteraction below.
+        val interacting = remember { mutableStateOf(false) }
+        val sliderInteraction = remember {
+            SliderInteraction(
+                onChange = { interacting.value = true },
+                onFinished = { interacting.value = false },
+            )
+        }
 
         // source rotation (applied to the decoded LinearImage -> preview AND export).
         // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
@@ -827,6 +839,7 @@ class MainActivity : ComponentActivity() {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
                 if (cropOverlayOpen || compareMode) return@collect
+                if (!interacting.value) return@collect   // draft only while a slider is being dragged
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
@@ -1169,6 +1182,7 @@ class MainActivity : ComponentActivity() {
                         category = activeCategory,
                         onDismiss = { activeCategory = null },
                     ) {
+                        CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
                             Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
                             Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
@@ -1319,6 +1333,7 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             null -> {}
+                        }
                         }
                     }
                 }

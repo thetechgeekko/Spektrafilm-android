@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -92,6 +93,21 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+
+/**
+ * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]
+ * fires on each drag frame, [onFinished] on release. The editor uses this to render a fast live
+ * DRAFT only while a slider is actively dragged, then the crisp full pass on release — so a discrete
+ * edit (switch/dropdown) skips the draft and goes straight to the crisp render. Provided via
+ * [LocalSliderInteraction]; the default is a no-op so a slider still works with no provider.
+ */
+class SliderInteraction(
+    val onChange: () -> Unit = {},
+    val onFinished: () -> Unit = {},
+)
+
+/** CompositionLocal carrying the active [SliderInteraction]; defaults to a no-op. */
+val LocalSliderInteraction = staticCompositionLocalOf { SliderInteraction() }
 
 /**
  * Wraps arbitrary [content] in a Material3 [TooltipBox] that surfaces [text] on
@@ -247,6 +263,7 @@ fun EnhancedSlider(
     default: Float? = null,
 ) {
     val view = LocalView.current
+    val interaction = LocalSliderInteraction.current
     var editing by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -278,9 +295,10 @@ fun EnhancedSlider(
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = { onValueChange(snap(it, range, step)) },
+            onValueChange = { onValueChange(snap(it, range, step)); interaction.onChange() },
             onValueChangeFinished = {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                interaction.onFinished()
             },
             valueRange = range,
             steps = steps,
