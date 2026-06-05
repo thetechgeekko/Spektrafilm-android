@@ -221,6 +221,17 @@ jobs:
           # the output. Self-contained — runs against the BUNDLED assets (argv[1])
           # and the committed input vector (argv[2]); loads no oracle golden.
           build_run test_params_passthrough "$ASSET" tests/scan_portra_input_rgb.f64
+          # Highlight boost (film_render.halation.boost_ev / boost_range / protect_ev):
+          # the pre-clip highlight reconstruction (utils/numba_boost_hightlights.
+          # boost_highlights) that FilmingStage.expose applies to the float64 raw
+          # irradiance right after the exposure-comp scale and BEFORE the diffusion
+          # filter / lens blur / halation (filming.py:58-60), midgray=0.184. It lifts
+          # every raw value above raw_x0=clip(0.184*2^protect_ev,0,max(raw)) by
+          # k*max_raw*(exp(a*dx)-a*dx-1), a=28^(1-boost_range),
+          # k=(2^boost_ev-1)/(exp(a(1-x0))-a(1-x0)-1). Pointwise + NOT gated by
+          # deactivate_spatial_effects, so it changes the film taps + final_rgb with
+          # spatial/grain off. Golden (scan_portra_boost) pinned to oracle c1d0e44.
+          build_run test_highlight_boost_e2e "$ASSET" "$G/scan_portra_boost" tests/scan_portra_input_rgb.f64 "$G"
           exit $fail
 
   # ---------------------------------------------------------------------------

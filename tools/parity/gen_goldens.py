@@ -187,6 +187,20 @@ class Case:
     # other goldens are negative film), so the positive-film correction case keeps
     # the couplers OFF to isolate the SCANNER correction it is testing.
     dir_couplers_active: bool = True
+    # Highlight boost (film_render.halation.boost_ev / boost_range / protect_ev): the
+    # pre-clip highlight reconstruction (utils/numba_boost_hightlights.boost_highlights)
+    # that FilmingStage.expose applies to the float64 raw irradiance right after the
+    # exposure-compensation scale and BEFORE the diffusion filter / lens blur / halation
+    # (filming.py:58-60), with the default midgray = 0.184. Default boost_ev 0.0 is a
+    # strict no-op (boost_highlights returns x unchanged). It is NOT gated by
+    # deactivate_spatial_effects (params_builder.py only zeroes the scatter/halation
+    # sigmas, never boost_ev), so a boost case can keep spatial/grain OFF and stay
+    # deterministic/bit-stable. A non-default case lifts every raw value above
+    # raw_x0 = clip(0.184 * 2^protect_ev, 0, max(raw)) by the exponential boost curve,
+    # changing the film taps and final_rgb.
+    boost_ev: float = 0.0
+    boost_range: float = 0.3
+    protect_ev: float = 4.0
     notes: str = ""
     taps: tuple = field(default=tuple(TAPS.keys()))
 
@@ -596,6 +610,29 @@ CASES = [
               "film_density_cmy (couplers) + final_rgb. Tested by "
               "tests/test_provia_couplers_e2e.cpp.",
     ),
+    Case(
+        case_id="scan_portra_boost",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=True,
+        deactivate_spatial_effects=True,    # boost is pointwise, NOT spatial -> stays on
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        boost_ev=3.0,                       # +3 stops of highlight lift on the brightest px
+        boost_range=0.5,                    # mid steepness (a = 28^(1-0.5))
+        protect_ev=1.0,                     # protect up to raw_x0 = 0.184 * 2^1 = 0.368
+        notes="Highlight boost ON in filming.expose "
+              "(utils/numba_boost_hightlights.boost_highlights, called with "
+              "midgray=0.184): lifts every raw value above "
+              "raw_x0 = clip(0.184*2^protect_ev, 0, max(raw)) by "
+              "k*max_raw*(exp(a*dx)-a*dx-1), a=28^(1-boost_range), "
+              "k=(2^boost_ev-1)/(exp(a(1-x0))-a(1-x0)-1). It is pointwise + "
+              "deterministic and NOT gated by deactivate_spatial_effects "
+              "(params_builder.py only zeroes the scatter/halation sigmas, never "
+              "boost_ev), so spatial+grain stay OFF and it is bit-stable. Changes the "
+              "film taps (film_log_raw/film_density_cmy) and final_rgb. Tested by "
+              "tests/test_highlight_boost_e2e.cpp.",
+    ),
 ]
 
 
@@ -728,6 +765,13 @@ def _build_params(sf, case: Case):
     params.scanner.black_level = case.scanner_black_level
     params.scanner.white_level = case.scanner_white_level
     params.film_render.dir_couplers.active = case.dir_couplers_active
+    # Highlight boost (film_render.halation.boost_ev/boost_range/protect_ev), applied
+    # in filming.expose via boost_highlights right after the exposure-comp scale and
+    # before the spatial branch. NOT gated by deactivate_spatial_effects. Default
+    # boost_ev 0.0 is a strict no-op.
+    params.film_render.halation.boost_ev = case.boost_ev
+    params.film_render.halation.boost_range = case.boost_range
+    params.film_render.halation.protect_ev = case.protect_ev
     # Enlarger midgray-balance toggles (PRINT route). Both default True (schema).
     params.enlarger.print_exposure_compensation = case.print_exposure_compensation
     params.enlarger.normalize_print_exposure = case.normalize_print_exposure

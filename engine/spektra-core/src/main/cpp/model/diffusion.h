@@ -37,7 +37,7 @@ namespace spk {
 struct HalationParams {
     bool active = false;
 
-    // Highlight boost (boost_ev==0 default -> identity; carried for completeness).
+    // Highlight boost (consumed by apply_highlight_boost; boost_ev==0 default -> no-op).
     double boost_ev = 0.0;
     double boost_range = 0.3;
     double protect_ev = 4.0;
@@ -59,13 +59,29 @@ struct HalationParams {
     bool halation_renormalize = true;
 };
 
+// apply_highlight_boost: in-place on the float64 raw irradiance image `raw`, shape
+// (h, w, 3) row-major channel-interleaved. Ports
+// spektrafilm/utils/numba_boost_hightlights.py::boost_highlights, which
+// FilmingStage.expose calls on `raw` right after the exposure-compensation scale and
+// BEFORE the diffusion filter / lens blur / halation (filming.py:58-60), with the
+// default midgray = 0.184. The curve lifts highlights above
+// raw_x0 = clip(midgray * 2^protect_ev, 0, max(raw)) by an exponential set so the
+// brightest pixel gains `boost_ev` stops:
+//   a = 28^(1 - boost_range);  x0 = raw_x0 / max_raw
+//   k = (2^boost_ev - 1) / (exp(a(1-x0)) - a(1-x0) - 1)
+//   raw > raw_x0:  raw += k*max_raw*(exp(a*dx) - a*dx - 1),  dx = (raw - raw_x0)/max_raw
+// It is NOT part of the spatial branch (the oracle's digest does not zero boost_ev
+// under deactivate_spatial_effects), so it fires whenever boost_ev > 0. boost_ev <= 0
+// (schema/UI default 0) is a strict identity, so default params stay bit-exact. The
+// global max(raw) reduction is order-independent, so the result is thread-invariant.
+void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params);
+
 // apply_halation_um: in-place on the float64 raw irradiance image `raw`, shape
 // (h, w, 3) row-major channel-interleaved. `pixel_size_um` converts the µm
 // spatial parameters to pixel sigmas (sigma_px = um * spatial_scale /
-// pixel_size_um). If `params.active` is false the image is left untouched.
-//
-// Highlight boost is treated as identity (boost_ev==0 under the goldens); if a
-// non-zero boost is ever required it must be added before the scatter pass.
+// pixel_size_um). If `params.active` is false the image is left untouched. The
+// highlight boost is a separate, earlier pass (apply_highlight_boost) in
+// FilmingStage.expose; apply_halation_um covers Step 2 (scatter) + Step 3 (halation).
 void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
                        double pixel_size_um);
 
