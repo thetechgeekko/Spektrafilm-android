@@ -306,6 +306,11 @@ class ParamsState {
     fun toParams(
         previewMaxSizeOverride: Int? = null,
         filmFormatMmOverride: Float? = null,
+        // Fast interactive DRAFT: drop the per-pixel grain + the spatial halation/diffusion branch,
+        // which dominate the preview render yet are ~invisible at the downscaled draft resolution
+        // (they still show in the full settle pass, the 100% zoom/magnifier, and export). Preview-
+        // only — never set on the export path, so parity is unaffected. Couplers stay on (colour).
+        fastDraft: Boolean = false,
     ): SpektraParams = SpektraParams(
         filmProfile = filmProfile,
         printProfile = printProfile,
@@ -360,7 +365,7 @@ class ParamsState {
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,
             grain = GrainParams(
-                active = grainActive,
+                active = grainActive && !fastDraft,
                 sublayersActive = grainSublayersActive,
                 agxParticleAreaUm2 = grainParticleAreaUm2,
                 agxParticleScale = grainParticleScale,
@@ -373,7 +378,7 @@ class ParamsState {
                 nSubLayers = grainNSubLayers,
             ),
             halation = HalationParams(
-                active = halationActive,
+                active = halationActive && !fastDraft,
                 scatterAmount = halScatterAmount,
                 scatterSpatialScale = halScatterSpatialScale,
                 halationAmount = halHalationAmount,

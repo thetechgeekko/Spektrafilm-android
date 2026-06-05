@@ -887,7 +887,8 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     withContext(Dispatchers.Default) {
                         e.simulatePreview(
-                            proxy, state.toParams(previewMaxSizeOverride = draftEdge),
+                            proxy,
+                            state.toParams(previewMaxSizeOverride = draftEdge, fastDraft = true),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
