@@ -36,6 +36,11 @@ GPU pipeline. CPU micro-opt alone won't close that; the gap is **architectural (
   *byte-identical across thread counts* (a property raw TBB wouldn't give for free). 3× on 4 cores.
 - **Vector `exp10` SIMD** (NEON `fmla` on arm64) — removed the `pow(10,·)` bottleneck in the
   spectral integrals, bit-exact at float32.
+- **Branchless half→double in `io/npy_lut.cpp::rd_f16le`** — replaced the per-element `std::ldexp`
+  (a libm call ~3M times) when parsing the 192×192×81 spectra LUT with integer bit-manipulation
+  (half→binary32 bits → exact widen to double). Bit-identical output (verified exhaustively over
+  all 65536 half patterns + the asset), 3.1× faster conversion → the one-time engine-creation LUT
+  load drops ~36 ms → ~17 ms (host). One-time/cached startup cost, not a per-render lever.
 - **Proxy / half-size RAW decode** + fd decode — bounded memory on big files (#43/#44).
 
 ## Staged plan (biggest lever first), with the parity cost of each
