@@ -265,11 +265,10 @@ not a commitment to do all of it.
   in CI `engine-parity` (`.github/workflows/ci.yml`): all six output color spaces, camera/scanner
   lens-blur parity, and thread-count invariance run on every push/PR. The earlier "not gated" /
   stale-`HANDOFF` claims no longer apply.
-- 🟡 **Parity tests that exist but are still NOT gated:**
-  - `test_params_passthrough`, `test_bake_lut` — not gated.
-  - (`test_printing`/`test_scanning` are effectively subsumed by `test_simulate_e2e`; `test_grain`/
-    `test_grain_sublayer` are statistical and run locally; `test_spectral_upsampling` needs the
-    source-tree `.lut`.)
+- ✅ **(Resolved) `test_params_passthrough` + `test_bake_lut` are now gated** in CI `engine-parity`
+  (`.github/workflows/ci.yml`) — the earlier "not gated" claim is stale. Still run locally only:
+  `test_printing`/`test_scanning` (effectively subsumed by `test_simulate_e2e`), `test_grain`/
+  `test_grain_sublayer` (statistical), and `test_spectral_upsampling` (needs the source-tree `.lut`).
 - 🟡 **`android-emulator` CI job** is gated to manual `workflow_dispatch` + `continue-on-error` (no
   `/dev/kvm` on hosted runners) — there is no automated emulator/device smoke test on push.
 
