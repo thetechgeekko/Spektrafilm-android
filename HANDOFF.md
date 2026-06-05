@@ -1,5 +1,60 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-05) — full param-wiring audit + print EV-comp fix; R8 validated on-device
+
+Continuation of the 2026-06-04 session on branch `claude/intelligent-johnson-DEOqK`. All PRs below
+**merged to `main`** (trunk still v0.7.0 / versionCode 9). Every engine change was validated against
+four gates (default byte-identity of all pre-existing goldens, feature-on within parity tol
+`max_abs≤1e-4`/`rms≤1e-5` vs an oracle golden, thread-invariance `SPK_NUM_THREADS` 1 vs 8, JVM unit
+tests). **Parity oracle stays pinned at `c1d0e44`** — regenerate goldens ONLY at that SHA
+(`tools/parity/setup_env.sh`); upstream tip has drifted (`~4.44` on `film_log_raw`).
+
+**Merged this run:** #77 downscale AA-prefilter fix (a real parity bug — minification on the export
+path diverged ~0.18–0.4 from the oracle because the C++ skipped skimage's `anti_aliasing` gaussian
+prefilter); #78 diagnostic `Spektra`-tagged logging breadcrumbs (engine create / decode / render /
+export); #79 recorded the **R8 release-build on-device validation**; #80 **print EV-compensation
+fix** (below).
+
+**R8 / release is validated on-device (2026-06-04, SM-S948W / Android 16 / arm64).** A minified
+release APK did full RAW import → preview render → full-res 12 MP **PNG + TIFF export**, with
+`libsftiff.so` loading via `nativeloader … ok` before the TIFF write — i.e. the name-based JNI
+keep-rules resolve at runtime under R8, no `UnsatisfiedLinkError`/crash/OOM. The `AdrenoVK
+shaderType 0/6` logcat lines are benign Compose-popup driver noise (the engine Vulkan compute path
+is an OFF/stub, never called; the GLES LUT preview is fragment-only + default-off), NOT app code.
+Remaining R8 work is optional: Stage-2 obfuscation, `shrinkResources`, a subjective visual pass.
+
+### ⭐ Full param-wiring audit (2026-06-05) — the live work item
+A 3-crew end-to-end sweep traced EVERY `spk_params` field UI→facade→JNI→engine-consumer vs the
+oracle at `c1d0e44`. Most params are correctly WIRED. **#1 (print EV-compensation) is FIXED (#80);
+the rest are open findings — full detail in `docs/AUDIT.md` §A "Full param-wiring audit".**
+
+- ✅ **#1 DONE (#80):** print midgray balance ignored `exposure_compensation_ev` /
+  `normalize_print_exposure` / `print_exposure_compensation` — native hardcoded EV=0 and always
+  returned the uncompensated factor. Ported the oracle's 4-case midgray branch
+  (`printing.py:104-118` + `filming.py:125-134`, compensated gray `0.184·2^EV`) into
+  `runtime/print_digest.cpp`. EV=0 default stays bit-exact (25-test suite `fail=0`); goldens
+  `print_portra_evcomp{,_nonorm}` at c1d0e44 + `test_print_evcomp_e2e`.
+- **OPEN, severity-ranked (each needs its own oracle golden + default-no-op/thread-invariant):**
+  1. 🟠 **Highlight-boost `boost_ev`/`boost_range`/`protect_ev` — INERT** (filming). Oracle
+     `boost_highlights` (`filming.py:58-60`, unconditional, gated `boost_ev>0`) is unported
+     (`diffusion.cpp:55` "Not applied here"). **Pure parity fix, no decision** — the next one to do.
+  2. 🔴 **`rgb_to_raw_method=MALLETT2019` — MIS-WIRED** (filming). No Mallett path in C++; always
+     runs Hanatos2025. **DECISION: implement vs remove the dropdown option.**
+  3. 🟡 **Spatial effects conflated under `halation_active`** (filming+scanning). Camera lens-blur,
+     camera diffusion filter, DIR diffusion, scanner unsharp + lens-blur all die when halation is
+     OFF; oracle gates each independently. **DECISION: keep "halation = master" (+disclose) vs
+     decouple per-effect.**
+  4. 🟡 **Print route hard-forces film grain + spatial OFF** (filming, `run_print`). Oracle's normal
+     print path keeps them. **DECISION: keep vs honor toggles on the print route.**
+  5. ⚪ **Dead-but-oracle-consistent sliders** (UX, not parity): DIR-coupler gamma sliders,
+     `enlarger_lens_blur`, film-side `glare_*` — all present but do nothing (and the oracle doesn't
+     consume them either). **DECISION: dim+disclose vs remove.**
+
+**Suggested defaults proposed to the user (awaiting confirmation):** remove the MALLETT option;
+decouple the spatial gating to match the oracle; keep the print-route behavior but disclose;
+dim+disclose the dead sliders. Do highlight-boost (#1 above) first — it needs no decision.
+**Sequence engine fixes ONE AT A TIME on the branch** (they collide on shared files / the PR).
+
 ## State (2026-06-04) — oracle pin + finish all inert engine params + positive-film coupler fix
 
 A web/CI session on branch `claude/intelligent-johnson-DEOqK`. **Ten PRs (#67–#76), ALL MERGED to
