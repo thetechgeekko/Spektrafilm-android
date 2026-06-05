@@ -95,6 +95,7 @@ fun GpuPreviewSurface(
     modifier: Modifier = Modifier,
     onPointPicked: ((Float, Float) -> Unit)? = null,
     onZoomStart: () -> Unit = {},
+    onZoomIn: () -> Unit = onZoomStart,
     onUnavailable: () -> Unit = {},
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -124,6 +125,12 @@ fun GpuPreviewSurface(
             proxy = proxy, lut = lut,
             modifier = Modifier.fillMaxSize(), onUnavailable = onUnavailable,
         )
+        // Explicit zoom-in affordance on the fit-only GPU surface: hands off to the CPU
+        // ZoomableImage already zoomed (the CPU path owns pinch/pan + the sharp ROI render).
+        ZoomButton(
+            "+",
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+        ) { onZoomIn() }
     }
 }
 
@@ -164,8 +171,11 @@ fun ZoomableImage(
     onRoiSettled: ((RoiRect) -> Unit)? = null,
     onRoiCleared: (() -> Unit)? = null,
     roiOverlay: RoiOverlay? = null,
+    // Scale to start at on first composition — used when the GPU fit surface hands off via its
+    // "+" button so zoom-in lands already zoomed instead of at fit. Default 1f (fit) everywhere else.
+    initialScale: Float = 1f,
 ) {
-    var scale by remember { mutableStateOf(1f) }
+    var scale by remember { mutableStateOf(initialScale) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     // While zoomed, an edit (renderKey bump) makes the current sharp ROI crop stale: hide it so the
@@ -324,11 +334,11 @@ fun ZoomableImage(
 
 /** A small translucent circular button for the [ZoomableImage] zoom-control cluster. */
 @Composable
-private fun ZoomButton(label: String, onClick: () -> Unit) {
+private fun ZoomButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         shape = CircleShape,
         color = Color.Black.copy(alpha = 0.5f),
-        modifier = Modifier
+        modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),

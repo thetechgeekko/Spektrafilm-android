@@ -283,6 +283,10 @@ class MainActivity : ComponentActivity() {
         // (the single-entry cache is keyed by maxEdge — sharing one would thrash both back to a
         // fresh decode every render).
         val zoomSourceCache = remember { DecodedSourceCache() }
+        // Single-flight guards: a cancelled zoom/preview render's still-running native decode is
+        // reused by the next gesture instead of triggering an overlapping re-decode (battery).
+        val zoomDecodeFlight = remember { SingleFlight<LinearImage>() }
+        val previewDecodeFlight = remember { SingleFlight<LinearImage>() }
         DisposableEffect(Unit) { onDispose { zoomSourceCache.invalidate() } }
 
         // bundled catalog (friendly stock names + grouping) and built-in presets
@@ -685,20 +689,28 @@ class MainActivity : ComponentActivity() {
         // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
         // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
-            val cached = sourceCache.get(
+            fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
-            if (cached != null) return cached
-            val decoded = loadSource(maxEdge)
-            sourceCache.put(
-                uri = sourceUri?.toString(), kind = sourceKind.name,
-                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
-                img = decoded,
-            )
-            return decoded
+            cacheGet()?.let { return it }
+            // Single-flight the decode in the stable lifecycleScope so two renders that both miss
+            // (e.g. the settle pass + the GPU LUT bake) decode once, not twice.
+            val key = listOf(
+                sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
+                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+            ).joinToString("|")
+            return previewDecodeFlight.run(key, scope) {
+                cacheGet() ?: loadSource(maxEdge).also { decoded ->
+                    sourceCache.put(
+                        uri = sourceUri?.toString(), kind = sourceKind.name,
+                        whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        img = decoded,
+                    )
+                }
+            }
         }
 
         // PERF/OOM: cached counterpart of loadSourceCachedForPreview for the MAX_EDGE_PX zoom/
@@ -708,20 +720,29 @@ class MainActivity : ComponentActivity() {
         // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
         // single cached LinearImage is safely re-fed to every crop.
         suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
-            val cached = zoomSourceCache.get(
+            fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
-            if (cached != null) return cached
-            val decoded = loadSource(maxEdge)
-            zoomSourceCache.put(
-                uri = sourceUri?.toString(), kind = sourceKind.name,
-                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
-                img = decoded,
-            )
-            return decoded
+            cacheGet()?.let { return it }
+            // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
+            // cancelled ROI render's native LibRaw decode keeps running, so the next gesture awaits
+            // THAT decode instead of starting an overlapping one (the "5 decodes per pinch" drain).
+            val key = listOf(
+                sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
+                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+            ).joinToString("|")
+            return zoomDecodeFlight.run(key, scope) {
+                cacheGet() ?: loadSource(maxEdge).also { decoded ->
+                    zoomSourceCache.put(
+                        uri = sourceUri?.toString(), kind = sourceKind.name,
+                        whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        img = decoded,
+                    )
+                }
+            }
         }
 
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
@@ -789,34 +810,50 @@ class MainActivity : ComponentActivity() {
             roiJobRef.value?.cancel()
             roiJobRef.value = scope.launch {
                 val result = runCatching {
-                    withContext(Dispatchers.Default) {
-                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
-                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
-                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
-                        val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
-                        // Effective film format so the crop's pixel_size_um matches the proxy (the
-                        // crop spans only cropFrac of the frame); keeps grain/halation at the right
-                        // strength when zoomed instead of treating the crop as a whole frame.
-                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                            maxOf(full.width, full.height).coerceAtLeast(1)
+                    val full = loadSourceCachedForZoom(MAX_EDGE_PX)
+                    val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
+                    val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
+                    val crop = withContext(Dispatchers.Default) {
+                        cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                    }
+                    // Effective film format so the crop's pixel_size_um matches the proxy (the crop
+                    // spans only cropFrac of the frame); keeps grain/halation at the right strength
+                    // when zoomed instead of treating the crop as a whole frame.
+                    val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                        maxOf(full.width, full.height).coerceAtLeast(1)
+                    suspend fun renderAt(edge: Int): Bitmap = withContext(Dispatchers.Default) {
                         e.simulatePreview(
                             crop,
                             state.toParams(
-                                previewMaxSizeOverride = ROI_RENDER_MAX_PX,
+                                previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
+                    // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
+                    // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
+                    // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
+                    // so a cancel mid-flight never leaks one.
+                    val draft = renderAt(ROI_DRAFT_MAX_PX)
+                    if (isActive) {
+                        roiOverlay = RoiOverlay(draft, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                    } else {
+                        if (!draft.isRecycled) draft.recycle()
+                        return@runCatching null
+                    }
+                    renderAt(ROI_RENDER_MAX_PX)
                 }
                 if (!isActive) {
-                    // Superseded (cancelled): drop this render so it neither lands nor leaks.
+                    // Superseded (cancelled): drop the final render (the draft, if published, stays
+                    // and is recycled by the DisposableEffect when the next overlay replaces it).
                     result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
                     return@launch
                 }
-                // On success publish; the prior overlay's bitmap is recycled by the
-                // DisposableEffect(roiOverlay) below when it leaves composition (safe timing).
-                // On failure keep the scaled proxy (no overlay change, no status noise).
-                result.onSuccess { roiOverlay = RoiOverlay(it, roi.cxN, roi.cyN, roi.wN, roi.hN) }
+                // On success publish the sharp final; the prior overlay (the draft) is recycled by
+                // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
+                result.onSuccess { bmp ->
+                    if (bmp != null) roiOverlay = RoiOverlay(bmp, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                }
             }
         }
 
@@ -825,21 +862,20 @@ class MainActivity : ComponentActivity() {
             roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
-        // Live DRAFT pass — the Lightroom-style render-system "port": while a control is being
-        // dragged, paint a small, fast proxy continuously so the image tracks the edit instead of
-        // freezing until the settle. Conflated (snapshotFlow.collect, NOT collectLatest): an
-        // in-flight draft is never cancelled — it finishes, then immediately re-renders the latest
-        // params (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back
-        // ~interactive-rate updates. Cheap by construction: it renders ONLY when the full-edge
-        // proxy is already decoded (a cache peek — never decodes here, so it cannot race the
-        // settle pass's first decode) and just asks the engine for a smaller DRAFT_RENDER_MAX_PX
-        // pass. Quiet: it touches only `preview`, never status/previewBusy/beforePreview; the crisp
-        // full-resolution pass still lands on settle (the effect below) and overwrites the draft.
+        // Live DRAFT pass — the Lightroom-style render-system "port": on EVERY edit (a slider drag,
+        // a preset/dropdown/toggle, a rotation), paint a small fast proxy so the image tracks the
+        // change in ~hundreds of ms instead of sitting on the stale frame until the full settle
+        // render lands ~1s later. Conflated (snapshotFlow.collect, NOT collectLatest): an in-flight
+        // draft is never cancelled — it finishes, then immediately re-renders the latest params
+        // (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back updates.
+        // Cheap by construction: it renders ONLY when the full-edge proxy is already decoded (a
+        // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
+        // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
+        // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
         LaunchedEffect(Unit) {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
                 if (cropOverlayOpen || compareMode) return@collect
-                if (!interacting.value) return@collect   // draft only while a slider is being dragged
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
@@ -851,7 +887,8 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     withContext(Dispatchers.Default) {
                         e.simulatePreview(
-                            proxy, state.toParams(previewMaxSizeOverride = draftEdge),
+                            proxy,
+                            state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
@@ -885,7 +922,9 @@ class MainActivity : ComponentActivity() {
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
-                    val after = e.simulatePreview(image, state.toParams()).use { res ->
+                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
+                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
+                    val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
                         simResultToBitmap(res.data, res.width, res.height)
                     }
                     before to after
@@ -1165,19 +1204,13 @@ class MainActivity : ComponentActivity() {
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                     )
-                }
 
-                // --- ADJUSTMENT PANEL (inline, animated) ---
-                AnimatedVisibility(
-                    visible = activeCategory != null,
-                    enter = expandVertically(animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    )) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = spring(
-                        stiffness = Spring.StiffnessMedium,
-                    )) + fadeOut(),
-                ) {
+                // --- ADJUSTMENT PANEL (floating bottom overlay) ---
+                // Floated INSIDE the preview Box (aligned to its bottom) so opening/closing a
+                // panel no longer resizes the weight(1f) preview every frame. That per-frame
+                // resize churned the GLSurfaceView (it forced GPU preview off) and jolted the
+                // CPU preview too; a constant-height preview fixes both and unblocks GPU.
+                PanelOverlay(visible = activeCategory != null) {
                     AdjustmentPanel(
                         category = activeCategory,
                         onDismiss = { activeCategory = null },
@@ -1336,6 +1369,7 @@ class MainActivity : ComponentActivity() {
                         }
                         }
                     }
+                }
                 }
 
                 // --- BOTTOM CATEGORY BAR ---
@@ -1557,6 +1591,9 @@ class MainActivity : ComponentActivity() {
             // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
             var gpuBroken by remember { mutableStateOf(false) }
             var gpuZoomHandoff by remember { mutableStateOf(false) }
+            // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
+            // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
+            var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
             val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
                 !compareMode && !gpuBroken && !gpuZoomHandoff
             when {
@@ -1565,7 +1602,8 @@ class MainActivity : ComponentActivity() {
                     lut = gpuLut!!,
                     modifier = Modifier.fillMaxSize(),
                     onPointPicked = onPointPicked,
-                    onZoomStart = { gpuZoomHandoff = true },
+                    onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
+                    onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
                     onUnavailable = {
                         gpuBroken = true
                         Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
@@ -1576,6 +1614,7 @@ class MainActivity : ComponentActivity() {
                 bmp != null -> ZoomableImage(
                     bitmap = bmp,
                     modifier = Modifier.fillMaxSize(),
+                    initialScale = gpuZoomInitial,
                     onPointPicked = onPointPicked,
                     // Lightroom-style zoom: render the visible region at native resolution
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
@@ -1806,7 +1845,29 @@ class MainActivity : ComponentActivity() {
         ) { content() }
     }
 
-    /** The inline adjustment panel: drag-handle header (swipe down to dismiss) + scrolling content. */
+    /**
+     * The adjustment panel as a floating bottom overlay inside the preview Box. Extracting it into a
+     * BoxScope extension (a) lets it use Modifier.align to pin to the preview's bottom and (b) breaks
+     * the enclosing Column's receiver chain, so AnimatedVisibility resolves to the top-level overload
+     * instead of ColumnScope's (which would re-measure the column). The slide/fade reads as a bottom
+     * sheet rising over the now constant-height preview, so opening a panel no longer resizes it.
+     */
+    @Composable
+    private fun BoxScope.PanelOverlay(visible: Boolean, content: @Composable () -> Unit) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = expandVertically(animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            )) + fadeIn(),
+            exit = shrinkVertically(animationSpec = spring(
+                stiffness = Spring.StiffnessMedium,
+            )) + fadeOut(),
+        ) { content() }
+    }
+
+    /** The adjustment panel body: drag-handle header (swipe down to dismiss) + scrolling content. */
     @Composable
     private fun AdjustmentPanel(
         category: Category?,
@@ -2225,8 +2286,12 @@ class MainActivity : ComponentActivity() {
                 { s.inputColorSpace = it })
             SwitchRow("Apply CCTF decoding", s.inputCctfDecoding, { s.inputCctfDecoding = it },
                 "Apply the inverse cctf transfer function of the color space")
-            Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
-                { it.name.lowercase() }, { s.spectralUpsampling = it })
+            // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
+            // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
+            GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
+                Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
+                    { it.name.lowercase() }, { s.spectralUpsampling = it })
+            }
             SwitchRow("hanatos2025 adaptation window", s.adaptationWindow, { s.adaptationWindow = it },
                 "Apply the hanatos2025 bandpass adaptation window when reconstructing spectra.")
             SwitchRow("hanatos2025 adaptation surface", s.adaptationSurface, { s.adaptationSurface = it },
