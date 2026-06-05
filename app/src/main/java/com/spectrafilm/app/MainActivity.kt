@@ -79,6 +79,7 @@ import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -812,10 +813,42 @@ class MainActivity : ComponentActivity() {
             roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
-        // Debounced, PROGRESSIVE preview render: re-runs whenever params, source or rotation
-        // change. Like Lightroom's loupe, a fast coarse pass paints the new look almost
-        // immediately, then a full-resolution pass refines it — so dragging a slider feels
-        // responsive instead of waiting one ~full render per settle.
+        // Live DRAFT pass — the Lightroom-style render-system "port": while a control is being
+        // dragged, paint a small, fast proxy continuously so the image tracks the edit instead of
+        // freezing until the settle. Conflated (snapshotFlow.collect, NOT collectLatest): an
+        // in-flight draft is never cancelled — it finishes, then immediately re-renders the latest
+        // params (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back
+        // ~interactive-rate updates. Cheap by construction: it renders ONLY when the full-edge
+        // proxy is already decoded (a cache peek — never decodes here, so it cannot race the
+        // settle pass's first decode) and just asks the engine for a smaller DRAFT_RENDER_MAX_PX
+        // pass. Quiet: it touches only `preview`, never status/previewBusy/beforePreview; the crisp
+        // full-resolution pass still lands on settle (the effect below) and overwrites the draft.
+        LaunchedEffect(Unit) {
+            snapshotFlow { previewTick }.collect {
+                val e = engine ?: return@collect
+                if (cropOverlayOpen || compareMode) return@collect
+                val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+                val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
+                if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
+                val proxy = sourceCache.get(
+                    uri = sourceUri?.toString(), kind = sourceKind.name,
+                    whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                    tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                ) ?: return@collect                             // proxy not cached yet — settle owns the decode
+                runCatching {
+                    withContext(Dispatchers.Default) {
+                        e.simulatePreview(
+                            proxy, state.toParams(previewMaxSizeOverride = draftEdge),
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                    }
+                }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
+            }
+        }
+
+        // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
+        // change, after a debounce so it lands once the user pauses. The live DRAFT effect above
+        // keeps the image moving during the edit (Lightroom's loupe), so this pass goes straight
+        // to the full-resolution result instead of a separate coarse pass.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
             // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
@@ -828,30 +861,14 @@ class MainActivity : ComponentActivity() {
             status = "rendering preview…"
             val renderStart = System.currentTimeMillis()
             val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Coarse edge = half the preview edge, but only when that is still a meaningful
-            // step down (>=256px and the full edge is large enough to be worth a two-pass
-            // render). The coarse source is decoded FRESH (loadSource, not the cache) so it
-            // never evicts the single-entry cached full-res proxy that look-param edits reuse
-            // — a cache put(coarse) then put(full) would thrash and re-decode the full source
-            // every render.
-            val coarseEdge = (fullEdge / 2).let { if (it >= 256 && fullEdge > 512) it else 0 }
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     decoding = true
-                    // Pass 1 (coarse, optional): paint first pixels ~4x sooner.
-                    if (coarseEdge > 0) {
-                        val coarseImg = loadSource(coarseEdge)
-                        val cbmp = e.simulatePreview(coarseImg, state.toParams()).use { cres ->
-                            simResultToBitmap(cres.data, cres.width, cres.height)
-                        }
-                        if (isActive) withContext(Dispatchers.Main) {
-                            preview = cbmp
-                            status = "refining…"
-                        }
-                    }
-                    // Pass 2 (full): cached proxy source — re-decodes only when a decode-
-                    // affecting key (URI/kind/WB/temp/tint/rotation/edge) changed; look-param
-                    // edits reuse it.
+                    // The live DRAFT effect above already paints a fast low-res proxy during the
+                    // edit, so this settle pass goes straight to the crisp full render (no separate
+                    // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
+                    // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
+                    // look-param edits reuse it.
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
