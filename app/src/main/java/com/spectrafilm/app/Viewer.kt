@@ -22,6 +22,7 @@ import com.spectrafilm.engine.LinearImage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -33,9 +34,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -69,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Zoom limits for [ZoomableImage]. */
 private const val MIN_ZOOM = 1f
@@ -273,6 +277,63 @@ fun ZoomableImage(
                     )
                 }
             }
+        }
+
+        // Explicit zoom controls (Lightroom-style), complementing pinch + double-tap: "+" zooms
+        // in about centre, and once zoomed a "%" readout, "−" (zoom out) and "Fit" appear. They
+        // drive the SAME scale/offset as the gestures, so pan-clamping and the sharp ROI render
+        // apply identically. Anchored to the right edge so it clears the bottom control row.
+        Column(
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ZoomButton("+") {
+                val ns = (scale * 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                scale = ns
+                offset = clampOffset(offset, ns)
+            }
+            if (scale > 1.01f) {
+                Text(
+                    "${(scale * 100f).roundToInt()}%",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                ZoomButton("−") {  // minus
+                    val ns = (scale / 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                    scale = ns
+                    offset = if (ns <= 1.01f) Offset.Zero else clampOffset(offset, ns)
+                }
+                ZoomButton("Fit") {
+                    scale = 1f
+                    offset = Offset.Zero
+                }
+            }
+        }
+    }
+}
+
+/** A small translucent circular button for the [ZoomableImage] zoom-control cluster. */
+@Composable
+private fun ZoomButton(label: String, onClick: () -> Unit) {
+    Surface(
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.5f),
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                label,
+                color = Color.White,
+                style = if (label.length > 1) MaterialTheme.typography.labelMedium
+                else MaterialTheme.typography.titleLarge,
+            )
         }
     }
 }
