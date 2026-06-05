@@ -283,6 +283,10 @@ class MainActivity : ComponentActivity() {
         // (the single-entry cache is keyed by maxEdge — sharing one would thrash both back to a
         // fresh decode every render).
         val zoomSourceCache = remember { DecodedSourceCache() }
+        // Single-flight guards: a cancelled zoom/preview render's still-running native decode is
+        // reused by the next gesture instead of triggering an overlapping re-decode (battery).
+        val zoomDecodeFlight = remember { SingleFlight<LinearImage>() }
+        val previewDecodeFlight = remember { SingleFlight<LinearImage>() }
         DisposableEffect(Unit) { onDispose { zoomSourceCache.invalidate() } }
 
         // bundled catalog (friendly stock names + grouping) and built-in presets
@@ -685,20 +689,28 @@ class MainActivity : ComponentActivity() {
         // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
         // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
-            val cached = sourceCache.get(
+            fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
-            if (cached != null) return cached
-            val decoded = loadSource(maxEdge)
-            sourceCache.put(
-                uri = sourceUri?.toString(), kind = sourceKind.name,
-                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
-                img = decoded,
-            )
-            return decoded
+            cacheGet()?.let { return it }
+            // Single-flight the decode in the stable lifecycleScope so two renders that both miss
+            // (e.g. the settle pass + the GPU LUT bake) decode once, not twice.
+            val key = listOf(
+                sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
+                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+            ).joinToString("|")
+            return previewDecodeFlight.run(key, scope) {
+                cacheGet() ?: loadSource(maxEdge).also { decoded ->
+                    sourceCache.put(
+                        uri = sourceUri?.toString(), kind = sourceKind.name,
+                        whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        img = decoded,
+                    )
+                }
+            }
         }
 
         // PERF/OOM: cached counterpart of loadSourceCachedForPreview for the MAX_EDGE_PX zoom/
@@ -708,20 +720,29 @@ class MainActivity : ComponentActivity() {
         // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
         // single cached LinearImage is safely re-fed to every crop.
         suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
-            val cached = zoomSourceCache.get(
+            fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
-            if (cached != null) return cached
-            val decoded = loadSource(maxEdge)
-            zoomSourceCache.put(
-                uri = sourceUri?.toString(), kind = sourceKind.name,
-                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
-                img = decoded,
-            )
-            return decoded
+            cacheGet()?.let { return it }
+            // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
+            // cancelled ROI render's native LibRaw decode keeps running, so the next gesture awaits
+            // THAT decode instead of starting an overlapping one (the "5 decodes per pinch" drain).
+            val key = listOf(
+                sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
+                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+            ).joinToString("|")
+            return zoomDecodeFlight.run(key, scope) {
+                cacheGet() ?: loadSource(maxEdge).also { decoded ->
+                    zoomSourceCache.put(
+                        uri = sourceUri?.toString(), kind = sourceKind.name,
+                        whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        img = decoded,
+                    )
+                }
+            }
         }
 
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.

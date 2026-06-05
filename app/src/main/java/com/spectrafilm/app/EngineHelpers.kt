@@ -14,6 +14,11 @@ import com.spectrafilm.libraw.WhiteBalance
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.max
 import kotlin.math.min
 
@@ -303,6 +308,34 @@ const val ROI_RENDER_MAX_PX = 1600
  *  (just a smaller engine pass, never a re-decode); the crisp full preview still lands on settle.
  *  This is Lightroom's draft/final loupe behaviour, ported to the spectral CPU engine. */
 const val DRAFT_RENDER_MAX_PX = 384
+
+/**
+ * Coalesces concurrent or rapidly-cancelled decodes of the SAME source key into ONE in-flight
+ * decode, run in a caller-supplied STABLE [CoroutineScope]. The zoom ROI render + 100% magnifier
+ * re-fire on every gesture settle and are cancelled+restarted, but a native LibRaw decode does NOT
+ * stop on coroutine cancellation — so without this, one pinch could spawn several overlapping
+ * full-resolution decodes (the measured battery drain). Callers await the shared [Deferred]: a
+ * cancelled caller drops only its await; the decode keeps running in the stable scope and the next
+ * caller awaits the same one (or, by then, hits the now-warm cache). Not for different keys — those
+ * just start their own flight (a source/WB/rotation change, never a per-gesture event).
+ */
+class SingleFlight<T> {
+    private val mutex = Mutex()
+    private var key: String? = null
+    private var inflight: Deferred<T>? = null
+
+    suspend fun run(key: String, scope: CoroutineScope, block: suspend () -> T): T {
+        val deferred = mutex.withLock {
+            val cur = inflight
+            if (this.key == key && cur != null && cur.isActive) {
+                cur
+            } else {
+                scope.async { block() }.also { this.key = key; inflight = it }
+            }
+        }
+        return deferred.await()
+    }
+}
 
 /**
  * In-memory cache of the decoded *proxy-resolution source* [LinearImage], so that interactive
