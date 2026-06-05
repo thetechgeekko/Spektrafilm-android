@@ -887,8 +887,13 @@ class MainActivity : ComponentActivity() {
                     img to lut
                 }
             }.onSuccess { (img, lut) ->
-                if (lut != null) { gpuProxy = img; gpuLut = lut }
-            }
+                if (lut != null) {
+                    gpuProxy = img; gpuLut = lut
+                    Diag.i("gpu lut baked ${lut.size}^3 — fit preview runs on GPU")
+                } else {
+                    Diag.w("gpu lut parse failed -> CPU preview")
+                }
+            }.onFailure { Diag.w("gpu lut bake failed: ${it.message} -> CPU preview") }
         }
 
         // MEMORY (#2): `preview` and `beforePreview` are intentionally LEFT TO GC, not recycled
@@ -1525,7 +1530,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     onPointPicked = onPointPicked,
                     onZoomStart = { gpuZoomHandoff = true },
-                    onUnavailable = { gpuBroken = true },
+                    onUnavailable = {
+                        gpuBroken = true
+                        Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
+                    },
                 )
                 bmp != null && compareMode && before != null ->
                     CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
