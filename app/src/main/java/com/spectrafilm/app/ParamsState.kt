@@ -306,11 +306,12 @@ class ParamsState {
     fun toParams(
         previewMaxSizeOverride: Int? = null,
         filmFormatMmOverride: Float? = null,
-        // Fast interactive DRAFT: drop the per-pixel grain + the spatial halation/diffusion branch,
-        // which dominate the preview render yet are ~invisible at the downscaled draft resolution
-        // (they still show in the full settle pass, the 100% zoom/magnifier, and export). Preview-
-        // only — never set on the export path, so parity is unaffected. Couplers stay on (colour).
-        fastDraft: Boolean = false,
+        // Interactive-preview optimisation (Lightroom-style "grain at 100%"): drop the per-pixel
+        // grain + the spatial halation/diffusion branch — the dominant preview cost, ~invisible at
+        // fit/draft resolution. The live draft AND the full fit settle set this; the 100% zoom ROI,
+        // the magnifier and EXPORT do NOT, so grain/halation still render where they're visible.
+        // Preview-only — never set on the export path, so parity is unaffected. Couplers stay on.
+        skipGrainHalation: Boolean = false,
     ): SpektraParams = SpektraParams(
         filmProfile = filmProfile,
         printProfile = printProfile,
@@ -365,7 +366,7 @@ class ParamsState {
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,
             grain = GrainParams(
-                active = grainActive && !fastDraft,
+                active = grainActive && !skipGrainHalation,
                 sublayersActive = grainSublayersActive,
                 agxParticleAreaUm2 = grainParticleAreaUm2,
                 agxParticleScale = grainParticleScale,
@@ -378,7 +379,7 @@ class ParamsState {
                 nSubLayers = grainNSubLayers,
             ),
             halation = HalationParams(
-                active = halationActive && !fastDraft,
+                active = halationActive && !skipGrainHalation,
                 scatterAmount = halScatterAmount,
                 scatterSpatialScale = halScatterSpatialScale,
                 halationAmount = halHalationAmount,

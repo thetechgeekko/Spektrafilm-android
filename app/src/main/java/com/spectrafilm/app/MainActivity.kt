@@ -888,7 +888,7 @@ class MainActivity : ComponentActivity() {
                     withContext(Dispatchers.Default) {
                         e.simulatePreview(
                             proxy,
-                            state.toParams(previewMaxSizeOverride = draftEdge, fastDraft = true),
+                            state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
@@ -922,7 +922,9 @@ class MainActivity : ComponentActivity() {
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
-                    val after = e.simulatePreview(image, state.toParams()).use { res ->
+                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
+                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
+                    val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
                         simResultToBitmap(res.data, res.width, res.height)
                     }
                     before to after
