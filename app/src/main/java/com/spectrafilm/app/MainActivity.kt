@@ -818,7 +818,11 @@ class MainActivity : ComponentActivity() {
         // responsive instead of waiting one ~full render per settle.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
-            delay(350)
+            // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
+            // ~1s, so waiting a bit longer for the user to pause means fewer renders that start
+            // then get cancelled mid-flight on the next edit ("coroutine scope left the
+            // composition" in the logcat) — wasted all-core CPU that drains battery.
+            delay(500)
             previewBusy = true
             renderErr = null
             status = "rendering preview…"

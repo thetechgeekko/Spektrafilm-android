@@ -175,7 +175,11 @@ fun ZoomableImage(
     if (onRoiSettled != null) {
         LaunchedEffect(renderKey, aspect) {
             snapshotFlow { Triple(scale, offset, viewSize) }
-                .debounce(280L)
+                // Raised from 280ms: each zoom settle triggers a full RAW proxy decode + an
+                // all-core engine render (~1s). A longer settle coalesces a pinch/pan into a
+                // single render instead of a herd of overlapping decodes (the main editing
+                // battery drain seen in the device logcat).
+                .debounce(500L)
                 .collectLatest { (s, o, v) ->
                     val roi = viewportRoiNormalized(v, s, o, aspect)
                     if (roi == null) onRoiCleared?.invoke() else onRoiSettled(roi)
