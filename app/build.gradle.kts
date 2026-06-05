@@ -38,6 +38,17 @@ android {
     }
 
     signingConfigs {
+        // Pin DEBUG signing to a committed keystore (standard public debug creds) so every
+        // build — CI, any cloud container, every contributor — signs with ONE identical key,
+        // and a freshly built debug APK always installs OVER a previous one. AGP otherwise
+        // auto-generates a random ~/.android/debug.keystore per machine, whose differing
+        // signature makes Android reject the update ("App not installed"). Not a release key.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (hasReleaseKeystore) {
             create("release") {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))

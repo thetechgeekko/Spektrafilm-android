@@ -176,11 +176,12 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("GPU preview (beta)", style = MaterialTheme.typography.bodyLarge)
+                    Text("GPU preview (experimental)", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "Render the live preview by GPU-sampling a 3D LUT of the current look — " +
-                            "faster, but grain/halation and zoom/compare aren't on this path yet. " +
-                            "Export is unaffected.",
+                        "Render the fit preview instantly on the GPU (a 3D LUT of the current " +
+                            "look) instead of a ~1s CPU render per edit. Export is always the " +
+                            "exact CPU engine. Off by default: the current surface can stutter " +
+                            "or overlap the controls while panels animate — being reworked.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

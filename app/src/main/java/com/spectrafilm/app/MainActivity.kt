@@ -79,6 +79,7 @@ import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -267,9 +268,22 @@ class MainActivity : ComponentActivity() {
         // temp/tint + manual rotation + target edge); any change to one of those invalidates it
         // (the key mismatches → fresh decode). See DecodedSourceCache for the read-only proof
         // that the same buffer can be re-fed to the engine without a defensive copy. EXPORT and
-        // the 100% magnifier do NOT use this cache — they always decode fresh at MAX_EDGE_PX.
+        // EXPORT does NOT use this cache — it always decodes fresh at EXPORT_MAX_EDGE_PX.
         val sourceCache = remember { DecodedSourceCache() }
         DisposableEffect(Unit) { onDispose { sourceCache.invalidate() } }
+
+        // PERF/OOM: a SECOND single-entry cache for the MAX_EDGE_PX whole-image proxy used by the
+        // Lightroom zoom (renderRoi) and the 100% magnifier. Previously both decoded fresh on every
+        // gesture settle — each a ~1s LibRaw decode + a 36MB managed-heap LinearImage (1500×2000×3×
+        // 4B) — so rapid pan/zoom stacked several before GC reclaimed them and the ART heap OOM'd
+        // ("Failed to allocate a 36000019 byte allocation"). Keeping the 2048px proxy resident (and
+        // reusing it for every crop) removes both the OOM pileup and the per-gesture decode latency,
+        // which is what makes zoom-pan feel Lightroom-smooth. It is a SEPARATE instance from
+        // sourceCache so the 640px preview proxy and the 2048px zoom proxy don't evict each other
+        // (the single-entry cache is keyed by maxEdge — sharing one would thrash both back to a
+        // fresh decode every render).
+        val zoomSourceCache = remember { DecodedSourceCache() }
+        DisposableEffect(Unit) { onDispose { zoomSourceCache.invalidate() } }
 
         // bundled catalog (friendly stock names + grouping) and built-in presets
         var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
@@ -294,6 +308,18 @@ class MainActivity : ComponentActivity() {
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
         var previewTick by remember { mutableIntStateOf(0) }
+        // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
+        // being dragged, so the live DRAFT pass runs only during a drag and a discrete edit
+        // (switch/dropdown) goes straight to the crisp settle render — no draft flicker, and the
+        // continuous-draft cost is bounded to actual drags. Remembered so its identity is stable
+        // across recompositions; provided to sliders via LocalSliderInteraction below.
+        val interacting = remember { mutableStateOf(false) }
+        val sliderInteraction = remember {
+            SliderInteraction(
+                onChange = { interacting.value = true },
+                onFinished = { interacting.value = false },
+            )
+        }
 
         // source rotation (applied to the decoded LinearImage -> preview AND export).
         // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
@@ -675,6 +701,29 @@ class MainActivity : ComponentActivity() {
             return decoded
         }
 
+        // PERF/OOM: cached counterpart of loadSourceCachedForPreview for the MAX_EDGE_PX zoom/
+        // magnifier proxy, backed by the dedicated zoomSourceCache. The Lightroom zoom (renderRoi)
+        // and the 100% magnifier both crop this whole-image proxy; without the cache each gesture
+        // settle re-decoded it (LibRaw + 36MB managed alloc) and the pileup OOM'd the ART heap.
+        // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
+        // single cached LinearImage is safely re-fed to every crop.
+        suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
+            val cached = zoomSourceCache.get(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+            )
+            if (cached != null) return cached
+            val decoded = loadSource(maxEdge)
+            zoomSourceCache.put(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                img = decoded,
+            )
+            return decoded
+        }
+
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
         //
         // PERF/RACE: each tap previously launched an independent coroutine with no
@@ -694,11 +743,20 @@ class MainActivity : ComponentActivity() {
             magnifierJobRef.value = scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.Default) {
-                        val full = loadSource(MAX_EDGE_PX)
+                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
                         val crop = cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX)
+                        // Effective film format so the crop's pixel_size_um matches the proxy it was
+                        // cut from (the crop spans only cropFrac of the frame). Without it the engine
+                        // treats the crop as a whole 35mm frame and grain/halation (µm-based) render
+                        // too weak even at 1:1. See toParams(filmFormatMmOverride).
+                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                            maxOf(full.width, full.height).coerceAtLeast(1)
                         // SimResult holds a native off-heap buffer; close() frees it once the
                         // bitmap copy is made.
-                        e.simulate(crop, state.toParams()).use { res ->
+                        e.simulate(
+                            crop,
+                            state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
+                        ).use { res ->
                             simResultToBitmap(res.data, res.width, res.height)
                         }
                     }
@@ -732,12 +790,21 @@ class MainActivity : ComponentActivity() {
             roiJobRef.value = scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.Default) {
-                        val full = loadSource(MAX_EDGE_PX)
+                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
                         val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
                         val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
                         val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                        // Effective film format so the crop's pixel_size_um matches the proxy (the
+                        // crop spans only cropFrac of the frame); keeps grain/halation at the right
+                        // strength when zoomed instead of treating the crop as a whole frame.
+                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                            maxOf(full.width, full.height).coerceAtLeast(1)
                         e.simulatePreview(
-                            crop, state.toParams(previewMaxSizeOverride = ROI_RENDER_MAX_PX),
+                            crop,
+                            state.toParams(
+                                previewMaxSizeOverride = ROI_RENDER_MAX_PX,
+                                filmFormatMmOverride = state.filmFormatMm * cropFrac,
+                            ),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
                 }
@@ -758,42 +825,63 @@ class MainActivity : ComponentActivity() {
             roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
-        // Debounced, PROGRESSIVE preview render: re-runs whenever params, source or rotation
-        // change. Like Lightroom's loupe, a fast coarse pass paints the new look almost
-        // immediately, then a full-resolution pass refines it — so dragging a slider feels
-        // responsive instead of waiting one ~full render per settle.
+        // Live DRAFT pass — the Lightroom-style render-system "port": while a control is being
+        // dragged, paint a small, fast proxy continuously so the image tracks the edit instead of
+        // freezing until the settle. Conflated (snapshotFlow.collect, NOT collectLatest): an
+        // in-flight draft is never cancelled — it finishes, then immediately re-renders the latest
+        // params (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back
+        // ~interactive-rate updates. Cheap by construction: it renders ONLY when the full-edge
+        // proxy is already decoded (a cache peek — never decodes here, so it cannot race the
+        // settle pass's first decode) and just asks the engine for a smaller DRAFT_RENDER_MAX_PX
+        // pass. Quiet: it touches only `preview`, never status/previewBusy/beforePreview; the crisp
+        // full-resolution pass still lands on settle (the effect below) and overwrites the draft.
+        LaunchedEffect(Unit) {
+            snapshotFlow { previewTick }.collect {
+                val e = engine ?: return@collect
+                if (cropOverlayOpen || compareMode) return@collect
+                if (!interacting.value) return@collect   // draft only while a slider is being dragged
+                val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+                val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
+                if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
+                val proxy = sourceCache.get(
+                    uri = sourceUri?.toString(), kind = sourceKind.name,
+                    whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                    tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                ) ?: return@collect                             // proxy not cached yet — settle owns the decode
+                runCatching {
+                    withContext(Dispatchers.Default) {
+                        e.simulatePreview(
+                            proxy, state.toParams(previewMaxSizeOverride = draftEdge),
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                    }
+                }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
+            }
+        }
+
+        // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
+        // change, after a debounce so it lands once the user pauses. The live DRAFT effect above
+        // keeps the image moving during the edit (Lightroom's loupe), so this pass goes straight
+        // to the full-resolution result instead of a separate coarse pass.
         LaunchedEffect(previewTick) {
             val e = engine ?: return@LaunchedEffect
-            delay(350)
+            // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
+            // ~1s, so waiting a bit longer for the user to pause means fewer renders that start
+            // then get cancelled mid-flight on the next edit ("coroutine scope left the
+            // composition" in the logcat) — wasted all-core CPU that drains battery.
+            delay(500)
             previewBusy = true
             renderErr = null
             status = "rendering preview…"
             val renderStart = System.currentTimeMillis()
             val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Coarse edge = half the preview edge, but only when that is still a meaningful
-            // step down (>=256px and the full edge is large enough to be worth a two-pass
-            // render). The coarse source is decoded FRESH (loadSource, not the cache) so it
-            // never evicts the single-entry cached full-res proxy that look-param edits reuse
-            // — a cache put(coarse) then put(full) would thrash and re-decode the full source
-            // every render.
-            val coarseEdge = (fullEdge / 2).let { if (it >= 256 && fullEdge > 512) it else 0 }
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     decoding = true
-                    // Pass 1 (coarse, optional): paint first pixels ~4x sooner.
-                    if (coarseEdge > 0) {
-                        val coarseImg = loadSource(coarseEdge)
-                        val cbmp = e.simulatePreview(coarseImg, state.toParams()).use { cres ->
-                            simResultToBitmap(cres.data, cres.width, cres.height)
-                        }
-                        if (isActive) withContext(Dispatchers.Main) {
-                            preview = cbmp
-                            status = "refining…"
-                        }
-                    }
-                    // Pass 2 (full): cached proxy source — re-decodes only when a decode-
-                    // affecting key (URI/kind/WB/temp/tint/rotation/edge) changed; look-param
-                    // edits reuse it.
+                    // The live DRAFT effect above already paints a fast low-res proxy during the
+                    // edit, so this settle pass goes straight to the crisp full render (no separate
+                    // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
+                    // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
+                    // look-param edits reuse it.
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
@@ -833,8 +921,13 @@ class MainActivity : ComponentActivity() {
                     img to lut
                 }
             }.onSuccess { (img, lut) ->
-                if (lut != null) { gpuProxy = img; gpuLut = lut }
-            }
+                if (lut != null) {
+                    gpuProxy = img; gpuLut = lut
+                    Diag.i("gpu lut baked ${lut.size}^3 — fit preview runs on GPU")
+                } else {
+                    Diag.w("gpu lut parse failed -> CPU preview")
+                }
+            }.onFailure { Diag.w("gpu lut bake failed: ${it.message} -> CPU preview") }
         }
 
         // MEMORY (#2): `preview` and `beforePreview` are intentionally LEFT TO GC, not recycled
@@ -1089,6 +1182,7 @@ class MainActivity : ComponentActivity() {
                         category = activeCategory,
                         onDismiss = { activeCategory = null },
                     ) {
+                        CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
                             Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
                             Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
@@ -1239,6 +1333,7 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             null -> {}
+                        }
                         }
                     }
                 }
@@ -1455,14 +1550,26 @@ class MainActivity : ComponentActivity() {
             contentAlignment = Alignment.Center,
         ) {
             val bmp = preview
-            val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null && !compareMode
+            // GPU LUT surface is the FIT view's instant path (the baked look sampled on-GPU,
+            // no per-edit CPU re-render); the CPU ZoomableImage owns ZOOM, where it renders the
+            // region with grain/halation via the ROI path. gpuBroken latches if GL can't build
+            // on this device (→ CPU fallback, never a black screen); gpuZoomHandoff flips when
+            // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
+            var gpuBroken by remember { mutableStateOf(false) }
+            var gpuZoomHandoff by remember { mutableStateOf(false) }
+            val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
+                !compareMode && !gpuBroken && !gpuZoomHandoff
             when {
-                // Experimental GPU LUT surface. Beta: no zoom/magnifier/compare yet, so it
-                // only takes over the plain (non-compare) branch once a LUT+proxy exist.
-                gpuActive -> GpuLutPreview(
+                gpuActive -> GpuPreviewSurface(
                     proxy = gpuProxy!!,
                     lut = gpuLut!!,
                     modifier = Modifier.fillMaxSize(),
+                    onPointPicked = onPointPicked,
+                    onZoomStart = { gpuZoomHandoff = true },
+                    onUnavailable = {
+                        gpuBroken = true
+                        Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
+                    },
                 )
                 bmp != null && compareMode && before != null ->
                     CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
@@ -1474,7 +1581,8 @@ class MainActivity : ComponentActivity() {
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
                     renderKey = renderKey,
                     onRoiSettled = onRoiSettled,
-                    onRoiCleared = onRoiCleared,
+                    // Returning to fit also re-arms the GPU fit surface.
+                    onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
                     roiOverlay = roiOverlay,
                 )
                 else -> Text("No preview yet", color = Color.White.copy(alpha = 0.7f))
@@ -2129,10 +2237,10 @@ class MainActivity : ComponentActivity() {
                     "samples; each sample is 5 nm). 0 = off.", default = PARAM_DEFAULTS.spectralGaussianBlur)
             TripleSlider("UV filter", s.filterUv, 0f..800f, { s.filterUv = it }, step = 1f, decimals = 0,
                 tooltip = "Filter UV light (amplitude, wavelength cutoff nm, sigma nm).",
-                componentLabels = Triple("amp", "λ", "σ"))
+                componentLabels = Triple("amp", "λ", "σ"), default = PARAM_DEFAULTS.filterUv)
             TripleSlider("IR filter", s.filterIr, 0f..800f, { s.filterIr = it }, step = 1f, decimals = 0,
                 tooltip = "Filter IR light (amplitude, wavelength cutoff nm, sigma nm).",
-                componentLabels = Triple("amp", "λ", "σ"))
+                componentLabels = Triple("amp", "λ", "σ"), default = PARAM_DEFAULTS.filterIr)
             EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
                 step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution", default = PARAM_DEFAULTS.upscaleFactor)
             // Crop is now an interactive overlay (see the crop button under the
@@ -2254,88 +2362,94 @@ class MainActivity : ComponentActivity() {
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
-            GroupedDropdown(
-                label = "Film profile",
-                selectedId = s.filmProfile,
-                groups = filmGroups,
-                onSelect = { s.filmProfile = it },
-            )
-            OutlinedButton(
-                onClick = onOpenFilmCurves,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("View film profile curves") }
-            EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
-                { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
-                tooltip = "Add a bias to the auto-exposure of the camera")
+            // Lightroom-style sub-tabs split this tool's four groups (Film / Print / Scanner /
+            // Output) so only one shows at a time, instead of one long scroll behind dividers.
+            var simTab by remember { mutableStateOf(0) }
+            SubTabRow(listOf("Film", "Print", "Scanner", "Output"), simTab, { simTab = it })
+            when (simTab) {
+                0 -> {
+                    GroupedDropdown(
+                        label = "Film profile",
+                        selectedId = s.filmProfile,
+                        groups = filmGroups,
+                        onSelect = { s.filmProfile = it },
+                    )
+                    OutlinedButton(
+                        onClick = onOpenFilmCurves,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("View film profile curves") }
+                    EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
+                        { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
+                        tooltip = "Add a bias to the auto-exposure of the camera")
 
-            AutoExposureControl(
-                autoExposure = s.autoExposure,
-                autoExposureMethod = s.autoExposureMethod,
-                methods = AUTO_EXPOSURE_METHODS,
-                onAutoExposureChange = { s.autoExposure = it },
-                onMethodChange = { s.autoExposureMethod = it },
-            )
-            EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
-                step = 1f, decimals = 0,
-                tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)", default = PARAM_DEFAULTS.filmFormatMm)
-            EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
-                step = 0.05f, decimals = 2,
-                tooltip = "Sigma of gaussian filter in um for the camera lens blur. " +
-                    "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.cameraLensBlurUm)
-            DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
-
-            Divider()
-            GroupedDropdown(
-                label = "Print profile",
-                selectedId = s.printProfile,
-                groups = printGroups,
-                onSelect = { s.printProfile = it },
-            )
-            OutlinedButton(
-                onClick = onOpenPrintCurves,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("View print profile curves") }
-            EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
-                step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger", default = PARAM_DEFAULTS.printExposure)
-            SwitchRow("Print auto compensation", s.printExposureCompensation,
-                { s.printExposureCompensation = it },
-                "Auto adjust the print exposure for the camera exposure compensation ev")
-            EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
-                step = 1f, decimals = 0, default = 0f, tooltip = "Y filter shift from neutral, in Kodak CC units")
-            EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
-                step = 1f, decimals = 0, default = 0f, tooltip = "M filter shift from neutral, in Kodak CC units")
-            GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
-                EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
-                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur", default = PARAM_DEFAULTS.enlargerLensBlur)
+                    AutoExposureControl(
+                        autoExposure = s.autoExposure,
+                        autoExposureMethod = s.autoExposureMethod,
+                        methods = AUTO_EXPOSURE_METHODS,
+                        onAutoExposureChange = { s.autoExposure = it },
+                        onMethodChange = { s.autoExposureMethod = it },
+                    )
+                    EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
+                        step = 1f, decimals = 0,
+                        tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)", default = PARAM_DEFAULTS.filmFormatMm)
+                    EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
+                        step = 0.05f, decimals = 2,
+                        tooltip = "Sigma of gaussian filter in um for the camera lens blur. " +
+                            "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.cameraLensBlurUm)
+                    DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
+                }
+                1 -> {
+                    GroupedDropdown(
+                        label = "Print profile",
+                        selectedId = s.printProfile,
+                        groups = printGroups,
+                        onSelect = { s.printProfile = it },
+                    )
+                    OutlinedButton(
+                        onClick = onOpenPrintCurves,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("View print profile curves") }
+                    EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
+                        step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger", default = PARAM_DEFAULTS.printExposure)
+                    SwitchRow("Print auto compensation", s.printExposureCompensation,
+                        { s.printExposureCompensation = it },
+                        "Auto adjust the print exposure for the camera exposure compensation ev")
+                    EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
+                        step = 1f, decimals = 0, default = 0f, tooltip = "Y filter shift from neutral, in Kodak CC units")
+                    EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
+                        step = 1f, decimals = 0, default = 0f, tooltip = "M filter shift from neutral, in Kodak CC units")
+                    GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
+                        EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
+                            step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur", default = PARAM_DEFAULTS.enlargerLensBlur)
+                    }
+                    DiffusionGroup("Print diffusion filter", s.printDiffusionState)
+                }
+                2 -> {
+                    EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
+                        step = 0.05f, decimals = 2,
+                        tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
+                            "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
+                    SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                        "Enable white point correction applied to the scanner output")
+                    EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                        step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
+                    SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                        "Enable black point correction applied to the scanner output")
+                    EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                        step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
+                        step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
+                        componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)
+                }
+                else -> {
+                    Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
+                        { it.name }, { s.outputColorSpace = it })
+                    SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
+                        "Add or not the CCTF to the saved image file")
+                    SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
+                        "Show a scan of the negative instead of the print")
+                }
             }
-            DiffusionGroup("Print diffusion filter", s.printDiffusionState)
-
-            Divider()
-            Text("Scanner", style = MaterialTheme.typography.titleSmall)
-            EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
-                step = 0.05f, decimals = 2,
-                tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
-                    "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
-            SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
-                "Enable white point correction applied to the scanner output")
-            EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
-            SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
-                "Enable black point correction applied to the scanner output")
-            EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
-            PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
-                step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
-                componentLabels = "σ" to "amt")
-
-            Divider()
-            Text("Output", style = MaterialTheme.typography.titleSmall)
-            Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
-                { it.name }, { s.outputColorSpace = it })
-            SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
-                "Add or not the CCTF to the saved image file")
-            SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
-                "Show a scan of the negative instead of the print")
         }
     }
 
@@ -2378,22 +2492,27 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
                 step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.", default = PARAM_DEFAULTS.grainParticleAreaUm2)
             TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.")
+                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
+                default = PARAM_DEFAULTS.grainParticleScale)
             TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
                 { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
-                tooltip = "Scale of particle area for the sublayers in each color layer.")
+                tooltip = "Scale of particle area for the sublayers in each color layer.",
+                default = PARAM_DEFAULTS.grainParticleScaleLayers)
             TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
-                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).")
+                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
+                default = PARAM_DEFAULTS.grainDensityMin)
             TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
-                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).")
+                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
+                default = PARAM_DEFAULTS.grainUniformity)
             EnhancedSlider("Blur", s.grainBlur, 0f..3f, { s.grainBlur = it }, step = 0.05f, decimals = 2,
                 tooltip = "Sigma of gaussian blur in pixels for the grain.", default = PARAM_DEFAULTS.grainBlur)
             EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
                 step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
             PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
                 step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
-                componentLabels = "σ" to "nm")
-            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it })
+                componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
+            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
+                default = PARAM_DEFAULTS.grainNSubLayers)
             Divider()
             // Granular reset scope (backlog #F): restore the grain parameters to engine
             // defaults without touching the section's on/off switch or other sections.
@@ -2451,19 +2570,25 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
                 step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
             TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
-                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.")
+                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
+                default = PARAM_DEFAULTS.halScatterCoreUm)
             TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
-                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.")
+                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
+                default = PARAM_DEFAULTS.halScatterTailUm)
             TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
                 { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
-                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).")
+                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
+                default = PARAM_DEFAULTS.halScatterTailWeightPct)
             TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
                 { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
-                tooltip = "Total back-reflection halation amplitude per channel (0-100%).")
+                tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
+                default = PARAM_DEFAULTS.halHalationStrengthPct)
             TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
-                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.")
+                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
+                default = PARAM_DEFAULTS.halFirstSigmaUm)
             IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
-                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).")
+                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
+                default = PARAM_DEFAULTS.halNBounces)
             EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
                 step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
             SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
@@ -2485,16 +2610,17 @@ class MainActivity : ComponentActivity() {
                 { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
                 tooltip = "Multiplier on the cross-layer (off-diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
             TripleSlider("Gamma samelayer RGB", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
-                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).")
+                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
+                default = PARAM_DEFAULTS.couplersGammaSamelayer)
             PairSlider("Gamma R→GB", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from R onto G and B.",
-                componentLabels = "→G" to "→B")
+                componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
             PairSlider("Gamma G→RB", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from G onto R and B.",
-                componentLabels = "→R" to "→B")
+                componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
             PairSlider("Gamma B→RG", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from B onto R and G.",
-                componentLabels = "→R" to "→G")
+                componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
             EnhancedSlider("Diffusion size um", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
                 step = 5f, decimals = 1, tooltip = "Sigma in um for the diffusion of the couplers (5-20 um).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
             EnhancedSlider("Diffusion tail um", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
@@ -2534,7 +2660,8 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Display", expanded, { expanded = it }) {
             IntSlider("Preview max size", s.previewMaxSize, 128..1024, { s.previewMaxSize = it },
-                tooltip = "Max size of the long edge of the preview image, in pixels.")
+                tooltip = "Max size of the long edge of the preview image, in pixels.",
+                default = PARAM_DEFAULTS.previewMaxSize)
         }
     }
 

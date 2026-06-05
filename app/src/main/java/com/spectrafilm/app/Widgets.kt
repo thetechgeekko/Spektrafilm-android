@@ -23,6 +23,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +38,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -59,12 +63,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -77,6 +83,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -86,6 +93,21 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+
+/**
+ * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]
+ * fires on each drag frame, [onFinished] on release. The editor uses this to render a fast live
+ * DRAFT only while a slider is actively dragged, then the crisp full pass on release — so a discrete
+ * edit (switch/dropdown) skips the draft and goes straight to the crisp render. Provided via
+ * [LocalSliderInteraction]; the default is a no-op so a slider still works with no provider.
+ */
+class SliderInteraction(
+    val onChange: () -> Unit = {},
+    val onFinished: () -> Unit = {},
+)
+
+/** CompositionLocal carrying the active [SliderInteraction]; defaults to a no-op. */
+val LocalSliderInteraction = staticCompositionLocalOf { SliderInteraction() }
 
 /**
  * Wraps arbitrary [content] in a Material3 [TooltipBox] that surfaces [text] on
@@ -241,28 +263,29 @@ fun EnhancedSlider(
     default: Float? = null,
 ) {
     val view = LocalView.current
+    val interaction = LocalSliderInteraction.current
+    var editing by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            // Double-tap the value pill to reset to the parameter's neutral default
-            // (Lightroom-style), with a tick of haptic feedback. Only resettable when a
-            // default is supplied and the value isn't already there.
-            val resettable = default != null && value != default
+            // The value pill is interactive (Lightroom-style): single-tap to type an exact
+            // value, double-tap to reset to the parameter's neutral default. Typing works on
+            // every slider; reset is offered only when a [default] is supplied and the value
+            // isn't already there. Both give a tick of haptic feedback.
+            val resetDefault = default?.takeIf { it != value }
             ValuePill(
                 formatValue(value, decimals),
-                modifier = if (default != null) {
-                    Modifier.combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                        onDoubleClick = if (resettable) {
-                            {
-                                onValueChange(snap(default, range, step))
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            }
-                        } else null,
-                    )
-                } else Modifier,
+                modifier = Modifier.combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { editing = true },
+                    onDoubleClick = resetDefault?.let { dv ->
+                        {
+                            onValueChange(snap(dv, range, step))
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                    },
+                ),
             )
         }
         val steps = if (step > 0f) {
@@ -272,9 +295,10 @@ fun EnhancedSlider(
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = { onValueChange(snap(it, range, step)) },
+            onValueChange = { onValueChange(snap(it, range, step)); interaction.onChange() },
             onValueChangeFinished = {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                interaction.onFinished()
             },
             valueRange = range,
             steps = steps,
@@ -284,6 +308,20 @@ fun EnhancedSlider(
                 tooltip,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (editing) {
+            NumericEntryDialog(
+                label = label,
+                initial = formatValue(value, decimals),
+                range = range,
+                step = step,
+                decimals = decimals,
+                onDismiss = { editing = false },
+                onConfirm = {
+                    onValueChange(it)
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                },
             )
         }
     }
@@ -316,6 +354,7 @@ fun TripleSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     componentLabels: Triple<String, String, String> = Triple("R", "G", "B"),
+    default: Triple<Float, Float, Float>? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -327,11 +366,11 @@ fun TripleSlider(
             )
         }
         EnhancedSlider(componentLabels.first, value.first, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(first = it)) })
+            default = default?.first, onValueChange = { onValueChange(value.copy(first = it)) })
         EnhancedSlider(componentLabels.second, value.second, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(second = it)) })
+            default = default?.second, onValueChange = { onValueChange(value.copy(second = it)) })
         EnhancedSlider(componentLabels.third, value.third, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(third = it)) })
+            default = default?.third, onValueChange = { onValueChange(value.copy(third = it)) })
     }
 }
 
@@ -346,6 +385,7 @@ fun PairSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     componentLabels: Pair<String, String> = "1" to "2",
+    default: Pair<Float, Float>? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -357,9 +397,9 @@ fun PairSlider(
             )
         }
         EnhancedSlider(componentLabels.first, value.first, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(first = it)) })
+            default = default?.first, onValueChange = { onValueChange(value.copy(first = it)) })
         EnhancedSlider(componentLabels.second, value.second, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(second = it)) })
+            default = default?.second, onValueChange = { onValueChange(value.copy(second = it)) })
     }
 }
 
@@ -394,6 +434,7 @@ fun IntSlider(
     range: IntRange,
     onValueChange: (Int) -> Unit,
     tooltip: String? = null,
+    default: Int? = null,
 ) {
     EnhancedSlider(
         label = label,
@@ -402,8 +443,47 @@ fun IntSlider(
         step = 1f,
         decimals = 0,
         tooltip = tooltip,
+        default = default?.toFloat(),
         onValueChange = { onValueChange(it.roundToInt()) },
     )
+}
+
+/**
+ * A compact, horizontally-scrolling sub-tab strip for splitting one tool panel into groups
+ * (Lightroom-style, e.g. Film / Print / Scanner / Output). The selected tab is a filled
+ * primary pill; selection state is owned by the caller.
+ */
+@Composable
+fun SubTabRow(
+    tabs: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tabs.forEachIndexed { i, label ->
+            val active = i == selected
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onSelect(i) },
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (active) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 /** A read-only exposed dropdown for a list of options. */
@@ -566,6 +646,83 @@ private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float):
 
 private fun formatValue(v: Float, decimals: Int): String =
     if (decimals <= 0) v.roundToInt().toString() else "%.${decimals}f".format(v)
+
+/**
+ * Parse a user-typed slider value into a snapped, in-range [Float], or null when the text
+ * isn't a finite number. Tolerates surrounding whitespace, a leading '+', and a comma
+ * decimal separator; clamps to [range] and snaps to [step] via the same [snap] the drag
+ * path uses, so keyboard entry and dragging land on identical values. Pure (no Android
+ * deps) so it is unit-tested in SliderInputTest.
+ */
+internal fun parseSliderInput(
+    text: String,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+): Float? {
+    val v = text.trim().removePrefix("+").replace(',', '.').toFloatOrNull() ?: return null
+    if (v.isNaN() || v.isInfinite()) return null
+    return snap(v, range, step)
+}
+
+/**
+ * A small dialog for typing an exact slider value — Lightroom's "tap the number" affordance.
+ * Confirms only a parseable, in-range number (the Set button disables otherwise); a "±"
+ * toggle covers negative ranges, where the numeric IME often omits a minus key.
+ */
+@Composable
+private fun NumericEntryDialog(
+    label: String,
+    initial: String,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    decimals: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Float) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    val parsed = parseSliderInput(text, range, step)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(label) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        isError = parsed == null && text.isNotBlank(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (range.start < 0f) {
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(onClick = {
+                            text = when {
+                                text.startsWith("-") -> text.removePrefix("-")
+                                text.isBlank() -> "-"
+                                else -> "-$text"
+                            }
+                        }) { Text("±") }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Enter a value between ${formatValue(range.start, decimals)} and " +
+                        "${formatValue(range.endInclusive, decimals)}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = parsed != null, onClick = { parsed?.let(onConfirm); onDismiss() }) {
+                Text("Set")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
 
 // ---------------------------------------------------------------------------
 // AutoExposureControl — Lightroom-mobile style expandable metering control

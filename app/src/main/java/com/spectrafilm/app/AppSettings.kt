@@ -39,11 +39,16 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         set(v) { prefs.edit().putBoolean(KEY_SEEN_EDITOR_COACH, v).apply() }
 
     /**
-     * Experimental GPU LUT preview (default OFF). When on, the editor renders the live
-     * preview by GPU-sampling a baked 3D LUT of the current look (instant pan/zoom-free
-     * surface) instead of the CPU bitmap. Beta: spatial effects (grain/halation) and the
-     * zoom/magnifier/compare gestures are not yet on this path — needs on-device GL
-     * verification before promotion.
+     * GPU LUT preview (default OFF — opt-in). When on, the FIT view renders the current
+     * look instantly by GPU-sampling the engine's baked 3D LUT instead of a ~1s CPU render
+     * per edit. EXPORT is always the exact CPU engine — GPU is preview-only, never the
+     * parity path.
+     *
+     * DEFAULT OFF: the current GLSurfaceView-based surface churns (continuous buffer
+     * re-allocation / dropped frames) when the editor's preview area resizes during panel
+     * animations, and can grow over the bottom controls — observed on SM-S948W as a frame
+     * hang plus a hidden export button. Being reimplemented on a resize-friendly surface
+     * (TextureView) before it can be safe to default on. Enable here to try it meanwhile.
      */
     var gpuPreview: Boolean
         get() = prefs.getBoolean(KEY_GPU_PREVIEW, false)

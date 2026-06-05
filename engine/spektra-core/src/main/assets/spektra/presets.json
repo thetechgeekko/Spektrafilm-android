@@ -1,666 +1,667 @@
 {
-  "version": 1,
+  "version": 2,
+  "_comment": "Built-in look presets. Authored against the nested SpektraParams schema and mapped by BuiltInPresets.applyParams. Only ENGINE-HONORED fields are set: grain is fully tunable (and per-stock here, since the engine otherwise gives every stock Portra-400 grain); halation uses halationAmount/scatterAmount/boost (halationStrength + halationFirstSigmaUm are baked from each profile's use/antihalation tags and ignored); DIR couplers use amount/inhibition/diffusion (gamma matrices are baked per stock); diffusionFilter geometry is honored but filterFamily is fixed to black_pro_mist by the C API. Grain/halation are um-based and so look stronger at full-res/zoom than in the fit preview.",
   "presets": [
     {
-      "id": "portra400_endura_wedding",
-      "name": "Portra 400 \u2014 Wedding Warm",
-      "group": "Portrait",
-      "description": "Soft, warm, forgiving skin on Portra Endura. The classic gentle-contrast wedding negative.",
-      "params": {
-        "filmProfile": "kodak_portra_400",
-        "printProfile": "kodak_portra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.3,
-          "autoExposure": true
-        },
-        "filmRender": {
-          "densityCurveGamma": 0.96,
-          "grain": {
-            "active": true,
-            "blur": 0.85
-          },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.0
-          },
-          "dirCouplers": {
-            "active": true
-          }
-        }
-      }
-    },
-    {
       "id": "portra160_endura_softlight",
-      "name": "Portra 160 \u2014 Soft Light Portrait",
+      "name": "Portra 160 — Soft Light Portrait",
       "group": "Portrait",
       "description": "The finest-grain, lowest-contrast Portra on low-contrast Endura. Gentle, luminous, true skin.",
       "params": {
         "filmProfile": "kodak_portra_160",
         "printProfile": "kodak_portra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.3
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.3, "autoExposure": false },
         "filmRender": {
           "densityCurveGamma": 0.94,
           "grain": {
-            "active": true,
-            "blur": 0.9
+            "active": true, "sublayersActive": true, "blur": 0.55,
+            "agxParticleScale": [0.65, 0.85, 1.7], "agxParticleScaleLayers": [2.5, 1.0, 0.5],
+            "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.9, "microStructure": [0.15, 30], "nSubLayers": 1
           },
           "halation": {
-            "active": true,
-            "halationAmount": 0.85
+            "active": true, "halationAmount": 0.85, "scatterAmount": 0.9,
+            "halationNBounces": 3, "halationBounceDecay": 0.5
+          },
+          "dirCouplers": {
+            "active": true, "amount": 1.0, "inhibitionSamelayer": 1.0, "inhibitionInterlayer": 1.0,
+            "diffusionSizeUm": 20.0, "diffusionTailUm": 200.0, "diffusionTailWeight": 0.06
           }
-        }
+        },
+        "scanner": { "unsharpMask": [0.4, 0.7] }
+      }
+    },
+    {
+      "id": "portra400_endura_wedding",
+      "name": "Portra 400 — Wedding Warm",
+      "group": "Portrait",
+      "description": "Soft, warm, forgiving skin on Portra Endura — the classic gentle-contrast wedding negative, auto-metered.",
+      "params": {
+        "filmProfile": "kodak_portra_400",
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.3, "autoExposure": true, "autoExposureMethod": "center_weighted" },
+        "filmRender": {
+          "densityCurveGamma": 0.96,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.7,
+            "agxParticleScale": [0.85, 1.05, 2.1], "uniformity": [0.97, 0.97, 0.99],
+            "blurDyeCloudsUm": 1.0, "microStructure": [0.2, 30], "nSubLayers": 1
+          },
+          "halation": { "active": true, "halationAmount": 1.0, "scatterAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 1.0, "inhibitionInterlayer": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.5, 0.7] }
+      }
+    },
+    {
+      "id": "portra800_endura_natural",
+      "name": "Portra 800 — Natural Low Light",
+      "group": "Portrait",
+      "description": "Portra's palette held into dim light: a touch more grain and a gentle highlight bloom on Endura.",
+      "params": {
+        "filmProfile": "kodak_portra_800",
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "filmRender": {
+          "densityCurveGamma": 0.98,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.8,
+            "agxParticleScale": [1.0, 1.2, 2.3], "agxParticleScaleLayers": [2.6, 1.0, 0.5],
+            "uniformity": [0.96, 0.96, 0.98], "blurDyeCloudsUm": 1.1, "microStructure": [0.25, 30]
+          },
+          "halation": {
+            "active": true, "halationAmount": 1.2, "scatterAmount": 1.1,
+            "boostEv": 0.4, "boostRange": 0.3, "protectEv": 4.0
+          },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.5, 0.8] }
       }
     },
     {
       "id": "pro400h_crystalarchive_pastel",
-      "name": "Pro 400H \u2014 Airy Pastel",
+      "name": "Pro 400H — Airy Pastel",
       "group": "Portrait",
-      "description": "Overexposed Fuji pastels with clean greens and cool, soft skin on Fuji Crystal Archive.",
+      "description": "Overexposed Fuji pastels with clean greens and cool, soft skin on Crystal Archive. Reduced couplers keep color gentle.",
       "params": {
         "filmProfile": "fujifilm_pro_400h",
         "printProfile": "fujifilm_crystal_archive_typeii",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 1.0
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 1.0 },
         "filmRender": {
           "densityCurveGamma": 0.9,
           "grain": {
-            "active": true,
-            "blur": 0.9
+            "active": true, "sublayersActive": true, "blur": 0.75,
+            "agxParticleScale": [0.8, 1.0, 2.0], "uniformity": [0.97, 0.97, 0.99], "blurDyeCloudsUm": 1.0
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.9
-          }
-        }
+          "halation": { "active": true, "halationAmount": 0.9, "scatterAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 0.88, "inhibitionInterlayer": 0.9 }
+        },
+        "scanner": { "unsharpMask": [0.45, 0.7] }
       }
     },
+
     {
       "id": "ektar100_ultra_landscape",
-      "name": "Ektar 100 \u2014 Punchy Landscape",
+      "name": "Ektar 100 — Punchy Landscape",
       "group": "Landscape",
-      "description": "World's finest-grain negative on high-contrast Ultra Endura: vivid, snappy, crystalline landscapes.",
+      "description": "The world's finest-grain negative, printed contrasty on Ultra Endura. Saturated couplers, crisp scan, matrix metering.",
       "params": {
         "filmProfile": "kodak_ektar_100",
         "printProfile": "kodak_ultra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0, "autoExposure": true, "autoExposureMethod": "matrix" },
         "filmRender": {
-          "densityCurveGamma": 1.06,
+          "densityCurveGamma": 1.1,
           "grain": {
-            "active": true,
-            "blur": 0.9
+            "active": true, "sublayersActive": true, "blur": 0.5,
+            "agxParticleScale": [0.6, 0.8, 1.6], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.8, "nSubLayers": 1
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.7
-          },
+          "halation": { "active": true, "halationAmount": 0.7, "scatterAmount": 0.85 },
           "dirCouplers": {
-            "active": true,
-            "amount": 1.15
+            "active": true, "amount": 1.2, "inhibitionSamelayer": 1.0, "inhibitionInterlayer": 1.2,
+            "diffusionSizeUm": 18.0, "diffusionTailUm": 180.0, "diffusionTailWeight": 0.06
           }
         },
-        "scanner": {
-          "unsharpMask": [
-            0.9,
-            0.7
-          ]
-        }
+        "scanner": { "unsharpMask": [0.9, 0.7], "blackCorrection": true, "blackLevel": 0.008 }
       }
     },
     {
       "id": "ektar100_supra_travel",
-      "name": "Ektar 100 \u2014 Travel Vivid",
+      "name": "Ektar 100 — Coastal Travel",
       "group": "Landscape",
-      "description": "Ektar's saturation tempered by moderate-contrast Supra Endura for rich but balanced travel color.",
+      "description": "Ektar on livelier Supra Endura: vivid but a half-stop calmer than the Ultra print, for skies and water.",
       "params": {
         "filmProfile": "kodak_ektar_100",
         "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "filmRender": {
-          "densityCurveGamma": 1.0,
-          "grain": {
-            "active": true,
-            "blur": 0.85
-          },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.7
-          },
-          "dirCouplers": {
-            "active": true,
-            "amount": 1.1
-          }
-        }
-      }
-    },
-    {
-      "id": "velvia100_chrome_landscape",
-      "name": "Velvia 100 \u2014 Chrome Landscape",
-      "group": "Slide / Chrome",
-      "description": "Ultra-saturated, high-contrast Fuji chrome scanned direct. The landscape shooter's slide.",
-      "params": {
-        "filmProfile": "fujifilm_velvia_100",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": true,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.05,
           "grain": {
-            "active": true,
-            "blur": 0.95
+            "active": true, "sublayersActive": true, "blur": 0.5,
+            "agxParticleScale": [0.6, 0.8, 1.6], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.8
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.5
-          },
-          "dirCouplers": {
-            "active": true,
-            "amount": 1.1
-          }
+          "halation": { "active": true, "halationAmount": 0.7 },
+          "dirCouplers": { "active": true, "amount": 1.1, "inhibitionInterlayer": 1.1 }
         },
-        "scanner": {
-          "unsharpMask": [
-            0.9,
-            0.7
-          ]
-        }
+        "scanner": { "unsharpMask": [0.7, 0.7] }
+      }
+    },
+    {
+      "id": "superia400_crystalarchive_landscape",
+      "name": "Superia X-TRA 400 — Cool Greens",
+      "group": "Landscape",
+      "description": "Fuji's fourth-layer green/cyan signature on Crystal Archive, with a faint cool print balance for foliage.",
+      "params": {
+        "filmProfile": "fujifilm_xtra_400",
+        "printProfile": "fujifilm_crystal_archive_typeii",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "enlarger": { "yFilterShift": -2.0, "mFilterShift": -1.0 },
+        "filmRender": {
+          "densityCurveGamma": 1.02,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.72,
+            "agxParticleScale": [0.85, 1.05, 2.1], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.2, 30]
+          },
+          "halation": { "active": true, "halationAmount": 0.95 },
+          "dirCouplers": { "active": true, "amount": 1.05, "inhibitionInterlayer": 1.1 }
+        },
+        "scanner": { "unsharpMask": [0.7, 0.7] }
+      }
+    },
+
+    {
+      "id": "velvia100_chrome_landscape",
+      "name": "Velvia 100 — Chrome Landscape",
+      "group": "Slide",
+      "description": "Ultra-saturated, high-contrast reversal scanned straight as a slide. Fine grain, crisp acutance, no print stage.",
+      "params": {
+        "filmProfile": "fujifilm_velvia_100",
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": true, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "filmRender": {
+          "densityCurveGamma": 1.0,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.5,
+            "agxParticleScale": [0.6, 0.8, 1.6], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.8
+          },
+          "halation": { "active": true, "halationAmount": 0.5, "scatterAmount": 0.8 },
+          "dirCouplers": { "active": true, "amount": 1.1, "inhibitionInterlayer": 1.15 }
+        },
+        "scanner": { "unsharpMask": [0.9, 0.7] }
       }
     },
     {
       "id": "provia100f_chrome_natural",
-      "name": "Provia 100F \u2014 Natural Chrome",
-      "group": "Slide / Chrome",
-      "description": "The reference E-6 slide scanned direct: accurate color, modest contrast, fine grain.",
+      "name": "Provia 100F — Natural Chrome",
+      "group": "Slide",
+      "description": "The reference E-6 transparency: accurate, modestly contrasty color with fine grain. Scanned as a slide.",
       "params": {
         "filmProfile": "fujifilm_provia_100f",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": true,
-          "outputColorSpace": "SRGB"
-        },
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": true, "outputColorSpace": "SRGB" },
+        "settings": { "applyHanatos2025AdaptationSurface": true },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.95
+            "active": true, "sublayersActive": true, "blur": 0.52,
+            "agxParticleScale": [0.62, 0.82, 1.65], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.85
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.5
-          }
-        }
+          "halation": { "active": true, "halationAmount": 0.55 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.7, 0.7] }
       }
     },
     {
       "id": "ektachrome_e100_chrome_clean",
-      "name": "Ektachrome E100 \u2014 Clean Slide",
-      "group": "Slide / Chrome",
-      "description": "Revived E-6 with clean neutrals and wide tonal range; scanned direct for a crisp transparency look.",
+      "name": "Ektachrome E100 — Clean Chrome",
+      "group": "Slide",
+      "description": "Revived E-6 with clean neutrals and a wide tonal range for a reversal film. Fine, restrained grain.",
       "params": {
         "filmProfile": "kodak_ektachrome_100",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": true,
-          "outputColorSpace": "SRGB"
-        },
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": true, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.95
+            "active": true, "sublayersActive": true, "blur": 0.5,
+            "agxParticleScale": [0.6, 0.8, 1.6], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.8
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.5
-          }
-        }
+          "halation": { "active": true, "halationAmount": 0.55 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.7, 0.7] }
       }
     },
     {
       "id": "kodachrome64_chrome_nostalgic",
-      "name": "Kodachrome 64 \u2014 Nostalgic Chrome",
-      "group": "Slide / Chrome",
-      "description": "Legendary K-14 reds and warm golden midtones, low grain, scanned direct.",
+      "name": "Kodachrome 64 — Nostalgic Chrome",
+      "group": "Slide",
+      "description": "The legendary K-14 look: rich, archival color with a warm signature and slightly punchy contrast.",
       "params": {
         "filmProfile": "kodak_kodachrome_64",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": true,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": true, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.04,
           "grain": {
-            "active": true,
-            "blur": 0.95
+            "active": true, "sublayersActive": true, "blur": 0.55,
+            "agxParticleScale": [0.7, 0.9, 1.8], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.85
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.6
-          }
-        }
+          "halation": { "active": true, "halationAmount": 0.6, "scatterAmount": 0.9 },
+          "dirCouplers": { "active": true, "amount": 1.05, "inhibitionInterlayer": 1.1 }
+        },
+        "scanner": { "unsharpMask": [0.8, 0.7] }
       }
     },
-    {
-      "id": "vision3_500t_2383_night",
-      "name": "Vision3 500T \u2014 Night Cinema",
-      "group": "Cinema",
-      "description": "Tungsten night cinema: 500T to 2383 print with strong red halation glow on point lights.",
-      "params": {
-        "filmProfile": "kodak_vision3_500t",
-        "printProfile": "kodak_2383",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
-        "filmRender": {
-          "densityCurveGamma": 1.0,
-          "grain": {
-            "active": true,
-            "blur": 0.75
-          },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.6,
-            "scatterAmount": 1.3,
-            "boostEv": 1.0,
-            "halationStrength": [
-              0.09,
-              0.02,
-              0.0
-            ]
-          },
-          "dirCouplers": {
-            "active": true
-          }
-        }
-      }
-    },
+
     {
       "id": "vision3_250d_2383_daycinema",
-      "name": "Vision3 250D \u2014 Daylight Cinema",
+      "name": "Vision3 250D — Day Cinema",
       "group": "Cinema",
-      "description": "Daylight cine negative to 2383 print: rich contrast, deep blacks, the modern theatrical look.",
+      "description": "Daylight cine negative through the standard 2383 release print: neutral highlights, rich blacks, broad latitude.",
       "params": {
         "filmProfile": "kodak_vision3_250d",
         "printProfile": "kodak_2383",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.8
+            "active": true, "sublayersActive": true, "blur": 0.62,
+            "agxParticleScale": [0.75, 0.95, 1.9], "uniformity": [0.97, 0.97, 0.98], "blurDyeCloudsUm": 0.95
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.1
-          },
-          "dirCouplers": {
-            "active": true
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.1, "scatterAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 1.05 }
+        },
+        "scanner": { "unsharpMask": [0.6, 0.7] }
       }
     },
     {
       "id": "vision3_50d_2393_premier",
-      "name": "Vision3 50D \u2014 Premier Daylight",
+      "name": "Vision3 50D — Premier Print",
       "group": "Cinema",
-      "description": "Sharpest, finest-grain Vision3 to premium 2393 print: deeper blacks, brighter highlights, more saturation.",
+      "description": "The sharpest, finest-grained Vision3 on premium 2393: deeper blacks, brighter highlights, bolder color.",
       "params": {
         "filmProfile": "kodak_vision3_50d",
         "printProfile": "kodak_2393",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.85
+            "active": true, "sublayersActive": true, "blur": 0.48,
+            "agxParticleScale": [0.55, 0.75, 1.5], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.8
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.9
-          },
-          "dirCouplers": {
-            "active": true
-          }
+          "halation": { "active": true, "halationAmount": 0.9 },
+          "dirCouplers": { "active": true, "amount": 1.1, "inhibitionInterlayer": 1.1 }
         },
-        "scanner": {
-          "unsharpMask": [
-            0.9,
-            0.7
-          ]
-        }
+        "scanner": { "unsharpMask": [0.8, 0.7] }
+      }
+    },
+    {
+      "id": "vision3_200t_2383_interior",
+      "name": "Vision3 200T — Tungsten Interior",
+      "group": "Cinema",
+      "description": "Tungsten-balanced cine negative for warm interiors: low grain, rich color, a slightly warm print balance.",
+      "params": {
+        "filmProfile": "kodak_vision3_200t",
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "enlarger": { "yFilterShift": 2.0, "mFilterShift": 0.0 },
+        "filmRender": {
+          "densityCurveGamma": 1.0,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.6,
+            "agxParticleScale": [0.72, 0.92, 1.85], "uniformity": [0.97, 0.97, 0.98]
+          },
+          "halation": { "active": true, "halationAmount": 1.15, "scatterAmount": 1.05, "boostEv": 0.3 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.6, 0.7] }
       }
     },
     {
       "id": "verita200d_2383_warmcine",
-      "name": "Verita 200D \u2014 Warm Cinema",
+      "name": "Verita 200D — Warm Cinema",
       "group": "Cinema",
-      "description": "Bold, warm-skinned daylight cine negative to 2383: short, classically cinematic range.",
+      "description": "The new daylight cine negative: bold saturation, warm skin, and a shorter, classically cinematic range on 2383.",
       "params": {
         "filmProfile": "kodak_verita_200d",
         "printProfile": "kodak_2383",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
-          "densityCurveGamma": 1.0,
+          "densityCurveGamma": 1.02,
           "grain": {
-            "active": true,
-            "blur": 0.8
+            "active": true, "sublayersActive": true, "blur": 0.62,
+            "agxParticleScale": [0.75, 0.95, 1.9], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.2, 30]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.2
-          },
-          "dirCouplers": {
-            "active": true,
-            "amount": 1.05
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.2, "scatterAmount": 1.1, "boostEv": 0.4 },
+          "dirCouplers": { "active": true, "amount": 1.1, "inhibitionInterlayer": 1.1 }
+        },
+        "scanner": { "unsharpMask": [0.65, 0.7] }
       }
     },
     {
-      "id": "portra800_endura_lowlight",
-      "name": "Portra 800 \u2014 Low Light",
-      "group": "Low Light / Night",
-      "description": "Fast Portra into low light on Endura: warm tones, more grain, warm halation on highlights.",
+      "id": "vision3_500t_2383_night",
+      "name": "Vision3 500T — Night Cinema",
+      "group": "Cinema",
+      "description": "The fast tungsten workhorse on 2383: low-light latitude with a boosted highlight halation around practicals.",
       "params": {
-        "filmProfile": "kodak_portra_800",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.0
-        },
+        "filmProfile": "kodak_vision3_500t",
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.7
+            "active": true, "sublayersActive": true, "blur": 0.72,
+            "agxParticleScale": [0.9, 1.1, 2.2], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.25, 30]
           },
           "halation": {
-            "active": true,
-            "halationAmount": 1.4,
-            "boostEv": 0.7,
-            "halationStrength": [
-              0.08,
-              0.018,
-              0.0
-            ]
-          }
-        }
+            "active": true, "halationAmount": 1.6, "scatterAmount": 1.3,
+            "scatterCoreUm": [2.6, 2.3, 1.9], "boostEv": 1.0, "boostRange": 0.35, "protectEv": 3.5
+          },
+          "dirCouplers": { "active": true, "amount": 1.05 }
+        },
+        "scanner": { "unsharpMask": [0.55, 0.7] }
       }
     },
+
     {
       "id": "portra800_push1_endura_night",
-      "name": "Portra 800 +1 \u2014 Neon Night",
-      "group": "Low Light / Night",
-      "description": "Portra 800 pushed to EI 1600: punchier contrast, bolder grain, strong red halo around neon and lamps.",
+      "name": "Portra 800 +1 — Pushed Night",
+      "group": "Low Light",
+      "description": "Portra 800 rated EI 1600, pushed a stop: more speed, contrast, and a coarser, livelier grain.",
       "params": {
         "filmProfile": "kodak_portra_800_push1",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
-          "densityCurveGamma": 1.05,
+          "densityCurveGamma": 1.04,
           "grain": {
-            "active": true,
-            "blur": 0.6,
-            "agxParticleScale": [
-              1.0,
-              1.2,
-              2.3
-            ]
+            "active": true, "sublayersActive": true, "blur": 0.9,
+            "agxParticleScale": [1.2, 1.5, 2.8], "agxParticleScaleLayers": [2.8, 1.0, 0.45],
+            "uniformity": [0.95, 0.95, 0.97], "blurDyeCloudsUm": 1.2, "microStructure": [0.32, 30]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.7,
-            "scatterAmount": 1.3,
-            "boostEv": 1.0,
-            "halationStrength": [
-              0.1,
-              0.022,
-              0.0
-            ]
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.5, "scatterAmount": 1.3, "boostEv": 0.8, "boostRange": 0.35 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.5, 0.8] }
       }
     },
     {
       "id": "portra800_push2_endura_available",
-      "name": "Portra 800 +2 \u2014 Available Dark",
-      "group": "Low Light / Night",
-      "description": "Portra 800 pushed to EI 3200 for the darkest available light: heavy grain, high contrast, glowing highlights.",
+      "name": "Portra 800 +2 — Available Light",
+      "group": "Low Light",
+      "description": "Portra 800 rated EI 3200, pushed two stops: bold grain and contrast for the darkest available-light work.",
       "params": {
         "filmProfile": "kodak_portra_800_push2",
-        "printProfile": "kodak_supra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
-          "densityCurveGamma": 1.1,
+          "densityCurveGamma": 1.08,
           "grain": {
-            "active": true,
-            "blur": 0.5,
-            "agxParticleScale": [
-              1.1,
-              1.3,
-              2.5
-            ]
+            "active": true, "sublayersActive": true, "blur": 1.0,
+            "agxParticleScale": [1.5, 1.9, 3.4], "agxParticleScaleLayers": [3.0, 1.0, 0.4],
+            "uniformity": [0.94, 0.94, 0.96], "blurDyeCloudsUm": 1.3, "microStructure": [0.4, 30]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.9,
-            "scatterAmount": 1.4,
-            "boostEv": 1.2,
-            "halationStrength": [
-              0.11,
-              0.025,
-              0.0
-            ]
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.7, "scatterAmount": 1.4, "boostEv": 1.0, "boostRange": 0.4 },
+          "dirCouplers": { "active": true, "amount": 0.95 }
+        },
+        "scanner": { "unsharpMask": [0.45, 0.8] }
       }
     },
     {
-      "id": "gold200_ektacolor_goldenhour",
-      "name": "Gold 200 \u2014 Golden Hour",
-      "group": "Nostalgic / Consumer",
-      "description": "Warm yellows and golds on consumer Ektacolor Edge: the sunny, nostalgic snapshot.",
+      "id": "vision3_500t_halation_glow",
+      "name": "Vision3 500T — Halation Glow",
+      "group": "Low Light",
+      "description": "A neon-night look on 500T: halation pushed hard around highlights with a warm scatter bloom and lifted print.",
       "params": {
-        "filmProfile": "kodak_gold_200",
-        "printProfile": "kodak_ektacolor_edge",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
-        "camera": {
-          "exposureCompensationEv": 0.3
-        },
+        "filmProfile": "kodak_vision3_500t",
+        "printProfile": "kodak_2383",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "enlarger": { "preflashExposure": 0.04 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.7
+            "active": true, "sublayersActive": true, "blur": 0.75,
+            "agxParticleScale": [0.95, 1.15, 2.3], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.28, 30]
           },
           "halation": {
-            "active": true,
-            "halationAmount": 1.0
-          }
-        }
+            "active": true, "halationAmount": 2.4, "scatterAmount": 1.5,
+            "scatterCoreUm": [3.0, 2.6, 2.1], "scatterTailUm": [11.0, 10.5, 9.8],
+            "boostEv": 1.2, "boostRange": 0.45, "protectEv": 3.0, "halationBounceDecay": 0.55
+          },
+          "dirCouplers": { "active": true, "amount": 1.05 }
+        },
+        "scanner": { "unsharpMask": [0.5, 0.7] }
+      }
+    },
+
+    {
+      "id": "gold200_ektacolor_goldenhour",
+      "name": "Gold 200 — Golden Hour",
+      "group": "Consumer",
+      "description": "Nostalgic warm yellows and golds on consumer Ektacolor Edge — made for sunny, golden-hour snapshots.",
+      "params": {
+        "filmProfile": "kodak_gold_200",
+        "printProfile": "kodak_ektacolor_edge",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.3 },
+        "enlarger": { "yFilterShift": 2.0 },
+        "filmRender": {
+          "densityCurveGamma": 1.0,
+          "grain": {
+            "active": true, "sublayersActive": true, "blur": 0.68,
+            "agxParticleScale": [0.78, 0.98, 1.95], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.22, 30]
+          },
+          "halation": { "active": true, "halationAmount": 1.0, "scatterAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 1.05, "inhibitionInterlayer": 1.05 }
+        },
+        "scanner": { "unsharpMask": [0.6, 0.7] }
       }
     },
     {
       "id": "ultramax400_ektacolor_snapshot",
-      "name": "UltraMax 400 \u2014 Everyday Snapshot",
-      "group": "Nostalgic / Consumer",
-      "description": "Punchy, gritty consumer 400 on Ektacolor Edge: warm highlights, green-ish shadows, chunky grain.",
+      "name": "UltraMax 400 — Snapshot",
+      "group": "Consumer",
+      "description": "Punchy, gritty consumer 400 with vibrant color on Ektacolor Edge. A grainier, everyday flash-snapshot look.",
       "params": {
         "filmProfile": "kodak_ultramax_400",
         "printProfile": "kodak_ektacolor_edge",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
-          "densityCurveGamma": 1.03,
+          "densityCurveGamma": 1.04,
           "grain": {
-            "active": true,
-            "blur": 0.55,
-            "agxParticleScale": [
-              1.0,
-              1.2,
-              2.3
-            ]
+            "active": true, "sublayersActive": true, "blur": 0.78,
+            "agxParticleScale": [1.0, 1.25, 2.4], "uniformity": [0.96, 0.96, 0.97], "microStructure": [0.3, 30]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.1
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.1, "scatterAmount": 1.05 },
+          "dirCouplers": { "active": true, "amount": 1.05, "inhibitionInterlayer": 1.1 }
+        },
+        "scanner": { "unsharpMask": [0.7, 0.7] }
       }
     },
     {
       "id": "superia400_crystalarchive_cool",
-      "name": "Superia X-TRA 400 \u2014 Cool Everyday",
-      "group": "Nostalgic / Consumer",
-      "description": "Fuji's grainy consumer 400 on Crystal Archive: cooler tones, green shadows, fourth-layer mixed-light cleanup.",
+      "name": "Superia X-TRA 400 — Cool Snapshot",
+      "group": "Consumer",
+      "description": "Fuji's cooler consumer 400 with a fourth color layer for cleaner mixed-light tones on Crystal Archive.",
       "params": {
         "filmProfile": "fujifilm_xtra_400",
         "printProfile": "fujifilm_crystal_archive_typeii",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "enlarger": { "mFilterShift": -2.0 },
         "filmRender": {
-          "densityCurveGamma": 1.0,
+          "densityCurveGamma": 1.02,
           "grain": {
-            "active": true,
-            "blur": 0.55,
-            "agxParticleScale": [
-              1.0,
-              1.2,
-              2.3
-            ]
+            "active": true, "sublayersActive": true, "blur": 0.74,
+            "agxParticleScale": [0.9, 1.1, 2.2], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.25, 30]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 1.0
-          }
-        }
+          "halation": { "active": true, "halationAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.65, 0.7] }
       }
     },
     {
       "id": "c200_crystalarchive_budget",
-      "name": "C200 \u2014 Crisp Everyday",
-      "group": "Nostalgic / Consumer",
-      "description": "Economical Fuji negative on Crystal Archive: crisp, slightly cool color with accurate skin.",
+      "name": "Fuji C200 — Everyday Budget",
+      "group": "Consumer",
+      "description": "Economical everyday negative with crisp, slightly cool color and accurate skin on Crystal Archive.",
       "params": {
         "filmProfile": "fujifilm_c200",
         "printProfile": "fujifilm_crystal_archive_typeii",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
         "filmRender": {
           "densityCurveGamma": 1.0,
           "grain": {
-            "active": true,
-            "blur": 0.65
+            "active": true, "sublayersActive": true, "blur": 0.66,
+            "agxParticleScale": [0.78, 0.98, 1.95], "uniformity": [0.97, 0.97, 0.98]
           },
-          "halation": {
-            "active": true,
-            "halationAmount": 0.9
-          }
-        }
+          "halation": { "active": true, "halationAmount": 0.95 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
+        },
+        "scanner": { "unsharpMask": [0.6, 0.7] }
       }
     },
+
     {
-      "id": "neutral_adobe_like",
-      "name": "Neutral (Adobe-like)",
-      "group": "Neutral",
-      "description": "A clean, Lightroom-default-style starting point: full negative->print positive path with film character minimised (no grain/halation/glare, DIR couplers off), slightly darker to track Adobe Color's neutral medium-contrast baseline. Use as a base, then dial in a film look.",
+      "id": "portra400_promist_dreamy",
+      "name": "Dreamy Pro-Mist — Portra 400",
+      "group": "Creative",
+      "description": "Portra 400 behind a Black Pro-Mist diffusion filter: bloomed highlights and a soft glow, with a touch of spectral haze.",
       "params": {
         "filmProfile": "kodak_portra_400",
         "printProfile": "kodak_portra_endura",
-        "io": {
-          "scanFilm": false,
-          "outputColorSpace": "SRGB"
-        },
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
         "camera": {
-          "exposureCompensationEv": -0.2,
-          "autoExposure": true
-        },
-        "filmRender": {
-          "densityCurveGamma": 1.0,
-          "grain": {
-            "active": false
-          },
-          "halation": {
-            "active": false
-          },
-          "dirCouplers": {
-            "active": false
-          },
-          "glare": {
-            "active": false
+          "exposureCompensationEv": 0.3,
+          "diffusionFilter": {
+            "active": true, "strength": 0.6, "spatialScale": 1.1, "haloWarmth": 0.3,
+            "coreIntensity": 1.0, "coreSize": 1.1, "haloIntensity": 1.2, "haloSize": 1.3,
+            "bloomIntensity": 1.3, "bloomSize": 1.4
           }
+        },
+        "settings": { "spectralGaussianBlur": 1.5 },
+        "filmRender": {
+          "densityCurveGamma": 0.95,
+          "grain": { "active": true, "sublayersActive": true, "blur": 0.72, "agxParticleScale": [0.85, 1.05, 2.1] },
+          "halation": { "active": true, "halationAmount": 1.3, "scatterAmount": 1.2, "boostEv": 0.6 },
+          "dirCouplers": { "active": true, "amount": 0.95 }
+        },
+        "scanner": { "unsharpMask": [0.3, 0.7] }
+      }
+    },
+    {
+      "id": "portra400_faded_matte",
+      "name": "Faded Matte — Lifted Blacks",
+      "group": "Creative",
+      "description": "A muted, matte print: a tone curve lifts the shadows and rolls off highlights, with a flashed, low-contrast base.",
+      "params": {
+        "filmProfile": "kodak_portra_400",
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.2 },
+        "enlarger": { "preflashExposure": 0.06 },
+        "filmRender": {
+          "densityCurveGamma": 0.88,
+          "grain": { "active": true, "sublayersActive": true, "blur": 0.72, "agxParticleScale": [0.85, 1.05, 2.1] },
+          "halation": { "active": true, "halationAmount": 1.0 },
+          "dirCouplers": { "active": true, "amount": 0.9 }
+        },
+        "toneCurve": {
+          "active": true,
+          "master": [[0.0, 0.08], [0.25, 0.3], [0.5, 0.52], [0.75, 0.74], [1.0, 0.93]]
+        },
+        "scanner": { "unsharpMask": [0.35, 0.7] }
+      }
+    },
+    {
+      "id": "ektar100_bleach_bypass",
+      "name": "Bleach Bypass — High Contrast",
+      "group": "Creative",
+      "description": "A silver-retention look: muted couplers for desaturated color, a steep print, and an S-curve for crushed contrast.",
+      "params": {
+        "filmProfile": "kodak_ektar_100",
+        "printProfile": "kodak_ultra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "filmRender": {
+          "densityCurveGamma": 1.18,
+          "grain": { "active": true, "sublayersActive": true, "blur": 0.5, "agxParticleScale": [0.6, 0.8, 1.6] },
+          "halation": { "active": true, "halationAmount": 0.6 },
+          "dirCouplers": { "active": true, "amount": 0.5, "inhibitionInterlayer": 0.6 }
+        },
+        "printRender": { "densityCurveGamma": 1.12 },
+        "toneCurve": {
+          "active": true,
+          "master": [[0.0, 0.0], [0.25, 0.16], [0.5, 0.5], [0.75, 0.84], [1.0, 1.0]]
+        },
+        "scanner": { "unsharpMask": [1.0, 0.7], "blackCorrection": true, "blackLevel": 0.006 }
+      }
+    },
+    {
+      "id": "portra800_wide_gamut_glow",
+      "name": "Wide-Gamut Glow — Portra 800",
+      "group": "Creative",
+      "description": "Portra 800 exported in Adobe RGB with a soft veiling glare and a warm highlight bloom — for wide-gamut displays and print.",
+      "params": {
+        "filmProfile": "kodak_portra_800",
+        "printProfile": "kodak_supra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "ADOBE_RGB" },
+        "camera": { "exposureCompensationEv": 0.0 },
+        "filmRender": {
+          "densityCurveGamma": 0.98,
+          "grain": { "active": true, "sublayersActive": true, "blur": 0.8, "agxParticleScale": [1.0, 1.2, 2.3] },
+          "halation": { "active": true, "halationAmount": 1.4, "scatterAmount": 1.2, "boostEv": 0.7 },
+          "dirCouplers": { "active": true, "amount": 1.0 }
         },
         "printRender": {
-          "glare": {
-            "active": false
-          }
-        }
+          "densityCurveGamma": 1.0,
+          "glare": { "active": true, "percent": 0.06, "roughness": 0.7, "blur": 0.6 }
+        },
+        "scanner": { "unsharpMask": [0.5, 0.7] }
+      }
+    },
+
+    {
+      "id": "neutral_adobe_like",
+      "name": "Neutral — Clean Baseline",
+      "group": "Neutral",
+      "description": "A clean, near-neutral rendering: grain, halation, couplers and glare off, straight gamma. A flat base to build from.",
+      "params": {
+        "filmProfile": "kodak_portra_400",
+        "printProfile": "kodak_portra_endura",
+        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
+        "camera": { "exposureCompensationEv": -0.2, "autoExposure": true, "autoExposureMethod": "center_weighted" },
+        "filmRender": {
+          "densityCurveGamma": 1.0,
+          "grain": { "active": false },
+          "halation": { "active": false },
+          "dirCouplers": { "active": false },
+          "glare": { "active": false }
+        },
+        "printRender": { "glare": { "active": false } },
+        "scanner": { "unsharpMask": [0.6, 0.7] }
       }
     }
   ]

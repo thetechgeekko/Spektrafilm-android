@@ -18,9 +18,11 @@
 package com.spectrafilm.app
 
 import android.graphics.Bitmap
+import com.spectrafilm.engine.LinearImage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -32,9 +34,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,10 +72,75 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Zoom limits for [ZoomableImage]. */
 private const val MIN_ZOOM = 1f
 private const val MAX_ZOOM = 8f
+
+/**
+ * GPU LUT preview surface for the FIT view. Shows the current look INSTANTLY — the engine's
+ * baked 3D LUT sampled on-GPU (see [GpuLutPreview]) — with no per-edit CPU re-render, the way
+ * Lightroom's loupe stays live. It is fit-only by design: a pinch or double-tap calls
+ * [onZoomStart] so the caller hands off to the CPU [ZoomableImage], which renders the zoomed
+ * region with grain/halation (a pointwise LUT can't carry those — but at the downscaled fit
+ * preview they're averaged to near-invisibility anyway, so nothing meaningful is lost at fit).
+ * A single tap reports normalized image coords for the magnifier. If the GL program can't build
+ * on this device, [onUnavailable] fires once so the caller falls back to the CPU bitmap.
+ */
+@Composable
+fun GpuPreviewSurface(
+    proxy: LinearImage,
+    lut: CubeLut,
+    modifier: Modifier = Modifier,
+    onPointPicked: ((Float, Float) -> Unit)? = null,
+    onZoomStart: () -> Unit = {},
+    onUnavailable: () -> Unit = {},
+) {
+    var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    val aspect = proxy.width.toFloat() / proxy.height.toFloat()
+    Box(
+        modifier = modifier
+            .onSizeChanged { viewSize = it }
+            .pointerInput(Unit) {
+                // This surface is fit-only; any pinch hands off to the CPU zoom path.
+                detectTransformGestures { _, _, zoom, _ ->
+                    if (kotlin.math.abs(zoom - 1f) > 0.001f) onZoomStart()
+                }
+            }
+            .pointerInput(onPointPicked) {
+                detectTapGestures(
+                    onDoubleTap = { onZoomStart() },
+                    onTap = { tap ->
+                        val cb = onPointPicked ?: return@detectTapGestures
+                        val n = fitViewToImageNormalized(tap, viewSize, aspect)
+                            ?: return@detectTapGestures
+                        cb(n.first, n.second)
+                    },
+                )
+            },
+    ) {
+        GpuLutPreview(
+            proxy = proxy, lut = lut,
+            modifier = Modifier.fillMaxSize(), onUnavailable = onUnavailable,
+        )
+    }
+}
+
+/** Map a tap to normalized image coords for a ContentScale.Fit (letterboxed) image at fit zoom. */
+private fun fitViewToImageNormalized(tap: Offset, view: IntSize, aspect: Float): Pair<Float, Float>? {
+    if (view.width == 0 || view.height == 0) return null
+    val viewA = view.width.toFloat() / view.height
+    val dispW: Float
+    val dispH: Float
+    if (viewA > aspect) { dispH = view.height.toFloat(); dispW = dispH * aspect }
+    else { dispW = view.width.toFloat(); dispH = dispW / aspect }
+    val x0 = (view.width - dispW) / 2f
+    val y0 = (view.height - dispH) / 2f
+    val nx = (tap.x - x0) / dispW
+    val ny = (tap.y - y0) / dispH
+    return if (nx in 0f..1f && ny in 0f..1f) nx to ny else null
+}
 
 /**
  * A pinch-zoom + pan image that fits its bitmap to the available width (ContentScale.Fit)
@@ -99,6 +168,12 @@ fun ZoomableImage(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    // While zoomed, an edit (renderKey bump) makes the current sharp ROI crop stale: hide it so the
+    // live (soft) proxy — which the draft render keeps current — shows through, then reveal the
+    // freshly rendered crop when it lands. The zoom-path half of the draft/final render port.
+    var overlayStale by remember { mutableStateOf(false) }
+    LaunchedEffect(renderKey) { overlayStale = true }
+    LaunchedEffect(roiOverlay) { overlayStale = false }
 
     val image = remember(bitmap) { bitmap.asImageBitmap() }
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -110,7 +185,11 @@ fun ZoomableImage(
     if (onRoiSettled != null) {
         LaunchedEffect(renderKey, aspect) {
             snapshotFlow { Triple(scale, offset, viewSize) }
-                .debounce(280L)
+                // Raised from 280ms: each zoom settle triggers a full RAW proxy decode + an
+                // all-core engine render (~1s). A longer settle coalesces a pinch/pan into a
+                // single render instead of a herd of overlapping decodes (the main editing
+                // battery drain seen in the device logcat).
+                .debounce(500L)
                 .collectLatest { (s, o, v) ->
                     val roi = viewportRoiNormalized(v, s, o, aspect)
                     if (roi == null) onRoiCleared?.invoke() else onRoiSettled(roi)
@@ -183,7 +262,7 @@ fun ZoomableImage(
         // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
         // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
         val ov = roiOverlay
-        if (ov != null && scale > 1.01f && viewSize.width > 0) {
+        if (ov != null && !overlayStale && scale > 1.01f && viewSize.width > 0) {
             val roiImage = remember(ov.bitmap) { ov.bitmap.asImageBitmap() }
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(
@@ -204,6 +283,63 @@ fun ZoomableImage(
                     )
                 }
             }
+        }
+
+        // Explicit zoom controls (Lightroom-style), complementing pinch + double-tap: "+" zooms
+        // in about centre, and once zoomed a "%" readout, "−" (zoom out) and "Fit" appear. They
+        // drive the SAME scale/offset as the gestures, so pan-clamping and the sharp ROI render
+        // apply identically. Anchored to the right edge so it clears the bottom control row.
+        Column(
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ZoomButton("+") {
+                val ns = (scale * 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                scale = ns
+                offset = clampOffset(offset, ns)
+            }
+            if (scale > 1.01f) {
+                Text(
+                    "${(scale * 100f).roundToInt()}%",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                ZoomButton("−") {  // minus
+                    val ns = (scale / 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                    scale = ns
+                    offset = if (ns <= 1.01f) Offset.Zero else clampOffset(offset, ns)
+                }
+                ZoomButton("Fit") {
+                    scale = 1f
+                    offset = Offset.Zero
+                }
+            }
+        }
+    }
+}
+
+/** A small translucent circular button for the [ZoomableImage] zoom-control cluster. */
+@Composable
+private fun ZoomButton(label: String, onClick: () -> Unit) {
+    Surface(
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.5f),
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                label,
+                color = Color.White,
+                style = if (label.length > 1) MaterialTheme.typography.labelMedium
+                else MaterialTheme.typography.titleLarge,
+            )
         }
     }
 }

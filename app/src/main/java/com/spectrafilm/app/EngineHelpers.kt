@@ -298,6 +298,12 @@ const val MAGNIFIER_CROP_PX = 512
  *  while still being far sharper than the upscaled ~640px proxy. */
 const val ROI_RENDER_MAX_PX = 1600
 
+/** Long-edge (px) of the live DRAFT preview rendered continuously while a control is being dragged.
+ *  Small enough to render back-to-back at interactive rates from the already-cached full-edge proxy
+ *  (just a smaller engine pass, never a re-decode); the crisp full preview still lands on settle.
+ *  This is Lightroom's draft/final loupe behaviour, ported to the spectral CPU engine. */
+const val DRAFT_RENDER_MAX_PX = 384
+
 /**
  * In-memory cache of the decoded *proxy-resolution source* [LinearImage], so that interactive
  * slider/param edits don't re-decode the RAW/photo (LibRaw decode or bitmap decode + sRGB→

@@ -1,5 +1,103 @@
 # Spektrafilm Android — Session Handoff
 
+## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
+
+Continuation of the PR #85 work below. All pushed; CI green. Net since that section:
+
+- **GPU preview REVERTED to default OFF** (commit `6494f21`). On SM-S948W the default-on GPU
+  fit preview broke the editor: its `GLSurfaceView` (`GpuPreviewSurface`) churned (BLASTBufferQueue
+  "rejecting buffer" every frame, 87 dropped frames, 898ms Davey) as the preview area resized during
+  panel animations, grew over the bottom controls (hid the export button), and could show a black
+  surface — user saw "can't render" + "export not clickable". Root-caused by a 3-agent swarm:
+  (1) the preview Box has `weight(1f)` and the AdjustmentPanel `AnimatedVisibility(expandVertically)`
+  grows in the SAME Column → preview shrinks every frame → SurfaceView reallocates every frame; fix =
+  float the panel as a bottom **overlay** so preview height is constant. (2) `LutRenderer` uses
+  `RENDERMODE_WHEN_DIRTY` + a redraw only in the AndroidView `update` lambda → can stay black; needs a
+  guaranteed redraw. Export button is NOT overlaid (it's in EditorTopBar); it was greyed only because
+  `canExport = engine!=null && !previewBusy && !exporting` and `previewBusy` stuck true under the jank
+  — the `exporting` flag resets fine via `ExportMask` onDismiss (MainActivity ~1369-1373; agent's
+  "lockout bug" was a false positive). GPU code kept as an opt-in toggle (Settings, experimental).
+- **Battery: settle debounce raised** (commit `72cc807`) — preview render 350→500ms (MainActivity
+  ~819), Lightroom-zoom ROI 280→500ms (Viewer.kt ~178). Device logcat showed the drain is active-use
+  all-core CPU: each render maxes all cores ~1s; renders started then cancelled ("coroutine scope left
+  the composition"); ONE pinch fired 5 overlapping full RAW 2048px decodes (ROI re-fires every 280ms,
+  each cancels the coroutine but LibRaw keeps decoding on its thread). Debounce trims frequency only.
+  STILL OPEN: (a) single-flight the zoom 2048 decode (one decode per gesture, in a stable scope so a
+  cancelled ROI render doesn't abandon+rerun it); (b) resize-safe GPU offload (the real per-edit win).
+- **Install/signing fixed (device).** Committed a stable `debug.keystore` + pinned the debug
+  signingConfig (commit `58ed0be`) so every build shares one signature (no more "App not installed"
+  signature-mismatch). CRITICAL: build distributable debug APKs with plain `./gradlew :app:assembleDebug`
+  — do NOT use `-Pandroid.injected.build.abi=...` (it stamps `android:testOnly=true`, which blocks
+  tap-install; only `adb install -t` works).
+- **NEW skill: `brutalist-re`** at `.claude/skills/brutalist-re/` — Android reverse-engineering
+  (jadx/vineflower/dex2jar/apktool; decompile + exhaustive API/secret/manifest extraction), adapted
+  from SimoneAvogadro/android-reverse-engineering-skill (Apache-2.0) with a blunt, exhaustive
+  "brutalist" operating mode. Scoped to user-provided / authorized targets. Unrelated to the film app;
+  parked here only because this is the persistent repo. (User asked to persist it.)
+
+**Next-session TODO:** single-flight zoom decode (battery); re-enable GPU properly (panel-as-overlay +
+guaranteed GL redraw) and device-verify before default-on; on-device smoke of zoom/presets/export.
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — PR #85 (DRAFT, unmerged): zoom/OOM fix, GPU fit preview, preset rebuild, grain/halation verification
+
+Triggered by a device logcat showing an `OutOfMemoryError` storm ("Failed to allocate a
+36000019 byte allocation", `7(205MB) LOS objects`) and the report that halation/grain look
+weak vs upstream and presets feel thin. All work is **Kotlin/asset only — NO engine C++
+changed**, so the 26-test host parity suite is untouched (CI engine-parity stays green).
+Four commits on PR #85 (base `main`):
+
+- **Zoom/OOM (commit `7ea73df`).** The Lightroom zoom (`renderRoi`) + 100% magnifier called
+  `loadSource(MAX_EDGE_PX)` UNCACHED — every pan/zoom settle re-ran a ~1s LibRaw decode + a
+  36MB managed `LinearImage` (1500×2000×3×4B), stacking past GC → ART-heap OOM. Added a
+  dedicated single-entry `zoomSourceCache` (separate from the 640px preview cache so they don't
+  evict each other), `android:largeHeap`, and a **crop-scale fix**: the engine derives
+  `pixel_size_um = film_format_mm·1000/max(w,h)` from the crop's own pixel count, so a sub-frame
+  crop was treated as a whole 35mm frame → grain/halation (µm-based) too weak when zoomed. New
+  `toParams(filmFormatMmOverride)` scales the effective film format by the crop fraction so
+  zoomed crops show grain/halation at the proxy's true strength. Export/full-frame unaffected.
+
+- **Preset mapper (commit `39264ee`) + rebuild (commit `f59792f`).** `BuiltInPresets.applyParams`
+  now also maps camera/enlarger `diffusionFilter` + `toneCurve` (it already covered everything
+  else). Replaced the 21 sparse presets (only ~10 of ~90 params; every stock on Portra-400
+  grain) with **28 redesigned looks** in `assets/spektra/presets.json` across 8 groups, each
+  with per-stock grain + honest halation/DIR/diffusion/tone-curve/glare. **Only engine-HONORED
+  fields are set** — verified against `spektra.cpp` apply_user_*: grain is fully tunable;
+  halation uses `halationAmount`/`scatterAmount`/`boostEv` (NOT `halationStrength`/
+  `halationFirstSigmaUm`, which are BAKED per-profile from `use`/`antihalation` and ignored);
+  DIR uses amount/inhibition/diffusion (gamma matrices baked); diffusion `filterFamily` is fixed
+  to black_pro_mist by the C API. New `BuiltInPresetsAssetTest` guards JSON/profile-refs/no-op
+  fields (the asset had zero coverage).
+
+- **GPU fit preview (commit `6831939`).** Promoted the GPU LUT preview from off-by-default beta
+  to the **default fit-view renderer** (instant look via the baked 3D LUT on-GPU, no ~1s CPU
+  re-render per edit). Made it safe: `LutRenderer.onUnavailable` reports GL program-build failure
+  → editor latches `gpuBroken` → CPU fallback (no black screen); **fixed an aspect-stretch bug**
+  (full-screen quad → letterboxed `uScale` + triangle-strip quad); new `GpuPreviewSurface` adds
+  tap (→magnifier) + pinch/double-tap (→ hand off to CPU `ZoomableImage`, which renders the zoom
+  region with grain via the ROI path; handoff resets on return-to-fit). EXPORT stays the exact
+  CPU engine — GPU is preview-only, parity path untouched. **NOT GL-verified on a device** (host
+  can't); the fallback is what makes default-on safe — needs a device sanity-check.
+
+- **Grain/halation (Stage 2) — VERIFIED, no change.** Audited all 28 profiles: every film stock
+  HAS valid `use`/`antihalation` tags (halation is active for all), and the baked strengths
+  (`strong→(0.015,0.005,0)`, `weak→(0.08,0.02,0)`, `no→(0.30,0.10,0.015)`) EXACTLY mirror the
+  oracle's `_apply_halation_preset` (params.cpp:164-188). With the parity gate, **export grain/
+  halation already match spektrafilm**; the "too small" was the 640px preview averaging µm-scale
+  effects (grain std ∝ 1/√(particles-per-px); ~15k/px at 640 vs ~170/px full-res). Addressed by
+  the zoom crop-scale fix + correct export; an engine change would BREAK parity, so none made.
+
+**Open / next session:**
+- **Device sanity-check the GPU path** (different vendors/drivers): confirm the fit preview
+  renders correctly and falls back cleanly; the user can toggle it in Settings → GPU preview.
+- Optional: a true native-resolution 1:1 magnifier (currently crops the 2048 proxy; export-grade
+  grain would need a native-crop decode) and/or a modest `previewMaxSize` bump — both have
+  memory/perf trade-offs, deferred.
+- PR #85 is a DRAFT awaiting on-device validation of the zoom-OOM fix + GPU preview.
+
+---
+
 ## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — highlight-boost WIRED + LUT-load speedup; arm64 APK to device
 
 Parallel session, ran ALONGSIDE the `intelligent-johnson` param-wiring session below. Trunk stays
