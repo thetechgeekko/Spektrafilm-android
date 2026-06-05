@@ -23,6 +23,13 @@ Thumbs.db
 # Keystores / secrets
 *.jks
 *.keystore
+# Exception: the shared DEBUG keystore is committed (standard public creds:
+# storepass/keypass "android", alias androiddebugkey) so every build — CI, any cloud
+# container, every contributor — signs debug builds with ONE identical key. Without it
+# AGP generates a random ~/.android/debug.keystore per machine, and a freshly built
+# debug APK then refuses to install over a previous one ("App not installed"). This is
+# NOT a release key (release signing still uses the ignored keystore.properties).
+!/debug.keystore
 keystore.properties
 
 # Python (engine reference / tooling only)
