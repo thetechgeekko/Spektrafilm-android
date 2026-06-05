@@ -117,6 +117,7 @@ object BuiltInPresets {
             if (c.has("lensBlurUm")) s.cameraLensBlurUm = c.f("lensBlurUm", s.cameraLensBlurUm)
             s.filterUv = c.triOf("filterUv", s.filterUv)
             s.filterIr = c.triOf("filterIr", s.filterIr)
+            c.optJSONObject("diffusionFilter")?.let { applyDiffusion(it, s.cameraDiffusionState) }
         }
 
         p.optJSONObject("enlarger")?.let { e ->
@@ -129,6 +130,7 @@ object BuiltInPresets {
             if (e.has("preflashExposure")) s.preflashExposure = e.f("preflashExposure", s.preflashExposure)
             if (e.has("preflashYFilterShift")) s.preflashYFilterShift = e.f("preflashYFilterShift", s.preflashYFilterShift)
             if (e.has("preflashMFilterShift")) s.preflashMFilterShift = e.f("preflashMFilterShift", s.preflashMFilterShift)
+            e.optJSONObject("diffusionFilter")?.let { applyDiffusion(it, s.printDiffusionState) }
         }
 
         p.optJSONObject("scanner")?.let { sc ->
@@ -200,6 +202,45 @@ object BuiltInPresets {
             pr.optJSONObject("glare")?.let { gl -> applyGlare(gl, s) }
         }
         p.optJSONObject("glare")?.let { gl -> applyGlare(gl, s) }
+
+        // Tone curve (final display-RGB stage). Points are [[x,y],…] in [0,1], x increasing;
+        // an empty/<2-point channel is identity. Mirrors Presets.kt's flat-schema toneCurve.
+        p.optJSONObject("toneCurve")?.let { tc ->
+            if (tc.has("active")) s.toneCurveActive = tc.optBoolean("active", s.toneCurveActive)
+            tc.optJSONArray("master")?.let { s.toneCurveMaster = pointsOf(it) }
+            tc.optJSONArray("red")?.let { s.toneCurveRed = pointsOf(it) }
+            tc.optJSONArray("green")?.let { s.toneCurveGreen = pointsOf(it) }
+            tc.optJSONArray("blue")?.let { s.toneCurveBlue = pointsOf(it) }
+        }
+    }
+
+    /**
+     * Map an authored `diffusionFilter` object (camera or enlarger) onto a [DiffusionState].
+     * Field names mirror the engine SpektraParams tree (`filterFamily`); `family` is also
+     * accepted for symmetry with the flat user-preset schema in Presets.kt.
+     */
+    private fun applyDiffusion(o: JSONObject, d: DiffusionState) {
+        if (o.has("active")) d.active = o.optBoolean("active", d.active)
+        when {
+            o.has("filterFamily") -> d.family = o.optString("filterFamily", d.family)
+            o.has("family") -> d.family = o.optString("family", d.family)
+        }
+        if (o.has("strength")) d.strength = o.f("strength", d.strength)
+        if (o.has("spatialScale")) d.spatialScale = o.f("spatialScale", d.spatialScale)
+        if (o.has("haloWarmth")) d.haloWarmth = o.f("haloWarmth", d.haloWarmth)
+        if (o.has("coreIntensity")) d.coreIntensity = o.f("coreIntensity", d.coreIntensity)
+        if (o.has("coreSize")) d.coreSize = o.f("coreSize", d.coreSize)
+        if (o.has("haloIntensity")) d.haloIntensity = o.f("haloIntensity", d.haloIntensity)
+        if (o.has("haloSize")) d.haloSize = o.f("haloSize", d.haloSize)
+        if (o.has("bloomIntensity")) d.bloomIntensity = o.f("bloomIntensity", d.bloomIntensity)
+        if (o.has("bloomSize")) d.bloomSize = o.f("bloomSize", d.bloomSize)
+    }
+
+    private fun pointsOf(a: JSONArray): List<Pair<Float, Float>> = buildList {
+        for (i in 0 until a.length()) {
+            val pt = a.optJSONArray(i) ?: continue
+            add(pt.optDouble(0).toFloat() to pt.optDouble(1).toFloat())
+        }
     }
 
     private fun applyGlare(gl: JSONObject, s: ParamsState) {
