@@ -39,14 +39,17 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         set(v) { prefs.edit().putBoolean(KEY_SEEN_EDITOR_COACH, v).apply() }
 
     /**
-     * Experimental GPU LUT preview (default OFF). When on, the editor renders the live
-     * preview by GPU-sampling a baked 3D LUT of the current look (instant pan/zoom-free
-     * surface) instead of the CPU bitmap. Beta: spatial effects (grain/halation) and the
-     * zoom/magnifier/compare gestures are not yet on this path — needs on-device GL
-     * verification before promotion.
+     * GPU LUT preview (default ON). The FIT view renders the current look instantly by
+     * GPU-sampling the engine's baked 3D LUT — no ~1s CPU re-render per edit — the way
+     * Lightroom keeps its loupe live. Zooming hands off to the CPU path, which renders the
+     * region with grain/halation (a pointwise LUT can't carry those; at the downscaled fit
+     * preview they're averaged to near-invisibility anyway). EXPORT is always the exact CPU
+     * engine — the GPU is preview-only and never the parity path. Safe to default on: if the
+     * GL program can't build on a device the editor falls back to the CPU bitmap (never a
+     * black surface). Users can disable it here if a driver renders the preview oddly.
      */
     var gpuPreview: Boolean
-        get() = prefs.getBoolean(KEY_GPU_PREVIEW, false)
+        get() = prefs.getBoolean(KEY_GPU_PREVIEW, true)
         set(v) { prefs.edit().putBoolean(KEY_GPU_PREVIEW, v).apply() }
 
     var theme: ThemeMode

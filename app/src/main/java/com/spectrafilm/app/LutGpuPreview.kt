@@ -23,8 +23,11 @@ package com.spectrafilm.app
 
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.spectrafilm.engine.LinearImage
@@ -80,10 +83,21 @@ class CubeLut(val size: Int, val rgb: FloatArray) {
  * Compose host for the GPU LUT preview. Re-uploads the proxy/LUT when [proxy] or
  * [lut] identity changes. The caller is responsible for only showing this when both
  * are non-null and the experimental setting is on; otherwise it shows the CPU bitmap.
+ *
+ * [onUnavailable] is invoked (once, on the main thread) if the GL program fails to
+ * build — i.e. the device/driver can't run this path — so the caller can fall back to
+ * the CPU bitmap instead of showing a black surface. This is what makes the feature
+ * safe to enable by default: a GL failure degrades gracefully to the proven CPU path.
  */
 @Composable
-fun GpuLutPreview(proxy: LinearImage, lut: CubeLut, modifier: Modifier = Modifier) {
-    val renderer = remember { LutRenderer() }
+fun GpuLutPreview(
+    proxy: LinearImage,
+    lut: CubeLut,
+    modifier: Modifier = Modifier,
+    onUnavailable: () -> Unit = {},
+) {
+    val cb = rememberUpdatedState(onUnavailable)
+    val renderer = remember { LutRenderer { cb.value() } }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -105,15 +119,20 @@ fun GpuLutPreview(proxy: LinearImage, lut: CubeLut, modifier: Modifier = Modifie
  * colour up in the 3D LUT (trilinear), writes display RGB. Texture uploads are
  * deferred to the GL thread via [submit] + pending flags.
  */
-private class LutRenderer : GLSurfaceView.Renderer {
+private class LutRenderer(private val onUnavailable: () -> Unit) : GLSurfaceView.Renderer {
     @Volatile private var pendingProxy: LinearImage? = null
     @Volatile private var pendingLut: CubeLut? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var reportedFail = false
 
     private var program = 0
     private var proxyTex = 0
     private var lutTex = 0
     private var proxyW = 0
     private var proxyH = 0
+    private var viewW = 0
+    private var viewH = 0
     private var haveProxy = false
     private var haveLut = false
 
@@ -124,6 +143,12 @@ private class LutRenderer : GLSurfaceView.Renderer {
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         program = buildProgram(VERT, FRAG)
+        if (program == 0) {
+            // Shader compile/link failed on this device/driver — tell the caller so it can
+            // fall back to the CPU bitmap rather than leave a black surface up.
+            if (!reportedFail) { reportedFail = true; mainHandler.post(onUnavailable) }
+            return
+        }
         val tex = IntArray(2)
         GLES30.glGenTextures(2, tex, 0)
         proxyTex = tex[0]
@@ -131,6 +156,8 @@ private class LutRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        viewW = width
+        viewH = height
         GLES30.glViewport(0, 0, width, height)
     }
 
@@ -149,8 +176,18 @@ private class LutRenderer : GLSurfaceView.Renderer {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_3D, lutTex)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, "uLut"), 1)
-        // Full-screen triangle generated in the vertex shader (no VBO needed).
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+        // Letterbox: fit the proxy's aspect into the surface (CLAMP bars stay black) so the
+        // image is never stretched — matching the CPU ContentScale.Fit preview.
+        var sx = 1f
+        var sy = 1f
+        if (proxyW > 0 && proxyH > 0 && viewW > 0 && viewH > 0) {
+            val imgA = proxyW.toFloat() / proxyH
+            val viewA = viewW.toFloat() / viewH
+            if (viewA > imgA) sx = imgA / viewA else sy = viewA / imgA
+        }
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(program, "uScale"), sx, sy)
+        // Full-screen quad (triangle strip) from gl_VertexID — no VBO needed.
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
     }
 
     private fun uploadProxy(img: LinearImage) {
@@ -217,13 +254,16 @@ private class LutRenderer : GLSurfaceView.Renderer {
     }
 
     companion object {
-        // Full-screen triangle from gl_VertexID; flip V so texture row 0 is on top.
+        // Full-screen quad from gl_VertexID (triangle strip, 4 verts); flip V so texture
+        // row 0 is on top, and apply the letterbox scale so aspect is preserved.
         private const val VERT = """#version 300 es
+            uniform vec2 uScale;
             out vec2 vUv;
             void main() {
-                vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-                vUv = vec2(p.x, 1.0 - p.y);
-                gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+                float x = float(gl_VertexID & 1);
+                float y = float((gl_VertexID >> 1) & 1);
+                vUv = vec2(x, 1.0 - y);
+                gl_Position = vec4((vec2(x, y) * 2.0 - 1.0) * uScale, 0.0, 1.0);
             }
         """
         private const val FRAG = """#version 300 es

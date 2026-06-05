@@ -1509,14 +1509,23 @@ class MainActivity : ComponentActivity() {
             contentAlignment = Alignment.Center,
         ) {
             val bmp = preview
-            val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null && !compareMode
+            // GPU LUT surface is the FIT view's instant path (the baked look sampled on-GPU,
+            // no per-edit CPU re-render); the CPU ZoomableImage owns ZOOM, where it renders the
+            // region with grain/halation via the ROI path. gpuBroken latches if GL can't build
+            // on this device (→ CPU fallback, never a black screen); gpuZoomHandoff flips when
+            // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
+            var gpuBroken by remember { mutableStateOf(false) }
+            var gpuZoomHandoff by remember { mutableStateOf(false) }
+            val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
+                !compareMode && !gpuBroken && !gpuZoomHandoff
             when {
-                // Experimental GPU LUT surface. Beta: no zoom/magnifier/compare yet, so it
-                // only takes over the plain (non-compare) branch once a LUT+proxy exist.
-                gpuActive -> GpuLutPreview(
+                gpuActive -> GpuPreviewSurface(
                     proxy = gpuProxy!!,
                     lut = gpuLut!!,
                     modifier = Modifier.fillMaxSize(),
+                    onPointPicked = onPointPicked,
+                    onZoomStart = { gpuZoomHandoff = true },
+                    onUnavailable = { gpuBroken = true },
                 )
                 bmp != null && compareMode && before != null ->
                     CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
@@ -1528,7 +1537,8 @@ class MainActivity : ComponentActivity() {
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
                     renderKey = renderKey,
                     onRoiSettled = onRoiSettled,
-                    onRoiCleared = onRoiCleared,
+                    // Returning to fit also re-arms the GPU fit surface.
+                    onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
                     roiOverlay = roiOverlay,
                 )
                 else -> Text("No preview yet", color = Color.White.copy(alpha = 0.7f))

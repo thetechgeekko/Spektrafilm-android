@@ -18,6 +18,7 @@
 package com.spectrafilm.app
 
 import android.graphics.Bitmap
+import com.spectrafilm.engine.LinearImage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -72,6 +73,70 @@ import kotlin.math.max
 /** Zoom limits for [ZoomableImage]. */
 private const val MIN_ZOOM = 1f
 private const val MAX_ZOOM = 8f
+
+/**
+ * GPU LUT preview surface for the FIT view. Shows the current look INSTANTLY — the engine's
+ * baked 3D LUT sampled on-GPU (see [GpuLutPreview]) — with no per-edit CPU re-render, the way
+ * Lightroom's loupe stays live. It is fit-only by design: a pinch or double-tap calls
+ * [onZoomStart] so the caller hands off to the CPU [ZoomableImage], which renders the zoomed
+ * region with grain/halation (a pointwise LUT can't carry those — but at the downscaled fit
+ * preview they're averaged to near-invisibility anyway, so nothing meaningful is lost at fit).
+ * A single tap reports normalized image coords for the magnifier. If the GL program can't build
+ * on this device, [onUnavailable] fires once so the caller falls back to the CPU bitmap.
+ */
+@Composable
+fun GpuPreviewSurface(
+    proxy: LinearImage,
+    lut: CubeLut,
+    modifier: Modifier = Modifier,
+    onPointPicked: ((Float, Float) -> Unit)? = null,
+    onZoomStart: () -> Unit = {},
+    onUnavailable: () -> Unit = {},
+) {
+    var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    val aspect = proxy.width.toFloat() / proxy.height.toFloat()
+    Box(
+        modifier = modifier
+            .onSizeChanged { viewSize = it }
+            .pointerInput(Unit) {
+                // This surface is fit-only; any pinch hands off to the CPU zoom path.
+                detectTransformGestures { _, _, zoom, _ ->
+                    if (kotlin.math.abs(zoom - 1f) > 0.001f) onZoomStart()
+                }
+            }
+            .pointerInput(onPointPicked) {
+                detectTapGestures(
+                    onDoubleTap = { onZoomStart() },
+                    onTap = { tap ->
+                        val cb = onPointPicked ?: return@detectTapGestures
+                        val n = fitViewToImageNormalized(tap, viewSize, aspect)
+                            ?: return@detectTapGestures
+                        cb(n.first, n.second)
+                    },
+                )
+            },
+    ) {
+        GpuLutPreview(
+            proxy = proxy, lut = lut,
+            modifier = Modifier.fillMaxSize(), onUnavailable = onUnavailable,
+        )
+    }
+}
+
+/** Map a tap to normalized image coords for a ContentScale.Fit (letterboxed) image at fit zoom. */
+private fun fitViewToImageNormalized(tap: Offset, view: IntSize, aspect: Float): Pair<Float, Float>? {
+    if (view.width == 0 || view.height == 0) return null
+    val viewA = view.width.toFloat() / view.height
+    val dispW: Float
+    val dispH: Float
+    if (viewA > aspect) { dispH = view.height.toFloat(); dispW = dispH * aspect }
+    else { dispW = view.width.toFloat(); dispH = dispW / aspect }
+    val x0 = (view.width - dispW) / 2f
+    val y0 = (view.height - dispH) / 2f
+    val nx = (tap.x - x0) / dispW
+    val ny = (tap.y - y0) / dispH
+    return if (nx in 0f..1f && ny in 0f..1f) nx to ny else null
+}
 
 /**
  * A pinch-zoom + pan image that fits its bitmap to the available width (ContentScale.Fit)
