@@ -1165,19 +1165,13 @@ class MainActivity : ComponentActivity() {
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                     )
-                }
 
-                // --- ADJUSTMENT PANEL (inline, animated) ---
-                AnimatedVisibility(
-                    visible = activeCategory != null,
-                    enter = expandVertically(animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    )) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = spring(
-                        stiffness = Spring.StiffnessMedium,
-                    )) + fadeOut(),
-                ) {
+                // --- ADJUSTMENT PANEL (floating bottom overlay) ---
+                // Floated INSIDE the preview Box (aligned to its bottom) so opening/closing a
+                // panel no longer resizes the weight(1f) preview every frame. That per-frame
+                // resize churned the GLSurfaceView (it forced GPU preview off) and jolted the
+                // CPU preview too; a constant-height preview fixes both and unblocks GPU.
+                PanelOverlay(visible = activeCategory != null) {
                     AdjustmentPanel(
                         category = activeCategory,
                         onDismiss = { activeCategory = null },
@@ -1336,6 +1330,7 @@ class MainActivity : ComponentActivity() {
                         }
                         }
                     }
+                }
                 }
 
                 // --- BOTTOM CATEGORY BAR ---
@@ -1806,7 +1801,29 @@ class MainActivity : ComponentActivity() {
         ) { content() }
     }
 
-    /** The inline adjustment panel: drag-handle header (swipe down to dismiss) + scrolling content. */
+    /**
+     * The adjustment panel as a floating bottom overlay inside the preview Box. Extracting it into a
+     * BoxScope extension (a) lets it use Modifier.align to pin to the preview's bottom and (b) breaks
+     * the enclosing Column's receiver chain, so AnimatedVisibility resolves to the top-level overload
+     * instead of ColumnScope's (which would re-measure the column). The slide/fade reads as a bottom
+     * sheet rising over the now constant-height preview, so opening a panel no longer resizes it.
+     */
+    @Composable
+    private fun BoxScope.PanelOverlay(visible: Boolean, content: @Composable () -> Unit) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = expandVertically(animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            )) + fadeIn(),
+            exit = shrinkVertically(animationSpec = spring(
+                stiffness = Spring.StiffnessMedium,
+            )) + fadeOut(),
+        ) { content() }
+    }
+
+    /** The adjustment panel body: drag-handle header (swipe down to dismiss) + scrolling content. */
     @Composable
     private fun AdjustmentPanel(
         category: Category?,
