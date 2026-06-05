@@ -303,6 +303,11 @@ const val MAGNIFIER_CROP_PX = 512
  *  while still being far sharper than the upscaled ~640px proxy. */
 const val ROI_RENDER_MAX_PX = 1600
 
+/** Long-edge (px) of the fast DRAFT zoom-ROI render: a low-res sharp crop shown almost immediately
+ *  on a zoom settle, then refined to the full ROI_RENDER_MAX_PX crop. ~5x faster than the full pass,
+ *  so the zoomed region resolves quickly instead of waiting ~1s on the soft scaled proxy. */
+const val ROI_DRAFT_MAX_PX = 640
+
 /** Long-edge (px) of the live DRAFT preview rendered continuously while a control is being dragged.
  *  Small enough to render back-to-back at interactive rates from the already-cached full-edge proxy
  *  (just a smaller engine pass, never a re-decode); the crisp full preview still lands on settle.

@@ -810,34 +810,50 @@ class MainActivity : ComponentActivity() {
             roiJobRef.value?.cancel()
             roiJobRef.value = scope.launch {
                 val result = runCatching {
-                    withContext(Dispatchers.Default) {
-                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
-                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
-                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
-                        val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
-                        // Effective film format so the crop's pixel_size_um matches the proxy (the
-                        // crop spans only cropFrac of the frame); keeps grain/halation at the right
-                        // strength when zoomed instead of treating the crop as a whole frame.
-                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                            maxOf(full.width, full.height).coerceAtLeast(1)
+                    val full = loadSourceCachedForZoom(MAX_EDGE_PX)
+                    val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
+                    val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
+                    val crop = withContext(Dispatchers.Default) {
+                        cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                    }
+                    // Effective film format so the crop's pixel_size_um matches the proxy (the crop
+                    // spans only cropFrac of the frame); keeps grain/halation at the right strength
+                    // when zoomed instead of treating the crop as a whole frame.
+                    val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                        maxOf(full.width, full.height).coerceAtLeast(1)
+                    suspend fun renderAt(edge: Int): Bitmap = withContext(Dispatchers.Default) {
                         e.simulatePreview(
                             crop,
                             state.toParams(
-                                previewMaxSizeOverride = ROI_RENDER_MAX_PX,
+                                previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
+                    // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
+                    // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
+                    // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
+                    // so a cancel mid-flight never leaks one.
+                    val draft = renderAt(ROI_DRAFT_MAX_PX)
+                    if (isActive) {
+                        roiOverlay = RoiOverlay(draft, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                    } else {
+                        if (!draft.isRecycled) draft.recycle()
+                        return@runCatching null
+                    }
+                    renderAt(ROI_RENDER_MAX_PX)
                 }
                 if (!isActive) {
-                    // Superseded (cancelled): drop this render so it neither lands nor leaks.
+                    // Superseded (cancelled): drop the final render (the draft, if published, stays
+                    // and is recycled by the DisposableEffect when the next overlay replaces it).
                     result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
                     return@launch
                 }
-                // On success publish; the prior overlay's bitmap is recycled by the
-                // DisposableEffect(roiOverlay) below when it leaves composition (safe timing).
-                // On failure keep the scaled proxy (no overlay change, no status noise).
-                result.onSuccess { roiOverlay = RoiOverlay(it, roi.cxN, roi.cyN, roi.wN, roi.hN) }
+                // On success publish the sharp final; the prior overlay (the draft) is recycled by
+                // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
+                result.onSuccess { bmp ->
+                    if (bmp != null) roiOverlay = RoiOverlay(bmp, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                }
             }
         }
 
