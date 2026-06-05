@@ -1,6 +1,61 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`) — Lightroom UX wave + draft/final render & zoom port + preview-speed (PR #85 + PR #86 BOTH MERGED)
+## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`) — point tone-curve editor UI (PR #88 MERGED; PR #87 = prior docs handoff)
+
+Short session on top of the merged Lightroom UX wave below. **PR #88 is MERGED to `main`** (CI
+green); PR #87 (the docs handoff that wrote the next section) is also merged. Trunk stays v0.7.0 /
+vc9. **Pure Kotlin/UI — no `engine/spektra-core/src/main/cpp/**` touched, so the 26-test host parity
+suite + the export path are UNAFFECTED.**
+
+### PR #88 (MERGED) — the point tone-curve editor (the handoff's "recommended next quick win")
+The tone-curve **engine** stage (`kernels/tonecurve.cpp`) was already fully wired + parity-gated
+(`test_tonecurve`) and only the UI was missing; this adds it.
+- **New `Category.TONE_CURVE` ("Tone Curve")** in the bottom bar (between Experimental and Display),
+  a new `SpectraIcons.ToneCurve` glyph + hint. Wired in `MainActivity` (enum + panel dispatch +
+  icon/hint maps — 4 lines).
+- **`ToneCurve.kt` (new)** — `ToneCurveMath` (pure, unit-tested) + `ToneCurveEditor` (Canvas widget)
+  + `ToneCurveSection` (panel). A Lightroom-style point curve over the live preview histogram:
+  **Master / Red / Green / Blue** sub-tabs, **tap** to add a point, **drag** to shape (end points
+  slide vertically only — x pinned 0/1 — interior points clamp strictly between neighbours),
+  **double-tap** an interior point to remove, **Reset channel / Reset all**. Capped at the engine's
+  16 pts/channel.
+- **WYSIWYG:** the drawn curve is sampled with a faithful Kotlin port of the engine's
+  **Fritsch–Carlson monotone-cubic** bake (`build_tone_curve_1d`: secants → averaged tangents →
+  radius-3 monotonicity projection → Hermite, flat extrapolation past the ends, clamp [0,1]). So the
+  on-screen curve matches what renders.
+- **No special render wiring:** editing just **replaces the `ParamsState.toneCurve*` list**. The
+  editor's existing `derivedStateOf { toParams() }` snapshot picks it up → `previewTick++` → the same
+  live-draft + 500 ms-settle path every slider uses. `toParams()` always includes `toneCurve` (NOT
+  gated by `skipGrainHalation`), so the curve shows in the live draft, the fit settle, the zoom ROI
+  and export. Engine applies it in the **scanning stage** (`scanning.cpp:366
+  params.tone_curve.apply`) for BOTH `run_scan_film` and `run_print`, which `spk_simulate_preview`
+  also runs → live in preview, not just on export.
+- **Auto-arms** the stage on the first edit (effect shows without hunting for the switch); the
+  SectionCard switch reflects `toneCurveActive`; **"Reset all" disarms** it → `tone_curve_active=0` →
+  strict engine identity → bit-exact off.
+
+### Verified
+- New `ToneCurveTest` (11 cases): the sampler (identity ramp, passes-through-control-points, flat
+  extrapolation, monotonicity) + the point ops (add/move/remove, edge-pinning, neighbour clamping,
+  near-dup reject, 16-pt cap).
+- `:app:testDebugUnitTest` **56/56**, `:app:lintDebug` clean (`abortOnError=true`), full CI green on
+  merge. Tap-installable debug APK (plain `./gradlew :app:assembleDebug`, all 3 ABIs) built + sent
+  for on-device test of the curve.
+
+### Backlog / next steps
+- ✅ **Tone-curve editor DONE** — it was the recommended next item on the `docs/IMPROVEMENT_BACKLOG.md`
+  "Tone / color UI" line. Remaining there: 3-way color-grading wheels, HSL/color mix, split toning,
+  auto-tone, and a *parametric* curve mode (the point mode now exists).
+- **Device pass (now also covers the tone curve):** gesture feel of add/drag/remove; the editor
+  canvas is a **full-width square** inside the 0.38×screen bottom sheet (the sheet scrolls) — confirm
+  it feels right or cap its height. Plus the still-pending R8/release smoke + GPU re-verify (the panel
+  is a bottom overlay now).
+- **Headline gap is still the mask container** keystone for local adjustments (gradients/brush/
+  AI-select/range) if going big.
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — Lightroom UX wave + draft/final render & zoom port + preview-speed (PR #85 + PR #86 BOTH MERGED)
 
 Large interactive-editor session. **PR #85 and PR #86 are BOTH MERGED to `main`** (PR #86 = the 7
 commits below; CI was green). Trunk stays v0.7.0 / vc9. **Everything is Kotlin/UI or a preview-only
