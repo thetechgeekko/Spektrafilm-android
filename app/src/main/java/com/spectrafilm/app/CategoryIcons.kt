@@ -298,6 +298,22 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // ToneCurve — point tone curve
+    // Graph axes (L-shaped) with an S-shaped contrast curve rising from the
+    // bottom-left to the top-right, plus a filled control-point dot at centre.
+    // -----------------------------------------------------------------------
+    val ToneCurve: ImageVector by lazy {
+        icon("ToneCurve") {
+            // Graph axes (left + bottom)
+            strokePath("M 4 4 L 4 20 L 20 20")
+            // S-curve through the centre
+            strokePath("M 4 20 C 8 20 8 12 12 12 C 16 12 16 4 20 4")
+            // Centre control-point dot (r≈1.3)
+            fillPath("M 13.3 12 C 13.3 12.72 12.72 13.3 12 13.3 C 11.28 13.3 10.7 12.72 10.7 12 C 10.7 11.28 11.28 10.7 12 10.7 C 12.72 10.7 13.3 11.28 13.3 12 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Presets — stacked sliders / parameter preset snapshot
     // Three horizontal slider tracks, each with a small filled square thumb
     // at a different position — visually suggests a saved set of parameters.

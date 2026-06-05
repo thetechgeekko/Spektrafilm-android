@@ -103,6 +103,7 @@ private enum class Category(val label: String) {
     COUPLERS("Couplers"),
     PREFLASH("Preflash"),
     EXPERIMENTAL("Experimental"),
+    TONE_CURVE("Tone Curve"),
     DISPLAY("Display"),
 }
 
@@ -1242,6 +1243,7 @@ class MainActivity : ComponentActivity() {
                             Category.COUPLERS -> CouplersSection(state)
                             Category.GLARE -> GlareSection(state)
                             Category.EXPERIMENTAL -> ExperimentalSection(state)
+                            Category.TONE_CURVE -> ToneCurveSection(state, preview)
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
@@ -2027,6 +2029,7 @@ class MainActivity : ComponentActivity() {
         Category.COUPLERS -> "DIR couplers — cross-channel inhibition & saturation"
         Category.PREFLASH -> "Enlarger pre-flash exposure and filtration"
         Category.EXPERIMENTAL -> "Film and print density-curve gamma factors"
+        Category.TONE_CURVE -> "Point tone curve on the final RGB — master + per-channel"
         Category.DISPLAY -> "Output colour space, CCTF encoding and preview size"
     }
 
@@ -2040,6 +2043,7 @@ class MainActivity : ComponentActivity() {
         Category.COUPLERS -> SpectraIcons.Couplers
         Category.GLARE -> SpectraIcons.Glare
         Category.EXPERIMENTAL -> SpectraIcons.Experimental
+        Category.TONE_CURVE -> SpectraIcons.ToneCurve
         Category.DISPLAY -> SpectraIcons.Display
         Category.PRESETS -> SpectraIcons.Presets
         Category.SOURCE -> SpectraIcons.SourceImage
