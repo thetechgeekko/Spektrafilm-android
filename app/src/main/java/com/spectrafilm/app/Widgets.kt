@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -59,6 +61,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -77,6 +80,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -241,28 +245,28 @@ fun EnhancedSlider(
     default: Float? = null,
 ) {
     val view = LocalView.current
+    var editing by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            // Double-tap the value pill to reset to the parameter's neutral default
-            // (Lightroom-style), with a tick of haptic feedback. Only resettable when a
-            // default is supplied and the value isn't already there.
-            val resettable = default != null && value != default
+            // The value pill is interactive (Lightroom-style): single-tap to type an exact
+            // value, double-tap to reset to the parameter's neutral default. Typing works on
+            // every slider; reset is offered only when a [default] is supplied and the value
+            // isn't already there. Both give a tick of haptic feedback.
+            val resetDefault = default?.takeIf { it != value }
             ValuePill(
                 formatValue(value, decimals),
-                modifier = if (default != null) {
-                    Modifier.combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                        onDoubleClick = if (resettable) {
-                            {
-                                onValueChange(snap(default, range, step))
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            }
-                        } else null,
-                    )
-                } else Modifier,
+                modifier = Modifier.combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { editing = true },
+                    onDoubleClick = resetDefault?.let { dv ->
+                        {
+                            onValueChange(snap(dv, range, step))
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                    },
+                ),
             )
         }
         val steps = if (step > 0f) {
@@ -284,6 +288,20 @@ fun EnhancedSlider(
                 tooltip,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (editing) {
+            NumericEntryDialog(
+                label = label,
+                initial = formatValue(value, decimals),
+                range = range,
+                step = step,
+                decimals = decimals,
+                onDismiss = { editing = false },
+                onConfirm = {
+                    onValueChange(it)
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                },
             )
         }
     }
@@ -566,6 +584,83 @@ private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float):
 
 private fun formatValue(v: Float, decimals: Int): String =
     if (decimals <= 0) v.roundToInt().toString() else "%.${decimals}f".format(v)
+
+/**
+ * Parse a user-typed slider value into a snapped, in-range [Float], or null when the text
+ * isn't a finite number. Tolerates surrounding whitespace, a leading '+', and a comma
+ * decimal separator; clamps to [range] and snaps to [step] via the same [snap] the drag
+ * path uses, so keyboard entry and dragging land on identical values. Pure (no Android
+ * deps) so it is unit-tested in SliderInputTest.
+ */
+internal fun parseSliderInput(
+    text: String,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+): Float? {
+    val v = text.trim().removePrefix("+").replace(',', '.').toFloatOrNull() ?: return null
+    if (v.isNaN() || v.isInfinite()) return null
+    return snap(v, range, step)
+}
+
+/**
+ * A small dialog for typing an exact slider value — Lightroom's "tap the number" affordance.
+ * Confirms only a parseable, in-range number (the Set button disables otherwise); a "±"
+ * toggle covers negative ranges, where the numeric IME often omits a minus key.
+ */
+@Composable
+private fun NumericEntryDialog(
+    label: String,
+    initial: String,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    decimals: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Float) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    val parsed = parseSliderInput(text, range, step)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(label) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        isError = parsed == null && text.isNotBlank(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (range.start < 0f) {
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(onClick = {
+                            text = when {
+                                text.startsWith("-") -> text.removePrefix("-")
+                                text.isBlank() -> "-"
+                                else -> "-$text"
+                            }
+                        }) { Text("±") }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Enter a value between ${formatValue(range.start, decimals)} and " +
+                        "${formatValue(range.endInclusive, decimals)}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = parsed != null, onClick = { parsed?.let(onConfirm); onDismiss() }) {
+                Text("Set")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
 
 // ---------------------------------------------------------------------------
 // AutoExposureControl — Lightroom-mobile style expandable metering control
