@@ -862,21 +862,20 @@ class MainActivity : ComponentActivity() {
             roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
-        // Live DRAFT pass — the Lightroom-style render-system "port": while a control is being
-        // dragged, paint a small, fast proxy continuously so the image tracks the edit instead of
-        // freezing until the settle. Conflated (snapshotFlow.collect, NOT collectLatest): an
-        // in-flight draft is never cancelled — it finishes, then immediately re-renders the latest
-        // params (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back
-        // ~interactive-rate updates. Cheap by construction: it renders ONLY when the full-edge
-        // proxy is already decoded (a cache peek — never decodes here, so it cannot race the
-        // settle pass's first decode) and just asks the engine for a smaller DRAFT_RENDER_MAX_PX
-        // pass. Quiet: it touches only `preview`, never status/previewBusy/beforePreview; the crisp
-        // full-resolution pass still lands on settle (the effect below) and overwrites the draft.
+        // Live DRAFT pass — the Lightroom-style render-system "port": on EVERY edit (a slider drag,
+        // a preset/dropdown/toggle, a rotation), paint a small fast proxy so the image tracks the
+        // change in ~hundreds of ms instead of sitting on the stale frame until the full settle
+        // render lands ~1s later. Conflated (snapshotFlow.collect, NOT collectLatest): an in-flight
+        // draft is never cancelled — it finishes, then immediately re-renders the latest params
+        // (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back updates.
+        // Cheap by construction: it renders ONLY when the full-edge proxy is already decoded (a
+        // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
+        // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
+        // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
         LaunchedEffect(Unit) {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
                 if (cropOverlayOpen || compareMode) return@collect
-                if (!interacting.value) return@collect   // draft only while a slider is being dragged
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft

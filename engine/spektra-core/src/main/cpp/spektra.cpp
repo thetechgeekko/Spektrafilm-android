@@ -1491,10 +1491,15 @@ spk_status spk_simulate_preview(spk_engine* eng, const spk_image* in,
     // direct spectral evaluation, so the bit-exact parity goldens are untouched. We copy
     // the caller's params and force the LUT on for the preview only.
     spk_params pp = *p;
-    if (pp.use_scanner_lut == 0) {
-        pp.use_scanner_lut = 1;
-        if (pp.lut_resolution < 2) pp.lut_resolution = 17;
-    }
+    // Force BOTH spectral LUTs on for the interactive preview (proxy-approximate / export-exact):
+    // the scanner density->log_xyz integral AND the enlarger print-expose integral are the two
+    // per-pixel hotspots, so PCHIP-interpolating both through their 3D LUTs (~5e-5 / ~1e-4 vs the
+    // direct evaluation) roughly halves the preview render on the print route. spk_simulate
+    // (export) keeps the exact direct evaluation, so the bit-exact parity goldens — none of which
+    // call simulate_preview — are untouched. The enlarger LUT is inert on the scan_film route.
+    if (pp.use_scanner_lut == 0) pp.use_scanner_lut = 1;
+    if (pp.use_enlarger_lut == 0) pp.use_enlarger_lut = 1;
+    if (pp.lut_resolution < 2) pp.lut_resolution = 17;
     p = &pp;
     int max_size = p->preview_max_size > 0 ? p->preview_max_size : 640;
     int longest = in->width > in->height ? in->width : in->height;
