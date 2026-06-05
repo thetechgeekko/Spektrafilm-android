@@ -1,6 +1,102 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
+## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`) — Lightroom UX wave + draft/final render & zoom port + preview-speed (PR #85 + PR #86 BOTH MERGED)
+
+Large interactive-editor session. **PR #85 and PR #86 are BOTH MERGED to `main`** (PR #86 = the 7
+commits below; CI was green). Trunk stays v0.7.0 / vc9. **Everything is Kotlin/UI or a preview-only
+engine flag — the export path (`spk_simulate`) and the 26-test parity suite are UNTOUCHED.** The one
+engine edit (enlarger-LUT-for-preview) was verified bit-exact (`test_simulate_e2e` +
+`test_enlarger_lut_e2e` pass after it; no parity test calls `spk_simulate_preview`).
+
+### PR #85 (MERGED) — Lightroom UX + the "render system" port + zoom
+- **Numeric entry** on every slider — tap the value pill to type a value (`parseSliderInput` in
+  `Widgets.kt` + `SliderInputTest`). Double-tap-to-reset already existed.
+- **Simulation panel → Film/Print/Scanner/Output sub-tabs** (`SubTabRow` in `Widgets.kt`); extended
+  the double-tap **reset** to the composite Triple/Pair/Int sliders (added `default` to those).
+- **Draft/final render port** — a conflated DRAFT worker (`snapshotFlow{previewTick}.collect`, NOT
+  collectLatest) paints a fast small proxy so editing isn't frozen until the settle; crisp full pass
+  on settle. Retired the old coarse pass. Zoom path too (`overlayStale` hides the stale sharp crop on
+  an edit so the live proxy shows through).
+- **Zoom in/out/Fit controls** + `%` readout on `ZoomableImage` (complements pinch / double-tap / the
+  sharp ROI render / the 100% magnifier).
+
+### PR #86 (MERGED) — editor polish + preview performance (7 commits, newest last)
+- `99d31af` **Panel → bottom overlay.** The preview Box(`weight(1f)`) and the panel were Column
+  siblings, so opening a panel re-measured/resized the preview every frame — the churn that forced
+  the GPU preview off and jolted the CPU preview. Floated the panel INSIDE a constant-height preview
+  Box (`BoxScope.PanelOverlay`, which also dodges the ColumnScope `AnimatedVisibility` overload).
+  **Unblocks re-enabling GPU** (kept OFF pending the GL-redraw fix + device verify).
+- `2c1416d` **Single-flight decode** (`SingleFlight` in `EngineHelpers.kt`) — a cancelled
+  zoom/magnifier render's native LibRaw decode keeps running, so the next gesture awaits THAT decode
+  instead of starting an overlapping one (the "5 decodes per pinch" battery drain). Wired into both
+  cached loaders, run in the stable `lifecycleScope`.
+- `a9e46d2` **MALLETT2019 honesty** (wrapped in `GatedBlock` — the engine only implements
+  HANATOS2025) + **GPU `+` zoom button** (hands off to the CPU zoom view at 2× via new
+  `ZoomableImage.initialScale`).
+- `b7d6282` **Draft→final zoom ROI** — `renderRoi` renders a fast 640px draft then the full
+  `ROI_RENDER_MAX_PX` crop, so the zoomed region sharpens ~5× sooner; publish-or-recycle keeps the
+  bitmap lifecycle leak-free under cancellation.
+- `8c647c7` **Preview speed:** force the **enlarger LUT** on in `spk_simulate_preview` (it forced only
+  the scanner LUT) + **ungate the live draft** so it paints on EVERY edit. (The earlier drag-gating +
+  coarse-pass removal had regressed non-drag renders — preset/dropdown/rotate/first-load sat on the
+  stale frame for the full ~1s with no first paint.)
+- `fb0ca59` + `c21c535` **Skip grain + halation in the preview** (`toParams(skipGrainHalation=…)`) on
+  BOTH the live draft AND the full fit settle. The dominant per-pixel preview cost (grain
+  Poisson-binomial + the spatial halation/diffusion branch, gated on `halation.active`) is ~invisible
+  at fit resolution; the **100% zoom ROI, the magnifier, and EXPORT do NOT set it**, so texture still
+  renders where it's visible. This is the user's chosen Lightroom-style **"grain at 100%"** (asked +
+  confirmed via the question tool). Couplers stay on (colour).
+
+### Key findings — the backlog/audit were partly stale (all VERIFIED against code)
+- **Per-stage `film_density_cmy` cache ALREADY exists** for the print route (`spektra.cpp:181-204`
+  `compute_film_cache_key` → `run_print`), so print/scan-only edits already skip the filming expose.
+  Not a remaining task (the old §3 "per-stage cache" backlog item is superseded).
+- **The audit's "dead DIR-coupler gamma sliders" claim is WRONG** — `couplers.cpp:73-82` consumes
+  `params.gamma_samelayer_rgb`/`gamma_interlayer_*` and `ParamsState.toParams` marshals exactly those
+  UI sliders. Left them LIVE (did NOT mislabel them inert).
+- **The filming-expose 81-band integral is ALREADY LUT-cached** — `build_filming_tc_lut`
+  (`filming.cpp:336`) bakes `sum_s spectra_lut * sens_window` into a 2D `tc_lut`, looked up per pixel
+  in `expose()` (`cubic_interp_lut_at_2d`). So there is NO "filming-expose LUT" to add; the remaining
+  cost is grain + spatial (handled by `skipGrainHalation`).
+
+### Preview perf model (current)
+Preview now runs: filming `tc_lut` (2D) + **enlarger LUT** (print expose) + **scanner LUT** (scan) all
+ON, with **grain + halation/diffusion SKIPPED at fit**. Remaining fit cost = per-pixel LUT-interp +
+density curves + couplers. Export (`spk_simulate`) keeps the exact direct path. User-side knob:
+**Display → Preview max size**.
+
+### On-device (SM-S948W / S26 Ultra, arm64, Android 16)
+Delivered tap-installable debug APKs (plain `assembleDebug`, all 3 ABIs, 16KB-aligned, no `testOnly`,
+shared debug keystore). Logcat showed `render mode=preview 375x500 187500px 1297ms` → diagnosed
+(spectral per-pixel cost + a half-accelerated preview + a self-introduced first-paint regression); the
+preview-speed commits above are the fix. **Container reset mid-session:** the env re-cloned at an
+earlier commit and the local branch briefly lost `8c647c7`; I rebased the fast-draft commit back on
+top, so the pushed tip `c21c535` is correct/fully integrated. **Build APKs with plain
+`./gradlew :app:assembleDebug`** — NEVER `-Pandroid.injected.build.abi=…` (stamps `testOnly`, blocks
+tap-install).
+
+### Lightroom backlog — what's LEFT (authoritative: `docs/IMPROVEMENT_BACKLOG.md`)
+Done now: preset amount, copy/paste, granular resets, before/after, histogram, crop, draft/final
+render + zoom loupe/ROI/magnifier. **Headline gap = local adjustments / masking** (app is 100% global;
+the mask container is the architectural keystone for gradients/brush/AI-select/range masks). **Tone /
+color UI:** a point/parametric **tone-curve editor** (engine is wired, NO UI yet — the recommended
+next quick win), 3-way color-grading wheels, HSL/color mix, split toning, auto-tone. Also: spot-heal
+(scans), auto/guided Upright + perspective, named versions + batch apply, export formats
+(AVIF/HEIC-10/JPEG-XL/DNG/C2PA/watermark-borders/32-bit-float TIFF), tiled GPU pyramid + grain-mask
+cache.
+
+### Next steps
+1. **Point tone-curve editor** — engine done, a self-contained Compose widget over the histogram;
+   best film-look-per-effort, no parity risk, no masking dependency. (Recommended next.)
+2. Device: confirm the new preview feel + `Nms`; R8/release smoke before any tag; GPU re-verify now
+   that the panel is an overlay; Robolectric/instrumented marshalling tests.
+3. The **mask container** keystone if going big on local adjustments (then gradients → AI → range).
+4. PR #85 + #86 are MERGED to `main` — all the above is on trunk now. On-device validation of the
+   preview feel + R8/release smoke is still pending (see step 2).
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
 
 Continuation of the PR #85 work below. All pushed; CI green. Net since that section:
 
