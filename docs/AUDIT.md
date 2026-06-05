@@ -103,6 +103,45 @@ not a commitment to do all of it.
   in CI `engine-parity` (which also asserts EV on-vs-off and norm-vs-no-norm each produce a real
   delta). The UI sliders/toggles were already live + JNI-marshalled; only the engine consumption
   was missing.
+- 🔎 **Full param-wiring audit (2026-06-05).** A 3-crew end-to-end sweep (filming / printing /
+  scanning+geometry+metering) traced EVERY `spk_params` field UI→facade→JNI→engine-consumer and
+  cross-checked the oracle at `c1d0e44`. Most params are correctly WIRED (exposure, both density
+  gammas, AE + all 7 metering methods, full grain model, DIR active/amount/inhibition, UV/IR,
+  spectral blur, hanatos window/surface, output color spaces + CCTF, geometry incl. the `<1` AA
+  prefilter, scanner/enlarger LUTs, preflash trio, dichroic Y/M, print exposure/gamma, scanner b/w
+  corrections route-gated correctly). **Open findings (NOT yet fixed; severity-ranked):**
+  - 🔴 **`rgb_to_raw_method = MALLETT2019` — MIS-WIRED (filming).** UI dropdown offers it and the
+    oracle has a real `rgb_to_raw_mallett2019` (`utils/spectral_upsampling.py:283`), but **no
+    Mallett path exists in C++** — the value only perturbs the tc_lut cache key; the engine always
+    runs Hanatos2025. Selecting Mallett silently changes nothing. **Decision pending: implement
+    (new spectral basis + oracle golden) vs remove the dropdown option.**
+  - 🟠 **Highlight-boost trio `halation.boost_ev`/`boost_range`/`protect_ev` — INERT (filming).**
+    The oracle's `boost_highlights` stage (`filming.py:58-60`, called unconditionally, gated only
+    on `boost_ev>0`, independent of halation) is entirely UNPORTED (`diffusion.cpp:55` literally
+    "Not applied here"). Three live sliders do nothing. Default `boost_ev=0` is identity so goldens
+    stay green. Fix: port `numba_boost_hightlights.boost_highlights` into `expose`, gate `>0`, new
+    golden (boost_ev>0). **Pure parity fix, no decision needed.**
+  - 🟡 **Spatial-effects conflated under `halation_active` — PARTIAL (filming+scanning).** Camera
+    lens-blur, camera diffusion filter (Black-Pro-Mist), DIR spatial diffusion, scanner unsharp +
+    scanner lens-blur are ALL gated on the single `halation_active` toggle (`spatial =
+    (halation_active != 0)`), whereas the oracle gates each independently (`deactivate_spatial_effects`
+    is a debug flag, default False). Turning halation OFF silently kills them. Schema-default
+    `scanner_unsharp=(0.7,0.7)` therefore no-ops unless halation on. Lens-blur sliders disclose this
+    in tooltips; the **camera diffusion filter does not**. **Decision pending: keep the
+    "halation = master spatial switch" design (+ disclose) vs decouple to per-effect gating (more
+    correct, new "effect-on/halation-off" golden).**
+  - 🟡 **Print route hard-forces film grain + spatial OFF — PARTIAL (filming).** `run_print` forces
+    the negative's `spatial_effects=false` and never digests grain (`spektra.cpp` ~1007-1021),
+    pinned to the `print_portra` goldens (which set `deactivate_spatial_effects=True`). The oracle's
+    normal print path does NOT deactivate them, so a user printing loses all film grain/halation.
+    **Decision pending: keep (lower risk) vs honor toggles on the print route (new print-route
+    golden with grain/spatial on).**
+  - ⚪ **Dead-but-oracle-consistent UI controls (UX honesty, NOT parity).** DIR-coupler gamma
+    sliders (`gamma_samelayer_rgb`, 3× `gamma_interlayer_*`) — film-baked, the oracle overwrites
+    them per-film too; `enlarger_lens_blur` — the oracle never consumes `enlarger.lens_blur` either
+    (vestigial upstream); film-side `glare_*` (`glare_active/percent/roughness/blur`) — dead on the
+    `scan_film` route and dead upstream (`film_render.glare` declared but never read). All present
+    as live UI controls that do nothing. **Decision pending: dim+disclose vs remove.**
 - ✅ **Scanner black/white corrections** (`scanner_white_correction` / `_black_correction` /
   `_white_level` / `_black_level`) **WIRED (this PR).** Port of
   `runtime/services/color_reference.py` (`ColorReferenceService`) +
@@ -287,8 +326,16 @@ not a commitment to do all of it.
      affine `clip(m*Y+q,0,1)`. Default-off strict no-op; full 4-gate parity with TWO goldens pinned
      to c1d0e44 (`print_portra_bwcorr` + `scan_provia_bwcorr`) + `test_scanner_bwcorr_e2e`. **With
      this, every named inert engine param from action #2 is resolved — action #2 is CLOSED.** See §A.
-3. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
+3. **Resolve the open param-wiring-audit findings (2026-06-05, see §A "Full param-wiring audit").**
+   ✅ #1 print EV-compensation + `normalize_print_exposure` — FIXED (#80). Remaining, in order:
+   (a) 🟠 port the highlight-boost stage (`boost_ev`/`boost_range`/`protect_ev`) — pure parity fix,
+   no decision; (b) 🔴 MALLETT2019 — implement-vs-remove decision; (c) 🟡 spatial-effects per-effect
+   gating (decouple from `halation_active`) — keep-vs-decouple decision; (d) 🟡 print-route
+   grain/spatial — keep-vs-honor decision; (e) ⚪ dim/disclose-or-remove the dead-but-oracle-consistent
+   sliders (DIR gammas, enlarger lens blur, film glare). Each engine fix needs a new oracle golden at
+   `c1d0e44` + the default-no-op/thread-invariant discipline.
+4. **Instrumented (`androidTest`) coverage** for the JNI/marshalling + export-quantisation paths the
    JVM tests can't reach (needs a device/Robolectric).
-4. Maintainer/device items: the R8 release-build on-device smoke is **DONE** (2026-06-04, see §D —
+5. Maintainer/device items: the R8 release-build on-device smoke is **DONE** (2026-06-04, see §D —
    import→render→full-res PNG/TIFF export validated under minify). Remaining: a screen-unlocked
    subjective visual re-confirm pass; R8 Stage-2 obfuscation; `shrinkResources`.
