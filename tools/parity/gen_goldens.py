@@ -147,6 +147,22 @@ class Case:
     preflash_exposure: float = 0.0
     preflash_y_filter_shift: float = 0.0
     preflash_m_filter_shift: float = 0.0
+    # Camera exposure compensation (camera.exposure_compensation_ev) + the enlarger
+    # midgray-balance toggles (enlarger.print_exposure_compensation /
+    # normalize_print_exposure, both schema-default True). On the PRINT route these
+    # feed PrintingStage._compute_exposure_factor_midgray (printing.py c1d0e44
+    # L104-118): the midgray exposure factor is selected by a 4-case branch over
+    # (print_exposure_compensation, normalize_print_exposure) using the UNcompensated
+    # midgray (rgb=0.184) and the COMPENSATED midgray (rgb=0.184*2^ev) from
+    # FilmingStage._compute_density_spectral_midgray_to_balance_print (filming.py
+    # c1d0e44 L125-134). At exposure_compensation_ev=0 the compensated gray equals
+    # the uncompensated gray -> the factor is byte-identical to the EV=0 default, so
+    # all existing print goldens are unchanged. A non-zero EV with compensation ON
+    # exercises the bug-fix path. exposure_compensation_ev ALSO scales the filming
+    # raw (raw *= 2^ev, filming.py L57), so it changes the negative taps too.
+    exposure_compensation_ev: float = 0.0
+    print_exposure_compensation: bool = True
+    normalize_print_exposure: bool = True
     # Scanner BLACK/WHITE corrections (scanner.black_correction / white_correction,
     # black_level / white_level): a scan-time tone anchor that maps the measured CIE
     # Y at the reference black/white densities to the (sRGB-decoded) target levels.
@@ -505,6 +521,57 @@ CASES = [
               "tests/test_scanner_bwcorr_e2e.cpp.",
     ),
     Case(
+        case_id="print_portra_evcomp",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=False,                    # PRINT route: the midgray balance fires.
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        exposure_compensation_ev=1.5,       # NON-default camera EV (the bug trigger).
+        print_exposure_compensation=True,   # schema default ON
+        normalize_print_exposure=True,      # schema default ON -> branch returns
+                                            # factor_midgray_comp (compensated only).
+        notes="print route with a NON-ZERO camera exposure compensation "
+              "(camera.exposure_compensation_ev=1.5) and BOTH enlarger midgray "
+              "toggles at their schema defaults (print_exposure_compensation=True, "
+              "normalize_print_exposure=True). Exercises the print EV-compensation "
+              "bug fix: PrintingStage._compute_exposure_factor_midgray (printing.py "
+              "c1d0e44 L104-118) selects factor_midgray_comp (the comp+normalize "
+              "branch), where factor_midgray_comp = _exposure_factor(...) of the "
+              "COMPENSATED midgray density (rgb=0.184*2^ev) from "
+              "FilmingStage._compute_density_spectral_midgray_to_balance_print "
+              "(filming.py c1d0e44 L125-134). Previously the native engine ignored "
+              "exposure_compensation_ev here and always returned the UNcompensated "
+              "factor, mis-balancing the print whenever EV!=0. The EV also scales the "
+              "filming raw (raw*=2^ev), so film_log_raw/film_density_cmy change too. "
+              "Spatial+grain off so it is deterministic/bit-stable. Tested by "
+              "tests/test_print_evcomp_e2e.cpp.",
+    ),
+    Case(
+        case_id="print_portra_evcomp_nonorm",
+        film_profile="kodak_portra_400",
+        print_profile="kodak_portra_endura",
+        scan_film=False,                    # PRINT route.
+        deactivate_spatial_effects=True,
+        deactivate_stochastic_effects=True,
+        grain_active=False,
+        exposure_compensation_ev=1.5,       # same NON-default EV as the sibling case
+        print_exposure_compensation=True,   # comp ON
+        normalize_print_exposure=False,     # normalize OFF -> the OTHER branch:
+                                            # factor = factor_midgray_comp / factor_midgray.
+        notes="print route with camera.exposure_compensation_ev=1.5, "
+              "print_exposure_compensation=True, normalize_print_exposure=FALSE. "
+              "Locks the SECOND midgray branch of "
+              "PrintingStage._compute_exposure_factor_midgray (printing.py c1d0e44 "
+              "L111-112): comp && !normalize returns factor_midgray_comp / "
+              "factor_midgray (the ratio of compensated to uncompensated midgray "
+              "factors), distinct from the comp+normalize branch in "
+              "print_portra_evcomp. Together the two cases pin both EV-active branches "
+              "of the 4-case selection logic. Spatial+grain off so it is "
+              "deterministic/bit-stable. Tested by tests/test_print_evcomp_e2e.cpp.",
+    ),
+    Case(
         case_id="scan_provia_couplers",
         film_profile="fujifilm_provia_100f",  # POSITIVE film
         print_profile="kodak_portra_endura",
@@ -625,7 +692,7 @@ def _build_params(sf, case: Case):
     # so the metered EV is reproducible.
     params.camera.auto_exposure = case.auto_exposure
     params.camera.auto_exposure_method = case.auto_exposure_method
-    params.camera.exposure_compensation_ev = 0.0
+    params.camera.exposure_compensation_ev = case.exposure_compensation_ev
     # Camera lens blur (µm). Only meaningful when spatial effects are kept on
     # (digest_params zeroes it under deactivate_spatial_effects=True).
     params.camera.lens_blur_um = case.lens_blur_um
@@ -661,6 +728,9 @@ def _build_params(sf, case: Case):
     params.scanner.black_level = case.scanner_black_level
     params.scanner.white_level = case.scanner_white_level
     params.film_render.dir_couplers.active = case.dir_couplers_active
+    # Enlarger midgray-balance toggles (PRINT route). Both default True (schema).
+    params.enlarger.print_exposure_compensation = case.print_exposure_compensation
+    params.enlarger.normalize_print_exposure = case.normalize_print_exposure
     return params
 
 
@@ -729,7 +799,9 @@ def generate_case(sf, case: Case, size: int) -> dict:
         "toggles": {
             "auto_exposure": case.auto_exposure,
             "auto_exposure_method": case.auto_exposure_method,
-            "exposure_compensation_ev": 0.0,
+            "exposure_compensation_ev": case.exposure_compensation_ev,
+            "print_exposure_compensation": case.print_exposure_compensation,
+            "normalize_print_exposure": case.normalize_print_exposure,
             "grain_active": case.grain_active,
             "deactivate_stochastic_effects": case.deactivate_stochastic_effects,
             "deactivate_spatial_effects": case.deactivate_spatial_effects,

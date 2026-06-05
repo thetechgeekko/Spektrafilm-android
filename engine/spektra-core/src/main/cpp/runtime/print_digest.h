@@ -78,11 +78,22 @@ bool resolve_neutral_cc_string(const std::string& json_text,
 // the dichroic neutral CC filters (PrintingParams::filtered_illuminant).
 // `gamma` is the film density-curve gamma (scalar). NaN dye/illuminant entries
 // are zeroed exactly as the Python pipeline does.
+//
+// `exposure_compensation_ev` is the camera EV (the SAME field that scales the
+// filming raw; filming.py L57/L129) used to build the COMPENSATED midgray gray
+// 0.184 * 2^ev. `normalize_print_exposure` / `print_exposure_compensation` are
+// the enlarger toggles that select the oracle's 4-case branch
+// (printing.py::_compute_exposure_factor_midgray, c1d0e44 L104-118). At
+// exposure_compensation_ev == 0 the compensated gray equals the uncompensated
+// gray, so the result is byte-identical to the uncompensated factor for every
+// existing EV=0 golden.
 double compute_midgray_exposure_factor(const Profile& film,
                                        const Profile& print_profile,
                                        const NdArray& filming_tc_lut,
                                        const double* filtered_illuminant,
-                                       float gamma);
+                                       float gamma, double exposure_compensation_ev,
+                                       bool normalize_print_exposure,
+                                       bool print_exposure_compensation);
 
 }  // namespace spk
 

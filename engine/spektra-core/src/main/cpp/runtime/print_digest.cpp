@@ -109,15 +109,20 @@ bool resolve_neutral_cc(const std::string& json_path,
                                      cc_out);
 }
 
-double compute_midgray_exposure_factor(const Profile& film,
-                                       const Profile& print_profile,
-                                       const NdArray& filming_tc_lut,
-                                       const double* filtered_illuminant,
-                                       float gamma) {
+namespace {
+
+// _exposure_factor for a single neutral gray value `gray` (FilmingStage's
+// rgb=[gray]*3), mirroring filming.py::_simple_rgb_to_density_spectral fed through
+// printing.py::_exposure_factor. Returns 1 / geomean_k(raw_midgray_k). All NaN
+// dye/illuminant/sensitivity entries are zeroed exactly as the Python pipeline.
+double exposure_factor_for_gray(const Profile& film, const Profile& print_profile,
+                                const NdArray& filming_tc_lut,
+                                const double* filtered_illuminant, float gamma,
+                                double gray) {
     const int S = film.n_samples;  // 81
 
-    // 1) Filming midgray: rgb=0.184 gray -> film raw (sRGB tc transform) -> log10.
-    const double rgb_mid[3] = {0.184, 0.184, 0.184};
+    // 1) Filming midgray: rgb=[gray]*3 -> film raw (sRGB tc transform) -> log10.
+    const double rgb_mid[3] = {gray, gray, gray};
     Vec2 tc;
     double b;
     srgb_rgb_to_tc_b(rgb_mid, &tc, &b);
@@ -127,7 +132,7 @@ double compute_midgray_exposure_factor(const Profile& film,
     cubic_interp_lut_at_2d(filming_tc_lut, tc.x * scale, tc.y * scale, raw);
     float log_raw[3];
     for (int c = 0; c < 3; ++c) {
-        double r = raw[c] * b;  // exposure_compensation_ev == 0 under parity.
+        double r = raw[c] * b;
         log_raw[c] = static_cast<float>(std::log10(r + 1e-10));
     }
 
@@ -174,6 +179,55 @@ double compute_midgray_exposure_factor(const Profile& film,
     }
     double geomean = std::exp(log_sum / 3.0);
     return 1.0 / geomean;
+}
+
+}  // namespace
+
+double compute_midgray_exposure_factor(const Profile& film,
+                                       const Profile& print_profile,
+                                       const NdArray& filming_tc_lut,
+                                       const double* filtered_illuminant,
+                                       float gamma, double exposure_compensation_ev,
+                                       bool normalize_print_exposure,
+                                       bool print_exposure_compensation) {
+    // Mirror PrintingStage._compute_exposure_factor_midgray (printing.py
+    // c1d0e44 L104-118), with the two midgray densities from
+    // FilmingStage._compute_density_spectral_midgray_to_balance_print
+    // (filming.py c1d0e44 L125-134):
+    //   density_spectral_midgray      <- rgb = 0.184 gray (always)
+    //   density_spectral_midgray_comp <- rgb = 0.184 * 2^exposure_compensation_ev
+    //                                    (only when print_exposure_compensation)
+    // factor_midgray      = _exposure_factor(...density_spectral_midgray)
+    // factor_midgray_comp = _exposure_factor(...density_spectral_midgray_comp)
+    //                       (else 1.0)
+    // and the 4-case branch on (print_exposure_compensation, normalize_print_exposure):
+    //   comp && !normalize : factor_midgray_comp / factor_midgray
+    //   normalize && comp  : factor_midgray_comp
+    //   normalize && !comp : factor_midgray
+    //   else               : 1.0
+    // CRITICAL: at exposure_compensation_ev == 0 the compensated gray equals the
+    // uncompensated gray, so factor_midgray_comp == factor_midgray bit-for-bit and
+    // every existing (EV=0) print golden is byte-identical to before.
+    const double factor_midgray = exposure_factor_for_gray(
+        film, print_profile, filming_tc_lut, filtered_illuminant, gamma, 0.184);
+
+    double factor_midgray_comp = 1.0;
+    if (print_exposure_compensation) {
+        const double gray_comp = 0.184 * std::pow(2.0, exposure_compensation_ev);
+        factor_midgray_comp = exposure_factor_for_gray(
+            film, print_profile, filming_tc_lut, filtered_illuminant, gamma,
+            gray_comp);
+    }
+
+    if (print_exposure_compensation && !normalize_print_exposure) {
+        return factor_midgray_comp / factor_midgray;
+    } else if (normalize_print_exposure && print_exposure_compensation) {
+        return factor_midgray_comp;
+    } else if (normalize_print_exposure && !print_exposure_compensation) {
+        return factor_midgray;
+    } else {
+        return 1.0;
+    }
 }
 
 }  // namespace spk

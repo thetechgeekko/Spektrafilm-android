@@ -896,7 +896,9 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     spk::PrintingParams pparams = spk::digest_printing_params(
         neutral_cc, enl, /*exposure_factor_midgray=*/1.0, pg);
     pparams.exposure_factor_midgray = spk::compute_midgray_exposure_factor(
-        film, prnt, tc_lut, pparams.filtered_illuminant, pg);
+        film, prnt, tc_lut, pparams.filtered_illuminant, pg,
+        static_cast<double>(p->exposure_compensation_ev),
+        p->normalize_print_exposure != 0, p->print_exposure_compensation != 0);
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
 

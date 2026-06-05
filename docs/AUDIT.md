@@ -1,4 +1,4 @@
-# Audit — incomplete / open items (updated 2026-06-03)
+# Audit — incomplete / open items (updated 2026-06-05)
 
 A sweep of the codebase and docs for things that are **not complete**: genuine feature gaps,
 stale docs that misstate status, test-coverage holes, and release/build follow-ups. Grouped by
@@ -76,6 +76,33 @@ not a commitment to do all of it.
   unchanged negative). The UI sliders were already live + JNI-marshalled; only the engine
   consumption was missing. Gated by the `print_portra_preflash` golden (oracle **c1d0e44**) +
   `test_preflash_e2e` in CI `engine-parity`.
+- ✅ **Print EXPOSURE-COMPENSATION midgray balance (`exposure_compensation_ev`) +
+  `normalize_print_exposure` / `print_exposure_compensation`** FIXED/WIRED (this PR). The
+  user-reachable bug: on the PRINT route (`scan_film=false`, default "Print auto compensation"
+  ON) the native midgray exposure factor (`runtime/print_digest.cpp::compute_midgray_exposure_factor`)
+  hardcoded `exposure_compensation_ev == 0` and **always returned the UNcompensated factor**, so
+  whenever the user set Camera EV ≠ 0 the print was balanced differently than the oracle. The two
+  enlarger toggles were never consumed at all. Port of
+  `PrintingStage._compute_exposure_factor_midgray` (`runtime/stages/printing.py` c1d0e44 L104-118):
+  the factor is selected by a 4-case branch over (`print_exposure_compensation`,
+  `normalize_print_exposure`) using the UNcompensated midgray (rgb=0.184) AND the COMPENSATED
+  midgray (rgb=0.184·2^`exposure_compensation_ev`) from
+  `FilmingStage._compute_density_spectral_midgray_to_balance_print`
+  (`runtime/stages/filming.py` c1d0e44 L125-134) — the compensated gray uses the SAME camera EV
+  that scales the filming raw (filming.py L57). The branch:
+  `comp && !normalize → factor_midgray_comp/factor_midgray`;
+  `normalize && comp → factor_midgray_comp`; `normalize && !comp → factor_midgray`; `else → 1.0`.
+  The factor is recomputed fresh on every print call (not cached), so the new params need NO
+  cache-key change — the film-density memo gates the negative only, which does not depend on these
+  toggles. **CRITICAL default-no-op:** at `exposure_compensation_ev == 0` the compensated gray
+  equals the uncompensated gray, so the factor is byte-identical to before for every existing EV=0
+  print golden (verified: full engine-parity suite `fail=0`, all pre-existing print goldens
+  bit-exact). Gated by two goldens (oracle **c1d0e44**, both EV=1.5): `print_portra_evcomp`
+  (comp+normalize ON → `factor_midgray_comp`) and `print_portra_evcomp_nonorm` (comp ON, normalize
+  OFF → `factor_midgray_comp/factor_midgray`) pinning both EV-active branches + `test_print_evcomp_e2e`
+  in CI `engine-parity` (which also asserts EV on-vs-off and norm-vs-no-norm each produce a real
+  delta). The UI sliders/toggles were already live + JNI-marshalled; only the engine consumption
+  was missing.
 - ✅ **Scanner black/white corrections** (`scanner_white_correction` / `_black_correction` /
   `_white_level` / `_black_level`) **WIRED (this PR).** Port of
   `runtime/services/color_reference.py` (`ColorReferenceService`) +
