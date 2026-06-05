@@ -267,9 +267,22 @@ class MainActivity : ComponentActivity() {
         // temp/tint + manual rotation + target edge); any change to one of those invalidates it
         // (the key mismatches → fresh decode). See DecodedSourceCache for the read-only proof
         // that the same buffer can be re-fed to the engine without a defensive copy. EXPORT and
-        // the 100% magnifier do NOT use this cache — they always decode fresh at MAX_EDGE_PX.
+        // EXPORT does NOT use this cache — it always decodes fresh at EXPORT_MAX_EDGE_PX.
         val sourceCache = remember { DecodedSourceCache() }
         DisposableEffect(Unit) { onDispose { sourceCache.invalidate() } }
+
+        // PERF/OOM: a SECOND single-entry cache for the MAX_EDGE_PX whole-image proxy used by the
+        // Lightroom zoom (renderRoi) and the 100% magnifier. Previously both decoded fresh on every
+        // gesture settle — each a ~1s LibRaw decode + a 36MB managed-heap LinearImage (1500×2000×3×
+        // 4B) — so rapid pan/zoom stacked several before GC reclaimed them and the ART heap OOM'd
+        // ("Failed to allocate a 36000019 byte allocation"). Keeping the 2048px proxy resident (and
+        // reusing it for every crop) removes both the OOM pileup and the per-gesture decode latency,
+        // which is what makes zoom-pan feel Lightroom-smooth. It is a SEPARATE instance from
+        // sourceCache so the 640px preview proxy and the 2048px zoom proxy don't evict each other
+        // (the single-entry cache is keyed by maxEdge — sharing one would thrash both back to a
+        // fresh decode every render).
+        val zoomSourceCache = remember { DecodedSourceCache() }
+        DisposableEffect(Unit) { onDispose { zoomSourceCache.invalidate() } }
 
         // bundled catalog (friendly stock names + grouping) and built-in presets
         var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
@@ -675,6 +688,29 @@ class MainActivity : ComponentActivity() {
             return decoded
         }
 
+        // PERF/OOM: cached counterpart of loadSourceCachedForPreview for the MAX_EDGE_PX zoom/
+        // magnifier proxy, backed by the dedicated zoomSourceCache. The Lightroom zoom (renderRoi)
+        // and the 100% magnifier both crop this whole-image proxy; without the cache each gesture
+        // settle re-decoded it (LibRaw + 36MB managed alloc) and the pileup OOM'd the ART heap.
+        // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
+        // single cached LinearImage is safely re-fed to every crop.
+        suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
+            val cached = zoomSourceCache.get(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+            )
+            if (cached != null) return cached
+            val decoded = loadSource(maxEdge)
+            zoomSourceCache.put(
+                uri = sourceUri?.toString(), kind = sourceKind.name,
+                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
+                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                img = decoded,
+            )
+            return decoded
+        }
+
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
         //
         // PERF/RACE: each tap previously launched an independent coroutine with no
@@ -694,11 +730,20 @@ class MainActivity : ComponentActivity() {
             magnifierJobRef.value = scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.Default) {
-                        val full = loadSource(MAX_EDGE_PX)
+                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
                         val crop = cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX)
+                        // Effective film format so the crop's pixel_size_um matches the proxy it was
+                        // cut from (the crop spans only cropFrac of the frame). Without it the engine
+                        // treats the crop as a whole 35mm frame and grain/halation (µm-based) render
+                        // too weak even at 1:1. See toParams(filmFormatMmOverride).
+                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                            maxOf(full.width, full.height).coerceAtLeast(1)
                         // SimResult holds a native off-heap buffer; close() frees it once the
                         // bitmap copy is made.
-                        e.simulate(crop, state.toParams()).use { res ->
+                        e.simulate(
+                            crop,
+                            state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
+                        ).use { res ->
                             simResultToBitmap(res.data, res.width, res.height)
                         }
                     }
@@ -732,12 +777,21 @@ class MainActivity : ComponentActivity() {
             roiJobRef.value = scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.Default) {
-                        val full = loadSource(MAX_EDGE_PX)
+                        val full = loadSourceCachedForZoom(MAX_EDGE_PX)
                         val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
                         val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
                         val crop = cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                        // Effective film format so the crop's pixel_size_um matches the proxy (the
+                        // crop spans only cropFrac of the frame); keeps grain/halation at the right
+                        // strength when zoomed instead of treating the crop as a whole frame.
+                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
+                            maxOf(full.width, full.height).coerceAtLeast(1)
                         e.simulatePreview(
-                            crop, state.toParams(previewMaxSizeOverride = ROI_RENDER_MAX_PX),
+                            crop,
+                            state.toParams(
+                                previewMaxSizeOverride = ROI_RENDER_MAX_PX,
+                                filmFormatMmOverride = state.filmFormatMm * cropFrac,
+                            ),
                         ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
                     }
                 }

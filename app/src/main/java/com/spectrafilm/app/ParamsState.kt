@@ -297,7 +297,16 @@ class ParamsState {
     }
 
     /** Build an immutable SpektraParams from current state. */
-    fun toParams(previewMaxSizeOverride: Int? = null): SpektraParams = SpektraParams(
+    // [filmFormatMmOverride] lets the zoom/magnifier crop paths feed the engine an EFFECTIVE film
+    // format so its `pixel_size_um = film_format_mm*1000/max(w,h)` derivation reflects the crop's
+    // true physical extent (a crop covers only a fraction of the frame). Without it the engine
+    // treats e.g. an 800px crop as if 800px spanned the whole 35mm frame, so grain/halation (both
+    // µm-based) come out too weak even when zoomed in. The full-frame preview/export pass null and
+    // are unaffected. See renderRoi/openMagnifier in MainActivity.
+    fun toParams(
+        previewMaxSizeOverride: Int? = null,
+        filmFormatMmOverride: Float? = null,
+    ): SpektraParams = SpektraParams(
         filmProfile = filmProfile,
         printProfile = printProfile,
         camera = CameraParams(
@@ -305,7 +314,7 @@ class ParamsState {
             autoExposure = autoExposure,
             autoExposureMethod = autoExposureMethod,
             lensBlurUm = cameraLensBlurUm,
-            filmFormatMm = filmFormatMm,
+            filmFormatMm = filmFormatMmOverride ?: filmFormatMm,
             filterUv = filterUv,
             filterIr = filterIr,
             diffusionFilter = cameraDiffusionState.toParams(),
