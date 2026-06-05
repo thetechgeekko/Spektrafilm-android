@@ -168,6 +168,12 @@ fun ZoomableImage(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    // While zoomed, an edit (renderKey bump) makes the current sharp ROI crop stale: hide it so the
+    // live (soft) proxy — which the draft render keeps current — shows through, then reveal the
+    // freshly rendered crop when it lands. The zoom-path half of the draft/final render port.
+    var overlayStale by remember { mutableStateOf(false) }
+    LaunchedEffect(renderKey) { overlayStale = true }
+    LaunchedEffect(roiOverlay) { overlayStale = false }
 
     val image = remember(bitmap) { bitmap.asImageBitmap() }
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -256,7 +262,7 @@ fun ZoomableImage(
         // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
         // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
         val ov = roiOverlay
-        if (ov != null && scale > 1.01f && viewSize.width > 0) {
+        if (ov != null && !overlayStale && scale > 1.01f && viewSize.width > 0) {
             val roiImage = remember(ov.bitmap) { ov.bitmap.asImageBitmap() }
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(
