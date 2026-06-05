@@ -23,6 +23,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -334,6 +336,7 @@ fun TripleSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     componentLabels: Triple<String, String, String> = Triple("R", "G", "B"),
+    default: Triple<Float, Float, Float>? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -345,11 +348,11 @@ fun TripleSlider(
             )
         }
         EnhancedSlider(componentLabels.first, value.first, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(first = it)) })
+            default = default?.first, onValueChange = { onValueChange(value.copy(first = it)) })
         EnhancedSlider(componentLabels.second, value.second, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(second = it)) })
+            default = default?.second, onValueChange = { onValueChange(value.copy(second = it)) })
         EnhancedSlider(componentLabels.third, value.third, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(third = it)) })
+            default = default?.third, onValueChange = { onValueChange(value.copy(third = it)) })
     }
 }
 
@@ -364,6 +367,7 @@ fun PairSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     componentLabels: Pair<String, String> = "1" to "2",
+    default: Pair<Float, Float>? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -375,9 +379,9 @@ fun PairSlider(
             )
         }
         EnhancedSlider(componentLabels.first, value.first, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(first = it)) })
+            default = default?.first, onValueChange = { onValueChange(value.copy(first = it)) })
         EnhancedSlider(componentLabels.second, value.second, range, step = step, decimals = decimals,
-            onValueChange = { onValueChange(value.copy(second = it)) })
+            default = default?.second, onValueChange = { onValueChange(value.copy(second = it)) })
     }
 }
 
@@ -412,6 +416,7 @@ fun IntSlider(
     range: IntRange,
     onValueChange: (Int) -> Unit,
     tooltip: String? = null,
+    default: Int? = null,
 ) {
     EnhancedSlider(
         label = label,
@@ -420,8 +425,47 @@ fun IntSlider(
         step = 1f,
         decimals = 0,
         tooltip = tooltip,
+        default = default?.toFloat(),
         onValueChange = { onValueChange(it.roundToInt()) },
     )
+}
+
+/**
+ * A compact, horizontally-scrolling sub-tab strip for splitting one tool panel into groups
+ * (Lightroom-style, e.g. Film / Print / Scanner / Output). The selected tab is a filled
+ * primary pill; selection state is owned by the caller.
+ */
+@Composable
+fun SubTabRow(
+    tabs: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tabs.forEachIndexed { i, label ->
+            val active = i == selected
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onSelect(i) },
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (active) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 /** A read-only exposed dropdown for a list of options. */

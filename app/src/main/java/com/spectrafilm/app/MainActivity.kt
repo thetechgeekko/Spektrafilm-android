@@ -2205,10 +2205,10 @@ class MainActivity : ComponentActivity() {
                     "samples; each sample is 5 nm). 0 = off.", default = PARAM_DEFAULTS.spectralGaussianBlur)
             TripleSlider("UV filter", s.filterUv, 0f..800f, { s.filterUv = it }, step = 1f, decimals = 0,
                 tooltip = "Filter UV light (amplitude, wavelength cutoff nm, sigma nm).",
-                componentLabels = Triple("amp", "λ", "σ"))
+                componentLabels = Triple("amp", "λ", "σ"), default = PARAM_DEFAULTS.filterUv)
             TripleSlider("IR filter", s.filterIr, 0f..800f, { s.filterIr = it }, step = 1f, decimals = 0,
                 tooltip = "Filter IR light (amplitude, wavelength cutoff nm, sigma nm).",
-                componentLabels = Triple("amp", "λ", "σ"))
+                componentLabels = Triple("amp", "λ", "σ"), default = PARAM_DEFAULTS.filterIr)
             EnhancedSlider("Upscale factor", s.upscaleFactor, 0f..4f, { s.upscaleFactor = it },
                 step = 0.5f, decimals = 1, tooltip = "Scale image size up to increase resolution", default = PARAM_DEFAULTS.upscaleFactor)
             // Crop is now an interactive overlay (see the crop button under the
@@ -2330,88 +2330,94 @@ class MainActivity : ComponentActivity() {
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
-            GroupedDropdown(
-                label = "Film profile",
-                selectedId = s.filmProfile,
-                groups = filmGroups,
-                onSelect = { s.filmProfile = it },
-            )
-            OutlinedButton(
-                onClick = onOpenFilmCurves,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("View film profile curves") }
-            EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
-                { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
-                tooltip = "Add a bias to the auto-exposure of the camera")
+            // Lightroom-style sub-tabs split this tool's four groups (Film / Print / Scanner /
+            // Output) so only one shows at a time, instead of one long scroll behind dividers.
+            var simTab by remember { mutableStateOf(0) }
+            SubTabRow(listOf("Film", "Print", "Scanner", "Output"), simTab, { simTab = it })
+            when (simTab) {
+                0 -> {
+                    GroupedDropdown(
+                        label = "Film profile",
+                        selectedId = s.filmProfile,
+                        groups = filmGroups,
+                        onSelect = { s.filmProfile = it },
+                    )
+                    OutlinedButton(
+                        onClick = onOpenFilmCurves,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("View film profile curves") }
+                    EnhancedSlider("Camera compensation EV", s.exposureCompensationEv, -10f..10f,
+                        { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
+                        tooltip = "Add a bias to the auto-exposure of the camera")
 
-            AutoExposureControl(
-                autoExposure = s.autoExposure,
-                autoExposureMethod = s.autoExposureMethod,
-                methods = AUTO_EXPOSURE_METHODS,
-                onAutoExposureChange = { s.autoExposure = it },
-                onMethodChange = { s.autoExposureMethod = it },
-            )
-            EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
-                step = 1f, decimals = 0,
-                tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)", default = PARAM_DEFAULTS.filmFormatMm)
-            EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
-                step = 0.05f, decimals = 2,
-                tooltip = "Sigma of gaussian filter in um for the camera lens blur. " +
-                    "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.cameraLensBlurUm)
-            DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
-
-            Divider()
-            GroupedDropdown(
-                label = "Print profile",
-                selectedId = s.printProfile,
-                groups = printGroups,
-                onSelect = { s.printProfile = it },
-            )
-            OutlinedButton(
-                onClick = onOpenPrintCurves,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("View print profile curves") }
-            EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
-                step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger", default = PARAM_DEFAULTS.printExposure)
-            SwitchRow("Print auto compensation", s.printExposureCompensation,
-                { s.printExposureCompensation = it },
-                "Auto adjust the print exposure for the camera exposure compensation ev")
-            EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
-                step = 1f, decimals = 0, default = 0f, tooltip = "Y filter shift from neutral, in Kodak CC units")
-            EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
-                step = 1f, decimals = 0, default = 0f, tooltip = "M filter shift from neutral, in Kodak CC units")
-            GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
-                EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
-                    step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur", default = PARAM_DEFAULTS.enlargerLensBlur)
+                    AutoExposureControl(
+                        autoExposure = s.autoExposure,
+                        autoExposureMethod = s.autoExposureMethod,
+                        methods = AUTO_EXPOSURE_METHODS,
+                        onAutoExposureChange = { s.autoExposure = it },
+                        onMethodChange = { s.autoExposureMethod = it },
+                    )
+                    EnhancedSlider("Film format mm", s.filmFormatMm, 8f..120f, { s.filmFormatMm = it },
+                        step = 1f, decimals = 0,
+                        tooltip = "Long edge of the film format in mm (8, 16, 35, 60, 120)", default = PARAM_DEFAULTS.filmFormatMm)
+                    EnhancedSlider("Camera lens blur um", s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
+                        step = 0.05f, decimals = 2,
+                        tooltip = "Sigma of gaussian filter in um for the camera lens blur. " +
+                            "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.cameraLensBlurUm)
+                    DiffusionGroup("Camera diffusion filter", s.cameraDiffusionState)
+                }
+                1 -> {
+                    GroupedDropdown(
+                        label = "Print profile",
+                        selectedId = s.printProfile,
+                        groups = printGroups,
+                        onSelect = { s.printProfile = it },
+                    )
+                    OutlinedButton(
+                        onClick = onOpenPrintCurves,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("View print profile curves") }
+                    EnhancedSlider("Print exposure", s.printExposure, 0f..4f, { s.printExposure = it },
+                        step = 0.02f, decimals = 2, tooltip = "Changes the exposure time set in the virtual enlarger", default = PARAM_DEFAULTS.printExposure)
+                    SwitchRow("Print auto compensation", s.printExposureCompensation,
+                        { s.printExposureCompensation = it },
+                        "Auto adjust the print exposure for the camera exposure compensation ev")
+                    EnhancedSlider("Print Y filter shift", s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
+                        step = 1f, decimals = 0, default = 0f, tooltip = "Y filter shift from neutral, in Kodak CC units")
+                    EnhancedSlider("Print M filter shift", s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
+                        step = 1f, decimals = 0, default = 0f, tooltip = "M filter shift from neutral, in Kodak CC units")
+                    GatedBlock("Enlarger lens blur is not applicable to the enlarger stage (no engine call site).") {
+                        EnhancedSlider("Enlarger lens blur", s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
+                            step = 0.05f, decimals = 2, tooltip = "Sigma of gaussian filter for the enlarger lens blur", default = PARAM_DEFAULTS.enlargerLensBlur)
+                    }
+                    DiffusionGroup("Print diffusion filter", s.printDiffusionState)
+                }
+                2 -> {
+                    EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
+                        step = 0.05f, decimals = 2,
+                        tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
+                            "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
+                    SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                        "Enable white point correction applied to the scanner output")
+                    EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                        step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
+                    SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                        "Enable black point correction applied to the scanner output")
+                    EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                        step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
+                        step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
+                        componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)
+                }
+                else -> {
+                    Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
+                        { it.name }, { s.outputColorSpace = it })
+                    SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
+                        "Add or not the CCTF to the saved image file")
+                    SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
+                        "Show a scan of the negative instead of the print")
+                }
             }
-            DiffusionGroup("Print diffusion filter", s.printDiffusionState)
-
-            Divider()
-            Text("Scanner", style = MaterialTheme.typography.titleSmall)
-            EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
-                step = 0.05f, decimals = 2,
-                tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
-                    "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
-            SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
-                "Enable white point correction applied to the scanner output")
-            EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
-            SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
-                "Enable black point correction applied to the scanner output")
-            EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
-            PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
-                step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
-                componentLabels = "σ" to "amt")
-
-            Divider()
-            Text("Output", style = MaterialTheme.typography.titleSmall)
-            Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
-                { it.name }, { s.outputColorSpace = it })
-            SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
-                "Add or not the CCTF to the saved image file")
-            SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
-                "Show a scan of the negative instead of the print")
         }
     }
 
@@ -2454,22 +2460,27 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
                 step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.", default = PARAM_DEFAULTS.grainParticleAreaUm2)
             TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.")
+                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
+                default = PARAM_DEFAULTS.grainParticleScale)
             TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
                 { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
-                tooltip = "Scale of particle area for the sublayers in each color layer.")
+                tooltip = "Scale of particle area for the sublayers in each color layer.",
+                default = PARAM_DEFAULTS.grainParticleScaleLayers)
             TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
-                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).")
+                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
+                default = PARAM_DEFAULTS.grainDensityMin)
             TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
-                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).")
+                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
+                default = PARAM_DEFAULTS.grainUniformity)
             EnhancedSlider("Blur", s.grainBlur, 0f..3f, { s.grainBlur = it }, step = 0.05f, decimals = 2,
                 tooltip = "Sigma of gaussian blur in pixels for the grain.", default = PARAM_DEFAULTS.grainBlur)
             EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
                 step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
             PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
                 step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
-                componentLabels = "σ" to "nm")
-            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it })
+                componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
+            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
+                default = PARAM_DEFAULTS.grainNSubLayers)
             Divider()
             // Granular reset scope (backlog #F): restore the grain parameters to engine
             // defaults without touching the section's on/off switch or other sections.
@@ -2527,19 +2538,25 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
                 step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
             TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
-                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.")
+                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
+                default = PARAM_DEFAULTS.halScatterCoreUm)
             TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
-                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.")
+                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
+                default = PARAM_DEFAULTS.halScatterTailUm)
             TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
                 { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
-                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).")
+                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
+                default = PARAM_DEFAULTS.halScatterTailWeightPct)
             TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
                 { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
-                tooltip = "Total back-reflection halation amplitude per channel (0-100%).")
+                tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
+                default = PARAM_DEFAULTS.halHalationStrengthPct)
             TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
-                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.")
+                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
+                default = PARAM_DEFAULTS.halFirstSigmaUm)
             IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
-                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).")
+                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
+                default = PARAM_DEFAULTS.halNBounces)
             EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
                 step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
             SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
@@ -2561,16 +2578,17 @@ class MainActivity : ComponentActivity() {
                 { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
                 tooltip = "Multiplier on the cross-layer (off-diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
             TripleSlider("Gamma samelayer RGB", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
-                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).")
+                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
+                default = PARAM_DEFAULTS.couplersGammaSamelayer)
             PairSlider("Gamma R→GB", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from R onto G and B.",
-                componentLabels = "→G" to "→B")
+                componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
             PairSlider("Gamma G→RB", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from G onto R and B.",
-                componentLabels = "→R" to "→B")
+                componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
             PairSlider("Gamma B→RG", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
                 step = 0.02f, decimals = 3, tooltip = "DIR inhibition from B onto R and G.",
-                componentLabels = "→R" to "→G")
+                componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
             EnhancedSlider("Diffusion size um", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
                 step = 5f, decimals = 1, tooltip = "Sigma in um for the diffusion of the couplers (5-20 um).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
             EnhancedSlider("Diffusion tail um", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
@@ -2610,7 +2628,8 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Display", expanded, { expanded = it }) {
             IntSlider("Preview max size", s.previewMaxSize, 128..1024, { s.previewMaxSize = it },
-                tooltip = "Max size of the long edge of the preview image, in pixels.")
+                tooltip = "Max size of the long edge of the preview image, in pixels.",
+                default = PARAM_DEFAULTS.previewMaxSize)
         }
     }
 
