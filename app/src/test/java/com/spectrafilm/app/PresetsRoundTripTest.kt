@@ -77,4 +77,22 @@ class PresetsRoundTripTest {
         // re-serializing the decoded state reproduces the same JSON (idempotent)
         assertEquals(firstJson, secondJson)
     }
+
+    @Test
+    fun decode_futureVersion_decodesKnownFieldsBestEffort() {
+        // A preset written by a NEWER app (higher schema version) must still decode the fields this
+        // build understands rather than being rejected — migrate() passes it through and the opt*
+        // reads apply. Guards the version-aware decode that replaced the ignored PRESET_VERSION.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":999,"filmProfile":"kodak_ektar_100"}"""), dst)
+        assertEquals("kodak_ektar_100", dst.filmProfile)
+    }
+
+    @Test
+    fun decode_noVersionField_stillDecodes() {
+        // A version-less JSON is treated as the current schema and decodes normally.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"filmProfile":"kodak_ektar_100"}"""), dst)
+        assertEquals("kodak_ektar_100", dst.filmProfile)
+    }
 }

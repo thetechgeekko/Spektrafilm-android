@@ -75,7 +75,6 @@ import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeException
-import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -569,16 +568,28 @@ class MainActivity : ComponentActivity() {
                         snackbarHost.currentSnackbarData?.dismiss()
                         snackbarHost.showSnackbar("MotionCam .mcraw import is coming — single RAW/DNG works today")
                     }
-                } else if (RawDecoder.isRawFileName(name) || true) {
+                } else {
                     runCatching {
                         ctx.contentResolver.takePersistableUriPermission(
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
                     }
-                    sourceUri = uri; sourceKind = SourceKind.RAW
-                    sourceName = "RAW: ${name.substringAfterLast('/')}"
                     rotation = SourceRotation.NONE
-                    status = "RAW selected"; previewTick++
+                    val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+                    if (isNonRawImage(name, mime)) {
+                        // A JPEG/HEIC chosen via the RAW document picker: process it on the normal
+                        // photo path rather than forcing it through LibRaw (which would fail, then
+                        // fall back to a lossy display-referred decode). RAW/DNG and ambiguous
+                        // content URIs (e.g. MIUI document IDs with no extension) fall through to
+                        // the RAW path below, so a genuine DNG is never misrouted.
+                        sourceUri = uri; sourceKind = SourceKind.PHOTO
+                        sourceName = "picked photo"
+                        status = "photo selected"; previewTick++
+                    } else {
+                        sourceUri = uri; sourceKind = SourceKind.RAW
+                        sourceName = "RAW: ${name.substringAfterLast('/')}"
+                        status = "RAW selected"; previewTick++
+                    }
                 }
             }
         }
