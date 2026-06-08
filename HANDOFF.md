@@ -1,6 +1,67 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — the MASKING KEYSTONE landed (+ the whole color/tone foundation) — PR #94 OPEN, #90–#93 MERGED
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — COLOR RANGE mask ("tame the reds, not the skin") — PR #96 OPEN, #90–#95 MERGED
+
+Short follow-on session. **Shipped the color range mask** (`docs/MASKING_SPEC.md §4`, the second range
+refinement after luminance range), the literal *"tame the reds, not the skin"* control. **Kotlin/UI only —
+`engine/spektra-core/src/main/cpp/**` was NOT touched, so the 26-test host parity suite is unaffected**
+(CI engine/parity/python jobs green). `:app:testDebugUnitTest` **126/126**, `:app:lintDebug` clean
+(verified on `/opt/android-sdk`).
+
+**▶ NEXT SESSION START HERE:** `git fetch origin main && git reset --hard origin/main` (the env may have
+reset). All masking work (#90–#95) is on `main`; **PR #96 (color range) is OPEN, draft** — if not yet
+merged, continue on branch `claude/exciting-hamilton-hya62`. **Commit + push EVERY increment immediately.**
+
+### What shipped this session (PR #96)
+**Color range mask** — a "Limit to a color" toggle restricts a mask's local adjustment to pixels near a
+target color, mirroring Lightroom's `crs:CorrectionRangeMask` Type=Color. Same verifiable pattern as the
+merged luminance range.
+- **`ColorRange`** (`masks/Mask.kt`) — `targetR/G/B` + `tolerance`/`feather`/`invert`. Distance is measured
+  in the **Rec-709 (Cr,Cb) chroma plane of the encoded output** (same encoded domain the luminance gate
+  uses): luma-independent, and **gray-neutral for every output space** (Rec-709 weights sum to 1 → a
+  neutral pixel has zero chroma regardless of primaries) — no per-space matrices, no decode/CS coupling.
+  Spanning hue (angle) + chroma (radius) separates a saturated red from a muted skin tone.
+- **`MaskCompositor`** gates each pixel's coverage by the color gate alongside the luminance gate (it
+  already reads the output pixel for the Tier-A ops, so no rasterization restructure).
+- **`MaskJson`** round-trips it in the recipe `"masks"` block (old recipes → `null` → strict no-op).
+- **`MaskPanel`** — "Limit to a color" toggle → Target red/green/blue + Color range + Color feather +
+  Invert color. **Slider-driven v1** (RGB target sliders; eyedropper is the device-gated next step).
+- Tests: `MaskTest.colorRange_chromaGate` (near-target selected, off-hue + gray rejected, feathered
+  interior sweep, invert) + `MaskCompositorTest.colorRange_limitsAdjustmentToColor` (a red fill brightens,
+  a blue fill gated out). Commit `f5df3c8`.
+
+### Next steps (all hang off the now-complete masking foundation; all parity-safe)
+1. **Eyedropper for the color-range target** (and luminance too) — tap the preview to sample the target
+   color into `ColorRange.targetR/G/B`. Pairs with the gesture overlay. **Device-gated for *feel*.**
+2. **Gesture overlay** — draw/drag the radial on the preview (reuse `CropOverlay`'s normalized-coord
+   patterns) + an on-preview alpha viz. Device-gated; the slider v1 is the safe hand-off.
+3. **Linear masks in the UI** (the data model + compositor already support `MaskComponent.Linear`).
+4. **Remaining Tier-A ops** (`MaskCompositor`): whites/blacks (linear endpoints), hue (Oklab rotate),
+   **temp/tint** (needs an output-space CAT decision — `CreativeWhiteBalance.matrix` is ProPhoto). See
+   `docs/MASKING_SPEC.md §3` (Class-P pointwise vs Class-S spatial).
+5. **Per-component range nesting** (LR nests range masks per-component; we apply them mask-wide for v1) +
+   **multi-sample color range** (LR samples ≤5 colors). **Brush** (`cr_mask_paint`); **AI Subject/Sky**
+   (LiteRT + guided-filter). Full designs in `MASKING_SPEC.md`.
+6. **Full `crs` XMP export** for true Lightroom interop (`MASKING_SPEC.md §7`).
+7. **Cleanup:** de-dup `ColorGrade`'s CCTF/Oklab onto `OutputCctf`/`Oklab`.
+8. **Device + R8 smoke** (no device in-env): the Masks panel — color/luminance range + the adjustments.
+
+### Key files (this session)
+`masks/{Mask,MaskCompositor,MaskJson}.kt` + `MaskPanel.kt`; tests `masks/{MaskTest,MaskCompositorTest}.kt`.
+Blueprint: **`docs/MASKING_SPEC.md`**. Catalog status: `docs/USER_DRIVEN_SOLUTIONS.md` + the
+`spectrafilm-solutions` skill.
+
+### ⚠️ Container-reset recovery (drilled ~5× across prior sessions)
+The env has re-cloned to an old commit mid-session before. **Recovery:** `git fetch origin main` (and/or
+the feature branch) → `git remote prune origin` → verify your work is in `origin/main` (PRs auto-merge
+fast here) or on `origin/<branch>` → `git reset --hard origin/main` (or `origin/<branch>`). **Untracked
+new files SURVIVE `reset --hard`; tracked edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false
+&& push` the instant a unit builds green. After a PR merges the remote branch may be auto-deleted (or left
+stale); re-push (`--force-with-lease` if it diverged from `main`) to recreate it for the next PR.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — the MASKING KEYSTONE landed (+ the whole color/tone foundation) — PR #94 OPEN, #90–#93 MERGED
 
 Marathon session. **Shipped the entire color/tone foundation AND the masking keystone** (forum pain #2,
 the app's biggest architectural gap). **Every change is Kotlin/UI + docs — `engine/spektra-core/src/main/cpp/**`

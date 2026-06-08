@@ -146,4 +146,20 @@ class MaskCompositorTest {
         MaskCompositor.applyInPlace(bright, W, H, ColorSpace.SRGB, true, listOf(adj))
         assertTrue("bright tone (in range) brightened", px(bright, 4, 4) > 0.7f)
     }
+
+    @Test
+    fun colorRange_limitsAdjustmentToColor() {
+        // +1 EV limited to a red target: a red fill brightens; a blue fill (wrong color) is gated out.
+        val adj = radialAdj(TierADelta(exposureEv = 1f)).let {
+            it.copy(mask = it.mask.copy(
+                colorRange = ColorRange(0.8f, 0.15f, 0.15f, tolerance = 0.18f, feather = 0.06f)))
+        }
+        val red = colorBuf(0.8f, 0.15f, 0.15f)
+        MaskCompositor.applyInPlace(red, W, H, ColorSpace.SRGB, true, listOf(adj))
+        assertTrue("matching red brightened", px(red, 4, 4) > 0.8f)         // R channel pushed up by +1 EV
+
+        val blue = colorBuf(0.15f, 0.15f, 0.8f)
+        MaskCompositor.applyInPlace(blue, W, H, ColorSpace.SRGB, true, listOf(adj))
+        assertEquals("non-matching blue gated out", 0.15f, px(blue, 4, 4), 1e-3f)  // R channel untouched
+    }
 }
