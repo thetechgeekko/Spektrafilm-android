@@ -1,17 +1,24 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — FRESH DOMAIN: CLF LUT export — PR #99 OPEN, #90–#98 MERGED
+## State (2026-06-08, LATEST) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
 
-**Masking is feature-complete and merged (#90–#98).** Pivoted to a fresh domain (user chose it): the
-`docs/USER_DRIVEN_SOLUTIONS.md` export/interop pain (#7). **First increment: CLF LUT export + a
-resolution picker.** Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite
-unaffected. `:app:testDebugUnitTest` **153/153**, `:app:lintDebug` clean, **`:app:assembleDebug` green**.
+**This session shipped PRs #90–#99, all merged to `main`** (tip `dc7bf54`), **zero engine C++ changes —
+the 26-test parity suite was untouched throughout.** The arc: §2/§3 color+tone foundation (color
+management, contrast, saturation/vibrance, gamut compression) → the **masking keystone** end-to-end
+(radial+gradient shapes via slider OR drag-on-preview, 8 Tier-A ops incl. an accurate Bradford-CAT
+Temp/Tint, luminance+color range refinements with eyedroppers) → a **ColorGrade de-dup** cleanup →
+pivot to a **fresh domain (export/interop): CLF LUT export + a resolution picker**. `:app:testDebugUnitTest`
+**153/153**, `:app:lintDebug` clean, `:app:assembleDebug` green; CI green on every PR.
 
-**▶ NEXT SESSION START HERE:** if #99 merged (`git merge-base --is-ancestor 32a19df origin/main`),
-`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip after the HANDOFF
-commit). **Remote branch auto-deletes on merge** → recreate with a normal `git push` after a merge.
+**▶ NEXT SESSION START HERE:** everything is on `main` — `git fetch origin main && git reset --hard
+origin/main` (no open PR; the branch auto-deleted on the #99 merge — recreate it with a normal
+`git push` for the next PR). **Recommended next: Onboarding (§6h)** — plain-language labels/tooltips + a
+`ParamHelp` map for the opaque controls (couplers/grain/halation/print-gamma) + Basic/Advanced toggles +
+"?" help sheets. Relabel-only → trivially parity-safe; broadest user reach; the help content is data
+(testable coverage). The full ranked fresh-domain backlog is below. **Commit + push every increment
+immediately** (container has reset mid-session in past runs).
 
-### What shipped this segment (PR #99) — `32a19df`
+### CLF LUT export (PR #99, merged) — `32a19df`
 **CLF LUT export + resolution picker.** The engine's `bakeCubeLut(params, size)` already supports any size
 + threads the output space, so this is a verifiable serializer + UI on top of the existing `.cube` export.
 - **`ClfWriter`** (pure, JVM-tested) — a baked `CubeLut` → Academy/ASC **CLF v3** ProcessList + LUT3D
