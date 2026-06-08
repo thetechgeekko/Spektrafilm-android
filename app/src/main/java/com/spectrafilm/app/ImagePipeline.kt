@@ -311,6 +311,10 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
 private fun ExportFormat.isJpeg(): Boolean =
     this == ExportFormat.JPEG || this == ExportFormat.ULTRA_HDR
 
+/** True for the 16-bit-per-channel formats, written from the float SimResult (not via a Bitmap). */
+fun ExportFormat.is16Bit(): Boolean =
+    this == ExportFormat.TIFF || this == ExportFormat.PNG16
+
 /**
  * Comprehensive list of standard ExifInterface TAG_* attributes copied verbatim from the
  * source image into the export. Deliberately includes GPS/location (the user wants a FULL
@@ -552,11 +556,12 @@ fun saveToGallery(
     format: ExportFormat,
     jpegQuality: Int = 95,
     sourceExif: SourceExif = SourceExif(emptyMap()),
+    displayName: String? = null,
 ): Uri {
     require(format != ExportFormat.TIFF) {
         "Use saveSimResultAsTiff() for TIFF export"
     }
-    val name = "Spektrafilm_${System.currentTimeMillis()}.${format.ext}"
+    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
     val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
 
@@ -645,7 +650,7 @@ private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
  * @param result  The engine SimResult whose float data is quantised to 16-bit
  * @return        The MediaStore [Uri] of the written file
  */
-fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
+fun saveSimResultAsTiff(ctx: Context, result: SimResult, displayName: String? = null): Uri {
     val w = result.width
     val h = result.height
     val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -690,7 +695,7 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
         if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
     }
 
-    val name = "Spektrafilm_${System.currentTimeMillis()}.tif"
+    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.tif"
     val resolver = ctx.contentResolver
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -745,7 +750,7 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
  * Unlike the 8-bit [saveToGallery] PNG path (Bitmap.compress, 8 bpc), this preserves
  * the engine's full tonal precision.
  */
-fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
+fun saveSimResultAsPng16(ctx: Context, result: SimResult, displayName: String? = null): Uri {
     val w = result.width
     val h = result.height
     val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -782,7 +787,7 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
         if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
     }
 
-    val name = "Spektrafilm_${System.currentTimeMillis()}.png"
+    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.png"
     val resolver = ctx.contentResolver
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
