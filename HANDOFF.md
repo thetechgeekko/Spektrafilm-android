@@ -1,8 +1,53 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.1 Contrast slider (drives the master tone curve) — PR #90 DRAFT
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.2 Saturation/Vibrance (Oklab post-engine grade) — NEW PR (PR #90 MERGED)
 
-Continuation on **PR #90 (DRAFT, base `main`)**, commit `3bad23d`. After §2 P0 color management
+**PR #90 was MERGED to `main`** (color management §2 P0 + Contrast §3.1 + the prior WB/RE/Wave-0 work
+are all on trunk now). Branch was re-synced to the merged `main` (`6bfd519`); the new work below is a
+**fresh PR**. Shipped **Saturation/Vibrance (§3.2)** — the other half of the "too punchy" fix. **Pure
+Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **88/88**,
+`:app:lintDebug` clean.
+
+### What shipped
+**`ColorGrade.kt`** (pure, JVM-tested) — a post-engine Oklab chroma grade applied **in place to the
+output buffer once, right after `simulate`** via a new `simResultToBitmapGraded(res, …)` helper that
+wraps `simResultToBitmap` at all 5 render sites. Because it mutates `res.data` in place and the export
+site computes the bitmap **before** the 16-bit `saveSimResultAsTiff(res)`, TIFF/PNG16/JPEG all inherit
+the grade — preview + every export stay WYSIWYG, no double-apply.
+- **Method:** decode output CCTF → linear → Oklab (Ottosson) → scale chroma (preserve L, hue) → linear
+  → re-encode. Saturation uniform `(1+sat)`; Vibrance low-chroma-weighted `(1+vib·exp(-C/0.12))`.
+- **All-spaces gray-neutrality (key):** Ottosson's linear-RGB→LMS rows each sum to 1, so `(v,v,v)→C=0`
+  for ANY primaries → grays never tint. So **no risky per-space color matrices** — only each space's
+  1-D transfer (mirrors `color_output.cpp::output_cctf_encode`), gated by `savingCctfEncoding`
+  (`cctfEncoded=false` → skip the CCTF round-trip). Perceptually exact for the sRGB family (default);
+  a faithful creative control for wide spaces.
+- **Wiring:** `ParamsState.saturation`/`vibrance` (UI-only); sliders in the Simulation→Output sub-tab;
+  `Presets` `"grade"` block (now contrast+saturation+vibrance); default 0,0 → byte-identical no-op.
+  `ColorGradeTest` (7: no-op, all-spaces gray-neutral, sat direction + grayscale endpoint, vibrance
+  favours muted, range clamp).
+
+### ⚠️ Container reset recurred AGAIN this session (recovered both times)
+The env re-cloned to `b7d6282` mid-session twice; both recovered cleanly because each increment was
+pushed the moment it was green (`git reset --hard origin/<branch>`). **Keep committing + pushing each
+increment immediately.** After #90 merged, the remote branch was auto-deleted; re-created by pushing.
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **Couplers relabel (§3.3, Tier 0):** plain labels ("Film color character (DIR couplers)") + a
+   top-of-panel redirect to Saturation/Vibrance. Completes §3 (tone/color). Trivial, high clarity.
+2. **WB follow-up (§1.2):** decouple creative WB from the decode cache (drag-interactive WB).
+3. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off.
+4. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam. The Contrast +
+   Saturation/Vibrance controls are designed to double as the per-mask Tier-A payload.
+5. **Device + R8 smoke** (no device in-env): verify wide-gamut display/export + the new Contrast/Sat/
+   Vibrance look on the S26.
+
+This is a fresh draft PR (base `main`). Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.1 Contrast slider (drives the master tone curve) — PR #90 (MERGED)
+
+Continuation on **PR #90 (base `main`)**, commit `3bad23d`. After §2 P0 color management
 (below), shipped the next color-foundation piece: **a discoverable Contrast slider (§3.1)**. **Pure
 Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **81/81**,
 `:app:lintDebug` clean.

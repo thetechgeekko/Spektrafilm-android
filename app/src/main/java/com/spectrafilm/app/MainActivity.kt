@@ -811,7 +811,7 @@ class MainActivity : ComponentActivity() {
                             crop,
                             state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
                         ).use { res ->
-                            simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
+                            simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance)
                         }
                     }
                 }
@@ -861,7 +861,7 @@ class MainActivity : ComponentActivity() {
                                 previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance) }
                     }
                     // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
                     // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
@@ -923,7 +923,7 @@ class MainActivity : ComponentActivity() {
                         e.simulatePreview(
                             proxy,
                             state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
             }
@@ -959,7 +959,7 @@ class MainActivity : ComponentActivity() {
                     // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
                     // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
                     val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
-                        simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
+                        simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance)
                     }
                     before to after
                 }
@@ -1180,7 +1180,7 @@ class MainActivity : ComponentActivity() {
                                         image.close()
                                     }
                                     try {
-                                        val bmp = simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
+                                        val bmp = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance)
                                         val uri = withContext(Dispatchers.IO) {
                                             when (exportFmt) {
                                                 ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
@@ -2565,6 +2565,17 @@ class MainActivity : ComponentActivity() {
                 else -> {
                     Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
                         { it.name }, { s.outputColorSpace = it })
+                    // Creative output grade (post-engine Oklab chroma; parity-safe). Negative
+                    // Saturation mutes a too-punchy look; Vibrance boosts muted colors while
+                    // sparing already-saturated ones.
+                    EnhancedSlider("Saturation", s.saturation, -100f..100f, { s.saturation = it },
+                        step = 1f, decimals = 0, default = 0f,
+                        tooltip = "Overall colorfulness of the output. Negative = softer/more muted " +
+                            "(tame a too-punchy look); positive = more vivid. Applied after the film render.")
+                    EnhancedSlider("Vibrance", s.vibrance, -100f..100f, { s.vibrance = it },
+                        step = 1f, decimals = 0, default = 0f,
+                        tooltip = "Like Saturation but weighted to muted colors, so already-saturated " +
+                            "tones (and skin) shift less. Applied after the film render.")
                     SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
                         "Add or not the CCTF to the saved image file")
                     SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
