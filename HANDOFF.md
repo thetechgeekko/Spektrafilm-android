@@ -1,6 +1,58 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — draw-on-the-preview mask geometry overlay — PR #98 OPEN, #90–#97 MERGED
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — FRESH DOMAIN: CLF LUT export — PR #99 OPEN, #90–#98 MERGED
+
+**Masking is feature-complete and merged (#90–#98).** Pivoted to a fresh domain (user chose it): the
+`docs/USER_DRIVEN_SOLUTIONS.md` export/interop pain (#7). **First increment: CLF LUT export + a
+resolution picker.** Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite
+unaffected. `:app:testDebugUnitTest` **153/153**, `:app:lintDebug` clean, **`:app:assembleDebug` green**.
+
+**▶ NEXT SESSION START HERE:** if #99 merged (`git merge-base --is-ancestor 32a19df origin/main`),
+`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip after the HANDOFF
+commit). **Remote branch auto-deletes on merge** → recreate with a normal `git push` after a merge.
+
+### What shipped this segment (PR #99) — `32a19df`
+**CLF LUT export + resolution picker.** The engine's `bakeCubeLut(params, size)` already supports any size
++ threads the output space, so this is a verifiable serializer + UI on top of the existing `.cube` export.
+- **`ClfWriter`** (pure, JVM-tested) — a baked `CubeLut` → Academy/ASC **CLF v3** ProcessList + LUT3D
+  (32f, trilinear), for **DaVinci Resolve 17+ / OCIO 2.3+**. `CubeLut.rgb` is blue-fastest = CLF's
+  3D-LUT Array order, so samples write through unchanged; floats forced to `.` decimal (Locale.US);
+  XML-escaped title. `ClfWriterTest` (4).
+- **`PresetPanel`** — a **Size** picker (17³/33³/65³) + a **.cube/.clf** toggle; bakes at the chosen
+  size, converts to CLF when picked. `lutFileName(film,print,size,clf)` replaced `cubeFileName`.
+- **Honest scope:** a 3D LUT is pointwise only (grain/halation/diffusion/glare omitted from the bake,
+  same as `.cube`). **CLF-import fidelity is pending validation in a real Resolve/OCIO** (structure +
+  ordering are unit-tested; real-host validation is the user's step).
+
+### The fresh-domain backlog (USER_DRIVEN_SOLUTIONS.md §6/§5 + the catalog) — pick next
+All parity-safe Tier 0/2/4 unless noted. Highest verifiable value first:
+1. **Onboarding (§6h, pain #8):** plain-language labels/tooltips + a `ParamHelp` map for the opaque
+   controls (couplers/grain/halation/print-gamma) + Basic/Advanced toggles + "?" help sheets. Broadest
+   reach; relabel-only (never change behavior → trivially parity-safe). Content is data (testable coverage).
+2. **Profile import (§6g, pain #5):** import a film/paper profile JSON from a URI with validation →
+   extensibility (community profiles without an APK rebuild). Validation is verifiable; asset/loader
+   integration is the meat.
+3. **Export polish (§6a/b):** LUT input/output color-space pickers (engine already threads them); a
+   **32-bit-float TIFF** output (B3) + **scene-linear TIFF/EXR of the input** (B1) — honest answer to the
+   "linear DNG" ask. (TIFF-writer changes are in `:lib:tiffwriter` C++, NOT the parity-gated engine.)
+4. **Slide-mode UX (§6e):** auto-suggest `scanFilm` for `type:"positive"` profiles + relabel. Tiny.
+5. **Presets/profiles (§6f):** fantasy-paper profiles + tungsten presets (data, verifiable).
+6. **AVIF export (§6c):** new `:lib:avifwriter` .so (avif-coder) — biggest integration risk (16 KB align).
+7. **Performance (§5):** fp16 / stage caches (no device) → GPU (needs an Adreno).
+ENGINE-GATED (defer, needs oracle goldens): true-B&W silver path (§6d), cyan-crosstalk cure (§2 P3).
+
+### Key files (this segment)
+NEW `ClfWriter.kt`, test `ClfWriterTest.kt`; edits `MainActivity.kt` (PresetPanel LUT export UI +
+handler), `ImagePipeline.kt` (`lutFileName`). LUT data type: `CubeLut` in `LutGpuPreview.kt`.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — draw-on-the-preview mask geometry overlay — PR #98 MERGED, #90–#97 MERGED
 
 Masks are now **drawable on the photo**, not just slider-positioned. A "Position on photo" button opens a
 full-screen editor (mirrors `CropOverlay`) to drag a radial (move + resize handles) or a gradient
