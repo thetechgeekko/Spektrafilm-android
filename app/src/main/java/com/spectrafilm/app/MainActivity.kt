@@ -362,6 +362,9 @@ class MainActivity : ComponentActivity() {
         // draw-on-the-preview mask geometry editor (positions the selected mask on the photo).
         var maskOverlayOpen by remember { mutableStateOf(false) }
         var maskEditIndex by remember { mutableStateOf(0) }
+        // eyedropper: sample a color-range mask's target by tapping the photo.
+        var sampleOverlayOpen by remember { mutableStateOf(false) }
+        var sampleMaskIndex by remember { mutableStateOf(0) }
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -843,7 +846,7 @@ class MainActivity : ComponentActivity() {
         // while cropping or comparing (those branches own the gestures / have no zoom).
         fun renderRoi(roi: RoiRect) {
             val e = engine ?: return
-            if (cropOverlayOpen || maskOverlayOpen || compareMode) return
+            if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return
             roiJobRef.value?.cancel()
             roiJobRef.value = scope.launch {
                 val result = runCatching {
@@ -912,7 +915,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
-                if (cropOverlayOpen || maskOverlayOpen || compareMode) return@collect
+                if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return@collect
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
@@ -1111,8 +1114,9 @@ class MainActivity : ComponentActivity() {
         // 2) else double-back-to-exit with one-time hint.
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
         BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && activeCategory == null) {
+        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -1284,9 +1288,11 @@ class MainActivity : ComponentActivity() {
                             Category.GLARE -> GlareSection(state)
                             Category.EXPERIMENTAL -> ExperimentalSection(state)
                             Category.TONE_CURVE -> ToneCurveSection(state, preview)
-                            Category.MASKS -> MasksSection(state, onEditOnPhoto = { idx ->
-                                maskEditIndex = idx; maskOverlayOpen = true
-                            })
+                            Category.MASKS -> MasksSection(
+                                state,
+                                onEditOnPhoto = { idx -> maskEditIndex = idx; maskOverlayOpen = true },
+                                onSampleColor = { idx -> sampleMaskIndex = idx; sampleOverlayOpen = true },
+                            )
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
@@ -1493,6 +1499,28 @@ class MainActivity : ComponentActivity() {
                         previewTick++
                     },
                     onCancel = { maskOverlayOpen = false },
+                )
+            }
+
+            // --- eyedropper: sample a color-range mask's target from the photo ---
+            if (sampleOverlayOpen && cropBmp != null &&
+                sampleMaskIndex in state.localAdjustments.indices &&
+                state.localAdjustments[sampleMaskIndex].mask.colorRange != null
+            ) {
+                PixelSampleOverlay(
+                    bitmap = cropBmp,
+                    onPick = { r, g, b ->
+                        val list = state.localAdjustments.toMutableList()
+                        val m = list[sampleMaskIndex].mask
+                        val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                        list[sampleMaskIndex] = list[sampleMaskIndex].copy(
+                            mask = m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b)),
+                        )
+                        state.localAdjustments = list
+                        sampleOverlayOpen = false
+                        previewTick++
+                    },
+                    onCancel = { sampleOverlayOpen = false },
                 )
             }
 
