@@ -228,6 +228,17 @@ class MaskCompositorTest {
     }
 
     @Test
+    fun temp_warmsInsideMask_leavesOutside() {
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(temp = 60f))))
+        // inside the mask a neutral gray is warmed (R lifted over B); outside untouched
+        assertTrue("warmed inside (R > B)", chan(b, 4, 4, 0) > chan(b, 4, 4, 2))
+        assertEquals("corner untouched (R)", 0.5f, chan(b, 0, 0, 0), 1e-4f)
+        assertEquals("corner untouched (B)", 0.5f, chan(b, 0, 0, 2), 1e-4f)
+    }
+
+    @Test
     fun whitesBlacks_anchorTheOppositeEnd() {
         // whites+ keeps the black point anchored; blacks− keeps the white point anchored.
         val black = grayBuf(0f)

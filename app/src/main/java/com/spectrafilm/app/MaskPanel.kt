@@ -72,6 +72,14 @@ fun MasksSection(s: ParamsState) {
         }
 
         // --- Adjustment applied where the mask is opaque (Tier-A, pointwise on the output) ---
+        EnhancedSlider("Temp", adj.delta.temp, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(temp = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "White balance inside the mask: + warms (yellow), − cools (blue).")
+        EnhancedSlider("Tint", adj.delta.tint, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(tint = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "White balance inside the mask: + magenta, − green.")
         EnhancedSlider("Exposure", adj.delta.exposureEv, -4f..4f,
             { set(adj.copy(delta = adj.delta.copy(exposureEv = it))) },
             step = 0.05f, decimals = 2, default = 0f,

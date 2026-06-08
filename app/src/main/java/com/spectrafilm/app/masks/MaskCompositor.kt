@@ -17,6 +17,7 @@
 package com.spectrafilm.app.masks
 
 import com.spectrafilm.app.ContrastCurve
+import com.spectrafilm.app.LocalWhiteBalance
 import com.spectrafilm.app.Oklab
 import com.spectrafilm.app.OutputCctf
 import com.spectrafilm.engine.ColorSpace
@@ -45,6 +46,9 @@ object MaskCompositor {
         for (adj in active) {
             val d = adj.delta
             val gain = exposureGain(d.exposureEv)
+            // temp/tint = a colorimetric white balance: a Bradford chromatic adaptation in the output
+            // space, precomputed once as a linear-RGB 3x3. null when neutral (no per-pixel cost).
+            val wbM = if (d.temp != 0f || d.tint != 0f) LocalWhiteBalance.matrix(cs, d.temp, d.tint) else null
             val sat = d.saturation / 100f
             val hue = d.hue
             val contrast = d.contrast
@@ -73,6 +77,13 @@ object MaskCompositor {
                         rgb[0] = OutputCctf.decode(cs, or, cctfEncoded) * gain
                         rgb[1] = OutputCctf.decode(cs, og, cctfEncoded) * gain
                         rgb[2] = OutputCctf.decode(cs, ob, cctfEncoded) * gain
+                        // white balance (temp/tint): chromatic-adaptation 3x3 in linear output RGB
+                        if (wbM != null) {
+                            val r = rgb[0]; val g = rgb[1]; val b = rgb[2]
+                            rgb[0] = wbM[0] * r + wbM[1] * g + wbM[2] * b
+                            rgb[1] = wbM[3] * r + wbM[4] * g + wbM[5] * b
+                            rgb[2] = wbM[6] * r + wbM[7] * g + wbM[8] * b
+                        }
                         // saturation (linear Oklab; hue + lightness preserved)
                         if (sat != 0f) Oklab.scaleChromaLinear(rgb, sat, 0f)
                         // hue (linear Oklab; rotate chroma, lightness preserved)
@@ -104,10 +115,10 @@ object MaskCompositor {
         }
     }
 
-    /** True when [d] has a Tier-A op the compositor wires today (exposure / sat / hue / contrast / levels). */
+    /** True when [d] has a Tier-A op the compositor wires today (exposure / WB / sat / hue / contrast / levels). */
     private fun hasOp(d: TierADelta): Boolean =
-        d.exposureEv != 0f || d.saturation != 0f || d.hue != 0f || d.contrast != 0f ||
-            d.whites != 0f || d.blacks != 0f
+        d.exposureEv != 0f || d.temp != 0f || d.tint != 0f || d.saturation != 0f || d.hue != 0f ||
+            d.contrast != 0f || d.whites != 0f || d.blacks != 0f
 
     /** Exposure as a linear-light gain (2^EV); 0 EV → 1.0 (no-op). */
     private fun exposureGain(ev: Float): Float =
