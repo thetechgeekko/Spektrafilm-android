@@ -109,6 +109,27 @@ fun MasksSection(
             { set(adj.copy(delta = adj.delta.copy(blacks = it))) },
             step = 1f, decimals = 0, default = 0f,
             tooltip = "The darkest tones inside the mask: + lifts shadows, − deepens them.")
+        // Class-S spatial ops (edge-aware; a neighborhood blur on the output luma).
+        EnhancedSlider("Clarity", adj.delta.clarity, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(clarity = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Midtone local contrast inside the mask (+ punch, − soften).")
+        EnhancedSlider("Texture", adj.delta.texture, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(texture = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Fine detail inside the mask: + emphasizes, − smooths.")
+        EnhancedSlider("Sharpness", adj.delta.sharpness, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(sharpness = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Edge sharpness inside the mask (unsharp mask on fine detail).")
+        EnhancedSlider("Highlights", adj.delta.highlights, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(highlights = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Bright regions inside the mask: − recovers, + brightens.")
+        EnhancedSlider("Shadows", adj.delta.shadows, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(shadows = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Dark regions inside the mask: + lifts, − deepens.")
 
         // --- Shape (radial: position / size / feather) ---
         val comp = adj.mask.components.firstOrNull()

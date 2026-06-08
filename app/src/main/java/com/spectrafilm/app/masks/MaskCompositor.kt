@@ -61,8 +61,28 @@ object MaskCompositor {
             val lumRange = adj.mask.luminanceRange?.takeIf { it.isActive }
             val colorRange = adj.mask.colorRange?.takeIf { it.isActive }
             val alpha = MaskRaster.rasterize(adj.mask, w, h)
-            var p = 0
             val n = w * h
+
+            // Class-S spatial pass: precompute the output luma + the blurred buffer(s) each active op
+            // needs (radii scale with the long edge so draft and export match). Luma-only — colour is
+            // preserved by scaling RGB by the luma ratio. Skipped entirely when no spatial op is set.
+            val spatial = d.hasSpatial
+            val maxWH = maxOf(w, h).toFloat()
+            val luma = if (spatial) FloatArray(n).also {
+                var q = 0
+                while (q < n) { val kk = q * 3; it[q] = 0.2126f * f.get(kk) + 0.7152f * f.get(kk + 1) + 0.0722f * f.get(kk + 2); q++ }
+            } else null
+            val blurClarity = if (luma != null && d.clarity != 0f) MaskSpatial.blur(luma, w, h, MaskSpatial.RADIUS_FRAC_CLARITY * maxWH) else null
+            val blurTexture = if (luma != null && d.texture != 0f) MaskSpatial.blur(luma, w, h, MaskSpatial.RADIUS_FRAC_TEXTURE * maxWH) else null
+            val blurSharp = if (luma != null && d.sharpness != 0f) MaskSpatial.blur(luma, w, h, MaskSpatial.RADIUS_FRAC_SHARP * maxWH) else null
+            val blurRegion = if (luma != null && (d.highlights != 0f || d.shadows != 0f)) MaskSpatial.blur(luma, w, h, MaskSpatial.RADIUS_FRAC_REGION * maxWH) else null
+            val clarityK = d.clarity / 100f * 1.2f
+            val textureK = d.texture / 100f * 1.0f
+            val sharpK = d.sharpness / 100f * 1.5f
+            val highK = d.highlights / 100f * 0.35f
+            val shadK = d.shadows / 100f * 0.35f
+
+            var p = 0
             while (p < n) {
                 var a = alpha[p]
                 if (a > 0f) {
@@ -104,6 +124,26 @@ object MaskCompositor {
                             eg = ((eg - bp) * invSpan).coerceIn(0f, 1f)
                             eb = ((eb - bp) * invSpan).coerceIn(0f, 1f)
                         }
+                        // Class-S spatial: add a luma-only local-contrast / regional delta, preserving
+                        // colour by scaling the (pointwise-adjusted) RGB by the luma ratio.
+                        if (spatial && luma != null) {
+                            val lp = luma[p]
+                            var dL = 0f
+                            if (blurClarity != null) dL += clarityK * (lp - blurClarity[p]) * MaskSpatial.midtoneWeight(lp)
+                            if (blurTexture != null) dL += textureK * (lp - blurTexture[p])
+                            if (blurSharp != null) dL += sharpK * (lp - blurSharp[p])
+                            if (blurRegion != null) {
+                                val br = blurRegion[p]
+                                if (highK != 0f) dL += highK * smoothstep((br - 0.5f) / 0.5f)
+                                if (shadK != 0f) dL += shadK * smoothstep((0.5f - br) / 0.5f)
+                            }
+                            if (dL != 0f && lp > 1e-4f) {
+                                val ratio = (lp + dL).coerceIn(0f, 1f) / lp
+                                er = (er * ratio).coerceIn(0f, 1f)
+                                eg = (eg * ratio).coerceIn(0f, 1f)
+                                eb = (eb * ratio).coerceIn(0f, 1f)
+                            }
+                        }
                         // blend by alpha: (1−a)·in + a·out
                         f.put(k, or + a * (er - or))
                         f.put(k + 1, og + a * (eg - og))
@@ -115,10 +155,8 @@ object MaskCompositor {
         }
     }
 
-    /** True when [d] has a Tier-A op the compositor wires today (exposure / WB / sat / hue / contrast / levels). */
-    private fun hasOp(d: TierADelta): Boolean =
-        d.exposureEv != 0f || d.temp != 0f || d.tint != 0f || d.saturation != 0f || d.hue != 0f ||
-            d.contrast != 0f || d.whites != 0f || d.blacks != 0f
+    /** True when [d] has any Tier-A op the compositor wires (pointwise Class-P or spatial Class-S). */
+    private fun hasOp(d: TierADelta): Boolean = !d.isNoOp
 
     /** Exposure as a linear-light gain (2^EV); 0 EV → 1.0 (no-op). */
     private fun exposureGain(ev: Float): Float =

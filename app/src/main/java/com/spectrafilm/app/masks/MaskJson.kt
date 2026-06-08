@@ -40,6 +40,8 @@ object MaskJson {
         put("exposureEv", d.exposureEv.toDouble()); put("temp", d.temp.toDouble()); put("tint", d.tint.toDouble())
         put("saturation", d.saturation.toDouble()); put("contrast", d.contrast.toDouble()); put("hue", d.hue.toDouble())
         put("whites", d.whites.toDouble()); put("blacks", d.blacks.toDouble())
+        put("clarity", d.clarity.toDouble()); put("sharpness", d.sharpness.toDouble()); put("texture", d.texture.toDouble())
+        put("highlights", d.highlights.toDouble()); put("shadows", d.shadows.toDouble())
     }
 
     private fun deltaFromJson(o: JSONObject?): TierADelta {
@@ -47,6 +49,7 @@ object MaskJson {
         return TierADelta(
             f(o, "exposureEv"), f(o, "temp"), f(o, "tint"), f(o, "saturation"), f(o, "contrast"), f(o, "hue"),
             f(o, "whites"), f(o, "blacks"),
+            f(o, "clarity"), f(o, "sharpness"), f(o, "texture"), f(o, "highlights"), f(o, "shadows"),
         )
     }
 
