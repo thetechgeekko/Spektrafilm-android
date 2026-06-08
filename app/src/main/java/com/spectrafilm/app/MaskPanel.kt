@@ -36,7 +36,12 @@ import com.spectrafilm.app.masks.MaskComponent
 import com.spectrafilm.app.masks.TierADelta
 
 @Composable
-fun MasksSection(s: ParamsState) {
+fun MasksSection(
+    s: ParamsState,
+    onEditOnPhoto: (Int) -> Unit = {},
+    onSampleColor: (Int) -> Unit = {},
+    onSampleLuminance: (Int) -> Unit = {},
+) {
     var expanded by remember { mutableStateOf(true) }
     var selected by remember { mutableIntStateOf(0) }
     val masks = s.localAdjustments
@@ -70,6 +75,8 @@ fun MasksSection(s: ParamsState) {
         fun set(updated: LocalAdjustment) {
             s.localAdjustments = masks.toMutableList().also { it[idx] = updated }
         }
+
+        TextButton(onClick = { onEditOnPhoto(idx) }) { Text("Position on photo") }
 
         // --- Adjustment applied where the mask is opaque (Tier-A, pointwise on the output) ---
         EnhancedSlider("Temp", adj.delta.temp, -100f..100f,
@@ -153,6 +160,7 @@ fun MasksSection(s: ParamsState) {
             "Restrict the adjustment to a brightness range — e.g. only the highlights, or only the shadows.")
         if (lum != null) {
             fun setLum(r: LuminanceRange) = set(adj.copy(mask = adj.mask.copy(luminanceRange = r)))
+            TextButton(onClick = { onSampleLuminance(idx) }) { Text("Pick from photo") }
             EnhancedSlider("Tone min", lum.lumMin, 0f..1f, { setLum(lum.copy(lumMin = it)) },
                 step = 0.01f, decimals = 2, default = 0f, tooltip = "Darkest tone the adjustment affects.")
             EnhancedSlider("Tone max", lum.lumMax, 0f..1f, { setLum(lum.copy(lumMax = it)) },
@@ -170,6 +178,7 @@ fun MasksSection(s: ParamsState) {
             "Restrict the adjustment to one color family — e.g. only the reds, leaving skin untouched.")
         if (col != null) {
             fun setCol(r: ColorRange) = set(adj.copy(mask = adj.mask.copy(colorRange = r)))
+            TextButton(onClick = { onSampleColor(idx) }) { Text("Pick from photo") }
             EnhancedSlider("Target red", col.targetR, 0f..1f, { setCol(col.copy(targetR = it)) },
                 step = 0.01f, decimals = 2, default = 0.5f, tooltip = "The color to affect — red component.")
             EnhancedSlider("Target green", col.targetG, 0f..1f, { setCol(col.copy(targetG = it)) },
