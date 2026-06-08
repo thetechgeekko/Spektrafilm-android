@@ -376,6 +376,7 @@ class MainActivity : ComponentActivity() {
         var sampleOverlayOpen by remember { mutableStateOf(false) }
         var sampleMaskIndex by remember { mutableStateOf(0) }
         var sampleLuminanceMode by remember { mutableStateOf(false) }
+        var sampleWbMode by remember { mutableStateOf(false) }  // gray-point WB eyedropper (no mask)
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -1125,7 +1126,7 @@ class MainActivity : ComponentActivity() {
         // 2) else double-back-to-exit with one-time hint.
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
         BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
-        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false }
+        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
         BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory != null) { activeCategory = null }
         BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory == null) {
             if (backArmed) {
@@ -1214,8 +1215,10 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
-                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
-                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
+                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true },
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
+                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
                                 filmGroups = filmGroups,
@@ -1498,32 +1501,65 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // --- eyedropper: sample a color- or luminance-range mask's target from the photo ---
+            // --- eyedropper: WB gray-point, or a color-/luminance-range mask target ---
             val sampleMask = state.localAdjustments.getOrNull(sampleMaskIndex)?.mask
-            val sampleReady = sampleOverlayOpen && cropBmp != null && sampleMask != null &&
-                (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null)
+            val sampleReady = sampleOverlayOpen && cropBmp != null && (
+                sampleWbMode ||
+                    (sampleMask != null &&
+                        (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null))
+                )
             if (sampleReady && cropBmp != null) {
                 PixelSampleOverlay(
                     bitmap = cropBmp,
-                    title = if (sampleLuminanceMode) "Tap to pick a tone" else "Tap to pick a color",
-                    hint = if (sampleLuminanceMode)
-                        "Tap a tone (a highlight or a shadow) to target it, then apply."
-                    else "Tap the color you want the mask to target (e.g. a red), then apply.",
-                    onPick = { r, g, b ->
-                        val list = state.localAdjustments.toMutableList()
-                        val m = list[sampleMaskIndex].mask
-                        val nm = if (sampleLuminanceMode) {
-                            m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
-                        } else {
-                            val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
-                            m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
-                        }
-                        list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
-                        state.localAdjustments = list
-                        sampleOverlayOpen = false
-                        previewTick++
+                    title = when {
+                        sampleWbMode -> "Tap a neutral (grey / white)"
+                        sampleLuminanceMode -> "Tap to pick a tone"
+                        else -> "Tap to pick a color"
                     },
-                    onCancel = { sampleOverlayOpen = false },
+                    hint = when {
+                        sampleWbMode -> "Tap something that should be neutral grey or white — white balance is set to make it neutral."
+                        sampleLuminanceMode -> "Tap a tone (a highlight or a shadow) to target it, then apply."
+                        else -> "Tap the color you want the mask to target (e.g. a red), then apply."
+                    },
+                    onPick = { r, g, b, nx, ny ->
+                        if (sampleWbMode) {
+                            sampleOverlayOpen = false; sampleWbMode = false
+                            // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
+                            // and solve the WB that neutralizes it. Off the main thread (decode + crop).
+                            scope.launch {
+                                runCatching {
+                                    val full = loadSourceCachedForZoom(MAX_EDGE_PX)
+                                    val avg = withContext(Dispatchers.Default) {
+                                        val crop = cropLinearImageRect(full, nx, ny, 5, 5)
+                                        try { avgRgb(crop) } finally { crop.close() }
+                                    }
+                                    CreativeWhiteBalance.solveNeutral(
+                                        avg.first, avg.second, avg.third,
+                                        state.creativeWbTemp, state.creativeWbTint,
+                                    )
+                                }.onSuccess { (t, ti) ->
+                                    state.creativeWbTemp = t; state.creativeWbTint = ti
+                                    status = "white balance set from neutral"
+                                }.onFailure {
+                                    Toast.makeText(ctx, "Couldn't sample for white balance: ${it.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } else {
+                            val list = state.localAdjustments.toMutableList()
+                            val m = list[sampleMaskIndex].mask
+                            val nm = if (sampleLuminanceMode) {
+                                m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
+                            } else {
+                                val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                                m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
+                            }
+                            list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
+                            state.localAdjustments = list
+                            sampleOverlayOpen = false
+                            previewTick++
+                        }
+                    },
+                    onCancel = { sampleOverlayOpen = false; sampleWbMode = false },
                 )
             }
 
@@ -2481,7 +2517,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
+    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
             Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
@@ -2506,6 +2542,9 @@ class MainActivity : ComponentActivity() {
                 step = 1f, decimals = 0,
                 tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.",
                 default = 0f)
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
             Divider()
             GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
                 Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
@@ -2567,7 +2606,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ImportRawSection(s: ParamsState, isRaw: Boolean) {
+    private fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("RAW White Balance", expanded, { expanded = it }) {
             if (!isRaw) {
@@ -2586,6 +2625,9 @@ class MainActivity : ComponentActivity() {
                 EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
                     step = 1f, decimals = 0, default = 0f,
                     tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green; 0 = off.")
+                OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                    Text("Eyedropper — tap a neutral to set white balance")
+                }
             } else {
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
                 Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
@@ -3020,6 +3062,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Small helpers kept at file scope. */
+
+/** Average RGB (0..1) of a small LinearImage crop — the WB eyedropper's sampled neutral. */
+private fun avgRgb(img: com.spectrafilm.engine.LinearImage): Triple<Float, Float, Float> {
+    val f = img.data.duplicate().order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+    val n = (img.width * img.height).coerceAtLeast(1)
+    var r = 0f; var g = 0f; var b = 0f
+    for (i in 0 until n) { val k = i * 3; r += f.get(k); g += f.get(k + 1); b += f.get(k + 2) }
+    val inv = 1f / n
+    return Triple(r * inv, g * inv, b * inv)
+}
+
 @Composable
 private fun LocalConfigurationHeightDp(): Int =
     androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
