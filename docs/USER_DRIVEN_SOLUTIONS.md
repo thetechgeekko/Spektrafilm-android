@@ -353,6 +353,13 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §6h **Onboarding: plain-language help sheets SHIPPED (first slice)** (`ParamHelp.kt`
+  + `HelpSheet`/`SectionCard` in `Widgets.kt`): a "?" badge on each opaque section
+  (grain/halation/couplers/film+print gamma/preflash/glare) opens a bottom sheet explaining the
+  control in photographer's terms ("what it does to the photo + when to use it"). Tier 0,
+  relabel-only — the engine receives identical params, parity untouched. `ParamHelp` is pure data,
+  JVM-unit-tested (`ParamHelpTest`, +4 → 157/157). **Still to come for §6h:** Basic/Advanced
+  disclosure toggle per section + "apply film defaults" snackbar on profile switch.
 - 2026-06-08 — §2 P1 **ACES gamut compression SHIPPED (v1, post-clip softener)** (`GamutCompress.kt`):
   an amount slider that pulls the most-saturated colors toward neutral, softening the cyan/edge fringe;
   default 0 = byte-identical. The pre-clip cure (P3) stays deferred (engine-gated).

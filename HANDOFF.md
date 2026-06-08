@@ -1,6 +1,37 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: plain-language help sheets
+
+Picks up the "next = onboarding (§6h)" item below. **First slice shipped on PR #101 (DRAFT):** a "?"
+help badge on each opaque section opens a `ModalBottomSheet` explaining the control in photographer's
+terms. **Tier 0 (UI / relabel-only) — `engine/spektra-core/src/main/cpp/**` untouched, the 26-test
+parity suite is unaffected.** `:app:testDebugUnitTest` **157/157** (+4 `ParamHelpTest`),
+`:app:lintDebug` clean, `:app:compileDebugKotlin` green.
+
+- **`ParamHelp.kt`** (new, pure data) — a `ParamHelpText` registry mapping a stable key →
+  `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character (DIR couplers),
+  Film & print contrast (gamma), Preflash, Glare. Photographer-facing ("what it does to the photo +
+  when to reach for it"); no Compose/Android types, so coverage is JVM-unit-testable.
+- **`Widgets.kt`** — `SectionCard` gains an optional `help: ParamHelp?` → a glyph "?" badge (drawn,
+  no material-icons dep, matching the hand-drawn `Chevron`) + a `HelpSheet` (`ModalBottomSheet`,
+  scrollable, carries the GPLv3 spektrafilm attribution). Long-press tooltip + a semantics label make
+  it discoverable/accessible. Backward-compatible (`help` defaults null → existing call sites
+  unchanged).
+- **`MainActivity.kt`** — wired the six opaque `SectionCard`s to their `ParamHelpText.forKey(...)`.
+
+**Next §6h increments (NOT in #101):** (a) **Basic/Advanced disclosure toggle** per Grain/Halation/
+Couplers (split the dense slider lists; relabel-only); (b) **"apply film defaults" snackbar** on
+profile switch; (c) optionally extend help to the remaining sections (Simulation/Input/Display).
+After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish (§6a/b).
+
+**▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
+`git fetch origin main && git reset --hard origin/main`; else continue on
+`claude/exciting-hamilton-hya62`. The remote branch auto-deletes on merge → recreate with a normal
+`git push`. **Commit + push every increment immediately** (container has reset mid-session before).
+
+---
+
+## State (2026-06-08) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
 
 **This session shipped PRs #90–#99, all merged to `main`** (tip `dc7bf54`), **zero engine C++ changes —
 the 26-test parity suite was untouched throughout.** The arc: §2/§3 color+tone foundation (color
