@@ -461,6 +461,64 @@ class ParamsState {
             blue = ToneCurveChannel(toneCurveBlue),
         ),
     )
+
+    /**
+     * Reset the per-stock character overrides — grain, halation, DIR couplers and the film/print
+     * density-curve gamma — to their neutral defaults, so a freshly selected film or paper shows its
+     * own baked character instead of the previous stock's manual tweaks. Creative and global edits
+     * (exposure, white balance, crop, tone curve, output grade, masks…) are deliberately left
+     * untouched.
+     *
+     * Powers the "Use its defaults" snackbar action on profile switch (onboarding §6h). UI/state only
+     * — the engine still receives a complete param set, so this carries no parity impact.
+     */
+    fun resetStockCharacter() {
+        val d = ParamsState()
+        // Grain
+        grainActive = d.grainActive
+        grainSublayersActive = d.grainSublayersActive
+        grainParticleAreaUm2 = d.grainParticleAreaUm2
+        grainParticleScale = d.grainParticleScale
+        grainParticleScaleLayers = d.grainParticleScaleLayers
+        grainDensityMin = d.grainDensityMin
+        grainUniformity = d.grainUniformity
+        grainBlur = d.grainBlur
+        grainBlurDyeCloudsUm = d.grainBlurDyeCloudsUm
+        grainMicroStructure = d.grainMicroStructure
+        grainNSubLayers = d.grainNSubLayers
+        // Halation
+        halationActive = d.halationActive
+        halScatterAmount = d.halScatterAmount
+        halScatterSpatialScale = d.halScatterSpatialScale
+        halHalationAmount = d.halHalationAmount
+        halHalationSpatialScale = d.halHalationSpatialScale
+        halBoostEv = d.halBoostEv
+        halProtectEv = d.halProtectEv
+        halBoostRange = d.halBoostRange
+        halScatterCoreUm = d.halScatterCoreUm
+        halScatterTailUm = d.halScatterTailUm
+        halScatterTailWeightPct = d.halScatterTailWeightPct
+        halHalationStrengthPct = d.halHalationStrengthPct
+        halFirstSigmaUm = d.halFirstSigmaUm
+        halNBounces = d.halNBounces
+        halBounceDecay = d.halBounceDecay
+        halRenormalize = d.halRenormalize
+        // DIR couplers
+        couplersActive = d.couplersActive
+        couplersAmount = d.couplersAmount
+        couplersInhibitionSamelayer = d.couplersInhibitionSamelayer
+        couplersInhibitionInterlayer = d.couplersInhibitionInterlayer
+        couplersGammaSamelayer = d.couplersGammaSamelayer
+        couplersGammaRtoGb = d.couplersGammaRtoGb
+        couplersGammaGtoRb = d.couplersGammaGtoRb
+        couplersGammaBtoRg = d.couplersGammaBtoRg
+        couplersDiffusionSizeUm = d.couplersDiffusionSizeUm
+        couplersDiffusionTailUm = d.couplersDiffusionTailUm
+        couplersDiffusionTailWeight = d.couplersDiffusionTailWeight
+        // Density-curve gamma (Experimental)
+        filmGammaFactor = d.filmGammaFactor
+        printGammaFactor = d.printGammaFactor
+    }
 }
 
 /** A diffusion-filter sub-section (camera or print stage). */

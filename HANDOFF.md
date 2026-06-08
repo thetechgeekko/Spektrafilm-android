@@ -1,6 +1,44 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: help sheets + Basic/Advanced + film-defaults snackbar
+
+Picks up the "next = onboarding (§6h)" item below. **Three slices shipped on PR #101 (DRAFT)** — help
+sheets, Basic/Advanced disclosure, and a "use its defaults" snackbar. **Tier 0 (UI / relabel-only) —
+`engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
+`:app:testDebugUnitTest` **160/160** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`), `:app:lintDebug`
+clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0b` (Basic/Advanced),
+`df16f23` (snackbar) + docs.
+
+- **Plain-language help sheets** — `ParamHelp.kt` (new, pure data): a `ParamHelpText` registry mapping
+  a stable key → `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character
+  (DIR couplers), Film & print contrast (gamma), Preflash, Glare. `Widgets.kt`: `SectionCard` gains an
+  optional `help: ParamHelp?` → a drawn "?" badge (no material-icons dep, matching the hand-drawn
+  `Chevron`) + a `HelpSheet` (`ModalBottomSheet`, scrollable, GPLv3 attribution). `MainActivity.kt`
+  wired the six opaque sections. JVM-tested (`ParamHelpTest`).
+- **Basic/Advanced disclosure** — new `AdvancedToggle` widget; Grain/Halation/Couplers now show a short
+  Basic set by default (Grain: particle area + blur; Halation: amount/size, scatter, boost EV;
+  Couplers: the three strength scalars) with "Show advanced options" revealing the full physical set.
+  Pure presentation — hidden controls keep state, engine still gets every param.
+- **"Use its defaults" snackbar** — switching the film/print profile offers a snackbar whose action
+  resets the per-stock character (grain/halation/couplers/film+print gamma) to neutral so the new stock
+  shows its baked character; creative/global edits are preserved. New `ParamsState.resetStockCharacter()`
+  (builds a fresh `ParamsState`, copies the character groups → tracks the initializers). JVM-tested
+  (`ParamsStateResetTest`).
+
+**§6h is essentially complete** (labels/tooltips + ParamHelp map + "?" sheets + Basic/Advanced +
+per-section reset (grain has it; others reachable via the snackbar) + film-defaults snackbar). Optional
+leftovers: extend help/Basic-Advanced to Simulation/Input/Display; a Basic/Advanced **persisted**
+preference. After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish
+(§6a/b — LUT colour-space pickers, 32-bit-float TIFF, scene-linear TIFF/EXR), slide-mode UX (§6e).
+
+**▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
+`git fetch origin main && git reset --hard origin/main`; else continue on
+`claude/exciting-hamilton-hya62`. The remote branch auto-deletes on merge → recreate with a normal
+`git push`. **Commit + push every increment immediately** (container has reset mid-session before).
+
+---
+
+## State (2026-06-08) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
 
 **This session shipped PRs #90–#99, all merged to `main`** (tip `dc7bf54`), **zero engine C++ changes —
 the 26-test parity suite was untouched throughout.** The arc: §2/§3 color+tone foundation (color
