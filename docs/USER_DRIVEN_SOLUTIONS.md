@@ -353,6 +353,12 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §6b **High-bit-depth TIFF exports SHIPPED (PR #102)** — a true **32-bit IEEE-float TIFF**
+  writer (`:lib:tiffwriter`, host-tested) feeds two new export formats: **`TIFF32F`** (B3 — the engine's
+  float output written verbatim, no quantise/clamp) and **`SCENE_LINEAR_TIFF`** (B1 — the decoded
+  scene-linear input before the engine, untagged 32f float; the honest "linear DNG to finish elsewhere"
+  answer). Not the parity engine. Deferred: EXR (needs a new encoder); the LUT input-CS picker stays
+  engine-gated.
 - 2026-06-08 — §6a/§6b **Export sheet (Lightroom-style) SHIPPED (PR #102)** — tapping Export now opens a
   format-aware `ExportSheet` (RE'd from lrmobile: format → format-specific options → dimensions → colour
   → naming → metadata) instead of using the global Settings defaults. Format (+JPEG/UltraHDR quality),

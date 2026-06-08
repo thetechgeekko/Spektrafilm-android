@@ -4,9 +4,22 @@
 
 A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
 "use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **PR #102 (DRAFT)** then adds, on
-top of `fb8fa0d`: **§6e slide-mode** (`111125f`) and a **Lightroom-style export sheet** (§6a/§6b;
-`a8a81a0` pure core + `7e038d8` UI/wiring). **Tier 0/2 (UI + post-engine encode) —
+top of `fb8fa0d`: **§6e slide-mode** (`111125f`), a **Lightroom-style export sheet** (§6a/§6b;
+`a8a81a0`+`7e038d8`), and **§6b high-bit-depth TIFF exports** (`8ede3db` native writer, `dcdd352` 32f
+output, `0b00faa` scene-linear input). **Tier 0/2 (UI + post-engine encode) —
 `engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
+
+### §6b high-bit-depth TIFF (`:lib:tiffwriter`, NOT the parity engine)
+- **True 32-bit IEEE-float TIFF writer** (`writeTiff32fToMemory/File`, SampleFormat=3) — refactored the
+  16-bit + 32f paths onto a shared core; **host-tested** (`runFloatCase`: tags + verbatim float
+  round-trip incl. out-of-[0,1]; the pre-existing 16-bit assertions stay green, proving the refactor is
+  byte-safe). JNI `nativeWriteFloatBuffer` + `TiffWriter.writeFloat32`.
+- **`ExportFormat.TIFF32F`** (B3) — `saveSimResultAsTiff(float32=true)` writes the engine's float
+  SimResult VERBATIM (no quantise/clamp/copy), with the matching ICC.
+- **`ExportFormat.SCENE_LINEAR_TIFF`** (B1, the honest "linear DNG") — `saveLinearInputAsTiff32f` writes
+  the decoded scene-linear INPUT (before the engine) as an **untagged** 32f TIFF (no ICC; a
+  display-gamma profile would mis-describe linear data); the export flow skips the engine for it.
+- Renamed `is16Bit()` → `isHighBitDepth()` (TIFF/PNG16/TIFF32F/SCENE_LINEAR_TIFF → full-res in the sheet).
 `:app:testDebugUnitTest` **171/171** (+`ExportOptionsTest` 8), `:app:lintDebug` clean,
 **`:app:assembleDebug` green**.
 
