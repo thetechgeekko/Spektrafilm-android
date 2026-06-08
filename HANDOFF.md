@@ -35,11 +35,19 @@ has all merged work); re-push to recreate the (auto-deleted) feature branch.
 2. **Gamut-compression polish (§2 P1+):** expose THR/LIM adjustable + a target-gamut selector; the
    **pre-clip cure (§2 P3)** is the real fix but is Tier-3 (engine, gated, no oracle golden — needs a
    user decision on the no-golden exception + a host parity-suite run).
-3. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam; the
-   Contrast/Sat/Vibrance/gamut controls double as the per-mask Tier-A payload.
+3. **Masking (Wave 2, §4) — STARTED.** The pure **foundation** shipped on this branch too (commit
+   `4aaca2d`, in PR #93): `com.spectrafilm.app.masks` — `Mask`/`MaskComponent` (Linear/Radial folded by
+   BlendMode + invert + opacity, normalized 0..1), `TierADelta`/`LocalAdjustment`, `MaskRaster`
+   (mask → alpha buffer), `MaskTest` (11). **Next masking increment = the COMPOSITOR**: blend a
+   `LocalAdjustment` on the `simResultToBitmap` output seam (decode CCTF → Tier-A op → re-encode →
+   `(1−a)·in + a·out`), reusing `ColorGrade`/`CreativeWhiteBalance` for the Tier-A ops (a `MaskRasterBundle`
+   caches alpha by mask-hash+size). Then the linear/radial gesture UI (reuse `CropOverlay` patterns) +
+   the `"masks"` recipe-JSON block. Then color/luminance range masks (the literal "tame the reds, not
+   the skin" fix).
 4. **Device + R8 smoke** (no device in-env): verify the new color controls on the S26.
 
-This is a fresh draft PR (base `main`). Merging is policy-gated (needs the user's go-ahead).
+This is a fresh draft PR (PR #93, base `main`) — now carries §2 P1 gamut compression **and** the §4
+masking foundation. Merging is policy-gated (needs the user's go-ahead).
 
 ---
 
