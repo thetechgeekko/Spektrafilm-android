@@ -159,6 +159,8 @@ object Presets {
 
         put("grade", JSONObject().apply {
             put("contrast", s.contrast.toDouble())
+            put("saturation", s.saturation.toDouble())
+            put("vibrance", s.vibrance.toDouble())
         })
 
         put("camera", JSONObject().apply {
@@ -323,6 +325,8 @@ object Presets {
 
         o.optJSONObject("grade")?.let { g ->
             s.contrast = g.f("contrast", s.contrast)
+            s.saturation = g.f("saturation", s.saturation)
+            s.vibrance = g.f("vibrance", s.vibrance)
         }
 
         o.optJSONObject("camera")?.let { c ->

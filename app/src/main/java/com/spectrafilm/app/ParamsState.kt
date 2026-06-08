@@ -95,6 +95,12 @@ class ParamsState {
     // stage. Hue-neutral (master = all channels). Lives in the Tone Curve panel; gated by its switch.
     var contrast by mutableFloatStateOf(0f)
 
+    // Creative Saturation / Vibrance [-100,100]; 0 = identity. NOT SpektraParams fields — applied as a
+    // post-engine Oklab chroma grade on the output buffer (ColorGrade), so the engine + parity suite
+    // are untouched. Saturation is uniform; Vibrance weights low-chroma (muted) colors more.
+    var saturation by mutableFloatStateOf(0f)
+    var vibrance by mutableFloatStateOf(0f)
+
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
     var autoExposure by mutableStateOf(false)

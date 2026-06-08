@@ -9,6 +9,7 @@ import android.net.Uri
 import android.graphics.Bitmap
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.SimResult
 import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
@@ -487,4 +488,15 @@ private fun createTaggedBitmap(w: Int, h: Int, cs: ColorSpace): Bitmap {
         }
     }
     return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+}
+
+/**
+ * Apply the creative Saturation/Vibrance grade in place to [res]'s output buffer, then convert to a
+ * bitmap. Mutating `res.data` in place means a subsequent 16-bit export ([saveSimResultAsTiff] /
+ * [saveSimResultAsPng16]) that reads the SAME [res] inherits the grade — so preview and every export
+ * format stay WYSIWYG. No-op (zero per-pixel cost) when [saturation] and [vibrance] are both 0.
+ */
+fun simResultToBitmapGraded(res: SimResult, cctfEncoded: Boolean, saturation: Float, vibrance: Float): Bitmap {
+    ColorGrade.applyInPlace(res.data, res.width, res.height, res.colorSpace, cctfEncoded, saturation, vibrance)
+    return simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
 }

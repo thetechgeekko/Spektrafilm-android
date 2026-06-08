@@ -171,7 +171,17 @@ matrix → users can't disentangle them; it's the wrong UI for "I want less satu
    channels). Negative = the **mute** direction users want. Compose *under* a user-drawn curve by
    concatenating LUTs in Kotlin before packing. slider=0 emits no points → strict no-op. Do **not**
    wire to `film_gamma` (color trap).
-2. **Saturation + Vibrance → Oklab post-op on `SimResult.data`** (Tier 2, **S–M**). Per pixel: decode
+2. **Saturation + Vibrance → Oklab post-op on `SimResult.data`** ✅ **SHIPPED** (`ColorGrade.kt`, Tier
+   2). Applied in place to the engine output buffer once, right after `simulate` (`simResultToBitmapGraded`),
+   so preview + every export format stay WYSIWYG (the in-place mutation propagates to the 16-bit TIFF/PNG
+   read of the same `SimResult`). decode output CCTF → Oklab (Ottosson) → scale chroma → re-encode;
+   `cctfEncoded` mirrors `savingCctfEncoding`. Saturation uniform `(1+sat)`, Vibrance low-chroma-weighted
+   `(1+vib·exp(-C/0.12))`. **Gray stays neutral for ALL output spaces** (Ottosson LMS rows sum to 1 →
+   `(v,v,v)→C=0`), so no risky per-space color matrices — only each space's 1-D transfer. Sliders in the
+   Simulation→Output sub-tab; round-trips in the recipe `"grade"` block; default 0,0 → byte-identical.
+   `ColorGradeTest` (7); tests 88/88, lint clean. Honest: perceptually exact for the sRGB family
+   (default), a faithful creative control for wide spaces. Original plan below:
+   Per pixel: decode
    CCTF → linear → Oklab (Ottosson matrices) → scale chroma `C`, preserve `L,h`. Saturation: uniform
    `C·(1+sat)`. Vibrance: low-chroma-weighted `C·(1+vib·w(C))`, `w=exp(−C/C0)`, `C0≈0.12`. Single op
    on the float buffer that feeds **both** preview (`ImagePipeline.kt:92`) and TIFF export (`:671`).
@@ -339,6 +349,9 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §3.2 **Saturation/Vibrance SHIPPED** (`ColorGrade.kt`): post-engine Oklab chroma grade
+  on the output buffer, gray-neutral for all output spaces. §3 now: only the couplers relabel (§3.3) +
+  "Film-Feel" master (§3.4) remain.
 - 2026-06-08 — §3.1 **Contrast SHIPPED** (`ContrastCurve.kt`): a discoverable, hue-neutral Contrast
   slider driving the parity-gated master tone curve, composing under hand-drawn curves. Next in §3:
   Saturation/Vibrance (Oklab post-op) + couplers relabel.
