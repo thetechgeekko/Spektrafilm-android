@@ -17,14 +17,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +40,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -53,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PlainTooltip
@@ -82,6 +87,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
@@ -172,8 +179,10 @@ fun SectionCard(
     modifier: Modifier = Modifier,
     enabledSwitch: Boolean? = null,
     onEnabledChange: ((Boolean) -> Unit)? = null,
+    help: ParamHelp? = null,
     content: @Composable () -> Unit,
 ) {
+    var showHelp by remember { mutableStateOf(false) }
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -194,6 +203,10 @@ fun SectionCard(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
+            if (help != null) {
+                HelpBadge(title) { showHelp = true }
+                Spacer(Modifier.width(8.dp))
+            }
             if (enabledSwitch != null && onEnabledChange != null) {
                 Switch(checked = enabledSwitch, onCheckedChange = onEnabledChange)
                 Spacer(Modifier.width(8.dp))
@@ -207,6 +220,73 @@ fun SectionCard(
                     .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) { content() }
+        }
+    }
+    if (help != null && showHelp) {
+        HelpSheet(help) { showHelp = false }
+    }
+}
+
+/**
+ * A small circular "?" affordance for a [SectionCard] header. Drawn with a glyph rather than a
+ * material-icons dependency (matching [Chevron]); a long-press tooltip + semantics label name the
+ * section so it is discoverable and accessible. [onClick] opens the section's [HelpSheet].
+ */
+@Composable
+private fun HelpBadge(title: String, onClick: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    TextTooltip("What does \"$title\" do?") {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .border(BorderStroke(1.dp, accent.copy(alpha = 0.55f)), CircleShape)
+                .clickable(onClick = onClick)
+                .semantics { contentDescription = "About $title" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "?",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+            )
+        }
+    }
+}
+
+/**
+ * A bottom-sheet "help sheet" carrying a control's plain-language [ParamHelp]: a headline, a
+ * one-line summary and a fuller explanation, with the GPLv3 spektrafilm attribution. Content is
+ * scrollable so long bodies fit on short screens.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HelpSheet(help: ParamHelp, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(help.title, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                help.summary,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                help.body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Film modeling powered by spektrafilm",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
         }
     }
 }

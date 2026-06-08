@@ -2715,7 +2715,7 @@ class MainActivity : ComponentActivity() {
     private fun GrainSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Grain", expanded, { expanded = it }, enabledSwitch = s.grainActive,
-            onEnabledChange = { s.grainActive = it }) {
+            onEnabledChange = { s.grainActive = it }, help = ParamHelpText.forKey(ParamHelpText.GRAIN)) {
             SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
             EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
                 step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.", default = PARAM_DEFAULTS.grainParticleAreaUm2)
@@ -2766,7 +2766,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PreflashSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Preflash", expanded, { expanded = it }) {
+        SectionCard("Preflash", expanded, { expanded = it }, help = ParamHelpText.forKey(ParamHelpText.PREFLASH)) {
             EnhancedSlider("Exposure", s.preflashExposure, 0f..2f, { s.preflashExposure = it },
                 step = 0.005f, decimals = 3, tooltip = "Preflash exposure value in ev for the print", default = PARAM_DEFAULTS.preflashExposure)
             EnhancedSlider("Y filter shift", s.preflashYFilterShift, -20f..20f, { s.preflashYFilterShift = it },
@@ -2780,7 +2780,7 @@ class MainActivity : ComponentActivity() {
     private fun HalationSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Halation", expanded, { expanded = it }, enabledSwitch = s.halationActive,
-            onEnabledChange = { s.halationActive = it }) {
+            onEnabledChange = { s.halationActive = it }, help = ParamHelpText.forKey(ParamHelpText.HALATION)) {
             EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.", default = PARAM_DEFAULTS.halScatterAmount)
             EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
@@ -2828,7 +2828,7 @@ class MainActivity : ComponentActivity() {
     private fun CouplersSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Film color character (couplers)", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
-            onEnabledChange = { s.couplersActive = it }) {
+            onEnabledChange = { s.couplersActive = it }, help = ParamHelpText.forKey(ParamHelpText.COUPLERS)) {
             Text(
                 "Models film's chemical color crosstalk (DIR couplers) — the cause of film's " +
                     "characteristic color separation and edge effects. Looking for a plain saturation " +
@@ -2870,7 +2870,7 @@ class MainActivity : ComponentActivity() {
     private fun GlareSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Glare", expanded, { expanded = it }, enabledSwitch = s.glareActive,
-            onEnabledChange = { s.glareActive = it }) {
+            onEnabledChange = { s.glareActive = it }, help = ParamHelpText.forKey(ParamHelpText.GLARE)) {
             EnhancedSlider("Percent", s.glarePercent, 0f..1f, { s.glarePercent = it },
                 step = 0.01f, decimals = 2, tooltip = "Percentage of the glare light (typically 0.1-0.25)", default = PARAM_DEFAULTS.glarePercent)
             EnhancedSlider("Roughness", s.glareRoughness, 0f..1f, { s.glareRoughness = it },
@@ -2883,7 +2883,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ExperimentalSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Experimental", expanded, { expanded = it }) {
+        SectionCard("Experimental", expanded, { expanded = it },
+            help = ParamHelpText.forKey(ParamHelpText.PRINT_GAMMA)) {
             EnhancedSlider("Film gamma factor", s.filmGammaFactor, 0f..3f, { s.filmGammaFactor = it },
                 step = 0.05f, decimals = 2, tooltip = "Gamma factor of the negative density curves.", default = PARAM_DEFAULTS.filmGammaFactor)
             EnhancedSlider("Print gamma factor", s.printGammaFactor, 0f..3f, { s.printGammaFactor = it },
