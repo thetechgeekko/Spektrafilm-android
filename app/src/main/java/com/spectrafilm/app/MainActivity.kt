@@ -811,7 +811,7 @@ class MainActivity : ComponentActivity() {
                             crop,
                             state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
                         ).use { res ->
-                            simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress)
+                            simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
                         }
                     }
                 }
@@ -861,7 +861,7 @@ class MainActivity : ComponentActivity() {
                                 previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
-                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress) }
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments) }
                     }
                     // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
                     // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
@@ -923,7 +923,7 @@ class MainActivity : ComponentActivity() {
                         e.simulatePreview(
                             proxy,
                             state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
-                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress) }
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
             }
@@ -959,7 +959,7 @@ class MainActivity : ComponentActivity() {
                     // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
                     // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
                     val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
-                        simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress)
+                        simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
                     }
                     before to after
                 }
@@ -1180,7 +1180,7 @@ class MainActivity : ComponentActivity() {
                                         image.close()
                                     }
                                     try {
-                                        val bmp = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress)
+                                        val bmp = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
                                         val uri = withContext(Dispatchers.IO) {
                                             when (exportFmt) {
                                                 ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
