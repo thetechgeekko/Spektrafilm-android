@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.app.masks.BlendMode
 import com.spectrafilm.app.masks.LocalAdjustment
+import com.spectrafilm.app.masks.LuminanceRange
 import com.spectrafilm.app.masks.Mask
 import com.spectrafilm.app.masks.MaskComponent
 import com.spectrafilm.app.masks.TierADelta
@@ -96,6 +97,23 @@ fun MasksSection(s: ParamsState) {
         EnhancedSlider("Mask opacity", adj.mask.opacity, 0f..1f,
             { set(adj.copy(mask = adj.mask.copy(opacity = it))) },
             step = 0.01f, decimals = 2, default = 1f)
+
+        // --- Limit to a tonal range (luminance range mask) ---
+        val lum = adj.mask.luminanceRange
+        SwitchRow("Limit to tones", lum != null,
+            { on -> set(adj.copy(mask = adj.mask.copy(luminanceRange = if (on) LuminanceRange() else null))) },
+            "Restrict the adjustment to a brightness range — e.g. only the highlights, or only the shadows.")
+        if (lum != null) {
+            fun setLum(r: LuminanceRange) = set(adj.copy(mask = adj.mask.copy(luminanceRange = r)))
+            EnhancedSlider("Tone min", lum.lumMin, 0f..1f, { setLum(lum.copy(lumMin = it)) },
+                step = 0.01f, decimals = 2, default = 0f, tooltip = "Darkest tone the adjustment affects.")
+            EnhancedSlider("Tone max", lum.lumMax, 0f..1f, { setLum(lum.copy(lumMax = it)) },
+                step = 0.01f, decimals = 2, default = 1f, tooltip = "Brightest tone the adjustment affects.")
+            EnhancedSlider("Tone feather", lum.feather, 0.01f..0.5f, { setLum(lum.copy(feather = it)) },
+                step = 0.01f, decimals = 2, default = 0.1f, tooltip = "Softness of the tonal range edges.")
+            SwitchRow("Invert tones", lum.invert, { setLum(lum.copy(invert = it)) },
+                "Affect the tones OUTSIDE the range instead.")
+        }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {

@@ -131,4 +131,19 @@ class MaskCompositorTest {
         assertTrue("center darkened (below pivot)", px(b, 4, 4) < 0.3f)
         assertEquals("corner untouched", 0.3f, px(b, 0, 0), 1e-4f)
     }
+
+    @Test
+    fun luminanceRange_limitsAdjustmentToTones() {
+        // +1 EV limited to highlights (luma 0.5..1): a dark fill is gated out, a bright fill changes.
+        val adj = radialAdj(TierADelta(exposureEv = 1f)).let {
+            it.copy(mask = it.mask.copy(luminanceRange = LuminanceRange(lumMin = 0.5f, feather = 0.05f)))
+        }
+        val dark = grayBuf(0.3f)
+        MaskCompositor.applyInPlace(dark, W, H, ColorSpace.SRGB, true, listOf(adj))
+        assertEquals("dark tone gated out of the range", 0.3f, px(dark, 4, 4), 1e-3f)
+
+        val bright = grayBuf(0.7f)
+        MaskCompositor.applyInPlace(bright, W, H, ColorSpace.SRGB, true, listOf(adj))
+        assertTrue("bright tone (in range) brightened", px(bright, 4, 4) > 0.7f)
+    }
 }

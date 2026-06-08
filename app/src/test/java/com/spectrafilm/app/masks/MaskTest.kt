@@ -167,4 +167,21 @@ class MaskTest {
         // angle is a no-op at 0° (existing behavior preserved)
         assertEquals(wide.alphaAt(0.5f, 0.5f), rot.alphaAt(0.5f, 0.5f), 1e-5f)  // center same
     }
+
+    @Test
+    fun luminanceRange_trapezoidGate() {
+        val r = LuminanceRange(lumMin = 0.4f, lumMax = 0.8f, feather = 0.1f)
+        assertTrue(r.isActive)
+        assertEquals("mid-range full", 1f, r.gate(0.6f), 1e-4f)
+        assertEquals("below range", 0f, r.gate(0.1f), 1e-3f)
+        assertEquals("above range", 0f, r.gate(0.95f), 1e-3f)
+        val edge = r.gate(0.35f)                                // in the lower feather band
+        assertTrue("feathered edge", edge > 0f && edge < 1f)
+        // invert flips the gate
+        val inv = r.copy(invert = true)
+        assertEquals(0f, inv.gate(0.6f), 1e-4f)
+        assertEquals(1f, inv.gate(0.1f), 1e-3f)
+        // full range is a no-op
+        assertTrue(!LuminanceRange().isActive)
+    }
 }

@@ -47,34 +47,39 @@ object MaskCompositor {
             val gain = exposureGain(d.exposureEv)
             val sat = d.saturation / 100f
             val contrast = d.contrast
+            val lumRange = adj.mask.luminanceRange?.takeIf { it.isActive }
             val alpha = MaskRaster.rasterize(adj.mask, w, h)
             var p = 0
             val n = w * h
             while (p < n) {
-                val a = alpha[p]
+                var a = alpha[p]
                 if (a > 0f) {
                     val k = p * 3
                     val or = f.get(k); val og = f.get(k + 1); val ob = f.get(k + 2)
-                    // decode → linear, exposure gain
-                    rgb[0] = OutputCctf.decode(cs, or, cctfEncoded) * gain
-                    rgb[1] = OutputCctf.decode(cs, og, cctfEncoded) * gain
-                    rgb[2] = OutputCctf.decode(cs, ob, cctfEncoded) * gain
-                    // saturation (linear Oklab; hue + lightness preserved)
-                    if (sat != 0f) Oklab.scaleChromaLinear(rgb, sat, 0f)
-                    // encode → display
-                    var er = OutputCctf.encode(cs, rgb[0], cctfEncoded)
-                    var eg = OutputCctf.encode(cs, rgb[1], cctfEncoded)
-                    var eb = OutputCctf.encode(cs, rgb[2], cctfEncoded)
-                    // contrast (encoded, hue-neutral per-channel S-curve)
-                    if (contrast != 0f) {
-                        er = ContrastCurve.curveAt(er, contrast)
-                        eg = ContrastCurve.curveAt(eg, contrast)
-                        eb = ContrastCurve.curveAt(eb, contrast)
+                    // luminance-range refinement: gate coverage by the output luma (Rec-709 on display).
+                    if (lumRange != null) a *= lumRange.gate(0.2126f * or + 0.7152f * og + 0.0722f * ob)
+                    if (a > 0f) {
+                        // decode → linear, exposure gain
+                        rgb[0] = OutputCctf.decode(cs, or, cctfEncoded) * gain
+                        rgb[1] = OutputCctf.decode(cs, og, cctfEncoded) * gain
+                        rgb[2] = OutputCctf.decode(cs, ob, cctfEncoded) * gain
+                        // saturation (linear Oklab; hue + lightness preserved)
+                        if (sat != 0f) Oklab.scaleChromaLinear(rgb, sat, 0f)
+                        // encode → display
+                        var er = OutputCctf.encode(cs, rgb[0], cctfEncoded)
+                        var eg = OutputCctf.encode(cs, rgb[1], cctfEncoded)
+                        var eb = OutputCctf.encode(cs, rgb[2], cctfEncoded)
+                        // contrast (encoded, hue-neutral per-channel S-curve)
+                        if (contrast != 0f) {
+                            er = ContrastCurve.curveAt(er, contrast)
+                            eg = ContrastCurve.curveAt(eg, contrast)
+                            eb = ContrastCurve.curveAt(eb, contrast)
+                        }
+                        // blend by alpha: (1−a)·in + a·out
+                        f.put(k, or + a * (er - or))
+                        f.put(k + 1, og + a * (eg - og))
+                        f.put(k + 2, ob + a * (eb - ob))
                     }
-                    // blend by alpha: (1−a)·in + a·out
-                    f.put(k, or + a * (er - or))
-                    f.put(k + 1, og + a * (eg - og))
-                    f.put(k + 2, ob + a * (eb - ob))
                 }
                 p++
             }
