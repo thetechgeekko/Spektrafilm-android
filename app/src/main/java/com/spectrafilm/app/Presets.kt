@@ -157,6 +157,10 @@ object Presets {
             put("tint", s.creativeWbTint.toDouble())
         })
 
+        put("grade", JSONObject().apply {
+            put("contrast", s.contrast.toDouble())
+        })
+
         put("camera", JSONObject().apply {
             put("exposureCompensationEv", s.exposureCompensationEv.toDouble())
             put("autoExposure", s.autoExposure)
@@ -315,6 +319,10 @@ object Presets {
         o.optJSONObject("creativeWb")?.let { c ->
             s.creativeWbTemp = c.f("temp", s.creativeWbTemp)
             s.creativeWbTint = c.f("tint", s.creativeWbTint)
+        }
+
+        o.optJSONObject("grade")?.let { g ->
+            s.contrast = g.f("contrast", s.contrast)
         }
 
         o.optJSONObject("camera")?.let { c ->
