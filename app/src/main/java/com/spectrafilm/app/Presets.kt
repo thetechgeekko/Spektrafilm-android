@@ -12,6 +12,7 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.net.Uri
+import com.spectrafilm.app.masks.MaskJson
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.libraw.WhiteBalance
@@ -163,6 +164,8 @@ object Presets {
             put("vibrance", s.vibrance.toDouble())
             put("gamutCompress", s.gamutCompress.toDouble())
         })
+
+        put("masks", MaskJson.toJson(s.localAdjustments))
 
         put("camera", JSONObject().apply {
             put("exposureCompensationEv", s.exposureCompensationEv.toDouble())
@@ -330,6 +333,8 @@ object Presets {
             s.vibrance = g.f("vibrance", s.vibrance)
             s.gamutCompress = g.f("gamutCompress", s.gamutCompress)
         }
+
+        o.optJSONArray("masks")?.let { s.localAdjustments = MaskJson.fromJson(it) }
 
         o.optJSONObject("camera")?.let { c ->
             s.exposureCompensationEv = c.f("exposureCompensationEv", s.exposureCompensationEv)

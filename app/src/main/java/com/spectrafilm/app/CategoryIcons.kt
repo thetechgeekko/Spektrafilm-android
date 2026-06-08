@@ -261,6 +261,18 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Masks — local adjustments: a radial mask boundary (circle) + a centre pin.
+    // -----------------------------------------------------------------------
+    val Masks: ImageVector by lazy {
+        icon("Masks") {
+            // Mask boundary (radial gradient, r=8)
+            strokePath("M 20 12 C 20 16.42 16.42 20 12 20 C 7.58 20 4 16.42 4 12 C 4 7.58 7.58 4 12 4 C 16.42 4 20 7.58 20 12 Z")
+            // Centre pin (filled dot)
+            fillPath("M 13.5 12 C 13.5 12.83 12.83 13.5 12 13.5 C 11.17 13.5 10.5 12.83 10.5 12 C 10.5 11.17 11.17 10.5 12 10.5 C 12.83 10.5 13.5 11.17 13.5 12 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Experimental — chemistry / Erlenmeyer flask
     // Narrow neck tapering to a wide triangular body, with a liquid-level
     // line and two small bubble circles above it.

@@ -7,6 +7,8 @@ package com.spectrafilm.app
 import android.content.Context
 import android.net.Uri
 import android.graphics.Bitmap
+import com.spectrafilm.app.masks.LocalAdjustment
+import com.spectrafilm.app.masks.MaskCompositor
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SimResult
@@ -491,10 +493,11 @@ private fun createTaggedBitmap(w: Int, h: Int, cs: ColorSpace): Bitmap {
 }
 
 /**
- * Apply the creative output grade (gamut compression + Saturation/Vibrance) in place to [res]'s output
- * buffer, then convert to a bitmap. Mutating `res.data` in place means a subsequent 16-bit export
- * ([saveSimResultAsTiff] / [saveSimResultAsPng16]) that reads the SAME [res] inherits the grade — so
- * preview and every export format stay WYSIWYG. No-op (zero per-pixel cost) when all three are 0.
+ * Apply the creative output grade (gamut compression + Saturation/Vibrance) AND the local-adjustment
+ * masks in place to [res]'s output buffer, then convert to a bitmap. Mutating `res.data` in place means
+ * a subsequent 16-bit export ([saveSimResultAsTiff] / [saveSimResultAsPng16]) that reads the SAME [res]
+ * inherits both — so preview and every export format stay WYSIWYG. Masks run AFTER the global grade
+ * (local adjustments are on the final graded image). All-no-op → zero per-pixel cost.
  */
 fun simResultToBitmapGraded(
     res: SimResult,
@@ -502,7 +505,9 @@ fun simResultToBitmapGraded(
     saturation: Float,
     vibrance: Float,
     gamutCompress: Float,
+    localAdjustments: List<LocalAdjustment> = emptyList(),
 ): Bitmap {
     ColorGrade.applyInPlace(res.data, res.width, res.height, res.colorSpace, cctfEncoded, saturation, vibrance, gamutCompress)
+    MaskCompositor.applyInPlace(res.data, res.width, res.height, res.colorSpace, cctfEncoded, localAdjustments)
     return simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
 }

@@ -95,4 +95,27 @@ class PresetsRoundTripTest {
         Presets.decode(JSONObject("""{"filmProfile":"kodak_ektar_100"}"""), dst)
         assertEquals("kodak_ektar_100", dst.filmProfile)
     }
+
+    @Test
+    fun roundTrip_preservesLocalAdjustmentMasks() {
+        val src = ParamsState().apply {
+            localAdjustments = listOf(
+                com.spectrafilm.app.masks.LocalAdjustment(
+                    com.spectrafilm.app.masks.Mask(
+                        listOf(com.spectrafilm.app.masks.Mask.Component(
+                            com.spectrafilm.app.masks.BlendMode.ADD,
+                            com.spectrafilm.app.masks.MaskComponent.Radial(0.4f, 0.6f, 0.3f, 0.2f, 0.5f, angleDeg = 15f),
+                            value = 0.8f,
+                        )),
+                        opacity = 0.9f,
+                    ),
+                    com.spectrafilm.app.masks.TierADelta(exposureEv = 0.75f, saturation = 25f, contrast = -10f),
+                ),
+            )
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+        assertEquals(src.localAdjustments, dst.localAdjustments)
+        assertEquals(1, dst.localAdjustments.size)
+    }
 }

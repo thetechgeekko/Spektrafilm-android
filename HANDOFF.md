@@ -1,6 +1,88 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §2 P1 ACES gamut compression (v1) — NEW PR (PR #90/#91/#92 MERGED)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — the MASKING KEYSTONE landed (+ the whole color/tone foundation) — PR #94 OPEN, #90–#93 MERGED
+
+Marathon session. **Shipped the entire color/tone foundation AND the masking keystone** (forum pain #2,
+the app's biggest architectural gap). **Every change is Kotlin/UI + docs — `engine/spektra-core/src/main/cpp/**`
+was NEVER touched, so the 26-test host parity suite is unaffected.** `:app:testDebugUnitTest` **122/122**,
+`:app:lintDebug` clean (verified on `/opt/android-sdk`).
+
+### ⚠️⚠️ FIVE container resets this session — commit + push EVERY increment, immediately
+The env re-cloned to an old commit (`b7d6282`) **five times** mid-session, each time reverting the local
+working tree. **Nothing was lost** only because every increment was pushed the moment it went green.
+**Recovery procedure (drilled 5×):** `git fetch origin main` (and/or the feature branch) → `git remote
+prune origin` → verify your work is in `origin/main` (PRs auto-merge fast here) or on the branch →
+`git reset --hard origin/main` (or `origin/<branch>`). **Untracked new files SURVIVE `reset --hard`**
+(GamutCompress.kt did once); tracked edits do NOT. One near-miss: the couplers relabel was built +
+verified but I almost moved on without committing — the stop-hook caught it. **Rule: `git add &&
+commit -c commit.gpgsign=false && push` the instant a unit builds green, before starting the next.**
+After a PR merges, the remote branch is auto-deleted; re-push to recreate it for the next PR.
+
+### What's MERGED to `main` this session (PR #90–#93)
+The whole **§2/§3 color + tone roadmap** from `docs/USER_DRIVEN_SOLUTIONS.md`, all parity-safe Tier-0/2:
+1. **§2 P0 color management** (`ColorManagement.kt`, #90) — per-output-space display tagging
+   (`createBitmap` w/ color space) + `COLOR_MODE_WIDE_COLOR_GAMUT` + ICC embed on TIFF/PNG/JPEG. Fixed
+   "wide-gamut output shown/saved as sRGB". The Wave-0 foundation everything else is judged on.
+2. **§3.1 Contrast** (`ContrastCurve.kt`, #90) — a hue-neutral S-curve driving the parity-gated master
+   tone curve; composes under a hand-drawn curve.
+3. **§3.2 Saturation/Vibrance** (`ColorGrade.kt`, #91) — post-engine Oklab chroma grade on the output
+   buffer; gray-neutral for ALL output spaces (Ottosson LMS rows sum to 1).
+4. **§3.3 couplers relabel** (#92) — plain-language DIR-coupler panel + redirect to Sat/Vibrance.
+5. **§2 P1 ACES gamut compression** (`GamutCompress.kt`, #93) — a "Gamut compression" slider that
+   softens the cyan/edge fringe (post-clip softener; the pre-clip cure is the deferred Tier-3 §2 P3).
+6. **Masking foundation + compositor + Tier-A + schema** (#93) — see below.
+7. **`docs/MASKING_SPEC.md`** (#93) — the Lightroom-RE'd masking blueprint (3-agent synthesis).
+
+Shared helpers added: **`OutputCctf.kt`** (per-output-space CCTF) + **`Oklab.kt`** (chroma scale).
+**TODO (cleanup):** `ColorGrade` still has inline copies of the CCTF + Oklab math — de-dup onto
+`OutputCctf` + `Oklab` (guarded by `ColorGradeTest`).
+
+### The MASKING KEYSTONE — now a complete, user-facing feature
+`com.spectrafilm.app.masks` (pure, JVM-tested) + the UI, all **Tier-2 on the `simResultToBitmap` output
+seam — engine untouched**. End-to-end path: **data model → rasterization → compositor → render wiring →
+persistence → UI.**
+- **Data model** (`Mask.kt`) — `MaskComponent` (Linear gradient + Radial ellipse w/ `angleDeg`) folded
+  by `BlendMode` (ADD/SUBTRACT/INTERSECT — **ordinals pinned to `crs:MaskBlendMode` 0/1/2**) with
+  **per-component `invert` (`crs:MaskInverted`) + `value` (`crs:MaskValue`)** + mask invert/opacity.
+  `TierADelta` (exposure/temp/tint/sat/contrast) + `LocalAdjustment`. Geometry normalized 0..1.
+- **Rasterization** (`MaskRaster.kt`) — mask → alpha buffer + coverage probe.
+- **Compositor** (`MaskCompositor.kt`) — blends a `LocalAdjustment` on `res.data`: decode CCTF → Tier-A
+  → re-encode → `(1−α)·in + α·out`. Wired ops: **Exposure** (2^EV) + **Saturation** (Oklab) +
+  **Contrast** (`ContrastCurve` per channel). Stacks compose; empty = strict no-op.
+- **Wiring** (#94) — `ParamsState.localAdjustments`; `simResultToBitmapGraded` runs the compositor
+  AFTER the global `ColorGrade`, in place (preview + every export inherit it); added to the 2 preview/
+  auto-save `LaunchedEffect` triggers so mask edits re-render.
+- **Persistence** (`MaskJson.kt`, #94) — recipe `"masks"` block round-trip (old recipes → empty list).
+- **UI** (`MaskPanel.kt` `MasksSection` + `Category.MASKS` + `SpectraIcons.Masks`, #94) — add a radial
+  mask, Position/Size/Feather, Invert (affect outside), opacity, multi-mask select/delete, and the
+  Exposure/Saturation/Contrast local adjustment. **Slider-driven v1 — fully usable + CI-verifiable.**
+
+**`PR #94` (OPEN, draft, base `main`)** carries the masking wiring + persistence + UI (commits
+`7f6dbbc`, `6541a6e`, `9ce22a1`). Subscribed for CI/review. Merge is policy-gated (needs user go-ahead).
+
+### Next steps (all hang off the now-complete masking foundation; all parity-safe)
+1. **Gesture overlay** — draw/drag the radial on the preview (reuse `CropOverlay`'s normalized-coord
+   patterns) + an on-preview alpha viz. **Device-gated for *feel*** (the slider v1 is the safe hand-off).
+2. **Linear masks in the UI** (the data model + compositor already support `MaskComponent.Linear`).
+3. **Remaining Tier-A ops** (`MaskCompositor`): whites/blacks (linear endpoints), hue (Oklab rotate),
+   **temp/tint** (needs an output-space CAT decision — `CreativeWhiteBalance.matrix` is ProPhoto). See
+   `docs/MASKING_SPEC.md §3` (Class-P pointwise vs Class-S spatial).
+4. **Range masks** (luminance trivial → color) nested in a component; **brush** (`cr_mask_paint` model
+   in the spec); **AI Subject/Sky** (LiteRT + guided-filter). Full designs in `MASKING_SPEC.md`.
+5. **Full `crs` XMP export** for true Lightroom interop (the §1–§4 data-model deltas are in `MASKING_SPEC.md §7`).
+6. **Cleanup:** de-dup `ColorGrade`'s CCTF/Oklab onto `OutputCctf`/`Oklab`.
+7. **Device + R8 smoke** (no device in-env): the new color controls + the Masks panel on the S26.
+
+### Key files (this session)
+`masks/{Mask,MaskRaster,MaskCompositor,MaskJson}.kt` + `MaskPanel.kt`; `ColorManagement.kt`,
+`ContrastCurve.kt`, `ColorGrade.kt`, `GamutCompress.kt`, `OutputCctf.kt`, `Oklab.kt`; wiring in
+`EngineHelpers.simResultToBitmapGraded`, `ParamsState`, `Presets`, `MainActivity` (Category.MASKS +
+triggers), `CategoryIcons` (Masks glyph). Blueprint: **`docs/MASKING_SPEC.md`**. Catalog status:
+`docs/USER_DRIVEN_SOLUTIONS.md` + the `spectrafilm-solutions` skill.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §2 P1 ACES gamut compression (v1) — PR #93 (MERGED)
 
 **PRs #90, #91, #92 are ALL MERGED to `main`** (`68f5207`) — §2 P0 color management, §3.1 Contrast,
 §3.2 Saturation/Vibrance, §3.3 couplers relabel are all on trunk. Branch re-synced to merged `main`;

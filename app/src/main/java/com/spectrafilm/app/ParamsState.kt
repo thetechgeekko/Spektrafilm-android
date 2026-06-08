@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.engine.CameraParams
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.DiffusionFilterParams
@@ -104,6 +105,11 @@ class ParamsState {
     // ACES-style gamut compression amount [0,100]; 0 = off. NOT a SpektraParams field — a post-engine
     // pass (GamutCompress, via ColorGrade) that softens the harsh cyan/edge fringe on saturated colors.
     var gamutCompress by mutableFloatStateOf(0f)
+
+    // Local-adjustment masks (the masking keystone). NOT a SpektraParams field — composited on the
+    // engine OUTPUT (MaskCompositor, via simResultToBitmapGraded), so the engine + parity suite are
+    // untouched. Empty = global-only (today's behavior). Round-trips in the recipe "masks" block.
+    var localAdjustments by mutableStateOf<List<LocalAdjustment>>(emptyList())
 
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
