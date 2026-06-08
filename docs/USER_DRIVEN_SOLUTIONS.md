@@ -353,6 +353,29 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §6b **High-bit-depth TIFF exports SHIPPED (PR #102)** — a true **32-bit IEEE-float TIFF**
+  writer (`:lib:tiffwriter`, host-tested) feeds two new export formats: **`TIFF32F`** (B3 — the engine's
+  float output written verbatim, no quantise/clamp) and **`SCENE_LINEAR_TIFF`** (B1 — the decoded
+  scene-linear input before the engine, untagged 32f float; the honest "linear DNG to finish elsewhere"
+  answer). Not the parity engine. Deferred: EXR (needs a new encoder); the LUT input-CS picker stays
+  engine-gated.
+- 2026-06-08 — §6a/§6b **Export sheet (Lightroom-style) SHIPPED (PR #102)** — tapping Export now opens a
+  format-aware `ExportSheet` (RE'd from lrmobile: format → format-specific options → dimensions → colour
+  → naming → metadata) instead of using the global Settings defaults. Format (+JPEG/UltraHDR quality),
+  **Size** (Full/4096/2048/1024/custom long edge — a post-render downscale, never enlarging; 16-bit pins
+  to full-res), Color space + CCTF, optional file name, include-GPS. Pure core (`ExportOptions.kt`) is
+  JVM-tested (`ExportOptionsTest`). Tier 0/2, parity untouched. **Deferred:** LUT input-CS (engine-gated),
+  AVIF (§6c, new .so), output sharpening/watermark (out of scope); **next:** 32-bit-float / scene-linear
+  TIFF (§6b, `:lib:tiffwriter`).
+- 2026-06-08 — §6e **Slide-mode UX SHIPPED (PR #102)** — picking a colour-reversal (slide) film offers a
+  "Slide mode" snackbar that views it as a positive (flips `scanFilm`); relabel `Scan film` →
+  `Slide mode (skip print)`. Reversal detection is a pure predicate (`StockEntry.isReversal()`),
+  grounded against `catalog.json` (`StockCatalogTest`). Tier 0, parity untouched.
+- 2026-06-08 — §6a **finding:** input/output LUT colour-space pickers are only *half* UI-only — OUTPUT
+  flows through `params.io.outputColorSpace` and the size + `.cube/.clf` picker shipped in #99, but the
+  LUT **INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp` `kProPhotoRGB`), so an
+  input-CS picker is **engine-gated (Tier 3)**. Clean UI-only remainder: surface output CS in the export
+  dialog + interop help text.
 - 2026-06-08 — §6h **Onboarding SHIPPED (PR #101, three slices)** — Tier 0, relabel/UI-state only, the
   engine receives identical params so parity is untouched (`:app:testDebugUnitTest` 160/160):
   1. **Plain-language help sheets** (`ParamHelp.kt` + `HelpSheet`/`SectionCard` in `Widgets.kt`): a "?"

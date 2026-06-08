@@ -138,3 +138,37 @@ JNI(jlong, nativeWriteShorts)(JNIEnv* env, jobject /*thiz*/, jshortArray rgb16,
     if (!r.ok) { throwIse(env, r.error.empty() ? "TIFF write failed" : r.error); return 0; }
     return static_cast<jlong>(r.bytesWritten);
 }
+
+/*
+ * nativeWriteFloatBuffer(directBuf, width, height, exifColorSpace, software, dateTime,
+ *                        iccBytes, packBits, outPath) -> long bytesWritten
+ *
+ * `directBuf` is a direct ByteBuffer of width*height*3 little-endian float32 RGB samples
+ * (length width*height*3*4 bytes). Writes a true 32-bit IEEE-float baseline TIFF
+ * (SampleFormat=3) to `outPath` with the samples stored VERBATIM (no quantise/clamp).
+ */
+JNI(jlong, nativeWriteFloatBuffer)(JNIEnv* env, jobject /*thiz*/, jobject directBuf,
+                                   jint width, jint height, jint exifColorSpace,
+                                   jstring software, jstring dateTime, jbyteArray iccBytes,
+                                   jboolean packBits, jstring outPath) {
+    void* addr = (directBuf != nullptr) ? env->GetDirectBufferAddress(directBuf) : nullptr;
+    if (addr == nullptr) {
+        jclass iae = env->FindClass("java/lang/IllegalArgumentException");
+        env->ThrowNew(iae, "expected a direct ByteBuffer of float32 RGB samples");
+        return 0;
+    }
+    const int64_t needBytes =
+        static_cast<int64_t>(width) * static_cast<int64_t>(height) * 3 * 4;
+    if (width <= 0 || height <= 0 || env->GetDirectBufferCapacity(directBuf) < needBytes) {
+        jclass iae = env->FindClass("java/lang/IllegalArgumentException");
+        env->ThrowNew(iae, "direct ByteBuffer too small for width*height*3 float32 RGB samples");
+        return 0;
+    }
+    spectrafilm::TiffMetadata meta = buildMeta(env, software, dateTime, exifColorSpace, iccBytes);
+    spectrafilm::TiffWriteResult r = spectrafilm::writeTiff32fToFile(
+        reinterpret_cast<const float*>(addr), width, height, meta,
+        packBits ? spectrafilm::TiffCompression::PackBits : spectrafilm::TiffCompression::None,
+        jstr(env, outPath));
+    if (!r.ok) { throwIse(env, r.error.empty() ? "TIFF write failed" : r.error); return 0; }
+    return static_cast<jlong>(r.bytesWritten);
+}

@@ -1,13 +1,56 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: help sheets + Basic/Advanced + film-defaults snackbar
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode + §6a/b export sheet (PR #102 DRAFT)
 
-Picks up the "next = onboarding (§6h)" item below. **Three slices shipped on PR #101 (DRAFT)** — help
-sheets, Basic/Advanced disclosure, and a "use its defaults" snackbar. **Tier 0 (UI / relabel-only) —
+A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
+"use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **PR #102 (DRAFT)** then adds, on
+top of `fb8fa0d`: **§6e slide-mode** (`111125f`), a **Lightroom-style export sheet** (§6a/§6b;
+`a8a81a0`+`7e038d8`), and **§6b high-bit-depth TIFF exports** (`8ede3db` native writer, `dcdd352` 32f
+output, `0b00faa` scene-linear input). **Tier 0/2 (UI + post-engine encode) —
 `engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
-`:app:testDebugUnitTest` **160/160** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`), `:app:lintDebug`
-clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0b` (Basic/Advanced),
-`df16f23` (snackbar) + docs.
+
+### §6b high-bit-depth TIFF (`:lib:tiffwriter`, NOT the parity engine)
+- **True 32-bit IEEE-float TIFF writer** (`writeTiff32fToMemory/File`, SampleFormat=3) — refactored the
+  16-bit + 32f paths onto a shared core; **host-tested** (`runFloatCase`: tags + verbatim float
+  round-trip incl. out-of-[0,1]; the pre-existing 16-bit assertions stay green, proving the refactor is
+  byte-safe). JNI `nativeWriteFloatBuffer` + `TiffWriter.writeFloat32`.
+- **`ExportFormat.TIFF32F`** (B3) — `saveSimResultAsTiff(float32=true)` writes the engine's float
+  SimResult VERBATIM (no quantise/clamp/copy), with the matching ICC.
+- **`ExportFormat.SCENE_LINEAR_TIFF`** (B1, the honest "linear DNG") — `saveLinearInputAsTiff32f` writes
+  the decoded scene-linear INPUT (before the engine) as an **untagged** 32f TIFF (no ICC; a
+  display-gamma profile would mis-describe linear data); the export flow skips the engine for it.
+- Renamed `is16Bit()` → `isHighBitDepth()` (TIFF/PNG16/TIFF32F/SCENE_LINEAR_TIFF → full-res in the sheet).
+`:app:testDebugUnitTest` **171/171** (+`ExportOptionsTest` 8), `:app:lintDebug` clean,
+**`:app:assembleDebug` green**.
+
+### §6a/b export sheet — modeled on Lightroom (RE'd from `/home/user/re-lr/lr-decompiled`)
+The RE found LR's export is a **format-aware sheet** (format → format-specific options → dimensions →
+colour → naming → metadata), not a global setting. Ours now mirrors that: tapping Export opens
+`ExportSheet` (`ModalBottomSheet`) with **Format** (+JPEG/UltraHDR quality), **Size**
+(Full/Large 4096/Medium 2048/Small 1024/Custom long-edge — a **post-render downscale** via
+`scaleBitmapToLongEdge`, so grain/halation render full-quality first), **Color space** (friendly
+labels) + CCTF, optional **File name**, and **Include location (GPS)**. 16-bit TIFF/PNG16 pin to
+full-res. Choices seed from `AppSettings` and are remembered back. Pure core in `ExportOptions.kt`
+(`targetLongEdge()` 16-bit-aware + clamped, `scaledDimensions()` never-enlarge, `exportBaseName()`
+sanitiser) is JVM-tested; `saveToGallery`/`saveSimResultAsTiff`/`saveSimResultAsPng16` gained an
+optional `displayName`. **NOT device-verified** (sheet look/feel needs a device).
+**Deferred (recorded):** LUT **input** color-space picker is engine-gated (native bakes the lattice in
+linear ProPhoto); **AVIF** (§6c) is a new `:lib:avifwriter` .so (16 KB-align risk); output **sharpening
+/ watermark / border** are out of scope (LR defaults them off). Next clean export item: **32-bit-float
+TIFF** + **scene-linear TIFF of the input** (§6b B1/B3, `:lib:tiffwriter` C++, not the parity engine).
+
+> ⚠️ **Two gotchas hit this run.** (1) **Container reset mid-session** (proxy port changed; local tree
+> fell back to stale `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but
+> **`git fetch origin <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`.
+> (2) **The user merged PR #101 while I kept working**, which auto-deleted the branch; my next push
+> re-created it ("[new branch]") with the §6e commits orphaned (no PR) → opened PR #102 for them. All
+> work was pushed, nothing lost. Lesson: re-check PR state (merged?) before assuming the branch/PR is
+> still open; webhooks don't deliver merges.
+
+> ⚠️ **Container reset mid-session** this run (proxy port changed; local tree fell back to the stale
+> `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but **`git fetch origin
+> <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`. All work was already pushed,
+> so nothing was lost. Keep committing + pushing every increment.
 
 - **Plain-language help sheets** — `ParamHelp.kt` (new, pure data): a `ParamHelpText` registry mapping
   a stable key → `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character
@@ -24,12 +67,25 @@ clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0
   shows its baked character; creative/global edits are preserved. New `ParamsState.resetStockCharacter()`
   (builds a fresh `ParamsState`, copies the character groups → tracks the initializers). JVM-tested
   (`ParamsStateResetTest`).
+- **§6e Slide-mode UX** — picking a colour-reversal (slide) film (Provia/Velvia/Ektachrome/Kodachrome)
+  now offers a "Slide mode" snackbar (when the print is still showing) that flips `scanFilm` to view it
+  as a positive; other switches keep the "use its defaults" suggestion. Relabel `Scan film (skip print)`
+  → `Slide mode (skip print)`. Detection is a pure predicate (`StockEntry.isReversal()`,
+  `groupId == StockCatalog.GROUP_COLOR_REVERSAL`), grounded against the real `catalog.json`
+  (`StockCatalogTest`). Generalised the snackbar helper → `offerSnackbarSuggestion(message, action, onAction)`.
 
-**§6h is essentially complete** (labels/tooltips + ParamHelp map + "?" sheets + Basic/Advanced +
-per-section reset (grain has it; others reachable via the snackbar) + film-defaults snackbar). Optional
-leftovers: extend help/Basic-Advanced to Simulation/Input/Display; a Basic/Advanced **persisted**
-preference. After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish
-(§6a/b — LUT colour-space pickers, 32-bit-float TIFF, scene-linear TIFF/EXR), slide-mode UX (§6e).
+**§6h + §6e essentially complete.** Optional §6h leftovers: extend help/Basic-Advanced to
+Simulation/Input/Display; persist the Basic/Advanced preference.
+
+**§6a finding (recorded so it isn't re-investigated):** the doc's "LUT input/output colour-space pickers
+are UI-only" is **half right**. OUTPUT space already flows through `params.io.outputColorSpace` (set in
+Simulation→Output) and the **size picker + .cube/.clf toggle already shipped in #99**. But the LUT
+**INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp:621` `kProPhotoRGB`; `.cube`
+header L1683), so a true input-CS picker is **engine-gated (Tier 3)**, not UI-only. The clean UI-only
+remainder is: surface the output CS in the export dialog + interop help text.
+
+After this wave: profile import (§6g), export polish (§6a remainder + §6b 32-bit-float TIFF / scene-linear
+TIFF — `:lib:tiffwriter` C++, not the parity engine).
 
 **▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
 `git fetch origin main && git reset --hard origin/main`; else continue on

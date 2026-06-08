@@ -86,6 +86,20 @@ TiffWriteResult writeTiff16ToFile(const uint16_t* rgb16, int width, int height,
                                   const TiffMetadata& meta, TiffCompression compression,
                                   const std::string& path);
 
+// --- True 32-bit IEEE-float writer (SampleFormat=3, BitsPerSample=32) ---------
+//
+// `rgbFloat` is width*height*3 float samples, row-major, interleaved R,G,B, written
+// VERBATIM (no quantisation, no clamp) as 32-bit IEEE little-endian. For a high-bit-depth
+// output export or a scene-linear export of the engine's input. Same IFD / metadata shape
+// as the 16-bit writer; round-trips through libtiff / Photoshop / darktable / Resolve.
+TiffWriteResult writeTiff32fToMemory(const float* rgbFloat, int width, int height,
+                                     const TiffMetadata& meta, TiffCompression compression,
+                                     std::vector<uint8_t>& outBytes);
+
+TiffWriteResult writeTiff32fToFile(const float* rgbFloat, int width, int height,
+                                   const TiffMetadata& meta, TiffCompression compression,
+                                   const std::string& path);
+
 // --- Convenience: quantise a linear/encoded float RGB buffer to 16-bit --------
 //
 // `rgbFloat` is width*height*3 float samples in [0,1] (values outside are clamped).

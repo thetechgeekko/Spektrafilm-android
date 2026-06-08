@@ -319,6 +319,15 @@ class MainActivity : ComponentActivity() {
         var renderErr by remember { mutableStateOf<String?>(null) }
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
+        // Lightroom-style export sheet: per-export format / quality / size / colour / name, instead
+        // of the global Settings defaults. Seeded from Settings and remembered back on export.
+        var showExportSheet by remember { mutableStateOf(false) }
+        var exportOptions by remember {
+            mutableStateOf(
+                ExportOptions(settings.exportFormat, settings.exportQuality, ExportSize.FULL, 2048, ""),
+            )
+        }
+        var exportKeepGps by remember { mutableStateOf(settings.exportKeepGps) }
         var previewTick by remember { mutableIntStateOf(0) }
         // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
         // being dragged, so the live DRAFT pass runs only during a drag and a discrete edit
@@ -1157,66 +1166,7 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    onExport = {
-                        val e = engine ?: return@EditorTopBar
-                        var fmt = settings.exportFormat
-                        // Ultra HDR needs the API 34 Gainmap framework class; on older devices
-                        // fall back to a standard JPEG rather than write a non-HDR file labelled
-                        // HDR. Warn the user once via a toast.
-                        if (fmt == ExportFormat.ULTRA_HDR && android.os.Build.VERSION.SDK_INT < 34) {
-                            fmt = ExportFormat.JPEG
-                            Toast.makeText(ctx, "Ultra HDR needs Android 14+ — saving JPEG instead", Toast.LENGTH_LONG).show()
-                        }
-                        val exportFmt = fmt
-                        exporting = true; exportDone = false; status = "rendering full resolution…"
-                        scope.launch {
-                            val result = runCatching {
-                                withContext(Dispatchers.Default) {
-                                    // Copy source EXIF (camera/lens/exposure/date) into the export;
-                                    // GPS/location only when the user opted in (default OFF). Empty
-                                    // for the synthetic demo image.
-                                    val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = settings.exportKeepGps) }
-                                    // Full-resolution export (NOT the 2048 px interactive cap) — the
-                                    // proxy-preview vs full-res-export model. Was MAX_EDGE_PX, which
-                                    // silently downscaled e.g. a 12 MP export to ~3 MP.
-                                    // Full-res RAW input and engine output are NATIVE off-heap
-                                    // buffers (~140 MB each) — the whole point of the OOM fix.
-                                    // Close the input as soon as the engine has consumed it, and
-                                    // the result once it's been turned into a bitmap and written,
-                                    // so neither lingers in native memory.
-                                    val image = loadSource(EXPORT_MAX_EDGE_PX)
-                                    val res = try {
-                                        e.simulate(image, state.toParams())
-                                    } finally {
-                                        image.close()
-                                    }
-                                    try {
-                                        val bmp = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
-                                        val uri = withContext(Dispatchers.IO) {
-                                            when (exportFmt) {
-                                                ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
-                                                ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res)
-                                                else -> saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
-                                            }
-                                        }
-                                        bmp to uri
-                                    } finally {
-                                        res.close()
-                                    }
-                                }
-                            }
-                            result.onSuccess { (bmp, _) ->
-                                Diag.i("export format=${exportFmt.name} ${bmp.width}x${bmp.height} ${bmp.width * bmp.height}px ok")
-                                preview = bmp; exportDone = true
-                                status = "saved to Pictures/Spektrafilm"
-                            }.onFailure {
-                                Diag.w("export format=${exportFmt.name} failed: ${it.message}")
-                                exporting = false
-                                status = "export failed: ${it.message}"
-                                Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
+                    onExport = { if (engine != null) showExportSheet = true },
                     onOpenSettings = onOpenSettings,
                     onOpenAbout = onOpenAbout,
                 )
@@ -1286,16 +1236,28 @@ class MainActivity : ComponentActivity() {
                                     val changed = id != state.filmProfile
                                     state.filmProfile = id
                                     if (changed) {
-                                        offerStockDefaults(scope, snackbarHost,
-                                            StockCatalog.displayName(ctx, id), state)
+                                        val name = StockCatalog.displayName(ctx, id)
+                                        // A reversal (slide) film is most naturally viewed as a
+                                        // positive — nudge Slide mode if the print is still showing;
+                                        // otherwise offer to drop the previous stock's tweaks.
+                                        if (StockCatalog.isReversalFilm(ctx, id) && !state.scanFilm) {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "$name is a slide film — view it as a positive?",
+                                                "Slide mode") { state.scanFilm = true }
+                                        } else {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "Switched to $name",
+                                                "Use its defaults") { state.resetStockCharacter() }
+                                        }
                                     }
                                 },
                                 onPrintProfileChange = { id ->
                                     val changed = id != state.printProfile
                                     state.printProfile = id
                                     if (changed) {
-                                        offerStockDefaults(scope, snackbarHost,
-                                            StockCatalog.displayName(ctx, id), state)
+                                        offerSnackbarSuggestion(scope, snackbarHost,
+                                            "Switched to ${StockCatalog.displayName(ctx, id)}",
+                                            "Use its defaults") { state.resetStockCharacter() }
                                     }
                                 },
                             )
@@ -1570,6 +1532,98 @@ class MainActivity : ComponentActivity() {
                 ExportMask(
                     done = exportDone,
                     onDismiss = { exporting = false; exportDone = false },
+                )
+            }
+
+            // --- Lightroom-style export options sheet ---
+            if (showExportSheet) {
+                ExportSheet(
+                    options = exportOptions,
+                    onOptionsChange = { exportOptions = it },
+                    colorSpace = state.outputColorSpace,
+                    onColorSpaceChange = { state.outputColorSpace = it },
+                    cctf = state.savingCctfEncoding,
+                    onCctfChange = { state.savingCctfEncoding = it },
+                    keepGps = exportKeepGps,
+                    onKeepGpsChange = { exportKeepGps = it },
+                    onDismiss = { showExportSheet = false },
+                    onExport = {
+                        val e = engine
+                        showExportSheet = false
+                        if (e != null) {
+                            // Remember the choices as the new Settings defaults.
+                            settings.exportFormat = exportOptions.format
+                            settings.exportQuality = exportOptions.jpegQuality
+                            settings.exportKeepGps = exportKeepGps
+                            var fmt = exportOptions.format
+                            // Ultra HDR needs the API 34 Gainmap class; fall back to JPEG below that.
+                            if (fmt == ExportFormat.ULTRA_HDR && android.os.Build.VERSION.SDK_INT < 34) {
+                                fmt = ExportFormat.JPEG
+                                Toast.makeText(ctx, "Ultra HDR needs Android 14+ — saving JPEG instead", Toast.LENGTH_LONG).show()
+                            }
+                            val exportFmt = fmt
+                            val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
+                            val longEdge = exportOptions.targetLongEdge()
+                            val keepGps = exportKeepGps
+                            exporting = true; exportDone = false; status = "rendering full resolution…"
+                            scope.launch {
+                                val result = runCatching {
+                                    withContext(Dispatchers.Default) {
+                                        // Full-res off-heap buffers (the OOM fix) — close input/result promptly.
+                                        val image = loadSource(EXPORT_MAX_EDGE_PX)
+                                        if (exportFmt == ExportFormat.SCENE_LINEAR_TIFF) {
+                                            // Export the decoded scene-linear INPUT (before the film
+                                            // engine) as a 32-bit float TIFF; the engine is skipped.
+                                            try {
+                                                withContext(Dispatchers.IO) { saveLinearInputAsTiff32f(ctx, image, baseName) }
+                                            } finally {
+                                                image.close()
+                                            }
+                                            null  // no rendered bitmap to preview
+                                        } else {
+                                            // Copy source EXIF; GPS only when opted in.
+                                            val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = keepGps) }
+                                            val res = try {
+                                                e.simulate(image, state.toParams())
+                                            } finally {
+                                                image.close()
+                                            }
+                                            try {
+                                                val bmp0 = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
+                                                // Post-render downscale for the bitmap formats (high-bit-depth
+                                                // is always full-res → longEdge null). Free the full-res bitmap.
+                                                val bmp = longEdge?.let { edge ->
+                                                    scaleBitmapToLongEdge(bmp0, edge).also { if (it !== bmp0) bmp0.recycle() }
+                                                } ?: bmp0
+                                                withContext(Dispatchers.IO) {
+                                                    when (exportFmt) {
+                                                        ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res, displayName = baseName)
+                                                        ExportFormat.TIFF32F -> saveSimResultAsTiff(ctx, res, displayName = baseName, float32 = true)
+                                                        ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res, displayName = baseName)
+                                                        else -> saveToGallery(ctx, bmp, exportFmt, exportOptions.jpegQuality, srcExif, displayName = baseName)
+                                                    }
+                                                }
+                                                bmp
+                                            } finally {
+                                                res.close()
+                                            }
+                                        }
+                                    }
+                                }
+                                result.onSuccess { bmp ->
+                                    bmp?.let { preview = it }
+                                    Diag.i("export format=${exportFmt.name} ok")
+                                    exportDone = true
+                                    status = "saved to Pictures/Spektrafilm"
+                                }.onFailure {
+                                    Diag.w("export format=${exportFmt.name} failed: ${it.message}")
+                                    exporting = false
+                                    status = "export failed: ${it.message}"
+                                    Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
                 )
             }
 
@@ -2583,25 +2637,26 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Offer to reset the per-stock character (grain/halation/couplers/gamma) to the newly selected
-     * film or paper's defaults, via a snackbar action (onboarding §6h). Non-destructive: the reset
-     * happens only if the user taps "Use its defaults". UI/state only — no parity impact.
+     * Show a one-action suggestion snackbar (e.g. "Use its defaults" on a profile switch, §6h; or
+     * "Slide mode" when a reversal film is picked, §6e). Non-destructive: [onAction] runs only if the
+     * user taps [actionLabel]. UI/state only — no parity impact.
      */
-    private fun offerStockDefaults(
+    private fun offerSnackbarSuggestion(
         scope: CoroutineScope,
         host: SnackbarHostState,
-        stockName: String,
-        state: ParamsState,
+        message: String,
+        actionLabel: String,
+        onAction: () -> Unit,
     ) {
         scope.launch {
             host.currentSnackbarData?.dismiss()
             val result = host.showSnackbar(
-                message = "Switched to $stockName",
-                actionLabel = "Use its defaults",
+                message = message,
+                actionLabel = actionLabel,
                 withDismissAction = true,
                 duration = SnackbarDuration.Long,
             )
-            if (result == SnackbarResult.ActionPerformed) state.resetStockCharacter()
+            if (result == SnackbarResult.ActionPerformed) onAction()
         }
     }
 
@@ -2716,8 +2771,10 @@ class MainActivity : ComponentActivity() {
                             "by pulling them toward neutral. 0 = off. Helps when saturated highlights look unnatural.")
                     SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
                         "Add or not the CCTF to the saved image file")
-                    SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
-                        "Show a scan of the negative instead of the print")
+                    SwitchRow("Slide mode (skip print)", s.scanFilm, { s.scanFilm = it },
+                        "Show the scanned film directly instead of a print — the natural view for " +
+                            "slide/reversal stocks (a positive). For negative stocks this shows the " +
+                            "raw orange negative.")
                 }
             }
         }
