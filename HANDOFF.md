@@ -1,6 +1,63 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — gradient masks + per-mask HUE + ColorGrade de-dup — PR #97 OPEN (3 commits), #90–#96 MERGED
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — per-mask Tier-A toolset COMPLETE — PR #97 OPEN (6 commits), #90–#96 MERGED
+
+Marathon masking session. **The per-mask local-adjustment toolset is now feature-complete for
+slider-driven v1.** Six parity-safe Tier-2 increments stacked on **PR #97** (the user kept saying
+"continue" while it was open, so they share one PR/branch; merge-commit style folds them to `main`
+together). **Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite unaffected.**
+`:app:testDebugUnitTest` **140/140**, `:app:lintDebug` clean (`/opt/android-sdk`).
+
+**▶ NEXT SESSION START HERE:** if #97 merged (`git merge-base --is-ancestor cfd3b21 origin/main`),
+`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip `cfd3b21`).
+**The remote branch is auto-deleted on merge** → after a merge, recreate with a normal `git push` (a
+`--force-with-lease` then fails "stale info"; `git fetch --prune` and push fresh). **Commit + push every
+increment immediately.**
+
+### Masking is now feature-complete (slider-driven v1) — what a user can do
+- **Shapes:** radial + gradient(linear). **Refinements:** luminance range + color range.
+- **Per-mask Tier-A ops (ALL wired):** **Temp · Tint · Exposure · Saturation · Hue · Contrast · Whites · Blacks.**
+- Per-mask invert/opacity + per-component invert/value/blend. Multi-mask. All live in preview + every
+  export + persisted (recipe `"masks"` block). Composites on the `simResultToBitmapGraded` OUTPUT seam.
+
+### What's on PR #97 (6 commits, oldest→newest)
+1. `ddf6f17` **Gradient(linear) masks UI** — "+ Gradient mask" + Start/End X/Y; model/compositor/JSON
+   already supported `MaskComponent.Linear`.
+2. `df98b2a` **Per-mask Hue** — `Oklab.rotateHueLinear` (preserves L + chroma; gray-neutral). `OklabTest`.
+3. `fa30bb8` **De-dup `ColorGrade` → `OutputCctf`/`Oklab`** — killed a drift risk; exact (ColorGrade/
+   GamutCompress tests guard it); −53 lines.
+4. `a3b54fa` **Whites/Blacks** — linear levels-endpoint remap (single slider anchors the opposite end).
+5. `d1fab35` HANDOFF refresh.
+6. `cfd3b21` **Temp/Tint** — **colorimetrically-accurate** WB. New `LocalWhiteBalance` builds an
+   output-space Bradford CAT 3×3 (Lindbloom RGB↔XYZ per space + CIE daylight locus), **reusing
+   `CreativeWhiteBalance.bradfordCat`/`mul3`** (made `internal`; CWB test still 5/5). temp=0,tint=0 →
+   exact identity. `LocalWhiteBalanceTest`. (The user asked for an accurate color grade → did the CAT,
+   not the cheap channel-gain.)
+
+### Next steps — ALL qualitatively different now (need a device, a bigger build, or are interop)
+1. **Gesture overlay + eyedropper** — draw/drag radial+linear on the preview (reuse `CropOverlay`'s
+   normalized coords) + tap-to-sample the color/luminance range target + an on-preview alpha viz.
+   **Device-gated for *feel*** — build it but verify on the S26.
+2. **Per-component range nesting** (LR nests ranges per-component; we apply mask-wide) + **multi-sample
+   color range** (LR ≤5 samples) + **brush** (`cr_mask_paint`) + **AI Subject/Sky** (LiteRT +
+   guided-filter). Bigger features — full designs in `docs/MASKING_SPEC.md`.
+3. **Full `crs` XMP export** for Lightroom interop (`MASKING_SPEC.md §7`).
+4. **Device + R8 smoke** (no device in-env): the whole Masks panel end-to-end.
+RECOMMENDATION at this checkpoint: review/merge #97 (clean, well-tested milestone) before the next phase.
+
+### Key files (this session)
+`masks/{Mask,MaskCompositor,MaskJson}.kt`, `MaskPanel.kt`, `Oklab.kt`, `ColorGrade.kt`, `OutputCctf.kt`,
+`CreativeWhiteBalance.kt`, new **`LocalWhiteBalance.kt`**; tests `masks/MaskCompositorTest.kt`, new
+`OklabTest.kt` + `LocalWhiteBalanceTest.kt`. Blueprint: **`docs/MASKING_SPEC.md`**.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — gradient masks + per-mask HUE + ColorGrade de-dup — PR #97 (3 commits), #90–#96 MERGED
 
 Continued masking. **Three parity-safe Tier-2 increments stacked on PR #97** (the user said "continue"
 while #97 was still open, so they share one PR / branch; merge-commit style folds them to `main` together).
