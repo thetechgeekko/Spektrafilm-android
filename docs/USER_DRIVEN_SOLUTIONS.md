@@ -353,6 +353,15 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §6e **Slide-mode UX SHIPPED (PR #101)** — picking a colour-reversal (slide) film offers a
+  "Slide mode" snackbar that views it as a positive (flips `scanFilm`); relabel `Scan film` →
+  `Slide mode (skip print)`. Reversal detection is a pure predicate (`StockEntry.isReversal()`),
+  grounded against `catalog.json` (`StockCatalogTest`). Tier 0, parity untouched.
+- 2026-06-08 — §6a **finding:** input/output LUT colour-space pickers are only *half* UI-only — OUTPUT
+  flows through `params.io.outputColorSpace` and the size + `.cube/.clf` picker shipped in #99, but the
+  LUT **INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp` `kProPhotoRGB`), so an
+  input-CS picker is **engine-gated (Tier 3)**. Clean UI-only remainder: surface output CS in the export
+  dialog + interop help text.
 - 2026-06-08 — §6h **Onboarding SHIPPED (PR #101, three slices)** — Tier 0, relabel/UI-state only, the
   engine receives identical params so parity is untouched (`:app:testDebugUnitTest` 160/160):
   1. **Plain-language help sheets** (`ParamHelp.kt` + `HelpSheet`/`SectionCard` in `Widgets.kt`): a "?"

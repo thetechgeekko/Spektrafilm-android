@@ -1,13 +1,18 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: help sheets + Basic/Advanced + film-defaults snackbar
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — UX polish wave: onboarding §6h + slide-mode §6e
 
-Picks up the "next = onboarding (§6h)" item below. **Three slices shipped on PR #101 (DRAFT)** — help
-sheets, Basic/Advanced disclosure, and a "use its defaults" snackbar. **Tier 0 (UI / relabel-only) —
+A "v0.8 UX polish" wave on PR #101 (DRAFT): the **§6h onboarding** trio (help sheets, Basic/Advanced
+disclosure, "use its defaults" snackbar) **plus §6e slide-mode UX**. **Tier 0 (UI / relabel-only) —
 `engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
-`:app:testDebugUnitTest` **160/160** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`), `:app:lintDebug`
-clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0b` (Basic/Advanced),
-`df16f23` (snackbar) + docs.
+`:app:testDebugUnitTest` **163/163** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`, +3
+`StockCatalogTest`), `:app:lintDebug` clean. Commits `2d9ba82` (help sheets), `0918e0b`
+(Basic/Advanced), `df16f23` (snackbar), `111125f` (slide-mode) + docs.
+
+> ⚠️ **Container reset mid-session** this run (proxy port changed; local tree fell back to the stale
+> `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but **`git fetch origin
+> <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`. All work was already pushed,
+> so nothing was lost. Keep committing + pushing every increment.
 
 - **Plain-language help sheets** — `ParamHelp.kt` (new, pure data): a `ParamHelpText` registry mapping
   a stable key → `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character
@@ -24,12 +29,25 @@ clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0
   shows its baked character; creative/global edits are preserved. New `ParamsState.resetStockCharacter()`
   (builds a fresh `ParamsState`, copies the character groups → tracks the initializers). JVM-tested
   (`ParamsStateResetTest`).
+- **§6e Slide-mode UX** — picking a colour-reversal (slide) film (Provia/Velvia/Ektachrome/Kodachrome)
+  now offers a "Slide mode" snackbar (when the print is still showing) that flips `scanFilm` to view it
+  as a positive; other switches keep the "use its defaults" suggestion. Relabel `Scan film (skip print)`
+  → `Slide mode (skip print)`. Detection is a pure predicate (`StockEntry.isReversal()`,
+  `groupId == StockCatalog.GROUP_COLOR_REVERSAL`), grounded against the real `catalog.json`
+  (`StockCatalogTest`). Generalised the snackbar helper → `offerSnackbarSuggestion(message, action, onAction)`.
 
-**§6h is essentially complete** (labels/tooltips + ParamHelp map + "?" sheets + Basic/Advanced +
-per-section reset (grain has it; others reachable via the snackbar) + film-defaults snackbar). Optional
-leftovers: extend help/Basic-Advanced to Simulation/Input/Display; a Basic/Advanced **persisted**
-preference. After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish
-(§6a/b — LUT colour-space pickers, 32-bit-float TIFF, scene-linear TIFF/EXR), slide-mode UX (§6e).
+**§6h + §6e essentially complete.** Optional §6h leftovers: extend help/Basic-Advanced to
+Simulation/Input/Display; persist the Basic/Advanced preference.
+
+**§6a finding (recorded so it isn't re-investigated):** the doc's "LUT input/output colour-space pickers
+are UI-only" is **half right**. OUTPUT space already flows through `params.io.outputColorSpace` (set in
+Simulation→Output) and the **size picker + .cube/.clf toggle already shipped in #99**. But the LUT
+**INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp:621` `kProPhotoRGB`; `.cube`
+header L1683), so a true input-CS picker is **engine-gated (Tier 3)**, not UI-only. The clean UI-only
+remainder is: surface the output CS in the export dialog + interop help text.
+
+After this wave: profile import (§6g), export polish (§6a remainder + §6b 32-bit-float TIFF / scene-linear
+TIFF — `:lib:tiffwriter` C++, not the parity engine).
 
 **▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
 `git fetch origin main && git reset --hard origin/main`; else continue on
