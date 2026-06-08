@@ -1,13 +1,30 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode (PR #102 DRAFT)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode + §6a/b export sheet (PR #102 DRAFT)
 
 A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
-"use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **§6e slide-mode is on PR #102
-(DRAFT)** (`111125f` + docs `6c6158f`), based on `fb8fa0d` so its diff vs `main` is just §6e. **Tier 0
-(UI / relabel-only) — `engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is
-unaffected.** `:app:testDebugUnitTest` **163/163** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`, +3
-`StockCatalogTest`), `:app:lintDebug` clean.
+"use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **PR #102 (DRAFT)** then adds, on
+top of `fb8fa0d`: **§6e slide-mode** (`111125f`) and a **Lightroom-style export sheet** (§6a/§6b;
+`a8a81a0` pure core + `7e038d8` UI/wiring). **Tier 0/2 (UI + post-engine encode) —
+`engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
+`:app:testDebugUnitTest` **171/171** (+`ExportOptionsTest` 8), `:app:lintDebug` clean,
+**`:app:assembleDebug` green**.
+
+### §6a/b export sheet — modeled on Lightroom (RE'd from `/home/user/re-lr/lr-decompiled`)
+The RE found LR's export is a **format-aware sheet** (format → format-specific options → dimensions →
+colour → naming → metadata), not a global setting. Ours now mirrors that: tapping Export opens
+`ExportSheet` (`ModalBottomSheet`) with **Format** (+JPEG/UltraHDR quality), **Size**
+(Full/Large 4096/Medium 2048/Small 1024/Custom long-edge — a **post-render downscale** via
+`scaleBitmapToLongEdge`, so grain/halation render full-quality first), **Color space** (friendly
+labels) + CCTF, optional **File name**, and **Include location (GPS)**. 16-bit TIFF/PNG16 pin to
+full-res. Choices seed from `AppSettings` and are remembered back. Pure core in `ExportOptions.kt`
+(`targetLongEdge()` 16-bit-aware + clamped, `scaledDimensions()` never-enlarge, `exportBaseName()`
+sanitiser) is JVM-tested; `saveToGallery`/`saveSimResultAsTiff`/`saveSimResultAsPng16` gained an
+optional `displayName`. **NOT device-verified** (sheet look/feel needs a device).
+**Deferred (recorded):** LUT **input** color-space picker is engine-gated (native bakes the lattice in
+linear ProPhoto); **AVIF** (§6c) is a new `:lib:avifwriter` .so (16 KB-align risk); output **sharpening
+/ watermark / border** are out of scope (LR defaults them off). Next clean export item: **32-bit-float
+TIFF** + **scene-linear TIFF of the input** (§6b B1/B3, `:lib:tiffwriter` C++, not the parity engine).
 
 > ⚠️ **Two gotchas hit this run.** (1) **Container reset mid-session** (proxy port changed; local tree
 > fell back to stale `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but

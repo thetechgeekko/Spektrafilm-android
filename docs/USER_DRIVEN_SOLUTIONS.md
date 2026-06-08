@@ -353,7 +353,15 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
-- 2026-06-08 — §6e **Slide-mode UX SHIPPED (PR #101)** — picking a colour-reversal (slide) film offers a
+- 2026-06-08 — §6a/§6b **Export sheet (Lightroom-style) SHIPPED (PR #102)** — tapping Export now opens a
+  format-aware `ExportSheet` (RE'd from lrmobile: format → format-specific options → dimensions → colour
+  → naming → metadata) instead of using the global Settings defaults. Format (+JPEG/UltraHDR quality),
+  **Size** (Full/4096/2048/1024/custom long edge — a post-render downscale, never enlarging; 16-bit pins
+  to full-res), Color space + CCTF, optional file name, include-GPS. Pure core (`ExportOptions.kt`) is
+  JVM-tested (`ExportOptionsTest`). Tier 0/2, parity untouched. **Deferred:** LUT input-CS (engine-gated),
+  AVIF (§6c, new .so), output sharpening/watermark (out of scope); **next:** 32-bit-float / scene-linear
+  TIFF (§6b, `:lib:tiffwriter`).
+- 2026-06-08 — §6e **Slide-mode UX SHIPPED (PR #102)** — picking a colour-reversal (slide) film offers a
   "Slide mode" snackbar that views it as a positive (flips `scanFilm`); relabel `Scan film` →
   `Slide mode (skip print)`. Reversal detection is a pure predicate (`StockEntry.isReversal()`),
   grounded against `catalog.json` (`StockCatalogTest`). Tier 0, parity untouched.
