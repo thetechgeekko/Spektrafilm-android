@@ -184,4 +184,37 @@ class MaskTest {
         // full range is a no-op
         assertTrue(!LuminanceRange().isActive)
     }
+
+    @Test
+    fun colorRange_chromaGate() {
+        // Target a saturated red; tight tolerance so it discriminates by hue AND chroma.
+        val r = ColorRange(targetR = 0.9f, targetG = 0.1f, targetB = 0.1f, tolerance = 0.15f, feather = 0.05f)
+        assertTrue(r.isActive)
+        assertTrue("a near-target red is selected", r.gate(0.85f, 0.12f, 0.12f) > 0.8f)
+        assertEquals("a blue is rejected", 0f, r.gate(0.1f, 0.1f, 0.9f), 1e-2f)
+        // a neutral gray (zero chroma) is far from the saturated-red target → rejected ("not the skin/gray")
+        assertTrue("gray rejected", r.gate(0.5f, 0.5f, 0.5f) < 0.2f)
+
+        // sweeping the pixel from the target color toward neutral gray: gate falls monotonically through
+        // a feathered interior band (full → 0). No magic numbers — just the gate's shape.
+        var prev = 1.01f
+        var sawInterior = false
+        var t = 0f
+        while (t <= 1f) {
+            val pr = 0.9f + (0.5f - 0.9f) * t
+            val pg = 0.1f + (0.5f - 0.1f) * t
+            val pb = 0.1f + (0.5f - 0.1f) * t
+            val gt = r.gate(pr, pg, pb)
+            assertTrue("monotone non-increasing at t=$t", gt <= prev + 1e-4f)
+            if (gt > 0.02f && gt < 0.98f) sawInterior = true
+            prev = gt
+            t += 0.05f
+        }
+        assertTrue("a feathered interior value exists", sawInterior)
+
+        // invert flips the selection
+        val inv = r.copy(invert = true)
+        assertTrue("inverted: blue now selected", inv.gate(0.1f, 0.1f, 0.9f) > 0.8f)
+        assertTrue("inverted: red now rejected", inv.gate(0.85f, 0.12f, 0.12f) < 0.2f)
+    }
 }

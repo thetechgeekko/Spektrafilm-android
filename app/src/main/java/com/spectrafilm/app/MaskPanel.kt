@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.app.masks.BlendMode
+import com.spectrafilm.app.masks.ColorRange
 import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.app.masks.LuminanceRange
 import com.spectrafilm.app.masks.Mask
@@ -113,6 +114,27 @@ fun MasksSection(s: ParamsState) {
                 step = 0.01f, decimals = 2, default = 0.1f, tooltip = "Softness of the tonal range edges.")
             SwitchRow("Invert tones", lum.invert, { setLum(lum.copy(invert = it)) },
                 "Affect the tones OUTSIDE the range instead.")
+        }
+
+        // --- Limit to a color (color range mask) — "tame the reds, not the skin" ---
+        val col = adj.mask.colorRange
+        SwitchRow("Limit to a color", col != null,
+            { on -> set(adj.copy(mask = adj.mask.copy(colorRange = if (on) ColorRange() else null))) },
+            "Restrict the adjustment to one color family — e.g. only the reds, leaving skin untouched.")
+        if (col != null) {
+            fun setCol(r: ColorRange) = set(adj.copy(mask = adj.mask.copy(colorRange = r)))
+            EnhancedSlider("Target red", col.targetR, 0f..1f, { setCol(col.copy(targetR = it)) },
+                step = 0.01f, decimals = 2, default = 0.5f, tooltip = "The color to affect — red component.")
+            EnhancedSlider("Target green", col.targetG, 0f..1f, { setCol(col.copy(targetG = it)) },
+                step = 0.01f, decimals = 2, default = 0.5f, tooltip = "The color to affect — green component.")
+            EnhancedSlider("Target blue", col.targetB, 0f..1f, { setCol(col.copy(targetB = it)) },
+                step = 0.01f, decimals = 2, default = 0.5f, tooltip = "The color to affect — blue component.")
+            EnhancedSlider("Color range", col.tolerance, 0.02f..1f, { setCol(col.copy(tolerance = it)) },
+                step = 0.01f, decimals = 2, default = 0.6f, tooltip = "How wide a range of colors counts as a match.")
+            EnhancedSlider("Color feather", col.feather, 0.01f..0.5f, { setCol(col.copy(feather = it)) },
+                step = 0.01f, decimals = 2, default = 0.1f, tooltip = "Softness of the color-selection edges.")
+            SwitchRow("Invert color", col.invert, { setCol(col.copy(invert = it)) },
+                "Affect the colors OUTSIDE the range instead.")
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

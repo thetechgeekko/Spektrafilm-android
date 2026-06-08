@@ -78,6 +78,7 @@ data class Mask(
     val invert: Boolean = false,
     val opacity: Float = 1f,
     val luminanceRange: LuminanceRange? = null,
+    val colorRange: ColorRange? = null,
 ) {
     /**
      * One folded component. [invert] = `crs:MaskInverted` (per-component, applied BEFORE the fold);
@@ -131,6 +132,42 @@ data class LuminanceRange(
         val hi = smoothstep(((lumMax + f) - luma) / f)   // 1 at lumMax, 0 above lumMax+f
         val g = (lo * hi).coerceIn(0f, 1f)
         return if (invert) 1f - g else g
+    }
+}
+
+/**
+ * A color range refinement (`crs:CorrectionRangeMask` Type=Color, the "tame the reds, not the skin"
+ * control): gates a mask's coverage by how close the OUTPUT pixel's COLOR is to a [targetR]/[targetG]/
+ * [targetB] sample, so an adjustment only affects one color family. Distance is measured in the Rec-709
+ * chroma plane (Cr,Cb) of the encoded output — luma-independent (that's what [LuminanceRange] is for),
+ * and gray-neutral for EVERY output space because the Rec-709 weights sum to 1, so a neutral (v,v,v)
+ * has zero chroma regardless of primaries. Because it spans both hue (angle) and chroma (radius), a
+ * saturated red is separated from a muted skin tone. Full within [tolerance], feathering to 0 across a
+ * [feather] band; [invert] flips it. Evaluated in the compositor (it reads the pixel), not in the
+ * pure-geometry [Mask.alphaAt]. NB: LR samples ≤5 colors and nests per-component; we use one target,
+ * mask-wide, for v1 (an eyedropper + multi-sample come next — see docs/MASKING_SPEC.md §4).
+ */
+data class ColorRange(
+    val targetR: Float = 0.5f,
+    val targetG: Float = 0.5f,
+    val targetB: Float = 0.5f,
+    val tolerance: Float = 0.6f,
+    val feather: Float = 0.1f,
+    val invert: Boolean = false,
+) {
+    /** A color range always refines coverage when present (the UI toggle adds/removes it). */
+    val isActive: Boolean get() = true
+
+    /** Coverage gate in [0,1] for an output pixel (encoded RGB), by chroma-plane distance to the target. */
+    fun gate(r: Float, g: Float, b: Float): Float {
+        val py = 0.2126f * r + 0.7152f * g + 0.0722f * b      // pixel chroma (Cr,Cb), luma removed
+        val pcr = r - py; val pcb = b - py
+        val ty = 0.2126f * targetR + 0.7152f * targetG + 0.0722f * targetB
+        val tcr = targetR - ty; val tcb = targetB - ty
+        val d = kotlin.math.hypot(pcr - tcr, pcb - tcb)
+        val f = feather.coerceAtLeast(1e-3f)
+        val g2 = smoothstep((tolerance + f - d) / f)          // 1 when d ≤ tolerance, → 0 at d ≥ tolerance+f
+        return if (invert) 1f - g2 else g2
     }
 }
 
