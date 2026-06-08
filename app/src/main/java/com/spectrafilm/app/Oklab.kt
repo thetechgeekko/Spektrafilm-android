@@ -49,5 +49,35 @@ object Oklab {
         rgb[2] = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc
     }
 
+    /**
+     * Rotate the hue of a single LINEAR RGB triple [rgb] (mutated in place) by [degrees], preserving
+     * lightness and chroma magnitude (the Oklab (a,b) vector is rotated about the achromatic axis). A
+     * neutral (v,v,v) has a=b=0 (the LMS rows sum to 1), so grays are unchanged for ANY primaries.
+     * 0° is a no-op (within float round-trip).
+     */
+    fun rotateHueLinear(rgb: FloatArray, degrees: Float) {
+        val rl = rgb[0]; val gl = rgb[1]; val bl = rgb[2]
+        val l = 0.4122214708f * rl + 0.5363325363f * gl + 0.0514459929f * bl
+        val m = 0.2119034982f * rl + 0.6806995451f * gl + 0.1073969566f * bl
+        val s = 0.0883024619f * rl + 0.2817188376f * gl + 0.6299787005f * bl
+        val l_ = cbrt(l); val m_ = cbrt(m); val s_ = cbrt(s)
+        val okL = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_
+        val okA = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_
+        val okB = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_
+
+        val rad = degrees * (Math.PI.toFloat() / 180f)
+        val cs = kotlin.math.cos(rad); val sn = kotlin.math.sin(rad)
+        val a2 = okA * cs - okB * sn
+        val b2 = okA * sn + okB * cs
+
+        val l2 = okL + 0.3963377774f * a2 + 0.2158037573f * b2
+        val m2 = okL - 0.1055613458f * a2 - 0.0638541728f * b2
+        val s2 = okL - 0.0894841775f * a2 - 1.2914855480f * b2
+        val lc = l2 * l2 * l2; val mc = m2 * m2 * m2; val sc = s2 * s2 * s2
+        rgb[0] = 4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc
+        rgb[1] = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc
+        rgb[2] = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc
+    }
+
     private fun cbrt(x: Float): Float = Math.cbrt(x.toDouble()).toFloat()
 }

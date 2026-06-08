@@ -46,6 +46,7 @@ object MaskCompositor {
             val d = adj.delta
             val gain = exposureGain(d.exposureEv)
             val sat = d.saturation / 100f
+            val hue = d.hue
             val contrast = d.contrast
             val lumRange = adj.mask.luminanceRange?.takeIf { it.isActive }
             val colorRange = adj.mask.colorRange?.takeIf { it.isActive }
@@ -68,6 +69,8 @@ object MaskCompositor {
                         rgb[2] = OutputCctf.decode(cs, ob, cctfEncoded) * gain
                         // saturation (linear Oklab; hue + lightness preserved)
                         if (sat != 0f) Oklab.scaleChromaLinear(rgb, sat, 0f)
+                        // hue (linear Oklab; rotate chroma, lightness preserved)
+                        if (hue != 0f) Oklab.rotateHueLinear(rgb, hue)
                         // encode → display
                         var er = OutputCctf.encode(cs, rgb[0], cctfEncoded)
                         var eg = OutputCctf.encode(cs, rgb[1], cctfEncoded)
@@ -89,9 +92,9 @@ object MaskCompositor {
         }
     }
 
-    /** True when [d] has a Tier-A op the compositor wires today (exposure / saturation / contrast). */
+    /** True when [d] has a Tier-A op the compositor wires today (exposure / saturation / hue / contrast). */
     private fun hasOp(d: TierADelta): Boolean =
-        d.exposureEv != 0f || d.saturation != 0f || d.contrast != 0f
+        d.exposureEv != 0f || d.saturation != 0f || d.hue != 0f || d.contrast != 0f
 
     /** Exposure as a linear-light gain (2^EV); 0 EV → 1.0 (no-op). */
     private fun exposureGain(ev: Float): Float =

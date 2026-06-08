@@ -10,6 +10,7 @@ package com.spectrafilm.app.masks
 import com.spectrafilm.engine.ColorSpace
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +30,9 @@ class MaskCompositorTest {
 
     private fun px(b: ByteBuffer, x: Int, y: Int): Float =
         b.order(ByteOrder.nativeOrder()).asFloatBuffer().get((y * W + x) * 3)
+
+    private fun chan(b: ByteBuffer, x: Int, y: Int, c: Int): Float =
+        b.order(ByteOrder.nativeOrder()).asFloatBuffer().get((y * W + x) * 3 + c)
 
     /** A flat [W]×[H] buffer with a single (possibly colored) RGB value. */
     private fun colorBuf(r: Float, g: Float, bl: Float): ByteBuffer {
@@ -178,5 +182,30 @@ class MaskCompositorTest {
         assertTrue("bottom (full gradient) brightened", bottom > 0.6f)
         assertTrue("top (gradient start) ~untouched", top < 0.55f)
         assertTrue("ramps: bottom brighter than top", bottom > top)
+    }
+
+    @Test
+    fun hue_shiftsColorInsideMask_leavesOutside() {
+        val b = colorBuf(0.7f, 0.3f, 0.2f)              // a saturated warm fill
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(hue = 120f))))
+        // inside the mask the hue rotated → the channel balance changed meaningfully
+        val moved = abs(chan(b, 4, 4, 0) - 0.7f) + abs(chan(b, 4, 4, 1) - 0.3f) + abs(chan(b, 4, 4, 2) - 0.2f)
+        assertTrue("hue shifted inside the mask", moved > 0.05f)
+        // outside the mask is byte-identical
+        assertEquals("corner untouched (R)", 0.7f, chan(b, 0, 0, 0), 1e-4f)
+        assertEquals("corner untouched (G)", 0.3f, chan(b, 0, 0, 1), 1e-4f)
+        assertEquals("corner untouched (B)", 0.2f, chan(b, 0, 0, 2), 1e-4f)
+    }
+
+    @Test
+    fun hue_grayStaysNeutral() {
+        // rotating the hue of a neutral gray is a no-op (Oklab a=b=0) — no color cast introduced
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(hue = 90f))))
+        assertEquals(0.5f, chan(b, 4, 4, 0), 3e-3f)
+        assertEquals(0.5f, chan(b, 4, 4, 1), 3e-3f)
+        assertEquals(0.5f, chan(b, 4, 4, 2), 3e-3f)
     }
 }

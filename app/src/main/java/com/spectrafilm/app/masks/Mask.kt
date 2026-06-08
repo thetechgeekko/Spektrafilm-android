@@ -173,8 +173,9 @@ data class ColorRange(
 
 /**
  * The per-mask adjustment payload (Tier-A: parameters applied as a post-engine op on the output,
- * blended by the mask alpha). All default to no-op. Exposure in stops; temp/tint/saturation/contrast
- * are the same [-100,100] relative scales as the global creative controls, so the UI + math are shared.
+ * blended by the mask alpha). All default to no-op. Exposure in stops; [hue] in degrees [-180,180]
+ * (an Oklab rotation); temp/tint/saturation/contrast are the same [-100,100] relative scales as the
+ * global creative controls, so the UI + math are shared.
  */
 data class TierADelta(
     val exposureEv: Float = 0f,
@@ -182,9 +183,11 @@ data class TierADelta(
     val tint: Float = 0f,
     val saturation: Float = 0f,
     val contrast: Float = 0f,
+    val hue: Float = 0f,
 ) {
     val isNoOp: Boolean
-        get() = exposureEv == 0f && temp == 0f && tint == 0f && saturation == 0f && contrast == 0f
+        get() = exposureEv == 0f && temp == 0f && tint == 0f && saturation == 0f &&
+            contrast == 0f && hue == 0f
 }
 
 /** A mask plus the adjustment to apply where it is opaque. */

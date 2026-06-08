@@ -79,6 +79,10 @@ fun MasksSection(s: ParamsState) {
         EnhancedSlider("Saturation", adj.delta.saturation, -100f..100f,
             { set(adj.copy(delta = adj.delta.copy(saturation = it))) },
             step = 1f, decimals = 0, default = 0f, tooltip = "Colorfulness inside the mask.")
+        EnhancedSlider("Hue shift", adj.delta.hue, -180f..180f,
+            { set(adj.copy(delta = adj.delta.copy(hue = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Rotate the hue of colors inside the mask, in degrees (e.g. shift a sky toward teal).")
         EnhancedSlider("Contrast", adj.delta.contrast, -100f..100f,
             { set(adj.copy(delta = adj.delta.copy(contrast = it))) },
             step = 1f, decimals = 0, default = 0f, tooltip = "Contrast inside the mask.")
