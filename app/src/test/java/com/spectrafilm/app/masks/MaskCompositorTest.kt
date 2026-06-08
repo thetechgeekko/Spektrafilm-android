@@ -30,9 +30,27 @@ class MaskCompositorTest {
     private fun px(b: ByteBuffer, x: Int, y: Int): Float =
         b.order(ByteOrder.nativeOrder()).asFloatBuffer().get((y * W + x) * 3)
 
-    private fun radialAdj(ev: Float) = LocalAdjustment(
+    /** A flat [W]×[H] buffer with a single (possibly colored) RGB value. */
+    private fun colorBuf(r: Float, g: Float, bl: Float): ByteBuffer {
+        val b = ByteBuffer.allocateDirect(W * H * 3 * 4).order(ByteOrder.nativeOrder())
+        val f = b.asFloatBuffer()
+        var i = 0
+        while (i < W * H * 3) { f.put(i, r); f.put(i + 1, g); f.put(i + 2, bl); i += 3 }
+        return b
+    }
+
+    private fun spreadAt(b: ByteBuffer, x: Int, y: Int): Float {
+        val f = b.order(ByteOrder.nativeOrder()).asFloatBuffer()
+        val k = (y * W + x) * 3
+        val r = f.get(k); val g = f.get(k + 1); val bl = f.get(k + 2)
+        return maxOf(r, maxOf(g, bl)) - minOf(r, minOf(g, bl))
+    }
+
+    private fun radialAdj(ev: Float) = radialAdj(TierADelta(exposureEv = ev))
+
+    private fun radialAdj(delta: TierADelta) = LocalAdjustment(
         Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f)))),
-        TierADelta(exposureEv = ev),
+        delta,
     )
 
     @Test
@@ -92,5 +110,25 @@ class MaskCompositorTest {
             MaskCompositor.applyInPlace(it, W, H, ColorSpace.SRGB, true, listOf(radialAdj(0.5f), radialAdj(0.5f)))
         }
         assertEquals(px(one, 4, 4), px(two, 4, 4), 0.02f)
+    }
+
+    @Test
+    fun saturation_widensInsideMask_leavesOutside() {
+        val b = colorBuf(0.6f, 0.4f, 0.3f)              // a warm, mildly saturated fill
+        val origSpread = 0.6f - 0.3f
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(saturation = 80f))))
+        assertTrue("center more saturated", spreadAt(b, 4, 4) > origSpread)
+        assertEquals("corner untouched (R)", 0.6f, px(b, 0, 0), 1e-4f)  // outside the mask
+    }
+
+    @Test
+    fun contrast_pushesInsideMask_leavesOutside() {
+        // 0.3 is below the tone-curve pivot (~0.46), so +contrast darkens it inside the mask.
+        val b = grayBuf(0.3f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(contrast = 100f))))
+        assertTrue("center darkened (below pivot)", px(b, 4, 4) < 0.3f)
+        assertEquals("corner untouched", 0.3f, px(b, 0, 0), 1e-4f)
     }
 }
