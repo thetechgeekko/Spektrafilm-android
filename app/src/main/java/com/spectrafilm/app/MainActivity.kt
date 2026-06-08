@@ -2716,31 +2716,36 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Grain", expanded, { expanded = it }, enabledSwitch = s.grainActive,
             onEnabledChange = { s.grainActive = it }, help = ParamHelpText.forKey(ParamHelpText.GRAIN)) {
-            SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
+            var advanced by remember { mutableStateOf(false) }
+            // Basic: the two knobs most users reach for — grain size (ISO) and softness.
             EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
                 step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.", default = PARAM_DEFAULTS.grainParticleAreaUm2)
-            TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
-                default = PARAM_DEFAULTS.grainParticleScale)
-            TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
-                { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
-                tooltip = "Scale of particle area for the sublayers in each color layer.",
-                default = PARAM_DEFAULTS.grainParticleScaleLayers)
-            TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
-                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
-                default = PARAM_DEFAULTS.grainDensityMin)
-            TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
-                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
-                default = PARAM_DEFAULTS.grainUniformity)
             EnhancedSlider("Blur", s.grainBlur, 0f..3f, { s.grainBlur = it }, step = 0.05f, decimals = 2,
                 tooltip = "Sigma of gaussian blur in pixels for the grain.", default = PARAM_DEFAULTS.grainBlur)
-            EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
-            PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
-                step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
-                componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
-            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
-                default = PARAM_DEFAULTS.grainNSubLayers)
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
+                TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
+                    step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
+                    default = PARAM_DEFAULTS.grainParticleScale)
+                TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
+                    { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
+                    tooltip = "Scale of particle area for the sublayers in each color layer.",
+                    default = PARAM_DEFAULTS.grainParticleScaleLayers)
+                TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
+                    step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
+                    default = PARAM_DEFAULTS.grainDensityMin)
+                TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
+                    step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
+                    default = PARAM_DEFAULTS.grainUniformity)
+                EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
+                    step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
+                PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
+                    step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
+                    componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
+                IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
+                    default = PARAM_DEFAULTS.grainNSubLayers)
+            }
             Divider()
             // Granular reset scope (backlog #F): restore the grain parameters to engine
             // defaults without touching the section's on/off switch or other sections.
@@ -2781,46 +2786,51 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Halation", expanded, { expanded = it }, enabledSwitch = s.halationActive,
             onEnabledChange = { s.halationActive = it }, help = ParamHelpText.forKey(ParamHelpText.HALATION)) {
-            EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
-                step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.", default = PARAM_DEFAULTS.halScatterAmount)
-            EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
-                { s.halScatterSpatialScale = it }, step = 0.1f, decimals = 2,
-                tooltip = "High-level scatter size multiplier (1.0 = physical defaults).", default = PARAM_DEFAULTS.halScatterSpatialScale)
+            var advanced by remember { mutableStateOf(false) }
+            // Basic: glow strength + size, the scatter strength, and the highlight boost.
             EnhancedSlider("Halation amount", s.halHalationAmount, 0f..4f, { s.halHalationAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "High-level halation strength multiplier.", default = PARAM_DEFAULTS.halHalationAmount)
             EnhancedSlider("Halation spatial scale", s.halHalationSpatialScale, 0f..4f,
                 { s.halHalationSpatialScale = it }, step = 0.1f, decimals = 2,
                 tooltip = "High-level halation size multiplier.", default = PARAM_DEFAULTS.halHalationSpatialScale)
+            EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
+                step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.", default = PARAM_DEFAULTS.halScatterAmount)
             EnhancedSlider("Boost EV", s.halBoostEv, 0f..6f, { s.halBoostEv = it }, step = 0.5f, decimals = 1,
                 tooltip = "Maximum highlight boost in stops.", default = PARAM_DEFAULTS.halBoostEv)
-            EnhancedSlider("Protect EV", s.halProtectEv, 0f..10f, { s.halProtectEv = it }, step = 0.5f, decimals = 1,
-                tooltip = "Protected range above midgray for the boost onset in stops.", default = PARAM_DEFAULTS.halProtectEv)
-            EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
-                step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
-            TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
-                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
-                default = PARAM_DEFAULTS.halScatterCoreUm)
-            TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
-                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
-                default = PARAM_DEFAULTS.halScatterTailUm)
-            TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
-                { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
-                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
-                default = PARAM_DEFAULTS.halScatterTailWeightPct)
-            TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
-                { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
-                tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
-                default = PARAM_DEFAULTS.halHalationStrengthPct)
-            TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
-                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
-                default = PARAM_DEFAULTS.halFirstSigmaUm)
-            IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
-                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
-                default = PARAM_DEFAULTS.halNBounces)
-            EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
-                step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
-            SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
-                "Divide by (1 + sum of bounce amplitudes) so mid-grey is preserved.")
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
+                    { s.halScatterSpatialScale = it }, step = 0.1f, decimals = 2,
+                    tooltip = "High-level scatter size multiplier (1.0 = physical defaults).", default = PARAM_DEFAULTS.halScatterSpatialScale)
+                EnhancedSlider("Protect EV", s.halProtectEv, 0f..10f, { s.halProtectEv = it }, step = 0.5f, decimals = 1,
+                    tooltip = "Protected range above midgray for the boost onset in stops.", default = PARAM_DEFAULTS.halProtectEv)
+                EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
+                    step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
+                TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
+                    step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
+                    default = PARAM_DEFAULTS.halScatterCoreUm)
+                TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
+                    step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
+                    default = PARAM_DEFAULTS.halScatterTailUm)
+                TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
+                    { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
+                    tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
+                    default = PARAM_DEFAULTS.halScatterTailWeightPct)
+                TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
+                    { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
+                    tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
+                    default = PARAM_DEFAULTS.halHalationStrengthPct)
+                TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
+                    step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
+                    default = PARAM_DEFAULTS.halFirstSigmaUm)
+                IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
+                    tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
+                    default = PARAM_DEFAULTS.halNBounces)
+                EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
+                    step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
+                SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
+                    "Divide by (1 + sum of bounce amplitudes) so mid-grey is preserved.")
+            }
         }
     }
 
@@ -2829,6 +2839,7 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Film color character (couplers)", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
             onEnabledChange = { s.couplersActive = it }, help = ParamHelpText.forKey(ParamHelpText.COUPLERS)) {
+            var advanced by remember { mutableStateOf(false) }
             Text(
                 "Models film's chemical color crosstalk (DIR couplers) — the cause of film's " +
                     "characteristic color separation and edge effects. Looking for a plain saturation " +
@@ -2836,6 +2847,7 @@ class MainActivity : ComponentActivity() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Basic: the three overall strengths. The per-channel mix matrix is advanced.
             EnhancedSlider("Effect strength", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "Global multiplier on the DIR coupler inhibition matrix.", default = PARAM_DEFAULTS.couplersAmount)
             EnhancedSlider("Within-layer strength", s.couplersInhibitionSamelayer, 0f..4f,
@@ -2844,25 +2856,28 @@ class MainActivity : ComponentActivity() {
             EnhancedSlider("Cross-color strength", s.couplersInhibitionInterlayer, 0f..4f,
                 { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
                 tooltip = "Cross-layer (off-diagonal) inhibition — how much each dye layer bleeds into the others.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
-            TripleSlider("Within-layer curve (R, G, B)", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
-                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
-                default = PARAM_DEFAULTS.couplersGammaSamelayer)
-            PairSlider("Color mix R→G/B", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
-                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from R onto G and B.",
-                componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
-            PairSlider("Color mix G→R/B", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
-                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from G onto R and B.",
-                componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
-            PairSlider("Color mix B→R/G", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
-                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from B onto R and G.",
-                componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
-            EnhancedSlider("Color bleed radius (µm)", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
-                step = 5f, decimals = 1, tooltip = "Sigma in µm for the diffusion of the couplers (5-20 µm).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
-            EnhancedSlider("Color bleed tail (µm)", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
-                step = 5f, decimals = 1, tooltip = "Long-range tail sigma in µm for the coupler diffusion.", default = PARAM_DEFAULTS.couplersDiffusionTailUm)
-            EnhancedSlider("Color bleed tail weight", s.couplersDiffusionTailWeight, 0f..1f,
-                { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3,
-                tooltip = "Weight of the long-range diffusion tail.", default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                TripleSlider("Within-layer curve (R, G, B)", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
+                    step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
+                    default = PARAM_DEFAULTS.couplersGammaSamelayer)
+                PairSlider("Color mix R→G/B", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from R onto G and B.",
+                    componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
+                PairSlider("Color mix G→R/B", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from G onto R and B.",
+                    componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
+                PairSlider("Color mix B→R/G", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from B onto R and G.",
+                    componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
+                EnhancedSlider("Color bleed radius (µm)", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
+                    step = 5f, decimals = 1, tooltip = "Sigma in µm for the diffusion of the couplers (5-20 µm).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
+                EnhancedSlider("Color bleed tail (µm)", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
+                    step = 5f, decimals = 1, tooltip = "Long-range tail sigma in µm for the coupler diffusion.", default = PARAM_DEFAULTS.couplersDiffusionTailUm)
+                EnhancedSlider("Color bleed tail weight", s.couplersDiffusionTailWeight, 0f..1f,
+                    { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3,
+                    tooltip = "Weight of the long-range diffusion tail.", default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
+            }
         }
     }
 

@@ -291,6 +291,21 @@ fun HelpSheet(help: ParamHelp, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * A disclosure control that splits a dense section into a "basic" set (always shown) and an
+ * "advanced" set (revealed on demand). Pure presentation: the hidden controls keep their state and
+ * the engine still receives every param, so toggling this changes nothing about the render.
+ */
+@Composable
+fun AdvancedToggle(advanced: Boolean, onToggle: (Boolean) -> Unit) {
+    TextButton(
+        onClick = { onToggle(!advanced) },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(if (advanced) "Hide advanced options" else "Show advanced options")
+    }
+}
+
 /** A simple downward chevron drawn on a Canvas (avoids a material-icons dependency). */
 @Composable
 private fun Chevron(modifier: Modifier = Modifier) {
