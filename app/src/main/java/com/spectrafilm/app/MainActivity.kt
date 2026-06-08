@@ -103,6 +103,7 @@ private enum class Category(val label: String) {
     PREFLASH("Preflash"),
     EXPERIMENTAL("Experimental"),
     TONE_CURVE("Tone Curve"),
+    MASKS("Masks"),
     DISPLAY("Display"),
 }
 
@@ -1031,12 +1032,12 @@ class MainActivity : ComponentActivity() {
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint) { previewTick++ }
+            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint) {
+            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -1279,6 +1280,7 @@ class MainActivity : ComponentActivity() {
                             Category.GLARE -> GlareSection(state)
                             Category.EXPERIMENTAL -> ExperimentalSection(state)
                             Category.TONE_CURVE -> ToneCurveSection(state, preview)
+                            Category.MASKS -> MasksSection(state)
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
@@ -2065,6 +2067,7 @@ class MainActivity : ComponentActivity() {
         Category.PREFLASH -> "Enlarger pre-flash exposure and filtration"
         Category.EXPERIMENTAL -> "Film and print density-curve gamma factors"
         Category.TONE_CURVE -> "Point tone curve on the final RGB — master + per-channel"
+        Category.MASKS -> "Local adjustments — limit Exposure/Saturation/Contrast to a radial area"
         Category.DISPLAY -> "Output colour space, CCTF encoding and preview size"
     }
 
@@ -2079,6 +2082,7 @@ class MainActivity : ComponentActivity() {
         Category.GLARE -> SpectraIcons.Glare
         Category.EXPERIMENTAL -> SpectraIcons.Experimental
         Category.TONE_CURVE -> SpectraIcons.ToneCurve
+        Category.MASKS -> SpectraIcons.Masks
         Category.DISPLAY -> SpectraIcons.Display
         Category.PRESETS -> SpectraIcons.Presets
         Category.SOURCE -> SpectraIcons.SourceImage
