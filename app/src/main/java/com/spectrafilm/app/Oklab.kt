@@ -7,8 +7,8 @@
  * stays neutral for ANY RGB primaries (the LMS matrix rows each sum to 1), so it is correct on the
  * sRGB family and a faithful creative control on wide spaces. Pure Kotlin; no engine touched.
  *
- * (ColorGrade still carries an equivalent inline copy; both should de-dup onto this in a follow-up,
- * together with OutputCctf.)
+ * Shared by the global ColorGrade (Saturation/Vibrance) and the per-mask local Saturation + Hue ops —
+ * one source of truth, no drift. Paired with OutputCctf for the transfer round-trip.
  */
 package com.spectrafilm.app
 

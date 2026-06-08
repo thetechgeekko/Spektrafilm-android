@@ -3,8 +3,8 @@
  * Film modeling powered by spektrafilm.
  *
  * The 1-D per-output-space transfer functions the engine applies at the end of scanning, factored out
- * as a shared source of truth for the post-engine output ops (the mask compositor uses it; ColorGrade
- * still carries an equivalent private copy, to be de-duped onto this in a follow-up). A mirror of
+ * as a shared source of truth for the post-engine output ops (both the mask compositor and ColorGrade
+ * use it — one copy, no drift). A mirror of
  * engine model/color_output.cpp::output_cctf_encode + its inverse, gated by [cctf] (= io.outputCctfEncoding;
  * when false the engine emitted linear, so the round-trip is identity). Pure Kotlin, no engine touched.
  */
