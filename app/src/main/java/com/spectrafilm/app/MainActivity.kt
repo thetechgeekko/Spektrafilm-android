@@ -2061,7 +2061,7 @@ class MainActivity : ComponentActivity() {
         Category.GRAIN -> "Film grain structure, size and blur"
         Category.HALATION -> "Halation glow and in-emulsion light scatter"
         Category.GLARE -> "Print glare (stochastic; off by default)"
-        Category.COUPLERS -> "DIR couplers — cross-channel inhibition & saturation"
+        Category.COUPLERS -> "Film color character — DIR couplers (chemical color crosstalk). Plain saturation lives in Output."
         Category.PREFLASH -> "Enlarger pre-flash exposure and filtration"
         Category.EXPERIMENTAL -> "Film and print density-curve gamma factors"
         Category.TONE_CURVE -> "Point tone curve on the final RGB — master + per-channel"
@@ -2731,34 +2731,42 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun CouplersSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Couplers", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
+        SectionCard("Film color character (couplers)", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
             onEnabledChange = { s.couplersActive = it }) {
-            EnhancedSlider("Amount", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
+            Text(
+                "Models film's chemical color crosstalk (DIR couplers) — the cause of film's " +
+                    "characteristic color separation and edge effects. Looking for a plain saturation " +
+                    "control? Use Saturation / Vibrance in Simulation → Output.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Effect strength", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "Global multiplier on the DIR coupler inhibition matrix.", default = PARAM_DEFAULTS.couplersAmount)
-            EnhancedSlider("Inhibition samelayer", s.couplersInhibitionSamelayer, 0f..4f,
+            EnhancedSlider("Within-layer strength", s.couplersInhibitionSamelayer, 0f..4f,
                 { s.couplersInhibitionSamelayer = it }, step = 0.05f, decimals = 2,
-                tooltip = "Multiplier on the same-layer (diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
-            EnhancedSlider("Inhibition interlayer", s.couplersInhibitionInterlayer, 0f..4f,
+                tooltip = "Same-layer (diagonal) inhibition — within-channel contrast/acutance.", default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
+            EnhancedSlider("Cross-color strength", s.couplersInhibitionInterlayer, 0f..4f,
                 { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
-                tooltip = "Multiplier on the cross-layer (off-diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
-            TripleSlider("Gamma samelayer RGB", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
+                tooltip = "Cross-layer (off-diagonal) inhibition — how much each dye layer bleeds into the others.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
+            TripleSlider("Within-layer curve (R, G, B)", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
                 step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
                 default = PARAM_DEFAULTS.couplersGammaSamelayer)
-            PairSlider("Gamma R→GB", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from R onto G and B.",
+            PairSlider("Color mix R→G/B", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
+                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from R onto G and B.",
                 componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
-            PairSlider("Gamma G→RB", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from G onto R and B.",
+            PairSlider("Color mix G→R/B", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
+                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from G onto R and B.",
                 componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
-            PairSlider("Gamma B→RG", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from B onto R and G.",
+            PairSlider("Color mix B→R/G", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
+                step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from B onto R and G.",
                 componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
-            EnhancedSlider("Diffusion size um", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
-                step = 5f, decimals = 1, tooltip = "Sigma in um for the diffusion of the couplers (5-20 um).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
-            EnhancedSlider("Diffusion tail um", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
-                step = 5f, decimals = 1, default = PARAM_DEFAULTS.couplersDiffusionTailUm)
-            EnhancedSlider("Diffusion tail weight", s.couplersDiffusionTailWeight, 0f..1f,
-                { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3, default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
+            EnhancedSlider("Color bleed radius (µm)", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
+                step = 5f, decimals = 1, tooltip = "Sigma in µm for the diffusion of the couplers (5-20 µm).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
+            EnhancedSlider("Color bleed tail (µm)", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
+                step = 5f, decimals = 1, tooltip = "Long-range tail sigma in µm for the coupler diffusion.", default = PARAM_DEFAULTS.couplersDiffusionTailUm)
+            EnhancedSlider("Color bleed tail weight", s.couplersDiffusionTailWeight, 0f..1f,
+                { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3,
+                tooltip = "Weight of the long-range diffusion tail.", default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
         }
     }
 

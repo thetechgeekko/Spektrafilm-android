@@ -1,6 +1,40 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.2 Saturation/Vibrance (Oklab post-engine grade) — NEW PR (PR #90 MERGED)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.3 couplers relabel → §3 COMPLETE — NEW PR (PR #90 + #91 MERGED)
+
+**PR #90 AND #91 are both MERGED to `main`** — color management (§2 P0), Contrast (§3.1), and
+Saturation/Vibrance (§3.2) are all on trunk. This new PR ships **§3.3 (couplers relabel)**, which
+**completes §3 (tone/color)**. Pure UI text — engine untouched, parity suite unaffected.
+
+### What shipped
+`MainActivity.CouplersSection` relabelled to plain language (no behavior change): panel → "Film color
+character (couplers)" with a note explaining DIR couplers + a redirect *"plain saturation? → Saturation
+/ Vibrance in Output"*. Amount→Effect strength, Inhibition samelayer/interlayer→Within-layer/Cross-color
+strength, Gamma R→GB…→Color mix R→G/B, Diffusion→Color bleed radius/tail. Param bindings/ranges/defaults
+unchanged. Already verified green (compile+test+lint) before the reset below; same code re-applied.
+
+### ⚠️ THIRD container reset this session — and it was SEVERER (recovered)
+This time the env **re-cloned the whole repo fresh at `b7d6282`** AND the local git proxy (`127.0.0.1`)
+came back at a **stale snapshot** (its `refs/heads/main` was old, my branch ref gone, fd4408c absent
+from local objects). Recovery: **PR #90 + #91 were already merged on real GitHub**, and the proxy still
+exposed `refs/pull/91/head = fd4408c` → `git fetch origin refs/pull/91/head` then `git reset --hard
+FETCH_HEAD` restored the full tree; re-applied the (uncommitted) couplers relabel from context.
+**Takeaway: the moment a PR is merged, the work is safe on GitHub even if the local proxy desyncs —
+recover via `refs/pull/<N>/head`.** Keep merging/pushing increments promptly.
+
+### Next steps (priority — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (drag-interactive WB).
+2. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off.
+3. **Masking (Wave 2, §4):** the keystone — Contrast/Sat/Vibrance double as the per-mask Tier-A payload.
+4. Optional §3 tail: §3.4 "Film-Feel" master, §3.5 "Soft scan" preset.
+5. **Device + R8 smoke** (no device in-env): verify the wide-gamut display/export + the new Contrast/
+   Saturation/Vibrance + relabelled couplers panel on the S26.
+
+This is a fresh draft PR (base `main`). Merging is policy-gated.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.2 Saturation/Vibrance (Oklab post-engine grade) — PR #91 MERGED
 
 **PR #90 was MERGED to `main`** (color management §2 P0 + Contrast §3.1 + the prior WB/RE/Wave-0 work
 are all on trunk now). Branch was re-synced to the merged `main` (`6bfd519`); the new work below is a
