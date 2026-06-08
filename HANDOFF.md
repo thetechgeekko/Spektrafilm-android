@@ -1,6 +1,32 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode + §6a/b export sheet (PR #102 DRAFT)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — masking Class-S local adjustments (PR #103 DRAFT)
+
+**PR #102 MERGED** to `main` (`cc917fd`): §6e slide-mode + §6a export sheet + §6b 32-float/scene-linear
+TIFF. **User device-tested it: "apk works and 32bit export works."** Then flagged the **masking tool as
+incomplete** vs Lightroom → I gap-analysed `masks/` against the LR RE (`docs/MASKING_SPEC.md`) and the
+user chose **Class-S local sliders** to close first.
+
+**PR #103 (DRAFT, `662ea4b` on `main`)** — the spatial half of LR's local panel (a neighborhood pass on
+the output luma; a per-pixel curve can't make these): **Clarity** (large-radius midtone local contrast),
+**Texture** (mid-radius detail), **Sharpness** (small-radius unsharp), **Highlights/Shadows** (regional
+gain via the blurred luma). Now 13 of LR's ~14 local ops (Dehaze/DCP deferred). `MaskSpatial` = a
+separable 3-pass box blur (≈Gaussian, O(n), edge-clamped) + Clarity midtone weight; radii scale with the
+long edge (draft≡export). Gated spatial pass in `MaskCompositor` (luma-only, colour preserved by RGB
+ratio). Tier-2, parity untouched. `MaskSpatialTest` (+5); `:app:testDebugUnitTest` **176/176**, lint +
+assembleDebug green. **Not device-verified** (radii/gains are `[RECON]` tunables).
+
+**Masking gaps still open (LR-RE, ranked):** Brush (`cr_mask_paint`); AI Select Subject/Sky
+(`cr_mask_image`, needs a bundled TFLite + guided-filter); Dehaze (DCP); multi-sample colour range (≤5);
+per-component range nesting; on-preview alpha viz; full `crs`/XMP sidecar export for LR round-trip.
+
+> ⚠️ **§6g `ProfileValidator` is orphaned** — committed (`660d33a`) + pushed but slipped the #102 merge,
+> then force-dropped from the branch when #103 reset to clean `main`. Not in `main`, recoverable via the
+> source in-session or origin's dangling object. Re-land if/when §6g (profile import) is prioritized.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode + §6a/b export sheet (PR #102 MERGED)
 
 A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
 "use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **PR #102 (DRAFT)** then adds, on
