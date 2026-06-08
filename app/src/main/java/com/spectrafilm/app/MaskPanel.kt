@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -178,10 +179,13 @@ fun MasksSection(
         val lum = adj.mask.luminanceRange
         SwitchRow("Limit to tones", lum != null,
             { on -> set(adj.copy(mask = adj.mask.copy(luminanceRange = if (on) LuminanceRange() else null))) },
-            "Restrict the adjustment to a brightness range — e.g. only the highlights, or only the shadows.")
+            "Restrict the adjustment to a brightness range — e.g. only the highlights, or only the " +
+                "shadows. Turn on, then use the eyedropper to pick the tone from your photo.")
         if (lum != null) {
             fun setLum(r: LuminanceRange) = set(adj.copy(mask = adj.mask.copy(luminanceRange = r)))
-            TextButton(onClick = { onSampleLuminance(idx) }) { Text("Pick from photo") }
+            OutlinedButton(onClick = { onSampleLuminance(idx) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — pick a tone from the photo")
+            }
             EnhancedSlider("Tone min", lum.lumMin, 0f..1f, { setLum(lum.copy(lumMin = it)) },
                 step = 0.01f, decimals = 2, default = 0f, tooltip = "Darkest tone the adjustment affects.")
             EnhancedSlider("Tone max", lum.lumMax, 0f..1f, { setLum(lum.copy(lumMax = it)) },
@@ -196,10 +200,13 @@ fun MasksSection(
         val col = adj.mask.colorRange
         SwitchRow("Limit to a color", col != null,
             { on -> set(adj.copy(mask = adj.mask.copy(colorRange = if (on) ColorRange() else null))) },
-            "Restrict the adjustment to one color family — e.g. only the reds, leaving skin untouched.")
+            "Restrict the adjustment to one color family — e.g. only the reds, leaving skin untouched. " +
+                "Turn on, then use the eyedropper to pick the color from your photo.")
         if (col != null) {
             fun setCol(r: ColorRange) = set(adj.copy(mask = adj.mask.copy(colorRange = r)))
-            TextButton(onClick = { onSampleColor(idx) }) { Text("Pick from photo") }
+            OutlinedButton(onClick = { onSampleColor(idx) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — pick a color from the photo")
+            }
             EnhancedSlider("Target red", col.targetR, 0f..1f, { setCol(col.copy(targetR = it)) },
                 step = 0.01f, decimals = 2, default = 0.5f, tooltip = "The color to affect — red component.")
             EnhancedSlider("Target green", col.targetG, 0f..1f, { setCol(col.copy(targetG = it)) },
