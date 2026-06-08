@@ -284,10 +284,10 @@ fun saveTextToUri(ctx: Context, uri: Uri, text: String) {
         ?: error("Could not open output for LUT")
 }
 
-/** Filesystem-safe `<film>_<print>.cube` filename from friendly stock names. */
-fun cubeFileName(film: String, print: String): String {
+/** Filesystem-safe `<film>_<print>_<size>.<cube|clf>` LUT filename from friendly stock names. */
+fun lutFileName(film: String, print: String, size: Int, clf: Boolean): String {
     fun clean(s: String) = s.trim().ifEmpty { "lut" }.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
-    return "${clean(film)}_${clean(print)}.cube"
+    return "${clean(film)}_${clean(print)}_$size.${if (clf) "clf" else "cube"}"
 }
 
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {

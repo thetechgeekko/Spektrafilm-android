@@ -1365,19 +1365,30 @@ class MainActivity : ComponentActivity() {
                                             .onFailure { status = "paste failed: ${it.message}" }
                                     }
                                 },
-                                onExportLut = {
+                                onExportLut = { size, clf ->
                                     val e = engine ?: return@PresetPanel
-                                    bakingLut = true; status = "baking .cube LUT…"
+                                    bakingLut = true; status = "baking ${if (clf) "CLF" else ".cube"} LUT…"
                                     scope.launch {
                                         val r = runCatching {
-                                            withContext(Dispatchers.Default) { e.bakeCubeLut(state.toParams(), 33) }
+                                            withContext(Dispatchers.Default) {
+                                                val cube = e.bakeCubeLut(state.toParams(), size)
+                                                if (clf) {
+                                                    val lut = CubeLut.parse(cube) ?: error("baked LUT could not be parsed")
+                                                    val film = StockCatalog.displayName(ctx, state.filmProfile)
+                                                    val print = StockCatalog.displayName(ctx, state.printProfile)
+                                                    ClfWriter.write(lut, title = "$film / $print")
+                                                } else {
+                                                    cube
+                                                }
+                                            }
                                         }
                                         bakingLut = false
-                                        r.onSuccess { cube ->
-                                            pendingLutText = cube
-                                            val fileName = cubeFileName(
+                                        r.onSuccess { text ->
+                                            pendingLutText = text
+                                            val fileName = lutFileName(
                                                 StockCatalog.displayName(ctx, state.filmProfile),
                                                 StockCatalog.displayName(ctx, state.printProfile),
+                                                size, clf,
                                             )
                                             runCatching { lutExporter.launch(fileName) }
                                                 .onFailure { status = "could not open save dialog: ${it.message}" }
@@ -2175,7 +2186,7 @@ class MainActivity : ComponentActivity() {
         onCopySettings: () -> Unit,
         canPasteSettings: Boolean,
         onPasteSettings: () -> Unit,
-        onExportLut: () -> Unit,
+        onExportLut: (size: Int, clf: Boolean) -> Unit,
         bakingLut: Boolean,
     ) {
         if (builtInGroups.isNotEmpty()) {
@@ -2258,8 +2269,21 @@ class MainActivity : ComponentActivity() {
             ) { Text("Paste settings") }
         }
         Divider()
+        var lutSize by remember { mutableIntStateOf(33) }
+        var lutClf by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Size", style = MaterialTheme.typography.bodySmall)
+            listOf(17, 33, 65).forEach { sz ->
+                FilterChip(selected = lutSize == sz, onClick = { lutSize = sz }, label = { Text("$sz³") })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Format", style = MaterialTheme.typography.bodySmall)
+            FilterChip(selected = !lutClf, onClick = { lutClf = false }, label = { Text(".cube") })
+            FilterChip(selected = lutClf, onClick = { lutClf = true }, label = { Text(".clf") })
+        }
         Button(
-            onClick = onExportLut,
+            onClick = { onExportLut(lutSize, lutClf) },
             enabled = !bakingLut,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -2271,13 +2295,14 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.width(10.dp))
                 Text("Baking LUT…")
             } else {
-                Text("Export LUT (.cube, 33³)")
+                Text("Export LUT (${if (lutClf) ".clf" else ".cube"}, $lutSize³)")
             }
         }
         Text(
-            "Bakes the current film + print look into a 33³ .cube 3D LUT. Spatial/stochastic " +
-                "effects (grain, halation, diffusion, glare) can't be captured in a 3D LUT and " +
-                "are omitted from the bake.",
+            "Bakes the current film + print look into a 3D LUT. .cube imports into most apps; " +
+                ".clf (Common LUT Format) imports into DaVinci Resolve / OpenColorIO 2.3+. Spatial/" +
+                "stochastic effects (grain, halation, diffusion, glare) can't be captured in a 3D LUT " +
+                "and are omitted from the bake.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
