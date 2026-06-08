@@ -162,4 +162,21 @@ class MaskCompositorTest {
         MaskCompositor.applyInPlace(blue, W, H, ColorSpace.SRGB, true, listOf(adj))
         assertEquals("non-matching blue gated out", 0.15f, px(blue, 4, 4), 1e-3f)  // R channel untouched
     }
+
+    @Test
+    fun linearMask_graduatedExposure() {
+        // A vertical gradient (top → bottom) + exposure = a graduated filter: the bottom brightens to
+        // full effect, the top (the gradient's start) is left essentially untouched.
+        val adj = LocalAdjustment(
+            Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Linear(0.5f, 0f, 0.5f, 1f)))),
+            TierADelta(exposureEv = 1f),
+        )
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true, listOf(adj))
+        val top = px(b, 4, 0)
+        val bottom = px(b, 4, 7)
+        assertTrue("bottom (full gradient) brightened", bottom > 0.6f)
+        assertTrue("top (gradient start) ~untouched", top < 0.55f)
+        assertTrue("ramps: bottom brighter than top", bottom > top)
+    }
 }
