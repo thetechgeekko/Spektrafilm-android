@@ -36,7 +36,7 @@ import com.spectrafilm.app.masks.MaskComponent
 import com.spectrafilm.app.masks.TierADelta
 
 @Composable
-fun MasksSection(s: ParamsState) {
+fun MasksSection(s: ParamsState, onEditOnPhoto: (Int) -> Unit = {}) {
     var expanded by remember { mutableStateOf(true) }
     var selected by remember { mutableIntStateOf(0) }
     val masks = s.localAdjustments
@@ -70,6 +70,8 @@ fun MasksSection(s: ParamsState) {
         fun set(updated: LocalAdjustment) {
             s.localAdjustments = masks.toMutableList().also { it[idx] = updated }
         }
+
+        TextButton(onClick = { onEditOnPhoto(idx) }) { Text("Position on photo") }
 
         // --- Adjustment applied where the mask is opaque (Tier-A, pointwise on the output) ---
         EnhancedSlider("Temp", adj.delta.temp, -100f..100f,

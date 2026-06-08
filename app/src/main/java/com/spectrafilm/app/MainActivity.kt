@@ -359,6 +359,9 @@ class MainActivity : ComponentActivity() {
 
         // interactive crop overlay (Lightroom-style); hosts on top of everything.
         var cropOverlayOpen by remember { mutableStateOf(false) }
+        // draw-on-the-preview mask geometry editor (positions the selected mask on the photo).
+        var maskOverlayOpen by remember { mutableStateOf(false) }
+        var maskEditIndex by remember { mutableStateOf(0) }
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -840,7 +843,7 @@ class MainActivity : ComponentActivity() {
         // while cropping or comparing (those branches own the gestures / have no zoom).
         fun renderRoi(roi: RoiRect) {
             val e = engine ?: return
-            if (cropOverlayOpen || compareMode) return
+            if (cropOverlayOpen || maskOverlayOpen || compareMode) return
             roiJobRef.value?.cancel()
             roiJobRef.value = scope.launch {
                 val result = runCatching {
@@ -909,7 +912,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
-                if (cropOverlayOpen || compareMode) return@collect
+                if (cropOverlayOpen || maskOverlayOpen || compareMode) return@collect
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
@@ -1107,8 +1110,9 @@ class MainActivity : ComponentActivity() {
         // 0) crop overlay open -> close it; 1) panel open -> close panel;
         // 2) else double-back-to-exit with one-time hint.
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
-        BackHandler(enabled = !cropOverlayOpen && activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = !cropOverlayOpen && activeCategory == null) {
+        BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -1280,7 +1284,9 @@ class MainActivity : ComponentActivity() {
                             Category.GLARE -> GlareSection(state)
                             Category.EXPERIMENTAL -> ExperimentalSection(state)
                             Category.TONE_CURVE -> ToneCurveSection(state, preview)
-                            Category.MASKS -> MasksSection(state)
+                            Category.MASKS -> MasksSection(state, onEditOnPhoto = { idx ->
+                                maskEditIndex = idx; maskOverlayOpen = true
+                            })
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
@@ -1471,6 +1477,22 @@ class MainActivity : ComponentActivity() {
                         previewTick++
                     },
                     onCancel = { cropOverlayOpen = false },
+                )
+            }
+
+            // --- draw-on-the-preview mask geometry editor ---
+            if (maskOverlayOpen && cropBmp != null && maskEditIndex in state.localAdjustments.indices) {
+                MaskGeometryOverlay(
+                    bitmap = cropBmp,
+                    mask = state.localAdjustments[maskEditIndex].mask,
+                    onConfirm = { updated ->
+                        val list = state.localAdjustments.toMutableList()
+                        list[maskEditIndex] = list[maskEditIndex].copy(mask = updated)
+                        state.localAdjustments = list
+                        maskOverlayOpen = false
+                        previewTick++
+                    },
+                    onCancel = { maskOverlayOpen = false },
                 )
             }
 
