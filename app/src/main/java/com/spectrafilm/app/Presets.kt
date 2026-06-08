@@ -152,6 +152,11 @@ object Presets {
             put("tint", s.rawTint.toDouble())
         })
 
+        put("creativeWb", JSONObject().apply {
+            put("temp", s.creativeWbTemp.toDouble())
+            put("tint", s.creativeWbTint.toDouble())
+        })
+
         put("camera", JSONObject().apply {
             put("exposureCompensationEv", s.exposureCompensationEv.toDouble())
             put("autoExposure", s.autoExposure)
@@ -305,6 +310,11 @@ object Presets {
             s.rawWhiteBalance = enumOf(r.optString("whiteBalance"), WhiteBalance.entries, s.rawWhiteBalance)
             s.rawTemperature = r.f("temperature", s.rawTemperature)
             s.rawTint = r.f("tint", s.rawTint)
+        }
+
+        o.optJSONObject("creativeWb")?.let { c ->
+            s.creativeWbTemp = c.f("temp", s.creativeWbTemp)
+            s.creativeWbTint = c.f("tint", s.creativeWbTint)
         }
 
         o.optJSONObject("camera")?.let { c ->

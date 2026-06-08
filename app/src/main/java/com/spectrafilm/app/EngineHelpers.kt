@@ -378,6 +378,10 @@ class DecodedSourceCache {
         val whiteBalance: WhiteBalance,
         val temperature: Float,
         val tint: Float,
+        // Creative WB is baked into the decoded buffer by loadSource (a pre-engine CAT), so it is a
+        // decode-affecting input and belongs in the key — a change re-decodes, like raw temp/tint.
+        val creativeTemp: Float,
+        val creativeTint: Float,
         val rotationDegrees: Int,
         val maxEdge: Int,
     )
@@ -392,9 +396,10 @@ class DecodedSourceCache {
     @Synchronized
     fun get(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
-        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+        temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
+        rotationDegrees: Int, maxEdge: Int,
     ): LinearImage? {
-        val k = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        val k = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
         return if (k == key) image else null
     }
 
@@ -402,7 +407,8 @@ class DecodedSourceCache {
     @Synchronized
     fun put(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
-        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+        temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
+        rotationDegrees: Int, maxEdge: Int,
         img: LinearImage,
     ) {
         // Release the previous entry. This cache only holds proxy-scale (previewMaxSize
@@ -411,7 +417,7 @@ class DecodedSourceCache {
         // were an off-heap image ever cached, instead of leaking it (native memory is
         // not GC-tracked). Guarded against re-putting the same instance.
         image?.takeIf { it !== img }?.close()
-        key = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        key = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
         image = img
     }
 

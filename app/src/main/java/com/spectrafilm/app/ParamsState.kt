@@ -84,6 +84,12 @@ class ParamsState {
     var rawTemperature by mutableFloatStateOf(5500f)
     var rawTint by mutableFloatStateOf(1f)
 
+    // --- Creative white balance (all sources; pre-engine Bradford CAT on the linear input). ---
+    // Relative push in [-100,100]; 0 = identity. Distinct from the RAW-decode WB above (which is a
+    // camera-illuminant correction, RAW-only). NOT a SpektraParams field — applied in loadSource.
+    var creativeWbTemp by mutableFloatStateOf(0f)
+    var creativeWbTint by mutableFloatStateOf(0f)
+
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
     var autoExposure by mutableStateOf(false)

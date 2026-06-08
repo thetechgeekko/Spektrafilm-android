@@ -683,6 +683,15 @@ class MainActivity : ComponentActivity() {
             // EXIF baseline (when applicable) first, then the user's manual rotate steps.
             val based = if (applyExifBaseline) img.applyExif(exif) else img
             based.rotated(rotation).also {
+                // Creative white balance: bake a pre-engine Bradford CAT into the linear input here
+                // (parity-free — engine/spektra-core is untouched). No-op when neutral; it's part of
+                // the decode-cache key so a change re-decodes, like raw temp/tint.
+                if (!CreativeWhiteBalance.isNeutral(state.creativeWbTemp, state.creativeWbTint)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        CreativeWhiteBalance.matrix(state.creativeWbTemp, state.creativeWbTint),
+                    )
+                }
                 // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
                 Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
             }
@@ -704,21 +713,24 @@ class MainActivity : ComponentActivity() {
             fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the decode in the stable lifecycleScope so two renders that both miss
             // (e.g. the settle pass + the GPU LUT bake) decode once, not twice.
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                rotation.degrees, maxEdge,
             ).joinToString("|")
             return previewDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     sourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -735,7 +747,8 @@ class MainActivity : ComponentActivity() {
             fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
@@ -743,14 +756,16 @@ class MainActivity : ComponentActivity() {
             // THAT decode instead of starting an overlapping one (the "5 decodes per pinch" drain).
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                rotation.degrees, maxEdge,
             ).joinToString("|")
             return zoomDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     zoomSourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -894,7 +909,8 @@ class MainActivity : ComponentActivity() {
                 val proxy = sourceCache.get(
                     uri = sourceUri?.toString(), kind = sourceKind.name,
                     whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                    tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                    tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                    rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 ) ?: return@collect                             // proxy not cached yet — settle owns the decode
                 runCatching {
                     withContext(Dispatchers.Default) {
@@ -1008,11 +1024,13 @@ class MainActivity : ComponentActivity() {
         // identical trigger behaviour to the old per-frame snapshot, with no per-frame alloc.
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -2303,6 +2321,23 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
             // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
+            Divider()
+            Text("Creative white balance", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "A warm/cool + green/magenta grade on the image going into the film — works on every " +
+                    "source (RAW, JPEG, HEIC). Separate from the RAW white balance; 0 = off.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Creative warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0,
+                tooltip = "Warm/cool the scene before the film sees it (Bradford adaptation in linear " +
+                    "ProPhoto). Positive = warmer. 0 = no change.", default = 0f)
+            EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0,
+                tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.",
+                default = 0f)
+            Divider()
             GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
                 Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                     { it.name.lowercase() }, { s.spectralUpsampling = it })
