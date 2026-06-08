@@ -77,6 +77,7 @@ data class Mask(
     val components: List<Component> = emptyList(),
     val invert: Boolean = false,
     val opacity: Float = 1f,
+    val luminanceRange: LuminanceRange? = null,
 ) {
     /**
      * One folded component. [invert] = `crs:MaskInverted` (per-component, applied BEFORE the fold);
@@ -104,6 +105,32 @@ data class Mask(
         }
         if (invert) a = 1f - a
         return (a * opacity).coerceIn(0f, 1f)
+    }
+}
+
+/**
+ * A luminance range refinement (`crs:CorrectionRangeMask` Type=Luminance): gates a mask's coverage by
+ * the OUTPUT pixel's luma, so an adjustment only affects a tonal range (e.g. just the highlights). A
+ * trapezoid full in [[lumMin],[lumMax]], feathering to 0 over a [feather] band each side; [invert]
+ * flips it. Evaluated in the compositor (it reads the pixel), not in the pure-geometry [Mask.alphaAt].
+ * Default (0..1) is a no-op. NB: LR nests this per-component; we apply it mask-wide for v1.
+ */
+data class LuminanceRange(
+    val lumMin: Float = 0f,
+    val lumMax: Float = 1f,
+    val feather: Float = 0.1f,
+    val invert: Boolean = false,
+) {
+    /** True when this range would actually restrict the mask (else the compositor skips it). */
+    val isActive: Boolean get() = lumMin > 0f || lumMax < 1f || invert
+
+    /** Trapezoid gate in [0,1] for an output [luma] in [0,1]. */
+    fun gate(luma: Float): Float {
+        val f = feather.coerceAtLeast(1e-3f)
+        val lo = smoothstep((luma - (lumMin - f)) / f)   // 0 below lumMin−f, 1 at lumMin
+        val hi = smoothstep(((lumMax + f) - luma) / f)   // 1 at lumMax, 0 above lumMax+f
+        val g = (lo * hi).coerceIn(0f, 1f)
+        return if (invert) 1f - g else g
     }
 }
 

@@ -49,6 +49,7 @@ object MaskJson {
     private fun maskToJson(m: Mask) = JSONObject().apply {
         put("invert", m.invert); put("opacity", m.opacity.toDouble())
         put("components", JSONArray().apply { for (c in m.components) put(componentToJson(c)) })
+        m.luminanceRange?.let { put("lumRange", lumRangeToJson(it)) }
     }
 
     private fun maskFromJson(o: JSONObject?): Mask {
@@ -57,8 +58,18 @@ object MaskJson {
         o.optJSONArray("components")?.let { ca ->
             for (i in 0 until ca.length()) ca.optJSONObject(i)?.let { comps.add(componentFromJson(it)) }
         }
-        return Mask(comps, o.optBoolean("invert", false), f(o, "opacity", 1f))
+        val lum = o.optJSONObject("lumRange")?.let { lumRangeFromJson(it) }
+        return Mask(comps, o.optBoolean("invert", false), f(o, "opacity", 1f), lum)
     }
+
+    private fun lumRangeToJson(r: LuminanceRange) = JSONObject().apply {
+        put("min", r.lumMin.toDouble()); put("max", r.lumMax.toDouble())
+        put("feather", r.feather.toDouble()); put("invert", r.invert)
+    }
+
+    private fun lumRangeFromJson(o: JSONObject) = LuminanceRange(
+        f(o, "min", 0f), f(o, "max", 1f), f(o, "feather", 0.1f), o.optBoolean("invert", false),
+    )
 
     private fun componentToJson(c: Mask.Component) = JSONObject().apply {
         put("mode", c.mode.name); put("invert", c.invert); put("value", c.value.toDouble())
