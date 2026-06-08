@@ -1,6 +1,172 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`) — point tone-curve editor UI (PR #88 MERGED; PR #87 = prior docs handoff)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.1 Contrast slider (drives the master tone curve) — PR #90 DRAFT
+
+Continuation on **PR #90 (DRAFT, base `main`)**, commit `3bad23d`. After §2 P0 color management
+(below), shipped the next color-foundation piece: **a discoverable Contrast slider (§3.1)**. **Pure
+Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **81/81**,
+`:app:lintDebug` clean.
+
+### What shipped (commit `3bad23d`)
+Forum pain #3 = "too punchy vs scanned film; I want to mute contrast," but the only contrast knobs
+were buried/physical. **`ContrastCurve.kt`** (pure, JVM-tested) maps a `[-100,100]` slider to a power
+S-curve pivoted at display 18% gray (0.46 → mid-gray fixed) with matched pivot slope `g =
+2^(contrast/100)`: g>1 adds punch, g<1 is the **mute** direction. It drives the engine's
+already-wired, **parity-gated master tone curve** (so it's hue-neutral and live in preview + export),
+and **composes UNDER a hand-drawn master curve** (`out = userCurve(contrast(in))`) so the two stack;
+`contrast=0` emits no points → strict no-op. Wired: `ParamsState.contrast` (UI-only) composed in
+`toParams`; slider at the top of the Tone Curve panel (auto-arms the stage; "Reset all" clears it);
+`Presets` round-trip in a new `"grade"` block. `ContrastCurveTest` (9).
+
+### ⚠️ Container reset recurred mid-session (recovered) — commit + push EARLY
+The env re-cloned to an older commit (`b7d6282`) again, reverting the local tree (ToneCurve.kt etc.
+vanished locally). Because the §2 work was already pushed (`49ccbcb`), recovery was clean: `git fetch`
+→ confirm origin tip is my pushed commit → working tree clean → `git reset --hard
+origin/<branch>`. **Lesson (again): commit + push each increment the moment it's green.**
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **Saturation/Vibrance (§3.2):** Oklab post-engine op on `SimResult.data`. **Design note:** Oklab's
+   Ottosson matrices assume linear-sRGB primaries — exact for sRGB/LINEAR_SRGB/Adobe/Rec2020 (all
+   D65) via a primaries 3×3, but ProPhoto (D50)/ACES (D60) need a white-point-adapted matrix. Apply
+   it **once, in-place on `res.data` right after `simulate`** (NOT inside `simResultToBitmap` — the
+   export site feeds `res` to BOTH `simResultToBitmap` and `saveSimResultAsTiff`, so a consumer-side
+   mutation would double-apply). Default 0 → byte-identical.
+2. **Couplers relabel (§3.3, Tier 0):** plain labels + a "looking for plain saturation?" redirect.
+3. **WB follow-up (§1.2):** decouple creative WB from the decode cache.
+4. **ACES-RGC gamut toggle (§2 P1):** output-side, default-off.
+5. **Masking (Wave 2, §4)** + **device/R8 smoke** (verify wide-gamut display/export on the S26).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §2 P0 color management (display tag + wide-color + ICC embed) — PR #90 DRAFT
+
+Continuation on **PR #90 (DRAFT, base `main`)**. Picked up the handoff's next-step #3 / Wave-0
+foundation: **color management (§2 P0)** — *"the biggest cheap win… without it every gamut judgment is
+made against a broken display path."* **Pure Kotlin/UI — `engine/spektra-core/src/main/cpp/**` NOT
+touched, so the 26-test parity suite is unaffected.** `:app:testDebugUnitTest` **72/72**,
+`:app:lintDebug` clean (verified locally on `/opt/android-sdk`).
+
+### What shipped this session (all in one commit)
+The app was **not color-managed**: every render bitmap was untagged (system assumed sRGB) and exports
+embedded no ICC — so wide-gamut output (Adobe/ProPhoto/Rec2020) was *shown and saved as sRGB* (wrong
+hue/sat), and the "hard cyan edge" was judged on a broken display path. Fixed end-to-end:
+- **New `ColorManagement.kt`** (pure, testable): `displayColorSpaceName(cs)` → the Android
+  `ColorSpace.Named` constant name per output space (null for ACES2065_1 — AP0 range exceeds [0,1], no
+  faithful 8-bit tag); `iccAssetPath(cs)` → the bundled ICC asset; `loadIccBytes(ctx,cs)`. Transfers
+  verified 1:1 against `model/color_output.cpp::output_cctf_encode` (sRGB↔SRGB, Adobe γ563/256↔ADOBE_RGB,
+  ROMM↔PRO_PHOTO_RGB, BT.2020 OETF↔BT2020, linear↔LINEAR_SRGB).
+- **Display:** `EngineHelpers.simResultToBitmap` gained a `colorSpace` param + `createTaggedBitmap`
+  (tags via `createBitmap(…,colorSpace)` on **API 26+**; `setColorSpace` is API 29 so unusable at
+  minSdk 24; plain sRGB fallback on 24–25 / ACES / device reject). All **5 call sites** in `MainActivity`
+  pass `res.colorSpace` (preview, zoom ROI, draft, before/after, export-bitmap).
+- **Window:** `MainActivity.onCreate` requests `COLOR_MODE_WIDE_COLOR_GAMUT` (API 26+) so tagged
+  wide bitmaps aren't clamped at composition on wide panels (no-op on sRGB displays).
+- **Export ICC:** `saveSimResultAsTiff` + `saveSimResultAsPng16` now embed `loadIccBytes(ctx,
+  result.colorSpace)` (was `icc=null`); 8-bit JPEG/PNG/UltraHDR inherit the profile for free because
+  `Bitmap.compress` embeds a **tagged** bitmap's ICC (API 26+). ICC assets were **already bundled**
+  (`engine/.../assets/spektra/icc/saucecontrol` + `ellelstone`) — no new assets needed.
+- **Tests:** `ColorManagementTest` (5) over the pure mappings (per-space name + ICC path, exhaustive
+  enum coverage, ACES-is-the-only-untagged invariant). Suite **72/72**, lint clean.
+
+### Next steps (unchanged priority order — see `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (apply per-render on a copy) for
+   drag-interactive WB without a re-decode.
+2. **Finish the color foundation (§3, now judged on a correct display):** **Saturation/Vibrance** (Oklab
+   post-engine op on `SimResult.data`, Tier 2) + discoverable **Contrast** (drives the wired tone-curve
+   master S-curve, Tier 0) + couplers relabel. These double as the per-mask Tier-A payload.
+3. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off → still
+   byte-identical; now that display is correct, this is the real "cyan edge" cure to evaluate.
+4. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam.
+5. **Device + R8 smoke** still pending (no device in-env). Verify the wide-gamut display/export on a
+   real wide panel (S26) — confirm tagged previews look right and exports open correctly in a
+   color-managed viewer (e.g. Lightroom/Photoshop reads the embedded ICC).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — user-driven solutions + skill, full Lightroom RE, Wave-0 fixes + Wave-1 creative WB (PR #90 DRAFT — all pushed)
+
+Big session, all on **PR #90 (DRAFT, base `main`, tip `bfc226a`)** — NOT merged. The user is
+**Akshay Sharma** (the app author; he's the "Akshay_Sharma building an Android Lightroom-style
+spektrafilm UI on a Galaxy S26" mentioned in the pixls.us megathread). Theme: make the app do what
+real users want. Everything below is **Kotlin/UI + docs — `engine/spektra-core/src/main/cpp/**` was
+NOT touched, so the 26-test parity suite is unaffected.** `:app:testDebugUnitTest` **67/67**,
+`:app:lintDebug` clean (verified locally on the `/opt/android-sdk` toolchain).
+
+### ⚠️ Container reset happened mid-session (recovered) — read this
+The env **re-cloned at an older commit (`b7d6282`) partway through**, reverting the local working
+tree (lost the docs/skill/fixes/RE locally) while the **remote kept everything** (I'd pushed it).
+Recovery that worked: `git fetch origin <branch>` → confirm pushed commits are ancestors of
+`origin/<branch>` → `git stash` local edits → `git reset --hard origin/<branch>` → `git stash pop`.
+**Lesson: commit + push early and often; before any commit, `git fetch` and check
+`git merge-base --is-ancestor <yourPushedCommit> origin/<branch>` so you never build on a stale base
+or force-push over pushed work.** `/tmp` is wiped by the reset (the LR decompile + APK are gone).
+
+### What's on PR #90 (in order)
+1. **`spectrafilm-solutions` skill** (`.claude/skills/spectrafilm-solutions/SKILL.md`) — the operating
+   manual: prime principle (app serves the user), the parity gate, a 5-tier playbook (UI / pre-engine /
+   post-engine / engine-gated / data), and the ranked user-problem catalog from the forum.
+2. **`docs/USER_DRIVEN_SOLUTIONS.md`** — parity-safe solution designs for every forum pain (6 domains:
+   WB, gamut, tone/contrast/sat, masking, perf, export/profiles/onboarding/robustness), from a 6-front
+   research swarm. Headline: only true-B&W + a future cyan-crosstalk cure need engine goldens;
+   everything else is Tier 0/1/2/4. Cross-cutting roadmap (Wave 0→4) at the bottom.
+3. **Wave-0 fixes** (commit `97aa489`): the `MainActivity` DNG-detection bug (`isRawFileName(name) ||
+   true` force-treated every pick as RAW) → MIME-aware routing via new app-side
+   `SourceDetect.isNonRawImage` (RAW/DNG/ambiguous stay RAW so a genuine extension-less DNG is never
+   misrouted; positively-known JPEG/HEIC go to the photo path). Plus recipe-schema migration: `Presets`
+   now reads the written-but-ignored `PRESET_VERSION` via a `migrate()` seam. Tests: `SourceDetectTest`
+   (4) + 2 `PresetsRoundTripTest` cases.
+4. **Lightroom RE** (commits `90e33af` + `a487482`): a **fresh decompile of the current LR build**
+   (com.adobe.lrmobile, APKMirror 2026-05-14). Catalogs in **`docs/lightroom-re/`**: 1,038 `ICB*` JNI
+   methods, 862 typed signatures, 16,841 `cr_*` symbols, the `TIParamsHolder` schema. Full reference in
+   **`docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md`** (§A masking … §F presets/export/ML), each algorithm
+   learned from authoritative sources + cross-mapped to a parity-safe port. **Key learnings:** LR's
+   working space = **linear ProPhoto D50 = our engine's exact input**; LR's render arch (edit-list +
+   pyramid + cached prefix + tiled exact export) = **our parity policy**; Highlights/Shadows are
+   **local edge-aware ops, not curves**; masking = the proven `crs:MaskGroupBasedCorrections` schema
+   (mirror it 1:1 for free XMP interop); Color Grading = region-weighted HSL (not lift/gamma/gain);
+   Dehaze = the one published-patent algorithm (DCP). New LR features seen: AI Lens Blur/Bokeh, PDR
+   generative remove, adaptive/scene presets, HDR edit, people part-masks.
+5. **Wave-1 creative white balance** (commit `bfc226a`): **`CreativeWhiteBalance.kt`** — a parity-free
+   pre-engine Bradford CAT on the linear ProPhoto input (CCT→whitepoint shared with the RAW decoder →
+   D50→target adapt + green-channel tint). Relative Temp/Tint sliders `[-100,100]`, 0/0 = identity
+   (skipped). **Works on ALL sources** (RAW/JPEG/HEIC), unlike the RAW-decode WB. Applied **in-place in
+   `loadSource`** (engine untouched) and **keyed into the decode caches** (so a change re-decodes like
+   raw temp/tint — covers preview/zoom/magnifier/export). Wired: `ParamsState` (`creativeWbTemp/Tint`),
+   `Presets` round-trip (`"creativeWb"` block), `EngineHelpers.DecodedSourceCache.Key`+get/put,
+   `MainActivity` (loadSource apply + 3 cache get sites + 2 put + 2 flight keys + 2 LaunchedEffect
+   triggers + Input-panel sliders). Test: `CreativeWhiteBalanceTest` (5).
+
+### Reproduce the LR RE (for deeper digging next session)
+APK is the user's Drive file — download (handles the large-file confirm):
+`curl -sSL "https://drive.usercontent.google.com/download?id=178wy480GhIszxWT-HSKpdnIDMaGKfv9D&export=download&confirm=t" -o /tmp/lr.apk`.
+It's an APKMirror **bundle**: `unzip lr.apk base.apk split_config.arm64_v8a.apk`; native libs (incl.
+`libLrAndroid.so`) are in the arm64 split; `bash .claude/skills/brutalist-re/scripts/decompile.sh
+--deobf --no-res -o /tmp/lr_jadx /tmp/lr_bundle/base.apk` for the Java/JNI layer (pairip only wraps
+the launcher; `com.adobe.lrmobile.loupe.asset.develop.*` decompiles fine). Native *algorithms* are not
+decompilable — that's why the reference fuses the RE surface with public sources.
+
+### Next steps (de-risked by the RE; pick up here)
+1. **WB follow-up:** decouple creative WB from the decode cache (apply per-render on a copy) for
+   drag-interactive WB without a re-decode — `USER_DRIVEN_SOLUTIONS.md §1`.
+2. **Finish the color foundation:** gray-point WB picker + Saturation/Vibrance (Oklab post-engine op) +
+   discoverable Contrast (drives the wired tone curve) — `§1/§3`.
+3. **Color management (P0, §2):** `Bitmap.setColorSpace` per output space + embed ICC on export — the
+   cheap fix for the cyan-edge/gamut complaints; precedes ACES-RGC.
+4. **Masking (Wave 2, the keystone):** mirror `crs:MaskGroupBasedCorrections`; composite on the
+   `simResultToBitmap` output seam (parity-safe); P1 = container + linear/radial + Tier-A; P3 =
+   color/luminance range (the literal "tame the reds, not the skin" fix). `§4` + RE §A.
+5. **Device + R8 smoke** still pending (no device in-env). Toolchain at `/opt/android-sdk` may not
+   persist — reinstall NDK r27/CMake 3.22.1/build-tools 35 if gone.
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — point tone-curve editor UI (PR #88 MERGED; PR #87 = prior docs handoff)
 
 Short session on top of the merged Lightroom UX wave below. **PR #88 is MERGED to `main`** (CI
 green); PR #87 (the docs handoff that wrote the next section) is also merged. Trunk stays v0.7.0 /

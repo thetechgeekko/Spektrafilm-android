@@ -152,6 +152,15 @@ object Presets {
             put("tint", s.rawTint.toDouble())
         })
 
+        put("creativeWb", JSONObject().apply {
+            put("temp", s.creativeWbTemp.toDouble())
+            put("tint", s.creativeWbTint.toDouble())
+        })
+
+        put("grade", JSONObject().apply {
+            put("contrast", s.contrast.toDouble())
+        })
+
         put("camera", JSONObject().apply {
             put("exposureCompensationEv", s.exposureCompensationEv.toDouble())
             put("autoExposure", s.autoExposure)
@@ -261,7 +270,28 @@ object Presets {
         })
     }
 
-    private fun fromJson(o: JSONObject, s: ParamsState) {
+    /**
+     * Bring an older preset/recipe JSON up to the current [PRESET_VERSION] before decoding. The
+     * version was previously written by [toJson] but never read; reading it here gives one tested
+     * place to handle field renames or changed defaults when the schema next breaks. Today every
+     * shipped preset is v1, so this is an identity pass. Newer-than-current files decode best-effort
+     * (every field below uses opt*-with-default, so unknown keys are ignored and missing keys keep
+     * the current default). When you add a field whose value for an *old* preset should differ from
+     * a fresh [ParamsState] default, apply that here for `version < N` rather than relying on the
+     * constructor default.
+     */
+    private fun migrate(json: JSONObject): JSONObject {
+        val version = json.optInt("version", PRESET_VERSION)
+        if (version >= PRESET_VERSION) return json
+        // --- older-schema migrations land here as the schema evolves, e.g.:
+        //   if (version < 2) json.optJSONObject("camera")?.let { c ->
+        //       if (c.has("lensBlurUm") && !c.has("lensBlur")) c.put("lensBlur", c.getDouble("lensBlurUm"))
+        //   }
+        return json
+    }
+
+    private fun fromJson(json: JSONObject, s: ParamsState) {
+        val o = migrate(json)
         s.filmProfile = o.optString("filmProfile", s.filmProfile)
         s.printProfile = o.optString("printProfile", s.printProfile)
 
@@ -284,6 +314,15 @@ object Presets {
             s.rawWhiteBalance = enumOf(r.optString("whiteBalance"), WhiteBalance.entries, s.rawWhiteBalance)
             s.rawTemperature = r.f("temperature", s.rawTemperature)
             s.rawTint = r.f("tint", s.rawTint)
+        }
+
+        o.optJSONObject("creativeWb")?.let { c ->
+            s.creativeWbTemp = c.f("temp", s.creativeWbTemp)
+            s.creativeWbTint = c.f("tint", s.creativeWbTint)
+        }
+
+        o.optJSONObject("grade")?.let { g ->
+            s.contrast = g.f("contrast", s.contrast)
         }
 
         o.optJSONObject("camera")?.let { c ->

@@ -75,7 +75,6 @@ import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeException
-import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -115,6 +114,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Wide-gamut compositing so the color-managed preview bitmaps (tagged Adobe/ProPhoto/Rec2020
+        // per the output space) are not clamped to sRGB at composition on wide-gamut panels. No-op on
+        // sRGB displays. API 26+; minSdk is 24.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+        }
         // Persist the last fatal stack trace so the in-app Diagnostics screen can show it
         // after a restart (no permission needed; chains to the platform handler).
         Diagnostics.installCrashHandler(this)
@@ -569,16 +574,28 @@ class MainActivity : ComponentActivity() {
                         snackbarHost.currentSnackbarData?.dismiss()
                         snackbarHost.showSnackbar("MotionCam .mcraw import is coming — single RAW/DNG works today")
                     }
-                } else if (RawDecoder.isRawFileName(name) || true) {
+                } else {
                     runCatching {
                         ctx.contentResolver.takePersistableUriPermission(
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
                     }
-                    sourceUri = uri; sourceKind = SourceKind.RAW
-                    sourceName = "RAW: ${name.substringAfterLast('/')}"
                     rotation = SourceRotation.NONE
-                    status = "RAW selected"; previewTick++
+                    val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+                    if (isNonRawImage(name, mime)) {
+                        // A JPEG/HEIC chosen via the RAW document picker: process it on the normal
+                        // photo path rather than forcing it through LibRaw (which would fail, then
+                        // fall back to a lossy display-referred decode). RAW/DNG and ambiguous
+                        // content URIs (e.g. MIUI document IDs with no extension) fall through to
+                        // the RAW path below, so a genuine DNG is never misrouted.
+                        sourceUri = uri; sourceKind = SourceKind.PHOTO
+                        sourceName = "picked photo"
+                        status = "photo selected"; previewTick++
+                    } else {
+                        sourceUri = uri; sourceKind = SourceKind.RAW
+                        sourceName = "RAW: ${name.substringAfterLast('/')}"
+                        status = "RAW selected"; previewTick++
+                    }
                 }
             }
         }
@@ -672,6 +689,15 @@ class MainActivity : ComponentActivity() {
             // EXIF baseline (when applicable) first, then the user's manual rotate steps.
             val based = if (applyExifBaseline) img.applyExif(exif) else img
             based.rotated(rotation).also {
+                // Creative white balance: bake a pre-engine Bradford CAT into the linear input here
+                // (parity-free — engine/spektra-core is untouched). No-op when neutral; it's part of
+                // the decode-cache key so a change re-decodes, like raw temp/tint.
+                if (!CreativeWhiteBalance.isNeutral(state.creativeWbTemp, state.creativeWbTint)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        CreativeWhiteBalance.matrix(state.creativeWbTemp, state.creativeWbTint),
+                    )
+                }
                 // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
                 Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
             }
@@ -693,21 +719,24 @@ class MainActivity : ComponentActivity() {
             fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the decode in the stable lifecycleScope so two renders that both miss
             // (e.g. the settle pass + the GPU LUT bake) decode once, not twice.
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                rotation.degrees, maxEdge,
             ).joinToString("|")
             return previewDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     sourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -724,7 +753,8 @@ class MainActivity : ComponentActivity() {
             fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
@@ -732,14 +762,16 @@ class MainActivity : ComponentActivity() {
             // THAT decode instead of starting an overlapping one (the "5 decodes per pinch" drain).
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                rotation.degrees, maxEdge,
             ).joinToString("|")
             return zoomDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     zoomSourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -779,7 +811,7 @@ class MainActivity : ComponentActivity() {
                             crop,
                             state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
                         ).use { res ->
-                            simResultToBitmap(res.data, res.width, res.height)
+                            simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                         }
                     }
                 }
@@ -829,7 +861,7 @@ class MainActivity : ComponentActivity() {
                                 previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
                     }
                     // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
                     // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
@@ -883,14 +915,15 @@ class MainActivity : ComponentActivity() {
                 val proxy = sourceCache.get(
                     uri = sourceUri?.toString(), kind = sourceKind.name,
                     whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                    tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                    tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                    rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 ) ?: return@collect                             // proxy not cached yet — settle owns the decode
                 runCatching {
                     withContext(Dispatchers.Default) {
                         e.simulatePreview(
                             proxy,
                             state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
             }
@@ -926,7 +959,7 @@ class MainActivity : ComponentActivity() {
                     // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
                     // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
                     val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
-                        simResultToBitmap(res.data, res.width, res.height)
+                        simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                     }
                     before to after
                 }
@@ -997,11 +1030,13 @@ class MainActivity : ComponentActivity() {
         // identical trigger behaviour to the old per-frame snapshot, with no per-frame alloc.
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -1145,7 +1180,7 @@ class MainActivity : ComponentActivity() {
                                         image.close()
                                     }
                                     try {
-                                        val bmp = simResultToBitmap(res.data, res.width, res.height)
+                                        val bmp = simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                                         val uri = withContext(Dispatchers.IO) {
                                             when (exportFmt) {
                                                 ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
@@ -2292,6 +2327,23 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
             // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
+            Divider()
+            Text("Creative white balance", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "A warm/cool + green/magenta grade on the image going into the film — works on every " +
+                    "source (RAW, JPEG, HEIC). Separate from the RAW white balance; 0 = off.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Creative warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0,
+                tooltip = "Warm/cool the scene before the film sees it (Bradford adaptation in linear " +
+                    "ProPhoto). Positive = warmer. 0 = no change.", default = 0f)
+            EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0,
+                tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.",
+                default = 0f)
+            Divider()
             GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
                 Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                     { it.name.lowercase() }, { s.spectralUpsampling = it })

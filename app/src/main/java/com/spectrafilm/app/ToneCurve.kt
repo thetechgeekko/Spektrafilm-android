@@ -395,6 +395,21 @@ fun ToneCurveSection(s: ParamsState, preview: Bitmap?) {
         enabledSwitch = s.toneCurveActive,
         onEnabledChange = { s.toneCurveActive = it },
     ) {
+        // Contrast: a hue-neutral S-curve composed into the master curve below. Auto-arms the stage
+        // so the effect shows; "Reset all" clears it. Negative = mute the punchy look (forum #3).
+        EnhancedSlider(
+            label = "Contrast",
+            value = s.contrast,
+            range = -100f..100f,
+            onValueChange = {
+                s.contrast = it
+                if (it != 0f && !s.toneCurveActive) s.toneCurveActive = true
+            },
+            decimals = 0,
+            default = 0f,
+            tooltip = "Hue-neutral contrast via the master tone curve. " +
+                "Negative softens a too-punchy look; positive adds punch. Composes with a drawn curve.",
+        )
         SubTabRow(TONE_CHANNELS, channel, { channel = it })
         ToneCurveEditor(points = points, histo = histo, curveColor = curveColor, onChange = setPoints)
         Text(
@@ -420,6 +435,7 @@ fun ToneCurveSection(s: ParamsState, preview: Bitmap?) {
                 s.toneCurveRed = emptyList()
                 s.toneCurveGreen = emptyList()
                 s.toneCurveBlue = emptyList()
+                s.contrast = 0f
                 s.toneCurveActive = false
             }) { Text("Reset all") }
         }

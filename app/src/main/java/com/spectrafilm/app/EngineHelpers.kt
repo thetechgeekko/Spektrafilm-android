@@ -7,6 +7,7 @@ package com.spectrafilm.app
 import android.content.Context
 import android.net.Uri
 import android.graphics.Bitmap
+import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.RawDecoder
@@ -378,6 +379,10 @@ class DecodedSourceCache {
         val whiteBalance: WhiteBalance,
         val temperature: Float,
         val tint: Float,
+        // Creative WB is baked into the decoded buffer by loadSource (a pre-engine CAT), so it is a
+        // decode-affecting input and belongs in the key — a change re-decodes, like raw temp/tint.
+        val creativeTemp: Float,
+        val creativeTint: Float,
         val rotationDegrees: Int,
         val maxEdge: Int,
     )
@@ -392,9 +397,10 @@ class DecodedSourceCache {
     @Synchronized
     fun get(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
-        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+        temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
+        rotationDegrees: Int, maxEdge: Int,
     ): LinearImage? {
-        val k = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        val k = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
         return if (k == key) image else null
     }
 
@@ -402,7 +408,8 @@ class DecodedSourceCache {
     @Synchronized
     fun put(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
-        temperature: Float, tint: Float, rotationDegrees: Int, maxEdge: Int,
+        temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
+        rotationDegrees: Int, maxEdge: Int,
         img: LinearImage,
     ) {
         // Release the previous entry. This cache only holds proxy-scale (previewMaxSize
@@ -411,7 +418,7 @@ class DecodedSourceCache {
         // were an off-heap image ever cached, instead of leaking it (native memory is
         // not GC-tracked). Guarded against re-putting the same instance.
         image?.takeIf { it !== img }?.close()
-        key = Key(uri, kind, whiteBalance, temperature, tint, rotationDegrees, maxEdge)
+        key = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
         image = img
     }
 
@@ -430,9 +437,16 @@ class DecodedSourceCache {
  * the ~256 MB ART heap and OOMed the export (device-reported on a 36 MP source). Peak managed
  * allocation is now independent of image megapixels.
  */
-fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
+fun simResultToBitmap(
+    data: ByteBuffer,
+    w: Int,
+    h: Int,
+    colorSpace: ColorSpace = ColorSpace.SRGB,
+): Bitmap {
     val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
-    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)  // native; no full IntArray
+    // Tag the bitmap with the engine output space so the system color-manages it to the panel
+    // (and embeds the right ICC on Bitmap.compress export) instead of assuming sRGB. native; no IntArray.
+    val bmp = createTaggedBitmap(w, h, colorSpace)
     // ~4 MB scratch per strip (1M ints), at least one row, at most the whole image.
     val bandRows = (1024 * 1024 / w).coerceIn(1, h)
     val strip = IntArray(w * bandRows)
@@ -452,4 +466,25 @@ fun simResultToBitmap(data: ByteBuffer, w: Int, h: Int): Bitmap {
         y += rows
     }
     return bmp
+}
+
+/**
+ * ARGB_8888 bitmap tagged with the android color space matching the engine output [cs] (API 26+), so
+ * the system color-manages it to the display and embeds the right ICC on Bitmap.compress export —
+ * instead of treating wide-gamut output as sRGB. Falls back to a plain (sRGB) bitmap on API 24–25, for
+ * ACES2065_1 (no faithful 8-bit tag → [ColorManagement.displayColorSpaceName] is null), or if a device
+ * rejects the space. The createBitmap-with-color-space overload is API 26; setColorSpace is only API 29.
+ */
+private fun createTaggedBitmap(w: Int, h: Int, cs: ColorSpace): Bitmap {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        val name = ColorManagement.displayColorSpaceName(cs)
+        if (name != null) {
+            val tagged = runCatching {
+                val acs = android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.valueOf(name))
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888, /* hasAlpha = */ true, acs)
+            }.getOrNull()
+            if (tagged != null) return tagged
+        }
+    }
+    return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 }

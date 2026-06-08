@@ -84,6 +84,17 @@ class ParamsState {
     var rawTemperature by mutableFloatStateOf(5500f)
     var rawTint by mutableFloatStateOf(1f)
 
+    // --- Creative white balance (all sources; pre-engine Bradford CAT on the linear input). ---
+    // Relative push in [-100,100]; 0 = identity. Distinct from the RAW-decode WB above (which is a
+    // camera-illuminant correction, RAW-only). NOT a SpektraParams field — applied in loadSource.
+    var creativeWbTemp by mutableFloatStateOf(0f)
+    var creativeWbTint by mutableFloatStateOf(0f)
+
+    // Creative Contrast [-100,100]; 0 = identity. NOT a SpektraParams field — composed into the
+    // master tone curve in toParams (ContrastCurve), so it drives the wired, parity-gated tone-curve
+    // stage. Hue-neutral (master = all channels). Lives in the Tone Curve panel; gated by its switch.
+    var contrast by mutableFloatStateOf(0f)
+
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
     var autoExposure by mutableStateOf(false)
@@ -427,7 +438,8 @@ class ParamsState {
         ),
         toneCurve = ToneCurveParams(
             active = toneCurveActive,
-            master = ToneCurveChannel(toneCurveMaster),
+            // Contrast composes UNDER the user's drawn master curve; identity when contrast=0.
+            master = ToneCurveChannel(ContrastCurve.composeMaster(toneCurveMaster, contrast)),
             red = ToneCurveChannel(toneCurveRed),
             green = ToneCurveChannel(toneCurveGreen),
             blue = ToneCurveChannel(toneCurveBlue),

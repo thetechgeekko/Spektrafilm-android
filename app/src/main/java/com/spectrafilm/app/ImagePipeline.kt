@@ -637,10 +637,9 @@ private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
  * each [0,1]-clamped float to [0, 65535] uint16 — a true 16-bit encode with no
  * intermediate 8-bit Bitmap step.
  *
- * ICC: no ICC profile bytes are bundled in the app assets for this wave; the EXIF
- * ColorSpace advisory tag is set to SRGB when the output space is sRGB/linear-sRGB,
- * and UNCALIBRATED for all wide-gamut spaces. A future wave can add .icc assets
- * and pass their bytes here.
+ * ICC: the bundled profile matching the output space is embedded (see [ColorManagement]),
+ * so wide-gamut exports open correctly in color-managed apps. The EXIF ColorSpace advisory
+ * tag is also set — SRGB when the output space is sRGB/linear-sRGB, UNCALIBRATED otherwise.
  *
  * @param ctx     Android context (for MediaStore / cacheDir)
  * @param result  The engine SimResult whose float data is quantised to 16-bit
@@ -681,7 +680,7 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
             width = w,
             height = h,
             outPath = tmpFile.absolutePath,
-            icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
+            icc = ColorManagement.loadIccBytes(ctx, result.colorSpace),  // embed the matching profile
             exifColorSpace = exifCs,
             software = "Spektrafilm",
             dateTime = dateTime,
@@ -740,8 +739,8 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
  * Mirrors [saveSimResultAsTiff]: same round-to-nearest float[0,1] -> uint16[0,65535]
  * quantisation with no intermediate 8-bit Bitmap step. The PNG writer byte-swaps the
  * little-endian uint16 samples to big-endian internally (PNG spec), so the caller only
- * supplies native/little-endian uint16. No ICC bytes are bundled this wave (the PNG
- * carries no iCCP chunk); a future wave can pass profile bytes here.
+ * supplies native/little-endian uint16. The PNG carries an iCCP chunk with the bundled
+ * profile matching the output space (see [ColorManagement]) so wide-gamut exports are tagged.
  *
  * Unlike the 8-bit [saveToGallery] PNG path (Bitmap.compress, 8 bpc), this preserves
  * the engine's full tonal precision.
@@ -776,7 +775,7 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
             width = w,
             height = h,
             outPath = tmpFile.absolutePath,
-            icc = null,              // No ICC assets bundled yet
+            icc = ColorManagement.loadIccBytes(ctx, result.colorSpace),  // embed the matching profile
             software = "Spektrafilm",
         )
     } finally {
