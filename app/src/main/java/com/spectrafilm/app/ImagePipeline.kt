@@ -300,6 +300,9 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
     // True 16-bit-per-channel PNG via lib:pngwriter (libsfpng.so) — the engine's float
     // SimResult is quantised directly to uint16, no 8-bit Bitmap round-trip (unlike PNG).
     PNG16("16-bit PNG", "image/png", "png"),
+    // True 32-bit IEEE-float TIFF (lib:tiffwriter) — the engine's float SimResult written
+    // VERBATIM (no quantise/clamp). Archival / scene-linear-grade-elsewhere export.
+    TIFF32F("32-bit float TIFF", "image/tiff", "tif"),
 }
 
 /**
@@ -311,9 +314,13 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
 private fun ExportFormat.isJpeg(): Boolean =
     this == ExportFormat.JPEG || this == ExportFormat.ULTRA_HDR
 
-/** True for the 16-bit-per-channel formats, written from the float SimResult (not via a Bitmap). */
-fun ExportFormat.is16Bit(): Boolean =
-    this == ExportFormat.TIFF || this == ExportFormat.PNG16
+/**
+ * True for the high-bit-depth formats (16-bit TIFF/PNG, 32-bit float TIFF), written straight from
+ * the float SimResult rather than via an 8-bit Bitmap — so they always export at full resolution
+ * (the Bitmap-based resize does not apply).
+ */
+fun ExportFormat.isHighBitDepth(): Boolean =
+    this == ExportFormat.TIFF || this == ExportFormat.PNG16 || this == ExportFormat.TIFF32F
 
 /**
  * Downscale [bmp] so its longer edge is [longEdge] px, preserving aspect and never enlarging
@@ -660,49 +667,65 @@ private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
  * @param result  The engine SimResult whose float data is quantised to 16-bit
  * @return        The MediaStore [Uri] of the written file
  */
-fun saveSimResultAsTiff(ctx: Context, result: SimResult, displayName: String? = null): Uri {
+fun saveSimResultAsTiff(
+    ctx: Context,
+    result: SimResult,
+    displayName: String? = null,
+    float32: Boolean = false,
+): Uri {
     val w = result.width
     val h = result.height
-    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
     val nSamples = w * h * 3
 
     val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
     val exifCs = exifColorSpaceFor(result.colorSpace)
+    val icc = ColorManagement.loadIccBytes(ctx, result.colorSpace)  // embed the matching profile
 
     // Write to a temp file in cacheDir first; this avoids holding a MediaStore
     // output stream open for the entire (potentially large) TiffWriter write.
     val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
 
-    // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
-    // ByteBuffer.allocateDirect is a managed byte[] on Android — at 100 MP that's ~600 MB on
-    // the ~256 MB ART heap and OOMs. Allocate natively (malloc + NewDirectByteBuffer); fall
-    // back to managed only if the native alloc fails. Freed after the writer consumes it (it
-    // is not needed for the MediaStore move below).
-    val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
-    val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
-        .order(ByteOrder.LITTLE_ENDIAN)
-    try {
-        for (i in 0 until nSamples) {
-            val v = floatBuf.get(i).coerceIn(0f, 1f)
-            val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
-            // Write as little-endian uint16 (low byte first).
-            rgb16Buf.put((u16 and 0xFF).toByte())
-            rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
-        }
-        rgb16Buf.flip()
-        TiffWriter.write(
-            rgb16 = rgb16Buf,
-            width = w,
-            height = h,
-            outPath = tmpFile.absolutePath,
-            icc = ColorManagement.loadIccBytes(ctx, result.colorSpace),  // embed the matching profile
-            exifColorSpace = exifCs,
-            software = "Spektrafilm",
-            dateTime = dateTime,
-            packBits = false,        // Uncompressed baseline for maximum compatibility
+    if (float32) {
+        // 32-bit float TIFF: write the engine's float samples VERBATIM (no quantise/clamp).
+        // result.data is already a direct float32 little-endian off-heap buffer, so no copy.
+        TiffWriter.writeFloat32(
+            rgbFloat = result.data.duplicate(),
+            width = w, height = h, outPath = tmpFile.absolutePath,
+            icc = icc, exifColorSpace = exifCs, software = "Spektrafilm",
+            dateTime = dateTime, packBits = false,
         )
-    } finally {
-        if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+    } else {
+        val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+        // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
+        // ByteBuffer.allocateDirect is a managed byte[] on Android — at 100 MP that's ~600 MB on
+        // the ~256 MB ART heap and OOMs. Allocate natively (malloc + NewDirectByteBuffer); fall
+        // back to managed only if the native alloc fails. Freed after the writer consumes it.
+        val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
+        val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
+            .order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            for (i in 0 until nSamples) {
+                val v = floatBuf.get(i).coerceIn(0f, 1f)
+                val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+                // Write as little-endian uint16 (low byte first).
+                rgb16Buf.put((u16 and 0xFF).toByte())
+                rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+            }
+            rgb16Buf.flip()
+            TiffWriter.write(
+                rgb16 = rgb16Buf,
+                width = w,
+                height = h,
+                outPath = tmpFile.absolutePath,
+                icc = icc,
+                exifColorSpace = exifCs,
+                software = "Spektrafilm",
+                dateTime = dateTime,
+                packBits = false,        // Uncompressed baseline for maximum compatibility
+            )
+        } finally {
+            if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+        }
     }
 
     val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.tif"

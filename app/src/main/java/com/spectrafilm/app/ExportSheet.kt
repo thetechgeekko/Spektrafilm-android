@@ -77,9 +77,9 @@ fun ExportSheet(
 
             // --- Dimensions (post-render downscale, like Lightroom) ---
             Text("Size", style = MaterialTheme.typography.titleSmall)
-            if (options.format.is16Bit()) {
+            if (options.format.isHighBitDepth()) {
                 Text(
-                    "16-bit formats export at full resolution.",
+                    "High-bit-depth formats export at full resolution.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -34,7 +34,7 @@ data class ExportOptions(
      * Bitmap resize doesn't apply; the sheet pins Size to Full for them.
      */
     fun targetLongEdge(): Int? = when {
-        format.is16Bit() -> null
+        format.isHighBitDepth() -> null
         size == ExportSize.CUSTOM -> customLongEdge.coerceIn(MIN_CUSTOM_EDGE, MAX_CUSTOM_EDGE)
         else -> size.longEdge
     }

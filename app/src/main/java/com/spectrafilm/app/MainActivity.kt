@@ -1588,6 +1588,7 @@ class MainActivity : ComponentActivity() {
                                             val uri = withContext(Dispatchers.IO) {
                                                 when (exportFmt) {
                                                     ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res, displayName = baseName)
+                                                    ExportFormat.TIFF32F -> saveSimResultAsTiff(ctx, res, displayName = baseName, float32 = true)
                                                     ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res, displayName = baseName)
                                                     else -> saveToGallery(ctx, bmp, exportFmt, exportOptions.jpegQuality, srcExif, displayName = baseName)
                                                 }

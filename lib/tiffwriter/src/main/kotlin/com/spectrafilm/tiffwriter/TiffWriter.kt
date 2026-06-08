@@ -92,6 +92,39 @@ object TiffWriter {
         software, dateTime, icc, packBits, outPath,
     )
 
+    /**
+     * Write a true 32-bit IEEE-float RGB TIFF (SampleFormat=3, BitsPerSample=32) from a direct
+     * [ByteBuffer] of little-endian float32 samples (length = width*height*3*4 bytes). The samples
+     * are written VERBATIM — no quantisation, no clamp — so this preserves the engine's full float
+     * precision and any scene-linear / out-of-[0,1] values. Reads in Photoshop / darktable / Resolve.
+     *
+     * @param rgbFloat direct ByteBuffer, width*height*3 little-endian float32 samples
+     * @return number of bytes written
+     * @throws IllegalStateException on write failure
+     */
+    fun writeFloat32(
+        rgbFloat: ByteBuffer,
+        width: Int,
+        height: Int,
+        outPath: String,
+        icc: ByteArray? = null,
+        exifColorSpace: ExifColorSpace = ExifColorSpace.UNCALIBRATED,
+        software: String = "Spektrafilm",
+        dateTime: String? = null,
+        packBits: Boolean = false,
+    ): Long {
+        val direct = if (rgbFloat.isDirect) {
+            rgbFloat
+        } else {
+            ByteBuffer.allocateDirect(rgbFloat.remaining()).order(ByteOrder.LITTLE_ENDIAN)
+                .also { it.put(rgbFloat.duplicate()); it.flip() }
+        }
+        return nativeWriteFloatBuffer(
+            direct, width, height, exifColorSpace.tagValue,
+            software, dateTime, icc, packBits, outPath,
+        )
+    }
+
     // --- native bridge (tiff_writer_jni.cpp) ---
     private external fun nativeWriteBuffer(
         rgb16: ByteBuffer, width: Int, height: Int, exifColorSpace: Int,
@@ -101,6 +134,12 @@ object TiffWriter {
 
     private external fun nativeWriteShorts(
         rgb16: ShortArray, width: Int, height: Int, exifColorSpace: Int,
+        software: String, dateTime: String?, icc: ByteArray?,
+        packBits: Boolean, outPath: String,
+    ): Long
+
+    private external fun nativeWriteFloatBuffer(
+        rgbFloat: ByteBuffer, width: Int, height: Int, exifColorSpace: Int,
         software: String, dateTime: String?, icc: ByteArray?,
         packBits: Boolean, outPath: String,
     ): Long
