@@ -10,6 +10,7 @@ package com.spectrafilm.app.masks
 import com.spectrafilm.engine.ColorSpace
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +30,9 @@ class MaskCompositorTest {
 
     private fun px(b: ByteBuffer, x: Int, y: Int): Float =
         b.order(ByteOrder.nativeOrder()).asFloatBuffer().get((y * W + x) * 3)
+
+    private fun chan(b: ByteBuffer, x: Int, y: Int, c: Int): Float =
+        b.order(ByteOrder.nativeOrder()).asFloatBuffer().get((y * W + x) * 3 + c)
 
     /** A flat [W]×[H] buffer with a single (possibly colored) RGB value. */
     private fun colorBuf(r: Float, g: Float, bl: Float): ByteBuffer {
@@ -161,5 +165,90 @@ class MaskCompositorTest {
         val blue = colorBuf(0.15f, 0.15f, 0.8f)
         MaskCompositor.applyInPlace(blue, W, H, ColorSpace.SRGB, true, listOf(adj))
         assertEquals("non-matching blue gated out", 0.15f, px(blue, 4, 4), 1e-3f)  // R channel untouched
+    }
+
+    @Test
+    fun linearMask_graduatedExposure() {
+        // A vertical gradient (top → bottom) + exposure = a graduated filter: the bottom brightens to
+        // full effect, the top (the gradient's start) is left essentially untouched.
+        val adj = LocalAdjustment(
+            Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Linear(0.5f, 0f, 0.5f, 1f)))),
+            TierADelta(exposureEv = 1f),
+        )
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true, listOf(adj))
+        val top = px(b, 4, 0)
+        val bottom = px(b, 4, 7)
+        assertTrue("bottom (full gradient) brightened", bottom > 0.6f)
+        assertTrue("top (gradient start) ~untouched", top < 0.55f)
+        assertTrue("ramps: bottom brighter than top", bottom > top)
+    }
+
+    @Test
+    fun hue_shiftsColorInsideMask_leavesOutside() {
+        val b = colorBuf(0.7f, 0.3f, 0.2f)              // a saturated warm fill
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(hue = 120f))))
+        // inside the mask the hue rotated → the channel balance changed meaningfully
+        val moved = abs(chan(b, 4, 4, 0) - 0.7f) + abs(chan(b, 4, 4, 1) - 0.3f) + abs(chan(b, 4, 4, 2) - 0.2f)
+        assertTrue("hue shifted inside the mask", moved > 0.05f)
+        // outside the mask is byte-identical
+        assertEquals("corner untouched (R)", 0.7f, chan(b, 0, 0, 0), 1e-4f)
+        assertEquals("corner untouched (G)", 0.3f, chan(b, 0, 0, 1), 1e-4f)
+        assertEquals("corner untouched (B)", 0.2f, chan(b, 0, 0, 2), 1e-4f)
+    }
+
+    @Test
+    fun hue_grayStaysNeutral() {
+        // rotating the hue of a neutral gray is a no-op (Oklab a=b=0) — no color cast introduced
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(hue = 90f))))
+        assertEquals(0.5f, chan(b, 4, 4, 0), 3e-3f)
+        assertEquals(0.5f, chan(b, 4, 4, 1), 3e-3f)
+        assertEquals(0.5f, chan(b, 4, 4, 2), 3e-3f)
+    }
+
+    @Test
+    fun whites_brightenHighlightsInsideMask_leavesOutside() {
+        val b = grayBuf(0.6f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(whites = 80f))))
+        assertTrue("highlight brightened inside the mask", px(b, 4, 4) > 0.6f)
+        assertEquals("corner untouched", 0.6f, px(b, 0, 0), 1e-4f)
+    }
+
+    @Test
+    fun blacks_crushShadowsInsideMask_leavesOutside() {
+        val b = grayBuf(0.3f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(blacks = -80f))))
+        assertTrue("shadow deepened inside the mask", px(b, 4, 4) < 0.3f)
+        assertEquals("corner untouched", 0.3f, px(b, 0, 0), 1e-4f)
+    }
+
+    @Test
+    fun temp_warmsInsideMask_leavesOutside() {
+        val b = grayBuf(0.5f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(temp = 60f))))
+        // inside the mask a neutral gray is warmed (R lifted over B); outside untouched
+        assertTrue("warmed inside (R > B)", chan(b, 4, 4, 0) > chan(b, 4, 4, 2))
+        assertEquals("corner untouched (R)", 0.5f, chan(b, 0, 0, 0), 1e-4f)
+        assertEquals("corner untouched (B)", 0.5f, chan(b, 0, 0, 2), 1e-4f)
+    }
+
+    @Test
+    fun whitesBlacks_anchorTheOppositeEnd() {
+        // whites+ keeps the black point anchored; blacks− keeps the white point anchored.
+        val black = grayBuf(0f)
+        MaskCompositor.applyInPlace(black, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(whites = 100f))))
+        assertEquals("black stays black under whites+", 0f, px(black, 4, 4), 1e-3f)
+
+        val white = grayBuf(1f)
+        MaskCompositor.applyInPlace(white, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(blacks = -100f))))
+        assertEquals("white stays white under blacks−", 1f, px(white, 4, 4), 1e-3f)
     }
 }

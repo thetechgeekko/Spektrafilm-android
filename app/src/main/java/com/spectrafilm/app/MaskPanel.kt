@@ -43,15 +43,22 @@ fun MasksSection(s: ParamsState) {
 
     SectionCard("Masks", expanded, { expanded = it }) {
         Text(
-            "Local adjustments: a radial mask limits Exposure / Saturation / Contrast to one area " +
-                "(brighten a face, darken a corner). Composited on the final image — the film render is untouched.",
+            "Local adjustments: a mask limits Exposure / Saturation / Contrast to one area. A radial " +
+                "targets a spot (brighten a face); a gradient ramps across the frame (darken a sky from " +
+                "the top). Composited on the final image — the film render is untouched.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = {
-            s.localAdjustments = masks + defaultRadialAdjustment()
-            selected = masks.size
-        }) { Text("+ Add radial mask") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = {
+                s.localAdjustments = masks + defaultRadialAdjustment()
+                selected = masks.size
+            }) { Text("+ Radial mask") }
+            TextButton(onClick = {
+                s.localAdjustments = masks + defaultLinearAdjustment()
+                selected = masks.size
+            }) { Text("+ Gradient mask") }
+        }
 
         if (masks.isEmpty()) return@SectionCard
 
@@ -65,6 +72,14 @@ fun MasksSection(s: ParamsState) {
         }
 
         // --- Adjustment applied where the mask is opaque (Tier-A, pointwise on the output) ---
+        EnhancedSlider("Temp", adj.delta.temp, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(temp = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "White balance inside the mask: + warms (yellow), − cools (blue).")
+        EnhancedSlider("Tint", adj.delta.tint, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(tint = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "White balance inside the mask: + magenta, − green.")
         EnhancedSlider("Exposure", adj.delta.exposureEv, -4f..4f,
             { set(adj.copy(delta = adj.delta.copy(exposureEv = it))) },
             step = 0.05f, decimals = 2, default = 0f,
@@ -72,9 +87,21 @@ fun MasksSection(s: ParamsState) {
         EnhancedSlider("Saturation", adj.delta.saturation, -100f..100f,
             { set(adj.copy(delta = adj.delta.copy(saturation = it))) },
             step = 1f, decimals = 0, default = 0f, tooltip = "Colorfulness inside the mask.")
+        EnhancedSlider("Hue shift", adj.delta.hue, -180f..180f,
+            { set(adj.copy(delta = adj.delta.copy(hue = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "Rotate the hue of colors inside the mask, in degrees (e.g. shift a sky toward teal).")
         EnhancedSlider("Contrast", adj.delta.contrast, -100f..100f,
             { set(adj.copy(delta = adj.delta.copy(contrast = it))) },
             step = 1f, decimals = 0, default = 0f, tooltip = "Contrast inside the mask.")
+        EnhancedSlider("Whites", adj.delta.whites, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(whites = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "The brightest tones inside the mask: + brightens highlights, − recovers them.")
+        EnhancedSlider("Blacks", adj.delta.blacks, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(blacks = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "The darkest tones inside the mask: + lifts shadows, − deepens them.")
 
         // --- Shape (radial: position / size / feather) ---
         val comp = adj.mask.components.firstOrNull()
@@ -90,6 +117,26 @@ fun MasksSection(s: ParamsState) {
                 step = 0.01f, decimals = 2, default = 0.3f, tooltip = "Radius of the mask (fraction of the frame).")
             EnhancedSlider("Feather", radial.feather, 0f..1f, { setShape(radial.copy(feather = it)) },
                 step = 0.01f, decimals = 2, default = 0.5f, tooltip = "Softness of the mask edge.")
+        }
+
+        // --- Shape (gradient: the two endpoints the ramp runs between) ---
+        val linear = comp?.shape as? MaskComponent.Linear
+        if (comp != null && linear != null) {
+            fun setShape(l: MaskComponent.Linear) =
+                set(adj.copy(mask = adj.mask.copy(components = listOf(comp.copy(shape = l)))))
+            Text(
+                "The effect ramps from 0 at the start point to full at the end point.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Start X", linear.x0, 0f..1f, { setShape(linear.copy(x0 = it)) },
+                step = 0.01f, decimals = 2, default = 0.5f, tooltip = "Where the gradient begins (no effect).")
+            EnhancedSlider("Start Y", linear.y0, 0f..1f, { setShape(linear.copy(y0 = it)) },
+                step = 0.01f, decimals = 2, default = 0.2f, tooltip = "Where the gradient begins (no effect).")
+            EnhancedSlider("End X", linear.x1, 0f..1f, { setShape(linear.copy(x1 = it)) },
+                step = 0.01f, decimals = 2, default = 0.5f, tooltip = "Where the gradient reaches full effect.")
+            EnhancedSlider("End Y", linear.y1, 0f..1f, { setShape(linear.copy(y1 = it)) },
+                step = 0.01f, decimals = 2, default = 0.8f, tooltip = "Where the gradient reaches full effect.")
         }
 
         SwitchRow("Invert (affect outside)", adj.mask.invert,
@@ -149,5 +196,11 @@ fun MasksSection(s: ParamsState) {
 /** A centered radial mask with a no-op adjustment — the starting point the user then dials in. */
 private fun defaultRadialAdjustment() = LocalAdjustment(
     Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f)))),
+    TierADelta(),
+)
+
+/** A top-to-bottom gradient mask with a no-op adjustment (a graduated filter the user then dials in). */
+private fun defaultLinearAdjustment() = LocalAdjustment(
+    Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Linear(0.5f, 0.2f, 0.5f, 0.8f)))),
     TierADelta(),
 )

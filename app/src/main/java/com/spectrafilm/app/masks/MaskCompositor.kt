@@ -17,6 +17,7 @@
 package com.spectrafilm.app.masks
 
 import com.spectrafilm.app.ContrastCurve
+import com.spectrafilm.app.LocalWhiteBalance
 import com.spectrafilm.app.Oklab
 import com.spectrafilm.app.OutputCctf
 import com.spectrafilm.engine.ColorSpace
@@ -45,8 +46,18 @@ object MaskCompositor {
         for (adj in active) {
             val d = adj.delta
             val gain = exposureGain(d.exposureEv)
+            // temp/tint = a colorimetric white balance: a Bradford chromatic adaptation in the output
+            // space, precomputed once as a linear-RGB 3x3. null when neutral (no per-pixel cost).
+            val wbM = if (d.temp != 0f || d.tint != 0f) LocalWhiteBalance.matrix(cs, d.temp, d.tint) else null
             val sat = d.saturation / 100f
+            val hue = d.hue
             val contrast = d.contrast
+            // whites/blacks = a linear levels remap of the encoded value: move the display white/black
+            // points, then rescale. (0,0) → bp=0, wp=1 → identity. ±100 moves an endpoint by 0.25.
+            val levels = d.whites != 0f || d.blacks != 0f
+            val bp = -(d.blacks / 100f) * 0.25f               // blacks + → bp<0 (lift); − → bp>0 (crush)
+            val wp = 1f - (d.whites / 100f) * 0.25f            // whites + → wp<1 (brighten); − → wp>1 (recover)
+            val invSpan = if (levels) 1f / (wp - bp) else 1f   // wp−bp ∈ [0.5,1.5] over the slider ranges
             val lumRange = adj.mask.luminanceRange?.takeIf { it.isActive }
             val colorRange = adj.mask.colorRange?.takeIf { it.isActive }
             val alpha = MaskRaster.rasterize(adj.mask, w, h)
@@ -66,8 +77,17 @@ object MaskCompositor {
                         rgb[0] = OutputCctf.decode(cs, or, cctfEncoded) * gain
                         rgb[1] = OutputCctf.decode(cs, og, cctfEncoded) * gain
                         rgb[2] = OutputCctf.decode(cs, ob, cctfEncoded) * gain
+                        // white balance (temp/tint): chromatic-adaptation 3x3 in linear output RGB
+                        if (wbM != null) {
+                            val r = rgb[0]; val g = rgb[1]; val b = rgb[2]
+                            rgb[0] = wbM[0] * r + wbM[1] * g + wbM[2] * b
+                            rgb[1] = wbM[3] * r + wbM[4] * g + wbM[5] * b
+                            rgb[2] = wbM[6] * r + wbM[7] * g + wbM[8] * b
+                        }
                         // saturation (linear Oklab; hue + lightness preserved)
                         if (sat != 0f) Oklab.scaleChromaLinear(rgb, sat, 0f)
+                        // hue (linear Oklab; rotate chroma, lightness preserved)
+                        if (hue != 0f) Oklab.rotateHueLinear(rgb, hue)
                         // encode → display
                         var er = OutputCctf.encode(cs, rgb[0], cctfEncoded)
                         var eg = OutputCctf.encode(cs, rgb[1], cctfEncoded)
@@ -77,6 +97,12 @@ object MaskCompositor {
                             er = ContrastCurve.curveAt(er, contrast)
                             eg = ContrastCurve.curveAt(eg, contrast)
                             eb = ContrastCurve.curveAt(eb, contrast)
+                        }
+                        // whites/blacks (encoded levels remap; anchors the opposite end for a single slider)
+                        if (levels) {
+                            er = ((er - bp) * invSpan).coerceIn(0f, 1f)
+                            eg = ((eg - bp) * invSpan).coerceIn(0f, 1f)
+                            eb = ((eb - bp) * invSpan).coerceIn(0f, 1f)
                         }
                         // blend by alpha: (1−a)·in + a·out
                         f.put(k, or + a * (er - or))
@@ -89,9 +115,10 @@ object MaskCompositor {
         }
     }
 
-    /** True when [d] has a Tier-A op the compositor wires today (exposure / saturation / contrast). */
+    /** True when [d] has a Tier-A op the compositor wires today (exposure / WB / sat / hue / contrast / levels). */
     private fun hasOp(d: TierADelta): Boolean =
-        d.exposureEv != 0f || d.saturation != 0f || d.contrast != 0f
+        d.exposureEv != 0f || d.temp != 0f || d.tint != 0f || d.saturation != 0f || d.hue != 0f ||
+            d.contrast != 0f || d.whites != 0f || d.blacks != 0f
 
     /** Exposure as a linear-light gain (2^EV); 0 EV → 1.0 (no-op). */
     private fun exposureGain(ev: Float): Float =

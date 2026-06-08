@@ -126,14 +126,19 @@ object CreativeWhiteBalance {
         }
     }
 
-    private fun bradfordCat(wSrc: DoubleArray, wDst: DoubleArray): DoubleArray {
+    /**
+     * Bradford chromatic-adaptation 3x3 (XYZ→XYZ) mapping a color seen under white [wSrc] to its
+     * appearance under [wDst] (CAT·wSrc = wDst). Shared with the per-mask local WB (LocalWhiteBalance).
+     */
+    internal fun bradfordCat(wSrc: DoubleArray, wDst: DoubleArray): DoubleArray {
         val cs = mulVec(BRADFORD, wSrc)
         val cd = mulVec(BRADFORD, wDst)
         val diag = doubleArrayOf(cd[0] / cs[0], 0.0, 0.0, 0.0, cd[1] / cs[1], 0.0, 0.0, 0.0, cd[2] / cs[2])
         return mul3(BRADFORD_INV, mul3(diag, BRADFORD))
     }
 
-    private fun mul3(a: DoubleArray, b: DoubleArray): DoubleArray {
+    /** Row-major 3x3 · 3x3 (shared with LocalWhiteBalance). */
+    internal fun mul3(a: DoubleArray, b: DoubleArray): DoubleArray {
         val o = DoubleArray(9)
         for (r in 0..2) for (c in 0..2) {
             var s = 0.0

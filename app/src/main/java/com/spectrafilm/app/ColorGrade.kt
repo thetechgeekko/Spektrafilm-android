@@ -26,13 +26,8 @@ package com.spectrafilm.app
 import com.spectrafilm.engine.ColorSpace
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.exp
-import kotlin.math.hypot
 
 object ColorGrade {
-
-    /** Oklab chroma scale at which vibrance is half-weighted; tuned so muted colors get most boost. */
-    private const val VIBRANCE_C0 = 0.12f
 
     /** True when [saturation] or [vibrance] (each [-100,100]) would change the image. */
     fun isActive(saturation: Float, vibrance: Float): Boolean = saturation != 0f || vibrance != 0f
@@ -65,9 +60,9 @@ object ColorGrade {
         while (i < n) {
             val k = i * 3
             // display → linear (in the output space's primaries)
-            var rl = decode(cs, f.get(k), cctfEncoded)
-            var gl = decode(cs, f.get(k + 1), cctfEncoded)
-            var bl = decode(cs, f.get(k + 2), cctfEncoded)
+            var rl = OutputCctf.decode(cs, f.get(k), cctfEncoded)
+            var gl = OutputCctf.decode(cs, f.get(k + 1), cctfEncoded)
+            var bl = OutputCctf.decode(cs, f.get(k + 2), cctfEncoded)
 
             // Gamut compression first: pull the most-saturated colors toward neutral (softens clip).
             if (gamut) {
@@ -78,66 +73,18 @@ object ColorGrade {
 
             var r2 = rl; var g2 = gl; var b2 = bl
             if (chroma) {
-                // linear → Oklab (Ottosson). Neutral (v,v,v) → a=b=0 for any primaries (rows sum to 1).
-                val l = 0.4122214708f * rl + 0.5363325363f * gl + 0.0514459929f * bl
-                val m = 0.2119034982f * rl + 0.6806995451f * gl + 0.1073969566f * bl
-                val s = 0.0883024619f * rl + 0.2817188376f * gl + 0.6299787005f * bl
-                val l_ = cbrt(l); val m_ = cbrt(m); val s_ = cbrt(s)
-                val okL = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_
-                var okA = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_
-                var okB = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_
-
-                // scale chroma, preserve L + hue
-                val c = hypot(okA, okB)
-                val scale = (1f + sat) * (1f + vib * exp(-c / VIBRANCE_C0))
-                okA *= scale
-                okB *= scale
-
-                // Oklab → linear
-                val l2 = okL + 0.3963377774f * okA + 0.2158037573f * okB
-                val m2 = okL - 0.1055613458f * okA - 0.0638541728f * okB
-                val s2 = okL - 0.0894841775f * okA - 1.2914855480f * okB
-                val lc = l2 * l2 * l2; val mc = m2 * m2 * m2; val sc = s2 * s2 * s2
-                r2 = 4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc
-                g2 = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc
-                b2 = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc
+                // Oklab chroma grade (shared with the per-mask Saturation op): scale C by
+                // (1+sat)·(1+vib·exp(-C/C0)), preserving lightness + hue. Neutral → a=b=0 (rows sum to 1).
+                rgb[0] = rl; rgb[1] = gl; rgb[2] = bl
+                Oklab.scaleChromaLinear(rgb, sat, vib)
+                r2 = rgb[0]; g2 = rgb[1]; b2 = rgb[2]
             }
 
             // linear → display, clamp back into the encoded [0,1] range
-            f.put(k, encode(cs, r2, cctfEncoded))
-            f.put(k + 1, encode(cs, g2, cctfEncoded))
-            f.put(k + 2, encode(cs, b2, cctfEncoded))
+            f.put(k, OutputCctf.encode(cs, r2, cctfEncoded))
+            f.put(k + 1, OutputCctf.encode(cs, g2, cctfEncoded))
+            f.put(k + 2, OutputCctf.encode(cs, b2, cctfEncoded))
             i++
         }
     }
-
-    private fun cbrt(x: Float): Float = Math.cbrt(x.toDouble()).toFloat()
-
-    /** Inverse of [encode]: display-encoded [c] in [cs] → scene-linear. Identity when [cctf] is off. */
-    private fun decode(cs: ColorSpace, c: Float, cctf: Boolean): Float {
-        if (!cctf) return c
-        return when (cs) {
-            ColorSpace.ACES2065_1 -> c
-            ColorSpace.ADOBE_RGB -> fpow(c, 2.19921875f)
-            ColorSpace.PROPHOTO -> if (c < 0.03125f) c / 16f else fpow(c, 1.8f)
-            ColorSpace.REC2020 -> if (c < 0.081f) c / 4.5f else fpow((c + 0.099f) / 1.099f, 1f / 0.45f)
-            // SRGB + LINEAR_SRGB share the sRGB CCTF in output_cctf_encode.
-            else -> if (c <= 0.04045f) c / 12.92f else fpow((c + 0.055f) / 1.055f, 2.4f)
-        }
-    }
-
-    /** Mirror of engine model/color_output.cpp::output_cctf_encode. Result clamped to [0,1]. */
-    private fun encode(cs: ColorSpace, lIn: Float, cctf: Boolean): Float {
-        val l = lIn.coerceAtLeast(0f)  // gamut excursions can push slightly negative; clamp before pow
-        val e = if (!cctf) l else when (cs) {
-            ColorSpace.ACES2065_1 -> l
-            ColorSpace.ADOBE_RGB -> fpow(l, 0.4547069271758437f)
-            ColorSpace.PROPHOTO -> if (0.001953125f > l) l * 16f else fpow(l, 1f / 1.8f)
-            ColorSpace.REC2020 -> if (0.018f > l) l * 4.5f else 1.099f * fpow(l, 0.45f) - 0.099f
-            else -> if (l <= 0.0031308f) 12.92f * l else 1.055f * fpow(l, 1f / 2.4f) - 0.055f
-        }
-        return e.coerceIn(0f, 1f)
-    }
-
-    private fun fpow(x: Float, e: Float): Float = Math.pow(x.toDouble(), e.toDouble()).toFloat()
 }
