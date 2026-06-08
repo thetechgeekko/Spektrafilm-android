@@ -76,6 +76,7 @@ import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.WhiteBalance
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -1280,6 +1281,22 @@ class MainActivity : ComponentActivity() {
                                         state.printProfile,
                                         StockCatalog.displayName(ctx, state.printProfile),
                                     )
+                                },
+                                onFilmProfileChange = { id ->
+                                    val changed = id != state.filmProfile
+                                    state.filmProfile = id
+                                    if (changed) {
+                                        offerStockDefaults(scope, snackbarHost,
+                                            StockCatalog.displayName(ctx, id), state)
+                                    }
+                                },
+                                onPrintProfileChange = { id ->
+                                    val changed = id != state.printProfile
+                                    state.printProfile = id
+                                    if (changed) {
+                                        offerStockDefaults(scope, snackbarHost,
+                                            StockCatalog.displayName(ctx, id), state)
+                                    }
                                 },
                             )
                             Category.GRAIN -> GrainSection(state)
@@ -2565,6 +2582,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Offer to reset the per-stock character (grain/halation/couplers/gamma) to the newly selected
+     * film or paper's defaults, via a snackbar action (onboarding §6h). Non-destructive: the reset
+     * happens only if the user taps "Use its defaults". UI/state only — no parity impact.
+     */
+    private fun offerStockDefaults(
+        scope: CoroutineScope,
+        host: SnackbarHostState,
+        stockName: String,
+        state: ParamsState,
+    ) {
+        scope.launch {
+            host.currentSnackbarData?.dismiss()
+            val result = host.showSnackbar(
+                message = "Switched to $stockName",
+                actionLabel = "Use its defaults",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) state.resetStockCharacter()
+        }
+    }
+
     @Composable
     private fun SimulationSection(
         s: ParamsState,
@@ -2572,6 +2612,8 @@ class MainActivity : ComponentActivity() {
         printGroups: List<DropdownGroup>,
         onOpenFilmCurves: () -> Unit,
         onOpenPrintCurves: () -> Unit,
+        onFilmProfileChange: (String) -> Unit,
+        onPrintProfileChange: (String) -> Unit,
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
@@ -2585,7 +2627,7 @@ class MainActivity : ComponentActivity() {
                         label = "Film profile",
                         selectedId = s.filmProfile,
                         groups = filmGroups,
-                        onSelect = { s.filmProfile = it },
+                        onSelect = onFilmProfileChange,
                     )
                     OutlinedButton(
                         onClick = onOpenFilmCurves,
@@ -2616,7 +2658,7 @@ class MainActivity : ComponentActivity() {
                         label = "Print profile",
                         selectedId = s.printProfile,
                         groups = printGroups,
-                        onSelect = { s.printProfile = it },
+                        onSelect = onPrintProfileChange,
                     )
                     OutlinedButton(
                         onClick = onOpenPrintCurves,
