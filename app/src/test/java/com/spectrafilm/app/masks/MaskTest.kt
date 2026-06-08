@@ -186,6 +186,21 @@ class MaskTest {
     }
 
     @Test
+    fun luminanceRange_fromSample_centersOnTone() {
+        // the eyedropper: a mid gray → a band centered on its luma; the gate is full at that luma.
+        val mid = LuminanceRange.fromSample(0.5f, 0.5f, 0.5f, half = 0.15f)
+        assertEquals(0.35f, mid.lumMin, 1e-4f)
+        assertEquals(0.65f, mid.lumMax, 1e-4f)
+        assertTrue("the sampled tone is selected", mid.gate(0.5f) > 0.99f)
+        assertTrue(mid.isActive)
+        // clamps at the ends: white → [0.85, 1], black → [0, 0.15]
+        val white = LuminanceRange.fromSample(1f, 1f, 1f, half = 0.15f)
+        assertEquals(0.85f, white.lumMin, 1e-4f); assertEquals(1f, white.lumMax, 1e-4f)
+        val black = LuminanceRange.fromSample(0f, 0f, 0f, half = 0.15f)
+        assertEquals(0f, black.lumMin, 1e-4f); assertEquals(0.15f, black.lumMax, 1e-4f)
+    }
+
+    @Test
     fun colorRange_chromaGate() {
         // Target a saturated red; tight tolerance so it discriminates by hue AND chroma.
         val r = ColorRange(targetR = 0.9f, targetG = 0.1f, targetB = 0.1f, tolerance = 0.15f, feather = 0.05f)

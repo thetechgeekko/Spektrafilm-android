@@ -133,6 +133,14 @@ data class LuminanceRange(
         val g = (lo * hi).coerceIn(0f, 1f)
         return if (invert) 1f - g else g
     }
+
+    companion object {
+        /** A range centered on a sampled tone (the eyedropper): luma ± [half], clamped to [0,1]. */
+        fun fromSample(r: Float, g: Float, b: Float, half: Float = 0.15f, feather: Float = 0.1f): LuminanceRange {
+            val luma = (0.2126f * r + 0.7152f * g + 0.0722f * b).coerceIn(0f, 1f)  // Rec-709, encoded
+            return LuminanceRange((luma - half).coerceIn(0f, 1f), (luma + half).coerceIn(0f, 1f), feather, false)
+        }
+    }
 }
 
 /**

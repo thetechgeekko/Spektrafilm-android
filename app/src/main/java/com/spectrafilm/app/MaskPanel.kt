@@ -36,7 +36,12 @@ import com.spectrafilm.app.masks.MaskComponent
 import com.spectrafilm.app.masks.TierADelta
 
 @Composable
-fun MasksSection(s: ParamsState, onEditOnPhoto: (Int) -> Unit = {}, onSampleColor: (Int) -> Unit = {}) {
+fun MasksSection(
+    s: ParamsState,
+    onEditOnPhoto: (Int) -> Unit = {},
+    onSampleColor: (Int) -> Unit = {},
+    onSampleLuminance: (Int) -> Unit = {},
+) {
     var expanded by remember { mutableStateOf(true) }
     var selected by remember { mutableIntStateOf(0) }
     val masks = s.localAdjustments
@@ -155,6 +160,7 @@ fun MasksSection(s: ParamsState, onEditOnPhoto: (Int) -> Unit = {}, onSampleColo
             "Restrict the adjustment to a brightness range — e.g. only the highlights, or only the shadows.")
         if (lum != null) {
             fun setLum(r: LuminanceRange) = set(adj.copy(mask = adj.mask.copy(luminanceRange = r)))
+            TextButton(onClick = { onSampleLuminance(idx) }) { Text("Pick from photo") }
             EnhancedSlider("Tone min", lum.lumMin, 0f..1f, { setLum(lum.copy(lumMin = it)) },
                 step = 0.01f, decimals = 2, default = 0f, tooltip = "Darkest tone the adjustment affects.")
             EnhancedSlider("Tone max", lum.lumMax, 0f..1f, { setLum(lum.copy(lumMax = it)) },

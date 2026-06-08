@@ -58,6 +58,8 @@ fun PixelSampleOverlay(
     bitmap: Bitmap,
     onPick: (Float, Float, Float) -> Unit,
     onCancel: () -> Unit,
+    title: String = "Tap to pick a color",
+    hint: String = "Tap the color you want the mask to target (e.g. a red), then apply.",
 ) {
     val imageAspect = bitmap.width.toFloat().coerceAtLeast(1f) / bitmap.height.toFloat().coerceAtLeast(1f)
     val image: ImageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
@@ -84,7 +86,7 @@ fun PixelSampleOverlay(
                     }
                 }
                 Text(
-                    "Tap to pick a color", color = Color.White,
+                    title, color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(start = 4.dp),
                 )
@@ -148,7 +150,7 @@ fun PixelSampleOverlay(
             }
 
             Text(
-                "Tap the color you want the mask to target (e.g. a red), then apply.",
+                hint,
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),

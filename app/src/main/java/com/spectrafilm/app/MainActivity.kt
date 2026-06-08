@@ -362,9 +362,10 @@ class MainActivity : ComponentActivity() {
         // draw-on-the-preview mask geometry editor (positions the selected mask on the photo).
         var maskOverlayOpen by remember { mutableStateOf(false) }
         var maskEditIndex by remember { mutableStateOf(0) }
-        // eyedropper: sample a color-range mask's target by tapping the photo.
+        // eyedropper: sample a color- or luminance-range mask's target by tapping the photo.
         var sampleOverlayOpen by remember { mutableStateOf(false) }
         var sampleMaskIndex by remember { mutableStateOf(0) }
+        var sampleLuminanceMode by remember { mutableStateOf(false) }
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -1291,7 +1292,12 @@ class MainActivity : ComponentActivity() {
                             Category.MASKS -> MasksSection(
                                 state,
                                 onEditOnPhoto = { idx -> maskEditIndex = idx; maskOverlayOpen = true },
-                                onSampleColor = { idx -> sampleMaskIndex = idx; sampleOverlayOpen = true },
+                                onSampleColor = { idx ->
+                                    sampleMaskIndex = idx; sampleLuminanceMode = false; sampleOverlayOpen = true
+                                },
+                                onSampleLuminance = { idx ->
+                                    sampleMaskIndex = idx; sampleLuminanceMode = true; sampleOverlayOpen = true
+                                },
                             )
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
@@ -1502,20 +1508,27 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // --- eyedropper: sample a color-range mask's target from the photo ---
-            if (sampleOverlayOpen && cropBmp != null &&
-                sampleMaskIndex in state.localAdjustments.indices &&
-                state.localAdjustments[sampleMaskIndex].mask.colorRange != null
-            ) {
+            // --- eyedropper: sample a color- or luminance-range mask's target from the photo ---
+            val sampleMask = state.localAdjustments.getOrNull(sampleMaskIndex)?.mask
+            val sampleReady = sampleOverlayOpen && cropBmp != null && sampleMask != null &&
+                (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null)
+            if (sampleReady && cropBmp != null) {
                 PixelSampleOverlay(
                     bitmap = cropBmp,
+                    title = if (sampleLuminanceMode) "Tap to pick a tone" else "Tap to pick a color",
+                    hint = if (sampleLuminanceMode)
+                        "Tap a tone (a highlight or a shadow) to target it, then apply."
+                    else "Tap the color you want the mask to target (e.g. a red), then apply.",
                     onPick = { r, g, b ->
                         val list = state.localAdjustments.toMutableList()
                         val m = list[sampleMaskIndex].mask
-                        val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
-                        list[sampleMaskIndex] = list[sampleMaskIndex].copy(
-                            mask = m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b)),
-                        )
+                        val nm = if (sampleLuminanceMode) {
+                            m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
+                        } else {
+                            val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                            m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
+                        }
+                        list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
                         state.localAdjustments = list
                         sampleOverlayOpen = false
                         previewTick++
