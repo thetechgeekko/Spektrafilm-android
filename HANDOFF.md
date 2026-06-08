@@ -1,28 +1,35 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: plain-language help sheets
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — onboarding §6h: help sheets + Basic/Advanced + film-defaults snackbar
 
-Picks up the "next = onboarding (§6h)" item below. **First slice shipped on PR #101 (DRAFT):** a "?"
-help badge on each opaque section opens a `ModalBottomSheet` explaining the control in photographer's
-terms. **Tier 0 (UI / relabel-only) — `engine/spektra-core/src/main/cpp/**` untouched, the 26-test
-parity suite is unaffected.** `:app:testDebugUnitTest` **157/157** (+4 `ParamHelpTest`),
-`:app:lintDebug` clean, `:app:compileDebugKotlin` green.
+Picks up the "next = onboarding (§6h)" item below. **Three slices shipped on PR #101 (DRAFT)** — help
+sheets, Basic/Advanced disclosure, and a "use its defaults" snackbar. **Tier 0 (UI / relabel-only) —
+`engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
+`:app:testDebugUnitTest` **160/160** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`), `:app:lintDebug`
+clean, `:app:compileDebugKotlin` green. Commits `2d9ba82` (help sheets), `0918e0b` (Basic/Advanced),
+`df16f23` (snackbar) + docs.
 
-- **`ParamHelp.kt`** (new, pure data) — a `ParamHelpText` registry mapping a stable key →
-  `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character (DIR couplers),
-  Film & print contrast (gamma), Preflash, Glare. Photographer-facing ("what it does to the photo +
-  when to reach for it"); no Compose/Android types, so coverage is JVM-unit-testable.
-- **`Widgets.kt`** — `SectionCard` gains an optional `help: ParamHelp?` → a glyph "?" badge (drawn,
-  no material-icons dep, matching the hand-drawn `Chevron`) + a `HelpSheet` (`ModalBottomSheet`,
-  scrollable, carries the GPLv3 spektrafilm attribution). Long-press tooltip + a semantics label make
-  it discoverable/accessible. Backward-compatible (`help` defaults null → existing call sites
-  unchanged).
-- **`MainActivity.kt`** — wired the six opaque `SectionCard`s to their `ParamHelpText.forKey(...)`.
+- **Plain-language help sheets** — `ParamHelp.kt` (new, pure data): a `ParamHelpText` registry mapping
+  a stable key → `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character
+  (DIR couplers), Film & print contrast (gamma), Preflash, Glare. `Widgets.kt`: `SectionCard` gains an
+  optional `help: ParamHelp?` → a drawn "?" badge (no material-icons dep, matching the hand-drawn
+  `Chevron`) + a `HelpSheet` (`ModalBottomSheet`, scrollable, GPLv3 attribution). `MainActivity.kt`
+  wired the six opaque sections. JVM-tested (`ParamHelpTest`).
+- **Basic/Advanced disclosure** — new `AdvancedToggle` widget; Grain/Halation/Couplers now show a short
+  Basic set by default (Grain: particle area + blur; Halation: amount/size, scatter, boost EV;
+  Couplers: the three strength scalars) with "Show advanced options" revealing the full physical set.
+  Pure presentation — hidden controls keep state, engine still gets every param.
+- **"Use its defaults" snackbar** — switching the film/print profile offers a snackbar whose action
+  resets the per-stock character (grain/halation/couplers/film+print gamma) to neutral so the new stock
+  shows its baked character; creative/global edits are preserved. New `ParamsState.resetStockCharacter()`
+  (builds a fresh `ParamsState`, copies the character groups → tracks the initializers). JVM-tested
+  (`ParamsStateResetTest`).
 
-**Next §6h increments (NOT in #101):** (a) **Basic/Advanced disclosure toggle** per Grain/Halation/
-Couplers (split the dense slider lists; relabel-only); (b) **"apply film defaults" snackbar** on
-profile switch; (c) optionally extend help to the remaining sections (Simulation/Input/Display).
-After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish (§6a/b).
+**§6h is essentially complete** (labels/tooltips + ParamHelp map + "?" sheets + Basic/Advanced +
+per-section reset (grain has it; others reachable via the snackbar) + film-defaults snackbar). Optional
+leftovers: extend help/Basic-Advanced to Simulation/Input/Display; a Basic/Advanced **persisted**
+preference. After §6h, the ranked fresh-domain backlog continues: profile import (§6g), export polish
+(§6a/b — LUT colour-space pickers, 32-bit-float TIFF, scene-linear TIFF/EXR), slide-mode UX (§6e).
 
 **▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
 `git fetch origin main && git reset --hard origin/main`; else continue on
