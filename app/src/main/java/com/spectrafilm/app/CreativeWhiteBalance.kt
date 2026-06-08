@@ -153,4 +153,84 @@ object CreativeWhiteBalance {
         m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
         m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
     )
+
+    // ---- Gray-point eyedropper: solve (temp,tint) that neutralizes a sampled pixel --------------
+    //
+    // The user taps a pixel that should be neutral; we find the WB that makes it so. matrix() has
+    // exactly 2 DOF (temp = a CCT shift on the daylight locus, tint = a green gain), matching a
+    // gray point's 2 chroma constraints, so a coordinate-descent minimisation of the post-WB chroma
+    // converges. Operates in linear ProPhoto (the space matrix() acts in) — caller samples the
+    // engine INPUT there.
+
+    /**
+     * Solve the [temp]/[tint] in [-100,100] that neutralizes a sampled neutral pixel [r],[g],[b]
+     * (linear ProPhoto). If the sample already carries a [curTemp]/[curTint] WB, it is divided out
+     * first so the result is ABSOLUTE (settable straight onto the sliders). Returns (0,0) for an
+     * already-neutral or degenerate sample.
+     */
+    fun solveNeutral(r: Float, g: Float, b: Float, curTemp: Float = 0f, curTint: Float = 0f): Pair<Float, Float> {
+        // Recover the raw (pre-current-WB) pixel so the solve is absolute, not a delta.
+        val q = if (isNeutral(curTemp, curTint)) {
+            doubleArrayOf(r.toDouble(), g.toDouble(), b.toDouble())
+        } else {
+            applyInverse(matrix(curTemp, curTint), r.toDouble(), g.toDouble(), b.toDouble())
+        }
+        if (q[0] <= 1e-6 && q[1] <= 1e-6 && q[2] <= 1e-6) return 0f to 0f
+        var t = 0f
+        var ti = 0f
+        repeat(5) {  // coordinate descent; temp ⟂ tint enough that this converges fast
+            t = goldenMin { c -> chromaAfterWb(c, ti, q) }
+            ti = goldenMin { c -> chromaAfterWb(t, c, q) }
+        }
+        return t.coerceIn(-100f, 100f) to ti.coerceIn(-100f, 100f)
+    }
+
+    /** Scale-invariant chroma² of matrix([temp],[tint]) applied to linear pixel [q]; 0 = neutral. */
+    private fun chromaAfterWb(temp: Float, tint: Float, q: DoubleArray): Double {
+        val m = matrix(temp, tint)
+        val r = m[0] * q[0] + m[1] * q[1] + m[2] * q[2]
+        val g = m[3] * q[0] + m[4] * q[1] + m[5] * q[2]
+        val b = m[6] * q[0] + m[7] * q[1] + m[8] * q[2]
+        val mean = (r + g + b) / 3.0
+        if (mean <= 1e-9) return 0.0
+        val dr = r / mean - 1.0; val dg = g / mean - 1.0; val db = b / mean - 1.0
+        return dr * dr + dg * dg + db * db
+    }
+
+    /** Golden-section minimum of [f] over [-100,100] (40 iterations ≈ 1e-7 of the range). */
+    private inline fun goldenMin(f: (Float) -> Double): Float {
+        val gr = 0.618_034f
+        var a = -100f; var b = 100f
+        var c = b - gr * (b - a); var d = a + gr * (b - a)
+        var fc = f(c); var fd = f(d)
+        repeat(40) {
+            if (fc < fd) { b = d; d = c; fd = fc; c = b - gr * (b - a); fc = f(c) }
+            else { a = c; c = d; fc = fd; d = a + gr * (b - a); fd = f(d) }
+        }
+        return (a + b) / 2f
+    }
+
+    private fun applyInverse(m: FloatArray, r: Double, g: Double, b: Double): DoubleArray {
+        val inv = inv3(m)
+        return doubleArrayOf(
+            inv[0] * r + inv[1] * g + inv[2] * b,
+            inv[3] * r + inv[4] * g + inv[5] * b,
+            inv[6] * r + inv[7] * g + inv[8] * b,
+        )
+    }
+
+    /** Inverse of a row-major float 3x3 (returns identity-ish on a singular matrix). */
+    private fun inv3(m: FloatArray): DoubleArray {
+        val a = m[0].toDouble(); val b = m[1].toDouble(); val c = m[2].toDouble()
+        val d = m[3].toDouble(); val e = m[4].toDouble(); val f = m[5].toDouble()
+        val g = m[6].toDouble(); val h = m[7].toDouble(); val i = m[8].toDouble()
+        val coA = e * i - f * h; val coB = -(d * i - f * g); val coC = d * h - e * g
+        val det = a * coA + b * coB + c * coC
+        val id = if (abs(det) < 1e-12) 0.0 else 1.0 / det
+        return doubleArrayOf(
+            coA * id, (c * h - b * i) * id, (b * f - c * e) * id,
+            coB * id, (a * i - c * g) * id, (c * d - a * f) * id,
+            coC * id, (b * g - a * h) * id, (a * e - b * d) * id,
+        )
+    }
 }
