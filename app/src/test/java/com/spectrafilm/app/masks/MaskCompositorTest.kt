@@ -208,4 +208,36 @@ class MaskCompositorTest {
         assertEquals(0.5f, chan(b, 4, 4, 1), 3e-3f)
         assertEquals(0.5f, chan(b, 4, 4, 2), 3e-3f)
     }
+
+    @Test
+    fun whites_brightenHighlightsInsideMask_leavesOutside() {
+        val b = grayBuf(0.6f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(whites = 80f))))
+        assertTrue("highlight brightened inside the mask", px(b, 4, 4) > 0.6f)
+        assertEquals("corner untouched", 0.6f, px(b, 0, 0), 1e-4f)
+    }
+
+    @Test
+    fun blacks_crushShadowsInsideMask_leavesOutside() {
+        val b = grayBuf(0.3f)
+        MaskCompositor.applyInPlace(b, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(blacks = -80f))))
+        assertTrue("shadow deepened inside the mask", px(b, 4, 4) < 0.3f)
+        assertEquals("corner untouched", 0.3f, px(b, 0, 0), 1e-4f)
+    }
+
+    @Test
+    fun whitesBlacks_anchorTheOppositeEnd() {
+        // whites+ keeps the black point anchored; blacks− keeps the white point anchored.
+        val black = grayBuf(0f)
+        MaskCompositor.applyInPlace(black, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(whites = 100f))))
+        assertEquals("black stays black under whites+", 0f, px(black, 4, 4), 1e-3f)
+
+        val white = grayBuf(1f)
+        MaskCompositor.applyInPlace(white, W, H, ColorSpace.SRGB, true,
+            listOf(radialAdj(TierADelta(blacks = -100f))))
+        assertEquals("white stays white under blacks−", 1f, px(white, 4, 4), 1e-3f)
+    }
 }

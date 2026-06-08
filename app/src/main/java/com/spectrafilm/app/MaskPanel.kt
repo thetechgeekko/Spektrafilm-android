@@ -86,6 +86,14 @@ fun MasksSection(s: ParamsState) {
         EnhancedSlider("Contrast", adj.delta.contrast, -100f..100f,
             { set(adj.copy(delta = adj.delta.copy(contrast = it))) },
             step = 1f, decimals = 0, default = 0f, tooltip = "Contrast inside the mask.")
+        EnhancedSlider("Whites", adj.delta.whites, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(whites = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "The brightest tones inside the mask: + brightens highlights, − recovers them.")
+        EnhancedSlider("Blacks", adj.delta.blacks, -100f..100f,
+            { set(adj.copy(delta = adj.delta.copy(blacks = it))) },
+            step = 1f, decimals = 0, default = 0f,
+            tooltip = "The darkest tones inside the mask: + lifts shadows, − deepens them.")
 
         // --- Shape (radial: position / size / feather) ---
         val comp = adj.mask.components.firstOrNull()

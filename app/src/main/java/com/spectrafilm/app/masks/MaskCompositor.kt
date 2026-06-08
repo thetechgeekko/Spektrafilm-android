@@ -48,6 +48,12 @@ object MaskCompositor {
             val sat = d.saturation / 100f
             val hue = d.hue
             val contrast = d.contrast
+            // whites/blacks = a linear levels remap of the encoded value: move the display white/black
+            // points, then rescale. (0,0) → bp=0, wp=1 → identity. ±100 moves an endpoint by 0.25.
+            val levels = d.whites != 0f || d.blacks != 0f
+            val bp = -(d.blacks / 100f) * 0.25f               // blacks + → bp<0 (lift); − → bp>0 (crush)
+            val wp = 1f - (d.whites / 100f) * 0.25f            // whites + → wp<1 (brighten); − → wp>1 (recover)
+            val invSpan = if (levels) 1f / (wp - bp) else 1f   // wp−bp ∈ [0.5,1.5] over the slider ranges
             val lumRange = adj.mask.luminanceRange?.takeIf { it.isActive }
             val colorRange = adj.mask.colorRange?.takeIf { it.isActive }
             val alpha = MaskRaster.rasterize(adj.mask, w, h)
@@ -81,6 +87,12 @@ object MaskCompositor {
                             eg = ContrastCurve.curveAt(eg, contrast)
                             eb = ContrastCurve.curveAt(eb, contrast)
                         }
+                        // whites/blacks (encoded levels remap; anchors the opposite end for a single slider)
+                        if (levels) {
+                            er = ((er - bp) * invSpan).coerceIn(0f, 1f)
+                            eg = ((eg - bp) * invSpan).coerceIn(0f, 1f)
+                            eb = ((eb - bp) * invSpan).coerceIn(0f, 1f)
+                        }
                         // blend by alpha: (1−a)·in + a·out
                         f.put(k, or + a * (er - or))
                         f.put(k + 1, og + a * (eg - og))
@@ -92,9 +104,10 @@ object MaskCompositor {
         }
     }
 
-    /** True when [d] has a Tier-A op the compositor wires today (exposure / saturation / hue / contrast). */
+    /** True when [d] has a Tier-A op the compositor wires today (exposure / sat / hue / contrast / levels). */
     private fun hasOp(d: TierADelta): Boolean =
-        d.exposureEv != 0f || d.saturation != 0f || d.hue != 0f || d.contrast != 0f
+        d.exposureEv != 0f || d.saturation != 0f || d.hue != 0f || d.contrast != 0f ||
+            d.whites != 0f || d.blacks != 0f
 
     /** Exposure as a linear-light gain (2^EV); 0 EV → 1.0 (no-op). */
     private fun exposureGain(ev: Float): Float =
