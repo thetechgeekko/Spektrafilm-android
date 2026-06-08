@@ -114,6 +114,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Wide-gamut compositing so the color-managed preview bitmaps (tagged Adobe/ProPhoto/Rec2020
+        // per the output space) are not clamped to sRGB at composition on wide-gamut panels. No-op on
+        // sRGB displays. API 26+; minSdk is 24.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+        }
         // Persist the last fatal stack trace so the in-app Diagnostics screen can show it
         // after a restart (no permission needed; chains to the platform handler).
         Diagnostics.installCrashHandler(this)
@@ -805,7 +811,7 @@ class MainActivity : ComponentActivity() {
                             crop,
                             state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
                         ).use { res ->
-                            simResultToBitmap(res.data, res.width, res.height)
+                            simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                         }
                     }
                 }
@@ -855,7 +861,7 @@ class MainActivity : ComponentActivity() {
                                 previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
                     }
                     // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
                     // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
@@ -917,7 +923,7 @@ class MainActivity : ComponentActivity() {
                         e.simulatePreview(
                             proxy,
                             state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                        ).use { res -> simResultToBitmap(res.data, res.width, res.height, res.colorSpace) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
             }
@@ -953,7 +959,7 @@ class MainActivity : ComponentActivity() {
                     // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
                     // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
                     val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
-                        simResultToBitmap(res.data, res.width, res.height)
+                        simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                     }
                     before to after
                 }
@@ -1174,7 +1180,7 @@ class MainActivity : ComponentActivity() {
                                         image.close()
                                     }
                                     try {
-                                        val bmp = simResultToBitmap(res.data, res.width, res.height)
+                                        val bmp = simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
                                         val uri = withContext(Dispatchers.IO) {
                                             when (exportFmt) {
                                                 ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)

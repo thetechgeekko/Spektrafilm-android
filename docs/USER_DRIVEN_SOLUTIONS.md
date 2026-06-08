@@ -102,10 +102,15 @@ cyan as dye channels saturate (upstream-confirmed) — a boundary compressor *ma
 *cure* it.
 
 **Solutions (priority order):**
-- **P0 — color-manage display + export** (Tier 0, **S–M**, parity none). `Bitmap.setColorSpace` per
-  output space in `simResultToBitmap`; embed ICC in TIFF/PNG (today `icc=null`); `setColorMode(WIDE_COLOR_GAMUT)`;
-  consider an `RGBA_F16` preview surface. **The biggest cheap win** — without it every gamut judgment
-  is made against a broken display path. Needs ICC assets bundled.
+- **P0 — color-manage display + export** ✅ **SHIPPED** (Tier 0, parity none). `ColorManagement.kt`
+  maps each engine output space → the matching Android color space (display) + bundled ICC (export).
+  `simResultToBitmap` now tags the preview bitmap (`createBitmap` w/ color space, API 26+, sRGB
+  fallback on 24–25 / ACES); `MainActivity` requests `COLOR_MODE_WIDE_COLOR_GAMUT`; 16-bit TIFF/PNG
+  embed the matching ICC (`saucecontrol`/`elle-stone`, already bundled), and 8-bit JPEG/PNG/UltraHDR
+  inherit it via `Bitmap.compress` on the tagged bitmap. The transfers were verified against
+  `color_output.cpp::output_cctf_encode` per space. `ColorManagementTest` (5) covers the pure
+  mappings; tests 72/72, lint clean. **The biggest cheap win** — every later gamut judgment is now on
+  a correct display path. (Deferred: optional `RGBA_F16` preview surface for a faithful ACES preview.)
 - **P1 — optional output-side ACES RGC pass** (parity none when off, **M**). Apply Reference Gamut
   Compression in the **linear output space before CCTF/clip**, default-off → byte-identical → all 26
   goldens stay green (cleanest as a Kotlin post-op on the output buffer = Tier 2; or gated in
@@ -326,5 +331,9 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §2 **P0 color management SHIPPED** (`ColorManagement.kt`): per-output-space display
+  tagging + wide-color window mode + ICC embed on TIFF/PNG/JPEG. Wave-0 foundation done; the broken
+  display path is fixed, so the remaining color work (Sat/Vibrance/Contrast, ACES-RGC) is now judged
+  correctly.
 - 2026-06-06 — Scaffold + `spectrafilm-solutions` skill; 6-front deep-research swarm; all six domains
   synthesized; roadmap finalized.

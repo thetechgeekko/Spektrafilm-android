@@ -1,6 +1,53 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — user-driven solutions + skill, full Lightroom RE, Wave-0 fixes + Wave-1 creative WB (PR #90 DRAFT — all pushed)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §2 P0 color management (display tag + wide-color + ICC embed) — PR #90 DRAFT
+
+Continuation on **PR #90 (DRAFT, base `main`)**. Picked up the handoff's next-step #3 / Wave-0
+foundation: **color management (§2 P0)** — *"the biggest cheap win… without it every gamut judgment is
+made against a broken display path."* **Pure Kotlin/UI — `engine/spektra-core/src/main/cpp/**` NOT
+touched, so the 26-test parity suite is unaffected.** `:app:testDebugUnitTest` **72/72**,
+`:app:lintDebug` clean (verified locally on `/opt/android-sdk`).
+
+### What shipped this session (all in one commit)
+The app was **not color-managed**: every render bitmap was untagged (system assumed sRGB) and exports
+embedded no ICC — so wide-gamut output (Adobe/ProPhoto/Rec2020) was *shown and saved as sRGB* (wrong
+hue/sat), and the "hard cyan edge" was judged on a broken display path. Fixed end-to-end:
+- **New `ColorManagement.kt`** (pure, testable): `displayColorSpaceName(cs)` → the Android
+  `ColorSpace.Named` constant name per output space (null for ACES2065_1 — AP0 range exceeds [0,1], no
+  faithful 8-bit tag); `iccAssetPath(cs)` → the bundled ICC asset; `loadIccBytes(ctx,cs)`. Transfers
+  verified 1:1 against `model/color_output.cpp::output_cctf_encode` (sRGB↔SRGB, Adobe γ563/256↔ADOBE_RGB,
+  ROMM↔PRO_PHOTO_RGB, BT.2020 OETF↔BT2020, linear↔LINEAR_SRGB).
+- **Display:** `EngineHelpers.simResultToBitmap` gained a `colorSpace` param + `createTaggedBitmap`
+  (tags via `createBitmap(…,colorSpace)` on **API 26+**; `setColorSpace` is API 29 so unusable at
+  minSdk 24; plain sRGB fallback on 24–25 / ACES / device reject). All **5 call sites** in `MainActivity`
+  pass `res.colorSpace` (preview, zoom ROI, draft, before/after, export-bitmap).
+- **Window:** `MainActivity.onCreate` requests `COLOR_MODE_WIDE_COLOR_GAMUT` (API 26+) so tagged
+  wide bitmaps aren't clamped at composition on wide panels (no-op on sRGB displays).
+- **Export ICC:** `saveSimResultAsTiff` + `saveSimResultAsPng16` now embed `loadIccBytes(ctx,
+  result.colorSpace)` (was `icc=null`); 8-bit JPEG/PNG/UltraHDR inherit the profile for free because
+  `Bitmap.compress` embeds a **tagged** bitmap's ICC (API 26+). ICC assets were **already bundled**
+  (`engine/.../assets/spektra/icc/saucecontrol` + `ellelstone`) — no new assets needed.
+- **Tests:** `ColorManagementTest` (5) over the pure mappings (per-space name + ICC path, exhaustive
+  enum coverage, ACES-is-the-only-untagged invariant). Suite **72/72**, lint clean.
+
+### Next steps (unchanged priority order — see `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (apply per-render on a copy) for
+   drag-interactive WB without a re-decode.
+2. **Finish the color foundation (§3, now judged on a correct display):** **Saturation/Vibrance** (Oklab
+   post-engine op on `SimResult.data`, Tier 2) + discoverable **Contrast** (drives the wired tone-curve
+   master S-curve, Tier 0) + couplers relabel. These double as the per-mask Tier-A payload.
+3. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off → still
+   byte-identical; now that display is correct, this is the real "cyan edge" cure to evaluate.
+4. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam.
+5. **Device + R8 smoke** still pending (no device in-env). Verify the wide-gamut display/export on a
+   real wide panel (S26) — confirm tagged previews look right and exports open correctly in a
+   color-managed viewer (e.g. Lightroom/Photoshop reads the embedded ICC).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — user-driven solutions + skill, full Lightroom RE, Wave-0 fixes + Wave-1 creative WB (PR #90 DRAFT — all pushed)
 
 Big session, all on **PR #90 (DRAFT, base `main`, tip `bfc226a`)** — NOT merged. The user is
 **Akshay Sharma** (the app author; he's the "Akshay_Sharma building an Android Lightroom-style
