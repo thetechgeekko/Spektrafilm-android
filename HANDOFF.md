@@ -1,6 +1,59 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — per-mask Tier-A toolset COMPLETE — PR #97 OPEN (6 commits), #90–#96 MERGED
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — draw-on-the-preview mask geometry overlay — PR #98 OPEN, #90–#97 MERGED
+
+Masks are now **drawable on the photo**, not just slider-positioned. A "Position on photo" button opens a
+full-screen editor (mirrors `CropOverlay`) to drag a radial (move + resize handles) or a gradient
+(endpoints). **Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite
+unaffected.** `:app:testDebugUnitTest` **146/146**, `:app:lintDebug` clean, **`:app:assembleDebug` green**
+(ran the full Android build since this is UI-heavy).
+
+**▶ NEXT SESSION START HERE:** if #98 merged (`git merge-base --is-ancestor ef213df origin/main`),
+`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip = HEAD after the
+HANDOFF commit). **Remote branch auto-deletes on merge** → recreate with a normal `git push` after a
+merge (`--force-with-lease` then fails "stale info"; `git fetch --prune` first). Commit + push every
+increment immediately.
+
+### What shipped this session-segment (PR #98)
+**Draw-on-the-preview mask geometry overlay** (`ef213df`). The error-prone coordinate logic is a pure,
+JVM-tested core so it's verified without a device; only rendering + gesture FEEL need the S26.
+- **`masks/MaskGesture`** (pure) — `pick(shape, px,py, w,h) → Handle` (radial RX/RY edge handles, linear
+  P0/P1 endpoints, else MOVE) + `applyDrag(shape, handle, dx,dy) →` clamped normalized geometry. No
+  Compose/Android types. `MaskGestureTest` (6).
+- **`MaskGeometryOverlay`** (Compose) — full-screen modal mirroring `CropOverlay`; the image fills a Box
+  with the image aspect ratio so normalized 0..1 maps straight to pixels (alignment correct by
+  construction, no zoom/pan). Edits the mask's first component, preserves the rest.
+- **`MainActivity`** — wired like crop: `maskOverlayOpen`/`maskEditIndex` state + a `Category.MASKS`
+  `onEditOnPhoto` callback + render block + `BackHandler` + the two live-preview-pause guards.
+- **`MaskPanel`** — a "Position on photo" button per selected mask (`onEditOnPhoto` param, default no-op).
+
+### Masking status — FEATURE-COMPLETE for slider+gesture v1
+Shapes: radial + gradient (slider OR drag-to-position). Per-mask ops: Temp/Tint/Exposure/Saturation/Hue/
+Contrast/Whites/Blacks. Refinements: luminance + color range. All live in preview/export + persisted.
+
+### Next steps (device-gated or larger; pick per user)
+1. **On-preview polish (device-gated for *feel*):** rotated-ellipse + feather/angle handles in the
+   overlay; an **on-preview alpha viz** (tint where the mask applies); an **eyedropper** that taps the
+   preview to sample the color/luminance range target (reuse the overlay's pixel→normalized mapping).
+2. **Bigger masking features:** per-component range nesting; multi-sample color range (LR ≤5); **brush**
+   (`cr_mask_paint`); **AI Subject/Sky** (LiteRT + guided-filter). Designs in `docs/MASKING_SPEC.md`.
+3. **Full `crs` XMP export** for Lightroom interop (`MASKING_SPEC.md §7`) — fully JVM-verifiable.
+4. **Device + R8 smoke** (no device in-env): the whole Masks panel + the new overlay end-to-end.
+5. **Beyond masking:** the other `docs/USER_DRIVEN_SOLUTIONS.md` domains (export formats, performance,
+   onboarding/robustness) are largely untouched — a fresh direction once masking is validated on-device.
+
+### Key files (this segment)
+NEW `masks/MaskGesture.kt`, `MaskGeometryOverlay.kt`, test `masks/MaskGestureTest.kt`; edits in
+`MainActivity.kt` (crop-parallel wiring) + `MaskPanel.kt`. Pattern source: `CropOverlay.kt`.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — per-mask Tier-A toolset COMPLETE — PR #97 MERGED, #90–#96 MERGED
 
 Marathon masking session. **The per-mask local-adjustment toolset is now feature-complete for
 slider-driven v1.** Six parity-safe Tier-2 increments stacked on **PR #97** (the user kept saying
