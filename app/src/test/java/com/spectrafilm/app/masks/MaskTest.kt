@@ -129,4 +129,42 @@ class MaskTest {
         assertTrue(!TierADelta(exposureEv = 0.5f).isNoOp)
         assertTrue(!TierADelta(saturation = -20f).isNoOp)
     }
+
+    @Test
+    fun blendModeOrdinals_pinnedToCrsIntValues() {
+        // crs:MaskBlendMode serializes as 0=Add, 1=Subtract, 2=Intersect — DO NOT reorder.
+        assertEquals(0, BlendMode.ADD.ordinal)
+        assertEquals(1, BlendMode.SUBTRACT.ordinal)
+        assertEquals(2, BlendMode.INTERSECT.ordinal)
+    }
+
+    @Test
+    fun perComponentInvert_flipsThatComponent() {
+        val shape = MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f)
+        val plain = Mask(listOf(Mask.Component(BlendMode.ADD, shape)))
+        val inv = Mask(listOf(Mask.Component(BlendMode.ADD, shape, invert = true)))
+        // crs:MaskInverted is per-component (before the fold): inverted = 1 − plain.
+        assertEquals(1f - plain.alphaAt(0.5f, 0.5f), inv.alphaAt(0.5f, 0.5f), 1e-5f)  // center: 1→0
+        assertEquals(1f - plain.alphaAt(0.05f, 0.05f), inv.alphaAt(0.05f, 0.05f), 1e-5f) // corner: 0→1
+    }
+
+    @Test
+    fun perComponentValue_scalesStrength() {
+        val shape = MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f)
+        val full = Mask(listOf(Mask.Component(BlendMode.ADD, shape)))
+        val half = Mask(listOf(Mask.Component(BlendMode.ADD, shape, value = 0.5f)))  // crs:MaskValue
+        assertEquals(0.5f * full.alphaAt(0.5f, 0.5f), half.alphaAt(0.5f, 0.5f), 1e-5f)
+    }
+
+    @Test
+    fun radialAngle_rotatesTheEllipse() {
+        // A wide ellipse (rx≫ry): a point above the center is OUTSIDE unrotated but INSIDE at 90°.
+        val wide = MaskComponent.Radial(0.5f, 0.5f, 0.35f, 0.08f, 0.3f, angleDeg = 0f)
+        val rot = MaskComponent.Radial(0.5f, 0.5f, 0.35f, 0.08f, 0.3f, angleDeg = 90f)
+        val px = 0.5f; val py = 0.5f + 0.2f                 // 0.2 above center
+        assertEquals("outside the wide axis", 0f, wide.alphaAt(px, py), 1e-3f)
+        assertTrue("inside once rotated 90°", rot.alphaAt(px, py) > 0.5f)
+        // angle is a no-op at 0° (existing behavior preserved)
+        assertEquals(wide.alphaAt(0.5f, 0.5f), rot.alphaAt(0.5f, 0.5f), 1e-5f)  // center same
+    }
 }
