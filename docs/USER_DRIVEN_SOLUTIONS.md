@@ -187,11 +187,14 @@ matrix → users can't disentangle them; it's the wrong UI for "I want less satu
    on the float buffer that feeds **both** preview (`ImagePipeline.kt:92`) and TIFF export (`:671`).
    Default 0 → byte-identical. (Honest: a generic perceptual control, *not* film-accurate
    non-uniform desaturation — composes with, doesn't replace, the couplers' physics.)
-3. **Couplers relabel/regroup (Tier 0, S).** Rename to "Film color character (DIR couplers)" with
-   plain labels (Effect strength / Within-layer contrast / Cross-color bleed / Cross-channel mix
-   R→GB…) and a top-of-panel redirect: *"Looking for plain saturation? Use Saturation/Vibrance
-   above — these model film chemistry."* Document `gamma-interlayer` = a color-mixing matrix. No
-   engine behavior change.
+3. **Couplers relabel/regroup** ✅ **SHIPPED** (Tier 0, MainActivity `CouplersSection`). Panel →
+   "Film color character (couplers)" with a top-of-panel note explaining DIR couplers + a redirect:
+   *"Looking for a plain saturation control? Use Saturation / Vibrance in Simulation → Output."*
+   Plain labels: Amount→Effect strength, Inhibition samelayer/interlayer→Within-layer/Cross-color
+   strength, Gamma R→GB…→Color mix R→G/B (tooltip notes it's a color-mixing matrix term), Diffusion→
+   Color bleed radius/tail. Param bindings/ranges/defaults unchanged → zero behavior/parity change.
+   **This completes §3 (tone/color).** (Optional remaining: §3.4 "Film-Feel" master + §3.5 "Soft scan"
+   preset, both deferred.)
 4. **"Film-Feel / Look Amount" master** (Tier 2, **S–M**). Blend the render toward an app-defined
    flat target = `Contrast(−)+Desat(out)` computed from the single output buffer (no 2nd render).
    `final = lerp(target, out, a)`, default a=100% = no-op. (Optional HQ variant: blend toward an
@@ -349,6 +352,8 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §3.3 **Couplers relabel SHIPPED** — plain labels + redirect to Saturation/Vibrance.
+  **§3 (tone/color) complete:** Contrast + Saturation/Vibrance + couplers relabel all shipped.
 - 2026-06-08 — §3.2 **Saturation/Vibrance SHIPPED** (`ColorGrade.kt`): post-engine Oklab chroma grade
   on the output buffer, gray-neutral for all output spaces. §3 now: only the couplers relabel (§3.3) +
   "Film-Feel" master (§3.4) remain.
