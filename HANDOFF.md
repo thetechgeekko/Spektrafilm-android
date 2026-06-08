@@ -1,6 +1,60 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.3 couplers relabel → §3 COMPLETE — NEW PR (PR #90 + #91 MERGED)
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §2 P1 ACES gamut compression (v1) — NEW PR (PR #90/#91/#92 MERGED)
+
+**PRs #90, #91, #92 are ALL MERGED to `main`** (`68f5207`) — §2 P0 color management, §3.1 Contrast,
+§3.2 Saturation/Vibrance, §3.3 couplers relabel are all on trunk. Branch re-synced to merged `main`;
+this is a **fresh PR** shipping **§2 P1 — ACES-style gamut compression (v1)**. **Pure Kotlin/UI —
+engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **96/96**, `:app:lintDebug`
+clean. Pushed (`5272834`).
+
+### What shipped
+**`GamutCompress.kt`** — the ACES 1.3 Reference Gamut Compression shaper (`THR=(0.815,0.803,0.880)`,
+`LIM=(1.147,1.264,1.312)`, `PWR=1.2`), as a "Gamut compression" amount slider [0,100] (0=off →
+byte-identical) in Simulation → Output. It pulls the most-saturated colors (distance-from-achromatic
+past the per-channel threshold) toward neutral, softening the harsh cyan/edge fringe (forum pain #4).
+- **Folded into `ColorGrade`'s pass** for ONE shared CCTF round-trip: decode → gamut compress → (Oklab
+  sat/vibrance) → encode; each stage independently gated (off = zero cost). Wired through
+  `simResultToBitmapGraded` (applied in place once after simulate → preview + every export inherit it).
+- **Honest caveat:** runs on the engine's already-clipped output, so it **softens** rather than fully
+  **cures** the cyan edge. The true pre-clip cure is the Tier-3 engine change (§2 P3), still deferred.
+- `ParamsState.gamutCompress`; `Presets` `"grade"` block; `GamutCompressTest` (8: identity-below-thr,
+  monotonic+bounded shaper, amount=0 no-op, gray/achromatic preserved, saturated pulled to neutral).
+
+### ⚠️ FOUR container resets this session — commit + push EVERY increment
+The env re-cloned to `b7d6282` repeatedly. **One increment (couplers relabel) was nearly lost** because
+I verified it with a build but didn't commit before moving on — recovered only because it had in fact
+been merged via #92. **Untracked new files survive a `reset --hard` (GamutCompress.kt did); tracked
+edits do not.** Rule: `git add && commit && push` the instant an increment builds green, before
+starting the next. Recovery when reset: `git fetch origin main` → `git reset --hard origin/main` (main
+has all merged work); re-push to recreate the (auto-deleted) feature branch.
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (apply per-render on a copy →
+   drag-interactive WB). Note: a multi-site render-pipeline change with buffer-lifecycle care.
+2. **Gamut-compression polish (§2 P1+):** expose THR/LIM adjustable + a target-gamut selector; the
+   **pre-clip cure (§2 P3)** is the real fix but is Tier-3 (engine, gated, no oracle golden — needs a
+   user decision on the no-golden exception + a host parity-suite run).
+3. **Masking (Wave 2, §4) — foundation + compositor DONE** (PR #93). `com.spectrafilm.app.masks`:
+   `Mask`/`MaskComponent` (Linear/Radial folded by BlendMode + invert + opacity, normalized 0..1),
+   `TierADelta`/`LocalAdjustment`, `MaskRaster` (`MaskTest` 11); **`MaskCompositor`** (`b5e9084`) blends a
+   `LocalAdjustment` on the output buffer — decode CCTF → Tier-A → re-encode → `(1−a)·in + a·out`,
+   v1 = **exposure** (dodge/burn); `OutputCctf` (new) is the shared transfer (`MaskCompositorTest` 5).
+   **Next masking increments, in order:** (a) wire `MaskCompositor` into `simResultToBitmapGraded` reading
+   a `ParamsState.localAdjustments` list + the `"masks"` recipe block; (b) the **linear/radial gesture UI**
+   (reuse `CropOverlay`'s normalized-coord/gesture patterns) + overlay viz — this is where masks become
+   user-creatable; (c) the remaining Tier-A ops (sat via `ColorGrade`, contrast via `ContrastCurve`,
+   temp/tint) — de-dup `ColorGrade`'s private CCTF onto `OutputCctf` while there; (d) color/luminance
+   range masks ("tame the reds, not the skin"). A `MaskRasterBundle` (alpha cached by mask-hash+size)
+   when perf needs it.
+4. **Device + R8 smoke** (no device in-env): verify the new color controls on the S26.
+
+This is a fresh draft PR (PR #93, base `main`) — now carries §2 P1 gamut compression **and** the §4
+masking foundation. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.3 couplers relabel → §3 COMPLETE — PR #92 (MERGED)
 
 **PR #90 AND #91 are both MERGED to `main`** — color management (§2 P0), Contrast (§3.1), and
 Saturation/Vibrance (§3.2) are all on trunk. This new PR ships **§3.3 (couplers relabel)**, which

@@ -101,6 +101,10 @@ class ParamsState {
     var saturation by mutableFloatStateOf(0f)
     var vibrance by mutableFloatStateOf(0f)
 
+    // ACES-style gamut compression amount [0,100]; 0 = off. NOT a SpektraParams field — a post-engine
+    // pass (GamutCompress, via ColorGrade) that softens the harsh cyan/edge fringe on saturated colors.
+    var gamutCompress by mutableFloatStateOf(0f)
+
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
     var autoExposure by mutableStateOf(false)

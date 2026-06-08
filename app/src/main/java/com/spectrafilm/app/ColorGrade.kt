@@ -38,8 +38,10 @@ object ColorGrade {
     fun isActive(saturation: Float, vibrance: Float): Boolean = saturation != 0f || vibrance != 0f
 
     /**
-     * Apply Saturation/Vibrance in place to the engine output [data] (interleaved float32 RGB, the
-     * SimResult buffer), encoded in [cs] per [cctfEncoded]. No-op when both are 0 (zero per-pixel cost).
+     * Apply gamut compression + Saturation/Vibrance in place to the engine output [data] (interleaved
+     * float32 RGB, the SimResult buffer), encoded in [cs] per [cctfEncoded]. Both share one CCTF
+     * round-trip: decode → (gamut compress) → (Oklab chroma scale) → encode. No-op (zero per-pixel
+     * cost) when [gamutCompress] is 0 and [saturation]/[vibrance] are both 0.
      */
     fun applyInPlace(
         data: ByteBuffer,
@@ -49,43 +51,57 @@ object ColorGrade {
         cctfEncoded: Boolean,
         saturation: Float,
         vibrance: Float,
+        gamutCompress: Float = 0f,
     ) {
-        if (!isActive(saturation, vibrance)) return
+        val chroma = isActive(saturation, vibrance)
+        val gamut = GamutCompress.isActive(gamutCompress)
+        if (!chroma && !gamut) return
         val sat = saturation / 100f
         val vib = vibrance / 100f
         val f = data.order(ByteOrder.nativeOrder()).asFloatBuffer()
+        val rgb = FloatArray(3)  // reused per pixel for the gamut-compress triple (no per-pixel alloc)
         val n = w * h
         var i = 0
         while (i < n) {
             val k = i * 3
             // display → linear (in the output space's primaries)
-            val rl = decode(cs, f.get(k), cctfEncoded)
-            val gl = decode(cs, f.get(k + 1), cctfEncoded)
-            val bl = decode(cs, f.get(k + 2), cctfEncoded)
+            var rl = decode(cs, f.get(k), cctfEncoded)
+            var gl = decode(cs, f.get(k + 1), cctfEncoded)
+            var bl = decode(cs, f.get(k + 2), cctfEncoded)
 
-            // linear → Oklab (Ottosson). Neutral (v,v,v) → a=b=0 for any primaries (rows sum to 1).
-            val l = 0.4122214708f * rl + 0.5363325363f * gl + 0.0514459929f * bl
-            val m = 0.2119034982f * rl + 0.6806995451f * gl + 0.1073969566f * bl
-            val s = 0.0883024619f * rl + 0.2817188376f * gl + 0.6299787005f * bl
-            val l_ = cbrt(l); val m_ = cbrt(m); val s_ = cbrt(s)
-            val okL = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_
-            var okA = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_
-            var okB = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_
+            // Gamut compression first: pull the most-saturated colors toward neutral (softens clip).
+            if (gamut) {
+                rgb[0] = rl; rgb[1] = gl; rgb[2] = bl
+                GamutCompress.apply(rgb, gamutCompress)
+                rl = rgb[0]; gl = rgb[1]; bl = rgb[2]
+            }
 
-            // scale chroma, preserve L + hue
-            val c = hypot(okA, okB)
-            val scale = (1f + sat) * (1f + vib * exp(-c / VIBRANCE_C0))
-            okA *= scale
-            okB *= scale
+            var r2 = rl; var g2 = gl; var b2 = bl
+            if (chroma) {
+                // linear → Oklab (Ottosson). Neutral (v,v,v) → a=b=0 for any primaries (rows sum to 1).
+                val l = 0.4122214708f * rl + 0.5363325363f * gl + 0.0514459929f * bl
+                val m = 0.2119034982f * rl + 0.6806995451f * gl + 0.1073969566f * bl
+                val s = 0.0883024619f * rl + 0.2817188376f * gl + 0.6299787005f * bl
+                val l_ = cbrt(l); val m_ = cbrt(m); val s_ = cbrt(s)
+                val okL = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_
+                var okA = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_
+                var okB = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_
 
-            // Oklab → linear
-            val l2 = okL + 0.3963377774f * okA + 0.2158037573f * okB
-            val m2 = okL - 0.1055613458f * okA - 0.0638541728f * okB
-            val s2 = okL - 0.0894841775f * okA - 1.2914855480f * okB
-            val lc = l2 * l2 * l2; val mc = m2 * m2 * m2; val sc = s2 * s2 * s2
-            val r2 = 4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc
-            val g2 = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc
-            val b2 = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc
+                // scale chroma, preserve L + hue
+                val c = hypot(okA, okB)
+                val scale = (1f + sat) * (1f + vib * exp(-c / VIBRANCE_C0))
+                okA *= scale
+                okB *= scale
+
+                // Oklab → linear
+                val l2 = okL + 0.3963377774f * okA + 0.2158037573f * okB
+                val m2 = okL - 0.1055613458f * okA - 0.0638541728f * okB
+                val s2 = okL - 0.0894841775f * okA - 1.2914855480f * okB
+                val lc = l2 * l2 * l2; val mc = m2 * m2 * m2; val sc = s2 * s2 * s2
+                r2 = 4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc
+                g2 = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc
+                b2 = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc
+            }
 
             // linear → display, clamp back into the encoded [0,1] range
             f.put(k, encode(cs, r2, cctfEncoded))

@@ -491,12 +491,18 @@ private fun createTaggedBitmap(w: Int, h: Int, cs: ColorSpace): Bitmap {
 }
 
 /**
- * Apply the creative Saturation/Vibrance grade in place to [res]'s output buffer, then convert to a
- * bitmap. Mutating `res.data` in place means a subsequent 16-bit export ([saveSimResultAsTiff] /
- * [saveSimResultAsPng16]) that reads the SAME [res] inherits the grade — so preview and every export
- * format stay WYSIWYG. No-op (zero per-pixel cost) when [saturation] and [vibrance] are both 0.
+ * Apply the creative output grade (gamut compression + Saturation/Vibrance) in place to [res]'s output
+ * buffer, then convert to a bitmap. Mutating `res.data` in place means a subsequent 16-bit export
+ * ([saveSimResultAsTiff] / [saveSimResultAsPng16]) that reads the SAME [res] inherits the grade — so
+ * preview and every export format stay WYSIWYG. No-op (zero per-pixel cost) when all three are 0.
  */
-fun simResultToBitmapGraded(res: SimResult, cctfEncoded: Boolean, saturation: Float, vibrance: Float): Bitmap {
-    ColorGrade.applyInPlace(res.data, res.width, res.height, res.colorSpace, cctfEncoded, saturation, vibrance)
+fun simResultToBitmapGraded(
+    res: SimResult,
+    cctfEncoded: Boolean,
+    saturation: Float,
+    vibrance: Float,
+    gamutCompress: Float,
+): Bitmap {
+    ColorGrade.applyInPlace(res.data, res.width, res.height, res.colorSpace, cctfEncoded, saturation, vibrance, gamutCompress)
     return simResultToBitmap(res.data, res.width, res.height, res.colorSpace)
 }
