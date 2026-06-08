@@ -2571,24 +2571,21 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("RAW White Balance", expanded, { expanded = it }) {
             if (!isRaw) {
+                // The native RAW temp/tint only apply during a LibRaw decode, so they're RAW-only.
+                // But this image isn't a RAW — rather than dead, greyed sliders, surface the Creative
+                // white balance, which works on EVERY source (RAW/JPEG/HEIC/demo) and re-renders live.
                 Text(
-                    "Load a RAW/DNG file (\"Open RAW/DNG\" in Source) to enable RAW white-balance.",
+                    "RAW white balance needs a RAW/DNG file (open one in Source). For a JPEG / HEIC or " +
+                        "the demo image, use Creative white balance — it works on every source:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Column(
-                    modifier = Modifier.fillMaxWidth().alpha(0.38f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
-                        { it.name.lowercase() }, { /* no-op when not RAW */ })
-                    EnhancedSlider("Temperature (K)", s.rawTemperature, 1000f..12000f, { },
-                        step = 100f, decimals = 0,
-                        tooltip = "Temperature in Kelvin (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTemperature)
-                    EnhancedSlider("Tint", s.rawTint, 0f..2f, { },
-                        step = 0.01f, decimals = 2,
-                        tooltip = "Tint multiplier (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTint)
-                }
+                EnhancedSlider("Creative warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                    step = 1f, decimals = 0, default = 0f,
+                    tooltip = "Warm / cool the image before the film sees it. Positive = warmer; 0 = off.")
+                EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                    step = 1f, decimals = 0, default = 0f,
+                    tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green; 0 = off.")
             } else {
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
                 Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
