@@ -316,6 +316,16 @@ fun ExportFormat.is16Bit(): Boolean =
     this == ExportFormat.TIFF || this == ExportFormat.PNG16
 
 /**
+ * Downscale [bmp] so its longer edge is [longEdge] px, preserving aspect and never enlarging
+ * (Lightroom-style export "Dimensions"). Returns [bmp] unchanged when it already fits. A
+ * post-render resample, so grain/halation are rendered at full quality first, then downsampled.
+ */
+fun scaleBitmapToLongEdge(bmp: Bitmap, longEdge: Int): Bitmap {
+    val (w, h) = scaledDimensions(bmp.width, bmp.height, longEdge)
+    return if (w == bmp.width && h == bmp.height) bmp else Bitmap.createScaledBitmap(bmp, w, h, true)
+}
+
+/**
  * Comprehensive list of standard ExifInterface TAG_* attributes copied verbatim from the
  * source image into the export. Deliberately includes GPS/location (the user wants a FULL
  * copy). Tags that MUST reflect the exported (rendered) image rather than the source —
