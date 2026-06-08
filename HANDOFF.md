@@ -1,13 +1,21 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`, PR #101 DRAFT) — UX polish wave: onboarding §6h + slide-mode §6e
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode (PR #102 DRAFT)
 
-A "v0.8 UX polish" wave on PR #101 (DRAFT): the **§6h onboarding** trio (help sheets, Basic/Advanced
-disclosure, "use its defaults" snackbar) **plus §6e slide-mode UX**. **Tier 0 (UI / relabel-only) —
-`engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
-`:app:testDebugUnitTest` **163/163** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`, +3
-`StockCatalogTest`), `:app:lintDebug` clean. Commits `2d9ba82` (help sheets), `0918e0b`
-(Basic/Advanced), `df16f23` (snackbar), `111125f` (slide-mode) + docs.
+A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
+"use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **§6e slide-mode is on PR #102
+(DRAFT)** (`111125f` + docs `6c6158f`), based on `fb8fa0d` so its diff vs `main` is just §6e. **Tier 0
+(UI / relabel-only) — `engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is
+unaffected.** `:app:testDebugUnitTest` **163/163** (+4 `ParamHelpTest`, +3 `ParamsStateResetTest`, +3
+`StockCatalogTest`), `:app:lintDebug` clean.
+
+> ⚠️ **Two gotchas hit this run.** (1) **Container reset mid-session** (proxy port changed; local tree
+> fell back to stale `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but
+> **`git fetch origin <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`.
+> (2) **The user merged PR #101 while I kept working**, which auto-deleted the branch; my next push
+> re-created it ("[new branch]") with the §6e commits orphaned (no PR) → opened PR #102 for them. All
+> work was pushed, nothing lost. Lesson: re-check PR state (merged?) before assuming the branch/PR is
+> still open; webhooks don't deliver merges.
 
 > ⚠️ **Container reset mid-session** this run (proxy port changed; local tree fell back to the stale
 > `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but **`git fetch origin
