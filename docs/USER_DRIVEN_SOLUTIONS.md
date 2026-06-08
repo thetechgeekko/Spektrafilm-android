@@ -111,14 +111,15 @@ cyan as dye channels saturate (upstream-confirmed) — a boundary compressor *ma
   `color_output.cpp::output_cctf_encode` per space. `ColorManagementTest` (5) covers the pure
   mappings; tests 72/72, lint clean. **The biggest cheap win** — every later gamut judgment is now on
   a correct display path. (Deferred: optional `RGBA_F16` preview surface for a faithful ACES preview.)
-- **P1 — optional output-side ACES RGC pass** (parity none when off, **M**). Apply Reference Gamut
-  Compression in the **linear output space before CCTF/clip**, default-off → byte-identical → all 26
-  goldens stay green (cleanest as a Kotlin post-op on the output buffer = Tier 2; or gated in
-  `scanning.cpp` = Tier 3 but still no oracle golden needed for the off path). Exact verified constants:
-  `THR=(0.815,0.803,0.880)`, `LIM=(1.147,1.264,1.312)`, `PWR=1.2`, `ach=max(R,G,B)`, per-channel
-  distance compressed by the RGC shaper (identity below THR, asymptotes to the boundary at LIM). Expose
-  thresholds adjustable (RawTherapee does) + a target-gamut selector independent of export space. **This
-  is the "users want ACES RGC built in" feature.**
+- **P1 — output-side ACES RGC pass** ✅ **SHIPPED (v1, post-clip)** (`GamutCompress.kt`, Tier 2, parity
+  none). The ACES 1.3 RGC shaper (`THR=(0.815,0.803,0.880)`, `LIM=(1.147,1.264,1.312)`, `PWR=1.2`,
+  `ach=max(R,G,B)`) as a "Gamut compression" amount slider (0=off → byte-identical) in Output, folded
+  into `ColorGrade`'s shared CCTF pass. **Honest caveat:** it runs on the engine's already-clipped
+  output buffer, so it *softens* the harsh cyan/edge fringe (pulls the most-saturated colors toward
+  neutral) rather than fully curing it — the true **pre-clip** cure is the Tier-3 engine change (P3
+  below), still deferred. `GamutCompressTest` (8). Remaining polish: expose THR/LIM adjustable + a
+  target-gamut selector; move the pass pre-clip (needs the engine, P3). **This is the "users want ACES
+  RGC built in" feature** (v1).
 - **P2 — hue-preserving soft clip** (Oklab cusp projection, Ottosson α≈0.05) replacing the hard clip
   when compression is on (**M**, parity none when off). v1 can ship RGC + plain clamp (RGC already pulls
   values in); add Oklab projection later for the last mile.
@@ -352,6 +353,9 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §2 P1 **ACES gamut compression SHIPPED (v1, post-clip softener)** (`GamutCompress.kt`):
+  an amount slider that pulls the most-saturated colors toward neutral, softening the cyan/edge fringe;
+  default 0 = byte-identical. The pre-clip cure (P3) stays deferred (engine-gated).
 - 2026-06-08 — §3.3 **Couplers relabel SHIPPED** — plain labels + redirect to Saturation/Vibrance.
   **§3 (tone/color) complete:** Contrast + Saturation/Vibrance + couplers relabel all shipped.
 - 2026-06-08 — §3.2 **Saturation/Vibrance SHIPPED** (`ColorGrade.kt`): post-engine Oklab chroma grade
