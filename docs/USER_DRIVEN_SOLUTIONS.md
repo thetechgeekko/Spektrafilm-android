@@ -157,7 +157,15 @@ matrix → users can't disentangle them; it's the wrong UI for "I want less satu
 
 **Solutions (all Tier 0/2 — zero engine change, parity untouched):**
 
-1. **Contrast slider → tone-curve master S-curve** (Tier 0, **S**). Map −100…+100 to a pivoted
+1. **Contrast slider → tone-curve master S-curve** ✅ **SHIPPED** (`ContrastCurve.kt`, Tier 0). Maps
+   −100…+100 to a power S-curve with matched pivot slope `g = 2^(contrast/100)`, pivoted at display
+   18% ≈ 0.46 (mid-gray fixed); 7 points → the existing master tone curve (Fritsch–Carlson PCHIP).
+   Hue-neutral (master = all channels). Negative = the **mute** direction users want. Composes *under*
+   a user-drawn curve (`out = userCurve(contrast(in))`, sampled at the grid) so the two stack; `0`
+   emits no points → strict no-op. Lives in the Tone Curve panel (auto-arms; "Reset all" clears it),
+   round-trips in the recipe `"grade"` block. `ContrastCurveTest` (9); tests 81/81, lint clean. (Did
+   **not** wire to `film_gamma` — that's the color trap.) Original plan below for context:
+   Map −100…+100 to a pivoted
    sigmoid (central slope `1+s`, pivot near display 18% ≈ 0.46); generate 5–7 points → existing
    `toneCurveMaster` (Fritsch–Carlson PCHIP bakes a smooth monotone LUT). Hue-neutral (master = all
    channels). Negative = the **mute** direction users want. Compose *under* a user-drawn curve by
@@ -331,6 +339,9 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
 ## Changelog
+- 2026-06-08 — §3.1 **Contrast SHIPPED** (`ContrastCurve.kt`): a discoverable, hue-neutral Contrast
+  slider driving the parity-gated master tone curve, composing under hand-drawn curves. Next in §3:
+  Saturation/Vibrance (Oklab post-op) + couplers relabel.
 - 2026-06-08 — §2 **P0 color management SHIPPED** (`ColorManagement.kt`): per-output-space display
   tagging + wide-color window mode + ICC embed on TIFF/PNG/JPEG. Wave-0 foundation done; the broken
   display path is fixed, so the remaining color work (Sat/Vibrance/Contrast, ACES-RGC) is now judged

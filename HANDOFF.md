@@ -1,6 +1,46 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §2 P0 color management (display tag + wide-color + ICC embed) — PR #90 DRAFT
+## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — §3.1 Contrast slider (drives the master tone curve) — PR #90 DRAFT
+
+Continuation on **PR #90 (DRAFT, base `main`)**, commit `3bad23d`. After §2 P0 color management
+(below), shipped the next color-foundation piece: **a discoverable Contrast slider (§3.1)**. **Pure
+Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **81/81**,
+`:app:lintDebug` clean.
+
+### What shipped (commit `3bad23d`)
+Forum pain #3 = "too punchy vs scanned film; I want to mute contrast," but the only contrast knobs
+were buried/physical. **`ContrastCurve.kt`** (pure, JVM-tested) maps a `[-100,100]` slider to a power
+S-curve pivoted at display 18% gray (0.46 → mid-gray fixed) with matched pivot slope `g =
+2^(contrast/100)`: g>1 adds punch, g<1 is the **mute** direction. It drives the engine's
+already-wired, **parity-gated master tone curve** (so it's hue-neutral and live in preview + export),
+and **composes UNDER a hand-drawn master curve** (`out = userCurve(contrast(in))`) so the two stack;
+`contrast=0` emits no points → strict no-op. Wired: `ParamsState.contrast` (UI-only) composed in
+`toParams`; slider at the top of the Tone Curve panel (auto-arms the stage; "Reset all" clears it);
+`Presets` round-trip in a new `"grade"` block. `ContrastCurveTest` (9).
+
+### ⚠️ Container reset recurred mid-session (recovered) — commit + push EARLY
+The env re-cloned to an older commit (`b7d6282`) again, reverting the local tree (ToneCurve.kt etc.
+vanished locally). Because the §2 work was already pushed (`49ccbcb`), recovery was clean: `git fetch`
+→ confirm origin tip is my pushed commit → working tree clean → `git reset --hard
+origin/<branch>`. **Lesson (again): commit + push each increment the moment it's green.**
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **Saturation/Vibrance (§3.2):** Oklab post-engine op on `SimResult.data`. **Design note:** Oklab's
+   Ottosson matrices assume linear-sRGB primaries — exact for sRGB/LINEAR_SRGB/Adobe/Rec2020 (all
+   D65) via a primaries 3×3, but ProPhoto (D50)/ACES (D60) need a white-point-adapted matrix. Apply
+   it **once, in-place on `res.data` right after `simulate`** (NOT inside `simResultToBitmap` — the
+   export site feeds `res` to BOTH `simResultToBitmap` and `saveSimResultAsTiff`, so a consumer-side
+   mutation would double-apply). Default 0 → byte-identical.
+2. **Couplers relabel (§3.3, Tier 0):** plain labels + a "looking for plain saturation?" redirect.
+3. **WB follow-up (§1.2):** decouple creative WB from the decode cache.
+4. **ACES-RGC gamut toggle (§2 P1):** output-side, default-off.
+5. **Masking (Wave 2, §4)** + **device/R8 smoke** (verify wide-gamut display/export on the S26).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §2 P0 color management (display tag + wide-color + ICC embed) — PR #90 DRAFT
 
 Continuation on **PR #90 (DRAFT, base `main`)**. Picked up the handoff's next-step #3 / Wave-0
 foundation: **color management (§2 P0)** — *"the biggest cheap win… without it every gamut judgment is
