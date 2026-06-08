@@ -1569,39 +1569,51 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 val result = runCatching {
                                     withContext(Dispatchers.Default) {
-                                        // Copy source EXIF; GPS only when opted in. Full-res off-heap
-                                        // buffers (the OOM fix) — close input/result promptly.
-                                        val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = keepGps) }
+                                        // Full-res off-heap buffers (the OOM fix) — close input/result promptly.
                                         val image = loadSource(EXPORT_MAX_EDGE_PX)
-                                        val res = try {
-                                            e.simulate(image, state.toParams())
-                                        } finally {
-                                            image.close()
-                                        }
-                                        try {
-                                            val bmp0 = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
-                                            // Post-render downscale for the bitmap formats (16-bit is
-                                            // always full-res → longEdge null). Free the full-res bitmap.
-                                            val bmp = longEdge?.let { edge ->
-                                                scaleBitmapToLongEdge(bmp0, edge).also { if (it !== bmp0) bmp0.recycle() }
-                                            } ?: bmp0
-                                            val uri = withContext(Dispatchers.IO) {
-                                                when (exportFmt) {
-                                                    ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res, displayName = baseName)
-                                                    ExportFormat.TIFF32F -> saveSimResultAsTiff(ctx, res, displayName = baseName, float32 = true)
-                                                    ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res, displayName = baseName)
-                                                    else -> saveToGallery(ctx, bmp, exportFmt, exportOptions.jpegQuality, srcExif, displayName = baseName)
-                                                }
+                                        if (exportFmt == ExportFormat.SCENE_LINEAR_TIFF) {
+                                            // Export the decoded scene-linear INPUT (before the film
+                                            // engine) as a 32-bit float TIFF; the engine is skipped.
+                                            try {
+                                                withContext(Dispatchers.IO) { saveLinearInputAsTiff32f(ctx, image, baseName) }
+                                            } finally {
+                                                image.close()
                                             }
-                                            bmp to uri
-                                        } finally {
-                                            res.close()
+                                            null  // no rendered bitmap to preview
+                                        } else {
+                                            // Copy source EXIF; GPS only when opted in.
+                                            val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = keepGps) }
+                                            val res = try {
+                                                e.simulate(image, state.toParams())
+                                            } finally {
+                                                image.close()
+                                            }
+                                            try {
+                                                val bmp0 = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
+                                                // Post-render downscale for the bitmap formats (high-bit-depth
+                                                // is always full-res → longEdge null). Free the full-res bitmap.
+                                                val bmp = longEdge?.let { edge ->
+                                                    scaleBitmapToLongEdge(bmp0, edge).also { if (it !== bmp0) bmp0.recycle() }
+                                                } ?: bmp0
+                                                withContext(Dispatchers.IO) {
+                                                    when (exportFmt) {
+                                                        ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res, displayName = baseName)
+                                                        ExportFormat.TIFF32F -> saveSimResultAsTiff(ctx, res, displayName = baseName, float32 = true)
+                                                        ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res, displayName = baseName)
+                                                        else -> saveToGallery(ctx, bmp, exportFmt, exportOptions.jpegQuality, srcExif, displayName = baseName)
+                                                    }
+                                                }
+                                                bmp
+                                            } finally {
+                                                res.close()
+                                            }
                                         }
                                     }
                                 }
-                                result.onSuccess { (bmp, _) ->
-                                    Diag.i("export format=${exportFmt.name} ${bmp.width}x${bmp.height} ${bmp.width * bmp.height}px ok")
-                                    preview = bmp; exportDone = true
+                                result.onSuccess { bmp ->
+                                    bmp?.let { preview = it }
+                                    Diag.i("export format=${exportFmt.name} ok")
+                                    exportDone = true
                                     status = "saved to Pictures/Spektrafilm"
                                 }.onFailure {
                                     Diag.w("export format=${exportFmt.name} failed: ${it.message}")

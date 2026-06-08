@@ -303,6 +303,9 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
     // True 32-bit IEEE-float TIFF (lib:tiffwriter) — the engine's float SimResult written
     // VERBATIM (no quantise/clamp). Archival / scene-linear-grade-elsewhere export.
     TIFF32F("32-bit float TIFF", "image/tiff", "tif"),
+    // The decoded scene-linear INPUT (before the film engine) as a 32-bit float TIFF — verbatim,
+    // untagged scene-referred linear, for grading in another app (the honest "linear DNG" hand-off).
+    SCENE_LINEAR_TIFF("Scene-linear input (32-bit TIFF)", "image/tiff", "tif"),
 }
 
 /**
@@ -320,7 +323,8 @@ private fun ExportFormat.isJpeg(): Boolean =
  * (the Bitmap-based resize does not apply).
  */
 fun ExportFormat.isHighBitDepth(): Boolean =
-    this == ExportFormat.TIFF || this == ExportFormat.PNG16 || this == ExportFormat.TIFF32F
+    this == ExportFormat.TIFF || this == ExportFormat.PNG16 ||
+        this == ExportFormat.TIFF32F || this == ExportFormat.SCENE_LINEAR_TIFF
 
 /**
  * Downscale [bmp] so its longer edge is [longEdge] px, preserving aspect and never enlarging
@@ -728,9 +732,12 @@ fun saveSimResultAsTiff(
         }
     }
 
-    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.tif"
-    val resolver = ctx.contentResolver
+    return publishTiffToGallery(ctx, tmpFile, "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.tif")
+}
 
+/** Publish a finished TIFF temp file into the gallery (Pictures/Spektrafilm) under [name]. */
+private fun publishTiffToGallery(ctx: Context, tmpFile: File, name: String): Uri {
+    val resolver = ctx.contentResolver
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -767,6 +774,31 @@ fun saveSimResultAsTiff(
         resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: Uri.fromFile(destFile)
     }
+}
+
+/**
+ * Export the decoded *scene-linear input* (the linear RGB fed to the engine, before the film
+ * simulation) as a 32-bit IEEE-float TIFF — the honest answer to "give me a linear file to finish
+ * elsewhere". Written VERBATIM and UNTAGGED (no ICC; EXIF Uncalibrated): the data is scene-referred
+ * linear in [image]'s own primaries ([LinearImage.colorSpace], e.g. ACES2065-1 for RAW), which a
+ * grading app reads as linear. A display-gamma ICC would mis-describe linear data, so none is
+ * embedded; the producer string records the primaries.
+ */
+fun saveLinearInputAsTiff32f(ctx: Context, image: LinearImage, displayName: String? = null): Uri {
+    val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
+    TiffWriter.writeFloat32(
+        rgbFloat = image.data.duplicate(),
+        width = image.width,
+        height = image.height,
+        outPath = tmpFile.absolutePath,
+        icc = null,                                  // scene-linear: untagged (no display-gamma ICC)
+        exifColorSpace = ExifColorSpace.UNCALIBRATED,
+        software = "Spektrafilm (scene-linear ${image.colorSpace})",
+        dateTime = dateTime,
+        packBits = false,
+    )
+    return publishTiffToGallery(ctx, tmpFile, "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}_scene-linear.tif")
 }
 
 /**

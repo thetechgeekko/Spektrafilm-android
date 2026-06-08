@@ -54,6 +54,7 @@ fun ExportSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Export", style = MaterialTheme.typography.headlineSmall)
+            val isSceneLinear = options.format == ExportFormat.SCENE_LINEAR_TIFF
 
             // --- Format (+ format-specific quality) ---
             Dropdown(
@@ -70,6 +71,15 @@ fun ExportSheet(
                     range = 10..100,
                     default = 90,
                     onValueChange = { onOptionsChange(options.copy(jpegQuality = it)) },
+                )
+            }
+            if (isSceneLinear) {
+                Text(
+                    "Exports the decoded scene-linear input — the linear RGB before the film " +
+                        "simulation — as an untagged 32-bit float TIFF, for grading in another app. " +
+                        "Colour space and metadata options don't apply.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -110,22 +120,24 @@ fun ExportSheet(
                 }
             }
 
-            HorizontalDivider()
+            if (!isSceneLinear) {
+                HorizontalDivider()
 
-            // --- Colour ---
-            Dropdown(
-                label = "Color space",
-                selected = colorSpace,
-                options = ColorSpace.entries.toList(),
-                display = { it.label() },
-                onSelect = onColorSpaceChange,
-            )
-            SwitchRow(
-                label = "Encode color transfer (CCTF)",
-                checked = cctf,
-                onCheckedChange = onCctfChange,
-                tooltip = "On for normal viewing. Off writes scene-linear values (for further grading).",
-            )
+                // --- Colour ---
+                Dropdown(
+                    label = "Color space",
+                    selected = colorSpace,
+                    options = ColorSpace.entries.toList(),
+                    display = { it.label() },
+                    onSelect = onColorSpaceChange,
+                )
+                SwitchRow(
+                    label = "Encode color transfer (CCTF)",
+                    checked = cctf,
+                    onCheckedChange = onCctfChange,
+                    tooltip = "On for normal viewing. Off writes scene-linear values (for further grading).",
+                )
+            }
 
             HorizontalDivider()
 
@@ -138,12 +150,14 @@ fun ExportSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            SwitchRow(
-                label = "Include location (GPS)",
-                checked = keepGps,
-                onCheckedChange = onKeepGpsChange,
-                tooltip = "Copy GPS coordinates from the source photo into the exported file.",
-            )
+            if (!isSceneLinear) {
+                SwitchRow(
+                    label = "Include location (GPS)",
+                    checked = keepGps,
+                    onCheckedChange = onKeepGpsChange,
+                    tooltip = "Copy GPS coordinates from the source photo into the exported file.",
+                )
+            }
 
             // --- Actions ---
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
