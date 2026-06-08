@@ -1286,16 +1286,28 @@ class MainActivity : ComponentActivity() {
                                     val changed = id != state.filmProfile
                                     state.filmProfile = id
                                     if (changed) {
-                                        offerStockDefaults(scope, snackbarHost,
-                                            StockCatalog.displayName(ctx, id), state)
+                                        val name = StockCatalog.displayName(ctx, id)
+                                        // A reversal (slide) film is most naturally viewed as a
+                                        // positive — nudge Slide mode if the print is still showing;
+                                        // otherwise offer to drop the previous stock's tweaks.
+                                        if (StockCatalog.isReversalFilm(ctx, id) && !state.scanFilm) {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "$name is a slide film — view it as a positive?",
+                                                "Slide mode") { state.scanFilm = true }
+                                        } else {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "Switched to $name",
+                                                "Use its defaults") { state.resetStockCharacter() }
+                                        }
                                     }
                                 },
                                 onPrintProfileChange = { id ->
                                     val changed = id != state.printProfile
                                     state.printProfile = id
                                     if (changed) {
-                                        offerStockDefaults(scope, snackbarHost,
-                                            StockCatalog.displayName(ctx, id), state)
+                                        offerSnackbarSuggestion(scope, snackbarHost,
+                                            "Switched to ${StockCatalog.displayName(ctx, id)}",
+                                            "Use its defaults") { state.resetStockCharacter() }
                                     }
                                 },
                             )
@@ -2583,25 +2595,26 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Offer to reset the per-stock character (grain/halation/couplers/gamma) to the newly selected
-     * film or paper's defaults, via a snackbar action (onboarding §6h). Non-destructive: the reset
-     * happens only if the user taps "Use its defaults". UI/state only — no parity impact.
+     * Show a one-action suggestion snackbar (e.g. "Use its defaults" on a profile switch, §6h; or
+     * "Slide mode" when a reversal film is picked, §6e). Non-destructive: [onAction] runs only if the
+     * user taps [actionLabel]. UI/state only — no parity impact.
      */
-    private fun offerStockDefaults(
+    private fun offerSnackbarSuggestion(
         scope: CoroutineScope,
         host: SnackbarHostState,
-        stockName: String,
-        state: ParamsState,
+        message: String,
+        actionLabel: String,
+        onAction: () -> Unit,
     ) {
         scope.launch {
             host.currentSnackbarData?.dismiss()
             val result = host.showSnackbar(
-                message = "Switched to $stockName",
-                actionLabel = "Use its defaults",
+                message = message,
+                actionLabel = actionLabel,
                 withDismissAction = true,
                 duration = SnackbarDuration.Long,
             )
-            if (result == SnackbarResult.ActionPerformed) state.resetStockCharacter()
+            if (result == SnackbarResult.ActionPerformed) onAction()
         }
     }
 
@@ -2716,8 +2729,10 @@ class MainActivity : ComponentActivity() {
                             "by pulling them toward neutral. 0 = off. Helps when saturated highlights look unnatural.")
                     SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
                         "Add or not the CCTF to the saved image file")
-                    SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
-                        "Show a scan of the negative instead of the print")
+                    SwitchRow("Slide mode (skip print)", s.scanFilm, { s.scanFilm = it },
+                        "Show the scanned film directly instead of a print — the natural view for " +
+                            "slide/reversal stocks (a positive). For negative stocks this shows the " +
+                            "raw orange negative.")
                 }
             }
         }
