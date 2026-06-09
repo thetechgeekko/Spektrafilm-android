@@ -156,6 +156,7 @@ object Presets {
         put("creativeWb", JSONObject().apply {
             put("temp", s.creativeWbTemp.toDouble())
             put("tint", s.creativeWbTint.toDouble())
+            put("balanceToFilmStock", s.balanceToFilmStock)
         })
 
         put("grade", JSONObject().apply {
@@ -325,6 +326,7 @@ object Presets {
         o.optJSONObject("creativeWb")?.let { c ->
             s.creativeWbTemp = c.f("temp", s.creativeWbTemp)
             s.creativeWbTint = c.f("tint", s.creativeWbTint)
+            s.balanceToFilmStock = c.optBoolean("balanceToFilmStock", s.balanceToFilmStock)
         }
 
         o.optJSONObject("grade")?.let { g ->

@@ -717,6 +717,16 @@ class MainActivity : ComponentActivity() {
                         CreativeWhiteBalance.matrix(state.creativeWbTemp, state.creativeWbTint),
                     )
                 }
+                // "Balance to film stock" (virtual 85-filter): adapt the D50 input to the film's reference
+                // illuminant so a tungsten stock renders neutral. Same parity-free bake as Creative WB;
+                // keyed on filmProfile + the toggle in the decode cache below. Gated on isMeaningful so
+                // daylight stocks (already neutral) are a true no-op — no shift, no extra decode.
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        FilmStockBalance.matrix(ctx, state.filmProfile),
+                    )
+                }
                 // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
                 Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
             }
@@ -735,11 +745,14 @@ class MainActivity : ComponentActivity() {
         // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
         // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the decode in the stable lifecycleScope so two renders that both miss
@@ -747,7 +760,7 @@ class MainActivity : ComponentActivity() {
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
                 state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
-                rotation.degrees, maxEdge,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return previewDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
@@ -755,7 +768,7 @@ class MainActivity : ComponentActivity() {
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                         tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -769,11 +782,14 @@ class MainActivity : ComponentActivity() {
         // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
         // single cached LinearImage is safely re-fed to every crop.
         suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
@@ -782,7 +798,7 @@ class MainActivity : ComponentActivity() {
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
                 state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
-                rotation.degrees, maxEdge,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return zoomDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
@@ -790,7 +806,7 @@ class MainActivity : ComponentActivity() {
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                         tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -935,6 +951,7 @@ class MainActivity : ComponentActivity() {
                     uri = sourceUri?.toString(), kind = sourceKind.name,
                     whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                     tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                    filmBalance = if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else "",
                     rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 ) ?: return@collect                             // proxy not cached yet — settle owns the decode
                 runCatching {
@@ -1050,12 +1067,14 @@ class MainActivity : ComponentActivity() {
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) { previewTick++ }
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) {
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -2628,6 +2647,27 @@ class MainActivity : ComponentActivity() {
                 step = 1f, decimals = 0, default = 0f,
                 tooltip = "Green ↔ magenta. Positive = magenta, negative = green; 0 = off.")
 
+            Divider()
+            // Balance to film stock (virtual 85-filter): the escape hatch for tungsten stocks, which
+            // render a daylight scene authentically blue. Adapts the input to the film's reference white
+            // so neutrals render neutral. The hint adapts to whether the selected film is tungsten.
+            val ctx = LocalContext.current
+            val tungsten = StockCatalog.entry(ctx, s.filmProfile)?.balance == "tungsten"
+            SwitchRow(
+                "Balance to film stock",
+                s.balanceToFilmStock,
+                { s.balanceToFilmStock = it },
+                if (tungsten) {
+                    "This is a tungsten-balanced stock, so it renders a daylight scene blue — that's " +
+                        "authentic film behaviour. Turn this on to warm the input to the film's reference " +
+                        "light and render neutral, like an 85 filter on the lens."
+                } else {
+                    "The virtual 85 filter — warms the input to a tungsten stock's reference light so it " +
+                        "renders neutral. This stock is daylight-balanced (already neutral), so it has no " +
+                        "effect here."
+                },
+            )
+
             if (isRaw) {
                 Divider()
                 Text("RAW camera white balance (re-decodes the file):", style = MaterialTheme.typography.labelLarge)
@@ -2773,18 +2813,41 @@ class MainActivity : ComponentActivity() {
                     DiffusionGroup("Print diffusion filter", s.printDiffusionState)
                 }
                 2 -> {
+                    val ctx = LocalContext.current
                     EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
                         step = 0.05f, decimals = 2,
                         tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
                             "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
-                    SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
-                        "Enable white point correction applied to the scanner output")
-                    EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
-                    SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
-                        "Enable black point correction applied to the scanner output")
-                    EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    // Scan white/black correction pins the scan's white/black points to the target levels
+                    // below. The engine makes it a STRICT no-op in Slide mode on a negative stock (it's
+                    // active only for a slide/positive film on the scan-film route, or in print mode — all
+                    // print papers are negative), so we flag and gray it out there; elsewhere it's active
+                    // but often subtle at the default 0.98/0.01 levels.
+                    val correctionNoOp = s.scanFilm && !StockCatalog.isReversalFilm(ctx, s.filmProfile)
+                    if (correctionNoOp) {
+                        Text(
+                            "Scan white/black correction has no effect in Slide mode on a negative stock — " +
+                                "it applies only to a slide/positive film, or in print mode. Matches the " +
+                                "spektrafilm engine.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth().alpha(if (correctionNoOp) 0.5f else 1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                            "Pin the scan's white point to the target white level below. Subtle at the " +
+                                "default 0.98 — lower the white level to see it pull the highlights down.")
+                        EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
+                        SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                            "Pin the scan's black point to the target black level below. Subtle at the " +
+                                "default 0.01 — raise the black level to see it lift the shadows.")
+                        EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    }
                     PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
                         step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
                         componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)

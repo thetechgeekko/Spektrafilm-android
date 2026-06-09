@@ -386,6 +386,11 @@ class DecodedSourceCache {
         // decode-affecting input and belongs in the key — a change re-decodes, like raw temp/tint.
         val creativeTemp: Float,
         val creativeTint: Float,
+        // "Balance to film stock" (85-filter) is likewise baked into the decoded buffer and depends on
+        // the film profile's reference illuminant — so the key carries the profile id when the toggle is
+        // ON and "" when OFF. That way switching film with the toggle off does NOT re-decode (the input
+        // is film-independent then), while toggling it or changing film with it on does.
+        val filmBalance: String,
         val rotationDegrees: Int,
         val maxEdge: Int,
     )
@@ -401,9 +406,9 @@ class DecodedSourceCache {
     fun get(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
         temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
-        rotationDegrees: Int, maxEdge: Int,
+        filmBalance: String, rotationDegrees: Int, maxEdge: Int,
     ): LinearImage? {
-        val k = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
+        val k = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, filmBalance, rotationDegrees, maxEdge)
         return if (k == key) image else null
     }
 
@@ -412,7 +417,7 @@ class DecodedSourceCache {
     fun put(
         uri: String?, kind: String, whiteBalance: WhiteBalance,
         temperature: Float, tint: Float, creativeTemp: Float, creativeTint: Float,
-        rotationDegrees: Int, maxEdge: Int,
+        filmBalance: String, rotationDegrees: Int, maxEdge: Int,
         img: LinearImage,
     ) {
         // Release the previous entry. This cache only holds proxy-scale (previewMaxSize
@@ -421,7 +426,7 @@ class DecodedSourceCache {
         // were an off-heap image ever cached, instead of leaking it (native memory is
         // not GC-tracked). Guarded against re-putting the same instance.
         image?.takeIf { it !== img }?.close()
-        key = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, rotationDegrees, maxEdge)
+        key = Key(uri, kind, whiteBalance, temperature, tint, creativeTemp, creativeTint, filmBalance, rotationDegrees, maxEdge)
         image = img
     }
 

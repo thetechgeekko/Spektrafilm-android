@@ -104,6 +104,21 @@ object CreativeWhiteBalance {
     }
 
     /**
+     * Row-major float 3x3 (linear ProPhoto) that Bradford-adapts the D50 working white to an absolute
+     * [targetCct] in Kelvin — the engine for the "balance to film stock" / virtual 85-filter pass
+     * (FilmStockBalance). Unlike [matrix] (a relative ± slider grade) this takes a real target white,
+     * so warming the D50 input down to a tungsten stock's ~2856 K reference makes a neutral surface
+     * land on that reference and render neutral, the way an 85 amber filter lets tungsten film shoot
+     * daylight. Identity at D50; no tint term.
+     */
+    fun adaptD50ToCct(targetCct: Double): FloatArray {
+        if (abs(targetCct - D50_CCT) < 1.0) return IDENTITY.copyOf()
+        val cat = bradfordCat(whitepointXyz(D50_CCT), whitepointXyz(targetCct))
+        val m = mul3(XYZ_TO_PROPHOTO, mul3(cat, PROPHOTO_TO_XYZ))
+        return FloatArray(9) { m[it].toFloat() }
+    }
+
+    /**
      * Apply row-major 3x3 [m] in place to a direct float32 RGB buffer of [pixelCount] interleaved
      * pixels (native byte order, matching the engine's JNI view). No clamping — the spectral
      * upsampler handles the small out-of-[0,1] excursions, as the RAW-WB path does.
