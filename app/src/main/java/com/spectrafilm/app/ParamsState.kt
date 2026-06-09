@@ -91,6 +91,13 @@ class ParamsState {
     var creativeWbTemp by mutableFloatStateOf(0f)
     var creativeWbTint by mutableFloatStateOf(0f)
 
+    // "Balance to film stock" — the virtual 85-filter. When ON, loadSource Bradford-adapts the linear
+    // input from the D50 working white to the selected film's reference illuminant (FilmStockBalance),
+    // so a tungsten stock (Vision3 200T/500T) renders a daylight scene neutral instead of authentically
+    // blue. Default OFF preserves the bit-exact spektrafilm look. NOT a SpektraParams field — a
+    // pre-engine input op, so it's part of the decode-cache key (with filmProfile), not toParams().
+    var balanceToFilmStock by mutableStateOf(false)
+
     // Creative Contrast [-100,100]; 0 = identity. NOT a SpektraParams field — composed into the
     // master tone curve in toParams (ContrastCurve), so it drives the wired, parity-gated tone-curve
     // stage. Hue-neutral (master = all channels). Lives in the Tone Curve panel; gated by its switch.
@@ -113,7 +120,10 @@ class ParamsState {
 
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
-    var autoExposure by mutableStateOf(false)
+    // Default ON to match the upstream spektrafilm pipeline (CameraParams.auto_exposure = True): the
+    // metered exposure places the scene correctly on the film's per-channel density curves, so a
+    // properly-exposed render comes out balanced instead of skewed (e.g. a tungsten stock going blue).
+    var autoExposure by mutableStateOf(true)
     var autoExposureMethod by mutableStateOf("center_weighted")
     var filmFormatMm by mutableFloatStateOf(35f)
     var cameraLensBlurUm by mutableFloatStateOf(0f)

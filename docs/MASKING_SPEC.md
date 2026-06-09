@@ -224,7 +224,9 @@ does exposure-only. **The per-pixel math + fold are already correct and parity-f
 4. **Range masks** — Luminance (trivial) → Color.
 5. **Brush** + **Polygon**.
 6. **AI Subject/Sky** (LiteRT + guided filter).
-7. **Class-S** (Clarity/Dehaze/Sharpness) — reuse the AI guided filter.
+7. **Class-S** — ✅ **Clarity / Texture / Sharpness / Highlights / Shadows SHIPPED** (PR #103: `MaskSpatial`
+   box-blur USM + regional gain on the output luma; radii scale with the long edge). **Dehaze**
+   (Dark-Channel-Prior) remains — a separate algorithm.
 
 ## Sources
 In-repo decompile `docs/lightroom-re/{cr-symbols-curated.txt, icb-by-feature.md, icb-signatures.txt,

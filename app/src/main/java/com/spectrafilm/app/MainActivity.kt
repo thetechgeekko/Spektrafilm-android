@@ -96,7 +96,7 @@ private enum class Category(val label: String) {
     PRESETS("Presets"),
     SIMULATION("Simulation"),
     INPUT("Input"),
-    RAW_WB("RAW WB"),
+    RAW_WB("White Bal"),
     GRAIN("Grain"),
     HALATION("Halation"),
     GLARE("Glare"),
@@ -376,6 +376,7 @@ class MainActivity : ComponentActivity() {
         var sampleOverlayOpen by remember { mutableStateOf(false) }
         var sampleMaskIndex by remember { mutableStateOf(0) }
         var sampleLuminanceMode by remember { mutableStateOf(false) }
+        var sampleWbMode by remember { mutableStateOf(false) }  // gray-point WB eyedropper (no mask)
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -716,6 +717,16 @@ class MainActivity : ComponentActivity() {
                         CreativeWhiteBalance.matrix(state.creativeWbTemp, state.creativeWbTint),
                     )
                 }
+                // "Balance to film stock" (virtual 85-filter): adapt the D50 input to the film's reference
+                // illuminant so a tungsten stock renders neutral. Same parity-free bake as Creative WB;
+                // keyed on filmProfile + the toggle in the decode cache below. Gated on isMeaningful so
+                // daylight stocks (already neutral) are a true no-op — no shift, no extra decode.
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        FilmStockBalance.matrix(ctx, state.filmProfile),
+                    )
+                }
                 // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
                 Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
             }
@@ -734,11 +745,14 @@ class MainActivity : ComponentActivity() {
         // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
         // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the decode in the stable lifecycleScope so two renders that both miss
@@ -746,7 +760,7 @@ class MainActivity : ComponentActivity() {
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
                 state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
-                rotation.degrees, maxEdge,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return previewDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
@@ -754,7 +768,7 @@ class MainActivity : ComponentActivity() {
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                         tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -768,11 +782,14 @@ class MainActivity : ComponentActivity() {
         // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
         // single cached LinearImage is safely re-fed to every crop.
         suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
@@ -781,7 +798,7 @@ class MainActivity : ComponentActivity() {
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
                 state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
-                rotation.degrees, maxEdge,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return zoomDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
@@ -789,7 +806,7 @@ class MainActivity : ComponentActivity() {
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                         tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
-                        rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -934,6 +951,7 @@ class MainActivity : ComponentActivity() {
                     uri = sourceUri?.toString(), kind = sourceKind.name,
                     whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
                     tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                    filmBalance = if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else "",
                     rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 ) ?: return@collect                             // proxy not cached yet — settle owns the decode
                 runCatching {
@@ -1049,12 +1067,14 @@ class MainActivity : ComponentActivity() {
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) { previewTick++ }
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
             state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-            state.creativeWbTemp, state.creativeWbTint, state.localAdjustments) {
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -1125,7 +1145,7 @@ class MainActivity : ComponentActivity() {
         // 2) else double-back-to-exit with one-time hint.
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
         BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
-        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false }
+        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
         BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory != null) { activeCategory = null }
         BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory == null) {
             if (backArmed) {
@@ -1214,8 +1234,10 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
-                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
-                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
+                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true },
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
+                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
                                 filmGroups = filmGroups,
@@ -1498,32 +1520,65 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // --- eyedropper: sample a color- or luminance-range mask's target from the photo ---
+            // --- eyedropper: WB gray-point, or a color-/luminance-range mask target ---
             val sampleMask = state.localAdjustments.getOrNull(sampleMaskIndex)?.mask
-            val sampleReady = sampleOverlayOpen && cropBmp != null && sampleMask != null &&
-                (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null)
+            val sampleReady = sampleOverlayOpen && cropBmp != null && (
+                sampleWbMode ||
+                    (sampleMask != null &&
+                        (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null))
+                )
             if (sampleReady && cropBmp != null) {
                 PixelSampleOverlay(
                     bitmap = cropBmp,
-                    title = if (sampleLuminanceMode) "Tap to pick a tone" else "Tap to pick a color",
-                    hint = if (sampleLuminanceMode)
-                        "Tap a tone (a highlight or a shadow) to target it, then apply."
-                    else "Tap the color you want the mask to target (e.g. a red), then apply.",
-                    onPick = { r, g, b ->
-                        val list = state.localAdjustments.toMutableList()
-                        val m = list[sampleMaskIndex].mask
-                        val nm = if (sampleLuminanceMode) {
-                            m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
-                        } else {
-                            val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
-                            m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
-                        }
-                        list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
-                        state.localAdjustments = list
-                        sampleOverlayOpen = false
-                        previewTick++
+                    title = when {
+                        sampleWbMode -> "Tap a neutral (grey / white)"
+                        sampleLuminanceMode -> "Tap to pick a tone"
+                        else -> "Tap to pick a color"
                     },
-                    onCancel = { sampleOverlayOpen = false },
+                    hint = when {
+                        sampleWbMode -> "Tap something that should be neutral grey or white — white balance is set to make it neutral."
+                        sampleLuminanceMode -> "Tap a tone (a highlight or a shadow) to target it, then apply."
+                        else -> "Tap the color you want the mask to target (e.g. a red), then apply."
+                    },
+                    onPick = { r, g, b, nx, ny ->
+                        if (sampleWbMode) {
+                            sampleOverlayOpen = false; sampleWbMode = false
+                            // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
+                            // and solve the WB that neutralizes it. Off the main thread (decode + crop).
+                            scope.launch {
+                                runCatching {
+                                    val full = loadSourceCachedForZoom(MAX_EDGE_PX)
+                                    val avg = withContext(Dispatchers.Default) {
+                                        val crop = cropLinearImageRect(full, nx, ny, 5, 5)
+                                        try { avgRgb(crop) } finally { crop.close() }
+                                    }
+                                    CreativeWhiteBalance.solveNeutral(
+                                        avg.first, avg.second, avg.third,
+                                        state.creativeWbTemp, state.creativeWbTint,
+                                    )
+                                }.onSuccess { (t, ti) ->
+                                    state.creativeWbTemp = t; state.creativeWbTint = ti
+                                    status = "white balance set from neutral"
+                                }.onFailure {
+                                    Toast.makeText(ctx, "Couldn't sample for white balance: ${it.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } else {
+                            val list = state.localAdjustments.toMutableList()
+                            val m = list[sampleMaskIndex].mask
+                            val nm = if (sampleLuminanceMode) {
+                                m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
+                            } else {
+                                val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                                m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
+                            }
+                            list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
+                            state.localAdjustments = list
+                            sampleOverlayOpen = false
+                            previewTick++
+                        }
+                    },
+                    onCancel = { sampleOverlayOpen = false; sampleWbMode = false },
                 )
             }
 
@@ -2204,7 +2259,7 @@ class MainActivity : ComponentActivity() {
         Category.PRESETS -> "Built-in looks and your saved presets; import/export & LUT"
         Category.SIMULATION -> "Film stock, print paper, exposure & auto-exposure metering"
         Category.INPUT -> "Input colour space, spectral upsampling, filters, crop & upscale"
-        Category.RAW_WB -> "RAW/DNG white balance (temperature & tint)"
+        Category.RAW_WB -> "White balance — eyedropper + warmth/tint (all sources), and RAW Kelvin"
         Category.GRAIN -> "Film grain structure, size and blur"
         Category.HALATION -> "Halation glow and in-emulsion light scatter"
         Category.GLARE -> "Print glare (stochastic; off by default)"
@@ -2481,7 +2536,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
+    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
             Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
@@ -2506,6 +2561,9 @@ class MainActivity : ComponentActivity() {
                 step = 1f, decimals = 0,
                 tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.",
                 default = 0f)
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
             Divider()
             GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
                 Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
@@ -2567,31 +2625,54 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ImportRawSection(s: ParamsState, isRaw: Boolean) {
+    private fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("RAW White Balance", expanded, { expanded = it }) {
-            if (!isRaw) {
-                Text(
-                    "Load a RAW/DNG file (\"Open RAW/DNG\" in Source) to enable RAW white-balance.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Column(
-                    modifier = Modifier.fillMaxWidth().alpha(0.38f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
-                        { it.name.lowercase() }, { /* no-op when not RAW */ })
-                    EnhancedSlider("Temperature (K)", s.rawTemperature, 1000f..12000f, { },
-                        step = 100f, decimals = 0,
-                        tooltip = "Temperature in Kelvin (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTemperature)
-                    EnhancedSlider("Tint", s.rawTint, 0f..2f, { },
-                        step = 0.01f, decimals = 2,
-                        tooltip = "Tint multiplier (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTint)
-                }
-            } else {
+        SectionCard("White balance", expanded, { expanded = it }) {
+            // The eyedropper + creative warmth/tint work on EVERY source, so they're shown FIRST and
+            // always — the eyedropper is the most prominent control so it's findable. The native RAW
+            // camera WB (Kelvin/tint, re-decodes the file) is appended only for RAW/DNG sources.
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
+            Text(
+                "Tap a grey or white area in your photo and the white balance is set to neutralize it. " +
+                    "Works on every source — or use the sliders below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Warm / cool the image. Positive = warmer; 0 = off. Works on every source.")
+            EnhancedSlider("Tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Green ↔ magenta. Positive = magenta, negative = green; 0 = off.")
+
+            Divider()
+            // Balance to film stock (virtual 85-filter): the escape hatch for tungsten stocks, which
+            // render a daylight scene authentically blue. Adapts the input to the film's reference white
+            // so neutrals render neutral. The hint adapts to whether the selected film is tungsten.
+            val ctx = LocalContext.current
+            val tungsten = StockCatalog.entry(ctx, s.filmProfile)?.balance == "tungsten"
+            SwitchRow(
+                "Balance to film stock",
+                s.balanceToFilmStock,
+                { s.balanceToFilmStock = it },
+                if (tungsten) {
+                    "This is a tungsten-balanced stock, so it renders a daylight scene blue — that's " +
+                        "authentic film behaviour. Turn this on to warm the input to the film's reference " +
+                        "light and render neutral, like an 85 filter on the lens."
+                } else {
+                    "The virtual 85 filter — warms the input to a tungsten stock's reference light so it " +
+                        "renders neutral. This stock is daylight-balanced (already neutral), so it has no " +
+                        "effect here."
+                },
+            )
+
+            if (isRaw) {
+                Divider()
+                Text("RAW camera white balance (re-decodes the file):", style = MaterialTheme.typography.labelLarge)
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
-                Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                Dropdown("Camera white balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
                     { it.name.lowercase() }, { s.rawWhiteBalance = it })
                 OutlinedButton(
                     onClick = {
@@ -2619,19 +2700,16 @@ class MainActivity : ComponentActivity() {
                         { s.rawTemperature = it },
                         step = 100f, decimals = 0,
                         tooltip = "Colour temperature in Kelvin for Custom white balance (1000 K – 12000 K).",
-                     default = PARAM_DEFAULTS.rawTemperature,)
+                        default = PARAM_DEFAULTS.rawTemperature,
+                    )
                     EnhancedSlider(
-                        "Tint", s.rawTint, 0f..2f,
+                        "Tint multiplier", s.rawTint, 0f..2f,
                         { s.rawTint = it },
                         step = 0.01f, decimals = 2,
                         tooltip = "Green/magenta tint multiplier for Custom white balance (1.0 = neutral).",
-                     default = PARAM_DEFAULTS.rawTint,)
+                        default = PARAM_DEFAULTS.rawTint,
+                    )
                 }
-                Text(
-                    "Changes re-decode the RAW file and update the preview automatically.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -2735,18 +2813,41 @@ class MainActivity : ComponentActivity() {
                     DiffusionGroup("Print diffusion filter", s.printDiffusionState)
                 }
                 2 -> {
+                    val ctx = LocalContext.current
                     EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
                         step = 0.05f, decimals = 2,
                         tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
                             "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
-                    SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
-                        "Enable white point correction applied to the scanner output")
-                    EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
-                    SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
-                        "Enable black point correction applied to the scanner output")
-                    EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    // Scan white/black correction pins the scan's white/black points to the target levels
+                    // below. The engine makes it a STRICT no-op in Slide mode on a negative stock (it's
+                    // active only for a slide/positive film on the scan-film route, or in print mode — all
+                    // print papers are negative), so we flag and gray it out there; elsewhere it's active
+                    // but often subtle at the default 0.98/0.01 levels.
+                    val correctionNoOp = s.scanFilm && !StockCatalog.isReversalFilm(ctx, s.filmProfile)
+                    if (correctionNoOp) {
+                        Text(
+                            "Scan white/black correction has no effect in Slide mode on a negative stock — " +
+                                "it applies only to a slide/positive film, or in print mode. Matches the " +
+                                "spektrafilm engine.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth().alpha(if (correctionNoOp) 0.5f else 1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                            "Pin the scan's white point to the target white level below. Subtle at the " +
+                                "default 0.98 — lower the white level to see it pull the highlights down.")
+                        EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
+                        SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                            "Pin the scan's black point to the target black level below. Subtle at the " +
+                                "default 0.01 — raise the black level to see it lift the shadows.")
+                        EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    }
                     PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
                         step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
                         componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)
@@ -3023,6 +3124,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Small helpers kept at file scope. */
+
+/** Average RGB (0..1) of a small LinearImage crop — the WB eyedropper's sampled neutral. */
+private fun avgRgb(img: com.spectrafilm.engine.LinearImage): Triple<Float, Float, Float> {
+    val f = img.data.duplicate().order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+    val n = (img.width * img.height).coerceAtLeast(1)
+    var r = 0f; var g = 0f; var b = 0f
+    for (i in 0 until n) { val k = i * 3; r += f.get(k); g += f.get(k + 1); b += f.get(k + 2) }
+    val inv = 1f / n
+    return Triple(r * inv, g * inv, b * inv)
+}
+
 @Composable
 private fun LocalConfigurationHeightDp(): Int =
     androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp

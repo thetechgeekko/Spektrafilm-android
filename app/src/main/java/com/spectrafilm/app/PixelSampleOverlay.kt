@@ -50,13 +50,14 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /**
- * Sample an (r,g,b) color from [bitmap] (the live preview). [onPick] returns the chosen color in 0..1;
- * [onCancel] discards. Tap the image to set the sample point, then confirm.
+ * Sample an (r,g,b) color from [bitmap] (the live preview). [onPick] returns the chosen color in 0..1
+ * plus the normalized tap location (nx,ny) — the latter lets a caller re-sample the engine INPUT at the
+ * same spot (the WB eyedropper). [onCancel] discards. Tap the image to set the sample point, then confirm.
  */
 @Composable
 fun PixelSampleOverlay(
     bitmap: Bitmap,
-    onPick: (Float, Float, Float) -> Unit,
+    onPick: (Float, Float, Float, Float, Float) -> Unit,
     onCancel: () -> Unit,
     title: String = "Tap to pick a color",
     hint: String = "Tap the color you want the mask to target (e.g. a red), then apply.",
@@ -103,7 +104,7 @@ fun PixelSampleOverlay(
                 }
                 TextTooltip("Apply") {
                     IconButton(
-                        onClick = { sampled?.let { onPick(it.first, it.second, it.third) } },
+                        onClick = { sampled?.let { val p = point; onPick(it.first, it.second, it.third, p?.x ?: 0.5f, p?.y ?: 0.5f) } },
                         enabled = sampled != null,
                     ) {
                         Icon(SpectraIcons.Confirm, contentDescription = "Apply", tint = Color.White)

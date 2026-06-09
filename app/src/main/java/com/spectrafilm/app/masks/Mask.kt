@@ -195,10 +195,20 @@ data class TierADelta(
     val hue: Float = 0f,
     val whites: Float = 0f,
     val blacks: Float = 0f,
+    // Class-S (spatial): a neighborhood blur on the output luma (MaskSpatial); all [-100,100], 0 = no-op.
+    val clarity: Float = 0f,     // large-radius midtone local contrast
+    val sharpness: Float = 0f,   // small-radius luma unsharp (high-freq)
+    val texture: Float = 0f,     // mid-radius detail
+    val highlights: Float = 0f,  // regional gain in bright areas (− recovers, + brightens)
+    val shadows: Float = 0f,     // regional gain in dark areas (+ lifts, − crushes)
 ) {
     val isNoOp: Boolean
         get() = exposureEv == 0f && temp == 0f && tint == 0f && saturation == 0f &&
-            contrast == 0f && hue == 0f && whites == 0f && blacks == 0f
+            contrast == 0f && hue == 0f && whites == 0f && blacks == 0f && !hasSpatial
+
+    /** True when any spatial (Class-S) op is set — gates the (more expensive) neighborhood blur pass. */
+    val hasSpatial: Boolean
+        get() = clarity != 0f || sharpness != 0f || texture != 0f || highlights != 0f || shadows != 0f
 }
 
 /** A mask plus the adjustment to apply where it is opaque. */
