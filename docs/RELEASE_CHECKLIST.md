@@ -5,7 +5,7 @@ builds a production-signed APK from keystore secrets and publishes it (plus a `.
 GitHub Release asset. **APKs are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
-Current shipping version: **v0.7.0 / versionCode 9** (`minSdk 24`, `targetSdk`/`compileSdk 34`).
+Current shipping version: **v0.8.0 / versionCode 10** (`minSdk 24`, `targetSdk`/`compileSdk 34`).
 
 ---
 

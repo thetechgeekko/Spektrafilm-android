@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.8.0 — tungsten WB, masking, and high-bit-depth export 🎞️
+
+A maintenance and polish release that brings film-stock WB, local adjustments, and
+high-precision export support while keeping the core engine parity-safe.
+
+### Film / WB
+- **Balance to film stock** adds a virtual 85-filter workflow for tungsten film looks.
+- **Default auto-exposure now matches spektrafilm** and fixes the blue-cast behavior.
+- **Gray-point WB eyedropper improvements** make the neutral selector discoverable, work
+  on non-RAW images, and wire the `CreativeWhiteBalance.solveNeutral` solver end to end.
+
+### Local adjustment / masking
+- **Class-S local adjustments** are now live, with Clarity, Texture, Sharpness, Highlights,
+  and Shadows controls available in the masking UI.
+
+### Export / formats
+- **Lightroom-style export sheet** is added to surface the new high-bit-depth export options.
+- **Scene-linear TIFF input export** is supported for the honest “linear DNG” workflow.
+- **True 32-bit float TIFF export** is now supported in the native TIFF writer and UI.
+
+### Docs
+- Updated the release notes and HANDOFF docs around the new masking and high-bit-depth export
+  workflows.
+
 ## v0.7.0 — engine completion: APK-direct assets + enlarger LUT 🎞️
 
 Closes the two long-standing engine remainders, both verified on-device (Galaxy S25 Ultra,
