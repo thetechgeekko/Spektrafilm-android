@@ -113,7 +113,10 @@ class ParamsState {
 
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
-    var autoExposure by mutableStateOf(false)
+    // Default ON to match the upstream spektrafilm pipeline (CameraParams.auto_exposure = True): the
+    // metered exposure places the scene correctly on the film's per-channel density curves, so a
+    // properly-exposed render comes out balanced instead of skewed (e.g. a tungsten stock going blue).
+    var autoExposure by mutableStateOf(true)
     var autoExposureMethod by mutableStateOf("center_weighted")
     var filmFormatMm by mutableFloatStateOf(35f)
     var cameraLensBlurUm by mutableFloatStateOf(0f)
