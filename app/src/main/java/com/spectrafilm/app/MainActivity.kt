@@ -96,7 +96,7 @@ private enum class Category(val label: String) {
     PRESETS("Presets"),
     SIMULATION("Simulation"),
     INPUT("Input"),
-    RAW_WB("RAW WB"),
+    RAW_WB("White Bal"),
     GRAIN("Grain"),
     HALATION("Halation"),
     GLARE("Glare"),
@@ -2240,7 +2240,7 @@ class MainActivity : ComponentActivity() {
         Category.PRESETS -> "Built-in looks and your saved presets; import/export & LUT"
         Category.SIMULATION -> "Film stock, print paper, exposure & auto-exposure metering"
         Category.INPUT -> "Input colour space, spectral upsampling, filters, crop & upscale"
-        Category.RAW_WB -> "RAW/DNG white balance (temperature & tint)"
+        Category.RAW_WB -> "White balance — eyedropper + warmth/tint (all sources), and RAW Kelvin"
         Category.GRAIN -> "Film grain structure, size and blur"
         Category.HALATION -> "Halation glow and in-emulsion light scatter"
         Category.GLARE -> "Print glare (stochastic; off by default)"
@@ -2608,29 +2608,31 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("RAW White Balance", expanded, { expanded = it }) {
-            if (!isRaw) {
-                // The native RAW temp/tint only apply during a LibRaw decode, so they're RAW-only.
-                // But this image isn't a RAW — rather than dead, greyed sliders, surface the Creative
-                // white balance, which works on EVERY source (RAW/JPEG/HEIC/demo) and re-renders live.
-                Text(
-                    "RAW white balance needs a RAW/DNG file (open one in Source). For a JPEG / HEIC or " +
-                        "the demo image, use Creative white balance — it works on every source:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                EnhancedSlider("Creative warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = "Warm / cool the image before the film sees it. Positive = warmer; 0 = off.")
-                EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green; 0 = off.")
-                OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
-                    Text("Eyedropper — tap a neutral to set white balance")
-                }
-            } else {
+        SectionCard("White balance", expanded, { expanded = it }) {
+            // The eyedropper + creative warmth/tint work on EVERY source, so they're shown FIRST and
+            // always — the eyedropper is the most prominent control so it's findable. The native RAW
+            // camera WB (Kelvin/tint, re-decodes the file) is appended only for RAW/DNG sources.
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
+            Text(
+                "Tap a grey or white area in your photo and the white balance is set to neutralize it. " +
+                    "Works on every source — or use the sliders below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Warm / cool the image. Positive = warmer; 0 = off. Works on every source.")
+            EnhancedSlider("Tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Green ↔ magenta. Positive = magenta, negative = green; 0 = off.")
+
+            if (isRaw) {
+                Divider()
+                Text("RAW camera white balance (re-decodes the file):", style = MaterialTheme.typography.labelLarge)
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
-                Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                Dropdown("Camera white balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
                     { it.name.lowercase() }, { s.rawWhiteBalance = it })
                 OutlinedButton(
                     onClick = {
@@ -2658,19 +2660,16 @@ class MainActivity : ComponentActivity() {
                         { s.rawTemperature = it },
                         step = 100f, decimals = 0,
                         tooltip = "Colour temperature in Kelvin for Custom white balance (1000 K – 12000 K).",
-                     default = PARAM_DEFAULTS.rawTemperature,)
+                        default = PARAM_DEFAULTS.rawTemperature,
+                    )
                     EnhancedSlider(
-                        "Tint", s.rawTint, 0f..2f,
+                        "Tint multiplier", s.rawTint, 0f..2f,
                         { s.rawTint = it },
                         step = 0.01f, decimals = 2,
                         tooltip = "Green/magenta tint multiplier for Custom white balance (1.0 = neutral).",
-                     default = PARAM_DEFAULTS.rawTint,)
+                        default = PARAM_DEFAULTS.rawTint,
+                    )
                 }
-                Text(
-                    "Changes re-decode the RAW file and update the preview automatically.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
