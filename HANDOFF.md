@@ -1,6 +1,38 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-08, LATEST, branch `claude/exciting-hamilton-hya62`) — masking Class-S local adjustments (PR #103 DRAFT)
+## State (2026-06-09, LATEST, branch `claude/exciting-hamilton-hya62`) — White-balance wave + **release prep v0.8.0** (PR #103)
+
+Three things landed on PR #103 after the Class-S masking commit, all **Tier-0/1/2 (parity untouched)**,
+all device-confirmed by the user ("this works perfectly"):
+
+1. **Gray-point WB eyedropper** (`CreativeWhiteBalance.solveNeutral`) — tap a neutral; coordinate-descent
+   solves the (temp,tint) that drives that pixel's chroma to ~0. Surfaced in a restructured **White
+   balance** panel (eyedropper first, Warmth/Tint for *all* sources, RAW Kelvin appended only for RAW).
+2. **Auto-exposure default ON** (`ParamsState.autoExposure = true`) — matches upstream
+   `CameraParams.auto_exposure = True`; places the scene correctly on the film's density curves.
+3. **"Balance to film stock" (virtual 85-filter)** — `FilmStockBalance` reads `info.reference_illuminant`
+   from the profile asset → CCT; `CreativeWhiteBalance.adaptD50ToCct` Bradford-adapts the D50 working
+   white to the film's reference so **tungsten stocks (Vision3 200T/500T, ref "T" ≈2856 K) render a
+   daylight scene neutral** instead of authentically blue. Baked in `loadSource` next to Creative WB;
+   `isMeaningful` gates daylight stocks (D55) to a true no-op; threaded through the decode caches
+   (`filmBalance` key) + preview/auto-save triggers; round-trips in the recipe. Default OFF (keeps the
+   bit-exact look). New `CreativeWhiteBalanceAdaptTest`.
+   - Also: scanner white/black correction — clearer help (it pins the scan's white/black to the target
+     *levels*; subtle at 0.98/0.01) and grayed out in the one strict-no-op case (Slide mode on a negative
+     stock), per the engine gating (`spektra.cpp`: active only `bw_on && film.is_positive()` on the
+     scan-film route, or a negative paper on the print route).
+
+**RELEASE PREP:** `versionCode 9→10`, `versionName 0.7.0→0.8.0` (CLAUDE.md updated). **v0.8.0 is the first
+release since v0.7.0 — 173 commits**, spanning the whole masking keystone (radial/linear/luminance/color
+masks + eyedroppers + draw-on-preview geometry; per-mask Class-P Exposure/Temp/Tint/Sat/Hue/Contrast/
+Whites/Blacks + Class-S Clarity/Texture/Sharpness/Highlights/Shadows), the Lightroom export sheet (16-bit
+PNG/TIFF, 32-bit-float + scene-linear TIFF), LUT export (CLF + .cube), §6h onboarding, §6e slide-mode, and
+this WB wave. `release.yml` fires on a `v*` tag push → builds the **signed, minified (R8)** APK and creates
+the GitHub Release. ⚠️ **R8/minify is NOT exercised by CI** — smoke-test the release APK on a device before
+tagging (CLAUDE.md). Tests: `:app:testDebugUnitTest` green; `:app:assembleDebug` + `:app:assembleRelease`
+green.
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — masking Class-S local adjustments (PR #103)
 
 **PR #102 MERGED** to `main` (`cc917fd`): §6e slide-mode + §6a export sheet + §6b 32-float/scene-linear
 TIFF. **User device-tested it: "apk works and 32bit export works."** Then flagged the **masking tool as
