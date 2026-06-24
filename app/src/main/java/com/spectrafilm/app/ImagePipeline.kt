@@ -284,10 +284,10 @@ fun saveTextToUri(ctx: Context, uri: Uri, text: String) {
         ?: error("Could not open output for LUT")
 }
 
-/** Filesystem-safe `<film>_<print>.cube` filename from friendly stock names. */
-fun cubeFileName(film: String, print: String): String {
+/** Filesystem-safe `<film>_<print>_<size>.<cube|clf>` LUT filename from friendly stock names. */
+fun lutFileName(film: String, print: String, size: Int, clf: Boolean): String {
     fun clean(s: String) = s.trim().ifEmpty { "lut" }.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
-    return "${clean(film)}_${clean(print)}.cube"
+    return "${clean(film)}_${clean(print)}_$size.${if (clf) "clf" else "cube"}"
 }
 
 enum class ExportFormat(val display: String, val mime: String, val ext: String) {
@@ -300,6 +300,12 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
     // True 16-bit-per-channel PNG via lib:pngwriter (libsfpng.so) — the engine's float
     // SimResult is quantised directly to uint16, no 8-bit Bitmap round-trip (unlike PNG).
     PNG16("16-bit PNG", "image/png", "png"),
+    // True 32-bit IEEE-float TIFF (lib:tiffwriter) — the engine's float SimResult written
+    // VERBATIM (no quantise/clamp). Archival / scene-linear-grade-elsewhere export.
+    TIFF32F("32-bit float TIFF", "image/tiff", "tif"),
+    // The decoded scene-linear INPUT (before the film engine) as a 32-bit float TIFF — verbatim,
+    // untagged scene-referred linear, for grading in another app (the honest "linear DNG" hand-off).
+    SCENE_LINEAR_TIFF("Scene-linear input (32-bit TIFF)", "image/tiff", "tif"),
 }
 
 /**
@@ -310,6 +316,25 @@ enum class ExportFormat(val display: String, val mime: String, val ext: String) 
  */
 private fun ExportFormat.isJpeg(): Boolean =
     this == ExportFormat.JPEG || this == ExportFormat.ULTRA_HDR
+
+/**
+ * True for the high-bit-depth formats (16-bit TIFF/PNG, 32-bit float TIFF), written straight from
+ * the float SimResult rather than via an 8-bit Bitmap — so they always export at full resolution
+ * (the Bitmap-based resize does not apply).
+ */
+fun ExportFormat.isHighBitDepth(): Boolean =
+    this == ExportFormat.TIFF || this == ExportFormat.PNG16 ||
+        this == ExportFormat.TIFF32F || this == ExportFormat.SCENE_LINEAR_TIFF
+
+/**
+ * Downscale [bmp] so its longer edge is [longEdge] px, preserving aspect and never enlarging
+ * (Lightroom-style export "Dimensions"). Returns [bmp] unchanged when it already fits. A
+ * post-render resample, so grain/halation are rendered at full quality first, then downsampled.
+ */
+fun scaleBitmapToLongEdge(bmp: Bitmap, longEdge: Int): Bitmap {
+    val (w, h) = scaledDimensions(bmp.width, bmp.height, longEdge)
+    return if (w == bmp.width && h == bmp.height) bmp else Bitmap.createScaledBitmap(bmp, w, h, true)
+}
 
 /**
  * Comprehensive list of standard ExifInterface TAG_* attributes copied verbatim from the
@@ -552,11 +577,12 @@ fun saveToGallery(
     format: ExportFormat,
     jpegQuality: Int = 95,
     sourceExif: SourceExif = SourceExif(emptyMap()),
+    displayName: String? = null,
 ): Uri {
     require(format != ExportFormat.TIFF) {
         "Use saveSimResultAsTiff() for TIFF export"
     }
-    val name = "Spektrafilm_${System.currentTimeMillis()}.${format.ext}"
+    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.${format.ext}"
     val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
     val quality = if (format == ExportFormat.PNG) 100 else jpegQuality.coerceIn(1, 100)
 
@@ -637,63 +663,81 @@ private fun exifColorSpaceFor(cs: ColorSpace): ExifColorSpace = when (cs) {
  * each [0,1]-clamped float to [0, 65535] uint16 — a true 16-bit encode with no
  * intermediate 8-bit Bitmap step.
  *
- * ICC: no ICC profile bytes are bundled in the app assets for this wave; the EXIF
- * ColorSpace advisory tag is set to SRGB when the output space is sRGB/linear-sRGB,
- * and UNCALIBRATED for all wide-gamut spaces. A future wave can add .icc assets
- * and pass their bytes here.
+ * ICC: the bundled profile matching the output space is embedded (see [ColorManagement]),
+ * so wide-gamut exports open correctly in color-managed apps. The EXIF ColorSpace advisory
+ * tag is also set — SRGB when the output space is sRGB/linear-sRGB, UNCALIBRATED otherwise.
  *
  * @param ctx     Android context (for MediaStore / cacheDir)
  * @param result  The engine SimResult whose float data is quantised to 16-bit
  * @return        The MediaStore [Uri] of the written file
  */
-fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
+fun saveSimResultAsTiff(
+    ctx: Context,
+    result: SimResult,
+    displayName: String? = null,
+    float32: Boolean = false,
+): Uri {
     val w = result.width
     val h = result.height
-    val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
     val nSamples = w * h * 3
 
     val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
     val exifCs = exifColorSpaceFor(result.colorSpace)
+    val icc = ColorManagement.loadIccBytes(ctx, result.colorSpace)  // embed the matching profile
 
     // Write to a temp file in cacheDir first; this avoids holding a MediaStore
     // output stream open for the entire (potentially large) TiffWriter write.
     val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
 
-    // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
-    // ByteBuffer.allocateDirect is a managed byte[] on Android — at 100 MP that's ~600 MB on
-    // the ~256 MB ART heap and OOMs. Allocate natively (malloc + NewDirectByteBuffer); fall
-    // back to managed only if the native alloc fails. Freed after the writer consumes it (it
-    // is not needed for the MediaStore move below).
-    val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
-    val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
-        .order(ByteOrder.LITTLE_ENDIAN)
-    try {
-        for (i in 0 until nSamples) {
-            val v = floatBuf.get(i).coerceIn(0f, 1f)
-            val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
-            // Write as little-endian uint16 (low byte first).
-            rgb16Buf.put((u16 and 0xFF).toByte())
-            rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
-        }
-        rgb16Buf.flip()
-        TiffWriter.write(
-            rgb16 = rgb16Buf,
-            width = w,
-            height = h,
-            outPath = tmpFile.absolutePath,
-            icc = null,              // No ICC assets bundled yet; advisory EXIF tag is set below
-            exifColorSpace = exifCs,
-            software = "Spektrafilm",
-            dateTime = dateTime,
-            packBits = false,        // Uncompressed baseline for maximum compatibility
+    if (float32) {
+        // 32-bit float TIFF: write the engine's float samples VERBATIM (no quantise/clamp).
+        // result.data is already a direct float32 little-endian off-heap buffer, so no copy.
+        TiffWriter.writeFloat32(
+            rgbFloat = result.data.duplicate(),
+            width = w, height = h, outPath = tmpFile.absolutePath,
+            icc = icc, exifColorSpace = exifCs, software = "Spektrafilm",
+            dateTime = dateTime, packBits = false,
         )
-    } finally {
-        if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+    } else {
+        val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
+        // Quantise float [0,1] -> uint16 [0,65535] into an OFF-HEAP direct buffer (LE uint16).
+        // ByteBuffer.allocateDirect is a managed byte[] on Android — at 100 MP that's ~600 MB on
+        // the ~256 MB ART heap and OOMs. Allocate natively (malloc + NewDirectByteBuffer); fall
+        // back to managed only if the native alloc fails. Freed after the writer consumes it.
+        val nativeBuf = SimResult.allocDirectBuffer(nSamples.toLong() * 2)
+        val rgb16Buf = (nativeBuf ?: ByteBuffer.allocateDirect(nSamples * 2))
+            .order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            for (i in 0 until nSamples) {
+                val v = floatBuf.get(i).coerceIn(0f, 1f)
+                val u16 = (v * 65535f + 0.5f).toInt().coerceIn(0, 65535)
+                // Write as little-endian uint16 (low byte first).
+                rgb16Buf.put((u16 and 0xFF).toByte())
+                rgb16Buf.put(((u16 shr 8) and 0xFF).toByte())
+            }
+            rgb16Buf.flip()
+            TiffWriter.write(
+                rgb16 = rgb16Buf,
+                width = w,
+                height = h,
+                outPath = tmpFile.absolutePath,
+                icc = icc,
+                exifColorSpace = exifCs,
+                software = "Spektrafilm",
+                dateTime = dateTime,
+                packBits = false,        // Uncompressed baseline for maximum compatibility
+            )
+        } finally {
+            if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
+        }
     }
 
-    val name = "Spektrafilm_${System.currentTimeMillis()}.tif"
-    val resolver = ctx.contentResolver
+    return publishTiffToGallery(ctx, tmpFile, "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.tif")
+}
 
+/** Publish a finished TIFF temp file into the gallery (Pictures/Spektrafilm) under [name]. */
+private fun publishTiffToGallery(ctx: Context, tmpFile: File, name: String): Uri {
+    val resolver = ctx.contentResolver
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -733,6 +777,31 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
 }
 
 /**
+ * Export the decoded *scene-linear input* (the linear RGB fed to the engine, before the film
+ * simulation) as a 32-bit IEEE-float TIFF — the honest answer to "give me a linear file to finish
+ * elsewhere". Written VERBATIM and UNTAGGED (no ICC; EXIF Uncalibrated): the data is scene-referred
+ * linear in [image]'s own primaries ([LinearImage.colorSpace], e.g. ACES2065-1 for RAW), which a
+ * grading app reads as linear. A display-gamma ICC would mis-describe linear data, so none is
+ * embedded; the producer string records the primaries.
+ */
+fun saveLinearInputAsTiff32f(ctx: Context, image: LinearImage, displayName: String? = null): Uri {
+    val dateTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date())
+    val tmpFile = File(ctx.cacheDir, "spectrafilm_export_tmp.tif")
+    TiffWriter.writeFloat32(
+        rgbFloat = image.data.duplicate(),
+        width = image.width,
+        height = image.height,
+        outPath = tmpFile.absolutePath,
+        icc = null,                                  // scene-linear: untagged (no display-gamma ICC)
+        exifColorSpace = ExifColorSpace.UNCALIBRATED,
+        software = "Spektrafilm (scene-linear ${image.colorSpace})",
+        dateTime = dateTime,
+        packBits = false,
+    )
+    return publishTiffToGallery(ctx, tmpFile, "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}_scene-linear.tif")
+}
+
+/**
  * Quantise the engine's display-referred float RGB [SimResult] to 16-bit per channel
  * and write a true 16-bit-per-channel RGB PNG to the gallery via [PngWriter]
  * (lib:pngwriter / libsfpng.so), using MediaStore for scoped-storage compatibility.
@@ -740,13 +809,13 @@ fun saveSimResultAsTiff(ctx: Context, result: SimResult): Uri {
  * Mirrors [saveSimResultAsTiff]: same round-to-nearest float[0,1] -> uint16[0,65535]
  * quantisation with no intermediate 8-bit Bitmap step. The PNG writer byte-swaps the
  * little-endian uint16 samples to big-endian internally (PNG spec), so the caller only
- * supplies native/little-endian uint16. No ICC bytes are bundled this wave (the PNG
- * carries no iCCP chunk); a future wave can pass profile bytes here.
+ * supplies native/little-endian uint16. The PNG carries an iCCP chunk with the bundled
+ * profile matching the output space (see [ColorManagement]) so wide-gamut exports are tagged.
  *
  * Unlike the 8-bit [saveToGallery] PNG path (Bitmap.compress, 8 bpc), this preserves
  * the engine's full tonal precision.
  */
-fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
+fun saveSimResultAsPng16(ctx: Context, result: SimResult, displayName: String? = null): Uri {
     val w = result.width
     val h = result.height
     val floatBuf = result.data.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -776,14 +845,14 @@ fun saveSimResultAsPng16(ctx: Context, result: SimResult): Uri {
             width = w,
             height = h,
             outPath = tmpFile.absolutePath,
-            icc = null,              // No ICC assets bundled yet
+            icc = ColorManagement.loadIccBytes(ctx, result.colorSpace),  // embed the matching profile
             software = "Spektrafilm",
         )
     } finally {
         if (nativeBuf != null) SimResult.freeDirectBuffer(nativeBuf)
     }
 
-    val name = "Spektrafilm_${System.currentTimeMillis()}.png"
+    val name = "${displayName ?: "Spektrafilm_${System.currentTimeMillis()}"}.png"
     val resolver = ctx.contentResolver
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

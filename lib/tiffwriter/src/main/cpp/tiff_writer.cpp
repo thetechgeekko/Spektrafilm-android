@@ -140,32 +140,25 @@ struct Entry {
 
 }  // namespace
 
-TiffWriteResult writeTiff16ToMemory(const uint16_t* rgb16, int width, int height,
-                                    const TiffMetadata& meta, TiffCompression compression,
-                                    std::vector<uint8_t>& outBytes) {
+// Shared core: emit a baseline RGB TIFF from already-serialised little-endian sample
+// bytes. `raw` holds width*height*3 samples at `bytesPerSample` bytes each (2 = uint16,
+// 4 = float32); `sampleFormatValue` is the TIFF SampleFormat (1 = unsigned int, 3 = IEEE
+// float). The IFD / EXIF / ICC / strip layout is identical across bit depths — only
+// BitsPerSample, SampleFormat and the strip size differ — so both public writers share it.
+static TiffWriteResult writeTiffSamplesToMemory(std::vector<uint8_t> raw, int width, int height,
+                                                int bytesPerSample, uint16_t sampleFormatValue,
+                                                const TiffMetadata& meta, TiffCompression compression,
+                                                std::vector<uint8_t>& outBytes) {
     TiffWriteResult res;
     outBytes.clear();
-    if (rgb16 == nullptr) { res.error = "null pixel buffer"; return res; }
     if (width <= 0 || height <= 0) { res.error = "invalid dimensions"; return res; }
 
-    const uint64_t pixels = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
-    const uint64_t rawStripBytes = pixels * 3ull * 2ull;  // 3 samples * 16-bit
+    const uint64_t rawStripBytes = static_cast<uint64_t>(raw.size());
     if (rawStripBytes > 0xFFFFFFFFull) {
         res.error = "image too large for a single-strip baseline TIFF (>4GiB)";
         return res;
     }
-
-    // --- Build the raw strip (RGB, 16-bit, little-endian samples) -----------
-    std::vector<uint8_t> raw(static_cast<size_t>(rawStripBytes));
-    {
-        uint8_t* d = raw.data();
-        const uint64_t nSamples = pixels * 3ull;
-        for (uint64_t s = 0; s < nSamples; ++s) {
-            uint16_t v = rgb16[s];
-            *d++ = static_cast<uint8_t>(v & 0xFF);
-            *d++ = static_cast<uint8_t>((v >> 8) & 0xFF);
-        }
-    }
+    const uint16_t bitsValue = static_cast<uint16_t>(bytesPerSample * 8);
 
     const bool usePackBits = (compression == TiffCompression::PackBits);
     std::vector<uint8_t> strip;
@@ -329,9 +322,9 @@ TiffWriteResult writeTiff16ToMemory(const uint16_t* rgb16, int width, int height
     auto padTo = [&](uint32_t off) { while (outBytes.size() < off) outBytes.push_back(0); };
 
     padTo(bitsOffset);
-    putU16(outBytes, 16); putU16(outBytes, 16); putU16(outBytes, 16);  // BitsPerSample
+    putU16(outBytes, bitsValue); putU16(outBytes, bitsValue); putU16(outBytes, bitsValue);  // BitsPerSample
     padTo(sampleFmtOffset);
-    putU16(outBytes, 1); putU16(outBytes, 1); putU16(outBytes, 1);     // SampleFormat=unsigned
+    putU16(outBytes, sampleFormatValue); putU16(outBytes, sampleFormatValue); putU16(outBytes, sampleFormatValue);  // SampleFormat (1=uint, 3=IEEE float)
     padTo(xresOffset);
     { uint32_t n, d; doubleToRational(meta.xResolution, n, d); putU32(outBytes, n); putU32(outBytes, d); }
     padTo(yresOffset);
@@ -376,11 +369,76 @@ TiffWriteResult writeTiff16ToMemory(const uint16_t* rgb16, int width, int height
     return res;
 }
 
+TiffWriteResult writeTiff16ToMemory(const uint16_t* rgb16, int width, int height,
+                                    const TiffMetadata& meta, TiffCompression compression,
+                                    std::vector<uint8_t>& outBytes) {
+    outBytes.clear();
+    if (rgb16 == nullptr) { TiffWriteResult res; res.error = "null pixel buffer"; return res; }
+    if (width <= 0 || height <= 0) { TiffWriteResult res; res.error = "invalid dimensions"; return res; }
+    const uint64_t pixels = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+    const uint64_t rawStripBytes = pixels * 3ull * 2ull;  // 3 samples * 16-bit
+    if (rawStripBytes > 0xFFFFFFFFull) {
+        TiffWriteResult res; res.error = "image too large for a single-strip baseline TIFF (>4GiB)"; return res;
+    }
+    // Serialise RGB uint16 little-endian.
+    std::vector<uint8_t> raw(static_cast<size_t>(rawStripBytes));
+    {
+        uint8_t* d = raw.data();
+        const uint64_t nSamples = pixels * 3ull;
+        for (uint64_t s = 0; s < nSamples; ++s) {
+            uint16_t v = rgb16[s];
+            *d++ = static_cast<uint8_t>(v & 0xFF);
+            *d++ = static_cast<uint8_t>((v >> 8) & 0xFF);
+        }
+    }
+    return writeTiffSamplesToMemory(std::move(raw), width, height, 2, 1, meta, compression, outBytes);
+}
+
+// True 32-bit IEEE-float TIFF (SampleFormat=3, BitsPerSample=32): the engine's float
+// samples are written verbatim, no quantisation — a high-bit-depth / scene-linear export.
+TiffWriteResult writeTiff32fToMemory(const float* rgbFloat, int width, int height,
+                                     const TiffMetadata& meta, TiffCompression compression,
+                                     std::vector<uint8_t>& outBytes) {
+    outBytes.clear();
+    if (rgbFloat == nullptr) { TiffWriteResult res; res.error = "null float buffer"; return res; }
+    if (width <= 0 || height <= 0) { TiffWriteResult res; res.error = "invalid dimensions"; return res; }
+    const uint64_t pixels = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+    const uint64_t rawStripBytes = pixels * 3ull * 4ull;  // 3 samples * 32-bit float
+    if (rawStripBytes > 0xFFFFFFFFull) {
+        TiffWriteResult res; res.error = "image too large for a single-strip baseline TIFF (>4GiB)"; return res;
+    }
+    // float32 little-endian: our targets (arm64/x86_64) and the test host are all
+    // little-endian, matching the "II" file byte order, so the raw float bytes copy verbatim.
+    std::vector<uint8_t> raw(static_cast<size_t>(rawStripBytes));
+    std::memcpy(raw.data(), rgbFloat, static_cast<size_t>(rawStripBytes));
+    return writeTiffSamplesToMemory(std::move(raw), width, height, 4, 3, meta, compression, outBytes);
+}
+
 TiffWriteResult writeTiff16ToFile(const uint16_t* rgb16, int width, int height,
                                   const TiffMetadata& meta, TiffCompression compression,
                                   const std::string& path) {
     std::vector<uint8_t> bytes;
     TiffWriteResult res = writeTiff16ToMemory(rgb16, width, height, meta, compression, bytes);
+    if (!res.ok) return res;
+
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (f == nullptr) {
+        res.ok = false; res.error = "cannot open output path: " + path; return res;
+    }
+    size_t wrote = std::fwrite(bytes.data(), 1, bytes.size(), f);
+    int closeErr = std::fclose(f);
+    if (wrote != bytes.size() || closeErr != 0) {
+        res.ok = false; res.error = "short write to " + path; return res;
+    }
+    res.bytesWritten = bytes.size();
+    return res;
+}
+
+TiffWriteResult writeTiff32fToFile(const float* rgbFloat, int width, int height,
+                                   const TiffMetadata& meta, TiffCompression compression,
+                                   const std::string& path) {
+    std::vector<uint8_t> bytes;
+    TiffWriteResult res = writeTiff32fToMemory(rgbFloat, width, height, meta, compression, bytes);
     if (!res.ok) return res;
 
     FILE* f = std::fopen(path.c_str(), "wb");

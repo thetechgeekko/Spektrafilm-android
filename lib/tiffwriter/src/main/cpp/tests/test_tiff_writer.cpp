@@ -257,6 +257,74 @@ void runCase(const char* label, TiffCompression comp, const std::vector<uint8_t>
     std::printf("    file: %s (%zu bytes)\n", path.c_str(), wr.bytesWritten);
 }
 
+// Write+readback a true 32-bit IEEE-float TIFF and assert tags + verbatim round-trip.
+void runFloatCase(const char* label, TiffCompression comp) {
+    std::printf("[float-%s]\n", label);
+
+    const int W = 5, H = 3;
+    std::vector<float> pixels(static_cast<size_t>(W) * H * 3);
+    // Deterministic values spanning negative, fractional and >1 (HDR/scene-linear) — the
+    // float writer must store them VERBATIM (no clamp to [0,1], unlike the 16-bit path).
+    for (size_t i = 0; i < pixels.size(); ++i) pixels[i] = static_cast<float>(i) * 0.123f - 0.4f;
+    pixels[0] = 2.5f; pixels[1] = -1.0f; pixels[2] = 0.0f;
+
+    TiffMetadata meta;
+    meta.software = "Spektrafilm-test";
+    meta.exifColorSpace = 0xFFFF;
+    meta.writeExifIfd = true;
+
+    std::string path = std::string("/tmp/sf_tiff_f32_") + label + ".tiff";
+    TiffWriteResult wr = writeTiff32fToFile(pixels.data(), W, H, meta, comp, path);
+    CHECK(wr.ok, "float writer returned ok");
+    if (!wr.ok) { std::printf("    error: %s\n", wr.error.c_str()); return; }
+
+    std::vector<uint8_t> file;
+    CHECK(readFile(path, file), "float file readable from disk");
+    CHECK(file.size() == wr.bytesWritten, "bytesWritten matches file size");
+    if (file.size() < 8) return;
+    CHECK(file[0] == 'I' && file[1] == 'I' && rdU16(file, 2) == 42, "float TIFF header (II, 42)");
+
+    std::map<uint16_t, IfdEntry> ifd;
+    parseIfd(file, rdU32(file, 4), ifd);
+
+    bool bps32 = ifd.count(258) && ifd[258].count == 3 &&
+                 readShort(file, ifd[258], 0) == 32 &&
+                 readShort(file, ifd[258], 1) == 32 &&
+                 readShort(file, ifd[258], 2) == 32;
+    CHECK(bps32, "BitsPerSample = {32,32,32}");
+
+    bool sf3 = ifd.count(339) && ifd[339].count == 3 &&
+               readShort(file, ifd[339], 0) == 3 &&
+               readShort(file, ifd[339], 1) == 3 &&
+               readShort(file, ifd[339], 2) == 3;
+    CHECK(sf3, "SampleFormat = IEEE float (3)");
+
+    CHECK(ifd.count(277) && readScalar(file, ifd[277]) == 3, "SamplesPerPixel = 3");
+    CHECK(ifd.count(262) && readScalar(file, ifd[262]) == 2, "Photometric = RGB (2)");
+
+    // Decode the strip (PackBits or none) to raw bytes, then compare as float32 LE.
+    uint16_t comptag = ifd.count(259) ? static_cast<uint16_t>(readScalar(file, ifd[259])) : 0;
+    uint32_t stripOff = readScalar(file, ifd[273]);
+    uint32_t stripBytes = readScalar(file, ifd[279]);
+    std::vector<uint8_t> raw;
+    if (comptag == 32773) {
+        size_t i = stripOff, end = stripOff + stripBytes;
+        while (i < end) {
+            int8_t n = static_cast<int8_t>(file[i++]);
+            if (n >= 0) { int cnt = n + 1; for (int k = 0; k < cnt && i < end; ++k) raw.push_back(file[i++]); }
+            else if (n != -128) { int cnt = 1 - n; uint8_t v = file[i++]; for (int k = 0; k < cnt; ++k) raw.push_back(v); }
+        }
+    } else {
+        raw.assign(file.begin() + stripOff, file.begin() + stripOff + stripBytes);
+    }
+    bool sizeOk = raw.size() == pixels.size() * 4;
+    CHECK(sizeOk, "float strip decodes to W*H*3*4 bytes");
+    bool floatOk = sizeOk && std::memcmp(raw.data(), pixels.data(), pixels.size() * 4) == 0;
+    CHECK(floatOk, "all float samples round-trip bit-exact (verbatim, no clamp)");
+
+    std::printf("    file: %s (%zu bytes)\n", path.c_str(), wr.bytesWritten);
+}
+
 }  // namespace
 
 int main() {
@@ -268,6 +336,10 @@ int main() {
     runCase("uncompressed", TiffCompression::None, icc);
     runCase("packbits", TiffCompression::PackBits, icc);
     runCase("no_icc", TiffCompression::None, {});
+
+    // True 32-bit IEEE-float path (BitsPerSample=32, SampleFormat=3, verbatim samples).
+    runFloatCase("uncompressed", TiffCompression::None);
+    runFloatCase("packbits", TiffCompression::PackBits);
 
     std::printf("\n%s (%d failure%s)\n",
                 g_failures == 0 ? "PASS" : "FAIL",

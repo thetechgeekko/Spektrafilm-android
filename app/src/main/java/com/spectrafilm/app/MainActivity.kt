@@ -75,8 +75,8 @@ import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeException
-import com.spectrafilm.libraw.RawDecoder
 import com.spectrafilm.libraw.WhiteBalance
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -96,13 +96,15 @@ private enum class Category(val label: String) {
     PRESETS("Presets"),
     SIMULATION("Simulation"),
     INPUT("Input"),
-    RAW_WB("RAW WB"),
+    RAW_WB("White Bal"),
     GRAIN("Grain"),
     HALATION("Halation"),
     GLARE("Glare"),
     COUPLERS("Couplers"),
     PREFLASH("Preflash"),
     EXPERIMENTAL("Experimental"),
+    TONE_CURVE("Tone Curve"),
+    MASKS("Masks"),
     DISPLAY("Display"),
 }
 
@@ -114,6 +116,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Wide-gamut compositing so the color-managed preview bitmaps (tagged Adobe/ProPhoto/Rec2020
+        // per the output space) are not clamped to sRGB at composition on wide-gamut panels. No-op on
+        // sRGB displays. API 26+; minSdk is 24.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+        }
         // Persist the last fatal stack trace so the in-app Diagnostics screen can show it
         // after a restart (no permission needed; chains to the platform handler).
         Diagnostics.installCrashHandler(this)
@@ -311,6 +319,15 @@ class MainActivity : ComponentActivity() {
         var renderErr by remember { mutableStateOf<String?>(null) }
         var exporting by remember { mutableStateOf(false) }
         var exportDone by remember { mutableStateOf(false) }
+        // Lightroom-style export sheet: per-export format / quality / size / colour / name, instead
+        // of the global Settings defaults. Seeded from Settings and remembered back on export.
+        var showExportSheet by remember { mutableStateOf(false) }
+        var exportOptions by remember {
+            mutableStateOf(
+                ExportOptions(settings.exportFormat, settings.exportQuality, ExportSize.FULL, 2048, ""),
+            )
+        }
+        var exportKeepGps by remember { mutableStateOf(settings.exportKeepGps) }
         var previewTick by remember { mutableIntStateOf(0) }
         // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
         // being dragged, so the live DRAFT pass runs only during a drag and a discrete edit
@@ -352,6 +369,14 @@ class MainActivity : ComponentActivity() {
 
         // interactive crop overlay (Lightroom-style); hosts on top of everything.
         var cropOverlayOpen by remember { mutableStateOf(false) }
+        // draw-on-the-preview mask geometry editor (positions the selected mask on the photo).
+        var maskOverlayOpen by remember { mutableStateOf(false) }
+        var maskEditIndex by remember { mutableStateOf(0) }
+        // eyedropper: sample a color- or luminance-range mask's target by tapping the photo.
+        var sampleOverlayOpen by remember { mutableStateOf(false) }
+        var sampleMaskIndex by remember { mutableStateOf(0) }
+        var sampleLuminanceMode by remember { mutableStateOf(false) }
+        var sampleWbMode by remember { mutableStateOf(false) }  // gray-point WB eyedropper (no mask)
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -568,16 +593,28 @@ class MainActivity : ComponentActivity() {
                         snackbarHost.currentSnackbarData?.dismiss()
                         snackbarHost.showSnackbar("MotionCam .mcraw import is coming — single RAW/DNG works today")
                     }
-                } else if (RawDecoder.isRawFileName(name) || true) {
+                } else {
                     runCatching {
                         ctx.contentResolver.takePersistableUriPermission(
                             uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
                     }
-                    sourceUri = uri; sourceKind = SourceKind.RAW
-                    sourceName = "RAW: ${name.substringAfterLast('/')}"
                     rotation = SourceRotation.NONE
-                    status = "RAW selected"; previewTick++
+                    val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+                    if (isNonRawImage(name, mime)) {
+                        // A JPEG/HEIC chosen via the RAW document picker: process it on the normal
+                        // photo path rather than forcing it through LibRaw (which would fail, then
+                        // fall back to a lossy display-referred decode). RAW/DNG and ambiguous
+                        // content URIs (e.g. MIUI document IDs with no extension) fall through to
+                        // the RAW path below, so a genuine DNG is never misrouted.
+                        sourceUri = uri; sourceKind = SourceKind.PHOTO
+                        sourceName = "picked photo"
+                        status = "photo selected"; previewTick++
+                    } else {
+                        sourceUri = uri; sourceKind = SourceKind.RAW
+                        sourceName = "RAW: ${name.substringAfterLast('/')}"
+                        status = "RAW selected"; previewTick++
+                    }
                 }
             }
         }
@@ -671,6 +708,25 @@ class MainActivity : ComponentActivity() {
             // EXIF baseline (when applicable) first, then the user's manual rotate steps.
             val based = if (applyExifBaseline) img.applyExif(exif) else img
             based.rotated(rotation).also {
+                // Creative white balance: bake a pre-engine Bradford CAT into the linear input here
+                // (parity-free — engine/spektra-core is untouched). No-op when neutral; it's part of
+                // the decode-cache key so a change re-decodes, like raw temp/tint.
+                if (!CreativeWhiteBalance.isNeutral(state.creativeWbTemp, state.creativeWbTint)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        CreativeWhiteBalance.matrix(state.creativeWbTemp, state.creativeWbTint),
+                    )
+                }
+                // "Balance to film stock" (virtual 85-filter): adapt the D50 input to the film's reference
+                // illuminant so a tungsten stock renders neutral. Same parity-free bake as Creative WB;
+                // keyed on filmProfile + the toggle in the decode cache below. Gated on isMeaningful so
+                // daylight stocks (already neutral) are a true no-op — no shift, no extra decode.
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) {
+                    CreativeWhiteBalance.applyInPlace(
+                        it.data, it.width * it.height,
+                        FilmStockBalance.matrix(ctx, state.filmProfile),
+                    )
+                }
                 // Breadcrumb: source KIND + result dims only (no URI/path — see Diag policy).
                 Diag.i("decode kind=${sourceKind.name} ${it.width}x${it.height} maxEdge=$maxEdge")
             }
@@ -689,24 +745,30 @@ class MainActivity : ComponentActivity() {
         // the 100% magnifier calls loadSource(MAX_EDGE_PX) (a capped whole-image load it then
         // crops). Neither uses this preview cache.
         suspend fun loadSourceCachedForPreview(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = sourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the decode in the stable lifecycleScope so two renders that both miss
             // (e.g. the settle pass + the GPU LUT bake) decode once, not twice.
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return previewDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     sourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -720,10 +782,14 @@ class MainActivity : ComponentActivity() {
         // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
         // single cached LinearImage is safely re-fed to every crop.
         suspend fun loadSourceCachedForZoom(maxEdge: Int): LinearImage {
+            // Profile id when "balance to film stock" is on (its CAT is baked into the decode), "" off.
+            val filmBalance =
+                if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
             fun cacheGet() = zoomSourceCache.get(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
             )
             cacheGet()?.let { return it }
             // Single-flight the 2048px zoom/magnifier decode in the stable lifecycleScope: a
@@ -731,14 +797,16 @@ class MainActivity : ComponentActivity() {
             // THAT decode instead of starting an overlapping one (the "5 decodes per pinch" drain).
             val key = listOf(
                 sourceUri?.toString(), sourceKind.name, state.rawWhiteBalance,
-                state.rawTemperature, state.rawTint, rotation.degrees, maxEdge,
+                state.rawTemperature, state.rawTint, state.creativeWbTemp, state.creativeWbTint,
+                filmBalance, rotation.degrees, maxEdge,
             ).joinToString("|")
             return zoomDecodeFlight.run(key, scope) {
                 cacheGet() ?: loadSource(maxEdge).also { decoded ->
                     zoomSourceCache.put(
                         uri = sourceUri?.toString(), kind = sourceKind.name,
                         whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                        tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
+                        tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                        filmBalance = filmBalance, rotationDegrees = rotation.degrees, maxEdge = maxEdge,
                         img = decoded,
                     )
                 }
@@ -778,7 +846,7 @@ class MainActivity : ComponentActivity() {
                             crop,
                             state.toParams(filmFormatMmOverride = state.filmFormatMm * cropFrac),
                         ).use { res ->
-                            simResultToBitmap(res.data, res.width, res.height)
+                            simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
                         }
                     }
                 }
@@ -806,7 +874,7 @@ class MainActivity : ComponentActivity() {
         // while cropping or comparing (those branches own the gestures / have no zoom).
         fun renderRoi(roi: RoiRect) {
             val e = engine ?: return
-            if (cropOverlayOpen || compareMode) return
+            if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return
             roiJobRef.value?.cancel()
             roiJobRef.value = scope.launch {
                 val result = runCatching {
@@ -828,7 +896,7 @@ class MainActivity : ComponentActivity() {
                                 previewMaxSizeOverride = edge,
                                 filmFormatMmOverride = state.filmFormatMm * cropFrac,
                             ),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments) }
                     }
                     // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
                     // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
@@ -862,34 +930,36 @@ class MainActivity : ComponentActivity() {
             roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
         }
 
-        // Live DRAFT pass — the Lightroom-style render-system "port": while a control is being
-        // dragged, paint a small, fast proxy continuously so the image tracks the edit instead of
-        // freezing until the settle. Conflated (snapshotFlow.collect, NOT collectLatest): an
-        // in-flight draft is never cancelled — it finishes, then immediately re-renders the latest
-        // params (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back
-        // ~interactive-rate updates. Cheap by construction: it renders ONLY when the full-edge
-        // proxy is already decoded (a cache peek — never decodes here, so it cannot race the
-        // settle pass's first decode) and just asks the engine for a smaller DRAFT_RENDER_MAX_PX
-        // pass. Quiet: it touches only `preview`, never status/previewBusy/beforePreview; the crisp
-        // full-resolution pass still lands on settle (the effect below) and overwrites the draft.
+        // Live DRAFT pass — the Lightroom-style render-system "port": on EVERY edit (a slider drag,
+        // a preset/dropdown/toggle, a rotation), paint a small fast proxy so the image tracks the
+        // change in ~hundreds of ms instead of sitting on the stale frame until the full settle
+        // render lands ~1s later. Conflated (snapshotFlow.collect, NOT collectLatest): an in-flight
+        // draft is never cancelled — it finishes, then immediately re-renders the latest params
+        // (snapshotFlow conflates the bumps that arrived meanwhile), giving back-to-back updates.
+        // Cheap by construction: it renders ONLY when the full-edge proxy is already decoded (a
+        // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
+        // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
+        // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
         LaunchedEffect(Unit) {
             snapshotFlow { previewTick }.collect {
                 val e = engine ?: return@collect
-                if (cropOverlayOpen || compareMode) return@collect
-                if (!interacting.value) return@collect   // draft only while a slider is being dragged
+                if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return@collect
                 val fullEdge = state.previewMaxSize.coerceAtLeast(256)
                 val draftEdge = minOf(DRAFT_RENDER_MAX_PX, fullEdge)
                 if (draftEdge >= fullEdge) return@collect       // no meaningful step-down to draft
                 val proxy = sourceCache.get(
                     uri = sourceUri?.toString(), kind = sourceKind.name,
                     whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                    tint = state.rawTint, rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                    tint = state.rawTint, creativeTemp = state.creativeWbTemp, creativeTint = state.creativeWbTint,
+                    filmBalance = if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else "",
+                    rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 ) ?: return@collect                             // proxy not cached yet — settle owns the decode
                 runCatching {
                     withContext(Dispatchers.Default) {
                         e.simulatePreview(
-                            proxy, state.toParams(previewMaxSizeOverride = draftEdge),
-                        ).use { res -> simResultToBitmap(res.data, res.width, res.height) }
+                            proxy,
+                            state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
+                        ).use { res -> simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments) }
                     }
                 }.onSuccess { bmp -> withContext(Dispatchers.Main) { preview = bmp } }
             }
@@ -922,8 +992,10 @@ class MainActivity : ComponentActivity() {
                     val image = loadSourceCachedForPreview(fullEdge)
                     decoding = false
                     val before = linearToDisplayBitmap(image)
-                    val after = e.simulatePreview(image, state.toParams()).use { res ->
-                        simResultToBitmap(res.data, res.width, res.height)
+                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
+                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
+                    val after = e.simulatePreview(image, state.toParams(skipGrainHalation = true)).use { res ->
+                        simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
                     }
                     before to after
                 }
@@ -994,11 +1066,15 @@ class MainActivity : ComponentActivity() {
         // identical trigger behaviour to the old per-frame snapshot, with no per-frame alloc.
         val snapshot by remember { derivedStateOf { state.toParams() } }
         LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) { previewTick++ }
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) { previewTick++ }
 
         // --- Non-destructive recipe: debounced auto-save ---
         LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
-            state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
+            state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+            state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
+            state.localAdjustments) {
             if (!recipeReady || recipeKey == null) return@LaunchedEffect
             delay(700)
             val current = runCatching { Presets.toJsonString(state) }.getOrNull()
@@ -1068,8 +1144,10 @@ class MainActivity : ComponentActivity() {
         // 0) crop overlay open -> close it; 1) panel open -> close panel;
         // 2) else double-back-to-exit with one-time hint.
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
-        BackHandler(enabled = !cropOverlayOpen && activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = !cropOverlayOpen && activeCategory == null) {
+        BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
+        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -1108,66 +1186,7 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    onExport = {
-                        val e = engine ?: return@EditorTopBar
-                        var fmt = settings.exportFormat
-                        // Ultra HDR needs the API 34 Gainmap framework class; on older devices
-                        // fall back to a standard JPEG rather than write a non-HDR file labelled
-                        // HDR. Warn the user once via a toast.
-                        if (fmt == ExportFormat.ULTRA_HDR && android.os.Build.VERSION.SDK_INT < 34) {
-                            fmt = ExportFormat.JPEG
-                            Toast.makeText(ctx, "Ultra HDR needs Android 14+ — saving JPEG instead", Toast.LENGTH_LONG).show()
-                        }
-                        val exportFmt = fmt
-                        exporting = true; exportDone = false; status = "rendering full resolution…"
-                        scope.launch {
-                            val result = runCatching {
-                                withContext(Dispatchers.Default) {
-                                    // Copy source EXIF (camera/lens/exposure/date) into the export;
-                                    // GPS/location only when the user opted in (default OFF). Empty
-                                    // for the synthetic demo image.
-                                    val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = settings.exportKeepGps) }
-                                    // Full-resolution export (NOT the 2048 px interactive cap) — the
-                                    // proxy-preview vs full-res-export model. Was MAX_EDGE_PX, which
-                                    // silently downscaled e.g. a 12 MP export to ~3 MP.
-                                    // Full-res RAW input and engine output are NATIVE off-heap
-                                    // buffers (~140 MB each) — the whole point of the OOM fix.
-                                    // Close the input as soon as the engine has consumed it, and
-                                    // the result once it's been turned into a bitmap and written,
-                                    // so neither lingers in native memory.
-                                    val image = loadSource(EXPORT_MAX_EDGE_PX)
-                                    val res = try {
-                                        e.simulate(image, state.toParams())
-                                    } finally {
-                                        image.close()
-                                    }
-                                    try {
-                                        val bmp = simResultToBitmap(res.data, res.width, res.height)
-                                        val uri = withContext(Dispatchers.IO) {
-                                            when (exportFmt) {
-                                                ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res)
-                                                ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res)
-                                                else -> saveToGallery(ctx, bmp, exportFmt, settings.exportQuality, srcExif)
-                                            }
-                                        }
-                                        bmp to uri
-                                    } finally {
-                                        res.close()
-                                    }
-                                }
-                            }
-                            result.onSuccess { (bmp, _) ->
-                                Diag.i("export format=${exportFmt.name} ${bmp.width}x${bmp.height} ${bmp.width * bmp.height}px ok")
-                                preview = bmp; exportDone = true
-                                status = "saved to Pictures/Spektrafilm"
-                            }.onFailure {
-                                Diag.w("export format=${exportFmt.name} failed: ${it.message}")
-                                exporting = false
-                                status = "export failed: ${it.message}"
-                                Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
+                    onExport = { if (engine != null) showExportSheet = true },
                     onOpenSettings = onOpenSettings,
                     onOpenAbout = onOpenAbout,
                 )
@@ -1215,8 +1234,10 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
-                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true })
-                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW)
+                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true },
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
+                            Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
+                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
                                 filmGroups = filmGroups,
@@ -1233,6 +1254,34 @@ class MainActivity : ComponentActivity() {
                                         StockCatalog.displayName(ctx, state.printProfile),
                                     )
                                 },
+                                onFilmProfileChange = { id ->
+                                    val changed = id != state.filmProfile
+                                    state.filmProfile = id
+                                    if (changed) {
+                                        val name = StockCatalog.displayName(ctx, id)
+                                        // A reversal (slide) film is most naturally viewed as a
+                                        // positive — nudge Slide mode if the print is still showing;
+                                        // otherwise offer to drop the previous stock's tweaks.
+                                        if (StockCatalog.isReversalFilm(ctx, id) && !state.scanFilm) {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "$name is a slide film — view it as a positive?",
+                                                "Slide mode") { state.scanFilm = true }
+                                        } else {
+                                            offerSnackbarSuggestion(scope, snackbarHost,
+                                                "Switched to $name",
+                                                "Use its defaults") { state.resetStockCharacter() }
+                                        }
+                                    }
+                                },
+                                onPrintProfileChange = { id ->
+                                    val changed = id != state.printProfile
+                                    state.printProfile = id
+                                    if (changed) {
+                                        offerSnackbarSuggestion(scope, snackbarHost,
+                                            "Switched to ${StockCatalog.displayName(ctx, id)}",
+                                            "Use its defaults") { state.resetStockCharacter() }
+                                    }
+                                },
                             )
                             Category.GRAIN -> GrainSection(state)
                             Category.PREFLASH -> PreflashSection(state)
@@ -1240,6 +1289,17 @@ class MainActivity : ComponentActivity() {
                             Category.COUPLERS -> CouplersSection(state)
                             Category.GLARE -> GlareSection(state)
                             Category.EXPERIMENTAL -> ExperimentalSection(state)
+                            Category.TONE_CURVE -> ToneCurveSection(state, preview)
+                            Category.MASKS -> MasksSection(
+                                state,
+                                onEditOnPhoto = { idx -> maskEditIndex = idx; maskOverlayOpen = true },
+                                onSampleColor = { idx ->
+                                    sampleMaskIndex = idx; sampleLuminanceMode = false; sampleOverlayOpen = true
+                                },
+                                onSampleLuminance = { idx ->
+                                    sampleMaskIndex = idx; sampleLuminanceMode = true; sampleOverlayOpen = true
+                                },
+                            )
                             Category.DISPLAY -> DisplaySection(state)
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
@@ -1306,19 +1366,30 @@ class MainActivity : ComponentActivity() {
                                             .onFailure { status = "paste failed: ${it.message}" }
                                     }
                                 },
-                                onExportLut = {
+                                onExportLut = { size, clf ->
                                     val e = engine ?: return@PresetPanel
-                                    bakingLut = true; status = "baking .cube LUT…"
+                                    bakingLut = true; status = "baking ${if (clf) "CLF" else ".cube"} LUT…"
                                     scope.launch {
                                         val r = runCatching {
-                                            withContext(Dispatchers.Default) { e.bakeCubeLut(state.toParams(), 33) }
+                                            withContext(Dispatchers.Default) {
+                                                val cube = e.bakeCubeLut(state.toParams(), size)
+                                                if (clf) {
+                                                    val lut = CubeLut.parse(cube) ?: error("baked LUT could not be parsed")
+                                                    val film = StockCatalog.displayName(ctx, state.filmProfile)
+                                                    val print = StockCatalog.displayName(ctx, state.printProfile)
+                                                    ClfWriter.write(lut, title = "$film / $print")
+                                                } else {
+                                                    cube
+                                                }
+                                            }
                                         }
                                         bakingLut = false
-                                        r.onSuccess { cube ->
-                                            pendingLutText = cube
-                                            val fileName = cubeFileName(
+                                        r.onSuccess { text ->
+                                            pendingLutText = text
+                                            val fileName = lutFileName(
                                                 StockCatalog.displayName(ctx, state.filmProfile),
                                                 StockCatalog.displayName(ctx, state.printProfile),
+                                                size, clf,
                                             )
                                             runCatching { lutExporter.launch(fileName) }
                                                 .onFailure { status = "could not open save dialog: ${it.message}" }
@@ -1433,11 +1504,181 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            // --- draw-on-the-preview mask geometry editor ---
+            if (maskOverlayOpen && cropBmp != null && maskEditIndex in state.localAdjustments.indices) {
+                MaskGeometryOverlay(
+                    bitmap = cropBmp,
+                    mask = state.localAdjustments[maskEditIndex].mask,
+                    onConfirm = { updated ->
+                        val list = state.localAdjustments.toMutableList()
+                        list[maskEditIndex] = list[maskEditIndex].copy(mask = updated)
+                        state.localAdjustments = list
+                        maskOverlayOpen = false
+                        previewTick++
+                    },
+                    onCancel = { maskOverlayOpen = false },
+                )
+            }
+
+            // --- eyedropper: WB gray-point, or a color-/luminance-range mask target ---
+            val sampleMask = state.localAdjustments.getOrNull(sampleMaskIndex)?.mask
+            val sampleReady = sampleOverlayOpen && cropBmp != null && (
+                sampleWbMode ||
+                    (sampleMask != null &&
+                        (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null))
+                )
+            if (sampleReady && cropBmp != null) {
+                PixelSampleOverlay(
+                    bitmap = cropBmp,
+                    title = when {
+                        sampleWbMode -> "Tap a neutral (grey / white)"
+                        sampleLuminanceMode -> "Tap to pick a tone"
+                        else -> "Tap to pick a color"
+                    },
+                    hint = when {
+                        sampleWbMode -> "Tap something that should be neutral grey or white — white balance is set to make it neutral."
+                        sampleLuminanceMode -> "Tap a tone (a highlight or a shadow) to target it, then apply."
+                        else -> "Tap the color you want the mask to target (e.g. a red), then apply."
+                    },
+                    onPick = { r, g, b, nx, ny ->
+                        if (sampleWbMode) {
+                            sampleOverlayOpen = false; sampleWbMode = false
+                            // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
+                            // and solve the WB that neutralizes it. Off the main thread (decode + crop).
+                            scope.launch {
+                                runCatching {
+                                    val full = loadSourceCachedForZoom(MAX_EDGE_PX)
+                                    val avg = withContext(Dispatchers.Default) {
+                                        val crop = cropLinearImageRect(full, nx, ny, 5, 5)
+                                        try { avgRgb(crop) } finally { crop.close() }
+                                    }
+                                    CreativeWhiteBalance.solveNeutral(
+                                        avg.first, avg.second, avg.third,
+                                        state.creativeWbTemp, state.creativeWbTint,
+                                    )
+                                }.onSuccess { (t, ti) ->
+                                    state.creativeWbTemp = t; state.creativeWbTint = ti
+                                    status = "white balance set from neutral"
+                                }.onFailure {
+                                    Toast.makeText(ctx, "Couldn't sample for white balance: ${it.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } else {
+                            val list = state.localAdjustments.toMutableList()
+                            val m = list[sampleMaskIndex].mask
+                            val nm = if (sampleLuminanceMode) {
+                                m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
+                            } else {
+                                val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                                m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
+                            }
+                            list[sampleMaskIndex] = list[sampleMaskIndex].copy(mask = nm)
+                            state.localAdjustments = list
+                            sampleOverlayOpen = false
+                            previewTick++
+                        }
+                    },
+                    onCancel = { sampleOverlayOpen = false; sampleWbMode = false },
+                )
+            }
+
             // --- full-screen export mask ---
             if (exporting) {
                 ExportMask(
                     done = exportDone,
                     onDismiss = { exporting = false; exportDone = false },
+                )
+            }
+
+            // --- Lightroom-style export options sheet ---
+            if (showExportSheet) {
+                ExportSheet(
+                    options = exportOptions,
+                    onOptionsChange = { exportOptions = it },
+                    colorSpace = state.outputColorSpace,
+                    onColorSpaceChange = { state.outputColorSpace = it },
+                    cctf = state.savingCctfEncoding,
+                    onCctfChange = { state.savingCctfEncoding = it },
+                    keepGps = exportKeepGps,
+                    onKeepGpsChange = { exportKeepGps = it },
+                    onDismiss = { showExportSheet = false },
+                    onExport = {
+                        val e = engine
+                        showExportSheet = false
+                        if (e != null) {
+                            // Remember the choices as the new Settings defaults.
+                            settings.exportFormat = exportOptions.format
+                            settings.exportQuality = exportOptions.jpegQuality
+                            settings.exportKeepGps = exportKeepGps
+                            var fmt = exportOptions.format
+                            // Ultra HDR needs the API 34 Gainmap class; fall back to JPEG below that.
+                            if (fmt == ExportFormat.ULTRA_HDR && android.os.Build.VERSION.SDK_INT < 34) {
+                                fmt = ExportFormat.JPEG
+                                Toast.makeText(ctx, "Ultra HDR needs Android 14+ — saving JPEG instead", Toast.LENGTH_LONG).show()
+                            }
+                            val exportFmt = fmt
+                            val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
+                            val longEdge = exportOptions.targetLongEdge()
+                            val keepGps = exportKeepGps
+                            exporting = true; exportDone = false; status = "rendering full resolution…"
+                            scope.launch {
+                                val result = runCatching {
+                                    withContext(Dispatchers.Default) {
+                                        // Full-res off-heap buffers (the OOM fix) — close input/result promptly.
+                                        val image = loadSource(EXPORT_MAX_EDGE_PX)
+                                        if (exportFmt == ExportFormat.SCENE_LINEAR_TIFF) {
+                                            // Export the decoded scene-linear INPUT (before the film
+                                            // engine) as a 32-bit float TIFF; the engine is skipped.
+                                            try {
+                                                withContext(Dispatchers.IO) { saveLinearInputAsTiff32f(ctx, image, baseName) }
+                                            } finally {
+                                                image.close()
+                                            }
+                                            null  // no rendered bitmap to preview
+                                        } else {
+                                            // Copy source EXIF; GPS only when opted in.
+                                            val srcExif = withContext(Dispatchers.IO) { readSourceExif(ctx, sourceUri, keepGps = keepGps) }
+                                            val res = try {
+                                                e.simulate(image, state.toParams())
+                                            } finally {
+                                                image.close()
+                                            }
+                                            try {
+                                                val bmp0 = simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
+                                                // Post-render downscale for the bitmap formats (high-bit-depth
+                                                // is always full-res → longEdge null). Free the full-res bitmap.
+                                                val bmp = longEdge?.let { edge ->
+                                                    scaleBitmapToLongEdge(bmp0, edge).also { if (it !== bmp0) bmp0.recycle() }
+                                                } ?: bmp0
+                                                withContext(Dispatchers.IO) {
+                                                    when (exportFmt) {
+                                                        ExportFormat.TIFF -> saveSimResultAsTiff(ctx, res, displayName = baseName)
+                                                        ExportFormat.TIFF32F -> saveSimResultAsTiff(ctx, res, displayName = baseName, float32 = true)
+                                                        ExportFormat.PNG16 -> saveSimResultAsPng16(ctx, res, displayName = baseName)
+                                                        else -> saveToGallery(ctx, bmp, exportFmt, exportOptions.jpegQuality, srcExif, displayName = baseName)
+                                                    }
+                                                }
+                                                bmp
+                                            } finally {
+                                                res.close()
+                                            }
+                                        }
+                                    }
+                                }
+                                result.onSuccess { bmp ->
+                                    bmp?.let { preview = it }
+                                    Diag.i("export format=${exportFmt.name} ok")
+                                    exportDone = true
+                                    status = "saved to Pictures/Spektrafilm"
+                                }.onFailure {
+                                    Diag.w("export format=${exportFmt.name} failed: ${it.message}")
+                                    exporting = false
+                                    status = "export failed: ${it.message}"
+                                    Toast.makeText(ctx, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
                 )
             }
 
@@ -2018,13 +2259,15 @@ class MainActivity : ComponentActivity() {
         Category.PRESETS -> "Built-in looks and your saved presets; import/export & LUT"
         Category.SIMULATION -> "Film stock, print paper, exposure & auto-exposure metering"
         Category.INPUT -> "Input colour space, spectral upsampling, filters, crop & upscale"
-        Category.RAW_WB -> "RAW/DNG white balance (temperature & tint)"
+        Category.RAW_WB -> "White balance — eyedropper + warmth/tint (all sources), and RAW Kelvin"
         Category.GRAIN -> "Film grain structure, size and blur"
         Category.HALATION -> "Halation glow and in-emulsion light scatter"
         Category.GLARE -> "Print glare (stochastic; off by default)"
-        Category.COUPLERS -> "DIR couplers — cross-channel inhibition & saturation"
+        Category.COUPLERS -> "Film color character — DIR couplers (chemical color crosstalk). Plain saturation lives in Output."
         Category.PREFLASH -> "Enlarger pre-flash exposure and filtration"
         Category.EXPERIMENTAL -> "Film and print density-curve gamma factors"
+        Category.TONE_CURVE -> "Point tone curve on the final RGB — master + per-channel"
+        Category.MASKS -> "Local adjustments — limit Exposure/Saturation/Contrast to a radial area"
         Category.DISPLAY -> "Output colour space, CCTF encoding and preview size"
     }
 
@@ -2038,6 +2281,8 @@ class MainActivity : ComponentActivity() {
         Category.COUPLERS -> SpectraIcons.Couplers
         Category.GLARE -> SpectraIcons.Glare
         Category.EXPERIMENTAL -> SpectraIcons.Experimental
+        Category.TONE_CURVE -> SpectraIcons.ToneCurve
+        Category.MASKS -> SpectraIcons.Masks
         Category.DISPLAY -> SpectraIcons.Display
         Category.PRESETS -> SpectraIcons.Presets
         Category.SOURCE -> SpectraIcons.SourceImage
@@ -2067,7 +2312,7 @@ class MainActivity : ComponentActivity() {
         onCopySettings: () -> Unit,
         canPasteSettings: Boolean,
         onPasteSettings: () -> Unit,
-        onExportLut: () -> Unit,
+        onExportLut: (size: Int, clf: Boolean) -> Unit,
         bakingLut: Boolean,
     ) {
         if (builtInGroups.isNotEmpty()) {
@@ -2150,8 +2395,21 @@ class MainActivity : ComponentActivity() {
             ) { Text("Paste settings") }
         }
         Divider()
+        var lutSize by remember { mutableIntStateOf(33) }
+        var lutClf by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Size", style = MaterialTheme.typography.bodySmall)
+            listOf(17, 33, 65).forEach { sz ->
+                FilterChip(selected = lutSize == sz, onClick = { lutSize = sz }, label = { Text("$sz³") })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Format", style = MaterialTheme.typography.bodySmall)
+            FilterChip(selected = !lutClf, onClick = { lutClf = false }, label = { Text(".cube") })
+            FilterChip(selected = lutClf, onClick = { lutClf = true }, label = { Text(".clf") })
+        }
         Button(
-            onClick = onExportLut,
+            onClick = { onExportLut(lutSize, lutClf) },
             enabled = !bakingLut,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -2163,13 +2421,14 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.width(10.dp))
                 Text("Baking LUT…")
             } else {
-                Text("Export LUT (.cube, 33³)")
+                Text("Export LUT (${if (lutClf) ".clf" else ".cube"}, $lutSize³)")
             }
         }
         Text(
-            "Bakes the current film + print look into a 33³ .cube 3D LUT. Spatial/stochastic " +
-                "effects (grain, halation, diffusion, glare) can't be captured in a 3D LUT and " +
-                "are omitted from the bake.",
+            "Bakes the current film + print look into a 3D LUT. .cube imports into most apps; " +
+                ".clf (Common LUT Format) imports into DaVinci Resolve / OpenColorIO 2.3+. Spatial/" +
+                "stochastic effects (grain, halation, diffusion, glare) can't be captured in a 3D LUT " +
+                "and are omitted from the bake.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -2277,7 +2536,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
 
     @Composable
-    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
+    private fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
             // Honesty: the engine's input space is fixed to linear ProPhoto RGB (the
@@ -2293,6 +2552,26 @@ class MainActivity : ComponentActivity() {
                 "Apply the inverse cctf transfer function of the color space")
             // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
             // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
+            Divider()
+            Text("Creative white balance", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "A warm/cool + green/magenta grade on the image going into the film — works on every " +
+                    "source (RAW, JPEG, HEIC). Separate from the RAW white balance; 0 = off.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Creative warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0,
+                tooltip = "Warm/cool the scene before the film sees it (Bradford adaptation in linear " +
+                    "ProPhoto). Positive = warmer. 0 = no change.", default = 0f)
+            EnhancedSlider("Creative tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0,
+                tooltip = "Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.",
+                default = 0f)
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
+            Divider()
             GatedBlock("MALLETT2019 isn't implemented yet — both options currently render as HANATOS2025.") {
                 Dropdown("Spectral upsampling", s.spectralUpsampling, Rgb2Raw.entries.toList(),
                     { it.name.lowercase() }, { s.spectralUpsampling = it })
@@ -2353,31 +2632,54 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ImportRawSection(s: ParamsState, isRaw: Boolean) {
+    private fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("RAW White Balance", expanded, { expanded = it }) {
-            if (!isRaw) {
-                Text(
-                    "Load a RAW/DNG file (\"Open RAW/DNG\" in Source) to enable RAW white-balance.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Column(
-                    modifier = Modifier.fillMaxWidth().alpha(0.38f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
-                        { it.name.lowercase() }, { /* no-op when not RAW */ })
-                    EnhancedSlider("Temperature (K)", s.rawTemperature, 1000f..12000f, { },
-                        step = 100f, decimals = 0,
-                        tooltip = "Temperature in Kelvin (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTemperature)
-                    EnhancedSlider("Tint", s.rawTint, 0f..2f, { },
-                        step = 0.01f, decimals = 2,
-                        tooltip = "Tint multiplier (active only for RAW files with Custom WB)", default = PARAM_DEFAULTS.rawTint)
-                }
-            } else {
+        SectionCard("White balance", expanded, { expanded = it }) {
+            // The eyedropper + creative warmth/tint work on EVERY source, so they're shown FIRST and
+            // always — the eyedropper is the most prominent control so it's findable. The native RAW
+            // camera WB (Kelvin/tint, re-decodes the file) is appended only for RAW/DNG sources.
+            OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                Text("Eyedropper — tap a neutral to set white balance")
+            }
+            Text(
+                "Tap a grey or white area in your photo and the white balance is set to neutralize it. " +
+                    "Works on every source — or use the sliders below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            EnhancedSlider("Warmth", s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Warm / cool the image. Positive = warmer; 0 = off. Works on every source.")
+            EnhancedSlider("Tint", s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
+                step = 1f, decimals = 0, default = 0f,
+                tooltip = "Green ↔ magenta. Positive = magenta, negative = green; 0 = off.")
+
+            Divider()
+            // Balance to film stock (virtual 85-filter): the escape hatch for tungsten stocks, which
+            // render a daylight scene authentically blue. Adapts the input to the film's reference white
+            // so neutrals render neutral. The hint adapts to whether the selected film is tungsten.
+            val ctx = LocalContext.current
+            val tungsten = StockCatalog.entry(ctx, s.filmProfile)?.balance == "tungsten"
+            SwitchRow(
+                "Balance to film stock",
+                s.balanceToFilmStock,
+                { s.balanceToFilmStock = it },
+                if (tungsten) {
+                    "This is a tungsten-balanced stock, so it renders a daylight scene blue — that's " +
+                        "authentic film behaviour. Turn this on to warm the input to the film's reference " +
+                        "light and render neutral, like an 85 filter on the lens."
+                } else {
+                    "The virtual 85 filter — warms the input to a tungsten stock's reference light so it " +
+                        "renders neutral. This stock is daylight-balanced (already neutral), so it has no " +
+                        "effect here."
+                },
+            )
+
+            if (isRaw) {
+                Divider()
+                Text("RAW camera white balance (re-decodes the file):", style = MaterialTheme.typography.labelLarge)
                 val customActive = s.rawWhiteBalance == WhiteBalance.CUSTOM
-                Dropdown("White balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
+                Dropdown("Camera white balance", s.rawWhiteBalance, WhiteBalance.entries.toList(),
                     { it.name.lowercase() }, { s.rawWhiteBalance = it })
                 OutlinedButton(
                     onClick = {
@@ -2405,20 +2707,41 @@ class MainActivity : ComponentActivity() {
                         { s.rawTemperature = it },
                         step = 100f, decimals = 0,
                         tooltip = "Colour temperature in Kelvin for Custom white balance (1000 K – 12000 K).",
-                     default = PARAM_DEFAULTS.rawTemperature,)
+                        default = PARAM_DEFAULTS.rawTemperature,
+                    )
                     EnhancedSlider(
-                        "Tint", s.rawTint, 0f..2f,
+                        "Tint multiplier", s.rawTint, 0f..2f,
                         { s.rawTint = it },
                         step = 0.01f, decimals = 2,
                         tooltip = "Green/magenta tint multiplier for Custom white balance (1.0 = neutral).",
-                     default = PARAM_DEFAULTS.rawTint,)
+                        default = PARAM_DEFAULTS.rawTint,
+                    )
                 }
-                Text(
-                    "Changes re-decode the RAW file and update the preview automatically.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
+        }
+    }
+
+    /**
+     * Show a one-action suggestion snackbar (e.g. "Use its defaults" on a profile switch, §6h; or
+     * "Slide mode" when a reversal film is picked, §6e). Non-destructive: [onAction] runs only if the
+     * user taps [actionLabel]. UI/state only — no parity impact.
+     */
+    private fun offerSnackbarSuggestion(
+        scope: CoroutineScope,
+        host: SnackbarHostState,
+        message: String,
+        actionLabel: String,
+        onAction: () -> Unit,
+    ) {
+        scope.launch {
+            host.currentSnackbarData?.dismiss()
+            val result = host.showSnackbar(
+                message = message,
+                actionLabel = actionLabel,
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) onAction()
         }
     }
 
@@ -2429,6 +2752,8 @@ class MainActivity : ComponentActivity() {
         printGroups: List<DropdownGroup>,
         onOpenFilmCurves: () -> Unit,
         onOpenPrintCurves: () -> Unit,
+        onFilmProfileChange: (String) -> Unit,
+        onPrintProfileChange: (String) -> Unit,
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Simulation", expanded, { expanded = it }) {
@@ -2442,7 +2767,7 @@ class MainActivity : ComponentActivity() {
                         label = "Film profile",
                         selectedId = s.filmProfile,
                         groups = filmGroups,
-                        onSelect = { s.filmProfile = it },
+                        onSelect = onFilmProfileChange,
                     )
                     OutlinedButton(
                         onClick = onOpenFilmCurves,
@@ -2473,7 +2798,7 @@ class MainActivity : ComponentActivity() {
                         label = "Print profile",
                         selectedId = s.printProfile,
                         groups = printGroups,
-                        onSelect = { s.printProfile = it },
+                        onSelect = onPrintProfileChange,
                     )
                     OutlinedButton(
                         onClick = onOpenPrintCurves,
@@ -2495,18 +2820,41 @@ class MainActivity : ComponentActivity() {
                     DiffusionGroup("Print diffusion filter", s.printDiffusionState)
                 }
                 2 -> {
+                    val ctx = LocalContext.current
                     EnhancedSlider("Scan lens blur", s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
                         step = 0.05f, decimals = 2,
                         tooltip = "Sigma of gaussian filter in pixel for the scanner lens blur. " +
                             "Spatial effect — applied only when Halation is enabled (the spatial branch).", default = PARAM_DEFAULTS.scanLensBlur)
-                    SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
-                        "Enable white point correction applied to the scanner output")
-                    EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
-                    SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
-                        "Enable black point correction applied to the scanner output")
-                    EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                        step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    // Scan white/black correction pins the scan's white/black points to the target levels
+                    // below. The engine makes it a STRICT no-op in Slide mode on a negative stock (it's
+                    // active only for a slide/positive film on the scan-film route, or in print mode — all
+                    // print papers are negative), so we flag and gray it out there; elsewhere it's active
+                    // but often subtle at the default 0.98/0.01 levels.
+                    val correctionNoOp = s.scanFilm && !StockCatalog.isReversalFilm(ctx, s.filmProfile)
+                    if (correctionNoOp) {
+                        Text(
+                            "Scan white/black correction has no effect in Slide mode on a negative stock — " +
+                                "it applies only to a slide/positive film, or in print mode. Matches the " +
+                                "spektrafilm engine.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth().alpha(if (correctionNoOp) 0.5f else 1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SwitchRow("Scan white correction", s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
+                            "Pin the scan's white point to the target white level below. Subtle at the " +
+                                "default 0.98 — lower the white level to see it pull the highlights down.")
+                        EnhancedSlider("Scan white level", s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target white level when white correction is enabled", default = PARAM_DEFAULTS.scanWhiteLevel)
+                        SwitchRow("Scan black correction", s.scanBlackCorrection, { s.scanBlackCorrection = it },
+                            "Pin the scan's black point to the target black level below. Subtle at the " +
+                                "default 0.01 — raise the black level to see it lift the shadows.")
+                        EnhancedSlider("Scan black level", s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
+                            step = 0.005f, decimals = 3, tooltip = "Target black level when black correction is enabled", default = PARAM_DEFAULTS.scanBlackLevel)
+                    }
                     PairSlider("Scan unsharp mask", s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
                         step = 0.05f, decimals = 2, tooltip = "[sigma in pixel, amount]",
                         componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)
@@ -2514,10 +2862,27 @@ class MainActivity : ComponentActivity() {
                 else -> {
                     Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
                         { it.name }, { s.outputColorSpace = it })
+                    // Creative output grade (post-engine Oklab chroma; parity-safe). Negative
+                    // Saturation mutes a too-punchy look; Vibrance boosts muted colors while
+                    // sparing already-saturated ones.
+                    EnhancedSlider("Saturation", s.saturation, -100f..100f, { s.saturation = it },
+                        step = 1f, decimals = 0, default = 0f,
+                        tooltip = "Overall colorfulness of the output. Negative = softer/more muted " +
+                            "(tame a too-punchy look); positive = more vivid. Applied after the film render.")
+                    EnhancedSlider("Vibrance", s.vibrance, -100f..100f, { s.vibrance = it },
+                        step = 1f, decimals = 0, default = 0f,
+                        tooltip = "Like Saturation but weighted to muted colors, so already-saturated " +
+                            "tones (and skin) shift less. Applied after the film render.")
+                    EnhancedSlider("Gamut compression", s.gamutCompress, 0f..100f, { s.gamutCompress = it },
+                        step = 1f, decimals = 0, default = 0f,
+                        tooltip = "ACES-style: softens the harsh cyan/edge fringe on very saturated colors " +
+                            "by pulling them toward neutral. 0 = off. Helps when saturated highlights look unnatural.")
                     SwitchRow("Saving CCTF encoding", s.savingCctfEncoding, { s.savingCctfEncoding = it },
                         "Add or not the CCTF to the saved image file")
-                    SwitchRow("Scan film (skip print)", s.scanFilm, { s.scanFilm = it },
-                        "Show a scan of the negative instead of the print")
+                    SwitchRow("Slide mode (skip print)", s.scanFilm, { s.scanFilm = it },
+                        "Show the scanned film directly instead of a print — the natural view for " +
+                            "slide/reversal stocks (a positive). For negative stocks this shows the " +
+                            "raw orange negative.")
                 }
             }
         }
@@ -2557,32 +2922,37 @@ class MainActivity : ComponentActivity() {
     private fun GrainSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Grain", expanded, { expanded = it }, enabledSwitch = s.grainActive,
-            onEnabledChange = { s.grainActive = it }) {
-            SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
+            onEnabledChange = { s.grainActive = it }, help = ParamHelpText.forKey(ParamHelpText.GRAIN)) {
+            var advanced by remember { mutableStateOf(false) }
+            // Basic: the two knobs most users reach for — grain size (ISO) and softness.
             EnhancedSlider("Particle area um2", s.grainParticleAreaUm2, 0f..2f, { s.grainParticleAreaUm2 = it },
                 step = 0.2f, decimals = 2, tooltip = "Area of particles in um2, relates to ISO.", default = PARAM_DEFAULTS.grainParticleAreaUm2)
-            TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
-                default = PARAM_DEFAULTS.grainParticleScale)
-            TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
-                { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
-                tooltip = "Scale of particle area for the sublayers in each color layer.",
-                default = PARAM_DEFAULTS.grainParticleScaleLayers)
-            TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
-                step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
-                default = PARAM_DEFAULTS.grainDensityMin)
-            TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
-                step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
-                default = PARAM_DEFAULTS.grainUniformity)
             EnhancedSlider("Blur", s.grainBlur, 0f..3f, { s.grainBlur = it }, step = 0.05f, decimals = 2,
                 tooltip = "Sigma of gaussian blur in pixels for the grain.", default = PARAM_DEFAULTS.grainBlur)
-            EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
-                step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
-            PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
-                step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
-                componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
-            IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
-                default = PARAM_DEFAULTS.grainNSubLayers)
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                SwitchRow("Sublayers active", s.grainSublayersActive, { s.grainSublayersActive = it })
+                TripleSlider("Particle scale", s.grainParticleScale, 0f..5f, { s.grainParticleScale = it },
+                    step = 0.1f, decimals = 2, tooltip = "Scale of particle area for the RGB layers.",
+                    default = PARAM_DEFAULTS.grainParticleScale)
+                TripleSlider("Particle scale layers", s.grainParticleScaleLayers, 0f..5f,
+                    { s.grainParticleScaleLayers = it }, step = 0.25f, decimals = 2,
+                    tooltip = "Scale of particle area for the sublayers in each color layer.",
+                    default = PARAM_DEFAULTS.grainParticleScaleLayers)
+                TripleSlider("Density min", s.grainDensityMin, 0f..0.5f, { s.grainDensityMin = it },
+                    step = 0.01f, decimals = 3, tooltip = "Minimum density of the grain (0.03-0.06).",
+                    default = PARAM_DEFAULTS.grainDensityMin)
+                TripleSlider("Uniformity", s.grainUniformity, 0.5f..1f, { s.grainUniformity = it },
+                    step = 0.005f, decimals = 3, tooltip = "Uniformity of the grain (0.94-0.98).",
+                    default = PARAM_DEFAULTS.grainUniformity)
+                EnhancedSlider("Blur dye clouds um", s.grainBlurDyeCloudsUm, 0f..5f, { s.grainBlurDyeCloudsUm = it },
+                    step = 0.1f, decimals = 2, tooltip = "Scale the sigma of gaussian blur in um for the dye clouds.", default = PARAM_DEFAULTS.grainBlurDyeCloudsUm)
+                PairSlider("Micro structure", s.grainMicroStructure, 0f..100f, { s.grainMicroStructure = it },
+                    step = 0.1f, decimals = 2, tooltip = "[sigma blur um, molecular clump size nm]",
+                    componentLabels = "σ" to "nm", default = PARAM_DEFAULTS.grainMicroStructure)
+                IntSlider("Sublayers", s.grainNSubLayers, 1..5, { s.grainNSubLayers = it },
+                    default = PARAM_DEFAULTS.grainNSubLayers)
+            }
             Divider()
             // Granular reset scope (backlog #F): restore the grain parameters to engine
             // defaults without touching the section's on/off switch or other sections.
@@ -2608,7 +2978,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PreflashSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Preflash", expanded, { expanded = it }) {
+        SectionCard("Preflash", expanded, { expanded = it }, help = ParamHelpText.forKey(ParamHelpText.PREFLASH)) {
             EnhancedSlider("Exposure", s.preflashExposure, 0f..2f, { s.preflashExposure = it },
                 step = 0.005f, decimals = 3, tooltip = "Preflash exposure value in ev for the print", default = PARAM_DEFAULTS.preflashExposure)
             EnhancedSlider("Y filter shift", s.preflashYFilterShift, -20f..20f, { s.preflashYFilterShift = it },
@@ -2622,81 +2992,99 @@ class MainActivity : ComponentActivity() {
     private fun HalationSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Halation", expanded, { expanded = it }, enabledSwitch = s.halationActive,
-            onEnabledChange = { s.halationActive = it }) {
-            EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
-                step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.", default = PARAM_DEFAULTS.halScatterAmount)
-            EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
-                { s.halScatterSpatialScale = it }, step = 0.1f, decimals = 2,
-                tooltip = "High-level scatter size multiplier (1.0 = physical defaults).", default = PARAM_DEFAULTS.halScatterSpatialScale)
+            onEnabledChange = { s.halationActive = it }, help = ParamHelpText.forKey(ParamHelpText.HALATION)) {
+            var advanced by remember { mutableStateOf(false) }
+            // Basic: glow strength + size, the scatter strength, and the highlight boost.
             EnhancedSlider("Halation amount", s.halHalationAmount, 0f..4f, { s.halHalationAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "High-level halation strength multiplier.", default = PARAM_DEFAULTS.halHalationAmount)
             EnhancedSlider("Halation spatial scale", s.halHalationSpatialScale, 0f..4f,
                 { s.halHalationSpatialScale = it }, step = 0.1f, decimals = 2,
                 tooltip = "High-level halation size multiplier.", default = PARAM_DEFAULTS.halHalationSpatialScale)
+            EnhancedSlider("Scatter amount", s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
+                step = 0.05f, decimals = 2, tooltip = "High-level scatter strength. 1.0 = full physical scatter.", default = PARAM_DEFAULTS.halScatterAmount)
             EnhancedSlider("Boost EV", s.halBoostEv, 0f..6f, { s.halBoostEv = it }, step = 0.5f, decimals = 1,
                 tooltip = "Maximum highlight boost in stops.", default = PARAM_DEFAULTS.halBoostEv)
-            EnhancedSlider("Protect EV", s.halProtectEv, 0f..10f, { s.halProtectEv = it }, step = 0.5f, decimals = 1,
-                tooltip = "Protected range above midgray for the boost onset in stops.", default = PARAM_DEFAULTS.halProtectEv)
-            EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
-                step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
-            TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
-                step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
-                default = PARAM_DEFAULTS.halScatterCoreUm)
-            TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
-                step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
-                default = PARAM_DEFAULTS.halScatterTailUm)
-            TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
-                { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
-                tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
-                default = PARAM_DEFAULTS.halScatterTailWeightPct)
-            TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
-                { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
-                tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
-                default = PARAM_DEFAULTS.halHalationStrengthPct)
-            TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
-                step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
-                default = PARAM_DEFAULTS.halFirstSigmaUm)
-            IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
-                tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
-                default = PARAM_DEFAULTS.halNBounces)
-            EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
-                step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
-            SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
-                "Divide by (1 + sum of bounce amplitudes) so mid-grey is preserved.")
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                EnhancedSlider("Scatter spatial scale", s.halScatterSpatialScale, 0f..4f,
+                    { s.halScatterSpatialScale = it }, step = 0.1f, decimals = 2,
+                    tooltip = "High-level scatter size multiplier (1.0 = physical defaults).", default = PARAM_DEFAULTS.halScatterSpatialScale)
+                EnhancedSlider("Protect EV", s.halProtectEv, 0f..10f, { s.halProtectEv = it }, step = 0.5f, decimals = 1,
+                    tooltip = "Protected range above midgray for the boost onset in stops.", default = PARAM_DEFAULTS.halProtectEv)
+                EnhancedSlider("Boost range", s.halBoostRange, 0f..1f, { s.halBoostRange = it },
+                    step = 0.05f, decimals = 2, tooltip = "How quickly the highlight boost ramps in (0-1).", default = PARAM_DEFAULTS.halBoostRange)
+                TripleSlider("Scatter core um", s.halScatterCoreUm, 0f..20f, { s.halScatterCoreUm = it },
+                    step = 0.5f, decimals = 2, tooltip = "Sigma of the scatter core Gaussian per channel, in um.",
+                    default = PARAM_DEFAULTS.halScatterCoreUm)
+                TripleSlider("Scatter tail um", s.halScatterTailUm, 0f..40f, { s.halScatterTailUm = it },
+                    step = 1f, decimals = 1, tooltip = "Decay constant of the scatter exponential tail per channel, in um.",
+                    default = PARAM_DEFAULTS.halScatterTailUm)
+                TripleSlider("Scatter tail weight %", s.halScatterTailWeightPct, 0f..100f,
+                    { s.halScatterTailWeightPct = it }, step = 1f, decimals = 1,
+                    tooltip = "Weight of the scatter tail Gaussian per channel (0-100%).",
+                    default = PARAM_DEFAULTS.halScatterTailWeightPct)
+                TripleSlider("Halation strength %", s.halHalationStrengthPct, 0f..100f,
+                    { s.halHalationStrengthPct = it }, step = 0.5f, decimals = 2,
+                    tooltip = "Total back-reflection halation amplitude per channel (0-100%).",
+                    default = PARAM_DEFAULTS.halHalationStrengthPct)
+                TripleSlider("First sigma um", s.halFirstSigmaUm, 0f..200f, { s.halFirstSigmaUm = it },
+                    step = 1f, decimals = 1, tooltip = "Sigma of the first halation bounce per channel, in um.",
+                    default = PARAM_DEFAULTS.halFirstSigmaUm)
+                IntSlider("N bounces", s.halNBounces, 1..5, { s.halNBounces = it },
+                    tooltip = "Number of multi-bounce Gaussians summed (typical 2-3).",
+                    default = PARAM_DEFAULTS.halNBounces)
+                EnhancedSlider("Bounce decay", s.halBounceDecay, 0f..1f, { s.halBounceDecay = it },
+                    step = 0.05f, decimals = 2, tooltip = "Per-bounce amplitude decay ratio (0.3-0.7).", default = PARAM_DEFAULTS.halBounceDecay)
+                SwitchRow("Renormalize", s.halRenormalize, { s.halRenormalize = it },
+                    "Divide by (1 + sum of bounce amplitudes) so mid-grey is preserved.")
+            }
         }
     }
 
     @Composable
     private fun CouplersSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Couplers", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
-            onEnabledChange = { s.couplersActive = it }) {
-            EnhancedSlider("Amount", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
+        SectionCard("Film color character (couplers)", expanded, { expanded = it }, enabledSwitch = s.couplersActive,
+            onEnabledChange = { s.couplersActive = it }, help = ParamHelpText.forKey(ParamHelpText.COUPLERS)) {
+            var advanced by remember { mutableStateOf(false) }
+            Text(
+                "Models film's chemical color crosstalk (DIR couplers) — the cause of film's " +
+                    "characteristic color separation and edge effects. Looking for a plain saturation " +
+                    "control? Use Saturation / Vibrance in Simulation → Output.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Basic: the three overall strengths. The per-channel mix matrix is advanced.
+            EnhancedSlider("Effect strength", s.couplersAmount, 0f..4f, { s.couplersAmount = it },
                 step = 0.05f, decimals = 2, tooltip = "Global multiplier on the DIR coupler inhibition matrix.", default = PARAM_DEFAULTS.couplersAmount)
-            EnhancedSlider("Inhibition samelayer", s.couplersInhibitionSamelayer, 0f..4f,
+            EnhancedSlider("Within-layer strength", s.couplersInhibitionSamelayer, 0f..4f,
                 { s.couplersInhibitionSamelayer = it }, step = 0.05f, decimals = 2,
-                tooltip = "Multiplier on the same-layer (diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
-            EnhancedSlider("Inhibition interlayer", s.couplersInhibitionInterlayer, 0f..4f,
+                tooltip = "Same-layer (diagonal) inhibition — within-channel contrast/acutance.", default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
+            EnhancedSlider("Cross-color strength", s.couplersInhibitionInterlayer, 0f..4f,
                 { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
-                tooltip = "Multiplier on the cross-layer (off-diagonal) inhibition.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
-            TripleSlider("Gamma samelayer RGB", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
-                step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
-                default = PARAM_DEFAULTS.couplersGammaSamelayer)
-            PairSlider("Gamma R→GB", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from R onto G and B.",
-                componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
-            PairSlider("Gamma G→RB", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from G onto R and B.",
-                componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
-            PairSlider("Gamma B→RG", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
-                step = 0.02f, decimals = 3, tooltip = "DIR inhibition from B onto R and G.",
-                componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
-            EnhancedSlider("Diffusion size um", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
-                step = 5f, decimals = 1, tooltip = "Sigma in um for the diffusion of the couplers (5-20 um).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
-            EnhancedSlider("Diffusion tail um", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
-                step = 5f, decimals = 1, default = PARAM_DEFAULTS.couplersDiffusionTailUm)
-            EnhancedSlider("Diffusion tail weight", s.couplersDiffusionTailWeight, 0f..1f,
-                { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3, default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
+                tooltip = "Cross-layer (off-diagonal) inhibition — how much each dye layer bleeds into the others.", default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
+            AdvancedToggle(advanced) { advanced = it }
+            if (advanced) {
+                TripleSlider("Within-layer curve (R, G, B)", s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
+                    step = 0.02f, decimals = 3, tooltip = "Per-channel same-layer DIR gamma (R, G, B).",
+                    default = PARAM_DEFAULTS.couplersGammaSamelayer)
+                PairSlider("Color mix R→G/B", s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from R onto G and B.",
+                    componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)
+                PairSlider("Color mix G→R/B", s.couplersGammaGtoRb, 0f..2f, { s.couplersGammaGtoRb = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from G onto R and B.",
+                    componentLabels = "→R" to "→B", default = PARAM_DEFAULTS.couplersGammaGtoRb)
+                PairSlider("Color mix B→R/G", s.couplersGammaBtoRg, 0f..2f, { s.couplersGammaBtoRg = it },
+                    step = 0.02f, decimals = 3, tooltip = "Cross-channel DIR inhibition (a color-mixing matrix term): from B onto R and G.",
+                    componentLabels = "→R" to "→G", default = PARAM_DEFAULTS.couplersGammaBtoRg)
+                EnhancedSlider("Color bleed radius (µm)", s.couplersDiffusionSizeUm, 0f..100f, { s.couplersDiffusionSizeUm = it },
+                    step = 5f, decimals = 1, tooltip = "Sigma in µm for the diffusion of the couplers (5-20 µm).", default = PARAM_DEFAULTS.couplersDiffusionSizeUm)
+                EnhancedSlider("Color bleed tail (µm)", s.couplersDiffusionTailUm, 0f..500f, { s.couplersDiffusionTailUm = it },
+                    step = 5f, decimals = 1, tooltip = "Long-range tail sigma in µm for the coupler diffusion.", default = PARAM_DEFAULTS.couplersDiffusionTailUm)
+                EnhancedSlider("Color bleed tail weight", s.couplersDiffusionTailWeight, 0f..1f,
+                    { s.couplersDiffusionTailWeight = it }, step = 0.01f, decimals = 3,
+                    tooltip = "Weight of the long-range diffusion tail.", default = PARAM_DEFAULTS.couplersDiffusionTailWeight)
+            }
         }
     }
 
@@ -2704,7 +3092,7 @@ class MainActivity : ComponentActivity() {
     private fun GlareSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Glare", expanded, { expanded = it }, enabledSwitch = s.glareActive,
-            onEnabledChange = { s.glareActive = it }) {
+            onEnabledChange = { s.glareActive = it }, help = ParamHelpText.forKey(ParamHelpText.GLARE)) {
             EnhancedSlider("Percent", s.glarePercent, 0f..1f, { s.glarePercent = it },
                 step = 0.01f, decimals = 2, tooltip = "Percentage of the glare light (typically 0.1-0.25)", default = PARAM_DEFAULTS.glarePercent)
             EnhancedSlider("Roughness", s.glareRoughness, 0f..1f, { s.glareRoughness = it },
@@ -2717,7 +3105,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ExperimentalSection(s: ParamsState) {
         var expanded by remember { mutableStateOf(true) }
-        SectionCard("Experimental", expanded, { expanded = it }) {
+        SectionCard("Experimental", expanded, { expanded = it },
+            help = ParamHelpText.forKey(ParamHelpText.PRINT_GAMMA)) {
             EnhancedSlider("Film gamma factor", s.filmGammaFactor, 0f..3f, { s.filmGammaFactor = it },
                 step = 0.05f, decimals = 2, tooltip = "Gamma factor of the negative density curves.", default = PARAM_DEFAULTS.filmGammaFactor)
             EnhancedSlider("Print gamma factor", s.printGammaFactor, 0f..3f, { s.printGammaFactor = it },
@@ -2760,6 +3149,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Small helpers kept at file scope. */
+
+/** Average RGB (0..1) of a small LinearImage crop — the WB eyedropper's sampled neutral. */
+private fun avgRgb(img: com.spectrafilm.engine.LinearImage): Triple<Float, Float, Float> {
+    val f = img.data.duplicate().order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+    val n = (img.width * img.height).coerceAtLeast(1)
+    var r = 0f; var g = 0f; var b = 0f
+    for (i in 0 until n) { val k = i * 3; r += f.get(k); g += f.get(k + 1); b += f.get(k + 2) }
+    val inv = 1f / n
+    return Triple(r * inv, g * inv, b * inv)
+}
+
 @Composable
 private fun LocalConfigurationHeightDp(): Int =
     androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
