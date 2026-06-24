@@ -259,6 +259,23 @@ typedef struct {
     int32_t lut_resolution;            /* LUT steps/axis; clamped to [2,192] */
     int32_t neutral_print_filters_from_database; /* bool */
 
+    /* --- gamut compression (opt-in; both default to the byte-identical sentinel) ---
+     * Ordinals mirror model/gamut_compression.h's enum classes EXACTLY:
+     *   output_gamut_compress  (OutputGamutCompress): 0 = kLegacyClip (DEFAULT; the
+     *     engine's existing final np.clip in scanning, byte-identical to every golden),
+     *     1 = kOff, 2 = kAcesRgc (ACES RGC v1.3 knee in the linear output space),
+     *     3..6 = perceptual algos (reserved / not yet ported).
+     *   input_gamut_compress   (InputGamutCompress): 0 = kOff (DEFAULT; the filming
+     *     tc_lut is built exactly as before, byte-identical), 1 = kXy (radial-to-locus
+     *     chromaticity bake into the tc_lut), 2 = kOklch (reserved / not yet ported).
+     * The Reinhard knee uses the oracle production default (0, 1, 6) baked into
+     * ScanningParams / build_filming_tc_lut and is not (yet) user-exposed. The default
+     * (0/0) keeps the whole render + export path bit-exact with every existing golden;
+     * output_gamut_compress is consumed in scan() (both routes), input_gamut_compress
+     * is folded into the filming tc_lut + both film-density cache keys. */
+    int32_t output_gamut_compress;
+    int32_t input_gamut_compress;
+
     /* --- tone curve (NEW, optional; applied to final display RGB) ---
      * A Lightroom-style point curve on the output RGB, per channel. Control points
      * are (x,y) in [0,1] with x strictly increasing; a master curve applies to all

@@ -70,7 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.InputGamutCompress
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
@@ -392,6 +394,14 @@ class MainActivity : ComponentActivity() {
         // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
         var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
         val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Cancel any in-flight ROI / magnifier render job when the editor leaves composition
+        // (navigation), so a superseded job doesn't keep rendering into a gone Composable.
+        DisposableEffect(Unit) {
+            onDispose {
+                magnifierJobRef.value?.cancel()
+                roiJobRef.value?.cancel()
+            }
+        }
         // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
         DisposableEffect(roiOverlay) {
             val current = roiOverlay
@@ -438,7 +448,7 @@ class MainActivity : ComponentActivity() {
         var hasRecipe by remember { mutableStateOf(false) }
         var defaultsJson by remember { mutableStateOf<String?>(null) }
         val snackbarHost = remember { SnackbarHostState() }
-        val recipeKey = Recipes.keyFor(sourceUri)
+        val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
 
         // --- double-back-to-exit on the root editor ---
         var backArmed by remember { mutableStateOf(false) }
@@ -622,18 +632,27 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.OpenDocument()
         ) { uri ->
             if (uri != null) {
-                runCatching { Presets.import(ctx, uri, state) }
-                    .onSuccess { status = "preset imported"; previewTick++ }
-                    .onFailure { status = "import failed: ${it.message}" }
+                // Read the SAF stream off-main; decode (Compose-state write) on main.
+                scope.launch {
+                    val text = withContext(Dispatchers.IO) {
+                        runCatching { Presets.readUri(ctx, uri) }.getOrNull()
+                    }
+                    if (text == null) { status = "import failed"; return@launch }
+                    runCatching { Presets.decode(org.json.JSONObject(text), state) }
+                        .onSuccess { status = "preset imported"; previewTick++ }
+                        .onFailure { status = "import failed: ${it.message}" }
+                }
             }
         }
         val presetExporter = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("application/json")
         ) { uri ->
             if (uri != null) {
-                runCatching { Presets.export(ctx, uri, state) }
-                    .onSuccess { status = "preset exported" }
-                    .onFailure { status = "export failed: ${it.message}" }
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) { runCatching { Presets.export(ctx, uri, state) } }
+                    r.onSuccess { status = "preset exported" }
+                        .onFailure { status = "export failed: ${it.message}" }
+                }
             }
         }
         val lutExporter = rememberLauncherForActivityResult(
@@ -1114,18 +1133,14 @@ class MainActivity : ComponentActivity() {
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
             if (!recipeReady) return@LaunchedEffect
             delay(500)
+            // settleDecision (unit-tested in EditHistoryTest) handles the subtle case where a
+            // real edit lands within the restore settle window: it pushes the restored baseline
+            // so the edit stays undoable instead of being silently adopted (one-undo-step loss).
             val now = snapshotNow()
-            when {
-                restoring -> {
-                    committedSnapshot = now
-                    restoring = false
-                }
-                committedSnapshot == null -> committedSnapshot = now
-                now != committedSnapshot -> {
-                    editHistory.push(committedSnapshot!!)
-                    committedSnapshot = now
-                }
-            }
+            val action = settleDecision(restoring, committedSnapshot, now)
+            action.push?.let { editHistory.push(it) }
+            committedSnapshot = action.committed
+            restoring = false
         }
 
         // catalog-grouped profile options for the Simulation pickers + Settings.
@@ -1329,21 +1344,46 @@ class MainActivity : ComponentActivity() {
                                 onSelect = { selectedPreset = it },
                                 onSave = {
                                     if (presetName.isNotBlank()) {
-                                        Presets.save(ctx, presetName, state); refreshPresets()
-                                        status = "saved preset '${presetName}'"
+                                        val name = presetName
+                                        // File write + listing off the main thread; the
+                                        // presetList/status state writes stay on main.
+                                        scope.launch {
+                                            val names = withContext(Dispatchers.IO) {
+                                                Presets.save(ctx, name, state); Presets.list(ctx)
+                                            }
+                                            presetList = names
+                                            status = "saved preset '$name'"
+                                        }
                                     }
                                 },
                                 onApply = {
                                     if (selectedPreset.isNotBlank()) {
-                                        runCatching { applyWithAmount { Presets.load(ctx, selectedPreset, state) } }
-                                            .onSuccess { status = "applied '${selectedPreset}'"; previewTick++ }
-                                            .onFailure { status = "apply failed: ${it.message}" }
+                                        val name = selectedPreset
+                                        // Read the JSON off-main; decode (Compose-state write)
+                                        // + applyWithAmount run back on the main thread.
+                                        scope.launch {
+                                            val text = withContext(Dispatchers.IO) {
+                                                runCatching { Presets.read(ctx, name) }.getOrNull()
+                                            }
+                                            if (text == null) { status = "apply failed"; return@launch }
+                                            runCatching {
+                                                applyWithAmount { Presets.decode(org.json.JSONObject(text), state) }
+                                            }
+                                                .onSuccess { status = "applied '$name'"; previewTick++ }
+                                                .onFailure { status = "apply failed: ${it.message}" }
+                                        }
                                     }
                                 },
                                 onDelete = {
                                     if (selectedPreset.isNotBlank()) {
-                                        Presets.delete(ctx, selectedPreset); refreshPresets()
-                                        status = "deleted '${selectedPreset}'"; selectedPreset = ""
+                                        val name = selectedPreset
+                                        scope.launch {
+                                            val names = withContext(Dispatchers.IO) {
+                                                Presets.delete(ctx, name); Presets.list(ctx)
+                                            }
+                                            presetList = names
+                                            status = "deleted '$name'"; selectedPreset = ""
+                                        }
                                     }
                                 },
                                 onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
@@ -1419,16 +1459,18 @@ class MainActivity : ComponentActivity() {
                                     previewTick++
                                 },
                                 onResetEdits = {
-                                    Recipes.delete(ctx, recipeKey)
-                                    Recipes.resetToDefaults(state, settings, profiles)
-                                    presetBaseJson = null; presetFullJson = null; presetAmount = 1f
-                                    hasRecipe = false; rotation = SourceRotation.NONE
-                                    // Reset clears history: the defaults become the new
-                                    // empty-history baseline (you can't undo back across a
-                                    // reset). `restoring` makes the next settle adopt it.
-                                    editHistory.clear(); committedSnapshot = null; restoring = true
-                                    status = "edits reset · recipe cleared"; previewTick++
                                     scope.launch {
+                                        // Recipe file delete off-main; the state resets that
+                                        // follow run back on the main thread.
+                                        withContext(Dispatchers.IO) { Recipes.delete(ctx, recipeKey) }
+                                        Recipes.resetToDefaults(state, settings, profiles)
+                                        presetBaseJson = null; presetFullJson = null; presetAmount = 1f
+                                        hasRecipe = false; rotation = SourceRotation.NONE
+                                        // Reset clears history: the defaults become the new
+                                        // empty-history baseline (you can't undo back across a
+                                        // reset). `restoring` makes the next settle adopt it.
+                                        editHistory.clear(); committedSnapshot = null; restoring = true
+                                        status = "edits reset · recipe cleared"; previewTick++
                                         snackbarHost.currentSnackbarData?.dismiss()
                                         snackbarHost.showSnackbar("Edits reset; saved recipe cleared")
                                     }
@@ -2862,6 +2904,37 @@ class MainActivity : ComponentActivity() {
                 else -> {
                     Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
                         { it.name }, { s.outputColorSpace = it })
+                    // Opt-in gamut compression (default Off => byte-identical to the
+                    // parity oracle). Output: ACES Reference Gamut Compression softens
+                    // out-of-gamut chromaticities toward the achromatic axis in the
+                    // output space. Input: a radial CIE-xy compression toward the visible
+                    // spectral locus, baked into the filming reconstruction LUT, tames
+                    // over-saturated input before the film responds to it.
+                    Dropdown(
+                        "Output gamut compression",
+                        s.outputGamutCompress,
+                        listOf(OutputGamutCompress.LEGACY_CLIP, OutputGamutCompress.ACES_RGC),
+                        {
+                            when (it) {
+                                OutputGamutCompress.LEGACY_CLIP -> "Off"
+                                OutputGamutCompress.OFF -> "Off (no clip)"
+                                OutputGamutCompress.ACES_RGC -> "ACES (tame out-of-gamut)"
+                            }
+                        },
+                        { s.outputGamutCompress = it },
+                    )
+                    Dropdown(
+                        "Input gamut compression",
+                        s.inputGamutCompress,
+                        InputGamutCompress.entries.toList(),
+                        {
+                            when (it) {
+                                InputGamutCompress.OFF -> "Off"
+                                InputGamutCompress.XY -> "Spectral locus (tame saturated input)"
+                            }
+                        },
+                        { s.inputGamutCompress = it },
+                    )
                     // Creative output grade (post-engine Oklab chroma; parity-safe). Negative
                     // Saturation mutes a too-punchy look; Vibrance boosts muted colors while
                     // sparing already-saturated ones.

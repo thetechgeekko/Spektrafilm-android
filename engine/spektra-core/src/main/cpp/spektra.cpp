@@ -316,7 +316,9 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                          float spectral_gaussian_blur,
                                          bool apply_window, bool apply_surface,
                                          const float* filter_uv,
-                                         const float* filter_ir) {
+                                         const float* filter_ir,
+                                         spk::InputGamutCompress input_gamut_compress =
+                                             spk::InputGamutCompress::kOff) {
     // Compose a key that folds the blur sigma's exact IEEE-754 bytes plus the
     // window/surface toggles and the camera UV/IR band-pass so distinct adaptations
     // (or float jitter) never alias. The DEFAULT (blur==0, window on, surface off,
@@ -325,9 +327,11 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
     const bool band_pass_on =
         filter_uv != nullptr && filter_ir != nullptr &&
         (filter_uv[0] > 0.0f || filter_ir[0] > 0.0f);
+    const bool gamut_in_on =
+        input_gamut_compress != spk::InputGamutCompress::kOff;
     std::string key = film_id;
     if (spectral_gaussian_blur > 0.0f || !apply_window || apply_surface ||
-        band_pass_on) {
+        band_pass_on || gamut_in_on) {
         key.push_back('|');
         const unsigned char* b =
             reinterpret_cast<const unsigned char*>(&spectral_gaussian_blur);
@@ -349,6 +353,16 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
             for (size_t i = 0; i < 3 * sizeof(float); ++i)
                 key.push_back(static_cast<char>(fr[i]));
         }
+        // Fold the input gamut-compression mode only when active, so the default
+        // (kOff) key is byte-identical to the pre-feature film-id key.
+        if (gamut_in_on) {
+            key.push_back('G');
+            const int32_t gmode = static_cast<int32_t>(input_gamut_compress);
+            const unsigned char* gb =
+                reinterpret_cast<const unsigned char*>(&gmode);
+            for (size_t i = 0; i < sizeof(int32_t); ++i)
+                key.push_back(static_cast<char>(gb[i]));
+        }
     }
     {
         std::lock_guard<std::mutex> g(eng->cache_mutex);
@@ -359,7 +373,8 @@ static const spk::NdArray& engine_tc_lut(spk_engine* eng,
                                                  kD55Illuminant,
                                                  spectral_gaussian_blur,
                                                  apply_window, apply_surface,
-                                                 filter_uv, filter_ir);
+                                                 filter_uv, filter_ir,
+                                                 input_gamut_compress);
     std::lock_guard<std::mutex> g(eng->cache_mutex);
     return eng->tc_lut_cache.emplace(key, std::move(lut)).first->second;
 }
@@ -426,6 +441,13 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     // so the digest is honest.
     h = fnv1a64(h, p->camera_filter_uv, sizeof(p->camera_filter_uv));
     h = fnv1a64(h, p->camera_filter_ir, sizeof(p->camera_filter_ir));
+    // Input gamut compression bakes a radial-to-locus chromaticity remap into the
+    // filming tc_lut (build_filming_tc_lut), so it changes film_density_cmy and MUST
+    // be part of the print-route memo key — otherwise toggling it returns a stale
+    // cached negative. Default kOff (0) keeps the key unchanged for the default path;
+    // fold ALWAYS so the digest is honest (parity-transparent: a key change only ever
+    // forces a one-time recompute to the correct value).
+    h = fnv1a64(h, &p->input_gamut_compress, sizeof(p->input_gamut_compress));
     // Highlight boost (numba_boost_hightlights.boost_highlights) runs in expose()
     // BEFORE the log10, so it changes film_density_cmy and MUST be part of the
     // print-route memo key — otherwise a boost edit returns a stale cached negative.
@@ -733,7 +755,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
                                     p->apply_hanatos_window != 0,
                                     p->apply_hanatos_surface != 0,
-                                    p->camera_filter_uv, p->camera_filter_ir);
+                                    p->camera_filter_uv, p->camera_filter_ir,
+                                    static_cast<spk::InputGamutCompress>(
+                                        p->input_gamut_compress));
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -780,6 +804,11 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     sparams.scan_film = true;
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
+    // OPT-IN output gamut compression (scan_film route). Default kLegacyClip (0) keeps
+    // scan()'s existing final clip, so the default goldens stay byte-identical; the
+    // knee stays at the ScanningParams oracle production default (0,1,6).
+    sparams.output_gamut_compress =
+        static_cast<spk::OutputGamutCompress>(p->output_gamut_compress);
     if (spatial) {
         // scanner.unsharp_mask = (sigma, amount); default (0.7, 0.7). scanner
         // lens_blur (in pixels) is applied before the unsharp mask. Both are part
@@ -863,7 +892,9 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         tc_lut_ptr = &engine_tc_lut(eng, p->film_profile, film, p->spectral_gaussian_blur,
                                     p->apply_hanatos_window != 0,
                                     p->apply_hanatos_surface != 0,
-                                    p->camera_filter_uv, p->camera_filter_ir);
+                                    p->camera_filter_uv, p->camera_filter_ir,
+                                    static_cast<spk::InputGamutCompress>(
+                                        p->input_gamut_compress));
     } catch (const std::exception&) {
         return SPK_ERR_ASSET_IO;
     }
@@ -1142,6 +1173,11 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     sparams.scan_film = false;
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
+    // OPT-IN output gamut compression (print route, same scan() position as scan_film).
+    // Default kLegacyClip (0) keeps the existing clip so print goldens stay byte-identical;
+    // the knee stays at the ScanningParams oracle production default (0,1,6).
+    sparams.output_gamut_compress =
+        static_cast<spk::OutputGamutCompress>(p->output_gamut_compress);
     // Viewing glare on the PRINT route (scanning.py applies glare = print_render.glare
     // here, in XYZ space, before XYZ->RGB). It is STOCHASTIC (per-pixel lognormal via
     // np.random.randn) so an active result is NOT bit-exact vs the oracle (exactly
@@ -1393,6 +1429,11 @@ void spk_default_params(spk_params* p) {
     p->lut_resolution = 17;
     p->preview_max_size = 640;
     p->neutral_print_filters_from_database = 1;
+
+    // gamut compression: both OFF by the byte-identical sentinel (output kLegacyClip=0,
+    // input kOff=0) => the render/export path is bit-exact with every existing golden.
+    p->output_gamut_compress = 0;
+    p->input_gamut_compress = 0;
 
     // tone curve: OFF / identity by default (strict no-op => goldens stay bit-exact).
     p->tone_curve_active = 0;

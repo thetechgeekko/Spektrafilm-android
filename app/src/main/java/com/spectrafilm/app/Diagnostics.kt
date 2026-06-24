@@ -54,6 +54,9 @@ object Diagnostics {
     private const val DIR = "diag"
     private const val CRASH_FILE = "last_crash.txt"
 
+    // The threadtime "pid tid LEVEL" column matcher, compiled ONCE (not per logcat line).
+    private val PID_LINE_RE = Regex(".*\\s\\d+\\s\\d+\\s[VDIWEF]\\s.*")
+
     /** Install once (e.g. in MainActivity.onCreate). Idempotent. */
     @Volatile private var installed = false
 
@@ -104,7 +107,7 @@ object Diagnostics {
             BufferedReader(InputStreamReader(proc.inputStream)).useLines { lines ->
                 for (line in lines) {
                     // Keep our own process lines (+ any line without a pid column).
-                    if (line.contains(" $pid ") || !line.matches(Regex(".*\\s\\d+\\s\\d+\\s[VDIWEF]\\s.*"))) {
+                    if (line.contains(" $pid ") || !line.matches(PID_LINE_RE)) {
                         out.append(line).append('\n')
                     }
                 }

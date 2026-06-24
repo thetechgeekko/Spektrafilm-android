@@ -10,6 +10,8 @@
 package com.spectrafilm.app
 
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.InputGamutCompress
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.Rgb2Raw
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -94,6 +96,28 @@ class PresetsRoundTripTest {
         val dst = ParamsState()
         Presets.decode(JSONObject("""{"filmProfile":"kodak_ektar_100"}"""), dst)
         assertEquals("kodak_ektar_100", dst.filmProfile)
+    }
+
+    @Test
+    fun roundTrip_preservesGamutCompression() {
+        val src = ParamsState().apply {
+            outputGamutCompress = OutputGamutCompress.ACES_RGC   // non-default
+            inputGamutCompress = InputGamutCompress.XY           // non-default
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+        assertEquals(OutputGamutCompress.ACES_RGC, dst.outputGamutCompress)
+        assertEquals(InputGamutCompress.XY, dst.inputGamutCompress)
+    }
+
+    @Test
+    fun decode_missingGamut_keepsByteIdenticalDefaultsOff() {
+        // An old recipe (no gamut keys) MUST leave the default-off sentinels so the
+        // rendered look is byte-identical to before the feature existed.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":1,"output":{"outputColorSpace":"SRGB"}}"""), dst)
+        assertEquals(OutputGamutCompress.LEGACY_CLIP, dst.outputGamutCompress)
+        assertEquals(InputGamutCompress.OFF, dst.inputGamutCompress)
     }
 
     @Test

@@ -14,6 +14,8 @@ import android.content.Context
 import android.net.Uri
 import com.spectrafilm.app.masks.MaskJson
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.InputGamutCompress
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.libraw.WhiteBalance
 import org.json.JSONArray
@@ -48,10 +50,21 @@ object Presets {
 
     /** Import a preset JSON from a SAF [uri] into [into]. */
     fun import(ctx: Context, uri: Uri, into: ParamsState) {
-        val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-            ?: error("Could not open preset")
-        fromJson(JSONObject(text), into)
+        fromJson(JSONObject(readUri(ctx, uri)), into)
     }
+
+    /**
+     * Read a saved preset's raw JSON text (the IO half of [load]). Lets a caller do the
+     * file read off the main thread and then [decode] the result on the main thread, so
+     * the Compose-state write stays on main. Throws if the file is missing/unreadable.
+     */
+    fun read(ctx: Context, name: String): String =
+        File(dir(ctx), "$name.json").readText()
+
+    /** Read a SAF preset's raw JSON text (the IO half of [import]); decode on main. */
+    fun readUri(ctx: Context, uri: Uri): String =
+        ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+            ?: error("Could not open preset")
 
     /** Export the current [state] to a SAF [uri]. */
     fun export(ctx: Context, uri: Uri, state: ParamsState) {
@@ -83,12 +96,18 @@ object Presets {
 
     private fun JSONObject.triOf(key: String, def: Triple<Float, Float, Float>): Triple<Float, Float, Float> {
         val a = optJSONArray(key) ?: return def
-        return Triple(a.getDouble(0).toFloat(), a.getDouble(1).toFloat(), a.getDouble(2).toFloat())
+        // optDouble tolerates a short/malformed array instead of throwing mid-decode
+        // (a partial mutation of ParamsState); a missing element falls back to the default.
+        return Triple(
+            a.optDouble(0, def.first.toDouble()).toFloat(),
+            a.optDouble(1, def.second.toDouble()).toFloat(),
+            a.optDouble(2, def.third.toDouble()).toFloat(),
+        )
     }
 
     private fun JSONObject.pairOf(key: String, def: Pair<Float, Float>): Pair<Float, Float> {
         val a = optJSONArray(key) ?: return def
-        return a.getDouble(0).toFloat() to a.getDouble(1).toFloat()
+        return a.optDouble(0, def.first.toDouble()).toFloat() to a.optDouble(1, def.second.toDouble()).toFloat()
     }
 
     private fun JSONObject.f(key: String, def: Float) = optDouble(key, def.toDouble()).toFloat()
@@ -104,7 +123,8 @@ object Presets {
         val out = ArrayList<Pair<Float, Float>>(arr.length())
         for (i in 0 until arr.length()) {
             val p = arr.optJSONArray(i) ?: continue
-            out.add(p.getDouble(0).toFloat() to p.getDouble(1).toFloat())
+            if (p.length() < 2) continue  // skip a malformed point instead of throwing
+            out.add(p.optDouble(0, 0.0).toFloat() to p.optDouble(1, 0.0).toFloat())
         }
         return out
     }
@@ -202,6 +222,8 @@ object Presets {
         put("output", JSONObject().apply {
             put("outputColorSpace", s.outputColorSpace.name)
             put("savingCctfEncoding", s.savingCctfEncoding)
+            put("outputGamutCompress", s.outputGamutCompress.name)
+            put("inputGamutCompress", s.inputGamutCompress.name)
             put("scanFilm", s.scanFilm)
         })
 
@@ -380,6 +402,10 @@ object Presets {
         o.optJSONObject("output")?.let { ou ->
             s.outputColorSpace = enumOf(ou.optString("outputColorSpace"), ColorSpace.entries, s.outputColorSpace)
             s.savingCctfEncoding = ou.optBoolean("savingCctfEncoding", s.savingCctfEncoding)
+            s.outputGamutCompress =
+                enumOf(ou.optString("outputGamutCompress"), OutputGamutCompress.entries, s.outputGamutCompress)
+            s.inputGamutCompress =
+                enumOf(ou.optString("inputGamutCompress"), InputGamutCompress.entries, s.inputGamutCompress)
             s.scanFilm = ou.optBoolean("scanFilm", s.scanFilm)
         }
 
