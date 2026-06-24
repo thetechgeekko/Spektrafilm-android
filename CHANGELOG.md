@@ -3,9 +3,21 @@
 ## Unreleased — codebase review + top-priority parity fixes 🔍
 
 A codebase-wide review (`docs/CODE_REVIEW_2026-06-24.md`, find→adversarially-verify→synthesize)
-and its top-priority fixes. All 27 engine-parity gates stay green; the default render/export path
-is byte-identical except for the auto-exposure metering fix below, which brings a previously
-diverging default path back onto the oracle.
+and its top-priority fixes, plus an upstream-sync plan (`docs/UPSTREAM_SYNC_2026-06-24.md`) and its
+first opt-in feature port. All engine-parity gates stay green; the default render/export path is
+byte-identical except for the auto-exposure metering fix below, which brings a previously diverging
+default path back onto the oracle.
+
+### Added
+- **Print density-curve morph (s023), opt-in / default-OFF.** First feature from the upstream-sync
+  plan. Ports `utils/morph_curves.py::apply_print_curves_morph`: when enabled, the print *develop*
+  step rebuilds the paper's density table from its parametric `density_curves_model` and morphs it
+  by a coupled gamma (global × band(fast/slow by grain speed) × RGB) plus a developer-exhaustion
+  Gumbel blend (D(0)-preserving via a brentq offset), instead of interpolating the stored table.
+  New `model/morph_curves.{h,cpp}`; `profiles/profile.cpp` now parses `density_curves_model`; wired
+  through `spk_params` → JNI → the `PrintCurvesMorphParams` facade. **Default-off is a strict no-op**
+  (every print golden byte-identical); the active path is bit-exact vs the oracle (new gate
+  `test_print_curves_morph`, `max_abs 0.0`). Editor UI control still to come.
 
 ### Fixed
 - **Auto-exposure metering parity (default path).** `small_preview` — the ≤256 px downscale the
