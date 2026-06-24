@@ -218,6 +218,11 @@ jobs:
           # positive default — without it the inhibitor matrix is wrong and
           # film_density_cmy diverges ~0.32. Golden pinned to oracle c1d0e44.
           build_run test_provia_couplers_e2e "$ASSET" "$G/scan_provia_couplers" tests/scan_portra_input_rgb.f64
+          # numpy.interp port for the DIR-coupler non-monotonic axis le0 = le - silver@M:
+          # model/couplers.cpp::np_interp_array reproduces numpy's order-dependent
+          # binary_search_with_guess (a plain ascending binary search picks a different
+          # bracket on a non-monotonic xp). Checked bit-exact vs np.interp over 82 cases.
+          build_run test_np_interp tests/np_interp_cases.bin
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64
