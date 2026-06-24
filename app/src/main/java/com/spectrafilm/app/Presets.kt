@@ -246,6 +246,14 @@ object Presets {
         put("experimental", JSONObject().apply {
             put("filmGammaFactor", s.filmGammaFactor.toDouble())
             put("printGammaFactor", s.printGammaFactor.toDouble())
+            put("morphActive", s.morphActive)
+            put("morphGammaFactor", s.morphGammaFactor.toDouble())
+            put("morphGammaFactorFast", s.morphGammaFactorFast.toDouble())
+            put("morphGammaFactorSlow", s.morphGammaFactorSlow.toDouble())
+            put("morphGammaFactorRed", s.morphGammaFactorRed.toDouble())
+            put("morphGammaFactorGreen", s.morphGammaFactorGreen.toDouble())
+            put("morphGammaFactorBlue", s.morphGammaFactorBlue.toDouble())
+            put("morphDeveloperExhaustion", s.morphDeveloperExhaustion.toDouble())
         })
 
         put("toneCurve", JSONObject().apply {
@@ -380,6 +388,14 @@ object Presets {
         o.optJSONObject("experimental")?.let { ex ->
             s.filmGammaFactor = ex.f("filmGammaFactor", s.filmGammaFactor)
             s.printGammaFactor = ex.f("printGammaFactor", s.printGammaFactor)
+            s.morphActive = ex.optBoolean("morphActive", s.morphActive)
+            s.morphGammaFactor = ex.f("morphGammaFactor", s.morphGammaFactor)
+            s.morphGammaFactorFast = ex.f("morphGammaFactorFast", s.morphGammaFactorFast)
+            s.morphGammaFactorSlow = ex.f("morphGammaFactorSlow", s.morphGammaFactorSlow)
+            s.morphGammaFactorRed = ex.f("morphGammaFactorRed", s.morphGammaFactorRed)
+            s.morphGammaFactorGreen = ex.f("morphGammaFactorGreen", s.morphGammaFactorGreen)
+            s.morphGammaFactorBlue = ex.f("morphGammaFactorBlue", s.morphGammaFactorBlue)
+            s.morphDeveloperExhaustion = ex.f("morphDeveloperExhaustion", s.morphDeveloperExhaustion)
         }
 
         o.optJSONObject("toneCurve")?.let { t ->
