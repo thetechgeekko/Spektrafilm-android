@@ -22,6 +22,7 @@
 #include "model/couplers.h"
 #include "model/diffusion.h"
 #include "model/grain.h"
+#include "model/morph_curves.h"
 
 namespace spk {
 
@@ -197,6 +198,14 @@ struct PrintingParams {
     bool use_enlarger_lut = false;
     int lut_resolution = 32;
     double grain_density_min[3] = {0.07, 0.08, 0.12};
+
+    // OPT-IN print density-curve morph (s023). When morph.active (default false)
+    // the develop step rebuilds the print density table from the paper's
+    // density_curves_model and morphs it (model/morph_curves) instead of
+    // interpolating the stored density_curves table. Default-off -> the stored
+    // table is used and the print parity goldens stay byte-identical; the active
+    // path is gated by its own oracle golden (test_print_curves_morph_e2e).
+    PrintCurvesMorphParams morph;
 };
 
 // Enlarger illuminant on the 81-band working shape for a given illuminant id.

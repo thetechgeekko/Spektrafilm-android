@@ -1,0 +1,30 @@
+{
+  "case_id": "print_curves_morph",
+  "generator": "gen_print_curves_morph_golden.py",
+  "stage_local": true,
+  "profile": "kodak_portra_endura",
+  "profile_type": "negative",
+  "n_layers": 3,
+  "morph_params": {
+    "active": true,
+    "gamma_factor": 1.15,
+    "gamma_factor_fast": 0.9,
+    "gamma_factor_slow": 1.05,
+    "gamma_factor_red": 1.08,
+    "gamma_factor_green": 0.97,
+    "gamma_factor_blue": 1.03,
+    "developer_exhaustion": 0.35
+  },
+  "tap": {
+    "file": "print_density.spkvec",
+    "shape": [
+      256,
+      3
+    ]
+  },
+  "notes": "apply_print_curves_morph (s023 coupled-gamma print-curve morph) on kodak_portra_endura density_curves_model with a non-identity morph. Gates the C++ model/morph_curves.cpp opt-in port. Default-off keeps the print parity goldens byte-identical.",
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

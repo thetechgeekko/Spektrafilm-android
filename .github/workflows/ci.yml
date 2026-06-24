@@ -190,6 +190,12 @@ jobs:
           # golden stays byte-identical. Goldens pinned to oracle c1d0e44. The test also
           # asserts EV on-vs-off and the norm/no-norm branch both produce a real delta.
           build_run test_print_evcomp_e2e "$ASSET" "$G/print_portra_evcomp" tests/scan_portra_input_rgb.f64 "$G"
+          # OPT-IN s023 print density-curve morph (model/morph_curves.cpp): rebuilds
+          # the print density table from the paper's density_curves_model under a
+          # coupled-gamma + developer-exhaustion morph. Default-OFF (the engine
+          # interpolates the stored table, byte-identical to the print goldens); this
+          # gates the active path against an upstream morph_curves.py golden.
+          build_run test_print_curves_morph "$ASSET" "$G/print_curves_morph" "$G"
           # Scanner BLACK/WHITE corrections (scanner.black/white_correction +
           # black/white_level) -> runtime/services/color_reference.py
           # (ColorReferenceService): a scan-time tone anchor that maps the measured

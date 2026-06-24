@@ -20,6 +20,7 @@
 #include "kernels/parallel.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
+#include "model/morph_curves.h"
 
 namespace spk {
 
@@ -351,6 +352,27 @@ void print_reference_log_raw(const Profile& film, const Profile& print_profile,
 void print_develop(const Profile& print_profile, const PrintingParams& params,
                    const float* log_raw_print, int npix,
                    float* density_cmy_out) {
+    // OPT-IN s023 print-curve morph (develop_print_morph): rebuild the print
+    // density table from the paper's parametric density_curves_model, morph it by
+    // coupled gamma + developer exhaustion, and interpolate THAT table (the morph
+    // folds gamma in, so interp uses gamma 1.0). Default-off, or a profile with no
+    // density_curves_model, falls through to the stored-table path below, which is
+    // byte-identical to the c1d0e44 print goldens.
+    if (params.morph.active && print_profile.dc_model_n_layers > 0) {
+        const int n = print_profile.n_density_pts;
+        std::vector<float> morphed(static_cast<size_t>(n) * 3);
+        apply_print_curves_morph(print_profile.dc_model_centers.data(),
+                                 print_profile.dc_model_amplitudes.data(),
+                                 print_profile.dc_model_sigmas.data(),
+                                 print_profile.dc_model_n_layers, params.morph,
+                                 print_profile.is_positive(),
+                                 print_profile.log_exposure.data(), n,
+                                 morphed.data());
+        interpolate_exposure_to_density(log_raw_print, npix, morphed.data(),
+                                        print_profile.log_exposure.data(), n,
+                                        /*gamma_factor=*/1.0f, density_cmy_out);
+        return;
+    }
     // develop_simple: interpolate against the RAW print density curves (no nanmin
     // normalisation, no DIR couplers), gamma broadcast to all channels.
     interpolate_exposure_to_density(log_raw_print, npix,
