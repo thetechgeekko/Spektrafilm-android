@@ -23,9 +23,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -33,13 +35,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun DiagnosticsScreen() {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    var crash by remember { mutableStateOf(Diagnostics.lastCrash(ctx)) }
+    val scope = rememberCoroutineScope()
+    var crash by remember { mutableStateOf<String?>(null) }
     var log by remember { mutableStateOf<String?>(null) }
+    // Read the persisted crash off the main thread (file IO).
+    LaunchedEffect(Unit) { crash = withContext(Dispatchers.IO) { Diagnostics.lastCrash(ctx) } }
 
     Column(
         Modifier
@@ -60,21 +68,31 @@ fun DiagnosticsScreen() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { clipboard.setText(AnnotatedString(crash!!)) }) { Text("Copy") }
                 OutlinedButton(onClick = {
-                    Diagnostics.clearLastCrash(ctx); crash = null
+                    scope.launch {
+                        withContext(Dispatchers.IO) { Diagnostics.clearLastCrash(ctx) }
+                        crash = null
+                    }
                 }) { Text("Clear") }
             }
         }
 
         // --- logcat snapshot ---
         Text("Logcat snapshot", style = MaterialTheme.typography.titleMedium)
-        Button(onClick = { log = Diagnostics.captureLogcat() }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = {
+            scope.launch { val l = withContext(Dispatchers.IO) { Diagnostics.captureLogcat() }; log = l }
+        }, modifier = Modifier.fillMaxWidth()) {
             Text(if (log == null) "Capture logcat" else "Re-capture logcat")
         }
         log?.let { MonoBlock(it) }
 
         // --- share full report ---
         Button(
-            onClick = { Diagnostics.share(ctx, Diagnostics.buildReport(ctx)) },
+            onClick = {
+                scope.launch {
+                    val report = withContext(Dispatchers.IO) { Diagnostics.buildReport(ctx) }
+                    Diagnostics.share(ctx, report)
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Share diagnostics report") }
     }

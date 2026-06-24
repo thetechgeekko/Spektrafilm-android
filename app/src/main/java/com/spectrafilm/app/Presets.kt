@@ -50,10 +50,21 @@ object Presets {
 
     /** Import a preset JSON from a SAF [uri] into [into]. */
     fun import(ctx: Context, uri: Uri, into: ParamsState) {
-        val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-            ?: error("Could not open preset")
-        fromJson(JSONObject(text), into)
+        fromJson(JSONObject(readUri(ctx, uri)), into)
     }
+
+    /**
+     * Read a saved preset's raw JSON text (the IO half of [load]). Lets a caller do the
+     * file read off the main thread and then [decode] the result on the main thread, so
+     * the Compose-state write stays on main. Throws if the file is missing/unreadable.
+     */
+    fun read(ctx: Context, name: String): String =
+        File(dir(ctx), "$name.json").readText()
+
+    /** Read a SAF preset's raw JSON text (the IO half of [import]); decode on main. */
+    fun readUri(ctx: Context, uri: Uri): String =
+        ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+            ?: error("Could not open preset")
 
     /** Export the current [state] to a SAF [uri]. */
     fun export(ctx: Context, uri: Uri, state: ParamsState) {
