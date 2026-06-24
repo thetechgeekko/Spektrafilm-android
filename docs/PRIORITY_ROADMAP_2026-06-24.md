@@ -1,0 +1,64 @@
+# Spectrafilm Priority Roadmap — 2026-06-24
+
+> Consolidates the open items from `docs/CODE_REVIEW_2026-06-24.md` and
+> `docs/UPSTREAM_SYNC_2026-06-24.md` into one dependency-aware execution order,
+> status-verified against the codebase (the 5 review fixes + the print-curve morph
+> already shipped in PR #105 are excluded). Produced by the priority-roadmap workflow.
+
+## 1. Recommended execution order (open items)
+
+1. **[P0]** nativeSimulate discards inCs tag; ACES2065-1 RAW buffers run through the fixed ProPhoto→XYZ matrix — value high / effort M / parityRisk low — Live wrong-primaries error on every native RAW/DNG decode (the core editor flow); fixing it corrects a default-path bug without moving any golden.
+2. **[P0]** Fix np_interp for non-monotonic DIR-coupler axis (couplers.cpp:27 → numpy left-to-right scan) — value medium / effort S / parityRisk low — Reachable today via shipping coupler sliders (max_abs ~0.44 at amount≥2.0); small correctness fix toward the oracle, and a hard prereq for Langmuir couplers.
+3. **[P1]** Output gamut compression — aces_rgc only (default-OFF, LEGACY_CLIP sentinel) — value low / effort M / parityRisk low — The recommended first port that establishes the newer-oracle-golden gating pattern and builds the shared reinhard_knee helper the other two gamut items reuse; zero default-path impact.
+4. **[P1]** float_to_half RNE fix (round-to-nearest-even, not half-up) — value low / effort S / parityRisk low — Cheap, isolated, and must land before the fp16 preview-proxy storage (PERF_ROADMAP #3) turns the latent scalar-vs-NEON divergence into a failing test_half.
+5. **[P2]** Input gamut compression (filming side): CAT02→CAT16 + xy-clip removal + locus bake (default-OFF) — value medium / effort L / parityRisk low — Opt-in input-side taming of saturated colours; depends on aces_rgc for the shared reinhard_knee and the golden-gating pattern.
+6. **[P2]** Output gamut compression — perceptual algos (cam16ucs/oklch/oklrab/jzazbz, default-OFF) — value medium / effort XL / parityRisk low — The upstream perceptual roll-off for colorists; builds the heavy model/gamut_compression util on the aces_rgc hook, but most users won't need it over aces_rgc, so it trails the cheaper gamut work.
+7. **[P2]** Filming/printing/scanning integration of the gamut utility (umbrella) — value medium / effort S / parityRisk low — Not standalone code: closes out by confirming both ScanningParams sites and both filming expose sites carry the flags and the print-route digest includes input_gamut_compress; only actionable once items 3/5/6 land.
+8. **[P2]** Preset/recipe + diagnostics persistence off the main thread — value low / effort M / parityRisk none — Batchable Kotlin IO hardening; wrap synchronous save/apply/delete/import/logcat IO in Dispatchers.IO mirroring the existing auto-save effect.
+9. **[P2]** Undo/redo restoring-flag timing window can drop one undo step — value low / effort M / parityRisk none — User-reachable single-step undo loss; clear `restoring` synchronously in applySnapshot rather than in the keyed effect.
+10. **[P3-quickwin]** recipeKey recomputes SHA-256 on every recomposition (add remember) — value low / effort S / parityRisk none — One-liner `remember(sourceUri){...}` at MainActivity.kt:416; ride along with the other UI nits.
+11. **[P3-quickwin]** ROI/magnifier render jobs survive navigation (cancel on dispose) — value low / effort S / parityRisk none — Add DisposableEffect cancel for roiJobRef/magnifierJobRef in EditorScreen.
+12. **[P3-quickwin]** constrainToAspect ignores anchor (TL/TR corner drags move wrong edge) — value low / effort S / parityRisk none — Use `anchor` to pick the fixed corner in CropOverlay.kt:356-359; add the missing unit test.
+13. **[P3-quickwin]** Malformed preset import partially mutates ParamsState (optDouble) — value low / effort S / parityRisk none — Switch triOf/pairOf/jsonToPoints to optDouble with defaults, mirroring BuiltInPresets.kt.
+14. **[P3-quickwin]** GPU LUT preview renders black after background→foreground — value low / effort S / parityRisk none — Reset haveProxy/haveLut and re-arm pending textures after EGL program rebuild; experimental opt-in surface.
+15. **[P3-quickwin]** Int overflow in allocRotBuf managed-fallback size — value low / effort S / parityRisk none — Long-widen the byte count at Rotation.kt:32 to match the sibling off-heap branch.
+16. **[P3-quickwin]** RawCoilDecoder leaks off-heap RAW buffer (dead code) — value low / effort S / parityRisk none — Add try/finally freeOffHeap; defer until any ImageToolbox-host wiring is actually planned (currently unreachable).
+17. **[P3-aesthetic]** Grain default-value refit (particle_scale / density_min / uniformity) — value low / effort S / parityRisk none — Flips the default grain-on look; ship only as a deliberate aesthetic decision, possibly behind a "classic grain" toggle.
+18. **[P3-track]** Reflectance / alternate spectral-upsampling (Mallett2019 first) — value medium / effort L / parityRisk low — Best Part-B value-add with no baseline move, but the new-mode golden needs a stable oracle SHA before the real builder work starts.
+19. **[P3-track]** color_reference gamma_factor 1.0 fix in measure_print_references — value low / effort S / parityRisk none — No-op vs current goldens; ride along with any scanner-bwcorr work.
+20. **[P3-defer]** Profile JSON refit (28/29 stocks) + neutral_print_filters refit (ad5c8d2) — value medium / effort L / parityRisk high — Strategy-B baseline move; touches the default print path and every golden.
+21. **[P3-defer]** Adopt upstream default-ON engine math (input GC + CAT16 + cam16ucs final clip + develop_print_morph + grain refit) — value medium / effort XL / parityRisk high — Strategy-B; entangled with the ad5c8d2 refit on the same render path.
+22. **[P3-defer]** WB normalization flip + route wiring + DWG/VLog + autoexposure refactor — value medium / effort L / parityRisk high — Default-path ~2-3% neutral shift; the trigger event for the coordinated rebaseline.
+23. **[P3-defer]** B&W / arbitrary-N-channel pipeline rework + kodak_trix — value medium / effort XL / parityRisk high — Near-total architectural rewrite; no upstream B&W e2e oracle exists yet, so the gate can't even be defined.
+24. **[P3-defer]** Non-linear Langmuir DIR couplers (a22 re-opt, cine presets) — value medium / effort L / parityRisk high — ON-by-default upstream; requires the baseline move and hard-depends on item 2 (np-interp) landing first.
+25. **[P3-defer]** Convert stage + parametric density-curves model + chemistry gamma — value medium / effort XL / parityRisk medium — Prototype-alpha upstream; needs an LM solver the engine lacks and rides the N-channel rework.
+26. **[P3-defer]** Grain overhaul (RMS-granularity + mass-conserving multiplicative USM, N-channel streaming) — value high / effort XL / parityRisk medium — Highest Part-B product win but entangled with the N-channel rework; revisit first once the baseline move is on the table.
+27. **[P3-defer]** Multiplicative unsharp-mask kernel — value low / effort M / parityRisk low — Inert at amount=0 and needs a new parallel-reduction primitive; only worth porting as the ringing-fix half of the grain overhaul.
+
+## 2. Tiers
+
+**P0 — do next:** Two live default-path correctness bugs against the oracle (RAW input-colorspace mismatch and the non-monotonic coupler interpolation) — low/medium effort, low parity risk, no baseline move.
+
+**P1 — soon:** Cheap, parity-safe, foundation-laying work — the aces_rgc gamut hook that proves the newer-golden gating pattern and seeds the shared reinhard_knee, plus the float_to_half RNE fix that unblocks the fp16 preview proxy.
+
+**P2 — later:** Higher-effort opt-in engine features (input/perceptual gamut compression + their integration umbrella) and the non-trivial Kotlin robustness fixes (off-main IO, undo timing) that warrant their own attention.
+
+**P3 — track/deferred:** The batchable UI quick-wins, the grain aesthetic refit, the value-adding-but-SHA-blocked experimental ports (reflectance), and the entire Strategy-B rebaseline cluster (profile refit, default-ON math, WB-norm, N-channel/B&W, Langmuir, convert, grain overhaul, mult-USM) that must move as one coordinated baseline bump.
+
+## 3. The single next action
+
+**#1 is `jni-aces-prophoto`.** Concrete first step: in the RAW import path (`EngineHelpers.kt` ~224/231/252, where `LinearImage` is built from `result.colorSpace` coming off `raw_decoder.cpp:536`), convert ACES2065-1 → linear ProPhoto before the buffer reaches the engine; then in `nativeSimulate` (`spektra_jni.cpp:537` reads but discards the `inCs` jstring, and `:570` hardcodes `SPK_CS_PROPHOTO`) either map non-ProPhoto inputs to a real conversion or, at minimum, validate the tag and throw; and marshal `getInputColorSpace` in `marshal_params` (only `getOutputColorSpace` is read at `:428-431`, so the UI Input-colorspace dropdown is currently inert).
+
+Why it beats the alternatives: it is the only **high-value** open item, it is a **live** (not latent) chromaticity error on the core RAW-editor flow that every native LibRaw decode hits, and no parity golden feeds a non-ProPhoto buffer — so the fix corrects real default output while leaving the parity gate green either way. np-interp (#2) is also a default-path correctness fix but is latent until a coupler slider is pushed past ~1.5, so it ranks just behind.
+
+## 4. Dependency notes
+
+- **Shared reinhard_knee:** build it once in `gamut-out-aces` (#3); `gamut-in` (#5) and `gamut-out-perceptual` (#6) both reuse it. This is why aces_rgc must precede both other gamut items even though its own user value is "low."
+- **Gamut util before stage integration:** `gamut-stage-integration` (#7) is an umbrella with no standalone code — it can only be closed after #3, #5, and #6 land, by confirming both `ScanningParams` sites (scan_film + print) and both filming expose sites carry the flags and the print-route fnv1a64 LUT digest folds in `input_gamut_compress` so the bake cache can't alias across the flag. The heavy `model/gamut_compression.{h,cpp}` color-appearance util is created by #6.
+- **np-interp before Langmuir:** `langmuir-couplers` hard-depends on `np-interp-couplers` (#2) — the saturating donor makes the existing `le0 = le − donor@M` non-monotonicity divergence worse, so the interp fix must land first.
+- **float_to_half before fp16 proxy:** the RNE fix (#4) must precede the planned fp16 preview-proxy storage, or scalar(tail)-vs-NEON(bulk) pixels diverge and `test_half` fails the moment it's wired.
+- **Rebaseline chain:** `default-engine-math-rebaseline` depends on `profile-refit-rebaseline`; `wb-norm`, `bw-nchannel-rework` depend on the default-math rebaseline; `langmuir`, `convert-density-model` depend on the N-channel rework; `grain-overhaul` depends on N-channel; `mult-usm-kernel` depends on grain-overhaul. None of this can be cherry-picked piecemeal.
+
+## 5. Deferred (P3) rationale
+
+The entire Strategy-B cluster — the ad5c8d2 **profile refit** (28/29 stocks + `neutral_print_filters`, the latter on the default print path with shifts up to ~570x–820,000x tolerance), the **default-ON engine math** (input GC + CAT02→CAT16 swap + cam16ucs final-clip + mandatory develop_print_morph + grain refit), the **WB-norm flip** (midgray → exactly (1,1,1), ~2-3% on every neutral), and the architectural **N-channel/B&W, Langmuir, convert, grain-overhaul, mult-USM** branches — is deferred because each one changes the rendered look of every existing user's photos and cannot be gated without duplicating all 28 profile assets (there is no per-profile old/new curve flag). These are mutually entangled on the same render path: the refit, the default-math swap, and the raw-scaling drift (`SPEKTRAFILM_ORACLE_DRIFT=a9bccd6`) cannot have their 3bb2c2d goldens isolated from each other without new profile-injection tooling in `gen_goldens.py`. They must therefore land as a single coordinated rebaseline that re-pins `tools/parity/setup_env.sh` to a new oracle SHA and regenerates every density/printing/.spkvec golden at once. The **trigger to revisit** is upstream settling its own regression baselines around the WB-norm change (e301791/526e200) — that is the signal to start the coordinated bump, with `np-interp-couplers` landing first, then WB-norm + Langmuir + a22-gamma as one golden regen, then the grain + N-channel refactor. Two P3 items are *not* gated on the baseline and can be pulled forward opportunistically: **reflectance/Mallett2019** (real product value, no default change — blocked only on a stable new-mode oracle SHA) and the batch of **Kotlin UI quick-wins** (pure robustness/UX, zero parity risk). The **grain default refit** sits apart as the one low-value item that flips the default look on its own; ship it only as a deliberate aesthetic call, ideally behind a "classic grain" toggle.
