@@ -14,6 +14,8 @@ import android.content.Context
 import android.net.Uri
 import com.spectrafilm.app.masks.MaskJson
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.InputGamutCompress
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.libraw.WhiteBalance
 import org.json.JSONArray
@@ -202,6 +204,8 @@ object Presets {
         put("output", JSONObject().apply {
             put("outputColorSpace", s.outputColorSpace.name)
             put("savingCctfEncoding", s.savingCctfEncoding)
+            put("outputGamutCompress", s.outputGamutCompress.name)
+            put("inputGamutCompress", s.inputGamutCompress.name)
             put("scanFilm", s.scanFilm)
         })
 
@@ -380,6 +384,10 @@ object Presets {
         o.optJSONObject("output")?.let { ou ->
             s.outputColorSpace = enumOf(ou.optString("outputColorSpace"), ColorSpace.entries, s.outputColorSpace)
             s.savingCctfEncoding = ou.optBoolean("savingCctfEncoding", s.savingCctfEncoding)
+            s.outputGamutCompress =
+                enumOf(ou.optString("outputGamutCompress"), OutputGamutCompress.entries, s.outputGamutCompress)
+            s.inputGamutCompress =
+                enumOf(ou.optString("inputGamutCompress"), InputGamutCompress.entries, s.inputGamutCompress)
             s.scanFilm = ou.optBoolean("scanFilm", s.scanFilm)
         }
 

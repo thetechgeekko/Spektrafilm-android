@@ -29,7 +29,9 @@ import com.spectrafilm.engine.FilmRenderingParams
 import com.spectrafilm.engine.GlareParams
 import com.spectrafilm.engine.GrainParams
 import com.spectrafilm.engine.HalationParams
+import com.spectrafilm.engine.InputGamutCompress
 import com.spectrafilm.engine.IoParams
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.PrintCurvesMorphParams
 import com.spectrafilm.engine.PrintRenderingParams
 import com.spectrafilm.engine.Rgb2Raw
@@ -155,6 +157,9 @@ class ParamsState {
     // --- Output / saving ---
     var outputColorSpace by mutableStateOf(ColorSpace.SRGB)
     var savingCctfEncoding by mutableStateOf(true)
+    // Opt-in gamut compression (default-off => byte-identical to the parity oracle).
+    var outputGamutCompress by mutableStateOf(OutputGamutCompress.LEGACY_CLIP)
+    var inputGamutCompress by mutableStateOf(InputGamutCompress.OFF)
     var scanFilm by mutableStateOf(false)
 
     // --- Grain ---
@@ -280,6 +285,8 @@ class ParamsState {
 
         outputColorSpace = p.io.outputColorSpace
         savingCctfEncoding = p.io.outputCctfEncoding
+        outputGamutCompress = p.io.outputGamutCompress
+        inputGamutCompress = p.io.inputGamutCompress
         scanFilm = p.io.scanFilm
 
         val g = p.filmRender.grain
@@ -409,6 +416,8 @@ class ParamsState {
             inputCctfDecoding = inputCctfDecoding,
             outputColorSpace = outputColorSpace,
             outputCctfEncoding = savingCctfEncoding,
+            outputGamutCompress = outputGamutCompress,
+            inputGamutCompress = inputGamutCompress,
             crop = crop,
             cropCenter = cropCenter,
             cropSize = cropSize,

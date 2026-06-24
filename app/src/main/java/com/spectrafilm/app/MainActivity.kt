@@ -70,7 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.InputGamutCompress
 import com.spectrafilm.engine.LinearImage
+import com.spectrafilm.engine.OutputGamutCompress
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.DecodeStatus
@@ -2862,6 +2864,37 @@ class MainActivity : ComponentActivity() {
                 else -> {
                     Dropdown("Output color space", s.outputColorSpace, ColorSpace.entries.toList(),
                         { it.name }, { s.outputColorSpace = it })
+                    // Opt-in gamut compression (default Off => byte-identical to the
+                    // parity oracle). Output: ACES Reference Gamut Compression softens
+                    // out-of-gamut chromaticities toward the achromatic axis in the
+                    // output space. Input: a radial CIE-xy compression toward the visible
+                    // spectral locus, baked into the filming reconstruction LUT, tames
+                    // over-saturated input before the film responds to it.
+                    Dropdown(
+                        "Output gamut compression",
+                        s.outputGamutCompress,
+                        listOf(OutputGamutCompress.LEGACY_CLIP, OutputGamutCompress.ACES_RGC),
+                        {
+                            when (it) {
+                                OutputGamutCompress.LEGACY_CLIP -> "Off"
+                                OutputGamutCompress.OFF -> "Off (no clip)"
+                                OutputGamutCompress.ACES_RGC -> "ACES (tame out-of-gamut)"
+                            }
+                        },
+                        { s.outputGamutCompress = it },
+                    )
+                    Dropdown(
+                        "Input gamut compression",
+                        s.inputGamutCompress,
+                        InputGamutCompress.entries.toList(),
+                        {
+                            when (it) {
+                                InputGamutCompress.OFF -> "Off"
+                                InputGamutCompress.XY -> "Spectral locus (tame saturated input)"
+                            }
+                        },
+                        { s.inputGamutCompress = it },
+                    )
                     // Creative output grade (post-engine Oklab chroma; parity-safe). Negative
                     // Saturation mutes a too-punchy look; Vibrance boosts muted colors while
                     // sparing already-saturated ones.
