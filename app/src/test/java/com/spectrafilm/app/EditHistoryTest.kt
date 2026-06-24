@@ -114,4 +114,50 @@ class EditHistoryTest {
         val restored = h.undo(snap("live", rot = 270))
         assertEquals(90, restored?.rotationDegrees)
     }
+
+    // --- settleDecision: the editor's capture/settle logic (extracted for testing) ---
+
+    @Test
+    fun settle_pureRestore_recordsNothing() {
+        // undo/redo restore with no follow-up edit: don't push, adopt the restored snapshot.
+        val restored = snap("restored")
+        val a = settleDecision(restoring = true, committed = restored, now = restored)
+        assertNull(a.push)
+        assertEquals(restored, a.committed)
+    }
+
+    @Test
+    fun settle_editWithinRestoreWindow_pushesBaseline() {
+        // The regression: a real edit lands within the restore settle window (restoring still
+        // true, `now` already differs). The restored baseline MUST be pushed so the edit is undoable.
+        val restored = snap("restored")
+        val edited = snap("edited")
+        val a = settleDecision(restoring = true, committed = restored, now = edited)
+        assertEquals("the restored baseline is pushed so the edit stays undoable", restored, a.push)
+        assertEquals(edited, a.committed)
+    }
+
+    @Test
+    fun settle_firstBaseline_adoptsWithoutPush() {
+        val a = settleDecision(restoring = false, committed = null, now = snap("base"))
+        assertNull(a.push)
+        assertEquals(snap("base"), a.committed)
+    }
+
+    @Test
+    fun settle_normalEdit_pushesPreviousCommitted() {
+        val prev = snap("prev")
+        val now = snap("now")
+        val a = settleDecision(restoring = false, committed = prev, now = now)
+        assertEquals(prev, a.push)
+        assertEquals(now, a.committed)
+    }
+
+    @Test
+    fun settle_noChange_recordsNothing() {
+        val s = snap("s")
+        val a = settleDecision(restoring = false, committed = s, now = s)
+        assertNull(a.push)
+        assertEquals(s, a.committed)
+    }
 }

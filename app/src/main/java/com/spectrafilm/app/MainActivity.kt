@@ -1125,18 +1125,14 @@ class MainActivity : ComponentActivity() {
             state.rawWhiteBalance, state.rawTemperature, state.rawTint) {
             if (!recipeReady) return@LaunchedEffect
             delay(500)
+            // settleDecision (unit-tested in EditHistoryTest) handles the subtle case where a
+            // real edit lands within the restore settle window: it pushes the restored baseline
+            // so the edit stays undoable instead of being silently adopted (one-undo-step loss).
             val now = snapshotNow()
-            when {
-                restoring -> {
-                    committedSnapshot = now
-                    restoring = false
-                }
-                committedSnapshot == null -> committedSnapshot = now
-                now != committedSnapshot -> {
-                    editHistory.push(committedSnapshot!!)
-                    committedSnapshot = now
-                }
-            }
+            val action = settleDecision(restoring, committedSnapshot, now)
+            action.push?.let { editHistory.push(it) }
+            committedSnapshot = action.committed
+            restoring = false
         }
 
         // catalog-grouped profile options for the Simulation pickers + Settings.

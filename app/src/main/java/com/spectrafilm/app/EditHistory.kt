@@ -26,6 +26,32 @@ import androidx.compose.runtime.setValue
 /** A single point-in-time editing state: the full params JSON + the manual rotation. */
 data class EditSnapshot(val paramsJson: String, val rotationDegrees: Int)
 
+/** What the editor's settle effect should do: optionally [push] a baseline, then adopt [committed]. */
+data class SettleAction(val push: EditSnapshot?, val committed: EditSnapshot?)
+
+/**
+ * The capture/settle decision, extracted from the editor so it is unit-testable. Given the
+ * current `restoring` flag, the last `committed` snapshot, and the freshly-settled `now`
+ * snapshot, returns what the settle effect should do (the caller always clears `restoring`).
+ *
+ * The subtle case is an edit that lands WITHIN the restore settle window: `restoring` is still
+ * true but `now` already differs from the restored `committed` snapshot. The restored baseline
+ * must be pushed so the edit stays undoable — otherwise the edit is silently adopted as the
+ * committed state and that one undo step is lost (the bug this fixes).
+ */
+fun settleDecision(restoring: Boolean, committed: EditSnapshot?, now: EditSnapshot): SettleAction =
+    when {
+        // Programmatic restore (undo/redo). A pure restore (now == committed) records nothing;
+        // an edit during the settle window pushes the restored baseline so it stays undoable.
+        restoring -> SettleAction(push = if (now != committed) committed else null, committed = now)
+        // First settle for this source/baseline: adopt without pushing (canUndo stays false).
+        committed == null -> SettleAction(push = null, committed = now)
+        // A real edit: push the PREVIOUS committed snapshot, then adopt the new one.
+        now != committed -> SettleAction(push = committed, committed = now)
+        // No change.
+        else -> SettleAction(push = null, committed = committed)
+    }
+
 /**
  * Bounded undo/redo stacks of [EditSnapshot]s. Not thread-safe; all mutation happens on
  * the Compose/main thread (the editor never touches it off the main dispatcher).
