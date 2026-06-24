@@ -82,6 +82,21 @@ double poly2d_deg4(double x, double y, const double params[15], Vec2 center);
 // decode and is not on the verified spectra parity path. See the test notes.
 void fetch_coeffs(const NdArray& coeffs_lut, Vec2 tc, double out_coeffs[4]);
 
+// --- Input gamut compression: tc_lut remap-resample bake ---------------------
+// Ports gamut_compression.py::remap_tc_lut_for_compression for algorithm="xy". Bakes
+// a radial-to-locus chromaticity compression into a filming tc_lut in place, so the
+// runtime lookup path is unchanged — only the stored LUT values move:
+//   new_lut[cell] = old_lut[ tri2quad( compress_xy_radial( quad2tri(cell_tc) ) ) ]
+// For each cell (i, j) of the {H, W, 3} LUT: tc = (i/(H-1), j/(W-1)); decode tc -> xy
+// via quad2tri; radially compress xy toward the spectral locus around `white_xy`
+// (model/gamut_compression.h::compress_pixel_xy) with the (threshold, limit, power)
+// knee; re-encode xy -> tc via tri2quad; bilinearly resample the OLD lut at that tc
+// (scipy.ndimage.map_coordinates order=1, mode='nearest' — bilinear with edge clamp).
+// `white_xy` is the film reference illuminant chromaticity. This is a build-time
+// (per-LUT) operation, not on the per-pixel hot path.
+void remap_tc_lut_for_compression(NdArray& tc_lut, const double white_xy[2],
+                                  double threshold, double limit, double power);
+
 }  // namespace spk
 
 #endif  // SPK_KERNELS_SPECTRAL_UPSAMPLING_H

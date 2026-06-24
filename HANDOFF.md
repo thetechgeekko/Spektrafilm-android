@@ -1,6 +1,82 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-24 #3, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P1 #3 (aces_rgc output gamut compression) + P1 #4 (float_to_half RNE)
+## State (2026-06-24 #4, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P2 #5 (input gamut compression: radial-to-locus tc_lut bake, OPT-IN / DEFAULT-OFF)
+
+Continuation on the same branch/PR. **P2 #5 (input-side gamut compression) is now done**, parity-safe:
+the default render/export path is **byte-identical** to oracle `c1d0e44` (the full host engine-parity
+suite is **31/31 gates green, fail=0** — every prior gate byte-identical + the new `test_gamut_in_xy`).
+`:engine:spektra-core:externalNativeBuildDebug` **BUILD SUCCESSFUL** for all 3 ABIs (NDK r27). No
+Kotlin/JNI/facade/UI change — the feature is engine-internal and **dormant** (callers pass the default
+`kOff`), exactly like P1 #3 (aces_rgc) left `output_gamut_compress` dormant. The cross-cutting activation
+(thread the flag through `engine_tc_lut`'s cache key + the print-route `compute_film_cache_key` digest +
+JNI/facade/UI) is the **deferred P2 #7 umbrella**.
+
+### What shipped (P2 #5 — input gamut compression, `algorithm="xy"` radial-to-locus, OPT-IN / DEFAULT-OFF)
+- **`model/gamut_compression.{h,cpp}` extended** with the input side: new `InputGamutCompress` enum
+  (`kOff`=0 DEFAULT sentinel, `kXy`=1, `kOklch`=2 reserved/unported), `spectral_locus_xy()` (the closed
+  **66-vertex** CIE 1931 2° locus polygon, 380..700 nm @ 5 nm, captured as a baked constant from
+  colour-science via the gen script), and `compress_pixel_xy`/`compress_xy_radial` (ports
+  `gamut_compression.py::compress_xy_radial`: ray-polygon distance to the locus + the **shared
+  `reinhard_knee`** from P1 #3, radial rescale, at-white `dist<1e-9` passthrough mirroring `np.where`,
+  `0*inf==NaN`-on-miss preserved). All double, matching the oracle.
+- **`kernels/spectral_upsampling.{h,cpp}`**: new `remap_tc_lut_for_compression` — the LUT bake
+  (`new_lut[cell] = old_lut[tri2quad(compress_xy_radial(quad2tri(cell_tc)))]`) with a bilinear
+  edge-clamp resampler that bit-matches `scipy.ndimage.map_coordinates(order=1, mode='nearest')`. Reuses
+  the existing `tri2quad`/`quad2tri` (already byte-identical to the oracle's `_tri2quad`/`_quad2tri`).
+- **`runtime/stages/filming.cpp::build_filming_tc_lut`** hooks the bake in right before `return tc_lut`
+  (mirrors the oracle appending the remap in `compute_hanatos2025_tc_lut`), gated on the new defaulted
+  `input_gamut_compress` arg. **Default `kOff` skips it entirely → tc_lut byte-identical** → every golden
+  stays bit-exact. `white_xy` reuses the same `illuminant·kCieCmf1931→xy` the (parity-gated) surface
+  branch computes. New args are defaulted so the sole production caller (`engine_tc_lut`) is unchanged.
+- **SCOPE finding (verified vs oracle git history):** the roadmap's "CAT02→CAT16 + xy-clip removal +
+  locus bake" bundles **three independent oracle commits**. Only the **locus bake** is opt-in-shaped and
+  self-contained. CAT02→CAT16 (`eac6b85`) and the runtime xy-clip removal (`30a32a8`) are **UNCONDITIONAL
+  default-path math changes** in `_rgb_to_tc_b` that belong to the deferred P3 Strategy-B rebaseline —
+  **NOT touched here.** Our `rgb_to_tc_b` stays on CAT02 + xy-clip (the pre-feature oracle state). The ON
+  path is therefore a defensible local composition (CAT02+clip front-end + locus bake), not bit-identical
+  to any single oracle commit — so #5 gates the **primitives**, not an e2e ON render (matching how #3
+  gated `compress_rgb_aces_rgc` at the function level rather than a render).
+- **Gate `test_gamut_in_xy`** (`tools/parity/gen_gamut_in_golden.py` → `tests/gamut_in_cases.bin`, oracle
+  HEAD `27bd085`): 3 sections — `spectral_locus_xy` (66 verts, **max_abs 0.0** vs oracle), `compress_xy`
+  (45 cases / 2439 pts, **max_abs 2.22e-16**), and the `remap_tc_lut` bake (4 synthetic LUTs, **max_abs
+  7.33e-15**), plus a NaN-disagreement guard. **Adversarially re-checked** with a fresh seed (20260625),
+  extreme out-of-locus / negative xy, D50/D75/E whites, and asymmetric LUT shapes (7×13 vs 13×7 — which
+  directly validate the bilinear axis order): bit-exact (1e-16 / 1e-13). The gen script reproduces the
+  golden **byte-identically** (deterministic) and uses the same matplotlib-shim oracle-load as the aces
+  gen + a parity-true `spektrafilm.utils.spectral_upsampling` shim (the real `_tri2quad`/`_quad2tri`).
+  Degenerate 1×N LUTs (oracle `0/0`→NaN) are out of scope: the engine's tc_lut is always 192×192 and the
+  C++ guards `H>1`/`W>1` defensively.
+
+### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
+- **P0 + P1 + P2 #5 — all done.** (#1/#2 P0, #3/#4 P1, **#5 this section**.)
+- **P2 #6 — perceptual output gamut algos** (cam16ucs/oklch/oklrab/jzazbz, default-OFF, effort XL): the
+  heavy `model/gamut_compression` color-appearance util on the aces_rgc hook. Most users won't need it
+  over aces_rgc, so it trails the cheaper gamut work.
+- **P2 #7 — gamut stage-integration umbrella** (effort S, now partially actionable): wire BOTH
+  `output_gamut_compress` (from #3) AND `input_gamut_compress` (from #5) through the engine to the UI —
+  add `spk_params` fields + JNI marshal + Kotlin facade + UI, set `ScanningParams.output_gamut_compress`
+  and thread `input_gamut_compress` through `engine_tc_lut` **(fold the flag into its cache key)** +
+  `build_filming_tc_lut`, and **fold `input_gamut_compress` into `compute_film_cache_key`** (the
+  print-route film-density memo) so the bake can't alias across the flag. #6 must land for the perceptual
+  algos, but the aces_rgc + xy wiring can proceed now.
+- **P2 (Kotlin)**: off-main-thread preset/diagnostics IO; undo/redo restoring-flag timing. **P3-quickwins**
+  (recipeKey remember, ROI/magnifier dispose-cancel, crop anchor, optDouble import, GPU re-arm,
+  allocRotBuf overflow, RawCoilDecoder leak). **P3-defer**: the Strategy-B rebaseline cluster — now
+  explicitly **including** the CAT02→CAT16 swap + the `_rgb_to_tc_b` xy-clip removal (default-path math;
+  must move as one coordinated baseline bump; trigger = upstream settling its WB-norm baselines).
+
+### Verification recap (this session)
+Full host engine-parity suite replayed from `ci.yml` argv: **31/31 gates green, fail=0** (all prior
+goldens byte-identical incl. `simulate_e2e` warm==cold; `test_parallel` proves 1≡8 thread-invariance;
+the new `test_gamut_in_xy` bit-exact + adversarially re-checked). NDK r27 `externalNativeBuildDebug`
+green (arm64-v8a/armeabi-v7a/x86_64). Oracle reachable at `/home/user/spektrafilm` (HEAD `27bd085`).
+
+### Background watches (session-scoped; gone on restart)
+PR #105 subscription + any cron die when the session ends — re-subscribe / re-arm if still wanted.
+
+---
+
+## State (2026-06-24 #3, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P1 #3 (aces_rgc output gamut compression) + P1 #4 (float_to_half RNE)
 
 Continuation on the same branch/PR. **Both P1 items from the roadmap are now done.** Both are parity-safe:
 the default render/export path is **byte-identical** to oracle `c1d0e44` (the full host engine-parity suite

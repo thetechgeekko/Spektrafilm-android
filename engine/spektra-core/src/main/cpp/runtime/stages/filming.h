@@ -30,6 +30,7 @@
 #define SPK_RUNTIME_STAGES_FILMING_H
 
 #include "io/npy_lut.h"
+#include "model/gamut_compression.h"
 #include "profiles/profile.h"
 #include "runtime/params.h"
 
@@ -73,12 +74,27 @@ namespace spk {
 // white-balance normalisation against `illuminant`. The default amplitudes (0,0)
 // are a strict no-op, so the default engine path stays bit-exact. Either pointer may
 // be null (treated as no band-pass).
+//
+// `input_gamut_compress` (default kOff) bakes an opt-in radial-to-locus chromaticity
+// compression into the finished tc_lut, mirroring the oracle's
+// compute_hanatos2025_tc_lut appending remap_tc_lut_for_compression when
+// InputGamutCompressSpec.active. kOff skips the bake entirely so the tc_lut is
+// byte-identical to the pre-feature build; kXy applies the bake around the film
+// reference illuminant chromaticity with the (in_gamut_knee_threshold, limit, power)
+// Reinhard knee (oracle production default 0/1/6). The reserved kOklch is treated as
+// kOff (not yet ported). This is the input-side sibling of the scanning stage's
+// output gamut compression; the default keeps every existing golden bit-exact.
 NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut,
                              const double* illuminant,
                              float spectral_gaussian_blur = 0.0f,
                              bool apply_window = true, bool apply_surface = false,
                              const float* filter_uv = nullptr,
-                             const float* filter_ir = nullptr);
+                             const float* filter_ir = nullptr,
+                             InputGamutCompress input_gamut_compress =
+                                 InputGamutCompress::kOff,
+                             double in_gamut_knee_threshold = 0.0,
+                             double in_gamut_knee_limit = 1.0,
+                             double in_gamut_knee_power = 6.0);
 
 // expose(): rgb (npix,3, linear ProPhoto, double — the pipeline runs the image
 // as float64) -> log_raw (npix,3). Reuses the project's verified cubic-2D LUT
