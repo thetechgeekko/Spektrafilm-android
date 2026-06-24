@@ -131,9 +131,26 @@ data class FilmRenderingParams(
     val glare: GlareParams = GlareParams(),
 )
 
+// OPT-IN s023 print density-curve morph (print_render.density_curves_morph).
+// `active` defaults false -> the engine uses the stored print density_curves table
+// (byte-identical to the parity goldens). When active, the print density table is
+// rebuilt from the paper's density_curves_model and morphed by a coupled gamma
+// (global x band(fast/slow) x RGB) plus a developer-exhaustion Gumbel blend.
+data class PrintCurvesMorphParams(
+    val active: Boolean = false,
+    val gammaFactor: Float = 1.0f,
+    val gammaFactorFast: Float = 1.0f,
+    val gammaFactorSlow: Float = 1.0f,
+    val gammaFactorRed: Float = 1.0f,
+    val gammaFactorGreen: Float = 1.0f,
+    val gammaFactorBlue: Float = 1.0f,
+    val developerExhaustion: Float = 0.0f,
+)
+
 data class PrintRenderingParams(
     val densityCurveGamma: Float = 1.0f,
     val glare: GlareParams = GlareParams(),
+    val densityCurvesMorph: PrintCurvesMorphParams = PrintCurvesMorphParams(),
 )
 
 data class IoParams(

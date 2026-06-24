@@ -399,6 +399,21 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
             out->print_glare_blur = call_float(env, pglare, "getBlur");
             env->DeleteLocalRef(pglare);
         }
+        // OPT-IN s023 print density-curve morph. Absent / active=false -> the
+        // engine defaults (off, identity) set in spk_default_params remain.
+        jobject pmorph = call_obj(env, printR, "getDensityCurvesMorph",
+            "()Lcom/spectrafilm/engine/PrintCurvesMorphParams;");
+        if (pmorph) {
+            out->print_morph_active = call_bool(env, pmorph, "getActive") ? 1 : 0;
+            out->print_morph_gamma_factor = call_float(env, pmorph, "getGammaFactor");
+            out->print_morph_gamma_factor_fast = call_float(env, pmorph, "getGammaFactorFast");
+            out->print_morph_gamma_factor_slow = call_float(env, pmorph, "getGammaFactorSlow");
+            out->print_morph_gamma_factor_red = call_float(env, pmorph, "getGammaFactorRed");
+            out->print_morph_gamma_factor_green = call_float(env, pmorph, "getGammaFactorGreen");
+            out->print_morph_gamma_factor_blue = call_float(env, pmorph, "getGammaFactorBlue");
+            out->print_morph_developer_exhaustion = call_float(env, pmorph, "getDeveloperExhaustion");
+            env->DeleteLocalRef(pmorph);
+        }
     }
 
     // ---- io ----

@@ -922,6 +922,19 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // enlarger.print_exposure (default 1.0) multiplies the print exposure.
     pparams.print_exposure = p->print_exposure;
 
+    // OPT-IN s023 print density-curve morph (print_render.density_curves_morph).
+    // Default-off -> print_develop uses the stored density_curves table (the
+    // parity-gate path). The morph is downstream of the cached film_density_cmy,
+    // so it needs no film-cache-key fold (the cache memoises only film density).
+    pparams.morph.active = p->print_morph_active != 0;
+    pparams.morph.gamma_factor = p->print_morph_gamma_factor;
+    pparams.morph.gamma_factor_fast = p->print_morph_gamma_factor_fast;
+    pparams.morph.gamma_factor_slow = p->print_morph_gamma_factor_slow;
+    pparams.morph.gamma_factor_red = p->print_morph_gamma_factor_red;
+    pparams.morph.gamma_factor_green = p->print_morph_gamma_factor_green;
+    pparams.morph.gamma_factor_blue = p->print_morph_gamma_factor_blue;
+    pparams.morph.developer_exhaustion = p->print_morph_developer_exhaustion;
+
     // Enlarger PREFLASH (printing.py::_compute_raw_preflash via
     // filter_enlarger_source.preflash_filtered_illuminant). The preflash flashes
     // the paper through the enlarger with its OWN filter shifts off the neutral CC:
@@ -1349,6 +1362,16 @@ void spk_default_params(spk_params* p) {
     p->print_glare_roughness = 0.7f;
     p->print_glare_blur = 0.5f;
     p->print_density_curve_gamma = 1.0f;
+
+    // s023 print density-curve morph: OFF + identity (a strict no-op default).
+    p->print_morph_active = 0;
+    p->print_morph_gamma_factor = 1.0f;
+    p->print_morph_gamma_factor_fast = 1.0f;
+    p->print_morph_gamma_factor_slow = 1.0f;
+    p->print_morph_gamma_factor_red = 1.0f;
+    p->print_morph_gamma_factor_green = 1.0f;
+    p->print_morph_gamma_factor_blue = 1.0f;
+    p->print_morph_developer_exhaustion = 0.0f;
 
     // io
     p->scan_film = 0;
