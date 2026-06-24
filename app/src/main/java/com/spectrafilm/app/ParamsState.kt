@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.engine.CameraParams
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.DiffusionFilterParams
@@ -85,9 +86,45 @@ class ParamsState {
     var rawTemperature by mutableFloatStateOf(5500f)
     var rawTint by mutableFloatStateOf(1f)
 
+    // --- Creative white balance (all sources; pre-engine Bradford CAT on the linear input). ---
+    // Relative push in [-100,100]; 0 = identity. Distinct from the RAW-decode WB above (which is a
+    // camera-illuminant correction, RAW-only). NOT a SpektraParams field — applied in loadSource.
+    var creativeWbTemp by mutableFloatStateOf(0f)
+    var creativeWbTint by mutableFloatStateOf(0f)
+
+    // "Balance to film stock" — the virtual 85-filter. When ON, loadSource Bradford-adapts the linear
+    // input from the D50 working white to the selected film's reference illuminant (FilmStockBalance),
+    // so a tungsten stock (Vision3 200T/500T) renders a daylight scene neutral instead of authentically
+    // blue. Default OFF preserves the bit-exact spektrafilm look. NOT a SpektraParams field — a
+    // pre-engine input op, so it's part of the decode-cache key (with filmProfile), not toParams().
+    var balanceToFilmStock by mutableStateOf(false)
+
+    // Creative Contrast [-100,100]; 0 = identity. NOT a SpektraParams field — composed into the
+    // master tone curve in toParams (ContrastCurve), so it drives the wired, parity-gated tone-curve
+    // stage. Hue-neutral (master = all channels). Lives in the Tone Curve panel; gated by its switch.
+    var contrast by mutableFloatStateOf(0f)
+
+    // Creative Saturation / Vibrance [-100,100]; 0 = identity. NOT SpektraParams fields — applied as a
+    // post-engine Oklab chroma grade on the output buffer (ColorGrade), so the engine + parity suite
+    // are untouched. Saturation is uniform; Vibrance weights low-chroma (muted) colors more.
+    var saturation by mutableFloatStateOf(0f)
+    var vibrance by mutableFloatStateOf(0f)
+
+    // ACES-style gamut compression amount [0,100]; 0 = off. NOT a SpektraParams field — a post-engine
+    // pass (GamutCompress, via ColorGrade) that softens the harsh cyan/edge fringe on saturated colors.
+    var gamutCompress by mutableFloatStateOf(0f)
+
+    // Local-adjustment masks (the masking keystone). NOT a SpektraParams field — composited on the
+    // engine OUTPUT (MaskCompositor, via simResultToBitmapGraded), so the engine + parity suite are
+    // untouched. Empty = global-only (today's behavior). Round-trips in the recipe "masks" block.
+    var localAdjustments by mutableStateOf<List<LocalAdjustment>>(emptyList())
+
     // --- Simulation / camera ---
     var exposureCompensationEv by mutableFloatStateOf(0f)
-    var autoExposure by mutableStateOf(false)
+    // Default ON to match the upstream spektrafilm pipeline (CameraParams.auto_exposure = True): the
+    // metered exposure places the scene correctly on the film's per-channel density curves, so a
+    // properly-exposed render comes out balanced instead of skewed (e.g. a tungsten stock going blue).
+    var autoExposure by mutableStateOf(true)
     var autoExposureMethod by mutableStateOf("center_weighted")
     var filmFormatMm by mutableFloatStateOf(35f)
     var cameraLensBlurUm by mutableFloatStateOf(0f)
@@ -328,6 +365,12 @@ class ParamsState {
     fun toParams(
         previewMaxSizeOverride: Int? = null,
         filmFormatMmOverride: Float? = null,
+        // Interactive-preview optimisation (Lightroom-style "grain at 100%"): drop the per-pixel
+        // grain + the spatial halation/diffusion branch — the dominant preview cost, ~invisible at
+        // fit/draft resolution. The live draft AND the full fit settle set this; the 100% zoom ROI,
+        // the magnifier and EXPORT do NOT, so grain/halation still render where they're visible.
+        // Preview-only — never set on the export path, so parity is unaffected. Couplers stay on.
+        skipGrainHalation: Boolean = false,
     ): SpektraParams = SpektraParams(
         filmProfile = filmProfile,
         printProfile = printProfile,
@@ -382,7 +425,7 @@ class ParamsState {
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,
             grain = GrainParams(
-                active = grainActive,
+                active = grainActive && !skipGrainHalation,
                 sublayersActive = grainSublayersActive,
                 agxParticleAreaUm2 = grainParticleAreaUm2,
                 agxParticleScale = grainParticleScale,
@@ -395,7 +438,7 @@ class ParamsState {
                 nSubLayers = grainNSubLayers,
             ),
             halation = HalationParams(
-                active = halationActive,
+                active = halationActive && !skipGrainHalation,
                 scatterAmount = halScatterAmount,
                 scatterSpatialScale = halScatterSpatialScale,
                 halationAmount = halHalationAmount,
@@ -453,12 +496,71 @@ class ParamsState {
         ),
         toneCurve = ToneCurveParams(
             active = toneCurveActive,
-            master = ToneCurveChannel(toneCurveMaster),
+            // Contrast composes UNDER the user's drawn master curve; identity when contrast=0.
+            master = ToneCurveChannel(ContrastCurve.composeMaster(toneCurveMaster, contrast)),
             red = ToneCurveChannel(toneCurveRed),
             green = ToneCurveChannel(toneCurveGreen),
             blue = ToneCurveChannel(toneCurveBlue),
         ),
     )
+
+    /**
+     * Reset the per-stock character overrides — grain, halation, DIR couplers and the film/print
+     * density-curve gamma — to their neutral defaults, so a freshly selected film or paper shows its
+     * own baked character instead of the previous stock's manual tweaks. Creative and global edits
+     * (exposure, white balance, crop, tone curve, output grade, masks…) are deliberately left
+     * untouched.
+     *
+     * Powers the "Use its defaults" snackbar action on profile switch (onboarding §6h). UI/state only
+     * — the engine still receives a complete param set, so this carries no parity impact.
+     */
+    fun resetStockCharacter() {
+        val d = ParamsState()
+        // Grain
+        grainActive = d.grainActive
+        grainSublayersActive = d.grainSublayersActive
+        grainParticleAreaUm2 = d.grainParticleAreaUm2
+        grainParticleScale = d.grainParticleScale
+        grainParticleScaleLayers = d.grainParticleScaleLayers
+        grainDensityMin = d.grainDensityMin
+        grainUniformity = d.grainUniformity
+        grainBlur = d.grainBlur
+        grainBlurDyeCloudsUm = d.grainBlurDyeCloudsUm
+        grainMicroStructure = d.grainMicroStructure
+        grainNSubLayers = d.grainNSubLayers
+        // Halation
+        halationActive = d.halationActive
+        halScatterAmount = d.halScatterAmount
+        halScatterSpatialScale = d.halScatterSpatialScale
+        halHalationAmount = d.halHalationAmount
+        halHalationSpatialScale = d.halHalationSpatialScale
+        halBoostEv = d.halBoostEv
+        halProtectEv = d.halProtectEv
+        halBoostRange = d.halBoostRange
+        halScatterCoreUm = d.halScatterCoreUm
+        halScatterTailUm = d.halScatterTailUm
+        halScatterTailWeightPct = d.halScatterTailWeightPct
+        halHalationStrengthPct = d.halHalationStrengthPct
+        halFirstSigmaUm = d.halFirstSigmaUm
+        halNBounces = d.halNBounces
+        halBounceDecay = d.halBounceDecay
+        halRenormalize = d.halRenormalize
+        // DIR couplers
+        couplersActive = d.couplersActive
+        couplersAmount = d.couplersAmount
+        couplersInhibitionSamelayer = d.couplersInhibitionSamelayer
+        couplersInhibitionInterlayer = d.couplersInhibitionInterlayer
+        couplersGammaSamelayer = d.couplersGammaSamelayer
+        couplersGammaRtoGb = d.couplersGammaRtoGb
+        couplersGammaGtoRb = d.couplersGammaGtoRb
+        couplersGammaBtoRg = d.couplersGammaBtoRg
+        couplersDiffusionSizeUm = d.couplersDiffusionSizeUm
+        couplersDiffusionTailUm = d.couplersDiffusionTailUm
+        couplersDiffusionTailWeight = d.couplersDiffusionTailWeight
+        // Density-curve gamma (Experimental)
+        filmGammaFactor = d.filmGammaFactor
+        printGammaFactor = d.printGammaFactor
+    }
 }
 
 /** A diffusion-filter sub-section (camera or print stage). */

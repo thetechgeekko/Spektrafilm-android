@@ -1,147 +1,972 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-24 #2, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P0 #1 ACES→ProPhoto RAW colorspace fix
+## State (2026-06-09, LATEST, branch `claude/exciting-hamilton-hya62`) — White-balance wave + **release prep v0.8.0** (PR #103)
 
-Continuation on the same branch/PR. **Both P0 items from the roadmap are now done** (P0 #2 np_interp
-shipped in the section below; P0 #1 ACES→ProPhoto ships here). The fix **visibly changes native
-RAW/DNG renders** — a correction back onto the oracle — and moves **no parity golden** (no host
-golden feeds a RAW buffer). All prior 29 engine-parity gates remain green; both native libs
-(`libsfraw`, `libspektra`) and `:app`/`:engine` Kotlin compile.
+Three things landed on PR #103 after the Class-S masking commit, all **Tier-0/1/2 (parity untouched)**,
+all device-confirmed by the user ("this works perfectly"):
 
-### What shipped (P0 #1 — RAW input colorspace)
-- **The bug:** LibRaw decoded RAW to **ACES2065-1**, but the engine ingests **linear ProPhoto RGB**
-  (runtime `InputColorSpace` has a single value, `kProPhotoRGB`) and `nativeSimulate` hardcoded the
-  input tag to ProPhoto while *discarding* the buffer's actual `inCs` tag — so every native RAW/DNG
-  decode pushed ACES pixels through the ProPhoto primaries (wrong chromaticity on the core editor flow).
-- **The fix (mirrors the oracle exactly):** the oracle's `raw_file_processor.load_and_process_raw_file`
-  decodes ACES then `colour.RGB_to_RGB(..., output_colorspace="ProPhoto RGB")`. Ported that final step
-  into **`raw_decoder.cpp`** (the architectural twin of `raw_file_processor.py`): new
-  `kAcesToProPhoto` CAT02 matrix + `aces2065ToProPhotoRGB()`, applied per-pixel **after** the ACES-space
-  WB adaptation (matching oracle order), retagging `result.colorSpace = "ProPhoto RGB"`. The conversion
-  does **not** clamp (AP0 is wider than ProPhoto; out-of-gamut negatives are faithful to the oracle —
-  gamut compression is the separate P1/P2 work).
-- **Verification (the matrix IS the gate — libraw isn't in the host parity suite):** new host test
-  `lib/libraw/src/test/cpp/test_aces_prophoto.cpp` checks `aces2065ToProPhotoRGB` against
-  **colour-science 0.4.7** reference vectors (the oracle's pinned version) → **`max_abs 5.96e-08`**, and
-  preserves the out-of-gamut negative. The HANDOFF matrix was re-derived from `colour.matrix_RGB_to_RGB`
-  and confirmed authoritative (its non-unit row sums 1.00018/0.99996/1.00027 ARE colour's CAT02 output —
-  do not "correct" them).
-- **Hardening:** `nativeSimulate` now reads `inCs` and **throws** on any non-ProPhoto tag (empty = legacy
-  ProPhoto) instead of silently re-interpreting — closing the hole that hid this bug. All decode paths
-  (LibRaw, platform/photo `bitmapToLinearProPhoto`, synthetic) emit ProPhoto, so the throw is safe.
-- **Honesty:** the inert UI "Input color space" dropdown (engine only does ProPhoto) is now wrapped in a
-  `GatedBlock` disclaimer, mirroring the existing MALLETT2019 treatment. `:lib:libraw` docs +
-  `RawDecoder`/`LinearResult`/`EngineHelpers` doc-comments updated (the module now returns ProPhoto, ACES
-  is intermediate only). `RawCoilDecoder` (dead/unreferenced) left as-is.
-- **Verified:** `test_aces_prophoto` + `test_dng_sniffer` green; engine `test_simulate_e2e` +
-  `test_parallel` green (engine core source set is byte-unchanged); `:lib:libraw` + `:engine`
-  `externalNativeBuildDebug` BUILD SUCCESSFUL (all 3 ABIs, NDK r27); `:app`+`:engine compileDebugKotlin`
-  BUILD SUCCESSFUL. CI re-running.
+1. **Gray-point WB eyedropper** (`CreativeWhiteBalance.solveNeutral`) — tap a neutral; coordinate-descent
+   solves the (temp,tint) that drives that pixel's chroma to ~0. Surfaced in a restructured **White
+   balance** panel (eyedropper first, Warmth/Tint for *all* sources, RAW Kelvin appended only for RAW).
+2. **Auto-exposure default ON** (`ParamsState.autoExposure = true`) — matches upstream
+   `CameraParams.auto_exposure = True`; places the scene correctly on the film's density curves.
+3. **"Balance to film stock" (virtual 85-filter)** — `FilmStockBalance` reads `info.reference_illuminant`
+   from the profile asset → CCT; `CreativeWhiteBalance.adaptD50ToCct` Bradford-adapts the D50 working
+   white to the film's reference so **tungsten stocks (Vision3 200T/500T, ref "T" ≈2856 K) render a
+   daylight scene neutral** instead of authentically blue. Baked in `loadSource` next to Creative WB;
+   `isMeaningful` gates daylight stocks (D55) to a true no-op; threaded through the decode caches
+   (`filmBalance` key) + preview/auto-save triggers; round-trips in the recipe. Default OFF (keeps the
+   bit-exact look). New `CreativeWhiteBalanceAdaptTest`.
+   - Also: scanner white/black correction — clearer help (it pins the scan's white/black to the target
+     *levels*; subtle at 0.98/0.01) and grayed out in the one strict-no-op case (Slide mode on a negative
+     stock), per the engine gating (`spektra.cpp`: active only `bw_on && film.is_positive()` on the
+     scan-film route, or a negative paper on the print route).
 
-### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
-- **P0 — both done.** P0 #1 (ACES→ProPhoto, this section) + P0 #2 (np_interp, below).
-- **P1 #3 — `aces_rgc` output gamut compression** (default-OFF, LEGACY_CLIP sentinel). The recommended
-  first gamut port: establishes the newer-oracle-golden gating pattern + builds the shared
-  `reinhard_knee` helper that the input/perceptual gamut items (P2 #5/#6) reuse. Zero default-path impact.
-- **P1 #4 — `float_to_half` round-to-nearest-even** (`half.cpp`): cheap/isolated, must land before the
-  fp16 preview-proxy storage turns the latent scalar-vs-NEON divergence into a failing `test_half`.
-- **P2/P3** unchanged from the section below (input/perceptual gamut, Kotlin UI quick-wins, reflectance/
-  Mallett2019, and the deferred Strategy-B rebaseline cluster).
+**RELEASE PREP:** `versionCode 9→10`, `versionName 0.7.0→0.8.0` (CLAUDE.md updated). **v0.8.0 is the first
+release since v0.7.0 — 173 commits**, spanning the whole masking keystone (radial/linear/luminance/color
+masks + eyedroppers + draw-on-preview geometry; per-mask Class-P Exposure/Temp/Tint/Sat/Hue/Contrast/
+Whites/Blacks + Class-S Clarity/Texture/Sharpness/Highlights/Shadows), the Lightroom export sheet (16-bit
+PNG/TIFF, 32-bit-float + scene-linear TIFF), LUT export (CLF + .cube), §6h onboarding, §6e slide-mode, and
+this WB wave. `release.yml` fires on a `v*` tag push → builds the **signed, minified (R8)** APK and creates
+the GitHub Release. ⚠️ **R8/minify is NOT exercised by CI** — smoke-test the release APK on a device before
+tagging (CLAUDE.md). Tests: `:app:testDebugUnitTest` green; `:app:assembleDebug` + `:app:assembleRelease`
+green.
 
-### Background watches (session-scoped; gone on restart)
-PR #105 subscription + cron `7b2e5907` were set up in the prior session and **die when that session ended**
-— re-subscribe / re-arm in this session if still wanted.
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — masking Class-S local adjustments (PR #103)
+
+**PR #102 MERGED** to `main` (`cc917fd`): §6e slide-mode + §6a export sheet + §6b 32-float/scene-linear
+TIFF. **User device-tested it: "apk works and 32bit export works."** Then flagged the **masking tool as
+incomplete** vs Lightroom → I gap-analysed `masks/` against the LR RE (`docs/MASKING_SPEC.md`) and the
+user chose **Class-S local sliders** to close first.
+
+**PR #103 (DRAFT, `662ea4b` on `main`)** — the spatial half of LR's local panel (a neighborhood pass on
+the output luma; a per-pixel curve can't make these): **Clarity** (large-radius midtone local contrast),
+**Texture** (mid-radius detail), **Sharpness** (small-radius unsharp), **Highlights/Shadows** (regional
+gain via the blurred luma). Now 13 of LR's ~14 local ops (Dehaze/DCP deferred). `MaskSpatial` = a
+separable 3-pass box blur (≈Gaussian, O(n), edge-clamped) + Clarity midtone weight; radii scale with the
+long edge (draft≡export). Gated spatial pass in `MaskCompositor` (luma-only, colour preserved by RGB
+ratio). Tier-2, parity untouched. `MaskSpatialTest` (+5); `:app:testDebugUnitTest` **176/176**, lint +
+assembleDebug green. **Not device-verified** (radii/gains are `[RECON]` tunables).
+
+**Masking gaps still open (LR-RE, ranked):** Brush (`cr_mask_paint`); AI Select Subject/Sky
+(`cr_mask_image`, needs a bundled TFLite + guided-filter); Dehaze (DCP); multi-sample colour range (≤5);
+per-component range nesting; on-preview alpha viz; full `crs`/XMP sidecar export for LR round-trip.
+
+> ⚠️ **§6g `ProfileValidator` is orphaned** — committed (`660d33a`) + pushed but slipped the #102 merge,
+> then force-dropped from the branch when #103 reset to clean `main`. Not in `main`, recoverable via the
+> source in-session or origin's dangling object. Re-land if/when §6g (profile import) is prioritized.
 
 ---
 
-## State (2026-06-24, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — review fixes + upstream-sync + print-curve morph + np_interp fix
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — UX polish wave: §6h onboarding (PR #101 MERGED) + §6e slide-mode + §6a/b export sheet (PR #102 MERGED)
 
-All pushed to `claude/exciting-hamilton-hya62` (PR #105, repo moved to
-`thetechgeekko/Spektrafilm-android`). Host engine-parity verified green at every step
-(now **29 gates**: the prior 27 + `test_print_curves_morph` + `test_np_interp`).
-Default render/export path is byte-identical to oracle `c1d0e44` except the
-auto-exposure metering fix (a correction back onto the oracle). Android `:app` +
-`:engine` Kotlin compile (`compileDebugKotlin` BUILD SUCCESSFUL). CI re-running.
+A "v0.8 UX polish" wave. **PR #101 — the §6h onboarding trio (help sheets, Basic/Advanced disclosure,
+"use its defaults" snackbar) — is MERGED to `main`** (at `fb8fa0d`). **PR #102 (DRAFT)** then adds, on
+top of `fb8fa0d`: **§6e slide-mode** (`111125f`), a **Lightroom-style export sheet** (§6a/§6b;
+`a8a81a0`+`7e038d8`), and **§6b high-bit-depth TIFF exports** (`8ede3db` native writer, `dcdd352` 32f
+output, `0b00faa` scene-linear input). **Tier 0/2 (UI + post-engine encode) —
+`engine/spektra-core/src/main/cpp/**` untouched, the 26-test parity suite is unaffected.**
 
-### Commits this session (oldest→newest)
-1. `9b84e1e` Auto-exposure metering parity fix + 4 review follow-ups + review report.
-2. `449cca7` `docs/UPSTREAM_SYNC_2026-06-24.md` (merged-main + experimental-branch plan).
-3. `a33610a` Print density-curve morph (s023) engine core (opt-in, default-off).
-4. `5a31edf` Morph param chain: `spk_params`→JNI→Kotlin facade.
-5. `7c638ea` CHANGELOG for the morph.
-6. `b800ccd` `docs/PRIORITY_ROADMAP_2026-06-24.md` (ranked P0..P3).
-7. `4b745b1` Morph editor UI (`ParamsState`/`Presets`/`MainActivity` Experimental section).
-8. `ad4b2e4` **`np_interp` non-monotonic DIR-coupler fix (P0 #2)**.
+### §6b high-bit-depth TIFF (`:lib:tiffwriter`, NOT the parity engine)
+- **True 32-bit IEEE-float TIFF writer** (`writeTiff32fToMemory/File`, SampleFormat=3) — refactored the
+  16-bit + 32f paths onto a shared core; **host-tested** (`runFloatCase`: tags + verbatim float
+  round-trip incl. out-of-[0,1]; the pre-existing 16-bit assertions stay green, proving the refactor is
+  byte-safe). JNI `nativeWriteFloatBuffer` + `TiffWriter.writeFloat32`.
+- **`ExportFormat.TIFF32F`** (B3) — `saveSimResultAsTiff(float32=true)` writes the engine's float
+  SimResult VERBATIM (no quantise/clamp/copy), with the matching ICC.
+- **`ExportFormat.SCENE_LINEAR_TIFF`** (B1, the honest "linear DNG") — `saveLinearInputAsTiff32f` writes
+  the decoded scene-linear INPUT (before the engine) as an **untagged** 32f TIFF (no ICC; a
+  display-gamma profile would mis-describe linear data); the export flow skips the engine for it.
+- Renamed `is16Bit()` → `isHighBitDepth()` (TIFF/PNG16/TIFF32F/SCENE_LINEAR_TIFF → full-res in the sheet).
+`:app:testDebugUnitTest` **171/171** (+`ExportOptionsTest` 8), `:app:lintDebug` clean,
+**`:app:assembleDebug` green**.
 
-### What shipped + verified
-- **Codebase review** (`docs/CODE_REVIEW_2026-06-24.md`): 18 confirmed findings. 5 FIXED in
-  `9b84e1e`: auto-exposure `small_preview` AA prefilter (only default-path divergence;
-  gate `test_small_preview_aa`), CI `build_run` honors test exit code, `crop_image`
-  oversize NumPy slice, `spk_simulate` null guard, `grain.cpp` dead store.
-- **Print-curve morph (s023)** — first opt-in feature from the sync plan. `model/morph_curves.{h,cpp}`
-  ports `apply_print_curves_morph` (coupled gamma + Gumbel blend + scipy-style `brentq` D(0)
-  offset). `profiles/profile.cpp` now parses `data.density_curves_model`. Integrated in
-  `printing.cpp::print_develop` (default-off → stored table, byte-identical). Wired through
-  `spk_params` (`print_morph_*`)→`spektra_jni`→`PrintCurvesMorphParams` facade→`ParamsState`→
-  editor (Experimental section, enable switch + 7 sliders)→`Presets`. Gate
-  `test_print_curves_morph` **bit-exact (max_abs 0.0)** vs oracle golden
-  (`tools/parity/gen_print_curves_morph_golden.py`). Default-off keeps all goldens green.
-- **`np_interp` coupler fix (P0 #2)** — `couplers.cpp` used a plain ascending binary search;
-  the DIR-coupler axis `le0 = le - silver@M` can be NON-monotonic (diverged up to ~0.44 at
-  amount≥2 from the shipping sliders). Now ports numpy's order-dependent
-  `binary_search_with_guess` + batched `arr_interp` (`np_interp_array`, exposed in `couplers.h`).
-  Gate `test_np_interp`: **bit-exact (max_abs 0.0) vs `np.interp`** over 82 cases/3175 pts
-  (77 non-monotonic). NOTE: a per-element linear scan does NOT match numpy (964/4000 random
-  fails) — the carried guess matters; keep the batched form.
+### §6a/b export sheet — modeled on Lightroom (RE'd from `/home/user/re-lr/lr-decompiled`)
+The RE found LR's export is a **format-aware sheet** (format → format-specific options → dimensions →
+colour → naming → metadata), not a global setting. Ours now mirrors that: tapping Export opens
+`ExportSheet` (`ModalBottomSheet`) with **Format** (+JPEG/UltraHDR quality), **Size**
+(Full/Large 4096/Medium 2048/Small 1024/Custom long-edge — a **post-render downscale** via
+`scaleBitmapToLongEdge`, so grain/halation render full-quality first), **Color space** (friendly
+labels) + CCTF, optional **File name**, and **Include location (GPS)**. 16-bit TIFF/PNG16 pin to
+full-res. Choices seed from `AppSettings` and are remembered back. Pure core in `ExportOptions.kt`
+(`targetLongEdge()` 16-bit-aware + clamped, `scaledDimensions()` never-enlarge, `exportBaseName()`
+sanitiser) is JVM-tested; `saveToGallery`/`saveSimResultAsTiff`/`saveSimResultAsPng16` gained an
+optional `displayName`. **NOT device-verified** (sheet look/feel needs a device).
+**Deferred (recorded):** LUT **input** color-space picker is engine-gated (native bakes the lattice in
+linear ProPhoto); **AVIF** (§6c) is a new `:lib:avifwriter` .so (16 KB-align risk); output **sharpening
+/ watermark / border** are out of scope (LR defaults them off). Next clean export item: **32-bit-float
+TIFF** + **scene-linear TIFF of the input** (§6b B1/B3, `:lib:tiffwriter` C++, not the parity engine).
 
-### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
-- **P0 #1 — ACES→ProPhoto RAW colorspace fix (READY, awaiting go; CHANGES RAW OUTPUT).**
-  Bug: LibRaw decodes RAW to ACES2065-1 (`raw_decoder.cpp:536`) but the engine treats input as
-  ProPhoto (`spektra_jni.cpp` discards `inCs`, hardcodes `SPK_CS_PROPHOTO`); ACES pixels run
-  through the ProPhoto→XYZ matrix → wrong primaries on every native RAW decode. Oracle decodes
-  ACES then `colour.RGB_to_RGB`→ProPhoto (engine `input_color_space` default = "ProPhoto RGB").
-  FIX: bake the matrix below, apply per-pixel in `raw_decoder.cpp` where ACES is produced (one
-  place), set `result.colorSpace="ProPhoto RGB"`; also marshal `getInputColorSpace` (currently
-  inert). No host golden covers RAW, so correctness = the matrix (verified vs colour-science
-  0.4.7). The `decodeViaPlatform` fallback already emits ProPhoto. Caveat: `libraw` module is
-  NOT in the host parity suite — only the Android CI build compiles it; write the per-pixel loop
-  carefully. This is the only P0 item that VISIBLY changes RAW renders (a correction). Matrix
-  `ACES2065-1 → ProPhoto RGB` (CAT02, `colour.RGB_to_RGB` default), row-major:
-  ```
-  { 1.2393803418, -0.1639678228, -0.0752333838}
-  { 0.0036113619,  1.0896136492, -0.0932657921}
-  {-0.0020596793, -0.0022515883,  1.0045855773}
-  ```
-- **P1**: `float_to_half` round-to-nearest-even (`half.cpp`, latent until fp16 proxy); then the
-  `aces_rgc` **output gamut compression** hook (`scanning.cpp`, opt-in/default-off via a
-  LEGACY_CLIP sentinel — establishes the shared `reinhard_knee` + newer-oracle-golden gating the
-  input/perceptual gamut items reuse). See roadmap items 3–7 + dependency notes.
-- **P2/P3**: input/perceptual gamut compression; batch the Kotlin UI quick-wins (main-thread IO,
-  ROI bitmap cancel, crop anchor, `allocRotBuf` overflow, preset `optDouble`, undo timing, GPU
-  flags, `RawCoilDecoder` leak); reflectance/Mallett2019 upsampling (P3, blocked on a stable new
-  oracle SHA). DEFERRED (P3, Strategy-B baseline move, parityRisk high): the 28/29 profile refit
-  + default-ON engine math + WB-norm + B&W N-channel + Langmuir + grain overhaul — must move as
-  ONE coordinated rebaseline (re-pin `tools/parity/setup_env.sh`, regen every golden); trigger =
-  upstream settling its WB-norm regression baselines.
+> ⚠️ **Two gotchas hit this run.** (1) **Container reset mid-session** (proxy port changed; local tree
+> fell back to stale `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but
+> **`git fetch origin <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`.
+> (2) **The user merged PR #101 while I kept working**, which auto-deleted the branch; my next push
+> re-created it ("[new branch]") with the §6e commits orphaned (no PR) → opened PR #102 for them. All
+> work was pushed, nothing lost. Lesson: re-check PR state (merged?) before assuming the branch/PR is
+> still open; webhooks don't deliver merges.
 
-### How to verify (host parity — the real gate)
-`engine/spektra-core/src/main/cpp`; compile each TU once to objects then link each test (much
-faster than re-compiling the source set per test). Replay the exact CI argv:
-`grep -E '^\s*build_run ' .github/workflows/ci.yml` and run each (`$ASSET` =
-`engine/.../assets/spektra`, `$G` = `tools/parity/goldens`, `$LUT` =
-`$ASSET/luts/spectral_upsampling/irradiance_xy_tc.npy`). PASS = no `FAIL` line + exit 0. Kotlin:
-`ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew
-:app:compileDebugKotlin --no-daemon -Dkotlin.compiler.execution.strategy=in-process` (the gradle
-daemon crashes on GC auto-select in this env; `--no-daemon` + in-process works). Oracle for new
-goldens at `/home/user/spektrafilm` (HEAD `3bb2c2d`; baseline `c1d0e44`); top-level
-`import spektrafilm` fails (lensfunpy missing) — load single modules directly with stubbed deps
-(see the morph/np_interp gen scripts). `andreavolpato/spektrafilm` git is policy-blocked (403);
-its branches were pushed to the `thetechgeekko/spektrafilm` fork (`reflectance-upsampling-methods`,
-`non-linear-couplers`, `dev`) and analyzed (Part B of the sync doc = track-only).
+> ⚠️ **Container reset mid-session** this run (proxy port changed; local tree fell back to the stale
+> `b7d6282`). Recovery: the proxy refuses `git fetch origin <branch>` by name, but **`git fetch origin
+> <full-sha>`** (or `refs/pull/<n>/head`) works → `git reset --hard <sha>`. All work was already pushed,
+> so nothing was lost. Keep committing + pushing every increment.
 
-### Background watches (session-scoped; gone on restart)
-PR #105 is subscribed for CI/review webhooks; cron job `7b2e5907` (hourly :47) re-checks CI/merge
-state. Both die when the session ends — re-subscribe / re-arm in a new session if still wanted.
+- **Plain-language help sheets** — `ParamHelp.kt` (new, pure data): a `ParamHelpText` registry mapping
+  a stable key → `{title, one-line summary, fuller body}` for Grain, Halation, Film colour character
+  (DIR couplers), Film & print contrast (gamma), Preflash, Glare. `Widgets.kt`: `SectionCard` gains an
+  optional `help: ParamHelp?` → a drawn "?" badge (no material-icons dep, matching the hand-drawn
+  `Chevron`) + a `HelpSheet` (`ModalBottomSheet`, scrollable, GPLv3 attribution). `MainActivity.kt`
+  wired the six opaque sections. JVM-tested (`ParamHelpTest`).
+- **Basic/Advanced disclosure** — new `AdvancedToggle` widget; Grain/Halation/Couplers now show a short
+  Basic set by default (Grain: particle area + blur; Halation: amount/size, scatter, boost EV;
+  Couplers: the three strength scalars) with "Show advanced options" revealing the full physical set.
+  Pure presentation — hidden controls keep state, engine still gets every param.
+- **"Use its defaults" snackbar** — switching the film/print profile offers a snackbar whose action
+  resets the per-stock character (grain/halation/couplers/film+print gamma) to neutral so the new stock
+  shows its baked character; creative/global edits are preserved. New `ParamsState.resetStockCharacter()`
+  (builds a fresh `ParamsState`, copies the character groups → tracks the initializers). JVM-tested
+  (`ParamsStateResetTest`).
+- **§6e Slide-mode UX** — picking a colour-reversal (slide) film (Provia/Velvia/Ektachrome/Kodachrome)
+  now offers a "Slide mode" snackbar (when the print is still showing) that flips `scanFilm` to view it
+  as a positive; other switches keep the "use its defaults" suggestion. Relabel `Scan film (skip print)`
+  → `Slide mode (skip print)`. Detection is a pure predicate (`StockEntry.isReversal()`,
+  `groupId == StockCatalog.GROUP_COLOR_REVERSAL`), grounded against the real `catalog.json`
+  (`StockCatalogTest`). Generalised the snackbar helper → `offerSnackbarSuggestion(message, action, onAction)`.
+
+**§6h + §6e essentially complete.** Optional §6h leftovers: extend help/Basic-Advanced to
+Simulation/Input/Display; persist the Basic/Advanced preference.
+
+**§6a finding (recorded so it isn't re-investigated):** the doc's "LUT input/output colour-space pickers
+are UI-only" is **half right**. OUTPUT space already flows through `params.io.outputColorSpace` (set in
+Simulation→Output) and the **size picker + .cube/.clf toggle already shipped in #99**. But the LUT
+**INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp:621` `kProPhotoRGB`; `.cube`
+header L1683), so a true input-CS picker is **engine-gated (Tier 3)**, not UI-only. The clean UI-only
+remainder is: surface the output CS in the export dialog + interop help text.
+
+After this wave: profile import (§6g), export polish (§6a remainder + §6b 32-bit-float TIFF / scene-linear
+TIFF — `:lib:tiffwriter` C++, not the parity engine).
+
+**▶ NEXT SESSION:** if #101 merged (`git merge-base --is-ancestor <pr-head> origin/main`),
+`git fetch origin main && git reset --hard origin/main`; else continue on
+`claude/exciting-hamilton-hya62`. The remote branch auto-deletes on merge → recreate with a normal
+`git push`. **Commit + push every increment immediately** (container has reset mid-session before).
+
+---
+
+## State (2026-06-08) — ALL MERGED to `main` (#90–#99); next = onboarding (§6h)
+
+**This session shipped PRs #90–#99, all merged to `main`** (tip `dc7bf54`), **zero engine C++ changes —
+the 26-test parity suite was untouched throughout.** The arc: §2/§3 color+tone foundation (color
+management, contrast, saturation/vibrance, gamut compression) → the **masking keystone** end-to-end
+(radial+gradient shapes via slider OR drag-on-preview, 8 Tier-A ops incl. an accurate Bradford-CAT
+Temp/Tint, luminance+color range refinements with eyedroppers) → a **ColorGrade de-dup** cleanup →
+pivot to a **fresh domain (export/interop): CLF LUT export + a resolution picker**. `:app:testDebugUnitTest`
+**153/153**, `:app:lintDebug` clean, `:app:assembleDebug` green; CI green on every PR.
+
+**▶ NEXT SESSION START HERE:** everything is on `main` — `git fetch origin main && git reset --hard
+origin/main` (no open PR; the branch auto-deleted on the #99 merge — recreate it with a normal
+`git push` for the next PR). **Recommended next: Onboarding (§6h)** — plain-language labels/tooltips + a
+`ParamHelp` map for the opaque controls (couplers/grain/halation/print-gamma) + Basic/Advanced toggles +
+"?" help sheets. Relabel-only → trivially parity-safe; broadest user reach; the help content is data
+(testable coverage). The full ranked fresh-domain backlog is below. **Commit + push every increment
+immediately** (container has reset mid-session in past runs).
+
+### CLF LUT export (PR #99, merged) — `32a19df`
+**CLF LUT export + resolution picker.** The engine's `bakeCubeLut(params, size)` already supports any size
++ threads the output space, so this is a verifiable serializer + UI on top of the existing `.cube` export.
+- **`ClfWriter`** (pure, JVM-tested) — a baked `CubeLut` → Academy/ASC **CLF v3** ProcessList + LUT3D
+  (32f, trilinear), for **DaVinci Resolve 17+ / OCIO 2.3+**. `CubeLut.rgb` is blue-fastest = CLF's
+  3D-LUT Array order, so samples write through unchanged; floats forced to `.` decimal (Locale.US);
+  XML-escaped title. `ClfWriterTest` (4).
+- **`PresetPanel`** — a **Size** picker (17³/33³/65³) + a **.cube/.clf** toggle; bakes at the chosen
+  size, converts to CLF when picked. `lutFileName(film,print,size,clf)` replaced `cubeFileName`.
+- **Honest scope:** a 3D LUT is pointwise only (grain/halation/diffusion/glare omitted from the bake,
+  same as `.cube`). **CLF-import fidelity is pending validation in a real Resolve/OCIO** (structure +
+  ordering are unit-tested; real-host validation is the user's step).
+
+### The fresh-domain backlog (USER_DRIVEN_SOLUTIONS.md §6/§5 + the catalog) — pick next
+All parity-safe Tier 0/2/4 unless noted. Highest verifiable value first:
+1. **Onboarding (§6h, pain #8):** plain-language labels/tooltips + a `ParamHelp` map for the opaque
+   controls (couplers/grain/halation/print-gamma) + Basic/Advanced toggles + "?" help sheets. Broadest
+   reach; relabel-only (never change behavior → trivially parity-safe). Content is data (testable coverage).
+2. **Profile import (§6g, pain #5):** import a film/paper profile JSON from a URI with validation →
+   extensibility (community profiles without an APK rebuild). Validation is verifiable; asset/loader
+   integration is the meat.
+3. **Export polish (§6a/b):** LUT input/output color-space pickers (engine already threads them); a
+   **32-bit-float TIFF** output (B3) + **scene-linear TIFF/EXR of the input** (B1) — honest answer to the
+   "linear DNG" ask. (TIFF-writer changes are in `:lib:tiffwriter` C++, NOT the parity-gated engine.)
+4. **Slide-mode UX (§6e):** auto-suggest `scanFilm` for `type:"positive"` profiles + relabel. Tiny.
+5. **Presets/profiles (§6f):** fantasy-paper profiles + tungsten presets (data, verifiable).
+6. **AVIF export (§6c):** new `:lib:avifwriter` .so (avif-coder) — biggest integration risk (16 KB align).
+7. **Performance (§5):** fp16 / stage caches (no device) → GPU (needs an Adreno).
+ENGINE-GATED (defer, needs oracle goldens): true-B&W silver path (§6d), cyan-crosstalk cure (§2 P3).
+
+### Key files (this segment)
+NEW `ClfWriter.kt`, test `ClfWriterTest.kt`; edits `MainActivity.kt` (PresetPanel LUT export UI +
+handler), `ImagePipeline.kt` (`lutFileName`). LUT data type: `CubeLut` in `LutGpuPreview.kt`.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — draw-on-the-preview mask geometry overlay — PR #98 MERGED, #90–#97 MERGED
+
+Masks are now **drawable on the photo**, not just slider-positioned. A "Position on photo" button opens a
+full-screen editor (mirrors `CropOverlay`) to drag a radial (move + resize handles) or a gradient
+(endpoints). **Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite
+unaffected.** `:app:testDebugUnitTest` **146/146**, `:app:lintDebug` clean, **`:app:assembleDebug` green**
+(ran the full Android build since this is UI-heavy).
+
+**▶ NEXT SESSION START HERE:** if #98 merged (`git merge-base --is-ancestor ef213df origin/main`),
+`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip = HEAD after the
+HANDOFF commit). **Remote branch auto-deletes on merge** → recreate with a normal `git push` after a
+merge (`--force-with-lease` then fails "stale info"; `git fetch --prune` first). Commit + push every
+increment immediately.
+
+### What shipped this session-segment (PR #98)
+**Draw-on-the-preview mask geometry overlay** (`ef213df`). The error-prone coordinate logic is a pure,
+JVM-tested core so it's verified without a device; only rendering + gesture FEEL need the S26.
+- **`masks/MaskGesture`** (pure) — `pick(shape, px,py, w,h) → Handle` (radial RX/RY edge handles, linear
+  P0/P1 endpoints, else MOVE) + `applyDrag(shape, handle, dx,dy) →` clamped normalized geometry. No
+  Compose/Android types. `MaskGestureTest` (6).
+- **`MaskGeometryOverlay`** (Compose) — full-screen modal mirroring `CropOverlay`; the image fills a Box
+  with the image aspect ratio so normalized 0..1 maps straight to pixels (alignment correct by
+  construction, no zoom/pan). Edits the mask's first component, preserves the rest.
+- **`MainActivity`** — wired like crop: `maskOverlayOpen`/`maskEditIndex` state + a `Category.MASKS`
+  `onEditOnPhoto` callback + render block + `BackHandler` + the two live-preview-pause guards.
+- **`MaskPanel`** — a "Position on photo" button per selected mask (`onEditOnPhoto` param, default no-op).
+
+### Masking status — FEATURE-COMPLETE for slider+gesture v1
+Shapes: radial + gradient (slider OR drag-to-position). Per-mask ops: Temp/Tint/Exposure/Saturation/Hue/
+Contrast/Whites/Blacks. Refinements: luminance + color range. All live in preview/export + persisted.
+
+### Next steps (device-gated or larger; pick per user)
+1. **On-preview polish (device-gated for *feel*):** rotated-ellipse + feather/angle handles in the
+   overlay; an **on-preview alpha viz** (tint where the mask applies); an **eyedropper** that taps the
+   preview to sample the color/luminance range target (reuse the overlay's pixel→normalized mapping).
+2. **Bigger masking features:** per-component range nesting; multi-sample color range (LR ≤5); **brush**
+   (`cr_mask_paint`); **AI Subject/Sky** (LiteRT + guided-filter). Designs in `docs/MASKING_SPEC.md`.
+3. **Full `crs` XMP export** for Lightroom interop (`MASKING_SPEC.md §7`) — fully JVM-verifiable.
+4. **Device + R8 smoke** (no device in-env): the whole Masks panel + the new overlay end-to-end.
+5. **Beyond masking:** the other `docs/USER_DRIVEN_SOLUTIONS.md` domains (export formats, performance,
+   onboarding/robustness) are largely untouched — a fresh direction once masking is validated on-device.
+
+### Key files (this segment)
+NEW `masks/MaskGesture.kt`, `MaskGeometryOverlay.kt`, test `masks/MaskGestureTest.kt`; edits in
+`MainActivity.kt` (crop-parallel wiring) + `MaskPanel.kt`. Pattern source: `CropOverlay.kt`.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — per-mask Tier-A toolset COMPLETE — PR #97 MERGED, #90–#96 MERGED
+
+Marathon masking session. **The per-mask local-adjustment toolset is now feature-complete for
+slider-driven v1.** Six parity-safe Tier-2 increments stacked on **PR #97** (the user kept saying
+"continue" while it was open, so they share one PR/branch; merge-commit style folds them to `main`
+together). **Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite unaffected.**
+`:app:testDebugUnitTest` **140/140**, `:app:lintDebug` clean (`/opt/android-sdk`).
+
+**▶ NEXT SESSION START HERE:** if #97 merged (`git merge-base --is-ancestor cfd3b21 origin/main`),
+`git reset --hard origin/main`; else continue on `claude/exciting-hamilton-hya62` (tip `cfd3b21`).
+**The remote branch is auto-deleted on merge** → after a merge, recreate with a normal `git push` (a
+`--force-with-lease` then fails "stale info"; `git fetch --prune` and push fresh). **Commit + push every
+increment immediately.**
+
+### Masking is now feature-complete (slider-driven v1) — what a user can do
+- **Shapes:** radial + gradient(linear). **Refinements:** luminance range + color range.
+- **Per-mask Tier-A ops (ALL wired):** **Temp · Tint · Exposure · Saturation · Hue · Contrast · Whites · Blacks.**
+- Per-mask invert/opacity + per-component invert/value/blend. Multi-mask. All live in preview + every
+  export + persisted (recipe `"masks"` block). Composites on the `simResultToBitmapGraded` OUTPUT seam.
+
+### What's on PR #97 (6 commits, oldest→newest)
+1. `ddf6f17` **Gradient(linear) masks UI** — "+ Gradient mask" + Start/End X/Y; model/compositor/JSON
+   already supported `MaskComponent.Linear`.
+2. `df98b2a` **Per-mask Hue** — `Oklab.rotateHueLinear` (preserves L + chroma; gray-neutral). `OklabTest`.
+3. `fa30bb8` **De-dup `ColorGrade` → `OutputCctf`/`Oklab`** — killed a drift risk; exact (ColorGrade/
+   GamutCompress tests guard it); −53 lines.
+4. `a3b54fa` **Whites/Blacks** — linear levels-endpoint remap (single slider anchors the opposite end).
+5. `d1fab35` HANDOFF refresh.
+6. `cfd3b21` **Temp/Tint** — **colorimetrically-accurate** WB. New `LocalWhiteBalance` builds an
+   output-space Bradford CAT 3×3 (Lindbloom RGB↔XYZ per space + CIE daylight locus), **reusing
+   `CreativeWhiteBalance.bradfordCat`/`mul3`** (made `internal`; CWB test still 5/5). temp=0,tint=0 →
+   exact identity. `LocalWhiteBalanceTest`. (The user asked for an accurate color grade → did the CAT,
+   not the cheap channel-gain.)
+
+### Next steps — ALL qualitatively different now (need a device, a bigger build, or are interop)
+1. **Gesture overlay + eyedropper** — draw/drag radial+linear on the preview (reuse `CropOverlay`'s
+   normalized coords) + tap-to-sample the color/luminance range target + an on-preview alpha viz.
+   **Device-gated for *feel*** — build it but verify on the S26.
+2. **Per-component range nesting** (LR nests ranges per-component; we apply mask-wide) + **multi-sample
+   color range** (LR ≤5 samples) + **brush** (`cr_mask_paint`) + **AI Subject/Sky** (LiteRT +
+   guided-filter). Bigger features — full designs in `docs/MASKING_SPEC.md`.
+3. **Full `crs` XMP export** for Lightroom interop (`MASKING_SPEC.md §7`).
+4. **Device + R8 smoke** (no device in-env): the whole Masks panel end-to-end.
+RECOMMENDATION at this checkpoint: review/merge #97 (clean, well-tested milestone) before the next phase.
+
+### Key files (this session)
+`masks/{Mask,MaskCompositor,MaskJson}.kt`, `MaskPanel.kt`, `Oklab.kt`, `ColorGrade.kt`, `OutputCctf.kt`,
+`CreativeWhiteBalance.kt`, new **`LocalWhiteBalance.kt`**; tests `masks/MaskCompositorTest.kt`, new
+`OklabTest.kt` + `LocalWhiteBalanceTest.kt`. Blueprint: **`docs/MASKING_SPEC.md`**.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+`git fetch origin main` (+ branch) → `git remote prune origin` → verify work is in `origin/main` or
+`origin/<branch>` → `git reset --hard` that ref. **Untracked new files SURVIVE `reset --hard`; tracked
+edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — gradient masks + per-mask HUE + ColorGrade de-dup — PR #97 (3 commits), #90–#96 MERGED
+
+Continued masking. **Three parity-safe Tier-2 increments stacked on PR #97** (the user said "continue"
+while #97 was still open, so they share one PR / branch; merge-commit style folds them to `main` together).
+**Kotlin/UI only — `engine/spektra-core/src/main/cpp/**` NOT touched, parity suite unaffected.**
+`:app:testDebugUnitTest` **132/132**, `:app:lintDebug` clean (on `/opt/android-sdk`).
+
+**▶ NEXT SESSION START HERE:** `git fetch origin main && git reset --hard origin/main` if #97 is merged
+(check: `git merge-base --is-ancestor fa30bb8 origin/main`); else continue on branch
+`claude/exciting-hamilton-hya62` (tip `fa30bb8`). **Commit + push EVERY increment immediately.** NOTE:
+**the remote branch is auto-deleted on merge** — after a merge, recreate it with a normal `git push`
+(a `--force-with-lease` then fails with "stale info"; just `git fetch --prune` and push fresh).
+
+### What's on PR #97 (3 commits, oldest→newest)
+1. **Gradient (linear) masks in the UI** (`ddf6f17`) — the graduated filter. The model/compositor/JSON
+   already supported `MaskComponent.Linear`; this adds the UI: a **"+ Gradient mask"** button + a Linear
+   shape branch (Start/End X/Y) in `MaskPanel`; `defaultLinearAdjustment()`. All per-mask controls apply
+   to any shape. `MaskCompositorTest.linearMask_graduatedExposure`.
+2. **Per-mask Hue shift** (`df98b2a`) — **`Oklab.rotateHueLinear(rgb, deg)`** rotates the Oklab (a,b)
+   vector (preserves L + chroma magnitude; gray-neutral all spaces). `TierADelta.hue` (deg ±180, 0=no-op)
+   → `MaskCompositor` after Saturation → `MaskJson` → a `MaskPanel` "Hue shift" slider. `OklabTest` (3) +
+   2 compositor tests.
+3. **De-dup `ColorGrade` → `OutputCctf` + `Oklab`** (`fa30bb8`) — ColorGrade had private byte-identical
+   copies of the CCTF transfer + Ottosson Oklab math (drift risk vs the per-mask ops). Now calls the
+   shared helpers; exact/behavior-preserving (guarded by `ColorGradeTest` 7 + `GamutCompressTest` 8); −53 lines.
+
+### Masking feature set now (slider-driven v1, all live in preview/export + persisted)
+Shapes: **radial + gradient(linear)**. Per-mask ops: **Exposure / Saturation / Hue / Contrast**.
+Refinements: **luminance range + color range**. Plus per-mask invert / opacity / per-component
+invert+value. The compositor seam is `simResultToBitmapGraded` on the engine OUTPUT (Tier-2, no parity risk).
+
+### Next steps (parity-safe unless noted)
+1. **temp/tint** Tier-A op — the LAST local op. **Needs a user decision:** the mask composites in the
+   OUTPUT space but `CreativeWhiteBalance.matrix` is ProPhoto — pick the per-output-space chromatic-
+   adaptation approach before implementing. (Flagged to the user; don't guess.)
+2. **whites/blacks** Tier-A op (linear tonal endpoints) — verifiable, no decision needed.
+3. **Gesture overlay + eyedropper** — draw/drag radial+linear on the preview (reuse `CropOverlay`
+   normalized coords) + tap-to-sample the color/luminance range target. **Device-gated for *feel*.**
+4. **Per-component range nesting** (LR nests ranges per-component; we apply mask-wide) + **multi-sample
+   color range** (LR ≤5 samples). **Brush** (`cr_mask_paint`); **AI Subject/Sky** (LiteRT + guided-filter).
+   Full designs in `docs/MASKING_SPEC.md`.
+5. **Full `crs` XMP export** for Lightroom interop (`MASKING_SPEC.md §7`).
+6. **Device + R8 smoke** (no device in-env): the Masks panel end-to-end.
+
+### Key files (this session)
+`masks/{Mask,MaskCompositor,MaskJson}.kt`, `MaskPanel.kt`, `Oklab.kt`, `ColorGrade.kt`, `OutputCctf.kt`;
+tests `masks/MaskCompositorTest.kt` + new `OklabTest.kt`. Blueprint: **`docs/MASKING_SPEC.md`**.
+
+### ⚠️ Container-reset recovery (drilled ~5× in prior sessions)
+Env has re-cloned to an old commit mid-session before. Recovery: `git fetch origin main` (+ branch) →
+`git remote prune origin` → verify work is in `origin/main` or `origin/<branch>` → `git reset --hard`
+that ref. **Untracked new files SURVIVE `reset --hard`; tracked edits do NOT.** Rule: `git add && commit
+-c commit.gpgsign=false && push` the instant a unit builds green.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — COLOR RANGE mask ("tame the reds, not the skin") — PR #96 MERGED, #90–#95 MERGED
+
+Short follow-on session. **Shipped the color range mask** (`docs/MASKING_SPEC.md §4`, the second range
+refinement after luminance range), the literal *"tame the reds, not the skin"* control. **Kotlin/UI only —
+`engine/spektra-core/src/main/cpp/**` was NOT touched, so the 26-test host parity suite is unaffected**
+(CI engine/parity/python jobs green). `:app:testDebugUnitTest` **126/126**, `:app:lintDebug` clean
+(verified on `/opt/android-sdk`).
+
+**▶ NEXT SESSION START HERE:** `git fetch origin main && git reset --hard origin/main` (the env may have
+reset). All masking work (#90–#95) is on `main`; **PR #96 (color range) is OPEN, draft** — if not yet
+merged, continue on branch `claude/exciting-hamilton-hya62`. **Commit + push EVERY increment immediately.**
+
+### What shipped this session (PR #96)
+**Color range mask** — a "Limit to a color" toggle restricts a mask's local adjustment to pixels near a
+target color, mirroring Lightroom's `crs:CorrectionRangeMask` Type=Color. Same verifiable pattern as the
+merged luminance range.
+- **`ColorRange`** (`masks/Mask.kt`) — `targetR/G/B` + `tolerance`/`feather`/`invert`. Distance is measured
+  in the **Rec-709 (Cr,Cb) chroma plane of the encoded output** (same encoded domain the luminance gate
+  uses): luma-independent, and **gray-neutral for every output space** (Rec-709 weights sum to 1 → a
+  neutral pixel has zero chroma regardless of primaries) — no per-space matrices, no decode/CS coupling.
+  Spanning hue (angle) + chroma (radius) separates a saturated red from a muted skin tone.
+- **`MaskCompositor`** gates each pixel's coverage by the color gate alongside the luminance gate (it
+  already reads the output pixel for the Tier-A ops, so no rasterization restructure).
+- **`MaskJson`** round-trips it in the recipe `"masks"` block (old recipes → `null` → strict no-op).
+- **`MaskPanel`** — "Limit to a color" toggle → Target red/green/blue + Color range + Color feather +
+  Invert color. **Slider-driven v1** (RGB target sliders; eyedropper is the device-gated next step).
+- Tests: `MaskTest.colorRange_chromaGate` (near-target selected, off-hue + gray rejected, feathered
+  interior sweep, invert) + `MaskCompositorTest.colorRange_limitsAdjustmentToColor` (a red fill brightens,
+  a blue fill gated out). Commit `f5df3c8`.
+
+### Next steps (all hang off the now-complete masking foundation; all parity-safe)
+1. **Eyedropper for the color-range target** (and luminance too) — tap the preview to sample the target
+   color into `ColorRange.targetR/G/B`. Pairs with the gesture overlay. **Device-gated for *feel*.**
+2. **Gesture overlay** — draw/drag the radial on the preview (reuse `CropOverlay`'s normalized-coord
+   patterns) + an on-preview alpha viz. Device-gated; the slider v1 is the safe hand-off.
+3. **Linear masks in the UI** (the data model + compositor already support `MaskComponent.Linear`).
+4. **Remaining Tier-A ops** (`MaskCompositor`): whites/blacks (linear endpoints), hue (Oklab rotate),
+   **temp/tint** (needs an output-space CAT decision — `CreativeWhiteBalance.matrix` is ProPhoto). See
+   `docs/MASKING_SPEC.md §3` (Class-P pointwise vs Class-S spatial).
+5. **Per-component range nesting** (LR nests range masks per-component; we apply them mask-wide for v1) +
+   **multi-sample color range** (LR samples ≤5 colors). **Brush** (`cr_mask_paint`); **AI Subject/Sky**
+   (LiteRT + guided-filter). Full designs in `MASKING_SPEC.md`.
+6. **Full `crs` XMP export** for true Lightroom interop (`MASKING_SPEC.md §7`).
+7. **Cleanup:** de-dup `ColorGrade`'s CCTF/Oklab onto `OutputCctf`/`Oklab`.
+8. **Device + R8 smoke** (no device in-env): the Masks panel — color/luminance range + the adjustments.
+
+### Key files (this session)
+`masks/{Mask,MaskCompositor,MaskJson}.kt` + `MaskPanel.kt`; tests `masks/{MaskTest,MaskCompositorTest}.kt`.
+Blueprint: **`docs/MASKING_SPEC.md`**. Catalog status: `docs/USER_DRIVEN_SOLUTIONS.md` + the
+`spectrafilm-solutions` skill.
+
+### ⚠️ Container-reset recovery (drilled ~5× across prior sessions)
+The env has re-cloned to an old commit mid-session before. **Recovery:** `git fetch origin main` (and/or
+the feature branch) → `git remote prune origin` → verify your work is in `origin/main` (PRs auto-merge
+fast here) or on `origin/<branch>` → `git reset --hard origin/main` (or `origin/<branch>`). **Untracked
+new files SURVIVE `reset --hard`; tracked edits do NOT.** Rule: `git add && commit -c commit.gpgsign=false
+&& push` the instant a unit builds green. After a PR merges the remote branch may be auto-deleted (or left
+stale); re-push (`--force-with-lease` if it diverged from `main`) to recreate it for the next PR.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — the MASKING KEYSTONE landed (+ the whole color/tone foundation) — PR #94 OPEN, #90–#93 MERGED
+
+Marathon session. **Shipped the entire color/tone foundation AND the masking keystone** (forum pain #2,
+the app's biggest architectural gap). **Every change is Kotlin/UI + docs — `engine/spektra-core/src/main/cpp/**`
+was NEVER touched, so the 26-test host parity suite is unaffected.** `:app:testDebugUnitTest` **122/122**,
+`:app:lintDebug` clean (verified on `/opt/android-sdk`).
+
+### ⚠️⚠️ FIVE container resets this session — commit + push EVERY increment, immediately
+The env re-cloned to an old commit (`b7d6282`) **five times** mid-session, each time reverting the local
+working tree. **Nothing was lost** only because every increment was pushed the moment it went green.
+**Recovery procedure (drilled 5×):** `git fetch origin main` (and/or the feature branch) → `git remote
+prune origin` → verify your work is in `origin/main` (PRs auto-merge fast here) or on the branch →
+`git reset --hard origin/main` (or `origin/<branch>`). **Untracked new files SURVIVE `reset --hard`**
+(GamutCompress.kt did once); tracked edits do NOT. One near-miss: the couplers relabel was built +
+verified but I almost moved on without committing — the stop-hook caught it. **Rule: `git add &&
+commit -c commit.gpgsign=false && push` the instant a unit builds green, before starting the next.**
+After a PR merges, the remote branch is auto-deleted; re-push to recreate it for the next PR.
+
+### What's MERGED to `main` this session (PR #90–#93)
+The whole **§2/§3 color + tone roadmap** from `docs/USER_DRIVEN_SOLUTIONS.md`, all parity-safe Tier-0/2:
+1. **§2 P0 color management** (`ColorManagement.kt`, #90) — per-output-space display tagging
+   (`createBitmap` w/ color space) + `COLOR_MODE_WIDE_COLOR_GAMUT` + ICC embed on TIFF/PNG/JPEG. Fixed
+   "wide-gamut output shown/saved as sRGB". The Wave-0 foundation everything else is judged on.
+2. **§3.1 Contrast** (`ContrastCurve.kt`, #90) — a hue-neutral S-curve driving the parity-gated master
+   tone curve; composes under a hand-drawn curve.
+3. **§3.2 Saturation/Vibrance** (`ColorGrade.kt`, #91) — post-engine Oklab chroma grade on the output
+   buffer; gray-neutral for ALL output spaces (Ottosson LMS rows sum to 1).
+4. **§3.3 couplers relabel** (#92) — plain-language DIR-coupler panel + redirect to Sat/Vibrance.
+5. **§2 P1 ACES gamut compression** (`GamutCompress.kt`, #93) — a "Gamut compression" slider that
+   softens the cyan/edge fringe (post-clip softener; the pre-clip cure is the deferred Tier-3 §2 P3).
+6. **Masking foundation + compositor + Tier-A + schema** (#93) — see below.
+7. **`docs/MASKING_SPEC.md`** (#93) — the Lightroom-RE'd masking blueprint (3-agent synthesis).
+
+Shared helpers added: **`OutputCctf.kt`** (per-output-space CCTF) + **`Oklab.kt`** (chroma scale).
+**TODO (cleanup):** `ColorGrade` still has inline copies of the CCTF + Oklab math — de-dup onto
+`OutputCctf` + `Oklab` (guarded by `ColorGradeTest`).
+
+### The MASKING KEYSTONE — now a complete, user-facing feature
+`com.spectrafilm.app.masks` (pure, JVM-tested) + the UI, all **Tier-2 on the `simResultToBitmap` output
+seam — engine untouched**. End-to-end path: **data model → rasterization → compositor → render wiring →
+persistence → UI.**
+- **Data model** (`Mask.kt`) — `MaskComponent` (Linear gradient + Radial ellipse w/ `angleDeg`) folded
+  by `BlendMode` (ADD/SUBTRACT/INTERSECT — **ordinals pinned to `crs:MaskBlendMode` 0/1/2**) with
+  **per-component `invert` (`crs:MaskInverted`) + `value` (`crs:MaskValue`)** + mask invert/opacity.
+  `TierADelta` (exposure/temp/tint/sat/contrast) + `LocalAdjustment`. Geometry normalized 0..1.
+- **Rasterization** (`MaskRaster.kt`) — mask → alpha buffer + coverage probe.
+- **Compositor** (`MaskCompositor.kt`) — blends a `LocalAdjustment` on `res.data`: decode CCTF → Tier-A
+  → re-encode → `(1−α)·in + α·out`. Wired ops: **Exposure** (2^EV) + **Saturation** (Oklab) +
+  **Contrast** (`ContrastCurve` per channel). Stacks compose; empty = strict no-op.
+- **Wiring** (#94) — `ParamsState.localAdjustments`; `simResultToBitmapGraded` runs the compositor
+  AFTER the global `ColorGrade`, in place (preview + every export inherit it); added to the 2 preview/
+  auto-save `LaunchedEffect` triggers so mask edits re-render.
+- **Persistence** (`MaskJson.kt`, #94) — recipe `"masks"` block round-trip (old recipes → empty list).
+- **UI** (`MaskPanel.kt` `MasksSection` + `Category.MASKS` + `SpectraIcons.Masks`, #94) — add a radial
+  mask, Position/Size/Feather, Invert (affect outside), opacity, multi-mask select/delete, and the
+  Exposure/Saturation/Contrast local adjustment. **Slider-driven v1 — fully usable + CI-verifiable.**
+
+**`PR #94` (OPEN, draft, base `main`)** carries the masking wiring + persistence + UI (commits
+`7f6dbbc`, `6541a6e`, `9ce22a1`). Subscribed for CI/review. Merge is policy-gated (needs user go-ahead).
+
+### Next steps (all hang off the now-complete masking foundation; all parity-safe)
+1. **Gesture overlay** — draw/drag the radial on the preview (reuse `CropOverlay`'s normalized-coord
+   patterns) + an on-preview alpha viz. **Device-gated for *feel*** (the slider v1 is the safe hand-off).
+2. **Linear masks in the UI** (the data model + compositor already support `MaskComponent.Linear`).
+3. **Remaining Tier-A ops** (`MaskCompositor`): whites/blacks (linear endpoints), hue (Oklab rotate),
+   **temp/tint** (needs an output-space CAT decision — `CreativeWhiteBalance.matrix` is ProPhoto). See
+   `docs/MASKING_SPEC.md §3` (Class-P pointwise vs Class-S spatial).
+4. **Range masks** (luminance trivial → color) nested in a component; **brush** (`cr_mask_paint` model
+   in the spec); **AI Subject/Sky** (LiteRT + guided-filter). Full designs in `MASKING_SPEC.md`.
+5. **Full `crs` XMP export** for true Lightroom interop (the §1–§4 data-model deltas are in `MASKING_SPEC.md §7`).
+6. **Cleanup:** de-dup `ColorGrade`'s CCTF/Oklab onto `OutputCctf`/`Oklab`.
+7. **Device + R8 smoke** (no device in-env): the new color controls + the Masks panel on the S26.
+
+### Key files (this session)
+`masks/{Mask,MaskRaster,MaskCompositor,MaskJson}.kt` + `MaskPanel.kt`; `ColorManagement.kt`,
+`ContrastCurve.kt`, `ColorGrade.kt`, `GamutCompress.kt`, `OutputCctf.kt`, `Oklab.kt`; wiring in
+`EngineHelpers.simResultToBitmapGraded`, `ParamsState`, `Presets`, `MainActivity` (Category.MASKS +
+triggers), `CategoryIcons` (Masks glyph). Blueprint: **`docs/MASKING_SPEC.md`**. Catalog status:
+`docs/USER_DRIVEN_SOLUTIONS.md` + the `spectrafilm-solutions` skill.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §2 P1 ACES gamut compression (v1) — PR #93 (MERGED)
+
+**PRs #90, #91, #92 are ALL MERGED to `main`** (`68f5207`) — §2 P0 color management, §3.1 Contrast,
+§3.2 Saturation/Vibrance, §3.3 couplers relabel are all on trunk. Branch re-synced to merged `main`;
+this is a **fresh PR** shipping **§2 P1 — ACES-style gamut compression (v1)**. **Pure Kotlin/UI —
+engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **96/96**, `:app:lintDebug`
+clean. Pushed (`5272834`).
+
+### What shipped
+**`GamutCompress.kt`** — the ACES 1.3 Reference Gamut Compression shaper (`THR=(0.815,0.803,0.880)`,
+`LIM=(1.147,1.264,1.312)`, `PWR=1.2`), as a "Gamut compression" amount slider [0,100] (0=off →
+byte-identical) in Simulation → Output. It pulls the most-saturated colors (distance-from-achromatic
+past the per-channel threshold) toward neutral, softening the harsh cyan/edge fringe (forum pain #4).
+- **Folded into `ColorGrade`'s pass** for ONE shared CCTF round-trip: decode → gamut compress → (Oklab
+  sat/vibrance) → encode; each stage independently gated (off = zero cost). Wired through
+  `simResultToBitmapGraded` (applied in place once after simulate → preview + every export inherit it).
+- **Honest caveat:** runs on the engine's already-clipped output, so it **softens** rather than fully
+  **cures** the cyan edge. The true pre-clip cure is the Tier-3 engine change (§2 P3), still deferred.
+- `ParamsState.gamutCompress`; `Presets` `"grade"` block; `GamutCompressTest` (8: identity-below-thr,
+  monotonic+bounded shaper, amount=0 no-op, gray/achromatic preserved, saturated pulled to neutral).
+
+### ⚠️ FOUR container resets this session — commit + push EVERY increment
+The env re-cloned to `b7d6282` repeatedly. **One increment (couplers relabel) was nearly lost** because
+I verified it with a build but didn't commit before moving on — recovered only because it had in fact
+been merged via #92. **Untracked new files survive a `reset --hard` (GamutCompress.kt did); tracked
+edits do not.** Rule: `git add && commit && push` the instant an increment builds green, before
+starting the next. Recovery when reset: `git fetch origin main` → `git reset --hard origin/main` (main
+has all merged work); re-push to recreate the (auto-deleted) feature branch.
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (apply per-render on a copy →
+   drag-interactive WB). Note: a multi-site render-pipeline change with buffer-lifecycle care.
+2. **Gamut-compression polish (§2 P1+):** expose THR/LIM adjustable + a target-gamut selector; the
+   **pre-clip cure (§2 P3)** is the real fix but is Tier-3 (engine, gated, no oracle golden — needs a
+   user decision on the no-golden exception + a host parity-suite run).
+3. **Masking (Wave 2, §4) — foundation + compositor DONE** (PR #93). `com.spectrafilm.app.masks`:
+   `Mask`/`MaskComponent` (Linear/Radial folded by BlendMode + invert + opacity, normalized 0..1),
+   `TierADelta`/`LocalAdjustment`, `MaskRaster` (`MaskTest` 11); **`MaskCompositor`** (`b5e9084`) blends a
+   `LocalAdjustment` on the output buffer — decode CCTF → Tier-A → re-encode → `(1−a)·in + a·out`,
+   v1 = **exposure** (dodge/burn); `OutputCctf` (new) is the shared transfer (`MaskCompositorTest` 5).
+   **Next masking increments, in order:** (a) wire `MaskCompositor` into `simResultToBitmapGraded` reading
+   a `ParamsState.localAdjustments` list + the `"masks"` recipe block; (b) the **linear/radial gesture UI**
+   (reuse `CropOverlay`'s normalized-coord/gesture patterns) + overlay viz — this is where masks become
+   user-creatable; (c) the remaining Tier-A ops (sat via `ColorGrade`, contrast via `ContrastCurve`,
+   temp/tint) — de-dup `ColorGrade`'s private CCTF onto `OutputCctf` while there; (d) color/luminance
+   range masks ("tame the reds, not the skin"). A `MaskRasterBundle` (alpha cached by mask-hash+size)
+   when perf needs it.
+4. **Device + R8 smoke** (no device in-env): verify the new color controls on the S26.
+
+This is a fresh draft PR (PR #93, base `main`) — now carries §2 P1 gamut compression **and** the §4
+masking foundation. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.3 couplers relabel → §3 COMPLETE — PR #92 (MERGED)
+
+**PR #90 AND #91 are both MERGED to `main`** — color management (§2 P0), Contrast (§3.1), and
+Saturation/Vibrance (§3.2) are all on trunk. This new PR ships **§3.3 (couplers relabel)**, which
+**completes §3 (tone/color)**. Pure UI text — engine untouched, parity suite unaffected.
+
+### What shipped
+`MainActivity.CouplersSection` relabelled to plain language (no behavior change): panel → "Film color
+character (couplers)" with a note explaining DIR couplers + a redirect *"plain saturation? → Saturation
+/ Vibrance in Output"*. Amount→Effect strength, Inhibition samelayer/interlayer→Within-layer/Cross-color
+strength, Gamma R→GB…→Color mix R→G/B, Diffusion→Color bleed radius/tail. Param bindings/ranges/defaults
+unchanged. Already verified green (compile+test+lint) before the reset below; same code re-applied.
+
+### ⚠️ THIRD container reset this session — and it was SEVERER (recovered)
+This time the env **re-cloned the whole repo fresh at `b7d6282`** AND the local git proxy (`127.0.0.1`)
+came back at a **stale snapshot** (its `refs/heads/main` was old, my branch ref gone, fd4408c absent
+from local objects). Recovery: **PR #90 + #91 were already merged on real GitHub**, and the proxy still
+exposed `refs/pull/91/head = fd4408c` → `git fetch origin refs/pull/91/head` then `git reset --hard
+FETCH_HEAD` restored the full tree; re-applied the (uncommitted) couplers relabel from context.
+**Takeaway: the moment a PR is merged, the work is safe on GitHub even if the local proxy desyncs —
+recover via `refs/pull/<N>/head`.** Keep merging/pushing increments promptly.
+
+### Next steps (priority — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (drag-interactive WB).
+2. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off.
+3. **Masking (Wave 2, §4):** the keystone — Contrast/Sat/Vibrance double as the per-mask Tier-A payload.
+4. Optional §3 tail: §3.4 "Film-Feel" master, §3.5 "Soft scan" preset.
+5. **Device + R8 smoke** (no device in-env): verify the wide-gamut display/export + the new Contrast/
+   Saturation/Vibrance + relabelled couplers panel on the S26.
+
+This is a fresh draft PR (base `main`). Merging is policy-gated.
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.2 Saturation/Vibrance (Oklab post-engine grade) — PR #91 MERGED
+
+**PR #90 was MERGED to `main`** (color management §2 P0 + Contrast §3.1 + the prior WB/RE/Wave-0 work
+are all on trunk now). Branch was re-synced to the merged `main` (`6bfd519`); the new work below is a
+**fresh PR**. Shipped **Saturation/Vibrance (§3.2)** — the other half of the "too punchy" fix. **Pure
+Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **88/88**,
+`:app:lintDebug` clean.
+
+### What shipped
+**`ColorGrade.kt`** (pure, JVM-tested) — a post-engine Oklab chroma grade applied **in place to the
+output buffer once, right after `simulate`** via a new `simResultToBitmapGraded(res, …)` helper that
+wraps `simResultToBitmap` at all 5 render sites. Because it mutates `res.data` in place and the export
+site computes the bitmap **before** the 16-bit `saveSimResultAsTiff(res)`, TIFF/PNG16/JPEG all inherit
+the grade — preview + every export stay WYSIWYG, no double-apply.
+- **Method:** decode output CCTF → linear → Oklab (Ottosson) → scale chroma (preserve L, hue) → linear
+  → re-encode. Saturation uniform `(1+sat)`; Vibrance low-chroma-weighted `(1+vib·exp(-C/0.12))`.
+- **All-spaces gray-neutrality (key):** Ottosson's linear-RGB→LMS rows each sum to 1, so `(v,v,v)→C=0`
+  for ANY primaries → grays never tint. So **no risky per-space color matrices** — only each space's
+  1-D transfer (mirrors `color_output.cpp::output_cctf_encode`), gated by `savingCctfEncoding`
+  (`cctfEncoded=false` → skip the CCTF round-trip). Perceptually exact for the sRGB family (default);
+  a faithful creative control for wide spaces.
+- **Wiring:** `ParamsState.saturation`/`vibrance` (UI-only); sliders in the Simulation→Output sub-tab;
+  `Presets` `"grade"` block (now contrast+saturation+vibrance); default 0,0 → byte-identical no-op.
+  `ColorGradeTest` (7: no-op, all-spaces gray-neutral, sat direction + grayscale endpoint, vibrance
+  favours muted, range clamp).
+
+### ⚠️ Container reset recurred AGAIN this session (recovered both times)
+The env re-cloned to `b7d6282` mid-session twice; both recovered cleanly because each increment was
+pushed the moment it was green (`git reset --hard origin/<branch>`). **Keep committing + pushing each
+increment immediately.** After #90 merged, the remote branch was auto-deleted; re-created by pushing.
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **Couplers relabel (§3.3, Tier 0):** plain labels ("Film color character (DIR couplers)") + a
+   top-of-panel redirect to Saturation/Vibrance. Completes §3 (tone/color). Trivial, high clarity.
+2. **WB follow-up (§1.2):** decouple creative WB from the decode cache (drag-interactive WB).
+3. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off.
+4. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam. The Contrast +
+   Saturation/Vibrance controls are designed to double as the per-mask Tier-A payload.
+5. **Device + R8 smoke** (no device in-env): verify wide-gamut display/export + the new Contrast/Sat/
+   Vibrance look on the S26.
+
+This is a fresh draft PR (base `main`). Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §3.1 Contrast slider (drives the master tone curve) — PR #90 (MERGED)
+
+Continuation on **PR #90 (base `main`)**, commit `3bad23d`. After §2 P0 color management
+(below), shipped the next color-foundation piece: **a discoverable Contrast slider (§3.1)**. **Pure
+Kotlin/UI — engine C++ untouched, parity suite unaffected.** `:app:testDebugUnitTest` **81/81**,
+`:app:lintDebug` clean.
+
+### What shipped (commit `3bad23d`)
+Forum pain #3 = "too punchy vs scanned film; I want to mute contrast," but the only contrast knobs
+were buried/physical. **`ContrastCurve.kt`** (pure, JVM-tested) maps a `[-100,100]` slider to a power
+S-curve pivoted at display 18% gray (0.46 → mid-gray fixed) with matched pivot slope `g =
+2^(contrast/100)`: g>1 adds punch, g<1 is the **mute** direction. It drives the engine's
+already-wired, **parity-gated master tone curve** (so it's hue-neutral and live in preview + export),
+and **composes UNDER a hand-drawn master curve** (`out = userCurve(contrast(in))`) so the two stack;
+`contrast=0` emits no points → strict no-op. Wired: `ParamsState.contrast` (UI-only) composed in
+`toParams`; slider at the top of the Tone Curve panel (auto-arms the stage; "Reset all" clears it);
+`Presets` round-trip in a new `"grade"` block. `ContrastCurveTest` (9).
+
+### ⚠️ Container reset recurred mid-session (recovered) — commit + push EARLY
+The env re-cloned to an older commit (`b7d6282`) again, reverting the local tree (ToneCurve.kt etc.
+vanished locally). Because the §2 work was already pushed (`49ccbcb`), recovery was clean: `git fetch`
+→ confirm origin tip is my pushed commit → working tree clean → `git reset --hard
+origin/<branch>`. **Lesson (again): commit + push each increment the moment it's green.**
+
+### Next steps (priority order — `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **Saturation/Vibrance (§3.2):** Oklab post-engine op on `SimResult.data`. **Design note:** Oklab's
+   Ottosson matrices assume linear-sRGB primaries — exact for sRGB/LINEAR_SRGB/Adobe/Rec2020 (all
+   D65) via a primaries 3×3, but ProPhoto (D50)/ACES (D60) need a white-point-adapted matrix. Apply
+   it **once, in-place on `res.data` right after `simulate`** (NOT inside `simResultToBitmap` — the
+   export site feeds `res` to BOTH `simResultToBitmap` and `saveSimResultAsTiff`, so a consumer-side
+   mutation would double-apply). Default 0 → byte-identical.
+2. **Couplers relabel (§3.3, Tier 0):** plain labels + a "looking for plain saturation?" redirect.
+3. **WB follow-up (§1.2):** decouple creative WB from the decode cache.
+4. **ACES-RGC gamut toggle (§2 P1):** output-side, default-off.
+5. **Masking (Wave 2, §4)** + **device/R8 smoke** (verify wide-gamut display/export on the S26).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — §2 P0 color management (display tag + wide-color + ICC embed) — PR #90 DRAFT
+
+Continuation on **PR #90 (DRAFT, base `main`)**. Picked up the handoff's next-step #3 / Wave-0
+foundation: **color management (§2 P0)** — *"the biggest cheap win… without it every gamut judgment is
+made against a broken display path."* **Pure Kotlin/UI — `engine/spektra-core/src/main/cpp/**` NOT
+touched, so the 26-test parity suite is unaffected.** `:app:testDebugUnitTest` **72/72**,
+`:app:lintDebug` clean (verified locally on `/opt/android-sdk`).
+
+### What shipped this session (all in one commit)
+The app was **not color-managed**: every render bitmap was untagged (system assumed sRGB) and exports
+embedded no ICC — so wide-gamut output (Adobe/ProPhoto/Rec2020) was *shown and saved as sRGB* (wrong
+hue/sat), and the "hard cyan edge" was judged on a broken display path. Fixed end-to-end:
+- **New `ColorManagement.kt`** (pure, testable): `displayColorSpaceName(cs)` → the Android
+  `ColorSpace.Named` constant name per output space (null for ACES2065_1 — AP0 range exceeds [0,1], no
+  faithful 8-bit tag); `iccAssetPath(cs)` → the bundled ICC asset; `loadIccBytes(ctx,cs)`. Transfers
+  verified 1:1 against `model/color_output.cpp::output_cctf_encode` (sRGB↔SRGB, Adobe γ563/256↔ADOBE_RGB,
+  ROMM↔PRO_PHOTO_RGB, BT.2020 OETF↔BT2020, linear↔LINEAR_SRGB).
+- **Display:** `EngineHelpers.simResultToBitmap` gained a `colorSpace` param + `createTaggedBitmap`
+  (tags via `createBitmap(…,colorSpace)` on **API 26+**; `setColorSpace` is API 29 so unusable at
+  minSdk 24; plain sRGB fallback on 24–25 / ACES / device reject). All **5 call sites** in `MainActivity`
+  pass `res.colorSpace` (preview, zoom ROI, draft, before/after, export-bitmap).
+- **Window:** `MainActivity.onCreate` requests `COLOR_MODE_WIDE_COLOR_GAMUT` (API 26+) so tagged
+  wide bitmaps aren't clamped at composition on wide panels (no-op on sRGB displays).
+- **Export ICC:** `saveSimResultAsTiff` + `saveSimResultAsPng16` now embed `loadIccBytes(ctx,
+  result.colorSpace)` (was `icc=null`); 8-bit JPEG/PNG/UltraHDR inherit the profile for free because
+  `Bitmap.compress` embeds a **tagged** bitmap's ICC (API 26+). ICC assets were **already bundled**
+  (`engine/.../assets/spektra/icc/saucecontrol` + `ellelstone`) — no new assets needed.
+- **Tests:** `ColorManagementTest` (5) over the pure mappings (per-space name + ICC path, exhaustive
+  enum coverage, ACES-is-the-only-untagged invariant). Suite **72/72**, lint clean.
+
+### Next steps (unchanged priority order — see `docs/USER_DRIVEN_SOLUTIONS.md`)
+1. **WB follow-up (§1.2):** decouple creative WB from the decode cache (apply per-render on a copy) for
+   drag-interactive WB without a re-decode.
+2. **Finish the color foundation (§3, now judged on a correct display):** **Saturation/Vibrance** (Oklab
+   post-engine op on `SimResult.data`, Tier 2) + discoverable **Contrast** (drives the wired tone-curve
+   master S-curve, Tier 0) + couplers relabel. These double as the per-mask Tier-A payload.
+3. **ACES-RGC gamut toggle (§2 P1):** output-side Reference Gamut Compression, default-off → still
+   byte-identical; now that display is correct, this is the real "cyan edge" cure to evaluate.
+4. **Masking (Wave 2, §4):** the keystone — composite on the `simResultToBitmap` seam.
+5. **Device + R8 smoke** still pending (no device in-env). Verify the wide-gamut display/export on a
+   real wide panel (S26) — confirm tagged previews look right and exports open correctly in a
+   color-managed viewer (e.g. Lightroom/Photoshop reads the embedded ICC).
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-08, branch `claude/exciting-hamilton-hya62`) — user-driven solutions + skill, full Lightroom RE, Wave-0 fixes + Wave-1 creative WB (PR #90 DRAFT — all pushed)
+
+Big session, all on **PR #90 (DRAFT, base `main`, tip `bfc226a`)** — NOT merged. The user is
+**Akshay Sharma** (the app author; he's the "Akshay_Sharma building an Android Lightroom-style
+spektrafilm UI on a Galaxy S26" mentioned in the pixls.us megathread). Theme: make the app do what
+real users want. Everything below is **Kotlin/UI + docs — `engine/spektra-core/src/main/cpp/**` was
+NOT touched, so the 26-test parity suite is unaffected.** `:app:testDebugUnitTest` **67/67**,
+`:app:lintDebug` clean (verified locally on the `/opt/android-sdk` toolchain).
+
+### ⚠️ Container reset happened mid-session (recovered) — read this
+The env **re-cloned at an older commit (`b7d6282`) partway through**, reverting the local working
+tree (lost the docs/skill/fixes/RE locally) while the **remote kept everything** (I'd pushed it).
+Recovery that worked: `git fetch origin <branch>` → confirm pushed commits are ancestors of
+`origin/<branch>` → `git stash` local edits → `git reset --hard origin/<branch>` → `git stash pop`.
+**Lesson: commit + push early and often; before any commit, `git fetch` and check
+`git merge-base --is-ancestor <yourPushedCommit> origin/<branch>` so you never build on a stale base
+or force-push over pushed work.** `/tmp` is wiped by the reset (the LR decompile + APK are gone).
+
+### What's on PR #90 (in order)
+1. **`spectrafilm-solutions` skill** (`.claude/skills/spectrafilm-solutions/SKILL.md`) — the operating
+   manual: prime principle (app serves the user), the parity gate, a 5-tier playbook (UI / pre-engine /
+   post-engine / engine-gated / data), and the ranked user-problem catalog from the forum.
+2. **`docs/USER_DRIVEN_SOLUTIONS.md`** — parity-safe solution designs for every forum pain (6 domains:
+   WB, gamut, tone/contrast/sat, masking, perf, export/profiles/onboarding/robustness), from a 6-front
+   research swarm. Headline: only true-B&W + a future cyan-crosstalk cure need engine goldens;
+   everything else is Tier 0/1/2/4. Cross-cutting roadmap (Wave 0→4) at the bottom.
+3. **Wave-0 fixes** (commit `97aa489`): the `MainActivity` DNG-detection bug (`isRawFileName(name) ||
+   true` force-treated every pick as RAW) → MIME-aware routing via new app-side
+   `SourceDetect.isNonRawImage` (RAW/DNG/ambiguous stay RAW so a genuine extension-less DNG is never
+   misrouted; positively-known JPEG/HEIC go to the photo path). Plus recipe-schema migration: `Presets`
+   now reads the written-but-ignored `PRESET_VERSION` via a `migrate()` seam. Tests: `SourceDetectTest`
+   (4) + 2 `PresetsRoundTripTest` cases.
+4. **Lightroom RE** (commits `90e33af` + `a487482`): a **fresh decompile of the current LR build**
+   (com.adobe.lrmobile, APKMirror 2026-05-14). Catalogs in **`docs/lightroom-re/`**: 1,038 `ICB*` JNI
+   methods, 862 typed signatures, 16,841 `cr_*` symbols, the `TIParamsHolder` schema. Full reference in
+   **`docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md`** (§A masking … §F presets/export/ML), each algorithm
+   learned from authoritative sources + cross-mapped to a parity-safe port. **Key learnings:** LR's
+   working space = **linear ProPhoto D50 = our engine's exact input**; LR's render arch (edit-list +
+   pyramid + cached prefix + tiled exact export) = **our parity policy**; Highlights/Shadows are
+   **local edge-aware ops, not curves**; masking = the proven `crs:MaskGroupBasedCorrections` schema
+   (mirror it 1:1 for free XMP interop); Color Grading = region-weighted HSL (not lift/gamma/gain);
+   Dehaze = the one published-patent algorithm (DCP). New LR features seen: AI Lens Blur/Bokeh, PDR
+   generative remove, adaptive/scene presets, HDR edit, people part-masks.
+5. **Wave-1 creative white balance** (commit `bfc226a`): **`CreativeWhiteBalance.kt`** — a parity-free
+   pre-engine Bradford CAT on the linear ProPhoto input (CCT→whitepoint shared with the RAW decoder →
+   D50→target adapt + green-channel tint). Relative Temp/Tint sliders `[-100,100]`, 0/0 = identity
+   (skipped). **Works on ALL sources** (RAW/JPEG/HEIC), unlike the RAW-decode WB. Applied **in-place in
+   `loadSource`** (engine untouched) and **keyed into the decode caches** (so a change re-decodes like
+   raw temp/tint — covers preview/zoom/magnifier/export). Wired: `ParamsState` (`creativeWbTemp/Tint`),
+   `Presets` round-trip (`"creativeWb"` block), `EngineHelpers.DecodedSourceCache.Key`+get/put,
+   `MainActivity` (loadSource apply + 3 cache get sites + 2 put + 2 flight keys + 2 LaunchedEffect
+   triggers + Input-panel sliders). Test: `CreativeWhiteBalanceTest` (5).
+
+### Reproduce the LR RE (for deeper digging next session)
+APK is the user's Drive file — download (handles the large-file confirm):
+`curl -sSL "https://drive.usercontent.google.com/download?id=178wy480GhIszxWT-HSKpdnIDMaGKfv9D&export=download&confirm=t" -o /tmp/lr.apk`.
+It's an APKMirror **bundle**: `unzip lr.apk base.apk split_config.arm64_v8a.apk`; native libs (incl.
+`libLrAndroid.so`) are in the arm64 split; `bash .claude/skills/brutalist-re/scripts/decompile.sh
+--deobf --no-res -o /tmp/lr_jadx /tmp/lr_bundle/base.apk` for the Java/JNI layer (pairip only wraps
+the launcher; `com.adobe.lrmobile.loupe.asset.develop.*` decompiles fine). Native *algorithms* are not
+decompilable — that's why the reference fuses the RE surface with public sources.
+
+### Next steps (de-risked by the RE; pick up here)
+1. **WB follow-up:** decouple creative WB from the decode cache (apply per-render on a copy) for
+   drag-interactive WB without a re-decode — `USER_DRIVEN_SOLUTIONS.md §1`.
+2. **Finish the color foundation:** gray-point WB picker + Saturation/Vibrance (Oklab post-engine op) +
+   discoverable Contrast (drives the wired tone curve) — `§1/§3`.
+3. **Color management (P0, §2):** `Bitmap.setColorSpace` per output space + embed ICC on export — the
+   cheap fix for the cyan-edge/gamut complaints; precedes ACES-RGC.
+4. **Masking (Wave 2, the keystone):** mirror `crs:MaskGroupBasedCorrections`; composite on the
+   `simResultToBitmap` output seam (parity-safe); P1 = container + linear/radial + Tier-A; P3 =
+   color/luminance range (the literal "tame the reds, not the skin" fix). `§4` + RE §A.
+5. **Device + R8 smoke** still pending (no device in-env). Toolchain at `/opt/android-sdk` may not
+   persist — reinstall NDK r27/CMake 3.22.1/build-tools 35 if gone.
+
+PR #90 is subscribed for CI/review events. Merging is policy-gated (needs the user's go-ahead).
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — point tone-curve editor UI (PR #88 MERGED; PR #87 = prior docs handoff)
+
+Short session on top of the merged Lightroom UX wave below. **PR #88 is MERGED to `main`** (CI
+green); PR #87 (the docs handoff that wrote the next section) is also merged. Trunk stays v0.7.0 /
+vc9. **Pure Kotlin/UI — no `engine/spektra-core/src/main/cpp/**` touched, so the 26-test host parity
+suite + the export path are UNAFFECTED.**
+
+### PR #88 (MERGED) — the point tone-curve editor (the handoff's "recommended next quick win")
+The tone-curve **engine** stage (`kernels/tonecurve.cpp`) was already fully wired + parity-gated
+(`test_tonecurve`) and only the UI was missing; this adds it.
+- **New `Category.TONE_CURVE` ("Tone Curve")** in the bottom bar (between Experimental and Display),
+  a new `SpectraIcons.ToneCurve` glyph + hint. Wired in `MainActivity` (enum + panel dispatch +
+  icon/hint maps — 4 lines).
+- **`ToneCurve.kt` (new)** — `ToneCurveMath` (pure, unit-tested) + `ToneCurveEditor` (Canvas widget)
+  + `ToneCurveSection` (panel). A Lightroom-style point curve over the live preview histogram:
+  **Master / Red / Green / Blue** sub-tabs, **tap** to add a point, **drag** to shape (end points
+  slide vertically only — x pinned 0/1 — interior points clamp strictly between neighbours),
+  **double-tap** an interior point to remove, **Reset channel / Reset all**. Capped at the engine's
+  16 pts/channel.
+- **WYSIWYG:** the drawn curve is sampled with a faithful Kotlin port of the engine's
+  **Fritsch–Carlson monotone-cubic** bake (`build_tone_curve_1d`: secants → averaged tangents →
+  radius-3 monotonicity projection → Hermite, flat extrapolation past the ends, clamp [0,1]). So the
+  on-screen curve matches what renders.
+- **No special render wiring:** editing just **replaces the `ParamsState.toneCurve*` list**. The
+  editor's existing `derivedStateOf { toParams() }` snapshot picks it up → `previewTick++` → the same
+  live-draft + 500 ms-settle path every slider uses. `toParams()` always includes `toneCurve` (NOT
+  gated by `skipGrainHalation`), so the curve shows in the live draft, the fit settle, the zoom ROI
+  and export. Engine applies it in the **scanning stage** (`scanning.cpp:366
+  params.tone_curve.apply`) for BOTH `run_scan_film` and `run_print`, which `spk_simulate_preview`
+  also runs → live in preview, not just on export.
+- **Auto-arms** the stage on the first edit (effect shows without hunting for the switch); the
+  SectionCard switch reflects `toneCurveActive`; **"Reset all" disarms** it → `tone_curve_active=0` →
+  strict engine identity → bit-exact off.
+
+### Verified
+- New `ToneCurveTest` (11 cases): the sampler (identity ramp, passes-through-control-points, flat
+  extrapolation, monotonicity) + the point ops (add/move/remove, edge-pinning, neighbour clamping,
+  near-dup reject, 16-pt cap).
+- `:app:testDebugUnitTest` **56/56**, `:app:lintDebug` clean (`abortOnError=true`), full CI green on
+  merge. Tap-installable debug APK (plain `./gradlew :app:assembleDebug`, all 3 ABIs) built + sent
+  for on-device test of the curve.
+
+### Backlog / next steps
+- ✅ **Tone-curve editor DONE** — it was the recommended next item on the `docs/IMPROVEMENT_BACKLOG.md`
+  "Tone / color UI" line. Remaining there: 3-way color-grading wheels, HSL/color mix, split toning,
+  auto-tone, and a *parametric* curve mode (the point mode now exists).
+- **Device pass (now also covers the tone curve):** gesture feel of add/drag/remove; the editor
+  canvas is a **full-width square** inside the 0.38×screen bottom sheet (the sheet scrolls) — confirm
+  it feels right or cap its height. Plus the still-pending R8/release smoke + GPU re-verify (the panel
+  is a bottom overlay now).
+- **Headline gap is still the mask container** keystone for local adjustments (gradients/brush/
+  AI-select/range) if going big.
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`) — Lightroom UX wave + draft/final render & zoom port + preview-speed (PR #85 + PR #86 BOTH MERGED)
+
+Large interactive-editor session. **PR #85 and PR #86 are BOTH MERGED to `main`** (PR #86 = the 7
+commits below; CI was green). Trunk stays v0.7.0 / vc9. **Everything is Kotlin/UI or a preview-only
+engine flag — the export path (`spk_simulate`) and the 26-test parity suite are UNTOUCHED.** The one
+engine edit (enlarger-LUT-for-preview) was verified bit-exact (`test_simulate_e2e` +
+`test_enlarger_lut_e2e` pass after it; no parity test calls `spk_simulate_preview`).
+
+### PR #85 (MERGED) — Lightroom UX + the "render system" port + zoom
+- **Numeric entry** on every slider — tap the value pill to type a value (`parseSliderInput` in
+  `Widgets.kt` + `SliderInputTest`). Double-tap-to-reset already existed.
+- **Simulation panel → Film/Print/Scanner/Output sub-tabs** (`SubTabRow` in `Widgets.kt`); extended
+  the double-tap **reset** to the composite Triple/Pair/Int sliders (added `default` to those).
+- **Draft/final render port** — a conflated DRAFT worker (`snapshotFlow{previewTick}.collect`, NOT
+  collectLatest) paints a fast small proxy so editing isn't frozen until the settle; crisp full pass
+  on settle. Retired the old coarse pass. Zoom path too (`overlayStale` hides the stale sharp crop on
+  an edit so the live proxy shows through).
+- **Zoom in/out/Fit controls** + `%` readout on `ZoomableImage` (complements pinch / double-tap / the
+  sharp ROI render / the 100% magnifier).
+
+### PR #86 (MERGED) — editor polish + preview performance (7 commits, newest last)
+- `99d31af` **Panel → bottom overlay.** The preview Box(`weight(1f)`) and the panel were Column
+  siblings, so opening a panel re-measured/resized the preview every frame — the churn that forced
+  the GPU preview off and jolted the CPU preview. Floated the panel INSIDE a constant-height preview
+  Box (`BoxScope.PanelOverlay`, which also dodges the ColumnScope `AnimatedVisibility` overload).
+  **Unblocks re-enabling GPU** (kept OFF pending the GL-redraw fix + device verify).
+- `2c1416d` **Single-flight decode** (`SingleFlight` in `EngineHelpers.kt`) — a cancelled
+  zoom/magnifier render's native LibRaw decode keeps running, so the next gesture awaits THAT decode
+  instead of starting an overlapping one (the "5 decodes per pinch" battery drain). Wired into both
+  cached loaders, run in the stable `lifecycleScope`.
+- `a9e46d2` **MALLETT2019 honesty** (wrapped in `GatedBlock` — the engine only implements
+  HANATOS2025) + **GPU `+` zoom button** (hands off to the CPU zoom view at 2× via new
+  `ZoomableImage.initialScale`).
+- `b7d6282` **Draft→final zoom ROI** — `renderRoi` renders a fast 640px draft then the full
+  `ROI_RENDER_MAX_PX` crop, so the zoomed region sharpens ~5× sooner; publish-or-recycle keeps the
+  bitmap lifecycle leak-free under cancellation.
+- `8c647c7` **Preview speed:** force the **enlarger LUT** on in `spk_simulate_preview` (it forced only
+  the scanner LUT) + **ungate the live draft** so it paints on EVERY edit. (The earlier drag-gating +
+  coarse-pass removal had regressed non-drag renders — preset/dropdown/rotate/first-load sat on the
+  stale frame for the full ~1s with no first paint.)
+- `fb0ca59` + `c21c535` **Skip grain + halation in the preview** (`toParams(skipGrainHalation=…)`) on
+  BOTH the live draft AND the full fit settle. The dominant per-pixel preview cost (grain
+  Poisson-binomial + the spatial halation/diffusion branch, gated on `halation.active`) is ~invisible
+  at fit resolution; the **100% zoom ROI, the magnifier, and EXPORT do NOT set it**, so texture still
+  renders where it's visible. This is the user's chosen Lightroom-style **"grain at 100%"** (asked +
+  confirmed via the question tool). Couplers stay on (colour).
+
+### Key findings — the backlog/audit were partly stale (all VERIFIED against code)
+- **Per-stage `film_density_cmy` cache ALREADY exists** for the print route (`spektra.cpp:181-204`
+  `compute_film_cache_key` → `run_print`), so print/scan-only edits already skip the filming expose.
+  Not a remaining task (the old §3 "per-stage cache" backlog item is superseded).
+- **The audit's "dead DIR-coupler gamma sliders" claim is WRONG** — `couplers.cpp:73-82` consumes
+  `params.gamma_samelayer_rgb`/`gamma_interlayer_*` and `ParamsState.toParams` marshals exactly those
+  UI sliders. Left them LIVE (did NOT mislabel them inert).
+- **The filming-expose 81-band integral is ALREADY LUT-cached** — `build_filming_tc_lut`
+  (`filming.cpp:336`) bakes `sum_s spectra_lut * sens_window` into a 2D `tc_lut`, looked up per pixel
+  in `expose()` (`cubic_interp_lut_at_2d`). So there is NO "filming-expose LUT" to add; the remaining
+  cost is grain + spatial (handled by `skipGrainHalation`).
+
+### Preview perf model (current)
+Preview now runs: filming `tc_lut` (2D) + **enlarger LUT** (print expose) + **scanner LUT** (scan) all
+ON, with **grain + halation/diffusion SKIPPED at fit**. Remaining fit cost = per-pixel LUT-interp +
+density curves + couplers. Export (`spk_simulate`) keeps the exact direct path. User-side knob:
+**Display → Preview max size**.
+
+### On-device (SM-S948W / S26 Ultra, arm64, Android 16)
+Delivered tap-installable debug APKs (plain `assembleDebug`, all 3 ABIs, 16KB-aligned, no `testOnly`,
+shared debug keystore). Logcat showed `render mode=preview 375x500 187500px 1297ms` → diagnosed
+(spectral per-pixel cost + a half-accelerated preview + a self-introduced first-paint regression); the
+preview-speed commits above are the fix. **Container reset mid-session:** the env re-cloned at an
+earlier commit and the local branch briefly lost `8c647c7`; I rebased the fast-draft commit back on
+top, so the pushed tip `c21c535` is correct/fully integrated. **Build APKs with plain
+`./gradlew :app:assembleDebug`** — NEVER `-Pandroid.injected.build.abi=…` (stamps `testOnly`, blocks
+tap-install).
+
+### Lightroom backlog — what's LEFT (authoritative: `docs/IMPROVEMENT_BACKLOG.md`)
+Done now: preset amount, copy/paste, granular resets, before/after, histogram, crop, draft/final
+render + zoom loupe/ROI/magnifier. **Headline gap = local adjustments / masking** (app is 100% global;
+the mask container is the architectural keystone for gradients/brush/AI-select/range masks). **Tone /
+color UI:** a point/parametric **tone-curve editor** (engine is wired, NO UI yet — the recommended
+next quick win), 3-way color-grading wheels, HSL/color mix, split toning, auto-tone. Also: spot-heal
+(scans), auto/guided Upright + perspective, named versions + batch apply, export formats
+(AVIF/HEIC-10/JPEG-XL/DNG/C2PA/watermark-borders/32-bit-float TIFF), tiled GPU pyramid + grain-mask
+cache.
+
+### Next steps
+1. **Point tone-curve editor** — engine done, a self-contained Compose widget over the histogram;
+   best film-look-per-effort, no parity risk, no masking dependency. (Recommended next.)
+2. Device: confirm the new preview feel + `Nms`; R8/release smoke before any tag; GPU re-verify now
+   that the panel is an overlay; Robolectric/instrumented marshalling tests.
+3. The **mask container** keystone if going big on local adjustments (then gradients → AI → range).
+4. PR #85 + #86 are MERGED to `main` — all the above is on trunk now. On-device validation of the
+   preview feel + R8/release smoke is still pending (see step 2).
 
 ---
 

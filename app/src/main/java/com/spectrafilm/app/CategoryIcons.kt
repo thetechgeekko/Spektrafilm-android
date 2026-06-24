@@ -261,6 +261,18 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Masks — local adjustments: a radial mask boundary (circle) + a centre pin.
+    // -----------------------------------------------------------------------
+    val Masks: ImageVector by lazy {
+        icon("Masks") {
+            // Mask boundary (radial gradient, r=8)
+            strokePath("M 20 12 C 20 16.42 16.42 20 12 20 C 7.58 20 4 16.42 4 12 C 4 7.58 7.58 4 12 4 C 16.42 4 20 7.58 20 12 Z")
+            // Centre pin (filled dot)
+            fillPath("M 13.5 12 C 13.5 12.83 12.83 13.5 12 13.5 C 11.17 13.5 10.5 12.83 10.5 12 C 10.5 11.17 11.17 10.5 12 10.5 C 12.83 10.5 13.5 11.17 13.5 12 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Experimental — chemistry / Erlenmeyer flask
     // Narrow neck tapering to a wide triangular body, with a liquid-level
     // line and two small bubble circles above it.
@@ -294,6 +306,22 @@ object SpectraIcons {
             strokePath("M 12 16 L 12 20")
             // Stand foot
             strokePath("M 8 20 L 16 20")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ToneCurve — point tone curve
+    // Graph axes (L-shaped) with an S-shaped contrast curve rising from the
+    // bottom-left to the top-right, plus a filled control-point dot at centre.
+    // -----------------------------------------------------------------------
+    val ToneCurve: ImageVector by lazy {
+        icon("ToneCurve") {
+            // Graph axes (left + bottom)
+            strokePath("M 4 4 L 4 20 L 20 20")
+            // S-curve through the centre
+            strokePath("M 4 20 C 8 20 8 12 12 12 C 16 12 16 4 20 4")
+            // Centre control-point dot (r≈1.3)
+            fillPath("M 13.3 12 C 13.3 12.72 12.72 13.3 12 13.3 C 11.28 13.3 10.7 12.72 10.7 12 C 10.7 11.28 11.28 10.7 12 10.7 C 12.72 10.7 13.3 11.28 13.3 12 Z")
         }
     }
 
