@@ -1,6 +1,60 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-24, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — review fixes + upstream-sync + print-curve morph + np_interp fix
+## State (2026-06-24 #2, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P0 #1 ACES→ProPhoto RAW colorspace fix
+
+Continuation on the same branch/PR. **Both P0 items from the roadmap are now done** (P0 #2 np_interp
+shipped in the section below; P0 #1 ACES→ProPhoto ships here). The fix **visibly changes native
+RAW/DNG renders** — a correction back onto the oracle — and moves **no parity golden** (no host
+golden feeds a RAW buffer). All prior 29 engine-parity gates remain green; both native libs
+(`libsfraw`, `libspektra`) and `:app`/`:engine` Kotlin compile.
+
+### What shipped (P0 #1 — RAW input colorspace)
+- **The bug:** LibRaw decoded RAW to **ACES2065-1**, but the engine ingests **linear ProPhoto RGB**
+  (runtime `InputColorSpace` has a single value, `kProPhotoRGB`) and `nativeSimulate` hardcoded the
+  input tag to ProPhoto while *discarding* the buffer's actual `inCs` tag — so every native RAW/DNG
+  decode pushed ACES pixels through the ProPhoto primaries (wrong chromaticity on the core editor flow).
+- **The fix (mirrors the oracle exactly):** the oracle's `raw_file_processor.load_and_process_raw_file`
+  decodes ACES then `colour.RGB_to_RGB(..., output_colorspace="ProPhoto RGB")`. Ported that final step
+  into **`raw_decoder.cpp`** (the architectural twin of `raw_file_processor.py`): new
+  `kAcesToProPhoto` CAT02 matrix + `aces2065ToProPhotoRGB()`, applied per-pixel **after** the ACES-space
+  WB adaptation (matching oracle order), retagging `result.colorSpace = "ProPhoto RGB"`. The conversion
+  does **not** clamp (AP0 is wider than ProPhoto; out-of-gamut negatives are faithful to the oracle —
+  gamut compression is the separate P1/P2 work).
+- **Verification (the matrix IS the gate — libraw isn't in the host parity suite):** new host test
+  `lib/libraw/src/test/cpp/test_aces_prophoto.cpp` checks `aces2065ToProPhotoRGB` against
+  **colour-science 0.4.7** reference vectors (the oracle's pinned version) → **`max_abs 5.96e-08`**, and
+  preserves the out-of-gamut negative. The HANDOFF matrix was re-derived from `colour.matrix_RGB_to_RGB`
+  and confirmed authoritative (its non-unit row sums 1.00018/0.99996/1.00027 ARE colour's CAT02 output —
+  do not "correct" them).
+- **Hardening:** `nativeSimulate` now reads `inCs` and **throws** on any non-ProPhoto tag (empty = legacy
+  ProPhoto) instead of silently re-interpreting — closing the hole that hid this bug. All decode paths
+  (LibRaw, platform/photo `bitmapToLinearProPhoto`, synthetic) emit ProPhoto, so the throw is safe.
+- **Honesty:** the inert UI "Input color space" dropdown (engine only does ProPhoto) is now wrapped in a
+  `GatedBlock` disclaimer, mirroring the existing MALLETT2019 treatment. `:lib:libraw` docs +
+  `RawDecoder`/`LinearResult`/`EngineHelpers` doc-comments updated (the module now returns ProPhoto, ACES
+  is intermediate only). `RawCoilDecoder` (dead/unreferenced) left as-is.
+- **Verified:** `test_aces_prophoto` + `test_dng_sniffer` green; engine `test_simulate_e2e` +
+  `test_parallel` green (engine core source set is byte-unchanged); `:lib:libraw` + `:engine`
+  `externalNativeBuildDebug` BUILD SUCCESSFUL (all 3 ABIs, NDK r27); `:app`+`:engine compileDebugKotlin`
+  BUILD SUCCESSFUL. CI re-running.
+
+### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
+- **P0 — both done.** P0 #1 (ACES→ProPhoto, this section) + P0 #2 (np_interp, below).
+- **P1 #3 — `aces_rgc` output gamut compression** (default-OFF, LEGACY_CLIP sentinel). The recommended
+  first gamut port: establishes the newer-oracle-golden gating pattern + builds the shared
+  `reinhard_knee` helper that the input/perceptual gamut items (P2 #5/#6) reuse. Zero default-path impact.
+- **P1 #4 — `float_to_half` round-to-nearest-even** (`half.cpp`): cheap/isolated, must land before the
+  fp16 preview-proxy storage turns the latent scalar-vs-NEON divergence into a failing `test_half`.
+- **P2/P3** unchanged from the section below (input/perceptual gamut, Kotlin UI quick-wins, reflectance/
+  Mallett2019, and the deferred Strategy-B rebaseline cluster).
+
+### Background watches (session-scoped; gone on restart)
+PR #105 subscription + cron `7b2e5907` were set up in the prior session and **die when that session ended**
+— re-subscribe / re-arm in this session if still wanted.
+
+---
+
+## State (2026-06-24, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — review fixes + upstream-sync + print-curve morph + np_interp fix
 
 All pushed to `claude/exciting-hamilton-hya62` (PR #105, repo moved to
 `thetechgeekko/Spektrafilm-android`). Host engine-parity verified green at every step

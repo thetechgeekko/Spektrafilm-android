@@ -7,7 +7,10 @@
  *   raw.postprocess(output_color=ACES, output_bps=16, no_auto_bright=True,
  *                   gamma=(1,1), use_camera_wb=<as_shot>)
  * then the colour-science white-balance path (Von-Kries adaptation + tint) for
- * the non-as-shot modes.
+ * the non-as-shot modes, and finally the colourspace conversion to linear
+ * ProPhoto RGB (the engine's input space) — i.e. load_and_process_raw_file with
+ * output_colorspace="ProPhoto RGB". The decoded result is therefore linear
+ * ProPhoto RGB, NOT ACES2065-1 (ACES is only the intermediate working space).
  *
  * The LibRaw include is guarded with __has_include so this translation unit still
  * compiles and links even if LibRaw is unavailable (e.g. a host build without the
@@ -250,6 +253,26 @@ constexpr double kAcesXyzToRgb[9] = {
      0.0000000000, 0.0000000000,  0.9912520182,
 };
 
+// Linear ACES2065-1 -> linear ProPhoto RGB, the final colourspace step of
+// raw_file_processor.py::load_and_process_raw_file (output_colorspace="ProPhoto
+// RGB"):
+//   colour.RGB_to_RGB(rgb, ACES2065-1, ProPhoto RGB,
+//                     apply_cctf_decoding=False, apply_cctf_encoding=False)
+// i.e. a pure 3x3 with the default CAT02 chromatic adaptation (ACES white -> D50)
+// baked in — NO transfer function. The spektrafilm engine's input space is linear
+// ProPhoto RGB, so the decoder emits ProPhoto directly instead of leaving ACES
+// pixels to be mis-read as ProPhoto by the engine.
+//
+// Computed with colour-science 0.4.7 (the oracle's pinned dependency); reproduces
+// colour.matrix_RGB_to_RGB to < 5e-11. NB the row sums are intentionally NOT 1
+// (1.00018 / 0.99996 / 1.00027) — that is exactly what colour's CAT02 produces, so
+// matching the oracle means using these values verbatim. Row-major 3x3.
+constexpr double kAcesToProPhoto[9] = {
+     1.2393803417847302,  -0.16396782280140051,  -0.075233383798369968,
+     0.0036113618663812341, 1.0896136492217019,   -0.093265792081978632,
+    -0.00205967931567552,  -0.0022515883414713734, 1.0045855773288515,
+};
+
 void mat3MulVec(const double m[9], const double v[3], double out[3]) {
     out[0] = m[0] * v[0] + m[1] * v[1] + m[2] * v[2];
     out[1] = m[3] * v[0] + m[4] * v[1] + m[5] * v[2];
@@ -350,6 +373,23 @@ void buildAcesWbMultiplier(const DecodeOptions& options, float outMul[3]) {
     outMul[0] = static_cast<float>(adaptedRgb[0]);
     outMul[1] = static_cast<float>(adaptedRgb[1] * tint);  // green tint multiplier
     outMul[2] = static_cast<float>(adaptedRgb[2]);
+}
+
+void aces2065ToProPhotoRGB(float* rgb, size_t pixelCount) {
+    // Pure matrix (kAcesToProPhoto), no transfer function — matching
+    // raw_file_processor.py's final colour.RGB_to_RGB step. Accumulate in double
+    // for parity with the float64 numpy/colour path, then store float32.
+    // Deliberately does NOT clamp: ACES2065-1 (AP0) is wider than ProPhoto, so
+    // saturated colours can map slightly out of gamut (negative / >1), exactly as
+    // the oracle leaves them — gamut handling is a separate, opt-in pipeline stage.
+    for (size_t i = 0; i < pixelCount; ++i) {
+        const double in[3] = {rgb[i * 3 + 0], rgb[i * 3 + 1], rgb[i * 3 + 2]};
+        double out[3];
+        mat3MulVec(kAcesToProPhoto, in, out);
+        rgb[i * 3 + 0] = static_cast<float>(out[0]);
+        rgb[i * 3 + 1] = static_cast<float>(out[1]);
+        rgb[i * 3 + 2] = static_cast<float>(out[2]);
+    }
 }
 
 #if SFRAW_HAVE_LIBRAW
@@ -527,13 +567,21 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
 
     applyAcesAdaptation(result.rgb.data(), static_cast<size_t>(ow) * oh, options);
 
+    // Final colourspace conversion: linear ACES2065-1 -> linear ProPhoto RGB, the
+    // engine's input space (raw_file_processor.py's output_colorspace step). Done
+    // AFTER the ACES-space white-balance adaptation, matching the oracle order.
+    // Without this the buffer was tagged ACES but read as ProPhoto downstream
+    // (spektra_jni hardcodes the engine input to ProPhoto), so every native RAW
+    // decode ran through the wrong primaries.
+    aces2065ToProPhotoRGB(result.rgb.data(), static_cast<size_t>(ow) * oh);
+
 #ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_INFO, "sfraw",
         "decoded %dx%d (halfSize=%d) -> %dx%d (maxLongEdge=%d, step=%d)",
         fullW, fullH, options.halfSize ? 1 : 0, ow, oh, options.maxLongEdge, step);
 #endif
 
-    result.colorSpace = "ACES2065-1";
+    result.colorSpace = "ProPhoto RGB";
     result.status = SFRAW_OK;
     result.ok = true;
     return result;

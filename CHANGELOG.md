@@ -4,9 +4,10 @@
 
 A codebase-wide review (`docs/CODE_REVIEW_2026-06-24.md`, find→adversarially-verify→synthesize)
 and its top-priority fixes, plus an upstream-sync plan (`docs/UPSTREAM_SYNC_2026-06-24.md`) and its
-first opt-in feature port. All engine-parity gates stay green; the default render/export path is
-byte-identical except for the auto-exposure metering fix below, which brings a previously diverging
-default path back onto the oracle.
+first opt-in feature port. All engine-parity gates stay green (no golden feeds a RAW buffer); the
+default render/export path is byte-identical except for two corrections that bring previously
+diverging default paths back onto the oracle: the auto-exposure metering fix and the RAW
+input-colorspace fix below.
 
 ### Added
 - **Print density-curve morph (s023), opt-in / default-OFF.** First feature from the upstream-sync
@@ -20,6 +21,18 @@ default path back onto the oracle.
   `test_print_curves_morph`, `max_abs 0.0`). Editor UI control still to come.
 
 ### Fixed
+- **RAW input colorspace (default path; changes native RAW/DNG renders).** LibRaw decodes RAW to
+  ACES2065-1, but the engine ingests linear ProPhoto RGB and the JNI hardcoded the input tag to
+  ProPhoto — so every native RAW/DNG decode ran ACES pixels through the ProPhoto primaries (wrong
+  chromaticity on the core editor flow). `raw_decoder.cpp` now converts ACES2065-1 → linear ProPhoto
+  RGB with a baked CAT02 matrix as the final decode step — mirroring `raw_file_processor.py`'s
+  `colour.RGB_to_RGB(..., output_colorspace="ProPhoto RGB")` — and tags the result "ProPhoto RGB".
+  The conversion is verified vs colour-science 0.4.7 (`test_aces_prophoto`, `max_abs 5.96e-08`; the
+  libraw module isn't in the host parity suite, so the matrix is the gate). `nativeSimulate` now
+  validates the buffer's colorspace tag and throws on anything but ProPhoto instead of silently
+  re-interpreting it (the hole that hid this bug). The inert UI "Input color space" selector is
+  gated honestly (the engine renders all input as linear ProPhoto). The platform/photo decoder
+  already emitted ProPhoto, so only native RAW renders change — a correction onto the oracle.
 - **Auto-exposure metering parity (default path).** `small_preview` — the ≤256 px downscale the
   auto-exposure stage meters on — now applies skimage's anti-aliasing gaussian prefilter
   (`sigma = max(0,(in/out−1)/2)` per axis, `mode='mirror'`, `truncate=4.0`) before the order=0

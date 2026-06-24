@@ -12,10 +12,14 @@
  * White balance mirrors raw_file_processor.py: as-shot (camera WB), daylight
  * (LibRaw daylight base), tungsten / custom (temperature+tint -> Von-Kries
  * chromatic adaptation in linear ACES + green/magenta tint multiplier).
+ * The result is then converted ACES2065-1 -> linear ProPhoto RGB (the spektrafilm
+ * engine's input space), mirroring load_and_process_raw_file's output_colorspace
+ * step, so DecodeResult.colorSpace is "ProPhoto RGB" — ACES is only intermediate.
  */
 #ifndef SPECTRAFILM_RAW_DECODER_H
 #define SPECTRAFILM_RAW_DECODER_H
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -117,12 +121,13 @@ enum DecodeStatus {
 const char* dngCompressionName(int compressionValue);
 
 // Linear scene-referred result. Pixels are interleaved RGB float32, row-major,
-// normalized 16-bit -> [0,1] (value / 65535), in ACES2065-1 primaries.
+// normalized 16-bit -> [0,1] (value / 65535), in linear ProPhoto RGB primaries
+// (decoded via ACES2065-1, then converted — see the file header / aces2065ToProPhotoRGB).
 struct DecodeResult {
     std::vector<float> rgb;       // size == width * height * 3
     int width = 0;
     int height = 0;
-    std::string colorSpace = "ACES2065-1";
+    std::string colorSpace = "ProPhoto RGB";
     bool ok = false;
     std::string error;            // populated when ok == false
     // Stable Spektrafilm status (DecodeStatus). SFRAW_OK on success.
@@ -150,6 +155,13 @@ void whitepointXyzFromTemperature(double temperatureK, double outXyz[3]);
 // applied in ACES2065-1 RGB. Result mirrors the colour-science path in
 // raw_file_processor.py for daylight-base WB modes.
 void buildAcesWbMultiplier(const DecodeOptions& options, float outMul[3]);
+
+// Convert an interleaved RGB float32 buffer (pixelCount pixels) from linear
+// ACES2065-1 to linear ProPhoto RGB in place, mirroring raw_file_processor.py's
+// final colour.RGB_to_RGB(ACES2065-1 -> ProPhoto RGB, no cctf) step (CAT02). This
+// is applied unconditionally by the decode path so the result is linear ProPhoto
+// RGB. Exposed for unit testing / parity checks. Does not clamp out-of-gamut values.
+void aces2065ToProPhotoRGB(float* rgb, size_t pixelCount);
 
 }  // namespace spectrafilm
 
