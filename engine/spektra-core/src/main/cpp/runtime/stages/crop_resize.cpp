@@ -104,8 +104,12 @@ void gaussian_prefilter_line(double* line, int n, const double* kernel,
     }
 }
 
+}  // namespace
+
 // Build the normalised scipy gaussian_filter1d kernel for the given sigma.
-// Returns the kernel radius (0 when sigma <= 0 -> no filtering).
+// Returns the kernel radius (0 when sigma <= 0 -> no filtering). Defined at
+// namespace scope (declared in crop_resize.h) so the autoexposure small_preview
+// order=0 path shares the exact same anti-aliasing kernel as this stage.
 int build_gaussian_kernel(double sigma, std::vector<double>* kernel) {
     kernel->clear();
     if (!(sigma > 0.0)) return 0;
@@ -123,8 +127,6 @@ int build_gaussian_kernel(double sigma, std::vector<double>* kernel) {
     for (double& v : *kernel) v /= sum;
     return radius;
 }
-
-}  // namespace
 
 // scipy.ndimage.zoom(order=3, mode='mirror', grid_mode=True) for interleaved RGB,
 // implemented as two separable 1D cubic-spline passes over the prefiltered
@@ -297,17 +299,29 @@ static void crop_image(const double* in, int h, int w,
     if (x00 + sz0 > h) x00 = h - sz0;
     if (x01 + sz1 > w) x01 = w - sz1;
 
-    // NumPy slicing clamps a negative start to 0 and an oversize stop to the
-    // dimension; a start past the end yields an empty axis. Mirror that so we
-    // never read out of bounds while preserving the resulting extent.
-    long long r0 = x00, r1 = x00 + sz0;
-    long long c0 = x01, c1 = x01 + sz1;
-    if (r0 < 0) r0 = 0; if (r0 > h) r0 = h;
-    if (r1 < 0) r1 = 0; if (r1 > h) r1 = h;
-    if (c0 < 0) c0 = 0; if (c0 > w) c0 = w;
-    if (c1 < 0) c1 = 0; if (c1 > w) c1 = w;
-    const int ch = static_cast<int>(r1 > r0 ? r1 - r0 : 0);
-    const int cw = static_cast<int>(c1 > c0 ? c1 - c0 : 0);
+    // Resolve image[x0 : x0+sz] with NumPy slice semantics (positive step). When
+    // the crop is larger than the image (sz > dim), the oracle's "x0 = dim - sz"
+    // overflow adjustment above leaves x0 NEGATIVE; NumPy then interprets that
+    // negative START as an index from the end (start += dim), it does NOT clamp it
+    // to 0. (Earlier code clamped to 0 and read the whole axis — diverging from
+    // the oracle's degenerate single-row crop.) Each endpoint: add dim if
+    // negative, then clamp to [0, dim]; the extent is max(0, stop-start). For the
+    // normal in-bounds crop this is identical to before (no negatives), so the
+    // existing crop golden stays byte-identical.
+    auto np_slice = [](long long start, long long sz, long long dim,
+                       long long* off, int* extent) {
+        long long stop = start + sz;
+        if (start < 0) start += dim;
+        if (stop < 0) stop += dim;
+        if (start < 0) start = 0; else if (start > dim) start = dim;
+        if (stop < 0) stop = 0; else if (stop > dim) stop = dim;
+        *off = start;
+        *extent = static_cast<int>(stop > start ? stop - start : 0);
+    };
+    long long r0 = 0, c0 = 0;
+    int ch = 0, cw = 0;
+    np_slice(x00, sz0, h, &r0, &ch);
+    np_slice(x01, sz1, w, &c0, &cw);
 
     out->assign(static_cast<size_t>(ch) * cw * 3, 0.0);
     for (int y = 0; y < ch; ++y) {

@@ -84,6 +84,14 @@ void crop_and_rescale(const double* in, int w, int h,
 void rescale_cubic_rgb(const double* in, int w, int h, double factor,
                        std::vector<double>* out, int* out_w, int* out_h);
 
+// scipy.ndimage.gaussian_filter1d kernel for `sigma` (truncate=4.0), normalised
+// to sum 1: radius = int(4*sigma + 0.5), weights exp(-0.5*k^2/sigma^2). Returns
+// the radius (0 and an empty kernel when sigma <= 0). This is the exact
+// anti-aliasing kernel skimage.transform.rescale applies before a minifying
+// resize; exposed so the autoexposure small_preview (order=0) path shares it
+// with this order=3 crop/resize stage instead of duplicating the kernel math.
+int build_gaussian_kernel(double sigma, std::vector<double>* kernel);
+
 }  // namespace spk
 
 #endif  // SPK_RUNTIME_STAGES_CROP_RESIZE_H

@@ -1465,8 +1465,10 @@ spk_status spk_engine_list_profiles(spk_engine* eng, char* buf, size_t buf_len,
 
 spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* p,
                         spk_image* out) {
-    if (!out) return SPK_ERR_BAD_ARGS;
-    if (!p) return SPK_ERR_BAD_ARGS;
+    // Validate every pointer before any deref, matching spk_simulate_preview /
+    // spk_simulate_tap. `in` is read for width/height just below, so guard it
+    // (and its data) here rather than relying on the run_* callees.
+    if (!eng || !in || !p || !out || !in->data) return SPK_ERR_BAD_ARGS;
     std::vector<float> rgb;
     spk_status st;
     int ow = in->width, oh = in->height;

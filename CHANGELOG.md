@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased — codebase review + top-priority parity fixes 🔍
+
+A codebase-wide review (`docs/CODE_REVIEW_2026-06-24.md`, find→adversarially-verify→synthesize)
+and its top-priority fixes. All 27 engine-parity gates stay green; the default render/export path
+is byte-identical except for the auto-exposure metering fix below, which brings a previously
+diverging default path back onto the oracle.
+
+### Fixed
+- **Auto-exposure metering parity (default path).** `small_preview` — the ≤256 px downscale the
+  auto-exposure stage meters on — now applies skimage's anti-aliasing gaussian prefilter
+  (`sigma = max(0,(in/out−1)/2)` per axis, `mode='mirror'`, `truncate=4.0`) before the order=0
+  nearest resample, matching `skimage.transform.rescale`. The prefilter was omitted, so the
+  metered EV (a single global gain on every pixel) diverged from the oracle on every >256 px
+  import. The shared kernel (`build_gaussian_kernel`) is reused from the crop/resize stage and
+  evaluated fused per sampled output pixel, so a full-resolution export does not allocate a second
+  `w*h*3` buffer. New gate `test_small_preview_aa` (stage-local skimage golden, 384×200→256×133;
+  matches to 5.95e-08).
+- **Oversize-crop slice semantics.** `crop_image` now follows NumPy negative-start-from-end slicing
+  when `crop_size > 1.0` (a crop larger than the image) instead of clamping the start to 0 and
+  reading the whole axis. In-bounds crops are byte-identical (the crop golden is unchanged).
+- **`spk_simulate` null guard.** The public C entry point validates `eng`/`in`/`in->data` before
+  dereferencing, matching `spk_simulate_preview` / `spk_simulate_tap`.
+- **`grain.cpp` dead store removed** (`dmax_frac` was written but never read; `frac` is used
+  inline). No behavioural change.
+
+### CI
+- **engine-parity now honors the test exit code.** `build_run` fails on a non-zero test exit
+  (`PIPESTATUS[0]`) or empty output, not only on a "FAIL" string — so a missing-asset/setup
+  failure or a crash before any print can no longer silently report green. The grep stays
+  case-insensitive.
+
 ## v0.7.0 — engine completion: APK-direct assets + enlarger LUT 🎞️
 
 Closes the two long-standing engine remainders, both verified on-device (Galaxy S25 Ultra,
