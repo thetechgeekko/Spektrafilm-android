@@ -29,7 +29,11 @@ private fun allocRotBuf(floats: Int): Pair<ByteBuffer, ((ByteBuffer) -> Unit)?> 
             return nb.order(ByteOrder.nativeOrder()) to { b -> SimResult.freeDirectBuffer(b) }
         }
     }
-    return ByteBuffer.allocateDirect(floats * 4).order(ByteOrder.nativeOrder()) to null
+    // Long-widen the byte count (floats * 4 overflows Int above ~536M floats) and fail
+    // loudly rather than allocate a wrong-sized buffer, mirroring the off-heap branch above.
+    val bytes = floats.toLong() * 4
+    if (bytes > Int.MAX_VALUE) throw OutOfMemoryError("rotation buffer too large: $bytes bytes")
+    return ByteBuffer.allocateDirect(bytes.toInt()).order(ByteOrder.nativeOrder()) to null
 }
 
 /** Clockwise rotation applied to the source before simulation. */

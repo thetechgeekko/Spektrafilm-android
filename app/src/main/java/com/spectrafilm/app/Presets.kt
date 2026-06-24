@@ -96,12 +96,18 @@ object Presets {
 
     private fun JSONObject.triOf(key: String, def: Triple<Float, Float, Float>): Triple<Float, Float, Float> {
         val a = optJSONArray(key) ?: return def
-        return Triple(a.getDouble(0).toFloat(), a.getDouble(1).toFloat(), a.getDouble(2).toFloat())
+        // optDouble tolerates a short/malformed array instead of throwing mid-decode
+        // (a partial mutation of ParamsState); a missing element falls back to the default.
+        return Triple(
+            a.optDouble(0, def.first.toDouble()).toFloat(),
+            a.optDouble(1, def.second.toDouble()).toFloat(),
+            a.optDouble(2, def.third.toDouble()).toFloat(),
+        )
     }
 
     private fun JSONObject.pairOf(key: String, def: Pair<Float, Float>): Pair<Float, Float> {
         val a = optJSONArray(key) ?: return def
-        return a.getDouble(0).toFloat() to a.getDouble(1).toFloat()
+        return a.optDouble(0, def.first.toDouble()).toFloat() to a.optDouble(1, def.second.toDouble()).toFloat()
     }
 
     private fun JSONObject.f(key: String, def: Float) = optDouble(key, def.toDouble()).toFloat()
@@ -117,7 +123,8 @@ object Presets {
         val out = ArrayList<Pair<Float, Float>>(arr.length())
         for (i in 0 until arr.length()) {
             val p = arr.optJSONArray(i) ?: continue
-            out.add(p.getDouble(0).toFloat() to p.getDouble(1).toFloat())
+            if (p.length() < 2) continue  // skip a malformed point instead of throwing
+            out.add(p.optDouble(0, 0.0).toFloat() to p.optDouble(1, 0.0).toFloat())
         }
         return out
     }

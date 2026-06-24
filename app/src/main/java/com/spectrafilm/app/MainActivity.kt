@@ -394,6 +394,14 @@ class MainActivity : ComponentActivity() {
         // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
         var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
         val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Cancel any in-flight ROI / magnifier render job when the editor leaves composition
+        // (navigation), so a superseded job doesn't keep rendering into a gone Composable.
+        DisposableEffect(Unit) {
+            onDispose {
+                magnifierJobRef.value?.cancel()
+                roiJobRef.value?.cancel()
+            }
+        }
         // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
         DisposableEffect(roiOverlay) {
             val current = roiOverlay
@@ -440,7 +448,7 @@ class MainActivity : ComponentActivity() {
         var hasRecipe by remember { mutableStateOf(false) }
         var defaultsJson by remember { mutableStateOf<String?>(null) }
         val snackbarHost = remember { SnackbarHostState() }
-        val recipeKey = Recipes.keyFor(sourceUri)
+        val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
 
         // --- double-back-to-exit on the root editor ---
         var backArmed by remember { mutableStateOf(false) }

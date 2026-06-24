@@ -257,7 +257,7 @@ fun CropOverlay(
     }
 }
 
-private enum class Handle { NONE, MOVE, TL, TR, BL, BR, L, R, T, B }
+internal enum class Handle { NONE, MOVE, TL, TR, BL, BR, L, R, T, B }
 
 /** Resolve an aspect preset to a concrete ratio (Original -> image aspect; Free -> null). */
 private fun resolveAspect(a: CropAspect, imageAspect: Float): Float? = when (a) {
@@ -331,33 +331,36 @@ private fun applyDrag(
  * rectangle is stored in normalized image coords, the pixel aspect of the box is
  * (w * imgW) / (h * imgH); we adjust height to satisfy it, keeping it in bounds.
  */
-private fun constrainToAspect(
+internal fun constrainToAspect(
     rect: Rect,
     aspect: Float,
     imgW: Float,
     imgH: Float,
     anchor: Handle = Handle.BR,
 ): Rect {
-    val w = (rect.right - rect.left)
-    // desired pixel height = pixel width / aspect; convert back to normalized H.
-    val pxW = w * imgW
-    val pxH = pxW / aspect
-    var nh = (pxH / imgH).coerceIn(0.05f, 1f)
-    val nw: Float
-    if (nh > 1f) { nh = 1f }
-    // If height would overflow, shrink width to compensate.
-    var newW = w
-    if (rect.top + nh > 1f && anchor != Handle.T && anchor != Handle.TL && anchor != Handle.TR) {
-        nh = (1f - rect.top)
-        val correctedPxW = (nh * imgH) * aspect
-        newW = (correctedPxW / imgW).coerceIn(0.05f, 1f)
+    val w = rect.right - rect.left
+    // desired normalized height so the pixel aspect (w*imgW)/(nh*imgH) == aspect.
+    var nh = ((w * imgW / aspect) / imgH).coerceIn(0.05f, 1f)
+    var nw = w
+    // The corner OPPOSITE the dragged handle stays fixed and the box grows toward the
+    // handle: a left/top edge drag keeps the right/bottom edge, and vice versa. (The old
+    // code always kept the top-left corner, so TL/TR drags moved the wrong edges.)
+    val leftFixed = anchor != Handle.TL && anchor != Handle.BL && anchor != Handle.L
+    val topFixed = anchor != Handle.TL && anchor != Handle.TR && anchor != Handle.T
+    // Clamp the height to the room past the fixed edge, shrinking width to keep the aspect.
+    val availH = (if (topFixed) 1f - rect.top else rect.bottom).coerceAtLeast(0.05f)
+    if (nh > availH) {
+        nh = availH
+        nw = ((nh * imgH * aspect) / imgW).coerceIn(0.05f, 1f)
     }
-    nw = newW
-    var l = rect.left; var t = rect.top
-    var r = l + nw; var b = t + nh
-    if (r > 1f) { l = (1f - nw).coerceAtLeast(0f); r = l + nw }
-    if (b > 1f) { t = (1f - nh).coerceAtLeast(0f); b = t + nh }
-    return Rect(l, t, r.coerceAtMost(1f), b.coerceAtMost(1f))
+    var l = if (leftFixed) rect.left else rect.right - nw
+    var t = if (topFixed) rect.top else rect.bottom - nh
+    // Shift back into [0,1] without resizing.
+    if (l < 0f) l = 0f
+    if (t < 0f) t = 0f
+    if (l + nw > 1f) l = (1f - nw).coerceAtLeast(0f)
+    if (t + nh > 1f) t = (1f - nh).coerceAtLeast(0f)
+    return Rect(l, t, (l + nw).coerceAtMost(1f), (t + nh).coerceAtMost(1f))
 }
 
 /** Draw the ImageBitmap to fill the whole DrawScope (the Box already has the aspect). */
