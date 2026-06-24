@@ -230,6 +230,15 @@ jobs:
           # compression), so every other golden stays byte-identical; this gates only the
           # opt-in kAcesRgc math.
           build_run test_gamut_out_aces tests/gamut_aces_cases.bin
+          # OPT-IN input gamut compression — radial xy compression toward the visible
+          # spectral locus (model/gamut_compression.cpp::spectral_locus_xy +
+          # compress_xy_radial, reusing the shared reinhard_knee) plus the tc_lut
+          # remap-resample bake (kernels/spectral_upsampling.cpp::
+          # remap_tc_lut_for_compression). Gated bit-exact vs the upstream
+          # gamut_compression.py golden (locus polygon + xy probes + synthetic-LUT
+          # bake). build_filming_tc_lut defaults to InputGamutCompress::kOff (no bake),
+          # so every other golden stays byte-identical; this gates only the opt-in path.
+          build_run test_gamut_in_xy tests/gamut_in_cases.bin
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

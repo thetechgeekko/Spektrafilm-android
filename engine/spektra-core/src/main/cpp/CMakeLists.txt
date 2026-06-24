@@ -35,7 +35,7 @@ add_library(spektra SHARED
         model/diffusion.cpp                  # in-emulsion scatter + halation (spatial)
         model/grain.cpp                      # AgX particle grain model (M6)
         model/morph_curves.cpp               # opt-in s023 print density-curve morph (default OFF)
-        model/gamut_compression.cpp          # opt-in ACES RGC v1.3 output gamut compression (default OFF)
+        model/gamut_compression.cpp          # opt-in gamut compression: ACES RGC v1.3 output + radial-to-locus input (default OFF)
         model/color_output.cpp               # XYZ->output RGB + CCTF (M3)
         # Profiles + runtime stages:
         profiles/profile.cpp                 # profile JSON loader (M3)

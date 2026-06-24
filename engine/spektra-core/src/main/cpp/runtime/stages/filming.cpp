@@ -248,7 +248,11 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
                              const double* illuminant,
                              float spectral_gaussian_blur, bool apply_window,
                              bool apply_surface, const float* filter_uv,
-                             const float* filter_ir) {
+                             const float* filter_ir,
+                             InputGamutCompress input_gamut_compress,
+                             double in_gamut_knee_threshold,
+                             double in_gamut_knee_limit,
+                             double in_gamut_knee_power) {
     // Optional spectral-domain blur of the spectra LUT (default 0 -> no-op). Done
     // up front, before the sensitivity contraction, matching upstream
     // compute_hanatos2025_tc_lut.
@@ -383,6 +387,30 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
         for (size_t k = 0; k < ncell; ++k) {
             tc_lut.data[k] *= std::pow(2.0, surface[k]);
         }
+    }
+
+    // Optional INPUT gamut compression bake (opt-in; default kOff -> skipped, so the
+    // tc_lut is byte-identical to the pre-feature build and every golden stays
+    // bit-exact). Mirrors compute_hanatos2025_tc_lut appending
+    // remap_tc_lut_for_compression when InputGamutCompressSpec.active: radially
+    // compress each LUT cell's chromaticity toward the visible spectral locus around
+    // the film reference illuminant, then resample the LUT. The reference illuminant
+    // chromaticity is computed from the SAME illuminant SPD integrated against the CIE
+    // 1931 2deg CMFs (xy is scale-invariant), matching the surface branch above and
+    // the oracle's _illuminant_to_xy(reference_illuminant). kOklch is reserved (not
+    // ported) and falls through as a no-op.
+    if (input_gamut_compress == InputGamutCompress::kXy) {
+        double xyz[3] = {0, 0, 0};
+        for (int s = 0; s < S; ++s) {
+            double ill = illuminant[s];
+            xyz[0] += ill * static_cast<double>(kCieCmf1931[s][0]);
+            xyz[1] += ill * static_cast<double>(kCieCmf1931[s][1]);
+            xyz[2] += ill * static_cast<double>(kCieCmf1931[s][2]);
+        }
+        double sum_xyz = xyz[0] + xyz[1] + xyz[2];
+        double white_xy[2] = {xyz[0] / sum_xyz, xyz[1] / sum_xyz};
+        remap_tc_lut_for_compression(tc_lut, white_xy, in_gamut_knee_threshold,
+                                     in_gamut_knee_limit, in_gamut_knee_power);
     }
     return tc_lut;
 }

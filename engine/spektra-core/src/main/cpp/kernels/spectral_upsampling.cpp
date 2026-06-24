@@ -14,6 +14,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
+
+#include "model/gamut_compression.h"
 
 namespace spk {
 namespace {
@@ -172,6 +175,67 @@ void fetch_coeffs(const NdArray& coeffs_lut, Vec2 tc, double out_coeffs[4]) {
     int L = coeffs_lut.shape[0];
     double scale = static_cast<double>(L - 1);
     cubic_interp_lut_at_2d(coeffs_lut, tc.x * scale, tc.y * scale, out_coeffs);
+}
+
+namespace {
+
+// Bilinear sample of a {H, W, 3} LUT channel at fractional grid coords (ci, cj),
+// matching scipy.ndimage.map_coordinates(order=1, mode='nearest'): the integer
+// neighbours are clamped into [0, H-1] / [0, W-1] (edge replication), then the four
+// corners are linearly blended by the fractional parts. The bake's coords are always
+// in [0, H-1] (tri2quad clips tc to [0, 1]) so the clamp only ever fires on the upper
+// edge, but it is applied unconditionally to mirror scipy's boundary handling exactly.
+inline double bilinear_nearest(const std::vector<double>& src, int H, int W, int ch,
+                               double ci, double cj) {
+    const int i0f = static_cast<int>(std::floor(ci));
+    const int j0f = static_cast<int>(std::floor(cj));
+    const double fi = ci - i0f;
+    const double fj = cj - j0f;
+    auto clampi = [](int v, int n) { return v < 0 ? 0 : (v >= n ? n - 1 : v); };
+    const int i0 = clampi(i0f, H), i1 = clampi(i0f + 1, H);
+    const int j0 = clampi(j0f, W), j1 = clampi(j0f + 1, W);
+    const double v00 = src[(static_cast<size_t>(i0) * W + j0) * 3 + ch];
+    const double v01 = src[(static_cast<size_t>(i0) * W + j1) * 3 + ch];
+    const double v10 = src[(static_cast<size_t>(i1) * W + j0) * 3 + ch];
+    const double v11 = src[(static_cast<size_t>(i1) * W + j1) * 3 + ch];
+    return v00 * (1.0 - fi) * (1.0 - fj) + v01 * (1.0 - fi) * fj +
+           v10 * fi * (1.0 - fj) + v11 * fi * fj;
+}
+
+}  // namespace
+
+void remap_tc_lut_for_compression(NdArray& tc_lut, const double white_xy[2],
+                                  double threshold, double limit, double power) {
+    const int H = tc_lut.shape[0];
+    const int W = tc_lut.shape[1];
+    // tc_lut is {H, W, 3}; bail on a malformed shape rather than corrupt memory.
+    if (tc_lut.shape.size() != 3 || tc_lut.shape[2] != 3 || H < 1 || W < 1) return;
+
+    const std::vector<double> src = tc_lut.data;  // sample the OLD lut (copy)
+    const double inv_h = (H > 1) ? 1.0 / (H - 1) : 0.0;
+    const double inv_w = (W > 1) ? 1.0 / (W - 1) : 0.0;
+    const double hm1 = static_cast<double>(H - 1);
+    const double wm1 = static_cast<double>(W - 1);
+
+    for (int i = 0; i < H; ++i) {
+        const double tcx = (H > 1) ? i * inv_h : 0.0;
+        for (int j = 0; j < W; ++j) {
+            const double tcy = (W > 1) ? j * inv_w : 0.0;
+            // tc cell -> xy (quad2tri) -> radial compress -> xy' -> tc' (tri2quad).
+            const Vec2 xy = quad2tri({tcx, tcy});
+            const double xy_in[2] = {xy.x, xy.y};
+            double xy_c[2];
+            compress_pixel_xy(xy_in, white_xy, threshold, limit, power, xy_c);
+            const Vec2 tcq = tri2quad({xy_c[0], xy_c[1]});
+            // tc' in [0, 1] -> grid coords in [0, H-1] / [0, W-1].
+            const double ci = tcq.x * hm1;
+            const double cj = tcq.y * wm1;
+            double* o = &tc_lut.data[(static_cast<size_t>(i) * W + j) * 3];
+            o[0] = bilinear_nearest(src, H, W, 0, ci, cj);
+            o[1] = bilinear_nearest(src, H, W, 1, ci, cj);
+            o[2] = bilinear_nearest(src, H, W, 2, ci, cj);
+        }
+    }
 }
 
 }  // namespace spk

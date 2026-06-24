@@ -46,6 +46,25 @@ enum class OutputGamutCompress {
     kCam16ucs   = 6,
 };
 
+// Input gamut compression algorithm selector (mirrors
+// gamut_compression.py::InputGamutCompressSpec.algorithm, plus the kOff sentinel that
+// is the engine default — the oracle spec defaults active=True, the engine defaults
+// OFF so every pre-existing golden stays byte-identical, exactly like the output side
+// defaults to kLegacyClip).
+//   kOff   — DEFAULT. No input compression; the Hanatos filming tc_lut is built and
+//            used exactly as before (oracle InputGamutCompressSpec.active == False).
+//            Byte-identical to every golden.
+//   kXy    — ACES-RGC-style radial compression in CIE 1931 chromaticity from the film
+//            reference illuminant toward the visible spectral locus (oracle
+//            algorithm="xy", the production default), baked into the tc_lut.
+//   kOklch — perceptual chroma reduction. RESERVED (needs the OkLab C_max bisection
+//            table); not implemented yet.
+enum class InputGamutCompress {
+    kOff   = 0,
+    kXy    = 1,
+    kOklch = 2,
+};
+
 // Reinhard knee on a normalized distance d (gamut_compression.py::reinhard_knee):
 // identity at/below `threshold`, smoothly asymptotic to `limit` above it.
 //   d <= threshold      -> d
@@ -65,6 +84,34 @@ void compress_pixel_aces_rgc(const double rgb[3], double threshold, double limit
 // In-place ACES RGC over an interleaved (npix*3) row-major linear-RGB image.
 void compress_rgb_aces_rgc(double* rgb, int npix, double threshold, double limit,
                            double power);
+
+// ---- Input-side: radial xy compression toward the visible spectral locus --------
+// (gamut_compression.py input path: spectral_locus_xy + compress_xy_radial.) These
+// operate on CIE 1931 chromaticity xy (2 components) around a reference white, NOT on
+// output RGB. They are pure double math; the spectral-locus polygon is baked as a
+// captured constant (see the .cpp) so the result matches the oracle bit-for-bit.
+
+// The closed CIE 1931 2 deg visible spectral locus polygon in xy
+// (gamut_compression.py::spectral_locus_xy: CMFs at 380..700 nm @ 5 nm, normalized by
+// X+Y+Z, first vertex repeated). Returns the vertex count N (66) and sets *out_xy to
+// a static flat array of N*2 doubles (x0,y0,x1,y1,...). The first and last vertices
+// are identical (the polygon is closed) so it is directly usable for ray-polygon
+// intersection.
+int spectral_locus_xy(const double** out_xy);
+
+// ACES-RGC-style radial xy compression of one chromaticity toward the spectral locus
+// (gamut_compression.py::compress_xy_radial, per point). `white_xy` is the achromatic
+// axis (the film reference illuminant chromaticity). Computes the normalized radial
+// distance d = |xy - white| / boundary (boundary = ray-to-locus distance along the
+// xy->white direction), passes d through reinhard_knee, and rescales along the same
+// ray — preserving hue (dominant wavelength). At-white points (|xy - white| < 1e-9)
+// pass through unchanged. Writes the compressed xy to out[2].
+void compress_pixel_xy(const double xy[2], const double white_xy[2], double threshold,
+                       double limit, double power, double out[2]);
+
+// In-place radial xy compression over an interleaved (npix*2) array of chromaticities.
+void compress_xy_radial(double* xy, int npix, const double white_xy[2],
+                        double threshold, double limit, double power);
 
 }  // namespace spk
 
