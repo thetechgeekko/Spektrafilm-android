@@ -26,15 +26,28 @@ uint16_t float_to_half(float f) {
         return static_cast<uint16_t>(sign | 0x7C00u | (mant ? 0x200u : 0u));
     }
     if (exp >= 0x1F) return static_cast<uint16_t>(sign | 0x7C00u);  // overflow -> Inf
-    if (exp <= 0) {                               // subnormal / underflow
-        if (exp < -10) return static_cast<uint16_t>(sign);
-        uint32_t m = (mant | 0x800000u) >> (1 - exp);
-        if (m & 0x1000u) m += 0x2000u;            // round to nearest even
-        return static_cast<uint16_t>(sign | (m >> 13));
+    if (exp <= 0) {                               // subnormal half / underflow
+        if (exp < -10) return static_cast<uint16_t>(sign);  // below half the smallest subnormal -> 0
+        // Round-to-nearest-ties-to-even with a full sticky bit. The 24-bit
+        // significand (implicit leading 1) is shifted right by `sh` to reach the
+        // 10-bit subnormal field; the discarded low bits decide the rounding. The
+        // previous `m & 0x1000` rounded half-up AND dropped the bits the `>> (1-exp)`
+        // shift discarded (no sticky), so it diverged from NEON vcvt_f16_f32 (RNE).
+        const uint32_t S = mant | 0x800000u;       // 24-bit significand (implicit 1)
+        const int sh = (1 - exp) + 13;             // denormalize (1-exp) + drop low 13
+        uint32_t result = S >> sh;
+        const uint32_t discarded = S & ((1u << sh) - 1u);
+        const uint32_t halfway = 1u << (sh - 1);
+        if (discarded > halfway || (discarded == halfway && (result & 1u))) ++result;
+        return static_cast<uint16_t>(sign | result);
     }
     uint16_t h = static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | (mant >> 13));
-    if (mant & 0x1000u) {                          // round to nearest even
-        // carry into exponent handled by the +1 on the packed bits
+    // Round to nearest, ties to even. The low 13 bits of `mant` are discarded; round
+    // up when they exceed half an ULP, or are exactly half AND the kept LSB is odd
+    // (so the result ends even). Matches NEON vcvt_f16_f32 (FPCR RNE); the previous
+    // `mant & 0x1000` was round-half-up and diverged from NEON on exact ties.
+    const uint32_t round_bits = mant & 0x1FFFu;
+    if (round_bits > 0x1000u || (round_bits == 0x1000u && (h & 1u))) {
         h = static_cast<uint16_t>(h + 1);
     }
     return h;

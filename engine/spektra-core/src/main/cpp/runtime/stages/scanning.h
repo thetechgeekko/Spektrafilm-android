@@ -19,6 +19,7 @@
 #include <cstdint>
 
 #include "kernels/tonecurve.h"
+#include "model/gamut_compression.h"
 #include "profiles/profile.h"
 #include "spektra.h"  // spk_color_space
 
@@ -124,6 +125,18 @@ struct ScanningParams {
     // parity goldens — which carry no curve — stay bit-exact. This is a NEW look
     // control beyond the spektrafilm oracle, gated like grain/glare.
     ToneCurveSet tone_curve;
+
+    // OPT-IN output gamut compression (gamut_compression.py::compress_rgb, applied in
+    // scanning.py::_density_to_rgb right after XYZ->RGB and before blur/unsharp).
+    // Default kLegacyClip => the block is SKIPPED and the engine's existing clip path
+    // is unchanged, so every pre-existing golden stays byte-identical. kAcesRgc applies
+    // the ACES RGC v1.3 per-channel knee in the linear output space; its math is gated
+    // by tests/test_gamut_out_aces.cpp against an upstream gamut_compression.py golden.
+    // The knee triple defaults to the oracle's production default (0, 1, 6).
+    OutputGamutCompress output_gamut_compress = OutputGamutCompress::kLegacyClip;
+    double gamut_knee_threshold = 0.0;
+    double gamut_knee_limit = 1.0;
+    double gamut_knee_power = 6.0;
 };
 
 // scan(): run the scanning stage on an (h x w x 3) row-major density_cmy image.

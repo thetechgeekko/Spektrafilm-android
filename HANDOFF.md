@@ -1,6 +1,71 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-24 #2, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P0 #1 ACES→ProPhoto RAW colorspace fix
+## State (2026-06-24 #3, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P1 #3 (aces_rgc output gamut compression) + P1 #4 (float_to_half RNE)
+
+Continuation on the same branch/PR. **Both P1 items from the roadmap are now done.** Both are parity-safe:
+the default render/export path is **byte-identical** to oracle `c1d0e44` (the full host engine-parity suite
+is **31 gates, all green** — the prior 30 + the new `test_gamut_out_aces`; `test_half` was strengthened,
+not added). `:engine:spektra-core:externalNativeBuildDebug` **BUILD SUCCESSFUL** for all 3 ABIs (NDK r27).
+No Kotlin/JNI/facade change (both items are engine-internal; the UI/JNI wiring is the deferred P2 #7 umbrella).
+
+### What shipped (P1 #3 — `aces_rgc` output gamut compression, OPT-IN / DEFAULT-OFF)
+- **New `model/gamut_compression.{h,cpp}`** ports `utils/gamut_compression.py::reinhard_knee` (the shared
+  Reinhard knee the input/perceptual gamut items P2 #5/#6 will reuse) + `compress_rgb_aces_rgc` (ACES
+  Reference Gamut Compression v1.3, per-channel knee on the achromatic distance `d=(max(R,G,B)-c)/max(R,G,B)`,
+  preserving the achromatic max; near-black `ach<=1e-12` passes through). All in double, matching the oracle.
+- **The `OutputGamutCompress` enum carries the `kLegacyClip` sentinel as its DEFAULT** — the engine's existing
+  behavior (no compression; scanning's final `np.clip(0,1)`). The newer oracle *removed* that clip and replaced
+  it with gamut compression; `kLegacyClip` keeps the engine on the old, golden-matching path. `kAcesRgc` opts
+  in; `kOff` + the four perceptual algos (oklch/oklrab/jzazbz/cam16ucs) are reserved (not ported).
+- **Scanning hook** (`runtime/stages/scanning.{h,cpp}`): `ScanningParams.output_gamut_compress` (+ knee
+  threshold/limit/power, default 0/1/6). Applied in the linear output space at the oracle's exact position
+  (right after XYZ→RGB, before blur/unsharp). The hook is a branch gated on `kAcesRgc`; default `kLegacyClip`
+  **skips it entirely** → `lin_rgb` untouched → byte-identical. `CMakeLists.txt` + `ci.yml` updated.
+- **Gate `test_gamut_out_aces`** (`tools/parity/gen_gamut_aces_golden.py` → `tests/gamut_aces_cases.bin`,
+  28 cases/1584 pixels, 4 knee triples, captured from oracle HEAD `27bd085`): C++ vs oracle **max_abs 6.66e-16**
+  (machine epsilon); `reinhard_knee` pinned at probe points too. This **establishes the newer-oracle-golden
+  gating pattern** (golden from a SHA *newer* than the pinned `c1d0e44` baseline, but default-OFF so no
+  existing golden moves) the roadmap wanted from this first gamut port. **Adversarially re-checked** vs the
+  oracle over 400 fresh random vectors (max_abs ~1e-16).
+
+### What shipped (P1 #4 — `float_to_half` round-to-nearest-even)
+- **`kernels/half.cpp::float_to_half`**: both the normal and subnormal branches rounded **half-UP**
+  (the `mant & 0x1000` tie-break) — and the subnormal branch also dropped the sticky bits the `>> (1-exp)`
+  shift discarded. arm64 NEON `vcvt_f16_f32` uses **RNE** (FPCR default), so scalar(host/tail) vs NEON(bulk)
+  pixels would diverge on exact ties once the fp16 preview-proxy storage (PERF_ROADMAP #3) lands. Fixed both
+  to true RNE with a full sticky bit.
+- **`tests/test_half.cpp`** strengthened: an authoritative, self-contained `is_rne` tie-to-even checker
+  (independent of `float_to_half`'s bit-twiddling — uses `half_to_float` on the result + its two neighbours),
+  a targeted exact-tie table (incl. subnormal ties), and a 300k-value finite-range sweep. **Cross-checked vs
+  `numpy.float16` (RNE): bit-identical over 33,010 finite inputs** (8000 exact ties + subnormals + the
+  65504/65520 overflow boundary). This is the prereq the roadmap flagged for the fp16 preview proxy.
+
+### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
+- **P0 + P1 — all done.** P0 #1/#2 (prior section) and P1 #3/#4 (this section).
+- **P2 #5 — input gamut compression** (filming side: CAT02→CAT16 + xy-clip removal + locus bake, default-OFF).
+  Reuses the `reinhard_knee` shipped here; the heavier `model/gamut_compression` color-appearance util comes
+  with P2 #6 (perceptual algos). **P2 #7** is the umbrella that finally wires `output_gamut_compress` through
+  JNI/facade/UI and confirms both `ScanningParams` sites + both filming expose sites + the print-route digest
+  carry the flags — only actionable once #5/#6 land.
+- **P2 (Kotlin)**: off-main-thread preset/diagnostics IO; undo/redo restoring-flag timing. **P3-quickwins**:
+  the batch of UI nits (recipeKey remember, ROI/magnifier dispose-cancel, crop anchor, optDouble import, GPU
+  re-arm, allocRotBuf overflow, RawCoilDecoder leak). **P3-defer**: the Strategy-B rebaseline cluster
+  (unchanged — must move as one coordinated baseline bump; trigger = upstream settling its WB-norm baselines).
+
+### Verification recap (this session)
+Full engine-parity suite replayed locally from `ci.yml` argv: **31/31 gates green, fail=0** (all 28 prior
+goldens byte-identical + morph + np_interp + the new gamut gate; `test_parallel` proves 1≡8 thread-invariance).
+NDK r27 `externalNativeBuildDebug` green (arm64-v8a/armeabi-v7a/x86_64). Oracle reachable at
+`/home/user/spektrafilm` (HEAD `27bd085`; has the full `utils/gamut_compression.py`); load it standalone with
+the matplotlib-shim pattern in `gen_gamut_aces_golden.py` (colour imports for real first, then shim
+`matplotlib.path`, register the module in `sys.modules` before exec or its dataclass decorator throws).
+
+### Background watches (session-scoped; gone on restart)
+PR #105 subscription + any cron die when the session ends — re-subscribe / re-arm if still wanted.
+
+---
+
+## State (2026-06-24 #2, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — P0 #1 ACES→ProPhoto RAW colorspace fix
 
 Continuation on the same branch/PR. **Both P0 items from the roadmap are now done** (P0 #2 np_interp
 shipped in the section below; P0 #1 ACES→ProPhoto ships here). The fix **visibly changes native
