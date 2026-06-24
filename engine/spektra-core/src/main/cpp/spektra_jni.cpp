@@ -534,7 +534,7 @@ JNI(jstring, nativeListProfiles)(JNIEnv* env, jobject /*thiz*/, jlong handle) {
  * direct float ByteBuffer.
  */
 JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
-                             jobject inBuf, jint w, jint h, jstring /*inCs*/,
+                             jobject inBuf, jint w, jint h, jstring inCs,
                              jobject paramsObj, jboolean preview) {
     spk_engine* eng = reinterpret_cast<spk_engine*>(handle);
     if (!eng) { throw_runtime(env, "spektra: engine handle is null"); return nullptr; }
@@ -560,6 +560,24 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         return nullptr;
     }
 
+    // Honor the buffer's colour-space tag. The engine ingests linear ProPhoto RGB
+    // only (runtime InputColorSpace has a single value, kProPhotoRGB); every decode
+    // path (LibRaw raw_decoder, the platform/photo bitmap decoder, the synthetic
+    // image) already emits ProPhoto. Validating here means a non-ProPhoto buffer
+    // fails loudly instead of being silently re-interpreted through the ProPhoto
+    // primaries — the exact failure mode that mis-rendered native RAW decodes when
+    // the decoder still tagged its output "ACES2065-1". Empty/null tag => legacy
+    // default (treated as ProPhoto).
+    {
+        const std::string in_cs = jstr(env, inCs);
+        if (!in_cs.empty() && in_cs != "ProPhoto RGB") {
+            throw_runtime(env,
+                ("spektra: unsupported input color space '" + in_cs +
+                 "' (the engine accepts linear ProPhoto RGB only)").c_str());
+            return nullptr;
+        }
+    }
+
     spk_params params;
     ParamStorage store;
     if (!marshal_params(env, paramsObj, &params, &store)) {
@@ -567,6 +585,8 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         return nullptr;
     }
 
+    // Input is linear ProPhoto RGB (validated above); the engine's filming stage
+    // interprets it as such (FilmingParams::input_color_space == kProPhotoRGB).
     spk_image in_img{in_data, w, h, static_cast<int>(SPK_CS_PROPHOTO)};
     spk_image out{};
     spk_status st = preview ? spk_simulate_preview(eng, &in_img, &params, &out)

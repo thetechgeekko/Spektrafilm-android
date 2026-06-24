@@ -10,8 +10,8 @@
  * Source) to one icon. Edits rebuild an immutable SpektraParams and trigger a debounced,
  * downscaled preview render. Export renders full-resolution behind a blocking mask then
  * saves to the gallery. A preview rotate button rotates the decoded source so both the
- * preview AND the export reflect the orientation. RAW/DNG import (LibRaw -> ACES2065-1),
- * the sRGB photo picker, the synthetic demo image, named JSON presets, and non-destructive
+ * preview AND the export reflect the orientation. RAW/DNG import (LibRaw -> ACES2065-1 ->
+ * linear ProPhoto RGB), the sRGB photo picker, the synthetic demo image, named JSON presets, and non-destructive
  * per-image recipe auto-save/restore are all preserved.
  */
 package com.spectrafilm.app
@@ -2539,8 +2539,15 @@ class MainActivity : ComponentActivity() {
     private fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard("Input", expanded, { expanded = it }) {
-            Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
-                { s.inputColorSpace = it })
+            // Honesty: the engine's input space is fixed to linear ProPhoto RGB (the
+            // runtime InputColorSpace enum has a single value). RAW imports are decoded
+            // ACES2065-1 -> ProPhoto and photos are converted sRGB -> ProPhoto before the
+            // engine, so this selector is retained for presets/forward-compat but does not
+            // change the render. Other input spaces are the deferred input-gamut work.
+            GatedBlock("The engine renders every input as linear ProPhoto RGB — other input color spaces aren't wired yet.") {
+                Dropdown("Input color space", s.inputColorSpace, INPUT_COLOR_SPACES, { it },
+                    { s.inputColorSpace = it })
+            }
             SwitchRow("Apply CCTF decoding", s.inputCctfDecoding, { s.inputCctfDecoding = it },
                 "Apply the inverse cctf transfer function of the color space")
             // Honesty: the engine only implements HANATOS2025 (filming.expose always calls

@@ -8,6 +8,9 @@
  * spektrafilm/utils/raw_file_processor.py):
  *   output_color = ACES (ACES2065-1), output_bps = 16, no_auto_bright,
  *   gamma = (1,1) [linear], white balance per WhiteBalance below.
+ * The decoded ACES2065-1 buffer is then converted to linear ProPhoto RGB (the
+ * engine's input space), mirroring load_and_process_raw_file's output_colorspace
+ * step — so [LinearResult.colorSpace] is "ProPhoto RGB" (ACES is intermediate only).
  *
  * The result's direct ByteBuffer can be handed straight to the engine as a
  * LinearImage (primary integration point) with no intermediate 8-bit bitmap.
@@ -46,12 +49,14 @@ enum class WhiteBalance(val nativeMode: Int) {
  * Linear, scene-referred decode result. [data] is a *direct* float32 RGB
  * ByteBuffer (length = width*height*3*4 bytes), matching engine LinearImage. The
  * caller can construct `LinearImage(data, width, height, colorSpace)` directly.
+ * [colorSpace] is "ProPhoto RGB" — the decode path converts from its ACES2065-1
+ * intermediate to the engine's linear ProPhoto input space.
  */
 class LinearResult(
     val data: ByteBuffer,
     val width: Int,
     val height: Int,
-    val colorSpace: String = "ACES2065-1",
+    val colorSpace: String = "ProPhoto RGB",
 )
 
 object RawDecoder {
@@ -123,7 +128,7 @@ object RawDecoder {
     fun isRawFileName(name: String): Boolean =
         isRawFile(name.substringAfterLast('.', missingDelimiterValue = ""))
 
-    /** Decode a fully-read RAW/DNG byte array to linear ACES RGB. */
+    /** Decode a fully-read RAW/DNG byte array to linear ProPhoto RGB (via ACES2065-1). */
     fun decodeToLinear(bytes: ByteArray, settings: Settings = Settings()): LinearResult =
         nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,

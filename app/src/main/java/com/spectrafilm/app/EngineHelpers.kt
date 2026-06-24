@@ -67,7 +67,8 @@ fun syntheticLinearImage(size: Int): LinearImage {
 }
 
 /**
- * Decode a camera RAW/DNG [uri] to a scene-linear ACES2065-1 [LinearImage] via LibRaw.
+ * Decode a camera RAW/DNG [uri] to a scene-linear ProPhoto-RGB [LinearImage] via LibRaw
+ * (decoded as ACES2065-1, then converted to the engine's ProPhoto input space).
  *
  * Lightroom-style big-file handling: rather than always decoding at full native
  * resolution (a 50-200MP DNG is a multi-hundred-MB float transient — the thing that
