@@ -1,6 +1,97 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-05, LATEST, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
+## State (2026-06-24, LATEST, branch `claude/exciting-hamilton-hya62`, PR #105 DRAFT) — review fixes + upstream-sync + print-curve morph + np_interp fix
+
+All pushed to `claude/exciting-hamilton-hya62` (PR #105, repo moved to
+`thetechgeekko/Spektrafilm-android`). Host engine-parity verified green at every step
+(now **29 gates**: the prior 27 + `test_print_curves_morph` + `test_np_interp`).
+Default render/export path is byte-identical to oracle `c1d0e44` except the
+auto-exposure metering fix (a correction back onto the oracle). Android `:app` +
+`:engine` Kotlin compile (`compileDebugKotlin` BUILD SUCCESSFUL). CI re-running.
+
+### Commits this session (oldest→newest)
+1. `9b84e1e` Auto-exposure metering parity fix + 4 review follow-ups + review report.
+2. `449cca7` `docs/UPSTREAM_SYNC_2026-06-24.md` (merged-main + experimental-branch plan).
+3. `a33610a` Print density-curve morph (s023) engine core (opt-in, default-off).
+4. `5a31edf` Morph param chain: `spk_params`→JNI→Kotlin facade.
+5. `7c638ea` CHANGELOG for the morph.
+6. `b800ccd` `docs/PRIORITY_ROADMAP_2026-06-24.md` (ranked P0..P3).
+7. `4b745b1` Morph editor UI (`ParamsState`/`Presets`/`MainActivity` Experimental section).
+8. `ad4b2e4` **`np_interp` non-monotonic DIR-coupler fix (P0 #2)**.
+
+### What shipped + verified
+- **Codebase review** (`docs/CODE_REVIEW_2026-06-24.md`): 18 confirmed findings. 5 FIXED in
+  `9b84e1e`: auto-exposure `small_preview` AA prefilter (only default-path divergence;
+  gate `test_small_preview_aa`), CI `build_run` honors test exit code, `crop_image`
+  oversize NumPy slice, `spk_simulate` null guard, `grain.cpp` dead store.
+- **Print-curve morph (s023)** — first opt-in feature from the sync plan. `model/morph_curves.{h,cpp}`
+  ports `apply_print_curves_morph` (coupled gamma + Gumbel blend + scipy-style `brentq` D(0)
+  offset). `profiles/profile.cpp` now parses `data.density_curves_model`. Integrated in
+  `printing.cpp::print_develop` (default-off → stored table, byte-identical). Wired through
+  `spk_params` (`print_morph_*`)→`spektra_jni`→`PrintCurvesMorphParams` facade→`ParamsState`→
+  editor (Experimental section, enable switch + 7 sliders)→`Presets`. Gate
+  `test_print_curves_morph` **bit-exact (max_abs 0.0)** vs oracle golden
+  (`tools/parity/gen_print_curves_morph_golden.py`). Default-off keeps all goldens green.
+- **`np_interp` coupler fix (P0 #2)** — `couplers.cpp` used a plain ascending binary search;
+  the DIR-coupler axis `le0 = le - silver@M` can be NON-monotonic (diverged up to ~0.44 at
+  amount≥2 from the shipping sliders). Now ports numpy's order-dependent
+  `binary_search_with_guess` + batched `arr_interp` (`np_interp_array`, exposed in `couplers.h`).
+  Gate `test_np_interp`: **bit-exact (max_abs 0.0) vs `np.interp`** over 82 cases/3175 pts
+  (77 non-monotonic). NOTE: a per-element linear scan does NOT match numpy (964/4000 random
+  fails) — the carried guess matters; keep the batched form.
+
+### NEXT — resume here (priority order = `docs/PRIORITY_ROADMAP_2026-06-24.md`)
+- **P0 #1 — ACES→ProPhoto RAW colorspace fix (READY, awaiting go; CHANGES RAW OUTPUT).**
+  Bug: LibRaw decodes RAW to ACES2065-1 (`raw_decoder.cpp:536`) but the engine treats input as
+  ProPhoto (`spektra_jni.cpp` discards `inCs`, hardcodes `SPK_CS_PROPHOTO`); ACES pixels run
+  through the ProPhoto→XYZ matrix → wrong primaries on every native RAW decode. Oracle decodes
+  ACES then `colour.RGB_to_RGB`→ProPhoto (engine `input_color_space` default = "ProPhoto RGB").
+  FIX: bake the matrix below, apply per-pixel in `raw_decoder.cpp` where ACES is produced (one
+  place), set `result.colorSpace="ProPhoto RGB"`; also marshal `getInputColorSpace` (currently
+  inert). No host golden covers RAW, so correctness = the matrix (verified vs colour-science
+  0.4.7). The `decodeViaPlatform` fallback already emits ProPhoto. Caveat: `libraw` module is
+  NOT in the host parity suite — only the Android CI build compiles it; write the per-pixel loop
+  carefully. This is the only P0 item that VISIBLY changes RAW renders (a correction). Matrix
+  `ACES2065-1 → ProPhoto RGB` (CAT02, `colour.RGB_to_RGB` default), row-major:
+  ```
+  { 1.2393803418, -0.1639678228, -0.0752333838}
+  { 0.0036113619,  1.0896136492, -0.0932657921}
+  {-0.0020596793, -0.0022515883,  1.0045855773}
+  ```
+- **P1**: `float_to_half` round-to-nearest-even (`half.cpp`, latent until fp16 proxy); then the
+  `aces_rgc` **output gamut compression** hook (`scanning.cpp`, opt-in/default-off via a
+  LEGACY_CLIP sentinel — establishes the shared `reinhard_knee` + newer-oracle-golden gating the
+  input/perceptual gamut items reuse). See roadmap items 3–7 + dependency notes.
+- **P2/P3**: input/perceptual gamut compression; batch the Kotlin UI quick-wins (main-thread IO,
+  ROI bitmap cancel, crop anchor, `allocRotBuf` overflow, preset `optDouble`, undo timing, GPU
+  flags, `RawCoilDecoder` leak); reflectance/Mallett2019 upsampling (P3, blocked on a stable new
+  oracle SHA). DEFERRED (P3, Strategy-B baseline move, parityRisk high): the 28/29 profile refit
+  + default-ON engine math + WB-norm + B&W N-channel + Langmuir + grain overhaul — must move as
+  ONE coordinated rebaseline (re-pin `tools/parity/setup_env.sh`, regen every golden); trigger =
+  upstream settling its WB-norm regression baselines.
+
+### How to verify (host parity — the real gate)
+`engine/spektra-core/src/main/cpp`; compile each TU once to objects then link each test (much
+faster than re-compiling the source set per test). Replay the exact CI argv:
+`grep -E '^\s*build_run ' .github/workflows/ci.yml` and run each (`$ASSET` =
+`engine/.../assets/spektra`, `$G` = `tools/parity/goldens`, `$LUT` =
+`$ASSET/luts/spectral_upsampling/irradiance_xy_tc.npy`). PASS = no `FAIL` line + exit 0. Kotlin:
+`ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew
+:app:compileDebugKotlin --no-daemon -Dkotlin.compiler.execution.strategy=in-process` (the gradle
+daemon crashes on GC auto-select in this env; `--no-daemon` + in-process works). Oracle for new
+goldens at `/home/user/spektrafilm` (HEAD `3bb2c2d`; baseline `c1d0e44`); top-level
+`import spektrafilm` fails (lensfunpy missing) — load single modules directly with stubbed deps
+(see the morph/np_interp gen scripts). `andreavolpato/spektrafilm` git is policy-blocked (403);
+its branches were pushed to the `thetechgeekko/spektrafilm` fork (`reflectance-upsampling-methods`,
+`non-linear-couplers`, `dev`) and analyzed (Part B of the sync doc = track-only).
+
+### Background watches (session-scoped; gone on restart)
+PR #105 is subscribed for CI/review webhooks; cron job `7b2e5907` (hourly :47) re-checks CI/merge
+state. Both die when the session ends — re-subscribe / re-arm in a new session if still wanted.
+
+---
+
+## State (2026-06-05, branch `claude/exciting-hamilton-hya62`, PR #85 DRAFT) — GPU reverted, battery debounce, brutalist-re skill
 
 Continuation of the PR #85 work below. All pushed; CI green. Net since that section:
 
