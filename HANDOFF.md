@@ -1,6 +1,51 @@
 # Spektrafilm Android — Session Handoff
 
-## State (2026-06-24, LATEST, branch `claude/exciting-hamilton-hya62`) — P2 #5 (input gamut compression: radial-to-locus tc_lut bake, OPT-IN / DEFAULT-OFF)
+## State (2026-06-24, LATEST, branch `claude/exciting-hamilton-hya62`) — P2 #7 gamut activation + #8/#9 + P3 quick-wins (PR #109)
+
+**Finished the parity-safe near-term backlog** from `docs/PRIORITY_ROADMAP_2026-06-24.md`
+(user-chosen scope: full parity-safe backlog, excluding the deferred Strategy-B rebaseline
+cluster). All on **PR #109** (draft), branch synced with `main`. Every engine change is
+**default-OFF**, so the default render/export path is **byte-identical** to the oracle — the
+host parity suite is **31/31 green**, and `:app:testDebugUnitTest` + `:app:lint` +
+`:app:assembleDebug` (NDK r27, 3 ABIs) are green.
+
+### What shipped (5 commits)
+- **P2 #7 — gamut compression activated end-to-end** (`b658e6d` engine/JNI/facade, `113326c`
+  UI). The dormant output (ACES-RGC, P1 #3) + input (xy-locus, P2 #5) compressors are now
+  user-reachable: `spk_params.output_gamut_compress` / `input_gamut_compress` (int32 ordinals
+  mirroring `model/gamut_compression.h`) set at both `scan()` sites; `input_gamut_compress`
+  folded into the `engine_tc_lut` cache key (only when active) + `compute_film_cache_key`
+  (print-route memo); JNI marshals two new getters via a generic `enum_ordinal_int`;
+  `SpektraParams.IoParams` gains `OutputGamutCompress` {LEGACY_CLIP, OFF, ACES_RGC} /
+  `InputGamutCompress` {OFF, XY}; two dropdowns under Simulation→Output; recipe round-trip
+  (old recipes → default-OFF, unchanged look). **The Reinhard knee stays at the oracle default
+  (0,1,6) — not user-exposed in v1.** No new golden needed (primitives already gated by
+  `test_gamut_out_aces` / `test_gamut_in_xy`).
+- **P2 #8 — IO off the main thread** (`008bf2b`). Diagnostics last-crash read → LaunchedEffect;
+  logcat capture (spawns a process) + report/share + clear → Dispatchers.IO; per-line Regex
+  compiled once. Preset save/delete/list + recipe-reset delete → IO; apply/import read JSON
+  off-main (new `Presets.read`/`readUri`) and decode on main; export off-main.
+- **P2 #9 — undo timing** (`e3c42f3`). Extracted the editor settle decision into a pure,
+  unit-tested `settleDecision()` (EditHistory.kt): an edit landing within the ~500ms restore
+  window now pushes the restored baseline so the undo step isn't lost. +5 EditHistoryTest cases.
+- **P3 quick-wins #10-13,15** (`8d6f1f1`). recipeKey `remember`; ROI/magnifier DisposableEffect
+  cancel; crop `constrainToAspect` pivots on the opposite corner (made `internal` +
+  CropConstrainTest); preset-import `optDouble` safety; Rotation byte-count long-widen + OOM guard.
+
+### NEXT — resume here
+- **Deferred quick-wins**: #14 GPU-LUT re-arm (experimental opt-in, **device-gated**) and #16
+  RawCoilDecoder `freeOffHeap` (dead/unreachable until a Coil host exists).
+- **P2 #6 perceptual output-gamut algos** (cam16ucs/oklch/oklrab/jzazbz) — XL, parity-safe but
+  needs a new oracle golden per algo; reserved enum slots exist. The gamut **knee triple** could
+  also be surfaced in the UI later (currently pinned to the oracle default 0/1/6).
+- **P3-defer Strategy-B rebaseline cluster** (#20-27) — unchanged: one coordinated baseline bump
+  only; trigger = upstream settling its WB-norm baselines.
+- **Device-gated**: R8 0.8.0 release smoke; the four engine param-wiring UX decisions (AUDIT §A).
+- **PR #109** (draft) carries all of the above; session is subscribed for CI/review.
+
+---
+
+## State (2026-06-24, branch `claude/exciting-hamilton-hya62`) — P2 #5 (input gamut compression: radial-to-locus tc_lut bake, OPT-IN / DEFAULT-OFF)
 
 On `claude/exciting-hamilton-hya62` (branch merged up to current `main` first; PR #105 long since
 merged — this ships in a fresh PR). **P2 #5 (input-side gamut compression) is now done**, parity-safe:
