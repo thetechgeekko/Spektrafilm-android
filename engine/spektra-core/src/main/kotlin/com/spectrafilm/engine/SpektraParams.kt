@@ -12,6 +12,30 @@ package com.spectrafilm.engine
 /** Output color space, mirrors io.output_color_space + spk_color_space. */
 enum class ColorSpace { SRGB, ADOBE_RGB, PROPHOTO, REC2020, ACES2065_1, LINEAR_SRGB }
 
+/**
+ * Output gamut compression algorithm (opt-in, default-off). Ordinals MUST match the C++
+ * enum class OutputGamutCompress (model/gamut_compression.h) and the int32 the JNI
+ * marshaller reads:
+ *   LEGACY_CLIP=0 — DEFAULT. The engine's existing final clip in scanning; byte-identical
+ *                   to every parity golden.
+ *   OFF=1         — oracle "off": output RGB passes through with no compression and no clip.
+ *   ACES_RGC=2    — ACES Reference Gamut Compression v1.3 (per-channel knee on the
+ *                   achromatic distance) in the linear output space.
+ * The perceptual algos (oklch/oklrab/jzazbz/cam16ucs, C++ ordinals 3..6) are reserved
+ * upstream and not yet ported, so they are intentionally absent here.
+ */
+enum class OutputGamutCompress { LEGACY_CLIP, OFF, ACES_RGC }
+
+/**
+ * Input gamut compression algorithm (opt-in, default-off). Ordinals MUST match the C++
+ * enum class InputGamutCompress:
+ *   OFF=0 — DEFAULT. The Hanatos filming tc_lut is built exactly as before; byte-identical.
+ *   XY=1  — ACES-RGC-style radial compression in CIE 1931 chromaticity from the film
+ *           reference illuminant toward the visible spectral locus, baked into the tc_lut.
+ * The oklch variant (C++ ordinal 2) is reserved/unported and intentionally absent.
+ */
+enum class InputGamutCompress { OFF, XY }
+
 /** RGB→spectral upsampling method, mirrors settings.rgb_to_raw_method. */
 enum class Rgb2Raw { HANATOS2025, MALLETT2019 }
 
@@ -158,6 +182,10 @@ data class IoParams(
     val inputCctfDecoding: Boolean = false,
     val outputColorSpace: ColorSpace = ColorSpace.SRGB,
     val outputCctfEncoding: Boolean = true,
+    /** Opt-in output gamut compression (default LEGACY_CLIP => byte-identical render). */
+    val outputGamutCompress: OutputGamutCompress = OutputGamutCompress.LEGACY_CLIP,
+    /** Opt-in input (filming-side) gamut compression (default OFF => byte-identical). */
+    val inputGamutCompress: InputGamutCompress = InputGamutCompress.OFF,
     val crop: Boolean = false,
     val cropCenter: Pair<Float, Float> = 0.5f to 0.5f,
     val cropSize: Pair<Float, Float> = 0.1f to 0.1f,

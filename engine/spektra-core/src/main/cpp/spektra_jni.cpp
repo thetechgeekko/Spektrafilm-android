@@ -224,6 +224,19 @@ void read_tone_curve(JNIEnv* env, jobject params, spk_params* out) {
     }
 }
 
+// Read a Kotlin enum's ordinal() as an int, returning `def` for a null/failed read.
+// Used for the gamut-compression selectors, which spk_params stores as int32 ordinals
+// mirroring model/gamut_compression.h's enum-class values (OutputGamutCompress /
+// InputGamutCompress). The default sentinel (0) keeps the render path byte-identical.
+int enum_ordinal_int(JNIEnv* env, jobject e, int def) {
+    if (!e) return def;
+    jclass cls = env->GetObjectClass(e);
+    jmethodID m = env->GetMethodID(cls, "ordinal", "()I");
+    env->DeleteLocalRef(cls);
+    if (!m) { env->ExceptionClear(); return def; }
+    return static_cast<int>(env->CallIntMethod(e, m));
+}
+
 bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* store) {
     // Top-level: filmProfile / printProfile (String), and the nested objects.
     store->film_profile = jstr(env,
@@ -429,6 +442,17 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
             "()Lcom/spectrafilm/engine/ColorSpace;");
         out->output_color_space = enum_ordinal_cs(env, ocs);
         if (ocs) env->DeleteLocalRef(ocs);
+        // OPT-IN gamut compression selectors. Ordinals mirror model/gamut_compression.h;
+        // the default sentinels (output kLegacyClip=0 / input kOff=0) leave the render
+        // path byte-identical, so an absent/old IoParams keeps the spk_default_params 0s.
+        jobject ogc = call_obj(env, io, "getOutputGamutCompress",
+            "()Lcom/spectrafilm/engine/OutputGamutCompress;");
+        out->output_gamut_compress = enum_ordinal_int(env, ogc, 0);
+        if (ogc) env->DeleteLocalRef(ogc);
+        jobject igc = call_obj(env, io, "getInputGamutCompress",
+            "()Lcom/spectrafilm/engine/InputGamutCompress;");
+        out->input_gamut_compress = enum_ordinal_int(env, igc, 0);
+        if (igc) env->DeleteLocalRef(igc);
     }
 
     // ---- settings ----
