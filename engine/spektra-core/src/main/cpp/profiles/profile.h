@@ -50,6 +50,17 @@ struct Profile {
     // and callers fall back to the non-sublayer path). Matches the indexing of
     // density_curves.cpp::interp_density_cmy_layers.
     std::vector<float> density_curves_layers;  // (N*9,) row-major [n*9 + L*3 + k]
+    // Parametric density-curve model (data.density_curves_model, 'cdfs'): a sum of
+    // amplitude-weighted Gaussian CDFs per channel/sub-layer. centers/amplitudes/
+    // sigmas are each (3ch, n_layers) flattened row-major [c*n_layers + i]. Consumed
+    // ONLY by the opt-in print-curve morph (model/morph_curves); empty / n_layers==0
+    // when the JSON omits it (then the morph is unavailable and the stored
+    // density_curves table is used, as in the default path).
+    std::string dc_model_type;                  // e.g. "cdfs"
+    int dc_model_n_layers = 0;                  // sub-layers per channel (0 = absent)
+    std::vector<double> dc_model_centers;       // (3*n_layers,) [c*n_layers + i]
+    std::vector<double> dc_model_amplitudes;    // (3*n_layers,)
+    std::vector<double> dc_model_sigmas;        // (3*n_layers,)
     int n_samples = 0;                      // S
     int n_density_pts = 0;                  // N
 

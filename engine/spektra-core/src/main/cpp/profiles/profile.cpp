@@ -129,6 +129,39 @@ Profile load_profile_string(const std::string& json_text) {
         if (static_cast<int>(p.log_exposure.size()) != p.n_density_pts)
             throw std::runtime_error("Profile: log_exposure size != density_curves rows");
     }
+    // Parametric density-curve model (optional; present in the bundled profiles as
+    // data.density_curves_model). centers/amplitudes/sigmas are each (3, n_layers).
+    // Stored at double precision (the morph runs in float64 like the oracle).
+    if (data.has("density_curves_model")) {
+        const json::Value& m = data.at("density_curves_model");
+        if (m.has("model_type")) p.dc_model_type = m.at("model_type").as_string();
+        // Read a (3, n_layers) matrix flattened row-major [c*n_layers + i]; returns
+        // n_layers (and requires exactly 3 channel rows of equal length).
+        auto read_cas = [](const json::Value& v, std::vector<double>* out) -> int {
+            if (!v.is_array() || v.size() != 3)
+                throw std::runtime_error("Profile: density_curves_model expects 3 channels");
+            int n_layers = -1;
+            for (size_t c = 0; c < 3; ++c) {
+                const json::Value& row = v[c];
+                if (!row.is_array())
+                    throw std::runtime_error("Profile: density_curves_model channel not array");
+                if (n_layers < 0) n_layers = static_cast<int>(row.size());
+                else if (static_cast<int>(row.size()) != n_layers)
+                    throw std::runtime_error("Profile: density_curves_model ragged layers");
+                for (size_t i = 0; i < row.size(); ++i)
+                    out->push_back(row[i].as_number());
+            }
+            return n_layers;
+        };
+        if (m.has("centers") && m.has("amplitudes") && m.has("sigmas")) {
+            const int nl_c = read_cas(m.at("centers"), &p.dc_model_centers);
+            const int nl_a = read_cas(m.at("amplitudes"), &p.dc_model_amplitudes);
+            const int nl_s = read_cas(m.at("sigmas"), &p.dc_model_sigmas);
+            if (nl_c != nl_a || nl_a != nl_s)
+                throw std::runtime_error("Profile: density_curves_model layer count mismatch");
+            p.dc_model_n_layers = nl_c;
+        }
+    }
     if (data.has("hanatos2025_adaptation_window_params")) {
         const json::Value& wp = data.at("hanatos2025_adaptation_window_params");
         if (!wp.is_array())

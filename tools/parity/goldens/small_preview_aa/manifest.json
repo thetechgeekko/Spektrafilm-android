@@ -1,0 +1,32 @@
+{
+  "case_id": "small_preview_aa",
+  "generator": "gen_small_preview_golden.py",
+  "stage_local": true,
+  "skimage_version": "0.26.0",
+  "input": {
+    "file": "tests/small_preview_aa_input_rgb.f64",
+    "dtype": "float64",
+    "shape": [
+      200,
+      384,
+      3
+    ],
+    "kind": "make_test_image(384)[:200]"
+  },
+  "call": "skimage.transform.rescale(image, 256/max(H,W), channel_axis=2, order=0)",
+  "notes": "ResizingService.small_preview(image, max_size=256). For a float downscale skimage defaults anti_aliasing=True and runs scipy.ndimage.gaussian_filter (sigma=max(0,(in/out-1)/2) per axis, mode='mirror') BEFORE the order=0 nearest resample. Gates the C++ small_preview AA prefilter (autoexposure.cpp) used by the metered EV.",
+  "taps": {
+    "preview_rgb": {
+      "file": "preview_rgb.spkvec",
+      "shape": [
+        133,
+        256,
+        3
+      ]
+    }
+  },
+  "tolerance": {
+    "max_abs": 0.0001,
+    "rms": 1e-05
+  }
+}

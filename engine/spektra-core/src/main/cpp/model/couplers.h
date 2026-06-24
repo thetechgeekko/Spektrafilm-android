@@ -55,6 +55,15 @@ struct DirCouplersParams {
     double diffusion_tail_weight = 0.0;
 };
 
+// Faithful port of numpy.interp(x, xp, fp) (numpy compiled_base.c) including the
+// order-dependent binary_search_with_guess. Required because the DIR-coupler axis
+// le0 can be NON-MONOTONIC: a plain ascending binary search picks a different
+// bracket than numpy there. Query points x[:nx] are consumed IN ORDER (the search
+// guess carries) so this reproduces numpy's batched np.interp; endpoints clamp to
+// fp[0]/fp[n-1]. Exposed for direct host parity testing (tests/test_np_interp).
+void np_interp_array(const double* x, int nx, const double* xp, const double* fp,
+                     int n, double* out);
+
 // compute_dir_couplers_matrix(params) * params.amount.
 // Writes the 3x3 inhibitor matrix (row-major M[donor*3 + receiver]) to `out`.
 void compute_dir_couplers_matrix(const DirCouplersParams& params, double out[9]);

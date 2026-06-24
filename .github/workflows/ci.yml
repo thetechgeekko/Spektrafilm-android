@@ -94,8 +94,24 @@ jobs:
             g++ -std=c++17 -O2 -pthread -I. -I"$GITHUB_WORKSPACE/tools/parity" $DEF \
               "tests/$name.cpp" $SRC -o "/tmp/$name"
             echo "::group::$name"
-            if "/tmp/$name" "$@" 2>&1 | tee "/tmp/$name.out"; then :; fi
-            grep -qiE "FAIL" "/tmp/$name.out" && { echo "$name: FAIL"; fail=1; } || echo "$name: ok"
+            # Capture the TEST's exit code (PIPESTATUS[0], not tee's). The `if`
+            # condition exempts the pipeline from `set -e` so a non-zero exit is
+            # observed rather than aborting. A test signals a setup failure with a
+            # non-zero return (e.g. missing asset/golden, size mismatch) and a
+            # crash/segfault aborts before any "FAIL" print — neither necessarily
+            # contains the string "FAIL", so the exit code and an empty-output
+            # check must gate alongside the grep, or the parity gate false-greens.
+            local rc=0
+            if "/tmp/$name" "$@" 2>&1 | tee "/tmp/$name.out"; then rc=0; else rc=${PIPESTATUS[0]}; fi
+            if [ "$rc" -ne 0 ]; then
+              echo "$name: FAIL (exit $rc)"; fail=1
+            elif [ ! -s "/tmp/$name.out" ]; then
+              echo "$name: FAIL (no output)"; fail=1
+            elif grep -qiE "FAIL" "/tmp/$name.out"; then
+              echo "$name: FAIL"; fail=1
+            else
+              echo "$name: ok"
+            fi
             echo "::endgroup::"
           }
           # Pass $G as argv[4] (goldens root) so the test also asserts print_portra and
@@ -114,6 +130,13 @@ jobs:
           # (scan_portra_downscale, 64->32) pinned to oracle c1d0e44.
           build_run test_downscale "$ASSET" "$G/scan_portra_downscale" tests/scan_portra_input_rgb.f64
           build_run test_autoexposure "$ASSET" "$G/scan_portra_autoexp" tests/scan_portra_input_rgb.f64 "$G"
+          # small_preview (auto-exposure metering downscale) anti-aliasing prefilter:
+          # the >256px import path the 64px autoexposure golden cannot reach.
+          # skimage.transform.rescale(order=0) defaults anti_aliasing=True on a float
+          # downscale and gaussian-blurs (sigma=max(0,(in/out-1)/2), mode='mirror')
+          # BEFORE the nearest resample; without it the metered EV (a global gain on
+          # every pixel) diverges from the oracle. Stage-local skimage golden.
+          build_run test_small_preview_aa "$ASSET" "$G/small_preview_aa" tests/small_preview_aa_input_rgb.f64 "$G"
           build_run test_diffusion "$G"
           build_run test_diffusion_e2e "$ASSET" "$G/scan_diffusion" tests/scan_portra_input_rgb.f64 "$G"
           # Spectral-domain Gaussian blur of the reconstructed-spectra LUT
@@ -167,6 +190,12 @@ jobs:
           # golden stays byte-identical. Goldens pinned to oracle c1d0e44. The test also
           # asserts EV on-vs-off and the norm/no-norm branch both produce a real delta.
           build_run test_print_evcomp_e2e "$ASSET" "$G/print_portra_evcomp" tests/scan_portra_input_rgb.f64 "$G"
+          # OPT-IN s023 print density-curve morph (model/morph_curves.cpp): rebuilds
+          # the print density table from the paper's density_curves_model under a
+          # coupled-gamma + developer-exhaustion morph. Default-OFF (the engine
+          # interpolates the stored table, byte-identical to the print goldens); this
+          # gates the active path against an upstream morph_curves.py golden.
+          build_run test_print_curves_morph "$ASSET" "$G/print_curves_morph" "$G"
           # Scanner BLACK/WHITE corrections (scanner.black/white_correction +
           # black/white_level) -> runtime/services/color_reference.py
           # (ColorReferenceService): a scan-time tone anchor that maps the measured
@@ -189,6 +218,11 @@ jobs:
           # positive default — without it the inhibitor matrix is wrong and
           # film_density_cmy diverges ~0.32. Golden pinned to oracle c1d0e44.
           build_run test_provia_couplers_e2e "$ASSET" "$G/scan_provia_couplers" tests/scan_portra_input_rgb.f64
+          # numpy.interp port for the DIR-coupler non-monotonic axis le0 = le - silver@M:
+          # model/couplers.cpp::np_interp_array reproduces numpy's order-dependent
+          # binary_search_with_guess (a plain ascending binary search picks a different
+          # bracket on a non-monotonic xp). Checked bit-exact vs np.interp over 82 cases.
+          build_run test_np_interp tests/np_interp_cases.bin
           build_run test_lut_accel "$G"
           build_run test_scanner_lut_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_enlarger_lut_e2e "$ASSET" "$G/print_portra" tests/scan_portra_input_rgb.f64

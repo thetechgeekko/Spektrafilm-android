@@ -13,6 +13,8 @@
 #include <cstring>
 #include <vector>
 
+#include "runtime/stages/crop_resize.h"  // build_gaussian_kernel (shared AA kernel)
+
 namespace spk {
 namespace {
 
@@ -278,9 +280,18 @@ void small_preview(const double* in, int w, int h, int max_size,
     // round(scale * shape) (round-half-to-even); the input coordinate for output
     // index o is (o + 0.5)/zoom - 0.5 with zoom = out/in, rounded to nearest
     // (mirror boundary). For nearest, the value is the source sample at the
-    // rounded coordinate. NOTE: this resize path is only reached for images whose
-    // long edge exceeds max_size; the parity goldens use a 64px image so the
-    // no-op branch above is what is exercised bit-exactly.
+    // rounded coordinate.
+    //
+    // ANTI-ALIASING. The image is float and an output dimension shrinks, so
+    // skimage leaves anti_aliasing at its default (None) which resolves to True
+    // (skimage 0.26): scipy.ndimage.gaussian_filter (sigma = max(0,(in/out-1)/2)
+    // per spatial axis, mode='mirror', truncate=4.0) runs BEFORE the nearest
+    // resample. Without it the metered EV diverges from the oracle on every real
+    // (>256px) import. We evaluate that separable gaussian FUSED at each sampled
+    // source location, reusing build_gaussian_kernel (the exact kernel the
+    // order=3 crop_resize stage uses), rather than materialising a full blurred
+    // copy — so a full-resolution export does not allocate a second w*h*3 buffer.
+    // Gated by tests/test_small_preview_aa.cpp against a skimage golden.
     const double scale = static_cast<double>(max_size) / static_cast<double>(longest);
     int ow = static_cast<int>(std::nearbyint(scale * static_cast<double>(w)));
     int oh = static_cast<int>(std::nearbyint(scale * static_cast<double>(h)));
@@ -297,17 +308,48 @@ void small_preview(const double* in, int w, int h, int max_size,
         if (m >= n) m = period - m;
         return static_cast<int>(m);
     };
+    // Per-axis anti-aliasing gaussian kernels. sigma = max(0,(in/out - 1)/2);
+    // build_gaussian_kernel returns radius 0 + empty for sigma <= 0, which we
+    // treat as the identity kernel {1.0} so an axis that does not shrink is a
+    // strict passthrough (matching the crop_resize "rad==0 -> skip" behaviour).
+    std::vector<double> ker_x, ker_y;
+    int rad_x = build_gaussian_kernel(
+        std::max(0.0, (static_cast<double>(w) / static_cast<double>(ow) - 1.0) / 2.0), &ker_x);
+    int rad_y = build_gaussian_kernel(
+        std::max(0.0, (static_cast<double>(h) / static_cast<double>(oh) - 1.0) / 2.0), &ker_y);
+    if (rad_x == 0) ker_x.assign(1, 1.0);
+    if (rad_y == 0) ker_y.assign(1, 1.0);
     for (int oy = 0; oy < oh; ++oy) {
         double yy = (static_cast<double>(oy) + 0.5) / zoom_y - 0.5;
         int sy = mirror_index(static_cast<long long>(std::nearbyint(yy)), h);
         for (int ox = 0; ox < ow; ++ox) {
             double xx = (static_cast<double>(ox) + 0.5) / zoom_x - 0.5;
             int sx = mirror_index(static_cast<long long>(std::nearbyint(xx)), w);
-            const size_t si = (static_cast<size_t>(sy) * w + sx) * 3;
+            // Separable gaussian at (sy, sx): inner x-pass per kernel row, then
+            // the y-pass — the same accumulation order as the order=3 stage's
+            // full-image prefilter, so the result tracks the oracle's
+            // gaussian_filter(...)-then-resize to fp round-off.
+            double acc0 = 0.0, acc1 = 0.0, acc2 = 0.0;
+            for (int ky = -rad_y; ky <= rad_y; ++ky) {
+                const int syy = mirror_index(static_cast<long long>(sy) + ky, h);
+                double in0 = 0.0, in1 = 0.0, in2 = 0.0;
+                for (int kx = -rad_x; kx <= rad_x; ++kx) {
+                    const int sxx = mirror_index(static_cast<long long>(sx) + kx, w);
+                    const double wx = ker_x[static_cast<size_t>(kx + rad_x)];
+                    const size_t si = (static_cast<size_t>(syy) * w + sxx) * 3;
+                    in0 += wx * in[si + 0];
+                    in1 += wx * in[si + 1];
+                    in2 += wx * in[si + 2];
+                }
+                const double wy = ker_y[static_cast<size_t>(ky + rad_y)];
+                acc0 += wy * in0;
+                acc1 += wy * in1;
+                acc2 += wy * in2;
+            }
             const size_t di = (static_cast<size_t>(oy) * ow + ox) * 3;
-            (*out)[di + 0] = in[si + 0];
-            (*out)[di + 1] = in[si + 1];
-            (*out)[di + 2] = in[si + 2];
+            (*out)[di + 0] = acc0;
+            (*out)[di + 1] = acc1;
+            (*out)[di + 2] = acc2;
         }
     }
     *out_w = ow;

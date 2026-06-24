@@ -87,6 +87,10 @@ double measure_autoexposure_ev(const double* image, int w, int h,
 // channel_axis=2, order=0) (nearest-neighbour, grid_mode=True); otherwise the
 // image is returned unchanged. Writes the (possibly downscaled) RGB into `out`
 // and its geometry into out_w/out_h. With long_edge <= max_size this is a copy.
+// For a downscale, skimage applies its default anti-aliasing gaussian prefilter
+// (sigma = max(0,(in/out-1)/2) per axis, mode='mirror') before the nearest
+// resample; this port reproduces it (shared build_gaussian_kernel), so the
+// metered EV matches the oracle on real (>256px) imports too.
 void small_preview(const double* in, int w, int h, int max_size,
                    std::vector<double>* out, int* out_w, int* out_h);
 

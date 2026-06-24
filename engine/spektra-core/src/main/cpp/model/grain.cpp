@@ -155,8 +155,8 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
         for (int c = 0; c < 3; ++c)
             dmax_total[c] += density_max_layers[sl * 3 + c];
 
-    // Per-sublayer/channel derived quantities.
-    double dmax_frac[3][3];     // density_max_fractions[sl][c]
+    // Per-sublayer/channel derived quantities. `frac` (= density_max_fractions)
+    // is consumed inline below for dmin_layers and n_ppp, so it is not stored.
     double dmin_layers[3][3];   // density_min_layers[sl][c]
     double dmax_lay[3][3];      // density_max_layers + density_min_layers
     double n_ppp[3][3];         // n_particles_per_pixel[sl][c]
@@ -164,7 +164,6 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     for (int sl = 0; sl < 3; ++sl) {
         for (int c = 0; c < 3; ++c) {
             double frac = density_max_layers[sl * 3 + c] / dmax_total[c];
-            dmax_frac[sl][c] = frac;
             dmin_layers[sl][c] = frac * grain.density_min[c];
             dmax_lay[sl][c] = density_max_layers[sl * 3 + c] + dmin_layers[sl][c];
             double particle_area = grain.agx_particle_area_um2 *

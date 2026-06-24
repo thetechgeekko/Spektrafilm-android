@@ -3104,6 +3104,24 @@ class MainActivity : ComponentActivity() {
                 step = 0.05f, decimals = 2, tooltip = "Gamma factor of the negative density curves.", default = PARAM_DEFAULTS.filmGammaFactor)
             EnhancedSlider("Print gamma factor", s.printGammaFactor, 0f..3f, { s.printGammaFactor = it },
                 step = 0.05f, decimals = 2, tooltip = "Gamma factor of the print paper.", default = PARAM_DEFAULTS.printGammaFactor)
+            SwitchRow("Print curve morph (s023)", s.morphActive, { s.morphActive = it },
+                tooltip = "Re-develop the print from the paper's parametric density-curve model with a coupled-gamma + developer-exhaustion morph. Off = the stock's measured curves.")
+            if (s.morphActive) {
+                EnhancedSlider("Morph · overall gamma", s.morphGammaFactor, 0.2f..3f, { s.morphGammaFactor = it },
+                    step = 0.05f, decimals = 2, tooltip = "Global coupled gamma applied to all print curves.", default = PARAM_DEFAULTS.morphGammaFactor)
+                EnhancedSlider("Morph · fast band", s.morphGammaFactorFast, 0.2f..3f, { s.morphGammaFactorFast = it },
+                    step = 0.05f, decimals = 2, tooltip = "Gamma of the fast (low-threshold) sub-layer.", default = PARAM_DEFAULTS.morphGammaFactorFast)
+                EnhancedSlider("Morph · slow band", s.morphGammaFactorSlow, 0.2f..3f, { s.morphGammaFactorSlow = it },
+                    step = 0.05f, decimals = 2, tooltip = "Gamma of the slow (high-threshold) sub-layers.", default = PARAM_DEFAULTS.morphGammaFactorSlow)
+                EnhancedSlider("Morph · red gamma", s.morphGammaFactorRed, 0.2f..3f, { s.morphGammaFactorRed = it },
+                    step = 0.05f, decimals = 2, tooltip = "Per-channel gamma (red).", default = PARAM_DEFAULTS.morphGammaFactorRed)
+                EnhancedSlider("Morph · green gamma", s.morphGammaFactorGreen, 0.2f..3f, { s.morphGammaFactorGreen = it },
+                    step = 0.05f, decimals = 2, tooltip = "Per-channel gamma (green).", default = PARAM_DEFAULTS.morphGammaFactorGreen)
+                EnhancedSlider("Morph · blue gamma", s.morphGammaFactorBlue, 0.2f..3f, { s.morphGammaFactorBlue = it },
+                    step = 0.05f, decimals = 2, tooltip = "Per-channel gamma (blue).", default = PARAM_DEFAULTS.morphGammaFactorBlue)
+                EnhancedSlider("Morph · developer exhaustion", s.morphDeveloperExhaustion, 0f..1f, { s.morphDeveloperExhaustion = it },
+                    step = 0.02f, decimals = 2, tooltip = "Blend toward a Gumbel-matched curve shape (shoulder roll-off); preserves midgray.", default = PARAM_DEFAULTS.morphDeveloperExhaustion)
+            }
         }
     }
 

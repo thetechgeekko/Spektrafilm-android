@@ -214,6 +214,19 @@ typedef struct {
     float print_glare_blur;
     float print_density_curve_gamma;
 
+    /* --- print rendering: s023 density-curve morph (opt-in, default off) ---
+     * print_render.density_curves_morph. When print_morph_active is false (the
+     * default) the print develop uses the stored density_curves table and the
+     * output is byte-identical to the parity goldens. */
+    int32_t print_morph_active;        /* bool */
+    float print_morph_gamma_factor;
+    float print_morph_gamma_factor_fast;
+    float print_morph_gamma_factor_slow;
+    float print_morph_gamma_factor_red;
+    float print_morph_gamma_factor_green;
+    float print_morph_gamma_factor_blue;
+    float print_morph_developer_exhaustion;  /* [0,1] */
+
     /* --- io (extended) --- */
     int32_t input_cctf_decoding;       /* bool */
     int32_t crop;                      /* bool */

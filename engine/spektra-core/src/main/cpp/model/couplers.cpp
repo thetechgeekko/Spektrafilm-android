@@ -21,26 +21,57 @@ namespace spk {
 
 namespace {
 
-// Linear interpolation matching numpy.interp(x, xp, fp): xp is assumed sorted
-// ascending; values outside [xp[0], xp[-1]] clamp to the endpoint fp values.
-// Mirrors np.interp's right-biased search via std::upper_bound semantics.
-double np_interp(double x, const double* xp, const double* fp, int n) {
-    if (x <= xp[0]) return fp[0];
-    if (x >= xp[n - 1]) return fp[n - 1];
-    // Find first index where xp[idx] > x (np.interp uses searchsorted right).
-    int lo = 0, hi = n;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (xp[mid] <= x)
-            lo = mid + 1;
-        else
-            hi = mid;
+// Faithful port of numpy.interp (numpy _core/src/multiarray/compiled_base.c,
+// binary_search_with_guess + arr_interp), used because the DIR-coupler axis
+// le0 = le - silver_curve @ M can be NON-MONOTONIC for a steep stock / large
+// coupler amount. A plain ascending binary search (std::upper_bound) picks a
+// different bracket than numpy on a non-monotonic xp, so it diverged from the
+// oracle (max_abs ~0.44 at amount>=2.0). numpy's search is ORDER-DEPENDENT (it
+// carries a `guess` across the query array), so the interpolation must be done
+// in a single batched pass over the query points in order — a per-element scan
+// does NOT reproduce np.interp on a non-monotonic xp. For a monotonic xp (the
+// default coupler path) this yields the same bracket as before, within parity
+// tolerance of the existing goldens.
+constexpr int kLikelyInCache = 8;  // numpy LIKELY_IN_CACHE_SIZE
+
+long long binary_search_with_guess(double key, const double* arr, int len,
+                                   long long guess) {
+    long long imin = 0, imax = len;
+    if (key > arr[len - 1]) return len;
+    if (key < arr[0]) return -1;
+    if (len <= 4) {  // numpy: linear search for short arrays
+        int i = 1;
+        for (; i < len && key >= arr[i]; ++i) {}
+        return i - 1;
     }
-    int j = lo - 1;  // xp[j] <= x < xp[j+1]
-    double x0 = xp[j], x1 = xp[j + 1];
-    double dx = x1 - x0;
-    double t = dx != 0.0 ? (x - x0) / dx : 0.0;
-    return fp[j] + t * (fp[j + 1] - fp[j]);
+    if (guess > len - 3) guess = len - 3;
+    if (guess < 1) guess = 1;
+    // Check the most likely values: guess-1, guess, guess+1, then restrict.
+    if (key < arr[guess]) {
+        if (key < arr[guess - 1]) {
+            imax = guess - 1;
+            if (guess > kLikelyInCache && key >= arr[guess - kLikelyInCache])
+                imin = guess - kLikelyInCache;
+        } else {
+            return guess - 1;
+        }
+    } else {
+        if (key < arr[guess + 1]) {
+            return guess;
+        } else if (key < arr[guess + 2]) {
+            return guess + 1;
+        } else {
+            imin = guess + 2;
+            if (guess < len - kLikelyInCache - 1 && key < arr[guess + kLikelyInCache])
+                imax = guess + kLikelyInCache;
+        }
+    }
+    while (imin < imax) {
+        const long long imid = imin + ((imax - imin) >> 1);
+        if (key >= arr[imid]) imin = imid + 1;
+        else imax = imid;
+    }
+    return imin - 1;
 }
 
 // fast_interp-style interpolation used by interpolate_exposure_to_density:
@@ -65,6 +96,39 @@ double fast_interp_channel(double x, const double* xa, const double* y, int n) {
 }
 
 }  // namespace
+
+// np.interp(x[:nx], xp[:n], fp[:n]) -> out[:nx]. Endpoints clamp to fp[0]/fp[n-1].
+// Query points are consumed in order so the carried `guess` (in
+// binary_search_with_guess) matches numpy's batched np.interp; computing the
+// slope inline is bit-identical to numpy's precomputed-slopes path (same
+// operands, same order). Exposed (couplers.h) for direct host parity testing.
+void np_interp_array(const double* x, int nx, const double* xp, const double* fp,
+                     int n, double* out) {
+    const double lval = fp[0], rval = fp[n - 1];
+    long long j = 0;
+    for (int i = 0; i < nx; ++i) {
+        const double xv = x[i];
+        if (std::isnan(xv)) { out[i] = xv; continue; }
+        j = binary_search_with_guess(xv, xp, n, j);
+        if (j == -1) {
+            out[i] = lval;
+        } else if (j == n) {
+            out[i] = rval;
+        } else if (j == n - 1) {
+            out[i] = fp[j];
+        } else if (xp[j] == xv) {
+            out[i] = fp[j];  // avoid a non-finite slope at a coincident node
+        } else {
+            const double slope = (fp[j + 1] - fp[j]) / (xp[j + 1] - xp[j]);
+            double res = slope * (xv - xp[j]) + fp[j];
+            if (std::isnan(res)) {  // numpy: if nan one way, try the other
+                res = slope * (xv - xp[j + 1]) + fp[j + 1];
+                if (std::isnan(res) && fp[j] == fp[j + 1]) res = fp[j];
+            }
+            out[i] = res;
+        }
+    }
+}
 
 void compute_dir_couplers_matrix(const DirCouplersParams& params, double out[9]) {
     // M_self = diag(gamma_samelayer_rgb) * inhibition_samelayer
@@ -133,6 +197,7 @@ void apply_density_correction_dir_couplers(const float* density_cmy, int npix,
     std::vector<double> dc0(static_cast<size_t>(n) * 3);
     std::vector<double> le0(static_cast<size_t>(n));   // per-channel x axis buffer
     std::vector<double> ycol(static_cast<size_t>(n));  // per-channel y values
+    std::vector<double> vbuf(static_cast<size_t>(n));  // np.interp output buffer
     for (int c = 0; c < 3; ++c) {
         for (int j = 0; j < n; ++j) {
             double amt = 0.0;
@@ -141,10 +206,9 @@ void apply_density_correction_dir_couplers(const float* density_cmy, int npix,
             // negative: y = dc[:,c]; positive: interp on -dc, then negate.
             ycol[j] = positive_film ? -dc[j * 3 + c] : dc[j * 3 + c];
         }
-        for (int j = 0; j < n; ++j) {
-            double v = np_interp(le[j], le0.data(), ycol.data(), n);
-            dc0[j * 3 + c] = positive_film ? -v : v;
-        }
+        np_interp_array(le.data(), n, le0.data(), ycol.data(), n, vbuf.data());
+        for (int j = 0; j < n; ++j)
+            dc0[j * 3 + c] = positive_film ? -vbuf[j] : vbuf[j];
     }
 
     // ---- compute_exposure_correction_dir_couplers (diffusion off) ----
@@ -241,7 +305,7 @@ void apply_density_correction_dir_couplers_spatial(
     }
     std::vector<double> dc0(static_cast<size_t>(n) * 3);
     {
-        std::vector<double> le0(n), ycol(n);
+        std::vector<double> le0(n), ycol(n), vbuf(n);
         for (int c = 0; c < 3; ++c) {
             for (int j = 0; j < n; ++j) {
                 double amt = 0.0;
@@ -249,10 +313,9 @@ void apply_density_correction_dir_couplers_spatial(
                 le0[j] = le[j] - amt;
                 ycol[j] = positive_film ? -dc[j * 3 + c] : dc[j * 3 + c];
             }
-            for (int j = 0; j < n; ++j) {
-                double v = np_interp(le[j], le0.data(), ycol.data(), n);
-                dc0[j * 3 + c] = positive_film ? -v : v;
-            }
+            np_interp_array(le.data(), n, le0.data(), ycol.data(), n, vbuf.data());
+            for (int j = 0; j < n; ++j)
+                dc0[j * 3 + c] = positive_film ? -vbuf[j] : vbuf[j];
         }
     }
 

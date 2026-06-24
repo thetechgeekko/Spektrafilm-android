@@ -30,6 +30,7 @@ import com.spectrafilm.engine.GlareParams
 import com.spectrafilm.engine.GrainParams
 import com.spectrafilm.engine.HalationParams
 import com.spectrafilm.engine.IoParams
+import com.spectrafilm.engine.PrintCurvesMorphParams
 import com.spectrafilm.engine.PrintRenderingParams
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.ScannerParams
@@ -210,6 +211,17 @@ class ParamsState {
     var filmGammaFactor by mutableFloatStateOf(1f)
     var printGammaFactor by mutableFloatStateOf(1f)
 
+    // --- Print curve morph (s023, opt-in) — default off + identity is a strict
+    // no-op (the engine uses the stored print density-curve table). ---
+    var morphActive by mutableStateOf(false)
+    var morphGammaFactor by mutableFloatStateOf(1f)
+    var morphGammaFactorFast by mutableFloatStateOf(1f)
+    var morphGammaFactorSlow by mutableFloatStateOf(1f)
+    var morphGammaFactorRed by mutableFloatStateOf(1f)
+    var morphGammaFactorGreen by mutableFloatStateOf(1f)
+    var morphGammaFactorBlue by mutableFloatStateOf(1f)
+    var morphDeveloperExhaustion by mutableFloatStateOf(0f)
+
     // --- Tone curve (Lightroom-style, applied to final display RGB) ---
     // Points are (x, y) in [0,1], x increasing; < 2 points = identity. Inactive by
     // default => the engine skips the stage (bit-exact with no curve).
@@ -322,6 +334,16 @@ class ParamsState {
 
         filmGammaFactor = p.filmRender.densityCurveGamma
         printGammaFactor = p.printRender.densityCurveGamma
+
+        val pm = p.printRender.densityCurvesMorph
+        morphActive = pm.active
+        morphGammaFactor = pm.gammaFactor
+        morphGammaFactorFast = pm.gammaFactorFast
+        morphGammaFactorSlow = pm.gammaFactorSlow
+        morphGammaFactorRed = pm.gammaFactorRed
+        morphGammaFactorGreen = pm.gammaFactorGreen
+        morphGammaFactorBlue = pm.gammaFactorBlue
+        morphDeveloperExhaustion = pm.developerExhaustion
 
         val tc = p.toneCurve
         toneCurveActive = tc.active
@@ -455,6 +477,16 @@ class ParamsState {
         ),
         printRender = PrintRenderingParams(
             densityCurveGamma = printGammaFactor,
+            densityCurvesMorph = PrintCurvesMorphParams(
+                active = morphActive,
+                gammaFactor = morphGammaFactor,
+                gammaFactorFast = morphGammaFactorFast,
+                gammaFactorSlow = morphGammaFactorSlow,
+                gammaFactorRed = morphGammaFactorRed,
+                gammaFactorGreen = morphGammaFactorGreen,
+                gammaFactorBlue = morphGammaFactorBlue,
+                developerExhaustion = morphDeveloperExhaustion,
+            ),
             glare = GlareParams(
                 active = glareActive,
                 percent = glarePercent,
