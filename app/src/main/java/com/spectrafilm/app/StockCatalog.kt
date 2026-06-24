@@ -30,12 +30,18 @@ data class StockEntry(
 /** A catalog group (category) with a human title and sort order. */
 data class StockGroup(val id: String, val title: String, val order: Int)
 
+/** True when this entry is a colour-reversal (slide) film — the "view as positive" stocks. */
+fun StockEntry.isReversal(): Boolean = groupId == StockCatalog.GROUP_COLOR_REVERSAL
+
 /** An option shown in a profile dropdown: an id plus its display label and group. */
 data class ProfileOption(val id: String, val label: String, val groupTitle: String)
 
 object StockCatalog {
 
     private const val ASSET_PATH = "spektra/catalog.json"
+
+    /** Catalog group id for colour-reversal (slide) films — the natural "view as positive" stocks. */
+    const val GROUP_COLOR_REVERSAL = "color_reversal"
 
     @Volatile private var groupsCache: List<StockGroup>? = null
     @Volatile private var stocksCache: Map<String, StockEntry>? = null
@@ -99,6 +105,9 @@ object StockCatalog {
     /** True if [id] denotes a print medium (print film or print paper). */
     fun isPrintKind(ctx: Context, id: String): Boolean =
         stocks(ctx)[id]?.kind?.let { it == "print_paper" || it == "print_film" } ?: false
+
+    /** True if [id] is a colour-reversal (slide) film — best viewed as a positive (Slide mode). */
+    fun isReversalFilm(ctx: Context, id: String): Boolean = entry(ctx, id)?.isReversal() ?: false
 
     /**
      * Build dropdown options for [available] engine profile ids, filtered to a side:

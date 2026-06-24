@@ -77,4 +77,45 @@ class PresetsRoundTripTest {
         // re-serializing the decoded state reproduces the same JSON (idempotent)
         assertEquals(firstJson, secondJson)
     }
+
+    @Test
+    fun decode_futureVersion_decodesKnownFieldsBestEffort() {
+        // A preset written by a NEWER app (higher schema version) must still decode the fields this
+        // build understands rather than being rejected — migrate() passes it through and the opt*
+        // reads apply. Guards the version-aware decode that replaced the ignored PRESET_VERSION.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":999,"filmProfile":"kodak_ektar_100"}"""), dst)
+        assertEquals("kodak_ektar_100", dst.filmProfile)
+    }
+
+    @Test
+    fun decode_noVersionField_stillDecodes() {
+        // A version-less JSON is treated as the current schema and decodes normally.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"filmProfile":"kodak_ektar_100"}"""), dst)
+        assertEquals("kodak_ektar_100", dst.filmProfile)
+    }
+
+    @Test
+    fun roundTrip_preservesLocalAdjustmentMasks() {
+        val src = ParamsState().apply {
+            localAdjustments = listOf(
+                com.spectrafilm.app.masks.LocalAdjustment(
+                    com.spectrafilm.app.masks.Mask(
+                        listOf(com.spectrafilm.app.masks.Mask.Component(
+                            com.spectrafilm.app.masks.BlendMode.ADD,
+                            com.spectrafilm.app.masks.MaskComponent.Radial(0.4f, 0.6f, 0.3f, 0.2f, 0.5f, angleDeg = 15f),
+                            value = 0.8f,
+                        )),
+                        opacity = 0.9f,
+                    ),
+                    com.spectrafilm.app.masks.TierADelta(exposureEv = 0.75f, saturation = 25f, contrast = -10f),
+                ),
+            )
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+        assertEquals(src.localAdjustments, dst.localAdjustments)
+        assertEquals(1, dst.localAdjustments.size)
+    }
 }

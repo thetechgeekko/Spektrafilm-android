@@ -32,8 +32,8 @@ android {
         applicationId = "com.spectrafilm.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.7.0"
+        versionCode = 10
+        versionName = "0.8.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
