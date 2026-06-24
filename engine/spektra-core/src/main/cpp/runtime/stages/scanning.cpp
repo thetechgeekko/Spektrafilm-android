@@ -22,6 +22,7 @@
 #include "model/color_output.h"
 #include "model/conversions.h"
 #include "model/emulsion.h"
+#include "model/gamut_compression.h"
 #include "model/glare.h"
 #include "model/spectral.h"
 
@@ -309,6 +310,17 @@ void scan(const Profile& film, const ScanningParams& params,
         }
     }
     });
+
+    // OPT-IN output gamut compression, applied in the linear output space at the
+    // oracle's position (scanning.py::_density_to_rgb: right after XYZ->RGB and
+    // BEFORE blur/unsharp). Default kLegacyClip => skipped, so lin_rgb is untouched
+    // and every pre-existing golden stays byte-identical. kAcesRgc compresses
+    // out-of-cube chromaticities toward the achromatic axis with the ACES RGC v1.3
+    // per-channel knee (model/gamut_compression.cpp).
+    if (params.output_gamut_compress == OutputGamutCompress::kAcesRgc) {
+        compress_rgb_aces_rgc(lin_rgb.data(), npix, params.gamut_knee_threshold,
+                              params.gamut_knee_limit, params.gamut_knee_power);
+    }
 
     // Scanner lens blur (scanner.lens_blur, in pixels): a per-channel 2D Gaussian
     // applied in the linear output space BEFORE the unsharp mask, matching

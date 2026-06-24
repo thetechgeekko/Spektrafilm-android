@@ -9,8 +9,8 @@
 
 1. ✅ **[P0] DONE (PR #105).** nativeSimulate discards inCs tag; ACES2065-1 RAW buffers run through the fixed ProPhoto→XYZ matrix — value high / effort M / parityRisk low — Live wrong-primaries error on every native RAW/DNG decode (the core editor flow); fixing it corrects a default-path bug without moving any golden. **Fixed in `raw_decoder.cpp` (ACES2065-1 → linear ProPhoto, baked CAT02 matrix, verified vs colour 0.4.7 `max_abs 5.96e-08`, gate `test_aces_prophoto`); `nativeSimulate` now validates the buffer tag; the inert UI selector is gated honestly.**
 2. ✅ **[P0] DONE (PR #105).** Fix np_interp for non-monotonic DIR-coupler axis (couplers.cpp:27 → numpy left-to-right scan) — value medium / effort S / parityRisk low — Reachable today via shipping coupler sliders (max_abs ~0.44 at amount≥2.0); small correctness fix toward the oracle, and a hard prereq for Langmuir couplers.
-3. **[P1]** Output gamut compression — aces_rgc only (default-OFF, LEGACY_CLIP sentinel) — value low / effort M / parityRisk low — The recommended first port that establishes the newer-oracle-golden gating pattern and builds the shared reinhard_knee helper the other two gamut items reuse; zero default-path impact.
-4. **[P1]** float_to_half RNE fix (round-to-nearest-even, not half-up) — value low / effort S / parityRisk low — Cheap, isolated, and must land before the fp16 preview-proxy storage (PERF_ROADMAP #3) turns the latent scalar-vs-NEON divergence into a failing test_half.
+3. ✅ **[P1] DONE (PR #105).** Output gamut compression — aces_rgc only (default-OFF, LEGACY_CLIP sentinel) — value low / effort M / parityRisk low — The recommended first port that establishes the newer-oracle-golden gating pattern and builds the shared reinhard_knee helper the other two gamut items reuse; zero default-path impact. **Shipped: `model/gamut_compression.{h,cpp}` (`reinhard_knee` + `compress_rgb_aces_rgc`), `OutputGamutCompress` enum with `kLegacyClip` default, gated `scanning.cpp` hook, gate `test_gamut_out_aces` bit-exact vs oracle `27bd085` (max_abs 6.66e-16); full parity suite stays byte-identical.**
+4. ✅ **[P1] DONE (PR #105).** float_to_half RNE fix (round-to-nearest-even, not half-up) — value low / effort S / parityRisk low — Cheap, isolated, and must land before the fp16 preview-proxy storage (PERF_ROADMAP #3) turns the latent scalar-vs-NEON divergence into a failing test_half. **Shipped: `kernels/half.cpp` normal + subnormal branches now true RNE with full sticky; `test_half.cpp` strengthened (tie-to-even checker + sweep); bit-identical to numpy float16 over 33k inputs.**
 5. **[P2]** Input gamut compression (filming side): CAT02→CAT16 + xy-clip removal + locus bake (default-OFF) — value medium / effort L / parityRisk low — Opt-in input-side taming of saturated colours; depends on aces_rgc for the shared reinhard_knee and the golden-gating pattern.
 6. **[P2]** Output gamut compression — perceptual algos (cam16ucs/oklch/oklrab/jzazbz, default-OFF) — value medium / effort XL / parityRisk low — The upstream perceptual roll-off for colorists; builds the heavy model/gamut_compression util on the aces_rgc hook, but most users won't need it over aces_rgc, so it trails the cheaper gamut work.
 7. **[P2]** Filming/printing/scanning integration of the gamut utility (umbrella) — value medium / effort S / parityRisk low — Not standalone code: closes out by confirming both ScanningParams sites and both filming expose sites carry the flags and the print-route digest includes input_gamut_compress; only actionable once items 3/5/6 land.
@@ -47,10 +47,12 @@
 
 ## 3. The single next action
 
-> **STATUS (PR #105):** both P0 items (#1 `jni-aces-prophoto`, #2 `np-interp-couplers`) are
-> DONE. The next action is now the **P1** pair — `gamut-out-aces` (#3, establishes the shared
-> `reinhard_knee` + newer-oracle-golden gating) then the `float_to_half` RNE fix (#4). The
-> original #1 write-up is kept below for provenance.
+> **STATUS (PR #105):** both P0 items (#1 `jni-aces-prophoto`, #2 `np-interp-couplers`) AND both
+> P1 items (#3 `gamut-out-aces` — shipped the shared `reinhard_knee` + the newer-oracle-golden gating
+> pattern; #4 `float_to_half` RNE) are DONE. The next action is the **P2** tier — `gamut-in` (#5,
+> input-side, reuses the `reinhard_knee` from #3) and `gamut-out-perceptual` (#6, the heavy
+> color-appearance util), then the `gamut-stage-integration` umbrella (#7) that wires
+> `output_gamut_compress` through JNI/facade/UI. The original #1 write-up is kept below for provenance.
 
 **#1 was `jni-aces-prophoto`.** Concrete first step: in the RAW import path (`EngineHelpers.kt` ~224/231/252, where `LinearImage` is built from `result.colorSpace` coming off `raw_decoder.cpp:536`), convert ACES2065-1 → linear ProPhoto before the buffer reaches the engine; then in `nativeSimulate` (`spektra_jni.cpp:537` reads but discards the `inCs` jstring, and `:570` hardcodes `SPK_CS_PROPHOTO`) either map non-ProPhoto inputs to a real conversion or, at minimum, validate the tag and throw; and marshal `getInputColorSpace` in `marshal_params` (only `getOutputColorSpace` is read at `:428-431`, so the UI Input-colorspace dropdown is currently inert).
 
