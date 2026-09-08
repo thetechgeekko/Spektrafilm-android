@@ -15,16 +15,38 @@
 package com.spectrafilm.app
 
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.NativeBufferOwner
 import com.spectrafilm.engine.SimResult
 import java.io.File
+import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import org.json.JSONObject
+
+/** A payload buffer and the one call that gives its memory back. */
+internal class OwnedPayload(val data: ByteBuffer, val release: () -> Unit)
+
+/**
+ * The production payload buffer: coordinator-admitted native memory (#176), so a 150 MB
+ * restore is counted against the process ceiling and freed exactly when the restored
+ * [SimResult]'s last lease closes, instead of whenever a mapping happens to be collected.
+ */
+internal fun nativeOwnedPayload(bytes: Long): OwnedPayload {
+    val owner = NativeBufferOwner.allocate(bytes)
+    val lease = try {
+        owner.acquireDataLease()
+    } finally {
+        // The lease is the only remaining authority over the allocation.
+        owner.close()
+    }
+    return OwnedPayload(lease.data) { lease.close() }
+}
 
 internal class RenderPayloadCache(
     private val root: File,
     private val contractVersion: String,
     private val maxAgeMillis: Long = 24L * 60 * 60 * 1000,
+    private val allocate: (Long) -> OwnedPayload = ::nativeOwnedPayload,
     private val log: (String, Throwable?) -> Unit = { message, failure ->
         if (failure == null) Diag.i(message) else Diag.w("$message: $failure")
     },
@@ -38,8 +60,9 @@ internal class RenderPayloadCache(
      * The stored render for [key], or null for any doubt at all. Never throws: a miss costs a
      * re-render, while a wrong hit publishes someone else's image.
      *
-     * The mapping is PRIVATE (copy-on-write) because the export grades the buffer in place for
-     * the native writers; those writes must stay in this process and never reach the file.
+     * The payload is read into a private buffer of its own (never mapped), so the export can
+     * grade it in place for the native writers without those writes reaching the file, and the
+     * buffer is released through the returned [SimResult]'s close, not by the collector.
      */
     fun get(key: String): SimResult? = synchronized(lock) {
         runCatching { read(key) }.getOrElse { failure ->
@@ -69,16 +92,34 @@ internal class RenderPayloadCache(
         }
         val colorSpace = runCatching { ColorSpace.valueOf(meta.optString("color_space")) }
             .getOrNull() ?: return null
-        // "rw" even though nothing is written back: a PRIVATE (copy-on-write) mapping is refused
-        // on a read-only channel, and the copy-on-write is what keeps the export's in-place grade
-        // out of the file. RandomAccessFile rather than FileChannel.open because minSdk is 24 and
-        // java.nio.file arrived in API 26. The mapping outlives the channel.
-        val mapped = java.io.RandomAccessFile(payloadFile, "rw").use { file ->
-            file.channel.map(FileChannel.MapMode.PRIVATE, 0, bytes).order(ByteOrder.nativeOrder())
+        // #176: a plain read into an explicitly owned buffer replaced a PRIVATE mapping whose
+        // release callback was empty. The export grades in place, so a mapping paid the
+        // copy-on-write for every page anyway; this pays one copy and gets a real release.
+        // RandomAccessFile rather than FileChannel.open because minSdk is 24.
+        val owned = allocate(bytes)
+        try {
+            val target = owned.data.duplicate().order(ByteOrder.nativeOrder())
+            target.position(0)
+            target.limit(bytes.toInt())
+            java.io.RandomAccessFile(payloadFile, "r").use { file ->
+                val channel: FileChannel = file.channel
+                while (target.hasRemaining()) {
+                    if (channel.read(target) < 0) break
+                }
+            }
+            if (target.hasRemaining()) {
+                // Shorter than its own metadata claimed a moment ago: treat as truncated.
+                owned.release()
+                discard()
+                return null
+            }
+            return SimResult.fromExternalBuffer(owned.data, width, height, colorSpace) {
+                owned.release()
+            }
+        } catch (failure: Throwable) {
+            owned.release()
+            throw failure
         }
-        // ponytail: no unmap. Java has no public munmap; the mapping is released when the
-        // buffer is collected, which is acceptable for one ~150 MB entry per export.
-        return SimResult.fromExternalBuffer(mapped, width, height, colorSpace) { }
     }
 
     /**

@@ -263,6 +263,11 @@ object Ticket177BenchmarkChecks {
                     .put("total_pss_kb", servedMemory.totalPss)
                     .put("total_private_dirty_kb", servedMemory.totalPrivateDirty)
                     .put("native_heap_alloc_kb", Debug.getNativeHeapAllocatedSize() / 1024L)
+                    // #176: the engine budget snapshot; peaks are process high-water marks
+                    // since the budget was configured, not per-sample deltas.
+                    .put("engine_budget", runCatching {
+                        JSONObject(com.spectrafilm.engine.SpektraEngine.memoryBudgetSnapshotJson())
+                    }.getOrElse { JSONObject().put("status", "unavailable") })
                     .put("vm_hwm_kb", procStatusKb("VmHWM:"))
                     .put("vm_rss_kb", procStatusKb("VmRSS:")))
                 .put("environment", environment(context))
@@ -393,6 +398,11 @@ object Ticket177BenchmarkChecks {
                 .put("total_pss_kb", memory.totalPss)
                 .put("total_private_dirty_kb", memory.totalPrivateDirty)
                 .put("native_heap_alloc_kb", Debug.getNativeHeapAllocatedSize() / 1024L)
+                // #176: the engine budget snapshot; peaks are process high-water marks
+                // since the budget was configured, not per-sample deltas.
+                .put("engine_budget", runCatching {
+                    JSONObject(com.spectrafilm.engine.SpektraEngine.memoryBudgetSnapshotJson())
+                }.getOrElse { JSONObject().put("status", "unavailable") })
                 .put("vm_hwm_kb", procStatusKb("VmHWM:"))
                 .put("vm_rss_kb", procStatusKb("VmRSS:"))
                 .put("minor_faults_decode", minfltAfterDecode - minfltStart)

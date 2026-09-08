@@ -335,8 +335,9 @@ object Diagnostics {
             "(API ${android.os.Build.VERSION.SDK_INT})\n\n"
         val crash = lastCrash(context)?.let { "--- last crash ---\n$it\n\n" } ?: ""
         val cache = engineCacheSection(engineCacheSnapshot())
+        val memory = memorySection(memorySnapshot())
         return sanitizeForExport(
-            header + crash + cache + "--- logcat (recent) ---\n" + captureLogcat(),
+            header + crash + cache + memory + "--- logcat (recent) ---\n" + captureLogcat(),
             MAX_REPORT_BYTES,
         )
     }
@@ -353,6 +354,29 @@ object Diagnostics {
             "--- Filming tc_lut cache ---\n$snapshot\n\n",
             MAX_ENGINE_CACHE_BYTES,
         )
+
+    /**
+     * Process memory readout (#176): resident set and its high-water mark from the kernel,
+     * the native heap, and the engine's memory-budget snapshot (limit, peak, per-stage
+     * high-water marks). Every field has a fixed fallback so nothing here can leak a path.
+     */
+    fun memorySnapshot(): String {
+        fun statusKb(key: String): String = runCatching {
+            java.io.File("/proc/self/status").useLines { lines ->
+                lines.firstOrNull { it.startsWith("$key:") }
+                    ?.substringAfter(':')?.trim()?.substringBefore(' ')?.toLongOrNull()
+            }
+        }.getOrNull()?.let { "$it kB" } ?: "unavailable"
+        val nativeHeap = runCatching { android.os.Debug.getNativeHeapAllocatedSize() / 1024L }
+            .getOrNull()?.let { "$it kB" } ?: "unavailable"
+        val budget = runCatching { com.spectrafilm.engine.SpektraEngine.memoryBudgetSnapshotJson() }
+            .getOrDefault("""{"schema":"spk.memory_budget.v1","status":"unavailable"}""")
+        return "VmHWM: ${statusKb("VmHWM")}\nVmRSS: ${statusKb("VmRSS")}\n" +
+            "native heap allocated: $nativeHeap\nengine budget: $budget"
+    }
+
+    internal fun memorySection(snapshot: String): String =
+        sanitizeForExport("--- memory ---\n$snapshot\n\n", MAX_ENGINE_CACHE_BYTES)
 
     fun appVersion(context: Context): String = runCatching {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)

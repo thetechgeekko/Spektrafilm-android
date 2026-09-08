@@ -26,13 +26,19 @@ class RenderPayloadCacheTest {
 
     @After
     fun cleanup() {
-        // Best effort: a mapped payload stays locked on Windows until the buffer is collected.
         root.listFiles()?.forEach { it.delete() }
         root.delete()
     }
 
+    private var allocations = 0
+    private var releases = 0
+
     private fun cache(contract: String = "app11/0.9.0/engine-2026-09-02") =
-        RenderPayloadCache(root, contract, log = { _, _ -> })
+        RenderPayloadCache(root, contract, log = { _, _ -> }, allocate = { bytes ->
+            allocations++
+            val buffer = ByteBuffer.allocateDirect(bytes.toInt()).order(ByteOrder.nativeOrder())
+            OwnedPayload(buffer) { releases++ }
+        })
 
     private fun result(width: Int, height: Int, fill: (Int) -> Float): SimResult {
         val buffer = ByteBuffer
@@ -59,6 +65,20 @@ class RenderPayloadCacheTest {
                 for (i in 0 until 4 * 3 * 3) assertEquals(i * 0.25f, floats.get(i), 0f)
             }
         }
+    }
+
+    @Test
+    fun `a restored payload gives its buffer back exactly once, when the result closes`() {
+        val cache = cache()
+        result(3, 2) { it.toFloat() }.use { cache.put("k", it) }
+
+        val restored = requireNotNull(cache.get("k"))
+        assertEquals(1, allocations)
+        assertEquals(0, releases)
+        restored.close()
+        assertEquals(1, releases)
+        restored.close()
+        assertEquals(1, releases)
     }
 
     @Test
