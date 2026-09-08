@@ -827,7 +827,7 @@ jobs:
           verify_asset third_party/libraw/LICENSE.LGPL eea173a556abac0370461e57e12aab266894ea6be3874c2be05fd87871f75449
           verify_asset third_party/libraw/LICENSE.CDDL 0e3098d2d54a12434715f6679ea408d57da5e8d613c385c58ecc6fe5d30cc81f
           verify_asset legal/spektrafilm/LICENSE.GPL-3.0 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
-          verify_asset legal/spektrafilm/NOTICE.md 9bab38c4b25b361081f0bcfdabe10f7d5dc0d2a50cc7626612b88971bc8081cb
+          verify_asset legal/spektrafilm/NOTICE.md 94b3f187a7d2610d1eaaef2b38c5c83a7cde7920d1d6b029b713d20715db6e29
 
       - name: Smoke-test standalone LibRaw recipient relink (x86_64)
         run: |
