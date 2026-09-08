@@ -413,8 +413,10 @@ Owners:
 - [Validate Android 16 behavior and meet API 36 policy where distributed](https://github.com/thetechgeekko/Spektrafilm-android/issues/171)
 - [Upgrade the NDK independently and prove 16 KiB compatibility on every ABI](https://github.com/thetechgeekko/Spektrafilm-android/issues/187)
 
-Current pins are AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.10.01, compile/target SDK 34,
-build-tools 35.0.0 and NDK r27. The connected flagship is already Android 16/API 36.
+Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2024.10.01, compile/target SDK 34,
+build-tools 36.0.0 (the AGP 9.3 minimum; the external zipalign/apksigner gates use the same pin) and NDK r27.
+The connected flagship is already Android 16/API 36. The build-system wave below landed on 2026-09-07 under
+[#188](https://github.com/thetechgeekko/Spektrafilm-android/issues/188); its digests and warning inventory are on that ticket.
 
 Offline validation on 2026-08-29 found that host PATH Java 26 fails during Kotlin DSL setup
 (`JavaVersion.parse` rejects `26`), while Android Studio JBR 21.0.10 completes

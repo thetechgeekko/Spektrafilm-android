@@ -60,9 +60,11 @@ tuning) and **scan** (full-res, for export). Decode + simulate run off the main 
 
 ## Build commands
 
-Required toolchain (Android 15 16 KB page support): **NDK r27 (`27.0.12077973`)**,
-**CMake 3.22.1**, **build-tools 35.0.0** (first `zipalign` with `-P 16`).
-`sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"`.
+Required toolchain: **JDK 21** (Gradle `9.5.1` / AGP `9.3.2` with built-in Kotlin `2.2.10`; the PATH JDK 26 on
+the laptop breaks Gradle, use Android Studio's JBR), **NDK r27 (`27.0.12077973`)**,
+**CMake 3.22.1**, **build-tools 36.0.0** (AGP 9.3 minimum; also the `zipalign -P 16` / `apksigner` used by
+the 16 KB and signing gates).
+`sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"`.
 
 ```bash
 # Debug APK (builds libspektra/libsfraw/libsftiff/libsfpng .so for all 3 ABIs)
@@ -76,7 +78,7 @@ ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
 ./gradlew :app:lint
 ```
 
-16 KB page check (CI gates this): `build-tools/35.0.0/zipalign -c -P 16 4 <apk>` must pass, and
+16 KB page check (CI gates this): `build-tools/36.0.0/zipalign -c -P 16 4 <apk>` must pass, and
 every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD` alignment (`readelf -lW`).
 
 ## Engine host-parity tests (the real gate)

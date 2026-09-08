@@ -95,7 +95,7 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
    OpenMP ASan/UBSan, serial TSan, and bounded public-seam fuzz gates.
 3. In a job with no Environment and no signing secrets, verifies the official
    Gradle wrapper JAR and distribution hashes, installs **NDK `27.0.12077973`,
-   CMake `3.22.1`, build-tools `35.0.0`**, and checks that the tag exactly matches
+   CMake `3.22.1`, build-tools `36.0.0`**, and checks that the tag exactly matches
    the literal app `versionName`.
 4. Runs the engine parity suite at `-O2` and at the shipping
    `-O3 -ffast-math -fno-finite-math-only` flags, then release JVM tests,
@@ -124,7 +124,7 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
    its digest/inventory/manifest/attestation, recomputes both SPDX documents and
    all lock bytes, and rechecks the tag. No Gradle task runs in the protected job.
 9. Aligns and production-signs the exact app and instrumentation APKs with pinned
-   build-tools `35.0.0`. The key exists for that step only; an `if: always()` step
+   build-tools `36.0.0`. The key exists for that step only; an `if: always()` step
    proves it and any untracked keystore are gone before certificate verification.
    Both APKs must have exactly one signer matching `RELEASE_CERT_SHA256`.
 10. Rechecks the signed app's R8/JNI, legal, ZIP, and every 64-bit ELF invariant.
@@ -232,7 +232,7 @@ mapping, full native symbols, release runtime classpath, provenance, and
 
 ```bash
 # Signature (production keystore, not debug)
-$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs Spektrafilm-v0.7.0.apk
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs Spektrafilm-v0.7.0.apk
 
 # Checksum matches the sidecar
 sha256sum -c Spektrafilm-v0.7.0.apk.sha256
@@ -247,7 +247,7 @@ python3 tools/compliance/libraw_bundle.py verify \
   --require-resolved
 
 # 16 KB-page alignment (same checks ci.yml's android job runs)
-$ANDROID_HOME/build-tools/35.0.0/zipalign -c -v -P 16 4 Spektrafilm-v0.7.0.apk
+$ANDROID_HOME/build-tools/36.0.0/zipalign -c -v -P 16 4 Spektrafilm-v0.7.0.apk
 # and, for each extracted 64-bit lib/*.so:
 readelf -lW lib/arm64-v8a/libspektra.so | awk '/LOAD/{print $NF; exit}'   # expect 0x4000
 ```

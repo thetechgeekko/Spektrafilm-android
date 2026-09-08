@@ -71,9 +71,9 @@ executable source for direct review:
 |---|---|---|
 | App version | `0.9.0` / versionCode `11` | `app/build.gradle.kts` |
 | Android SDK | min 24, target 34, compile 34 | Gradle module build files |
-| Build system | AGP `8.7.3`, Kotlin `2.0.21`, Gradle `8.14.3` | version catalog + wrapper properties |
+| Build system | AGP `9.3.2`, Kotlin `2.2.10`, Gradle `9.5.1` | version catalog + wrapper properties (AGP built-in Kotlin; JDK 21 locally, in CI and in release) |
 | Native toolchain | NDK `27.0.12077973`, CMake `3.22.1` | Gradle + CI/release workflows |
-| Android build tools | `35.0.0` | app Gradle + CI/release workflows |
+| Android build tools | `36.0.0` | app Gradle + CI/release workflows |
 | RAW decoder | authenticated, patched LibRaw `0.22.2`; X3F disabled pending qualification | `LibRawVendor.cmake` + domain record |
 | Engine gate | 42 cases at O2 and shipping `-O3 -ffast-math -fno-finite-math-only` | `.github/workflows/ci.yml` |
 | Public release | `v0.9.0`; current tree remains under release hold | release checklist + live production map |

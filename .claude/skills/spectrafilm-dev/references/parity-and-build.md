@@ -131,15 +131,15 @@ prove byte-identical output.
 
 - **NDK r27 only: `27.0.12077973`.** First NDK to guarantee 16 KB page-aligned `LOAD`
   segments; required by Android 15+. Wrong NDK -> `dlopen` failure on 16 KB devices.
-- **CMake 3.22.1**, **build-tools 35.0.0** (first with `zipalign -P 16`), **JDK 21** (temurin).
-  `sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"`.
+- **CMake 3.22.1**, **build-tools 36.0.0** (AGP 9.3 minimum; has `zipalign -P 16`), **JDK 21** (temurin).
+  `sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"`.
 - **Engine Release C++ flags:** `-O3 -ffast-math -fno-finite-math-only`
   (`engine/spektra-core/src/main/cpp/CMakeLists.txt:12`). Host-parity tests use `-O2` (above).
 - **`-fno-finite-math-only` is NON-NEGOTIABLE.** Scanning's `density_to_light` (`10^-density`)
   relies on NaN propagation to match the oracle's profile-null handling (profile null = NaN,
   must collapse to 0). Stripping it makes NaN handling undefined and **breaks parity silently**.
 - 16 KB page alignment is CI-gated: every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD`
-  alignment (`readelf -lW`), and `build-tools/35.0.0/zipalign -c -P 16 4 <apk>` must pass.
+  alignment (`readelf -lW`), and `build-tools/36.0.0/zipalign -c -P 16 4 <apk>` must pass.
 
 ### Build commands
 
