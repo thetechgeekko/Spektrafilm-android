@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Defense-in-depth cloud/D2D allowlists for OEMs that do not uniformly honor
-  android:allowBackup="false". Standard cross-platform participation remains disabled
-  until the project has a real iOS bundle/team identity and a compatible SDK toolchain.
+  android:allowBackup="false". Cross-platform transfer (Android 16 QPR2 / API 36.1, Android to iOS) is DENIED on purpose
+  (#171): the platform enables it only when a <cross-platform-transfer> section is declared,
+  and this file declares none. Declaring one would need the real iOS bundleId, teamId and a
+  contentVersion, migration tests and a privacy disclosure; there is no iOS counterpart.
   Android include semantics make every unlisted path ineligible; redundant excludes are
   intentionally absent because lint rejects excludes outside an included path.
 -->

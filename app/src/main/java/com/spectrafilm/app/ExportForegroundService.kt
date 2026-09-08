@@ -119,6 +119,22 @@ class ExportForegroundService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * API 35+ caps a dataSync foreground service at roughly six hours per day and calls this
+     * when the budget is spent; the service must stop promptly or the process ANRs. The export
+     * itself is process-owned by [ExportWorkRuntime] and keeps running exactly as it does when
+     * [startForeground] is refused: at background priority, never failed by the service.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Diag.w("export foreground service timed out (type=$fgsType); export continues at background priority")
+        stopSelf()
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onTimeout(startId: Int) {
+        onTimeout(startId, 0)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val runId = intent?.getLongExtra(EXTRA_RUN_ID, INVALID_RUN_ID) ?: INVALID_RUN_ID
         val startedAt = intent?.getLongExtra(EXTRA_STARTED_AT, 0L) ?: 0L

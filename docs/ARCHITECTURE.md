@@ -21,7 +21,7 @@ module graph, and does not compile the dormant `feature/film-emulation` tree.
 ```
 
 The configured native ABIs are `arm64-v8a`, `armeabi-v7a`, and `x86_64`. Current Gradle truth is
-min SDK 24 and target/compile SDK 34. Android policy/toolchain migrations remain live tickets and
+min SDK 24 and target/compile SDK 36. Android policy/toolchain migrations remain live tickets and
 must not be documented as already shipped.
 
 `feature/film-emulation/` is retained source but absent from `settings.gradle.kts`; it is not an

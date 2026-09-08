@@ -27,7 +27,7 @@ android {
     // (libspektra.so 0.9 MB -> 11.6 MB). Pin the same NDK as the native modules (r28c since
     // #187; r27 before that).
     ndkVersion = "28.2.13676358"
-    compileSdk = 34
+    compileSdk = 36
 
     // build-tools 36.0.0 is the AGP 9.3 minimum (35.0.0 was the first whose zipalign
     // supports `-P 16`); the CI/release 16 KB gates call this same build-tools zipalign to
@@ -40,7 +40,7 @@ android {
     defaultConfig {
         applicationId = "com.spectrafilm.app"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 11
         versionName = "0.9.0"
         testInstrumentationRunner = "com.spectrafilm.app.ReleaseCandidateSmokeInstrumentation"

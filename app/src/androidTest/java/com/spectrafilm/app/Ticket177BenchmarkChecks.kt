@@ -576,7 +576,10 @@ object Ticket177BenchmarkChecks {
             "ticket177_expect_app_sha256 must be the 64-hex digest of the installed APK"
         }
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        val apk = File(info.applicationInfo.sourceDir)
+        // compileSdk 36 stubs annotate PackageInfo.applicationInfo @Nullable; the installed
+        // candidate always carries one, and a missing entry is a fail-closed identity error.
+        val applicationInfo = requireNotNull(info.applicationInfo) { "installed candidate has no ApplicationInfo" }
+        val apk = File(applicationInfo.sourceDir)
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(apk).use { input ->
             val buffer = ByteArray(1 shl 16)
@@ -591,7 +594,7 @@ object Ticket177BenchmarkChecks {
             "stale APK: installed " + actual + " != pinned " +
                 expectedSha256.lowercase(Locale.ROOT)
         }
-        val debuggable = (info.applicationInfo.flags and
+        val debuggable = (applicationInfo.flags and
             android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         require(!debuggable) { "benchmark refuses a debuggable build" }
         @Suppress("DEPRECATION")

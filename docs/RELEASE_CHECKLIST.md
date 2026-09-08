@@ -24,7 +24,7 @@ are available only through the protected `release-signing` Environment. **APKs
 are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
-Current in-tree version: **v0.9.0 / versionCode 11** (`minSdk 24`, `targetSdk`/`compileSdk 34`);
+Current in-tree version: **v0.9.0 / versionCode 11** (`minSdk 24`, `targetSdk`/`compileSdk 36`);
 latest released tag is **v0.9.0** (tagged 2026-08-26).
 
 [Make production signing and exact release-candidate verification fail closed](https://github.com/thetechgeekko/Spektrafilm-android/issues/168)

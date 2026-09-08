@@ -53,8 +53,9 @@ code-cache, and no-backup directories are excluded by Android regardless of XML 
 version; versioned document codecs independently reject unsupported future documents.
 
 Android 16 QPR2/API 36.1 introduced a separate cross-platform-transfer schema that requires a real
-counterpart bundle ID, team ID, and content version. This project targets/compiles API 34 and has no
-such iOS identity, so none is invented. Standard participation stays disabled. Enabling backup later
+counterpart bundle ID, team ID, and content version. This project targets/compiles API 36 and has no
+such iOS identity, so none is invented: the rules file deliberately declares no
+`<cross-platform-transfer>` section, which is the platform's opt-out (#171). Standard participation stays disabled. Enabling backup later
 requires a compatible toolchain, genuine platform identity, explicit rules/tests for every transfer
 mode, and a matching update to this policy.
 

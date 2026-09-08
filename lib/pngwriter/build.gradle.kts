@@ -21,7 +21,7 @@ plugins {
 
 android {
     namespace = "com.spectrafilm.pngwriter"
-    compileSdk = 34
+    compileSdk = 36
 
     // NDK r28c (28.2.13676358): 16 KB page-size support is the default (r27 introduced it), so
     // native LOAD segments are 16 KB-aligned and

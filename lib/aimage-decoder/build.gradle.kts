@@ -17,7 +17,7 @@ val aimageAbiTargets = linkedMapOf(
 
 android {
     namespace = "com.spectrafilm.aimage"
-    compileSdk = 34
+    compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
