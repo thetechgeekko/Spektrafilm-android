@@ -187,9 +187,9 @@ struct Ctx {
     };
     Kernel scanFused;  // scan_spectral.comp (density -> encoded sRGB)
     Kernel scanLin;    // scan_spectral_lin.comp (density -> unclipped linear RGB)
-    // halation_scatter.comp (#206): one pipeline, ten descriptor sets (one per
-    // buffer-role permutation of the op sequence), five device-local work
-    // buffers sized to the slice, one mapped staging buffer, one frame-floats
+    // halation_scatter.comp (#206): one pipeline, eleven descriptor sets (one
+    // per buffer-role permutation of the op sequence), four device-local
+    // whole-frame work buffers, one mapped staging band, one frame-floats
     // buffer. Grow-only like the scan kernels; torn down on failure only.
     struct HalationKernel {
         VkShaderModule shader = VK_NULL_HANDLE;
@@ -197,13 +197,13 @@ struct Ctx {
         VkPipelineLayout pl = VK_NULL_HANDLE;
         VkPipeline pipe = VK_NULL_HANDLE;
         VkDescriptorPool dpool = VK_NULL_HANDLE;
-        std::array<VkDescriptorSet, 14> dsets{};
+        std::array<VkDescriptorSet, 11> dsets{};
         VkCommandPool cpool = VK_NULL_HANDLE;
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
-        Buf staging;                       // host-visible, mapped: upload + readback
+        Buf staging;                       // host-visible, mapped: upload + readback band
         Buf frame;                         // FrameFloats (binding 27)
-        std::array<ResidentBuf, 7> work{}; // src, A, B, C, D, T1, T2 (device-local preferred)
+        std::array<ResidentBuf, 4> work{}; // src, sum, x, xT (device-local preferred)
         bool pipelineReady = false;
     } halation;
 
@@ -500,7 +500,12 @@ struct Ctx {
         destroyBuf(b);
         VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bci.size = bytes;
-        bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        // TRANSFER_SRC/DST because the halation pass stages through this buffer
+        // with vkCmdCopyBuffer in both directions; a copy to or from a buffer
+        // created without them is invalid use, which validation layers reject
+        // and a driver may honour or not.
+        bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                    VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         if (vkCreateBuffer(device, &bci, nullptr, &b.buf) != VK_SUCCESS) return false;
         VkMemoryRequirements req;
@@ -1464,9 +1469,9 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 // In-emulsion scatter + back-reflection halation (issue #206).
 //
 // Shader: gpu/halation_scatter.comp, adapted from spektrafilm OFX (see the file
-// header and docs/research/spektrafilm-ofx-port.md). The dispatch sequence and
-// the buffer roles of the ten descriptor sets follow upstream's
-// SpektraVulkanRenderer.cpp halation pass; the slicing, the f64 staging and the
+// header and docs/research/spektrafilm-ofx-port.md). The dispatch sequence
+// follows upstream's SpektraVulkanRenderer.cpp halation pass; the single
+// weighted sum buffer, the whole-frame residency, the f64 staging and the
 // parameter plumbing are Android additions.
 //
 // Model (model/diffusion.cpp::apply_halation_um, per channel c):
@@ -1476,12 +1481,12 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 //   blur   = sum_k decay_k * G(sigma_h[c] * sqrt(k)) * raw'      (k = 1..N)
 //   out    = raw' + a[c] * blur, / (1 + a[c]) when renormalising
 //
-// Slicing: rows [y0, y1) are rendered from an upload of rows
-// [y0 - halo, y1 + halo) where halo is the scatter radius plus the bounce
-// radius, so every output pixel sees exactly the neighbours it would see in a
-// whole-image pass and the bytes do not depend on the slice height (a test
-// proves this). The shader's reflect boundary therefore only ever acts at the
-// true image edges.
+// Residency: the whole frame lives on the device for the pass (four packed
+// f32 planes), so every blur, IIR sweeps included, sees the complete image
+// exactly as the CPU pass does; the earlier row slicing with a halo left an
+// IIR transient at slice joins and could not fit the DIR tail's 10-sigma halo
+// at export scale. Upload and readback go through a fixed staging band of
+// whole rows, which never touches the numbers (a test proves this).
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -1504,20 +1509,19 @@ struct HalationPush {
 static_assert(sizeof(HalationPush) == 104, "push block must match halation_scatter.comp");
 
 constexpr uint32_t kHalOpClear = 0u;
-constexpr uint32_t kHalOpLineYStore = 12u;       // IIR channels, one thread per column
-constexpr uint32_t kHalOpLineYAccumulate = 13u;  // IIR channels, buf3 scratch
+constexpr uint32_t kHalOpScatterResolve = 4u;
+constexpr uint32_t kHalOpBounceResolveRaw = 10u;
+constexpr uint32_t kHalOpLineInPlace = 12u;      // IIR channels, one thread per column, in place on buf1
+constexpr uint32_t kHalOpLineYAccumulate = 13u;  // IIR channels, buf1 += w * blur(in0), buf3 scratch
 constexpr uint32_t kHalOpFirX = 14u;             // FIR channels, per pixel
-constexpr uint32_t kHalOpFirYStore = 15u;
 constexpr uint32_t kHalOpFirYAccumulate = 16u;
 constexpr uint32_t kHalOpTranspose = 17u;        // tiled, component = channel mask
 constexpr uint32_t kHalLineThreads = 256u;       // kThreadsPerGroup in the shader
 constexpr uint32_t kHalTransposeTile = 32u;
-constexpr uint32_t kHalOpScatterResolve = 4u;
-constexpr uint32_t kHalOpBounceResolveRaw = 10u;
 constexpr uint32_t kHalSigmaCore = 0u;
 constexpr uint32_t kHalSigmaTail = 1u;
 constexpr uint32_t kHalSigmaBounce = 2u;
-// FrameFloats indices (halation_scatter.comp).
+// FrameFloats indices (binding 27), as the shader reads them.
 constexpr uint32_t kHalFramePixelSizeUm = 29u;
 constexpr uint32_t kHalFrameScatterAmount = 30u;
 constexpr uint32_t kHalFrameScatterScale = 31u;
@@ -1528,41 +1532,44 @@ constexpr uint32_t kHalFrameFirstSigma = 37u;    // +0..2
 constexpr uint32_t kHalFrameCoreUm = 80u;        // +0..2
 constexpr uint32_t kHalFrameTailUm = 83u;        // +0..2
 constexpr uint32_t kHalFrameTailWeight = 86u;    // +0..2
-constexpr uint32_t kHalFrameBounceDecay = 89u;
-constexpr uint32_t kHalFrameBounceWeightNorm = 90u;
 constexpr uint32_t kHalFrameRenormalize = 91u;
-constexpr uint32_t kHalFrameFloatCount = 96u;
-constexpr int kHalMaxFirRadius = 256;            // the shader's FIR cap
-constexpr uint32_t kHalMaxHalo = 1024;           // rows of halo the slicer will carry
+// BlurTable (see the shader): per blur slot and channel, the sigma, the
+// FIR/IIR class, the accumulation weight and the four Young-van Vliet
+// coefficients as double-float pairs. Slot 0 is the scatter core, 1..3 the
+// tail surrogates, 4.. the bounces.
+constexpr uint32_t kHalFrameBlurBase = 96u;
+constexpr uint32_t kHalBlurStride = 12u;
+constexpr uint32_t kHalBlurFieldSigma = 0u;
+constexpr uint32_t kHalBlurFieldIsIir = 1u;
+constexpr uint32_t kHalBlurFieldWeight = 2u;
+constexpr uint32_t kHalBlurFieldB = 3u;          // hi, lo
+constexpr uint32_t kHalBlurFieldP1 = 5u;
+constexpr uint32_t kHalBlurFieldP2 = 7u;
+constexpr uint32_t kHalBlurFieldP3 = 9u;
+constexpr uint32_t kHalMaxBounces = 8u;          // the UI allows 1..5
+constexpr uint32_t kHalBlurSlots = 4u + kHalMaxBounces;
+constexpr uint32_t kHalFrameFloatCount = kHalFrameBlurBase + kHalBlurSlots * 3u * kHalBlurStride;
 constexpr double kHalSmallSigmaMax = 3.0;        // kSmallSigmaMaxD: IIR at and above
-constexpr uint32_t kHalSetCount = 14u;
-constexpr VkDeviceSize kHalPixelBytes = 16;      // vec4 f32
-constexpr VkDeviceSize kHalWorkBudgetBytes = 448ull << 20;  // seven work buffers
-constexpr uint32_t kHalMaxSlicePixels = 4u << 20;
+// Largest blur sigma (px) the pass accepts. The gate measures the double-float
+// recursion against the f64 CPU filter up to this value on a flat field, a
+// step and the real blends (the DIR tail is 63 px at 12.5 MP, and the widest
+// UI-reachable halation bounce is 157 px).
+constexpr double kHalMaxSigma = 256.0;
+// fast_exponential_filter's three-Gaussian surrogate of the isotropic
+// exponential kernel (kernels/exponential_filter.cpp).
+constexpr double kHalTailAmplitude[3] = {0.1633, 0.6496, 0.1870};
+constexpr double kHalTailRatio[3] = {0.5360, 1.5236, 2.7684};
+constexpr uint32_t kHalSetCount = 11u;
+constexpr VkDeviceSize kHalPixelBytes = 12;      // three f32, packed
+constexpr uint32_t kHalWorkBuffers = 4u;         // src, sum, x, xT
+// Whole-frame residency ceiling for the four work buffers (48 B/px: ~22 MP).
+// Above it the pass refuses and the CPU runs; bringing back row bands with the
+// IIR state carried through host-side storage is the upgrade path if a larger
+// export ever needs the GPU pass.
+constexpr VkDeviceSize kHalWorkBudgetBytes = 1024ull << 20;
+constexpr VkDeviceSize kHalStagingBytes = 64ull << 20;  // upload/readback band
 constexpr uint32_t kHalGroupX = 32u, kHalGroupY = 8u;
-// fast_exponential_filter's widest mixture component (kernels/exponential_filter).
-constexpr double kHalTailMaxRatio = 2.7684;
-
-// Rows of neighbourhood one Gaussian pass needs on each side. FIR (sigma < 3):
-// the engine's exact radius int(3 * sigma + 0.5). IIR (sigma >= 3): the
-// recursion has infinite support, so a slice cannot reproduce the
-// whole-image state exactly; the slice-local initialisation leaves a
-// transient that decays roughly 4.6x per 2 sigma (measured on log10:
-// 4.1e-4 at a 4 sigma halo, 9.0e-5 at 6 sigma), so 10 sigma + 1 rows
-// leave a residual near 1e-6, two orders inside the band the pass itself
-// meets. Not byte-identical across slice heights for IIR sigmas: the
-// slice height is a pure function of the image size, so one device
-// stays deterministic. The host test measures the residual against a
-// whole-image run.
-int hal_halo(double sigma) {
-    if (!(sigma > 0.0)) return 0;
-    if (sigma >= kHalSmallSigmaMax) {
-        const double r = std::ceil(10.0 * sigma) + 1.0;
-        return r > static_cast<double>(kHalMaxHalo) ? static_cast<int>(kHalMaxHalo) + 1 : static_cast<int>(r);
-    }
-    const double r = std::floor(3.0 * sigma + 0.5);
-    return r > static_cast<double>(kHalMaxFirRadius) ? kHalMaxFirRadius + 1 : static_cast<int>(r);
-}
+constexpr uint32_t kHalSrc = 0u, kHalSum = 1u, kHalX = 2u, kHalXT = 3u;
 
 bool build_halation_pipeline(Ctx& c, Ctx::HalationKernel& k) {
     VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
@@ -1624,27 +1631,28 @@ bool build_halation_pipeline(Ctx& c, Ctx::HalationKernel& k) {
     return true;
 }
 
-// Upstream's buffer roles per descriptor set: (in0, buf1, in2, buf3).
-//   0 BlurX core      (src, A, A, A)      1 BlurYStore core   (A, B, A, B)
-//   2 Clear tail sum  (src, C, A, C)      3 BlurX tail        (src, A, A, A)
-//   4 BlurYAcc tail   (A, C, A, D)        5 ScatterResolve    (src, B, C, D)
-//   6 Clear bounce    (bsrc, C, A, C)     7 BlurX bounce      (bsrc, A, A, A)
-//   8 BlurYAcc bounce (A, C, A, B)        9 BounceResolveRaw  (bsrc, C, A, out)
-// bsrc is D when the scatter step ran, else src; out is B (free after set 5).
-// The accumulate sets bind a free buffer as buf3: the IIR's forward-sweep
-// scratch (D is untouched until set 5; B is consumed by set 5 and rewritten
-// only by set 9).
-void write_halation_sets(Ctx& c, Ctx::HalationKernel& k, bool scatterActive) {
-    const VkBuffer src = k.work[0].buf, A = k.work[1].buf, B = k.work[2].buf,
-                   C = k.work[3].buf, D = k.work[4].buf, T1 = k.work[5].buf, T2 = k.work[6].buf;
-    const VkBuffer bsrc = scatterActive ? D : src;
-    // 10..13: the IIR X pass as transpose (source -> T1), column pass (T1 -> T2),
-    // transpose back (T2 -> A, IIR channels only) for the scatter source and
-    // the bounce source.
+// Buffer roles per descriptor set: (in0, buf1, in2, buf3) over the four
+// whole-frame work buffers S (source), SUM (weighted blur sum), X (X-blurred
+// image, later the scattered image), XT (transposed scratch). One separable
+// blur is: X pass S -> X (FIR channels per pixel; IIR channels transpose
+// S -> XT, filter XT in place, transpose back XT -> X), then a Y pass
+// SUM += w * blurY(X) (IIR channels use XT as the forward-sweep scratch).
+//   0 X FIR S -> X          1 transpose S -> XT, IIR in place on XT
+//   2 transpose XT -> X     3 Y accumulate X -> SUM (scratch XT)
+//   4 clear SUM             5 resolve (S, SUM) -> X
+// The bounce blurs after a scatter step read the scattered image in X and
+// use S, now free, as their X-blurred buffer:
+//   6 X FIR X -> S          7 transpose X -> XT, IIR in place on XT
+//   8 transpose XT -> S     9 Y accumulate S -> SUM (scratch XT)
+//  10 resolve (X, SUM) -> S
+// Unused bindings of a set hold a buffer the op never touches.
+void write_halation_sets(Ctx& c, Ctx::HalationKernel& k) {
+    const VkBuffer S = k.work[kHalSrc].buf, SUM = k.work[kHalSum].buf,
+                   X = k.work[kHalX].buf, XT = k.work[kHalXT].buf;
     const VkBuffer roles[kHalSetCount][4] = {
-        {src, A, A, A}, {A, B, A, B}, {src, C, A, C}, {src, A, A, A}, {A, C, A, D},
-        {src, B, C, D}, {bsrc, C, A, C}, {bsrc, A, A, A}, {A, C, A, B}, {bsrc, C, A, B},
-        {src, T1, T1, T1}, {T1, T2, T1, T2}, {T2, A, A, A}, {bsrc, T1, T1, T1},
+        {S, X, S, S},     {S, XT, S, S},    {XT, X, XT, XT}, {X, SUM, X, XT},
+        {S, SUM, S, S},   {S, SUM, S, X},   {X, S, X, X},    {X, XT, X, X},
+        {XT, S, XT, XT},  {S, SUM, S, XT},  {X, SUM, X, S},
     };
     std::array<VkDescriptorBufferInfo, kHalSetCount * 5> infos{};
     std::array<VkWriteDescriptorSet, kHalSetCount * 5> writes{};
@@ -1688,13 +1696,17 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         for (double v : per) if (!std::isfinite(v)) { d.reason = "bad-request"; return false; }
     }
 
-    // Activity and radii, by the CPU pass's own rules.
+    // Activity by the CPU pass's own rules.
     double sigmaCore[3], lambdaTail[3], aTot[3], sigmaH[3];
     bool anyScatterSigma = false, anyA = false, anySigmaH = false;
+    bool coreNeeded = false, tailNeeded = false;
     for (int ch = 0; ch < 3; ++ch) {
         sigmaCore[ch] = r.scatter_core_um[ch] * r.scatter_spatial_scale / r.pixel_size_um;
         lambdaTail[ch] = r.scatter_tail_um[ch] * r.scatter_spatial_scale / r.pixel_size_um;
         if (sigmaCore[ch] > 0.0 || lambdaTail[ch] > 0.0) anyScatterSigma = true;
+        const double mix = std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0);
+        if (mix < 1.0) coreNeeded = true;
+        if (mix > 0.0) tailNeeded = true;
         aTot[ch] = r.halation_strength[ch] * r.halation_amount;
         sigmaH[ch] = r.halation_first_sigma_um[ch] * r.halation_spatial_scale / r.pixel_size_um;
         if (aTot[ch] > 0.0) anyA = true;
@@ -1710,57 +1722,51 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         d.reason = "nothing-to-do";
         return true;
     }
-    int radiusScatter = 0, radiusBounce = 0;
+    double sigmaMax = 0.0;
     for (int ch = 0; ch < 3; ++ch) {
-        radiusScatter = std::max(radiusScatter, hal_halo(std::max(sigmaCore[ch], 1e-6)));
-        radiusScatter = std::max(radiusScatter, hal_halo(std::max(lambdaTail[ch], 1e-6) * kHalTailMaxRatio));
-        radiusBounce = std::max(radiusBounce,
-                                hal_halo(std::max(sigmaH[ch] * std::sqrt(static_cast<double>(std::max(bounces, 1))), 1e-6)));
+        if (scatterActive) {
+            sigmaMax = std::max(sigmaMax, sigmaCore[ch]);
+            sigmaMax = std::max(sigmaMax, lambdaTail[ch] * kHalTailRatio[2]);
+        }
+        if (bounceActive) {
+            sigmaMax = std::max(sigmaMax, sigmaH[ch] * std::sqrt(static_cast<double>(bounces)));
+        }
     }
-    if (radiusScatter > kHalMaxFirRadius && radiusScatter > static_cast<int>(kHalMaxHalo)) {
-        d.reason = "sigma-too-large";
-        return false;
-    }
-    if (radiusBounce > static_cast<int>(kHalMaxHalo)) {
-        d.reason = "sigma-too-large";
-        return false;
-    }
-    const uint32_t halo = static_cast<uint32_t>((scatterActive ? radiusScatter : 0) +
-                                                (bounceActive ? radiusBounce : 0));
-    d.halo_rows = halo;
-    const uint32_t W = static_cast<uint32_t>(r.width), H = static_cast<uint32_t>(r.height);
+    if (!(sigmaMax <= kHalMaxSigma)) { d.reason = "sigma-too-large"; return false; }
+    if (bounceActive && static_cast<uint32_t>(bounces) > kHalMaxBounces) { d.reason = "too-many-bounces"; return false; }
 
-    // Slice height from the work budget (five vec4 buffers of the padded slice)
-    // and the per-dispatch pixel cap; the halo rows are the fixed cost.
-    uint32_t rowsOut = r.slice_rows_override;
-    if (rowsOut == 0) {
-        const uint64_t budgetPixels = std::min<uint64_t>(
-            kHalMaxSlicePixels, kHalWorkBudgetBytes / (7u * kHalPixelBytes));
-        const uint64_t budgetRows = budgetPixels / W;
-        rowsOut = budgetRows > 2ull * halo ? static_cast<uint32_t>(budgetRows - 2ull * halo) : 0u;
-    }
-    if (rowsOut == 0) { d.reason = "slice-too-small"; return false; }
-    if (rowsOut > H) rowsOut = H;
-    const uint32_t paddedRowsCap = std::min(H, rowsOut + 2u * halo);
-    const uint64_t paddedPixelsCap = static_cast<uint64_t>(paddedRowsCap) * W;
-    if (paddedPixelsCap > kHalMaxSlicePixels ||
-        (std::max(paddedRowsCap, W) + kHalLineThreads - 1u) / kHalLineThreads > c.properties.limits.maxComputeWorkGroupCount[0] ||
-        (std::max(paddedRowsCap, W) + kHalTransposeTile - 1u) / kHalTransposeTile > c.properties.limits.maxComputeWorkGroupCount[0] ||
-        (std::max(paddedRowsCap, W) + kHalTransposeTile - 1u) / kHalTransposeTile > c.properties.limits.maxComputeWorkGroupCount[1] ||
-        (paddedRowsCap + kHalGroupY - 1u) / kHalGroupY > c.properties.limits.maxComputeWorkGroupCount[1] ||
-        (W + kHalGroupX - 1u) / kHalGroupX > c.properties.limits.maxComputeWorkGroupCount[0]) {
-        d.reason = "slice-too-large";
+    // Whole-frame residency: four packed f32 planes, each one storage range,
+    // against the fixed budget and the device's largest device-local heap.
+    const uint32_t W = static_cast<uint32_t>(r.width), H = static_cast<uint32_t>(r.height);
+    const VkDeviceSize frameBytes = static_cast<VkDeviceSize>(npix64) * kHalPixelBytes;
+    const VkDeviceSize workBytes = frameBytes * kHalWorkBuffers;
+    const VkPhysicalDeviceLimits& lim = c.properties.limits;
+    const uint32_t maxDim = std::max(W, H);
+    if (workBytes > kHalWorkBudgetBytes || frameBytes > lim.maxStorageBufferRange ||
+        workBytes > c.largestHeapFor(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ||
+        (maxDim + kHalLineThreads - 1u) / kHalLineThreads > lim.maxComputeWorkGroupCount[0] ||
+        (maxDim + kHalTransposeTile - 1u) / kHalTransposeTile >
+            std::min(lim.maxComputeWorkGroupCount[0], lim.maxComputeWorkGroupCount[1]) ||
+        (W + kHalGroupX - 1u) / kHalGroupX > lim.maxComputeWorkGroupCount[0] ||
+        (H + kHalGroupY - 1u) / kHalGroupY > lim.maxComputeWorkGroupCount[1]) {
+        d.reason = "frame-too-large";
         return false;
     }
+    // Upload/readback go through one mapped staging band of whole rows; the
+    // band size never touches the numbers (a test proves it).
+    const VkDeviceSize rowBytes = static_cast<VkDeviceSize>(W) * kHalPixelBytes;
+    const VkDeviceSize bandCap = r.staging_bytes_override ? r.staging_bytes_override : kHalStagingBytes;
+    const uint32_t bandRows = static_cast<uint32_t>(
+        std::min<VkDeviceSize>(H, std::max<VkDeviceSize>(1, bandCap / rowBytes)));
+    const VkDeviceSize stagingBytes = static_cast<VkDeviceSize>(bandRows) * rowBytes;
 
     Ctx::HalationKernel& k = c.halation;
     if (!k.pipelineReady && !build_halation_pipeline(c, k)) { d.reason = "pipeline-failed"; return false; }
-    const VkDeviceSize sliceBytes = static_cast<VkDeviceSize>(paddedPixelsCap) * kHalPixelBytes;
-    if (!c.ensureBuf(k.staging, sliceBytes)) { d.reason = "allocation-failed"; return false; }
+    if (!c.ensureBuf(k.staging, stagingBytes)) { d.reason = "allocation-failed"; return false; }
     if (!c.ensureBuf(k.frame, kHalFrameFloatCount * sizeof(float))) { d.reason = "allocation-failed"; return false; }
     PointwiseChainDiagnostics scratchDiagnostics{};
     for (ResidentBuf& b : k.work) {
-        if (!c.ensureResidentBuf(b, sliceBytes,
+        if (!c.ensureResidentBuf(b, frameBytes,
                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                  0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, scratchDiagnostics)) {
@@ -1769,7 +1775,35 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         }
     }
 
-    // FrameFloats: the engine's HalationParams, as the shader expects them.
+    // Per-channel sigma in pixels of one blur, as apply_halation_um derives it
+    // (model/diffusion.cpp): the scatter core, one of the three surrogate
+    // Gaussians of the exponential tail, or bounce b at sigma_h * sqrt(b + 1).
+    auto blur_sigma = [&](uint32_t sigmaMode, uint32_t component, uint32_t ch) {
+        const double scale = sigmaMode == kHalSigmaBounce ? std::max(r.halation_spatial_scale, 0.0)
+                                                          : std::max(r.scatter_spatial_scale, 0.0);
+        if (sigmaMode == kHalSigmaCore) return std::max(r.scatter_core_um[ch], 0.0) * scale / r.pixel_size_um;
+        if (sigmaMode == kHalSigmaTail) return std::max(r.scatter_tail_um[ch], 0.0) * kHalTailRatio[component] * scale / r.pixel_size_um;
+        return std::max(r.halation_first_sigma_um[ch], 0.0) * scale *
+               std::sqrt(static_cast<double>(component + 1u)) / r.pixel_size_um;
+    };
+    // The FIR/IIR split, in f64, exactly as gaussian_blur_plane_d dispatches it.
+    // This decision is the HOST's alone: it selects which dispatches run, and
+    // the shader reads it back from the table rather than recomputing it in
+    // f32, where a sigma either side of 3.0 could classify the other way and
+    // leave a channel of that blur unwritten.
+    auto blur_is_iir = [&](uint32_t sigmaMode, uint32_t component, uint32_t ch) {
+        return blur_sigma(sigmaMode, component, ch) >= kHalSmallSigmaMax;
+    };
+    auto iir_mask = [&](uint32_t sigmaMode, uint32_t component) {
+        uint32_t mask = 0;
+        for (uint32_t ch = 0; ch < 3; ++ch) if (blur_is_iir(sigmaMode, component, ch)) mask |= 1u << ch;
+        return mask;
+    };
+
+    // FrameFloats: the engine's HalationParams and the blur table, as the
+    // shader expects them. Everything the shader needs about a blur -- sigma,
+    // class, accumulation weight, Young-van Vliet coefficients -- is computed
+    // here in f64 and rounded once; the shader derives nothing.
     {
         float* f = static_cast<float*>(k.frame.mapped);
         std::memset(f, 0, kHalFrameFloatCount * sizeof(float));
@@ -1778,10 +1812,6 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         f[kHalFrameScatterScale] = static_cast<float>(r.scatter_spatial_scale);
         f[kHalFrameHalationAmount] = static_cast<float>(r.halation_amount);
         f[kHalFrameHalationScale] = static_cast<float>(r.halation_spatial_scale);
-        double norm = 0.0;
-        for (int b = 0; b < std::max(bounces, 1); ++b) norm += std::pow(r.halation_bounce_decay, static_cast<double>(b));
-        f[kHalFrameBounceDecay] = static_cast<float>(r.halation_bounce_decay);
-        f[kHalFrameBounceWeightNorm] = static_cast<float>(norm);
         f[kHalFrameRenormalize] = r.halation_renormalize ? 1.0f : 0.0f;
         for (uint32_t ch = 0; ch < 3; ++ch) {
             f[kHalFrameStrength + ch] = static_cast<float>(r.halation_strength[ch]);
@@ -1790,29 +1820,68 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
             f[kHalFrameTailUm + ch] = static_cast<float>(r.scatter_tail_um[ch]);
             f[kHalFrameTailWeight + ch] = static_cast<float>(r.scatter_tail_weight[ch]);
         }
-    }
-    write_halation_sets(c, k, scatterActive);
-
-    // Which channels of a (mode, component) blur take the IIR (sigma >= 3),
-    // mirroring sigmaForMode() in the shader so host and device agree on the
-    // class; a mismatch would leave a channel unwritten.
-    const double tailRatios[3] = {0.5360, 1.5236, 2.7684};
-    auto iir_mask = [&](uint32_t sigmaMode, uint32_t component) {
-        uint32_t mask = 0;
-        for (uint32_t ch = 0; ch < 3; ++ch) {
-            double sigma = 0.0;
-            if (sigmaMode == kHalSigmaCore) sigma = std::max(r.scatter_core_um[ch], 0.0) * std::max(r.scatter_spatial_scale, 0.0) / r.pixel_size_um;
-            else if (sigmaMode == kHalSigmaTail) sigma = std::max(r.scatter_tail_um[ch], 0.0) * tailRatios[component] * std::max(r.scatter_spatial_scale, 0.0) / r.pixel_size_um;
-            else sigma = std::max(r.halation_first_sigma_um[ch], 0.0) * std::max(r.halation_spatial_scale, 0.0) * std::sqrt(static_cast<double>(component + 1u)) / r.pixel_size_um;
-            if (static_cast<float>(sigma) >= static_cast<float>(kHalSmallSigmaMax)) mask |= 1u << ch;
+        // A coefficient reaches the shader as a double-float pair: the f64
+        // value and the residual of its own rounding. Rounding the poles to
+        // f32 alone is NOT enough -- they sit ~1/q from the unit circle, so a
+        // relative perturbation of 1e-7 in a coefficient moves the pole by
+        // ~q^3 in relative terms and changes the filter's shape (measured
+        // against the f64 CPU filter on a unit step: 2.5e-3 at sigma 63 px,
+        // 0.20 at the 256 px cap), even though the DC gain can be pinned.
+        auto put_df = [&](float* dst, double v) {
+            const float hi = static_cast<float>(v);
+            dst[0] = hi;
+            dst[1] = static_cast<float>(v - static_cast<double>(hi));
+        };
+        auto fill = [&](uint32_t slot, uint32_t sigmaMode, uint32_t component) {
+            for (uint32_t ch = 0; ch < 3; ++ch) {
+                const double sigma = blur_sigma(sigmaMode, component, ch);
+                const bool isIir = blur_is_iir(sigmaMode, component, ch);
+                double weight = 0.0;
+                if (sigmaMode == kHalSigmaCore) {
+                    weight = 1.0 - std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0);
+                } else if (sigmaMode == kHalSigmaTail) {
+                    weight = std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0) * kHalTailAmplitude[component];
+                } else {
+                    // pow(decay, b) / sum_b pow(decay, b), with the CPU's
+                    // std::pow(0, 0) == 1 for a zero decay (which the UI
+                    // allows); GLSL's pow(0, 0) is undefined, so this weight is
+                    // never computed on the device.
+                    double norm = 0.0;
+                    for (int b = 0; b < std::max(bounces, 1); ++b) norm += std::pow(r.halation_bounce_decay, static_cast<double>(b));
+                    weight = std::pow(r.halation_bounce_decay, static_cast<double>(component)) / std::max(norm, 1e-12);
+                }
+                float* dst = f + kHalFrameBlurBase + (slot * 3u + ch) * kHalBlurStride;
+                dst[kHalBlurFieldSigma] = static_cast<float>(sigma);
+                dst[kHalBlurFieldIsIir] = isIir ? 1.0f : 0.0f;
+                dst[kHalBlurFieldWeight] = static_cast<float>(weight);
+                if (!isIir) continue;
+                // yvv_coeffs (kernels/exponential_filter.cpp), verbatim in f64.
+                const double q = sigma >= 2.5 ? 0.98711 * sigma - 0.96330
+                                              : 3.97156 - 4.14554 * std::sqrt(1.0 - 0.26891 * sigma);
+                const double q2 = q * q, q3 = q2 * q;
+                const double b0 = 1.57825 + 2.44413 * q + 1.4281 * q2 + 0.422205 * q3;
+                const double b1 = 2.44413 * q + 2.85619 * q2 + 1.26661 * q3;
+                const double b2 = -(1.4281 * q2 + 1.26661 * q3);
+                const double b3 = 0.422205 * q3;
+                put_df(dst + kHalBlurFieldB, 1.0 - (b1 + b2 + b3) / b0);
+                put_df(dst + kHalBlurFieldP1, b1 / b0);
+                put_df(dst + kHalBlurFieldP2, b2 / b0);
+                put_df(dst + kHalBlurFieldP3, b3 / b0);
+            }
+        };
+        if (scatterActive) {
+            fill(0u, kHalSigmaCore, 0u);
+            for (uint32_t comp = 0; comp < 3; ++comp) fill(1u + comp, kHalSigmaTail, comp);
         }
-        return mask;
-    };
+        if (bounceActive) {
+            for (uint32_t b = 0; b < static_cast<uint32_t>(bounces); ++b) fill(4u + b, kHalSigmaBounce, b);
+        }
+    }
+    write_halation_sets(c, k);
     HalationPush push{};
-    push.width = W;
     push.fullWidth = W;
     push.fullHeight = H;
-    uint32_t dispatches = 0, slices = 0;
+    uint32_t dispatches = 0, bands = 0;
     auto barrier = [&](VkPipelineStageFlags srcStage, VkAccessFlags srcAccess,
                        VkPipelineStageFlags dstStage, VkAccessFlags dstAccess) {
         VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -1820,8 +1889,28 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         mb.dstAccessMask = dstAccess;
         vkCmdPipelineBarrier(k.cmd, srcStage, dstStage, 0, 1, &mb, 0, nullptr, 0, nullptr);
     };
-    // `width`/`height` are the dims of the image the op walks: the slice, or
-    // the transposed slice for the IIR column pass of an X blur.
+    auto begin = [&]() {
+        if (vkResetCommandBuffer(k.cmd, 0) != VK_SUCCESS) return false;
+        VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(k.cmd, &bi) != VK_SUCCESS) return false;
+        // Everything an earlier submission wrote (uploads, dispatches) is made
+        // visible to this one.
+        barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
+        return true;
+    };
+    auto submit_wait = [&]() {
+        if (vkEndCommandBuffer(k.cmd) != VK_SUCCESS) return false;
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &k.cmd;
+        if (vkQueueSubmit(c.queue, 1, &si, k.fence) != VK_SUCCESS) return false;
+        if (vkWaitForFences(c.device, 1, &k.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) return false;
+        return vkResetFences(c.device, 1, &k.fence) == VK_SUCCESS;
+    };
+    // `width`/`height` are the dims of the image the op walks: the frame, or
+    // the transposed frame for the IIR column pass of an X blur.
     auto dispatch = [&](uint32_t set, uint32_t op, uint32_t sigmaMode, uint32_t component,
                         uint32_t width, uint32_t height) {
         push.operation = op;
@@ -1832,7 +1921,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         vkCmdBindPipeline(k.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, k.pipe);
         vkCmdBindDescriptorSets(k.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, k.pl, 0, 1, &k.dsets[set], 0, nullptr);
         vkCmdPushConstants(k.cmd, k.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HalationPush), &push);
-        if (op == kHalOpLineYStore || op == kHalOpLineYAccumulate) {
+        if (op == kHalOpLineInPlace || op == kHalOpLineYAccumulate) {
             vkCmdDispatch(k.cmd, (width + kHalLineThreads - 1u) / kHalLineThreads, 1, 1);
         } else if (op == kHalOpTranspose) {
             vkCmdDispatch(k.cmd, (width + kHalTransposeTile - 1u) / kHalTransposeTile,
@@ -1844,119 +1933,92 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
         ++dispatches;
     };
+    // One separable blur into SUM. `fromScattered` selects the bounce sets
+    // that read the scattered image in X and use S as scratch.
+    auto blur = [&](uint32_t sigmaMode, uint32_t component, bool fromScattered) {
+        const uint32_t xFir = fromScattered ? 6u : 0u, tFwd = fromScattered ? 7u : 1u,
+                       tBack = fromScattered ? 8u : 2u, yAcc = fromScattered ? 9u : 3u;
+        const uint32_t iirMask = iir_mask(sigmaMode, component);
+        const bool anyFir = iirMask != 7u;
+        const bool anyIir = iirMask != 0u;
+        if (anyFir) dispatch(xFir, kHalOpFirX, sigmaMode, component, W, H);
+        if (anyIir) {
+            dispatch(tFwd, kHalOpTranspose, sigmaMode, 0, W, H);            // source -> XT
+            dispatch(tFwd, kHalOpLineInPlace, sigmaMode, component, H, W);  // columns of the transposed
+            dispatch(tBack, kHalOpTranspose, sigmaMode, iirMask, H, W);     // XT -> x-blurred, IIR channels
+        }
+        if (anyFir) dispatch(yAcc, kHalOpFirYAccumulate, sigmaMode, component, W, H);
+        if (anyIir) dispatch(yAcc, kHalOpLineYAccumulate, sigmaMode, component, W, H);
+    };
 
-    for (uint32_t y0 = 0; y0 < H; y0 += rowsOut) {
-        const uint32_t y1 = std::min(H, y0 + rowsOut);
-        const uint32_t top = y0 > halo ? y0 - halo : 0u;
-        const uint32_t bottom = std::min(H, y1 + halo);
-        const uint32_t rows = bottom - top;
-        const size_t padded = static_cast<size_t>(rows) * W;
-        // Upload rows [top, bottom) as vec4 f32 (alpha unused). Per-element map
-        // with disjoint writes: the engine's deterministic parallel chunks.
-        {
-            const auto t0 = std::chrono::steady_clock::now();
+    // Upload: rows [y0, y1) as packed f32 (the engine's deterministic parallel
+    // chunks, disjoint writes), one copy per band.
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
+            const uint32_t rows = std::min(bandRows, H - y0);
+            const size_t n = static_cast<size_t>(rows) * W * 3u;
             float* dst = static_cast<float*>(k.staging.mapped);
-            const double* src = r.raw_rgb + static_cast<size_t>(top) * W * 3u;
-            parallel_for(0, static_cast<int>(padded), [&](int lo, int hi) {
-                for (int p = lo; p < hi; ++p) {
-                    const size_t q = static_cast<size_t>(p);
-                    dst[q * 4 + 0] = static_cast<float>(src[q * 3 + 0]);
-                    dst[q * 4 + 1] = static_cast<float>(src[q * 3 + 1]);
-                    dst[q * 4 + 2] = static_cast<float>(src[q * 3 + 2]);
-                    dst[q * 4 + 3] = 0.0f;
-                }
-            });
-            d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-        }
-        const auto gpuStart = std::chrono::steady_clock::now();
-        if (vkResetCommandBuffer(k.cmd, 0) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        if (vkBeginCommandBuffer(k.cmd, &bi) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        barrier(VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_WRITE_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        VkBufferCopy upload{0, 0, static_cast<VkDeviceSize>(padded) * kHalPixelBytes};
-        vkCmdCopyBuffer(k.cmd, k.staging.buf, k.work[0].buf, 1, &upload);
-        barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-        // One separable blur = an X pass into A, then a Y pass (store or
-        // accumulate). FIR-class channels: per-pixel ops. IIR-class channels:
-        // column threads; the X pass transposes source -> T1, filters T1 -> T2
-        // as columns of the transposed image, and transposes T2 -> A for those
-        // channels only. `xSet` is the per-pixel X set, `tSet` the transpose set
-        // for the pass's source, `ySet` the Y store/accumulate set.
-        auto blur = [&](uint32_t sigmaMode, uint32_t component, uint32_t xSet, uint32_t tSet,
-                        uint32_t ySet, bool accumulate) {
-            const uint32_t iirMask = iir_mask(sigmaMode, component);
-            const bool anyFir = iirMask != 7u;
-            const bool anyIir = iirMask != 0u;
-            if (anyFir) dispatch(xSet, kHalOpFirX, sigmaMode, component, W, rows);
-            if (anyIir) {
-                dispatch(tSet, kHalOpTranspose, sigmaMode, 0, W, rows);            // source -> T1
-                dispatch(11, kHalOpLineYStore, sigmaMode, component, rows, W);     // columns of the transposed
-                dispatch(12, kHalOpTranspose, sigmaMode, iirMask, rows, W);        // T2 -> A, IIR channels
-            }
-            const uint32_t firY = accumulate ? kHalOpFirYAccumulate : kHalOpFirYStore;
-            const uint32_t iirY = accumulate ? kHalOpLineYAccumulate : kHalOpLineYStore;
-            if (anyFir) dispatch(ySet, firY, sigmaMode, component, W, rows);
-            if (anyIir) dispatch(ySet, iirY, sigmaMode, component, W, rows);
-        };
-        if (scatterActive) {
-            blur(kHalSigmaCore, 0, 0, 10, 1, false);
-            dispatch(2, kHalOpClear, 0, 0, W, rows);
-            for (uint32_t comp = 0; comp < 3; ++comp) blur(kHalSigmaTail, comp, 3, 10, 4, true);
-            dispatch(5, kHalOpScatterResolve, 0, 0, W, rows);
-        }
-        VkBuffer result = scatterActive ? k.work[4].buf : k.work[0].buf;
-        if (bounceActive) {
-            dispatch(6, kHalOpClear, 0, 0, W, rows);
-            for (uint32_t b = 0; b < static_cast<uint32_t>(bounces); ++b) blur(kHalSigmaBounce, b, 7, 13, 8, true);
-            dispatch(9, kHalOpBounceResolveRaw, 0, 0, W, rows);
-            result = k.work[2].buf;
-        }
-        barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        const VkDeviceSize outOffset = static_cast<VkDeviceSize>(y0 - top) * W * kHalPixelBytes;
-        VkBufferCopy readback{outOffset, outOffset, static_cast<VkDeviceSize>(y1 - y0) * W * kHalPixelBytes};
-        vkCmdCopyBuffer(k.cmd, result, k.staging.buf, 1, &readback);
-        barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_READ_BIT);
-        if (vkEndCommandBuffer(k.cmd) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.commandBufferCount = 1;
-        si.pCommandBuffers = &k.cmd;
-        if (vkQueueSubmit(c.queue, 1, &si, k.fence) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        if (vkWaitForFences(c.device, 1, &k.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        if (vkResetFences(c.device, 1, &k.fence) != VK_SUCCESS) { d.reason = "dispatch-failed"; break; }
-        d.gpu_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - gpuStart).count();
-        // Read rows [y0, y1) back into the caller's f64 plane.
-        {
-            const auto t0 = std::chrono::steady_clock::now();
-            const float* srcf = static_cast<const float*>(k.staging.mapped) + static_cast<size_t>(y0 - top) * W * 4u;
-            double* dst = out + static_cast<size_t>(y0) * W * 3u;
-            const size_t n = static_cast<size_t>(y1 - y0) * W;
+            const double* src = r.raw_rgb + static_cast<size_t>(y0) * W * 3u;
             parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
-                for (int p = lo; p < hi; ++p) {
-                    const size_t q = static_cast<size_t>(p);
-                    dst[q * 3 + 0] = static_cast<double>(srcf[q * 4 + 0]);
-                    dst[q * 3 + 1] = static_cast<double>(srcf[q * 4 + 1]);
-                    dst[q * 3 + 2] = static_cast<double>(srcf[q * 4 + 2]);
-                }
+                for (int i = lo; i < hi; ++i) dst[i] = static_cast<float>(src[i]);
             });
-            d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            if (!begin()) { d.reason = "dispatch-failed"; return false; }
+            barrier(VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_WRITE_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            VkBufferCopy upload{0, static_cast<VkDeviceSize>(y0) * rowBytes, static_cast<VkDeviceSize>(rows) * rowBytes};
+            vkCmdCopyBuffer(k.cmd, k.staging.buf, k.work[kHalSrc].buf, 1, &upload);
+            if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+            ++bands;
         }
-        ++slices;
-        if (y1 == H) {
-            d.engaged = true;
-            d.reason = "none";
-            d.slices = slices;
-            d.dispatches = dispatches;
-            return true;
-        }
+        d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     }
-    d.slices = slices;
+
+    // The whole pass, one submission.
+    const auto gpuStart = std::chrono::steady_clock::now();
+    if (!begin()) { d.reason = "dispatch-failed"; return false; }
+    if (scatterActive) {
+        dispatch(4, kHalOpClear, 0, 0, W, H);
+        if (coreNeeded) blur(kHalSigmaCore, 0, false);
+        if (tailNeeded) for (uint32_t comp = 0; comp < 3; ++comp) blur(kHalSigmaTail, comp, false);
+        dispatch(5, kHalOpScatterResolve, 0, 0, W, H);  // scattered -> X
+    }
+    if (bounceActive) {
+        dispatch(4, kHalOpClear, 0, 0, W, H);
+        for (uint32_t b = 0; b < static_cast<uint32_t>(bounces); ++b) blur(kHalSigmaBounce, b, scatterActive);
+        dispatch(scatterActive ? 10u : 5u, kHalOpBounceResolveRaw, 0, 0, W, H);
+    }
+    const VkBuffer result = (scatterActive && bounceActive) ? k.work[kHalSrc].buf : k.work[kHalX].buf;
+    if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+    d.gpu_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - gpuStart).count();
+
+    // Readback: rows [y0, y1) into the caller's f64 plane, one copy per band.
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
+            const uint32_t rows = std::min(bandRows, H - y0);
+            if (!begin()) { d.reason = "dispatch-failed"; return false; }
+            barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            VkBufferCopy readback{static_cast<VkDeviceSize>(y0) * rowBytes, 0, static_cast<VkDeviceSize>(rows) * rowBytes};
+            vkCmdCopyBuffer(k.cmd, result, k.staging.buf, 1, &readback);
+            barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_READ_BIT);
+            if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+            const float* srcf = static_cast<const float*>(k.staging.mapped);
+            double* dst = out + static_cast<size_t>(y0) * W * 3u;
+            const size_t n = static_cast<size_t>(rows) * W * 3u;
+            parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(srcf[i]);
+            });
+        }
+        d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    }
+    d.engaged = true;
+    d.reason = "none";
+    d.bands = bands;
     d.dispatches = dispatches;
-    return false;
+    return true;
 }
 
 }  // namespace

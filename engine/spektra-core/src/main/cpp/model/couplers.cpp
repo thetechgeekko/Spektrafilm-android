@@ -399,8 +399,8 @@ void apply_density_correction_dir_couplers_spatial(
     // Fast GPU export (#206): the blend below is the halation pass's scatter
     // step with amount 1 (core sigma = size, tail = exponential surrogate,
     // tail mix = tail_w), so the same GPU pass diffuses the correction. The
-    // result replaces `correction` only when every slice succeeded; otherwise
-    // the f64 CPU filters below run unchanged.
+    // result replaces `correction` only when the whole pass succeeded;
+    // otherwise the f64 CPU filters below run unchanged.
     bool diffused_on_gpu = false;
     if (params.allow_gpu_diffusion && gpu::available()) {
         gpu::HalationScatterRequest request{};
@@ -426,10 +426,9 @@ void apply_density_correction_dir_couplers_spatial(
         gpu::HalationScatterDiagnostics diagnostics{};
         const bool ok = allocated && gpu::halation_scatter(request, diffused.data(), &diagnostics);
         stage_timing_note_gpu_dir_diffusion(diagnostics.attempted, diagnostics.engaged,
-                                            diagnostics.reason, diagnostics.slices,
-                                            diagnostics.dispatches, diagnostics.halo_rows,
-                                            diagnostics.upload_ms, diagnostics.gpu_ms,
-                                            diagnostics.readback_ms);
+                                            diagnostics.reason, diagnostics.bands,
+                                            diagnostics.dispatches, diagnostics.upload_ms,
+                                            diagnostics.gpu_ms, diagnostics.readback_ms);
         if (ok && diagnostics.engaged) {
             correction.swap(diffused);
             diffused_on_gpu = true;

@@ -179,9 +179,9 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 // In-emulsion scatter + back-reflection halation on the GPU (issue #206; shader
 // gpu/halation_scatter.comp, adapted from spektrafilm OFX). Same model and
 // parameters as model/diffusion.cpp::apply_halation_um, computed in f32 on the
-// device in horizontal slices with a halo of the filters' total radius, so the
-// result does not depend on the slice height. Fast GPU output: tolerance-bounded
-// against the f64 CPU pass, deterministic on one device, never identity evidence.
+// device over the whole frame, so the IIR sweeps see the complete image as the
+// CPU does. Fast GPU output: tolerance-bounded against the f64 CPU pass,
+// deterministic on one device, never identity evidence.
 struct HalationScatterRequest {
     const double* raw_rgb = nullptr;  // interleaved RGB, width*height*3 doubles
     int width = 0;
@@ -199,20 +199,20 @@ struct HalationScatterRequest {
     int halation_n_bounces = 0;
     double halation_bounce_decay = 0.5;
     bool halation_renormalize = true;
-    // 0 = the host picks the slice height from its memory budget; a test sets it
-    // to prove that the output is byte-identical for any slice height.
-    uint32_t slice_rows_override = 0;
+    // 0 = the host's staging band (64 MiB of whole rows); a test sets it small
+    // to prove that the upload/readback banding never touches the numbers.
+    uint32_t staging_bytes_override = 0;
 };
 
 struct HalationScatterDiagnostics {
     bool attempted = false;
     bool engaged = false;
     const char* reason = "none";  // process-lifetime literal
-    uint32_t slices = 0;
+    uint32_t bands = 0;       // staging bands uploaded (transfer granularity only)
     uint32_t dispatches = 0;
-    uint32_t halo_rows = 0;
-    // Host-side wall clock: f64 -> f32 staging, submit-to-fence (all slices),
-    // f32 -> f64 readback. Observability for the device A/B, nothing gates on it.
+    // Host-side wall clock: f64 -> f32 staging + upload copies, the pass's
+    // submit-to-fence, readback copies + f32 -> f64. Observability for the
+    // device A/B, nothing gates on it.
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;

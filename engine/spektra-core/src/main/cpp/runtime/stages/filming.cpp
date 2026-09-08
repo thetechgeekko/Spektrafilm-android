@@ -71,10 +71,9 @@ bool gpu_halation_pass(double* raw, int width, int height,
     gpu::HalationScatterDiagnostics diagnostics{};
     const bool ok = gpu::halation_scatter(request, out.data(), &diagnostics);
     stage_timing_note_gpu_halation(diagnostics.attempted, diagnostics.engaged,
-                                   diagnostics.reason, diagnostics.slices,
-                                   diagnostics.dispatches, diagnostics.halo_rows,
-                                   diagnostics.upload_ms, diagnostics.gpu_ms,
-                                   diagnostics.readback_ms);
+                                   diagnostics.reason, diagnostics.bands,
+                                   diagnostics.dispatches, diagnostics.upload_ms,
+                                   diagnostics.gpu_ms, diagnostics.readback_ms);
     if (!ok) return false;
     if (diagnostics.engaged) {
         parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {

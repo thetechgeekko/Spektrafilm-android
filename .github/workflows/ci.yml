@@ -140,16 +140,25 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          g++ -std=c++17 -O2 -pthread -I. -DSPK_ENABLE_VULKAN=1 \
-            gpu/tests/test_halation_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-            model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-            -lvulkan -o /tmp/test_halation_gpu
-          /tmp/test_halation_gpu 2>&1 | tee /tmp/halation_gpu.out
-          # Same rule as above: the binary passes without a device by checking only
-          # the fallback law, which is not this gate. Require engagement.
-          grep -q "engaged=1" /tmp/halation_gpu.out || \
-            (echo "no GPU engaged — the halation gate validated nothing" && exit 1)
-          grep -q "test_halation_gpu: ALL OK" /tmp/halation_gpu.out || exit 1
+          # Two legs, like engine-parity: the host computes this pass's blur
+          # table (sigmas, FIR/IIR class, weights and the Young-van Vliet
+          # coefficients as double-float pairs) in f64, and the shipping flags
+          # include -ffast-math, which is free to reassociate exactly the
+          # residual arithmetic those pairs are built from. -O2 alone would
+          # never show that.
+          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
+            echo "== halation gate leg: $leg =="
+            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1 \
+              gpu/tests/test_halation_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
+              model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
+              -lvulkan -o /tmp/test_halation_gpu
+            /tmp/test_halation_gpu 2>&1 | tee /tmp/halation_gpu.out
+            # Same rule as above: the binary passes without a device by checking only
+            # the fallback law, which is not this gate. Require engagement.
+            grep -q "engaged=1" /tmp/halation_gpu.out || \
+              (echo "no GPU engaged — the halation gate validated nothing" && exit 1)
+            grep -q "test_halation_gpu: ALL OK" /tmp/halation_gpu.out || exit 1
+          done
 
   # ---------------------------------------------------------------------------
   # Offline native safety gate. These are direct host builds of committed tests:

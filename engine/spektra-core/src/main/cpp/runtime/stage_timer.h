@@ -168,9 +168,8 @@ struct GpuHalationTimingSnapshot {
     bool attempted = false;
     bool engaged = false;
     const char* reason = "not_requested";
-    uint32_t slices = 0;
+    uint32_t bands = 0;
     uint32_t dispatches = 0;
-    uint32_t halo_rows = 0;
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;
@@ -226,36 +225,32 @@ inline void stage_timing_note_fft_fallback() {
 }
 
 inline void stage_timing_note_gpu_halation(
-    bool attempted, bool engaged, const char* reason, uint32_t slices,
-    uint32_t dispatches, uint32_t halo_rows, double upload_ms, double gpu_ms,
-    double readback_ms) {
+    bool attempted, bool engaged, const char* reason, uint32_t bands,
+    uint32_t dispatches, double upload_ms, double gpu_ms, double readback_ms) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
     GpuHalationTimingSnapshot& h = state.current.gpu_halation;
     h.attempted = attempted;
     h.engaged = engaged;
     h.reason = reason ? reason : "unknown";
-    h.slices = slices;
+    h.bands = bands;
     h.dispatches = dispatches;
-    h.halo_rows = halo_rows;
     h.upload_ms = upload_ms;
     h.gpu_ms = gpu_ms;
     h.readback_ms = readback_ms;
 }
 
 inline void stage_timing_note_gpu_dir_diffusion(
-    bool attempted, bool engaged, const char* reason, uint32_t slices,
-    uint32_t dispatches, uint32_t halo_rows, double upload_ms, double gpu_ms,
-    double readback_ms) {
+    bool attempted, bool engaged, const char* reason, uint32_t bands,
+    uint32_t dispatches, double upload_ms, double gpu_ms, double readback_ms) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
     GpuHalationTimingSnapshot& h = state.current.gpu_dir_diffusion;
     h.attempted = attempted;
     h.engaged = engaged;
     h.reason = reason ? reason : "unknown";
-    h.slices = slices;
+    h.bands = bands;
     h.dispatches = dispatches;
-    h.halo_rows = halo_rows;
     h.upload_ms = upload_ms;
     h.gpu_ms = gpu_ms;
     h.readback_ms = readback_ms;
@@ -425,10 +420,10 @@ inline int stage_timings_format(char* buf, int cap) {
     for (int i = 0; i < 2; ++i) {
         if (!notes[i]->attempted || off >= cap - 1) continue;
         int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%s%s=%s/%s/slices%u/up%.1f/gpu%.1f/down%.1f",
+                              "%s%s=%s/%s/bands%u/up%.1f/gpu%.1f/down%.1f",
                               off ? " " : "", labels[i],
                               notes[i]->engaged ? "engaged" : "fallback",
-                              notes[i]->reason, notes[i]->slices,
+                              notes[i]->reason, notes[i]->bands,
                               notes[i]->upload_ms, notes[i]->gpu_ms,
                               notes[i]->readback_ms);
         if (n > 0) off += n;
@@ -511,11 +506,11 @@ inline int stage_timings_json_format(char* buf, int cap) {
     stage_timing_append_json_string(buf, cap, &off, snapshot.gpu_halation.reason);
     stage_timing_append(
         buf, cap, &off,
-        "\",\"slices\":%u,\"dispatches\":%u,\"halo_rows\":%u,"
+        "\",\"bands\":%u,\"dispatches\":%u,"
         "\"upload_ms\":%.1f,\"gpu_ms\":%.1f,\"readback_ms\":%.1f",
-        snapshot.gpu_halation.slices, snapshot.gpu_halation.dispatches,
-        snapshot.gpu_halation.halo_rows, snapshot.gpu_halation.upload_ms,
-        snapshot.gpu_halation.gpu_ms, snapshot.gpu_halation.readback_ms);
+        snapshot.gpu_halation.bands, snapshot.gpu_halation.dispatches,
+        snapshot.gpu_halation.upload_ms, snapshot.gpu_halation.gpu_ms,
+        snapshot.gpu_halation.readback_ms);
     stage_timing_append(
         buf, cap, &off,
         "},\"gpu_dir_diffusion\":{\"attempted\":%s,\"engaged\":%s,\"reason\":\"",
@@ -524,11 +519,11 @@ inline int stage_timings_json_format(char* buf, int cap) {
     stage_timing_append_json_string(buf, cap, &off, snapshot.gpu_dir_diffusion.reason);
     stage_timing_append(
         buf, cap, &off,
-        "\",\"slices\":%u,\"dispatches\":%u,\"halo_rows\":%u,"
+        "\",\"bands\":%u,\"dispatches\":%u,"
         "\"upload_ms\":%.1f,\"gpu_ms\":%.1f,\"readback_ms\":%.1f",
-        snapshot.gpu_dir_diffusion.slices, snapshot.gpu_dir_diffusion.dispatches,
-        snapshot.gpu_dir_diffusion.halo_rows, snapshot.gpu_dir_diffusion.upload_ms,
-        snapshot.gpu_dir_diffusion.gpu_ms, snapshot.gpu_dir_diffusion.readback_ms);
+        snapshot.gpu_dir_diffusion.bands, snapshot.gpu_dir_diffusion.dispatches,
+        snapshot.gpu_dir_diffusion.upload_ms, snapshot.gpu_dir_diffusion.gpu_ms,
+        snapshot.gpu_dir_diffusion.readback_ms);
     stage_timing_append(
         buf, cap, &off,
         "},\"gpu_pointwise\":{\"requested\":%s,\"attempted\":%s,"
