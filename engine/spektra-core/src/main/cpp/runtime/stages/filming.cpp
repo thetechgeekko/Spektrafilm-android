@@ -12,10 +12,13 @@
  */
 #include "runtime/stages/filming.h"
 
+#include <atomic>
 #include <cmath>
 #include <memory>
+#include <new>
 #include <vector>
 
+#include "gpu/vulkan_compute.h"
 #include "kernels/exponential_filter.h"
 #include "kernels/parallel.h"
 #include "kernels/spectral_upsampling.h"
@@ -27,6 +30,66 @@
 #include "model/spectral.h"
 
 namespace spk {
+
+namespace {
+std::atomic<long long> g_gpu_halation_frames{0};
+
+// Runs model/diffusion.cpp::apply_halation_um's model on the GPU. Returns true
+// only when the whole pass succeeded and `raw` now holds its result; false
+// leaves `raw` untouched for the CPU pass. A no-op parameter set is reported
+// as success without engaging the device (the CPU pass would not change the
+// image either).
+bool gpu_halation_pass(double* raw, int width, int height,
+                       const HalationParams& p, double pixel_size_um) {
+    if (!gpu::available()) return false;
+    gpu::HalationScatterRequest request{};
+    request.raw_rgb = raw;
+    request.width = width;
+    request.height = height;
+    request.pixel_size_um = pixel_size_um;
+    request.scatter_amount = p.scatter_amount;
+    request.scatter_spatial_scale = p.scatter_spatial_scale;
+    request.halation_amount = p.halation_amount;
+    request.halation_spatial_scale = p.halation_spatial_scale;
+    request.halation_n_bounces = p.halation_n_bounces;
+    request.halation_bounce_decay = p.halation_bounce_decay;
+    request.halation_renormalize = p.halation_renormalize;
+    for (int c = 0; c < 3; ++c) {
+        request.scatter_core_um[c] = p.scatter_core_um[c];
+        request.scatter_tail_um[c] = p.scatter_tail_um[c];
+        request.scatter_tail_weight[c] = p.scatter_tail_weight[c];
+        request.halation_strength[c] = p.halation_strength[c];
+        request.halation_first_sigma_um[c] = p.halation_first_sigma_um[c];
+    }
+    const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
+    std::vector<double> out;
+    try {
+        out.resize(total);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    gpu::HalationScatterDiagnostics diagnostics{};
+    const bool ok = gpu::halation_scatter(request, out.data(), &diagnostics);
+    stage_timing_note_gpu_halation(diagnostics.attempted, diagnostics.engaged,
+                                   diagnostics.reason, diagnostics.slices,
+                                   diagnostics.dispatches, diagnostics.halo_rows,
+                                   diagnostics.upload_ms, diagnostics.gpu_ms,
+                                   diagnostics.readback_ms);
+    if (!ok) return false;
+    if (diagnostics.engaged) {
+        parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i) raw[i] = out[i];
+        });
+        g_gpu_halation_frames.fetch_add(1, std::memory_order_relaxed);
+    }
+    return true;
+}
+}  // namespace
+
+unsigned long long gpu_halation_frames_rendered() {
+    return static_cast<unsigned long long>(
+        g_gpu_halation_frames.load(std::memory_order_relaxed));
+}
 
 namespace {
 
@@ -562,8 +625,17 @@ void expose_impl(const Src& src, int width, int height,
     // known), so the spatial-OFF goldens still skip it.
     if (params.halation.active) {
         ScopedStage _t(STG_HALATION);
-        apply_halation_um(raw, width, height, params.halation,
-                          params.pixel_size_um);
+        // Fast GPU export (#206): the same scatter + halation model on the
+        // GPU (gpu/halation_scatter.comp, adapted from spektrafilm OFX, f32).
+        // The result lands in a private buffer and replaces `raw` only when
+        // the whole pass succeeded; any failure or refusal falls through to the
+        // f64 CPU pass, which is the ground truth and stays byte-identical.
+        if (!(params.allow_gpu_halation &&
+              gpu_halation_pass(raw, width, height, params.halation,
+                                params.pixel_size_um))) {
+            apply_halation_um(raw, width, height, params.halation,
+                              params.pixel_size_um);
+        }
     }
 
     // Scanner BLACK/WHITE filming exposure correction (color_reference.py::

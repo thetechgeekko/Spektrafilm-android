@@ -29,6 +29,8 @@ Selected Vulkan host and resource-lifetime orchestration is adapted from
 - Pinned source: `86476afc5b077de77e2278e3658d1ba9309892a1`
 - License: GPL-3.0-only
 - Adaptation record: `docs/research/spektrafilm-ofx-port.md`
+- Shader code adapted (modified copy, GPL-3.0-only, both copyright lines kept):
+  `shaders/vulkan/SpektraHalation.comp` -> `engine/spektra-core/src/main/cpp/gpu/halation_scatter.comp`
 
 This Android project is independent and is not endorsed by the upstream author. No official
 binary-only resources or spektrafilm OFX-exported LUTs are included.

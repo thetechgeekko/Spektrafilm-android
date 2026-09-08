@@ -2011,6 +2011,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // upscale_factor), computed in preprocess_geometry above. Inert while every
     // spatial effect self-gates off.
     fparams.pixel_size_um = resize_pixel_size_um;
+    // Fast GPU export only (#206): gpu_export sets allow_gpu_scan on its
+    // private copy; preview clears gpu_export, so the halation pass never
+    // runs on the GPU for a preview, a tap or a bake.
+    fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
         // density_max_curves are filled inside develop() from the film's
@@ -2496,6 +2500,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
     fparams.lens_blur_um = static_cast<double>(p->lens_blur_um);
     fparams.pixel_size_um = resize_pixel_size_um;
+    // Fast GPU export only (#206): gpu_export sets allow_gpu_scan on its
+    // private copy; preview clears gpu_export, so the halation pass never
+    // runs on the GPU for a preview, a tap or a bake.
+    fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     if (print_stochastic) {
         // grain_active -> AgX particle grain inside develop(), exactly as the
         // scan route wires it. Deterministic seed; stays serial.
@@ -3094,6 +3102,7 @@ uint64_t spk_gpu_scan_frames(void) { return spk::gpu_scan_frames_rendered(); }
 int spk_gpu_print_state(void) { return spk::gpu_print_expose_state(); }
 
 uint64_t spk_gpu_print_frames(void) { return spk::gpu_print_frames_rendered(); }
+uint64_t spk_gpu_halation_frames(void) { return spk::gpu_halation_frames_rendered(); }
 
 uint64_t spk_diffusion_fft_fallbacks(void) {
     return spk::diffusion_fft_fallbacks();

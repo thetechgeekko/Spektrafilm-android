@@ -36,6 +36,10 @@
 
 namespace spk {
 
+// Frames whose halation pass ran on the GPU (issue #206). Observability for
+// the Fast GPU export route, like gpu_print_frames_rendered().
+unsigned long long gpu_halation_frames_rendered();
+
 // Build the Hanatos2025 filming tc_lut (shape {L, L, 3}) from the spectra LUT
 // and the film profile, mirroring compute_hanatos2025_tc_lut with
 // apply_window=True, apply_surface=False, spectral_gaussian_blur=0:

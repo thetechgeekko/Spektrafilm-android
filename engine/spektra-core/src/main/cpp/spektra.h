@@ -457,6 +457,10 @@ int spk_gpu_print_state(void);
  * the print offload externally observable, exactly like the scan one. */
 uint64_t spk_gpu_print_frames(void);
 
+/* Frames whose halation/scatter pass ran on the GPU (issue #206; only the
+ * gpu_export route can raise it). */
+uint64_t spk_gpu_halation_frames(void);
+
 /* Pin the render pool to the device's big cores (perf-lab, issue #117).
  *
  * A fork-join is only as fast as its slowest chunk, so one worker parked on an

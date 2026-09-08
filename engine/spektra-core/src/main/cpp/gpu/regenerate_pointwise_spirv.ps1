@@ -21,7 +21,8 @@ if (-not (Test-Path -LiteralPath $glslc -PathType Leaf)) {
 $pairs = @(
     @('filming.comp', 'filming_spv.inc'),
     @('printing.comp', 'printing_spv.inc'),
-    @('scan_spectral_chain.comp', 'scan_spectral_chain_spv.inc')
+    @('scan_spectral_chain.comp', 'scan_spectral_chain_spv.inc'),
+    @('halation_scatter.comp', 'halation_scatter_spv.inc')
 )
 foreach ($pair in $pairs) {
     $source = Join-Path $PSScriptRoot $pair[0]

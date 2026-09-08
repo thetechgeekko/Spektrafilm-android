@@ -1,0 +1,398 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Aedan Oskar Otto Diez (spektrafilm OFX)
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// In-emulsion scatter + back-reflection halation on the GPU (issue #206).
+//
+// Adapted from chaert-s/spektrafilm-ofx shaders/vulkan/SpektraHalation.comp at
+// 86476afc5b077de77e2278e3658d1ba9309892a1 (GPL-3.0-only). Upstream's pass
+// structure (op-multiplexed kernel, X-then-Y separable blurs into
+// store/accumulate buffers, scatter and bounce resolves) and its buffer roles
+// are kept. Android changes (this file is a MODIFIED copy; see
+// docs/research/spektrafilm-ofx-port.md):
+//   * every film-dependent constant upstream hard-coded (scatter core/tail
+//     sigmas, tail mix, bounce decay/normalisation) comes from FrameFloats, so
+//     the pass follows this engine's digested HalationParams per film;
+//   * the blur is the engine's own Gaussian, per channel: the Young-van Vliet
+//     3rd-order IIR for sigma >= 3 and the truncated FIR (radius
+//     int(3*sigma + 0.5), scipy 'reflect') below, with the CPU's coefficients
+//     and edge initialisation (kernels/exponential_filter.cpp), because the
+//     f64 CPU pass and the Python oracle are the ground truth here and their
+//     IIR has visibly different edge behaviour from a truncated FIR.
+//     FIR-class channels stay per-pixel (upstream's shape); IIR-class
+//     channels run one thread per column, and an X pass goes through a
+//     tiled transpose so the recursion always walks columns (coalesced),
+//     which a per-row thread layout is not;
+//   * a raw-domain bounce resolve (kOpBounceResolveRaw) with the engine's
+//     halation_renormalize flag: this engine keeps working on the linear
+//     irradiance after halation;
+//   * the highlight-boost ops are dropped: apply_highlight_boost runs on the
+//     CPU before this pass, exactly as model/diffusion.cpp orders it.
+// Numerics: f32 throughout (owner decision on #205). Output is tolerance-bounded
+// Fast GPU output, never Strict Exact CPU identity evidence.
+
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+const uint kThreadsPerGroup = 256u;
+
+// Per-pixel ops (2D dispatch), per-column ops (1D dispatch) and the tiled
+// transpose (2D dispatch over 32x32 tiles).
+const uint kOpClear = 0u;
+const uint kOpScatterResolve = 4u;
+const uint kOpBounceResolveRaw = 10u;
+// IIR-class channels (sigma >= 3): one thread per column, in0 -> buf1 (store)
+// or buf1 += weight * blur(in0) with buf3 as the forward-sweep scratch. An
+// X pass is a column pass on the transposed image.
+const uint kOpLineYStore = 12u;
+const uint kOpLineYAccumulate = 13u;
+// FIR-class channels (sigma < 3): one thread per pixel, coalesced.
+const uint kOpFirX = 14u;
+const uint kOpFirYStore = 15u;
+const uint kOpFirYAccumulate = 16u;
+// Tiled transpose in0 (w x h) -> buf1 (h x w); params.component is a
+// channel mask (bit c writes channel c; 0 writes all three).
+const uint kOpTranspose = 17u;
+
+const uint kSigmaScatterCore = 0u;
+const uint kSigmaScatterTail = 1u;
+const uint kSigmaBounce = 2u;
+
+// FrameFloats indices. 29..39 keep upstream's numbering; 80.. are Android additions.
+const uint kFrameFilmPixelSizeUm = 29u;
+const uint kFrameScatterAmount = 30u;
+const uint kFrameScatterScale = 31u;
+const uint kFrameHalationAmount = 32u;
+const uint kFrameHalationScale = 33u;
+const uint kFrameHalationStrengthR = 34u;
+const uint kFrameHalationStrengthG = 35u;
+const uint kFrameHalationStrengthB = 36u;
+const uint kFrameHalationFirstSigmaR = 37u;
+const uint kFrameHalationFirstSigmaG = 38u;
+const uint kFrameHalationFirstSigmaB = 39u;
+const uint kFrameScatterCoreUmR = 80u;
+const uint kFrameScatterCoreUmG = 81u;
+const uint kFrameScatterCoreUmB = 82u;
+const uint kFrameScatterTailUmR = 83u;
+const uint kFrameScatterTailUmG = 84u;
+const uint kFrameScatterTailUmB = 85u;
+const uint kFrameScatterTailWeightR = 86u;
+const uint kFrameScatterTailWeightG = 87u;
+const uint kFrameScatterTailWeightB = 88u;
+const uint kFrameBounceDecay = 89u;
+const uint kFrameBounceWeightNorm = 90u;
+const uint kFrameHalationRenormalize = 91u;
+
+// SMALL_SIGMA_MAX / truncate in kernels/exponential_filter.h.
+const float kSmallSigmaMax = 3.0;
+const float kTruncate = 3.0;
+const int kMaxFirRadius = 256;
+
+layout(std430, binding = 0) readonly buffer Input0 {
+  vec4 in0[];
+};
+
+layout(std430, binding = 1) buffer Buffer1 {
+  vec4 buf1[];
+};
+
+layout(std430, binding = 2) readonly buffer Input2 {
+  vec4 in2[];
+};
+
+layout(std430, binding = 3) buffer Buffer3 {
+  vec4 buf3[];
+};
+
+layout(std430, binding = 27) readonly buffer FrameFloats {
+  float frameFloats[];
+};
+
+// Same 104-byte block as upstream so the host-side push layout is shared with
+// the other adapted passes; only width/height/operation/sigmaMode/component are
+// consumed here.
+layout(push_constant) uniform CoreParams {
+  uint width;
+  uint height;
+  float filmExposureEv;
+  float filmGamma;
+  uint exposureCount;
+  int inputColorSpace;
+  int rgbToRawMethod;
+  uint colorSpaceCount;
+  uint transferLutSize;
+  float colorDecodeMin;
+  float colorDecodeMax;
+  uint hanatosWidth;
+  uint hanatosHeight;
+  uint operation;
+  uint sigmaMode;
+  uint component;
+  int filmPushPullMode;
+  float filmPushPullStops;
+  uint fullWidth;
+  uint fullHeight;
+  uint tileOriginX;
+  uint tileOriginY;
+  uint activeOriginX;
+  uint activeOriginY;
+  uint activeWidth;
+  uint activeHeight;
+} params;
+
+float f(uint index) {
+  return frameFloats[index];
+}
+
+// scipy.ndimage mode='reflect' (d c b a | a b c d | d c b a), repeated for
+// radii wider than the axis, matching kernels/exponential_filter.cpp::reflect.
+int reflectIndex(int i, int n) {
+  if (n <= 1) {
+    return 0;
+  }
+  const int period = 2 * n;
+  i = i % period;
+  if (i < 0) {
+    i += period;
+  }
+  return i < n ? i : period - 1 - i;
+}
+
+// fast_exponential_filter's fixed three-Gaussian surrogate of the isotropic
+// exponential kernel: amplitudes sum to 0.9999, ratios scale the decay length.
+// Identical constants in kernels/exponential_filter.cpp and upstream.
+float scatterTailWeight(uint component) {
+  return component == 0u ? 0.1633 : (component == 1u ? 0.6496 : 0.1870);
+}
+
+float scatterTailRatio(uint component) {
+  return component == 0u ? 0.5360 : (component == 1u ? 1.5236 : 2.7684);
+}
+
+// Per-channel sigma in pixels for the current mode, exactly as apply_halation_um
+// derives it (max_eps is applied by the callers on the CPU: a zero sigma there
+// becomes 1e-6, which is an identity blur, so zero is treated as identity here).
+vec3 sigmaForMode() {
+  const float pixelSizeUm = max(f(kFrameFilmPixelSizeUm), 1.0e-6);
+  if (params.sigmaMode == kSigmaScatterCore) {
+    const vec3 coreUm = vec3(f(kFrameScatterCoreUmR), f(kFrameScatterCoreUmG), f(kFrameScatterCoreUmB));
+    return max(coreUm, vec3(0.0)) * max(f(kFrameScatterScale), 0.0) / pixelSizeUm;
+  }
+  if (params.sigmaMode == kSigmaScatterTail) {
+    const vec3 tailUm = vec3(f(kFrameScatterTailUmR), f(kFrameScatterTailUmG), f(kFrameScatterTailUmB));
+    return max(tailUm, vec3(0.0)) * scatterTailRatio(params.component) * max(f(kFrameScatterScale), 0.0) / pixelSizeUm;
+  }
+  const vec3 firstSigma = max(vec3(
+    f(kFrameHalationFirstSigmaR),
+    f(kFrameHalationFirstSigmaG),
+    f(kFrameHalationFirstSigmaB)
+  ), vec3(0.0));
+  return firstSigma * max(f(kFrameHalationScale), 0.0) * sqrt(float(params.component + 1u)) / pixelSizeUm;
+}
+
+// Young & van Vliet 2002 3rd-order IIR coefficients (kernels/exponential_filter.cpp
+// yvv_coeffs), returned as (B, b1/b0, b2/b0, b3/b0).
+vec4 yvvCoeffs(float sigma) {
+  float q;
+  if (sigma >= 2.5) {
+    q = 0.98711 * sigma - 0.96330;
+  } else {
+    q = 3.97156 - 4.14554 * sqrt(1.0 - 0.26891 * sigma);
+  }
+  const float q2 = q * q;
+  const float q3 = q2 * q;
+  const float b0 = 1.57825 + 2.44413 * q + 1.4281 * q2 + 0.422205 * q3;
+  const float b1 = 2.44413 * q + 2.85619 * q2 + 1.26661 * q3;
+  const float b2 = -(1.4281 * q2 + 1.26661 * q3);
+  const float b3 = 0.422205 * q3;
+  const float B = 1.0 - (b1 + b2 + b3) / b0;
+  return vec4(B, b1 / b0, b2 / b0, b3 / b0);
+}
+
+// Element j of `line` in the buffers: a column walk (Y passes, and X passes on
+// a transposed image).
+uint columnElement(uint line, uint j) {
+  return j * params.width + line;
+}
+
+// Young-van Vliet IIR of one channel down one column, from in0 into buf1
+// (store) or accumulated into buf1 with `weight` (accumulate; buf3 is the
+// scratch for the forward sweep). The CPU's edge initialisation: the forward
+// state starts from the first sample, the backward state from the last
+// forward-filtered sample (kernels/exponential_filter.cpp::iir_vertical).
+void iirColumn(uint line, uint n, uint c, float sigma, bool accumulate, float weight) {
+  const vec4 k = yvvCoeffs(sigma);
+  float w1 = in0[columnElement(line, 0u)][c];
+  float w2 = w1;
+  float w3 = w1;
+  for (uint j = 0u; j < n; ++j) {
+    const uint idx = columnElement(line, j);
+    const float v = k.x * in0[idx][c] + k.y * w1 + k.z * w2 + k.w * w3;
+    if (accumulate) {
+      buf3[idx][c] = v;
+    } else {
+      buf1[idx][c] = v;
+    }
+    w3 = w2;
+    w2 = w1;
+    w1 = v;
+  }
+  const uint lastIdx = columnElement(line, n - 1u);
+  float y1 = accumulate ? buf3[lastIdx][c] : buf1[lastIdx][c];
+  float y2 = y1;
+  float y3 = y1;
+  for (int jj = int(n) - 1; jj >= 0; --jj) {
+    const uint idx = columnElement(line, uint(jj));
+    const float x = accumulate ? buf3[idx][c] : buf1[idx][c];
+    const float y = k.x * x + k.y * y1 + k.z * y2 + k.w * y3;
+    if (accumulate) {
+      buf1[idx][c] = buf1[idx][c] + weight * y;
+    } else {
+      buf1[idx][c] = y;
+    }
+    y3 = y2;
+    y2 = y1;
+    y1 = y;
+  }
+}
+
+// Truncated FIR Gaussian of one channel at one pixel along one axis, reflect
+// boundaries, radius int(3 * sigma + 0.5); radius 0 is the identity. Weights
+// via the incremental exp recurrence (upstream's form), normalised over the
+// 2r + 1 taps exactly like the CPU kernel.
+float firPixel(uvec2 gid, uint c, float sigma, bool alongX) {
+  const int x = int(gid.x);
+  const int y = int(gid.y);
+  const float centre = in0[gid.y * params.width + gid.x][c];
+  const int radius = sigma > 0.0 ? min(int(kTruncate * sigma + 0.5), kMaxFirRadius) : 0;
+  if (radius <= 0) {
+    return centre;
+  }
+  const float invSigma2 = 1.0 / (sigma * sigma);
+  float g = exp(-0.5 * invSigma2);
+  float ratio = exp(-1.5 * invSigma2);
+  const float ratioStep = exp(-invSigma2);
+  float acc = centre;
+  float weightSum = 1.0;
+  const int n = alongX ? int(params.width) : int(params.height);
+  const int p = alongX ? x : y;
+  for (int k = 1; k <= radius; ++k) {
+    const int lo = reflectIndex(p - k, n);
+    const int hi = reflectIndex(p + k, n);
+    const uint loIdx = alongX ? uint(y) * params.width + uint(lo) : uint(lo) * params.width + uint(x);
+    const uint hiIdx = alongX ? uint(y) * params.width + uint(hi) : uint(hi) * params.width + uint(x);
+    acc += (in0[loIdx][c] + in0[hiIdx][c]) * g;
+    weightSum += 2.0 * g;
+    g *= ratio;
+    ratio *= ratioStep;
+  }
+  return acc / weightSum;
+}
+
+// Tiled transpose, in0 (width x height) -> buf1 (height x width), for the
+// channels selected by the mask in params.component (0 = all): the IIR walks
+// columns only, so an X pass transposes, filters, and transposes back.
+shared vec4 tile[32][32];
+
+void transposeTile() {
+  const uint mask = params.component == 0u ? 7u : params.component;
+  const uvec2 local = gl_LocalInvocationID.xy;   // 32 x 8
+  const uvec2 group = gl_WorkGroupID.xy;
+  const uint x = group.x * 32u + local.x;
+  for (uint k = 0u; k < 4u; ++k) {
+    const uint y = group.y * 32u + local.y + k * 8u;
+    if (x < params.width && y < params.height) {
+      tile[local.y + k * 8u][local.x] = in0[y * params.width + x];
+    }
+  }
+  barrier();
+  const uint tx = group.y * 32u + local.x;         // transposed x = original y
+  for (uint k = 0u; k < 4u; ++k) {
+    const uint ty = group.x * 32u + local.y + k * 8u;  // transposed y = original x
+    if (tx < params.height && ty < params.width) {
+      const vec4 v = tile[local.x][local.y + k * 8u];
+      const uint idx = ty * params.height + tx;
+      if ((mask & 1u) != 0u) buf1[idx].r = v.r;
+      if ((mask & 2u) != 0u) buf1[idx].g = v.g;
+      if ((mask & 4u) != 0u) buf1[idx].b = v.b;
+    }
+  }
+}
+
+float accumulateWeight() {
+  return params.sigmaMode == kSigmaBounce
+    ? pow(max(f(kFrameBounceDecay), 0.0), float(params.component)) / max(f(kFrameBounceWeightNorm), 1.0e-12)
+    : scatterTailWeight(params.component);
+}
+
+void main() {
+  if (params.operation == kOpTranspose) {
+    transposeTile();
+    return;
+  }
+  if (params.operation == kOpLineYStore || params.operation == kOpLineYAccumulate) {
+    const uint line = gl_WorkGroupID.x * kThreadsPerGroup + gl_LocalInvocationIndex;
+    if (line >= params.width || params.height == 0u) {
+      return;
+    }
+    const bool accumulate = params.operation == kOpLineYAccumulate;
+    const float weight = accumulate ? accumulateWeight() : 0.0;
+    const vec3 sigma = sigmaForMode();
+    for (uint c = 0u; c < 3u; ++c) {
+      if (sigma[c] >= kSmallSigmaMax) {
+        iirColumn(line, params.height, c, sigma[c], accumulate, weight);
+      }
+    }
+    return;
+  }
+
+  const uvec2 gid = gl_GlobalInvocationID.xy;
+  if (gid.x >= params.width || gid.y >= params.height) {
+    return;
+  }
+  const uint index = gid.y * params.width + gid.x;
+  if (params.operation == kOpFirX || params.operation == kOpFirYStore ||
+      params.operation == kOpFirYAccumulate) {
+    const bool alongX = params.operation == kOpFirX;
+    const bool accumulate = params.operation == kOpFirYAccumulate;
+    const float weight = accumulate ? accumulateWeight() : 0.0;
+    const vec3 sigma = sigmaForMode();
+    for (uint c = 0u; c < 3u; ++c) {
+      if (sigma[c] < kSmallSigmaMax) {
+        const float v = firPixel(gid, c, sigma[c], alongX);
+        buf1[index][c] = accumulate ? buf1[index][c] + weight * v : v;
+      }
+    }
+    return;
+  }
+  if (params.operation == kOpClear) {
+    buf1[index] = vec4(0.0);
+    return;
+  }
+  if (params.operation == kOpScatterResolve) {
+    // scattered = (1 - w_s) * core + w_s * tail ; raw = (1 - s) * raw + s * scattered
+    const vec4 raw = in0[index];
+    const vec3 tailMix = clamp(vec3(
+      f(kFrameScatterTailWeightR),
+      f(kFrameScatterTailWeightG),
+      f(kFrameScatterTailWeightB)
+    ), vec3(0.0), vec3(1.0));
+    const vec3 scattered = (vec3(1.0) - tailMix) * buf1[index].rgb + tailMix * in2[index].rgb;
+    const float amount = f(kFrameScatterAmount);
+    buf3[index] = vec4((1.0 - amount) * raw.rgb + amount * scattered, 0.0);
+    return;
+  }
+  if (params.operation == kOpBounceResolveRaw) {
+    // raw = raw + a_tot * halation_blur ; if renormalize: raw /= (1 + a_tot)
+    const vec4 raw = in0[index];
+    const vec3 amount = max(vec3(
+      f(kFrameHalationStrengthR),
+      f(kFrameHalationStrengthG),
+      f(kFrameHalationStrengthB)
+    ), vec3(0.0)) * max(f(kFrameHalationAmount), 0.0);
+    vec3 resolved = raw.rgb + amount * buf1[index].rgb;
+    if (f(kFrameHalationRenormalize) > 0.5) {
+      resolved /= (vec3(1.0) + amount);
+    }
+    buf3[index] = vec4(resolved, 0.0);
+  }
+}

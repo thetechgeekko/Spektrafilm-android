@@ -73,6 +73,10 @@ struct FilmingParams {
 
     DirCouplersParams dir_couplers;  // filled by digest for the film type.
     HalationParams halation;         // filled by digest; active only if spatial.
+    // Fast GPU export latch for the halation pass (issue #206): set by
+    // spk_simulate only when gpu_export requested the GPU, never by preview,
+    // tap or bake. The CPU pass stays the fallback for any GPU failure.
+    bool allow_gpu_halation = false;
 
     // Camera lens blur, in micrometres (camera.lens_blur_um). Applied in expose()
     // on the float64 raw irradiance, AFTER the optical diffusion filter and BEFORE

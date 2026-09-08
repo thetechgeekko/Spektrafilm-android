@@ -176,6 +176,56 @@ bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
 bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
                           const float* dye, const float* icmf, const float* xyz2rgb);
 
+// In-emulsion scatter + back-reflection halation on the GPU (issue #206; shader
+// gpu/halation_scatter.comp, adapted from spektrafilm OFX). Same model and
+// parameters as model/diffusion.cpp::apply_halation_um, computed in f32 on the
+// device in horizontal slices with a halo of the filters' total radius, so the
+// result does not depend on the slice height. Fast GPU output: tolerance-bounded
+// against the f64 CPU pass, deterministic on one device, never identity evidence.
+struct HalationScatterRequest {
+    const double* raw_rgb = nullptr;  // interleaved RGB, width*height*3 doubles
+    int width = 0;
+    int height = 0;
+    double pixel_size_um = 0.0;
+    double scatter_amount = 0.0;
+    double scatter_spatial_scale = 1.0;
+    double scatter_core_um[3] = {0.0, 0.0, 0.0};
+    double scatter_tail_um[3] = {0.0, 0.0, 0.0};
+    double scatter_tail_weight[3] = {0.0, 0.0, 0.0};
+    double halation_amount = 0.0;
+    double halation_spatial_scale = 1.0;
+    double halation_strength[3] = {0.0, 0.0, 0.0};
+    double halation_first_sigma_um[3] = {0.0, 0.0, 0.0};
+    int halation_n_bounces = 0;
+    double halation_bounce_decay = 0.5;
+    bool halation_renormalize = true;
+    // 0 = the host picks the slice height from its memory budget; a test sets it
+    // to prove that the output is byte-identical for any slice height.
+    uint32_t slice_rows_override = 0;
+};
+
+struct HalationScatterDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "none";  // process-lifetime literal
+    uint32_t slices = 0;
+    uint32_t dispatches = 0;
+    uint32_t halo_rows = 0;
+    // Host-side wall clock: f64 -> f32 staging, submit-to-fence (all slices),
+    // f32 -> f64 readback. Observability for the device A/B, nothing gates on it.
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
+// Writes width*height*3 doubles to `out_rgb` (must not alias `raw_rgb`) only when
+// the whole pass succeeded; on any failure `out_rgb` is untouched, the function
+// returns false with the reason in `diagnostics`, and the caller runs the CPU
+// pass. Returns true with engaged=false when the parameters make the pass a
+// no-op (the CPU pass would also leave the image unchanged). Never throws.
+bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
+                      HalationScatterDiagnostics* diagnostics) noexcept;
+
 }  // namespace spk::gpu
 
 #endif  // SPK_GPU_VULKAN_COMPUTE_H

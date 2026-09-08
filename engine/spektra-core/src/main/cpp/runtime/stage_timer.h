@@ -163,6 +163,19 @@ struct GpuPointwiseTimingSnapshot {
     uint64_t self_test_static_upload_bytes = 0;
 };
 
+// Render-local observability for the GPU halation/scatter pass (#206).
+struct GpuHalationTimingSnapshot {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "not_requested";
+    uint32_t slices = 0;
+    uint32_t dispatches = 0;
+    uint32_t halo_rows = 0;
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
 // Immutable once published. `stages_ms` contains inclusive durations: the two
 // documented sub-measures remain nested inside scan and must not be added to it.
 struct StageTimingSnapshot {
@@ -173,6 +186,7 @@ struct StageTimingSnapshot {
     double wall_ms = 0.0;
     unsigned long long fft_fallbacks = 0;
     GpuPointwiseTimingSnapshot gpu_pointwise;
+    GpuHalationTimingSnapshot gpu_halation;
     double stages_ms[STG_COUNT] = {0};
 };
 
@@ -208,6 +222,24 @@ inline uint64_t stage_timing_render_id() {
 inline void stage_timing_note_fft_fallback() {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth > 0) ++state.current.fft_fallbacks;
+}
+
+inline void stage_timing_note_gpu_halation(
+    bool attempted, bool engaged, const char* reason, uint32_t slices,
+    uint32_t dispatches, uint32_t halo_rows, double upload_ms, double gpu_ms,
+    double readback_ms) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    GpuHalationTimingSnapshot& h = state.current.gpu_halation;
+    h.attempted = attempted;
+    h.engaged = engaged;
+    h.reason = reason ? reason : "unknown";
+    h.slices = slices;
+    h.dispatches = dispatches;
+    h.halo_rows = halo_rows;
+    h.upload_ms = upload_ms;
+    h.gpu_ms = gpu_ms;
+    h.readback_ms = readback_ms;
 }
 
 inline void stage_timing_note_gpu_pointwise(
@@ -356,7 +388,8 @@ private:
 //     scan_spatial turns that into the ~363 ms of JNI entry, param marshalling
 //     and result allocation that genuinely is outside every stage.
 inline int stage_timings_format(char* buf, int cap) {
-    const double* t = stage_timing_snapshot().stages_ms;
+    const StageTimingSnapshot& snapshot = stage_timing_snapshot();
+    const double* t = snapshot.stages_ms;
     int off = 0;
     for (int i = 0; i < STG_COUNT && off < cap - 1; ++i) {
         if (t[i] <= 0.0) continue;
@@ -364,6 +397,21 @@ inline int stage_timings_format(char* buf, int cap) {
                               "%s%s=%.1f", off ? " " : "", stage_name(i), t[i]);
         if (n < 0) break;
         off += n;
+    }
+    // The GPU halation pass (#206): where the halation stage's time went when
+    // the pass was attempted, so a logcat line answers "did it engage, and was
+    // the device or the f64<->f32 staging the cost".
+    if (snapshot.gpu_halation.attempted && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgpu_halation=%s/%s/slices%u/up%.1f/gpu%.1f/down%.1f",
+                              off ? " " : "",
+                              snapshot.gpu_halation.engaged ? "engaged" : "fallback",
+                              snapshot.gpu_halation.reason,
+                              snapshot.gpu_halation.slices,
+                              snapshot.gpu_halation.upload_ms,
+                              snapshot.gpu_halation.gpu_ms,
+                              snapshot.gpu_halation.readback_ms);
+        if (n > 0) off += n;
     }
     if (cap > 0) buf[off < cap ? off : cap - 1] = '\0';
     return off;
@@ -435,6 +483,19 @@ inline int stage_timings_json_format(char* buf, int cap) {
                             i ? "," : "", stage_name(i),
                             snapshot.stages_ms[i]);
     }
+    stage_timing_append(
+        buf, cap, &off,
+        "},\"gpu_halation\":{\"attempted\":%s,\"engaged\":%s,\"reason\":\"",
+        snapshot.gpu_halation.attempted ? "true" : "false",
+        snapshot.gpu_halation.engaged ? "true" : "false");
+    stage_timing_append_json_string(buf, cap, &off, snapshot.gpu_halation.reason);
+    stage_timing_append(
+        buf, cap, &off,
+        "\",\"slices\":%u,\"dispatches\":%u,\"halo_rows\":%u,"
+        "\"upload_ms\":%.1f,\"gpu_ms\":%.1f,\"readback_ms\":%.1f",
+        snapshot.gpu_halation.slices, snapshot.gpu_halation.dispatches,
+        snapshot.gpu_halation.halo_rows, snapshot.gpu_halation.upload_ms,
+        snapshot.gpu_halation.gpu_ms, snapshot.gpu_halation.readback_ms);
     stage_timing_append(
         buf, cap, &off,
         "},\"gpu_pointwise\":{\"requested\":%s,\"attempted\":%s,"
