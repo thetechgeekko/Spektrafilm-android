@@ -22,14 +22,20 @@ val hasReleaseKeystore = keystorePropsFile.exists() &&
 
 android {
     namespace = "com.spectrafilm.app"
+    // The app module strips the packaged .so with this NDK's llvm-strip. AGP 9 defaults to
+    // NDK r28.2 (not installed); left unpinned it packages every native library unstripped
+    // (libspektra.so 0.9 MB -> 11.6 MB). Pin the same NDK as the native modules; #187 owns
+    // the r28+ move.
+    ndkVersion = "27.0.12077973"
     compileSdk = 34
 
-    // build-tools 35.0.0 is the first whose zipalign supports `-P 16`; AGP uses it to
+    // build-tools 36.0.0 is the AGP 9.3 minimum (35.0.0 was the first whose zipalign
+    // supports `-P 16`); the CI/release 16 KB gates call this same build-tools zipalign to
     // page-align the (uncompressed) bundled .so to 16 KB offsets inside the APK, which
     // is what lets a 16 KB-page device mmap them. Without it the libs are only 4 KB-
     // aligned in the zip and fail to load on Android 15 16 KB devices even when their
     // own ELF segments are 16 KB-aligned.
-    buildToolsVersion = "35.0.0"
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.spectrafilm.app"

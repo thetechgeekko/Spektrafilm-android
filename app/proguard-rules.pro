@@ -1,6 +1,14 @@
 # Stage 1: shrink only, no renaming (near-zero JNI risk). Obfuscation deferred to Stage 2.
 -dontobfuscate
 
+# R8 9 (AGP 9.0+) defaults `-processkotlinnullchecks remove_message`, which rewrites every
+# kotlin.jvm.internal.Intrinsics null-check call site and then shrinks the unreferenced
+# checkNotNull* methods out of the APK. The separately compiled release AndroidTest APK
+# still calls those methods in this APK at runtime (device-only NoSuchMethodError), and
+# tools/r8_check/check_release_dex.sh gates them. Keep the AGP 8 behavior: the checks
+# stay as compiled, messages included.
+-processkotlinnullchecks keep
+
 # ---- Native (name-based JNI) boundary: all four *_jni.cpp bind via exported
 # Java_<fqcn>_<method> symbols (no RegisterNatives) and resolve classes/methods/ctors
 # by literal string from C++. Keep these un-renamed and un-removed. ----
