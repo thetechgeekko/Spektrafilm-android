@@ -30,7 +30,7 @@
 set -euo pipefail
 
 APK="${1:-}"
-BT="${2:-${ANDROID_HOME:-/opt/android-sdk}/build-tools/35.0.0}"
+BT="${2:-${ANDROID_HOME:-/opt/android-sdk}/build-tools/36.0.0}"
 
 # With no APK argument, look where :app:assembleRelease puts one. A tool that
 # prints a usage line when the obvious artifact is sitting right there invites

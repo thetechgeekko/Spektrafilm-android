@@ -34,8 +34,8 @@ jobs:
 
       - name: Install NDK + CMake + build-tools
         # Same pins as ci.yml: NDK r27 for 16 KB-aligned native LOAD segments,
-        # build-tools 35 for zipalign -P 16.
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"
+        # build-tools 36 (AGP 9 minimum) also provides zipalign -P 16 and apksigner.
+        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Assemble release APK (R8 minified)
         run: |
@@ -43,7 +43,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --stacktrace
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
-          if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
               app/build/outputs/apk/release/app-release-unsigned.apk >/dev/null 2>&1; then
             echo "::error::Gradle unexpectedly signed the smoke candidate"
             exit 1
@@ -52,7 +52,7 @@ jobs:
       - name: Align and explicitly debug-sign the smoke APK
         run: |
           set -euo pipefail
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
           ALIGNED="$RUNNER_TEMP/Spektrafilm-r8-smoke-aligned.apk"
           SMOKE=app/build/outputs/apk/release/Spektrafilm-r8-smoke.apk
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/Spektrafilm-r8-smoke.apk
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           # zipalign -c exits 0 when every entry is aligned, non-zero otherwise.
           # (Don't grep its stdout — the tool prints "succesful", misspelled.)
           "$BT/zipalign" -c -v -P 16 4 "$APK"
@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/Spektrafilm-r8-smoke.apk
-          tools/r8_check/check_release_dex.sh "$APK" "$ANDROID_HOME/build-tools/35.0.0"
+          tools/r8_check/check_release_dex.sh "$APK" "$ANDROID_HOME/build-tools/36.0.0"
 
       - name: Upload R8 smoke APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

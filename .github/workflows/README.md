@@ -75,7 +75,7 @@ Administration (read) and Contents (write); a missing/under-scoped token fails
 closed. A successful run publishes the APK, both SPDX documents, LibRaw
 source/relink ZIP, six-lock archive, R8 mapping, full native symbols, runtime
 classpath, engine boundary APK/transcript, provenance, and checksums.
-Release uses JDK 17; NDK r27, CMake 3.22.1, and build-tools 35.0.0 match CI.
+Release uses JDK 21; NDK r27, CMake 3.22.1, and build-tools 36.0.0 match CI.
 Repository administrators must additionally protect `refs/tags/v*` with a
 ruleset that forbids updates and deletion, enable immutable releases, and protect
 the `release-signing` Environment with maintainer approval.

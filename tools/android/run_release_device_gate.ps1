@@ -16,7 +16,7 @@ param(
     [string]$DeviceSerial,
     [string]$EvidenceDir,
     [string]$SdkRoot,
-    [string]$BuildToolsVersion = '35.0.0'
+    [string]$BuildToolsVersion = '36.0.0'
 )
 
 Set-StrictMode -Version Latest

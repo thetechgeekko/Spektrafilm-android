@@ -261,25 +261,25 @@ jobs:
             exit 1
           fi
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       - name: Install NDK + CMake + pinned build-tools
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"
+        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Verify Gradle wrapper provenance
         run: |
           set -euo pipefail
-          echo "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  gradle/wrapper/gradle-wrapper.jar" \
+          echo "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar" \
             | sha256sum -c -
           grep -Fx \
-            "distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531" \
+            "distributionSha256Sum=bafc141b619ad6350fd975fc903156dd5c151998cc8b058e8c1044ab5f7b031f" \
             gradle/wrapper/gradle-wrapper.properties
 
       - name: Revalidate immutable release tag before candidate build
@@ -376,11 +376,11 @@ jobs:
           ./gradlew :app:assembleRelease --stacktrace
           APK=app/build/outputs/apk/release/app-release-unsigned.apk
           test -f "$APK"
-          if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK" >/dev/null 2>&1; then
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK" >/dev/null 2>&1; then
             echo "::error::Non-secret build job unexpectedly produced a signed APK"
             exit 1
           fi
-          PACKAGE_LINE="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | sed -n '1p')"
+          PACKAGE_LINE="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | sed -n '1p')"
           EXPECTED_VERSION="${VERSION#v}"
           if [[ "$PACKAGE_LINE" != *"package: name='com.spectrafilm.app'"* ]] || \
              [[ "$PACKAGE_LINE" != *"versionName='${EXPECTED_VERSION}'"* ]] || \
@@ -401,7 +401,7 @@ jobs:
           ENGINE_TEST_APK=engine/spektra-core/build/outputs/apk/androidTest/debug/spektra-core-debug-androidTest.apk
           test -f "$TEST_APK"
           test -f "$ENGINE_TEST_APK"
-          TEST_MANIFEST="$("$ANDROID_HOME/build-tools/35.0.0/aapt" \
+          TEST_MANIFEST="$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
             dump xmltree "$TEST_APK" AndroidManifest.xml)"
           if [[ "$TEST_MANIFEST" != *'E: instrumentation'* ]] || \
              [[ "$TEST_MANIFEST" != *'android:name(0x01010003)="com.spectrafilm.app.ReleaseCandidateSmokeInstrumentation"'* ]] || \
@@ -409,7 +409,7 @@ jobs:
             echo "::error::Release gate APK does not target the exact production package/runner"
             exit 1
           fi
-          ENGINE_TEST_MANIFEST="$("$ANDROID_HOME/build-tools/35.0.0/aapt" \
+          ENGINE_TEST_MANIFEST="$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
             dump xmltree "$ENGINE_TEST_APK" AndroidManifest.xml)"
           if [[ "$ENGINE_TEST_MANIFEST" != *'E: instrumentation'* ]] || \
              [[ "$ENGINE_TEST_MANIFEST" != *'android:name(0x01010003)="com.spectrafilm.engine.EngineBoundaryInstrumentation"'* ]] || \
@@ -434,7 +434,7 @@ jobs:
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/app-release-unsigned.apk
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           test -s app/build/outputs/mapping/release/mapping.txt
           test -s app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
           "$BT/zipalign" -c -v -P 16 4 "$APK"
@@ -636,13 +636,13 @@ jobs:
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       - name: Install pinned signing build-tools only
-        run: sdkmanager "build-tools;35.0.0"
+        run: sdkmanager "build-tools;36.0.0"
 
       - name: Validate exact candidate artifact identity
         env:
@@ -770,12 +770,12 @@ jobs:
             --engine-instrumentation-apk candidate/engine-boundary-debug-androidTest.apk \
             --attestation candidate/RELEASE_GATE_ATTESTATION.txt
 
-          if "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
               verify candidate/app-release-unsigned.apk >/dev/null 2>&1; then
             echo "::error::Transferred production candidate must remain unsigned"
             exit 1
           fi
-          PACKAGE_LINE="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+          PACKAGE_LINE="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging \
             candidate/app-release-unsigned.apk | sed -n '1p')"
           EXPECTED_VERSION="${VERSION#v}"
           if [[ "$PACKAGE_LINE" != *"package: name='com.spectrafilm.app'"* ]] || \
@@ -840,7 +840,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p signed
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           "$BT/zipalign" -f -P 16 4 \
             candidate/app-release-unsigned.apk \
             signed/app-release-aligned.apk
@@ -875,7 +875,7 @@ jobs:
           done
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_FILE"
           test -s "$KEYSTORE_FILE"
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$APKSIGNER" sign \
             --ks "$KEYSTORE_FILE" \
             --ks-key-alias "$SIGNING_KEY_ALIAS" \
@@ -918,7 +918,7 @@ jobs:
           signer_digest() {
             local apk="$1"
             local certs
-            certs="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+            certs="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" \
               verify --verbose --print-certs "$apk")"
             mapfile -t digests < <(
               printf '%s\n' "$certs" \
@@ -945,7 +945,7 @@ jobs:
           set -euo pipefail
           APK=signed/app-release.apk
           TEST_APK=signed/app-release-gate-androidTest.apk
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           "$BT/zipalign" -c -v -P 16 4 "$APK"
           "$BT/zipalign" -c -v -P 16 4 "$TEST_APK"
           tools/r8_check/check_release_dex.sh "$APK" "$BT"

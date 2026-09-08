@@ -743,9 +743,10 @@ jobs:
 
       - name: Install NDK + CMake + build-tools
         # NDK r27 gives 16 KB-aligned native LOAD segments (Android 15 16 KB pages);
-        # build-tools 35 provides the zipalign `-P 16` that page-aligns the bundled
-        # .so to 16 KB offsets in the APK.
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;35.0.0"
+        # build-tools 36 is the AGP 9 minimum (buildToolsVersion in app/build.gradle.kts) and
+        # also provides the zipalign `-P 16` used by the 16 KB gate below,
+        # which page-aligns the bundled .so to 16 KB offsets in the APK.
+        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Run JVM unit tests
         run: |
@@ -873,7 +874,7 @@ jobs:
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           # zipalign -c exits 0 when every entry is aligned, non-zero otherwise.
           # (Don't grep its stdout — the tool prints "succesful", misspelled.)
           "$BT/zipalign" -c -v -P 16 4 "$APK"
