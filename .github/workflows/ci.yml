@@ -742,11 +742,11 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install NDK + CMake + build-tools
-        # NDK r27 gives 16 KB-aligned native LOAD segments (Android 15 16 KB pages);
+        # NDK r28c: 16 KB-aligned native LOAD segments by default (Android 15 16 KB pages);
         # build-tools 36 is the AGP 9 minimum (buildToolsVersion in app/build.gradle.kts) and
         # also provides the zipalign `-P 16` used by the 16 KB gate below,
         # which page-aligns the bundled .so to 16 KB offsets in the APK.
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Run JVM unit tests
         run: |
@@ -820,7 +820,7 @@ jobs:
           EXTRACTED="$OUT/extracted"
           RELINK_BUILD="$OUT/build-x86_64"
           CMAKE="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
-          NDK="$ANDROID_HOME/ndk/27.0.12077973"
+          NDK="$ANDROID_HOME/ndk/28.2.13676358"
           mkdir -p "$OUT" "$EXTRACTED"
           curl --fail --location --retry 3 \
             --output "$ARCHIVE" \

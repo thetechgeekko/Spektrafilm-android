@@ -24,7 +24,7 @@ Two binaries:
   executes the REAL engine stage on-device and prints mirror-vs-engine (CHAIN),
   engine-vs-golden (SETUP, must PASS) and GPU-vs-mirror/engine/golden numbers.
 
-Run (phone on USB, NDK r27 installed):
+Run (phone on USB, NDK r28c installed):
 
 ```bash
 bash tools/gpu_probe/build_push_run.sh

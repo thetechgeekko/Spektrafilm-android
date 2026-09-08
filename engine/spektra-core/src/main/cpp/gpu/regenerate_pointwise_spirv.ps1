@@ -10,7 +10,7 @@ if ([string]::IsNullOrWhiteSpace($NdkRoot)) {
     if ([string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
         throw 'Pass -NdkRoot or set ANDROID_HOME.'
     }
-    $NdkRoot = Join-Path $env:ANDROID_HOME 'ndk\27.0.12077973'
+    $NdkRoot = Join-Path $env:ANDROID_HOME 'ndk\28.2.13676358'
 }
 
 $glslc = Join-Path $NdkRoot 'shader-tools\windows-x86_64\glslc.exe'

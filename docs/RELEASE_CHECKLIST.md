@@ -94,7 +94,7 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
 2. Verifies the official LibRaw archive plus all hashed patches; runs serial and
    OpenMP ASan/UBSan, serial TSan, and bounded public-seam fuzz gates.
 3. In a job with no Environment and no signing secrets, verifies the official
-   Gradle wrapper JAR and distribution hashes, installs **NDK `27.0.12077973`,
+   Gradle wrapper JAR and distribution hashes, installs **NDK `28.2.13676358`,
    CMake `3.22.1`, build-tools `36.0.0`**, and checks that the tag exactly matches
    the literal app `versionName`.
 4. Runs the engine parity suite at `-O2` and at the shipping

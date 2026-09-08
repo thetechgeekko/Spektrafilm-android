@@ -24,9 +24,9 @@ android {
     namespace = "com.spectrafilm.app"
     // The app module strips the packaged .so with this NDK's llvm-strip. AGP 9 defaults to
     // NDK r28.2 (not installed); left unpinned it packages every native library unstripped
-    // (libspektra.so 0.9 MB -> 11.6 MB). Pin the same NDK as the native modules; #187 owns
-    // the r28+ move.
-    ndkVersion = "27.0.12077973"
+    // (libspektra.so 0.9 MB -> 11.6 MB). Pin the same NDK as the native modules (r28c since
+    // #187; r27 before that).
+    ndkVersion = "28.2.13676358"
     compileSdk = 34
 
     // build-tools 36.0.0 is the AGP 9.3 minimum (35.0.0 was the first whose zipalign

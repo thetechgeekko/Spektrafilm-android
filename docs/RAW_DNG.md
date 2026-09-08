@@ -238,7 +238,7 @@ and add LibRaw for the real decode.)
 - The shared resolver pins the official LibRaw `0.22.2` archive and SHA-256,
   applies the ordered hashed patchset, checks exact version/security markers,
   and fails closed. See [`dependencies/LIBRAW.md`](dependencies/LIBRAW.md).
-- ABIs are `armeabi-v7a`, `arm64-v8a`, and `x86_64`; NDK r27, CMake 3.22.1,
+- ABIs are `armeabi-v7a`, `arm64-v8a`, and `x86_64`; NDK r28c (28.2.13676358), CMake 3.22.1,
   C++17, and the actual release optimization flags are recorded.
 - RawSpeed and Adobe DNG SDK integration are disabled. They must not be enabled
   as a broad speed or codec switch without corpus parity, Android build cost,

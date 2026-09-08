@@ -61,10 +61,10 @@ tuning) and **scan** (full-res, for export). Decode + simulate run off the main 
 ## Build commands
 
 Required toolchain: **JDK 21** (Gradle `9.5.1` / AGP `9.3.2` with built-in Kotlin `2.2.10`; the PATH JDK 26 on
-the laptop breaks Gradle, use Android Studio's JBR), **NDK r27 (`27.0.12077973`)**,
+the laptop breaks Gradle, use Android Studio's JBR), **NDK r28c (`28.2.13676358`)**,
 **CMake 3.22.1**, **build-tools 36.0.0** (AGP 9.3 minimum; also the `zipalign -P 16` / `apksigner` used by
 the 16 KB and signing gates).
-`sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"`.
+`sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"`.
 
 ```bash
 # Debug APK (builds libspektra/libsfraw/libsftiff/libsfpng .so for all 3 ABIs)
@@ -187,7 +187,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   **enumerated** list plus `-Wl,--no-undefined`, and fails if a `.cpp` is on disk but
   absent from CMakeLists. It also compiles `spektra_jni.cpp`, which the host suite never
   builds at all. Get the NDK with
-  `curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r27-linux.zip && unzip -q ndk.zip -d /opt/`.
+  `curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r28c-linux.zip && unzip -q ndk.zip -d /opt/`.
 - **A native-only edit may not rebuild through `:app:assembleDebug` alone.** Observed on
   `:lib:libraw`: a changed `.cpp` produced `BUILD SUCCESSFUL in 6s` with a **stale**
   `libsfraw.so`. `./gradlew :lib:libraw:assembleDebug --rerun-tasks` rebuilt it. Verify

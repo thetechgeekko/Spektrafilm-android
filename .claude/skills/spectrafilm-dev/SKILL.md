@@ -60,7 +60,7 @@ These override convenience. If a change cannot satisfy them, it is not done.
    accumulator state that depends on worker count.
 
 ### Toolchain / legal hard pins
-7. **NDK r27 (`27.0.12077973`) only**, CMake 3.22.1, build-tools 36.0.0, JDK 21. r27 is the
+7. **NDK r28c (`28.2.13676358`) only**, CMake 3.22.1, build-tools 36.0.0, JDK 21. r28c is the
    first to guarantee 16 KB page-aligned `LOAD` segments (Android 15+); wrong NDK -> `dlopen`
    failure on 16 KB devices. Every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD`
    alignment and `zipalign -c -P 16 4 <apk>` must pass (CI gates both).

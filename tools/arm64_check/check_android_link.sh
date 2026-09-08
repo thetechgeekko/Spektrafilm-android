@@ -23,12 +23,12 @@
 #
 # USAGE
 #   tools/arm64_check/check_android_link.sh [/path/to/ndk]
-# Default NDK path is /opt/android-ndk-r27. Get one with:
-#   curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r27-linux.zip
+# Default NDK path is /opt/android-ndk-r28c. Get one with:
+#   curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r28c-linux.zip
 #   unzip -q ndk.zip -d /opt/
 set -euo pipefail
 
-NDK_ROOT="${1:-/opt/android-ndk-r27}"
+NDK_ROOT="${1:-/opt/android-ndk-r28c}"
 CXX="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 LIBDIR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24"
 CPP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../engine/spektra-core/src/main/cpp" && pwd)"

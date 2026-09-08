@@ -73,7 +73,7 @@ checks the hostile-column bound rather than applying a duplicate patch.
 
 ## Android build contract
 
-- NDK `27.0.12077973`, CMake `3.22.1`, C++17, `c++_shared`.
+- NDK `28.2.13676358`, CMake `3.22.1`, C++17, `c++_shared`.
 - ABIs: `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
 - Gradle passes `SFRAW_ENABLE_OPENMP=OFF` explicitly, so a stale external-native
   cache cannot retain an earlier experimental opt-in.

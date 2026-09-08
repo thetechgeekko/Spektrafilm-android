@@ -17,10 +17,11 @@ android {
     namespace = "com.spectrafilm.tiffwriter"
     compileSdk = 34
 
-    // NDK r27+ links native LOAD segments with a 16 KB max-page-size by default and
+    // NDK r28c (28.2.13676358): 16 KB page-size support is the default (r27 introduced it), so
+    // native LOAD segments are 16 KB-aligned and
     // ships a 16 KB-aligned libc++_shared.so — required for Android 15's 16 KB page
     // devices. The CMake link flag (CMakeLists.txt) pins the alignment explicitly too.
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = 24

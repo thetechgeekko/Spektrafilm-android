@@ -414,7 +414,8 @@ Owners:
 - [Upgrade the NDK independently and prove 16 KiB compatibility on every ABI](https://github.com/thetechgeekko/Spektrafilm-android/issues/187)
 
 Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2024.10.01, compile/target SDK 34,
-build-tools 36.0.0 (the AGP 9.3 minimum; the external zipalign/apksigner gates use the same pin) and NDK r27.
+build-tools 36.0.0 (the AGP 9.3 minimum; the external zipalign/apksigner gates use the same pin) and NDK r28c
+(28.2.13676358, moved from r27 under [#187](https://github.com/thetechgeekko/Spektrafilm-android/issues/187) on 2026-09-08).
 The connected flagship is already Android 16/API 36. The build-system wave below landed on 2026-09-07 under
 [#188](https://github.com/thetechgeekko/Spektrafilm-android/issues/188); its digests and warning inventory are on that ticket.
 

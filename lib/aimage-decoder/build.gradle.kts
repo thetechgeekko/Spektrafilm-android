@@ -18,7 +18,7 @@ val aimageAbiTargets = linkedMapOf(
 android {
     namespace = "com.spectrafilm.aimage"
     compileSdk = 34
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = 24
@@ -214,7 +214,7 @@ tasks.register("verifyAImageDecoderHostAndAbi") {
                 "-Werror=unguarded-availability",
                 "-ffp-contract=off",
                 // The CMake option ANDROID_WEAK_API_DEFS translates to this
-                // compiler definition in NDK r27's flags.cmake.
+                // compiler definition in the NDK's flags.cmake (r27 and r28c alike).
                 "-D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__",
                 "-I${nativeSource.absolutePath}",
             )

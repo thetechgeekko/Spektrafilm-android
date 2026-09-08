@@ -271,7 +271,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       - name: Install NDK + CMake + pinned build-tools
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Verify Gradle wrapper provenance
         run: |

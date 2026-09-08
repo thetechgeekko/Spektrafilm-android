@@ -33,9 +33,9 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       - name: Install NDK + CMake + build-tools
-        # Same pins as ci.yml: NDK r27 for 16 KB-aligned native LOAD segments,
+        # Same pins as ci.yml: NDK r28c for 16 KB-aligned native LOAD segments,
         # build-tools 36 (AGP 9 minimum) also provides zipalign -P 16 and apksigner.
-        run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"
 
       - name: Assemble release APK (R8 minified)
         run: |

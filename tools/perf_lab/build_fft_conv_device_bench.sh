@@ -13,8 +13,8 @@ set -euo pipefail
 NDK=${1:-}
 OUT=${2:-build/perf-lab}
 if [ -z "$NDK" ]; then
-  for c in "$HOME/AppData/Local/Android/Sdk/ndk/27.0.12077973" \
-           "${ANDROID_SDK_ROOT:-}/ndk/27.0.12077973" /opt/android-ndk-r27; do
+  for c in "$HOME/AppData/Local/Android/Sdk/ndk/28.2.13676358" \
+           "${ANDROID_SDK_ROOT:-}/ndk/28.2.13676358" /opt/android-ndk-r28c; do
     [ -d "$c" ] && NDK=$c && break
   done
 fi

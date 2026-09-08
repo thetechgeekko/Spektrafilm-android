@@ -955,7 +955,7 @@ used by Spektrafilm plus the native `libsfraw.so` wrapper source and build files
 Its recorded license route is `{route}`. This record is build evidence, not an
 independent legal approval; release verification accepts only `LGPL-2.1-only`.
 
-Set `ANDROID_NDK_HOME` to Android NDK 27.0.12077973, then build an ABI-compatible
+Set `ANDROID_NDK_HOME` to Android NDK 28.2.13676358, then build an ABI-compatible
 replacement with CMake 3.22.1 or newer. The standalone recipient project takes
 the source explicitly and deliberately does not apply the production aggregate
 gate, so a modified, interface-compatible LibRaw tree can be relinked.

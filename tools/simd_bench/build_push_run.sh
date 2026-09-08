@@ -10,7 +10,7 @@
 #   bash tools/simd_bench/build_push_run.sh
 #
 # Env:
-#   ANDROID_NDK_HOME  NDK r27 root (auto-detected under $ANDROID_SDK_ROOT/ndk)
+#   ANDROID_NDK_HOME  NDK r28c root (auto-detected under $ANDROID_SDK_ROOT/ndk)
 #   SKIP_HALIDE=1     skip the Halide half (no `pip install halide` needed)
 set -euo pipefail
 
@@ -25,7 +25,7 @@ NDK="${ANDROID_NDK_HOME:-}"
 if [ -z "$NDK" ]; then
   NDK="$(ls -d "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"/ndk/* 2>/dev/null | sort -V | tail -1 || true)"
 fi
-[ -n "$NDK" ] && [ -d "$NDK" ] || { echo "ERROR: set ANDROID_NDK_HOME (NDK r27)"; exit 1; }
+[ -n "$NDK" ] && [ -d "$NDK" ] || { echo "ERROR: set ANDROID_NDK_HOME (NDK r28c)"; exit 1; }
 HOST_TAG="$(uname | tr '[:upper:]' '[:lower:]')-x86_64"
 CXX="$NDK/toolchains/llvm/prebuilt/$HOST_TAG/bin/aarch64-linux-android24-clang++"
 [ -x "$CXX" ] || { echo "ERROR: no arm64 clang++ at $CXX"; exit 1; }

@@ -19,7 +19,7 @@
 #      Each prints a speedup AND a deviation from the exact path.
 #
 # Env:
-#   ANDROID_NDK_HOME  NDK r27 root (auto-detected under $ANDROID_SDK_ROOT/ndk)
+#   ANDROID_NDK_HOME  NDK r28c root (auto-detected under $ANDROID_SDK_ROOT/ndk)
 set -uo pipefail
 # NOT -e. A failing correctness test is exactly when the later sections matter
 # most -- the device run that found the f64 problem lost the affinity sweep and
@@ -45,7 +45,7 @@ if [ -z "$NDK" ]; then
     [ -n "$NDK" ] && break
   done
 fi
-[ -n "$NDK" ] && [ -d "$NDK" ] || { echo "ERROR: set ANDROID_NDK_HOME (NDK r27)"; exit 1; }
+[ -n "$NDK" ] && [ -d "$NDK" ] || { echo "ERROR: set ANDROID_NDK_HOME (NDK r28c)"; exit 1; }
 # NDK prebuilt dirs are linux-x86_64 / darwin-x86_64 / windows-x86_64. Git Bash's
 # `uname` reports mingw64_nt-10.0-26200, which matches none of them -- this cost a
 # real device run, so map it explicitly rather than lower-casing and hoping.

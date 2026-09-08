@@ -11,7 +11,7 @@
 # anywhere in this build (enforced with -fno-fast-math).
 #
 # Usage: bash tools/gpu_probe/build_push_run.sh   (from anywhere; repo-root aware)
-# Env:   ANDROID_NDK (default: ~/AppData/Local/Android/Sdk/ndk/27.0.12077973)
+# Env:   ANDROID_NDK (default: ~/AppData/Local/Android/Sdk/ndk/28.2.13676358)
 #        ADB_SERIAL  (default: the only connected device)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -25,7 +25,7 @@ case "$(uname -s)" in
   Darwin)               HOST=darwin-x86_64 ;;
   *)                    HOST=linux-x86_64 ;;
 esac
-NDK="${ANDROID_NDK:-$HOME/AppData/Local/Android/Sdk/ndk/27.0.12077973}"
+NDK="${ANDROID_NDK:-$HOME/AppData/Local/Android/Sdk/ndk/28.2.13676358}"
 CXX="$NDK/toolchains/llvm/prebuilt/$HOST/bin/clang++"
 GLSLC="$NDK/shader-tools/$HOST/glslc"
 [[ -x "$CXX" || -x "$CXX.exe" ]] || { echo "NDK clang++ not found: $CXX (set ANDROID_NDK)"; exit 1; }
