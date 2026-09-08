@@ -63,6 +63,20 @@ std::thread fork-join per map) or 1 (the pool); `SPK_BENCH_CHUNKS_PER_WORKER`
 (`TICKET182_PARALLEL_POOL: ...`). Digests must be identical across modes: the pool
 changes only which thread runs a chunk.
 
+**The Fast GPU export route (#148)**: `SPK_BENCH_GPU_EXPORT=1` sets the same
+`gpuExport` bit as Settings > GPU export for every measured export (stream line
+`TICKET148_GPU_EXPORT: enabled=...`, `gpu_export` in the capture protocol and per
+sample). Its digests are tolerance-bounded Fast GPU output: they must be one per
+format across captures (same-device determinism) and they are NOT Strict Exact
+identity evidence. The default (0) is the exact CPU route.
+
+Each sample's `memory` block also carries `minor_faults_decode` /
+`minor_faults_total` (first-touch counting, #178), the `engine_budget` snapshot
+(`spk.memory_budget.v1`: limit, total/domain/stage high-water marks since the
+budget was configured -- process peaks, not per-sample deltas, #176), and
+`decode_breakdown_ms` (`bitmap_decode`, `get_pixels`, `convert`, #198) sits next
+to `phases_ms`.
+
 Use at least `gate_runs` runs. Below that the capture is a smoke run, and the
 harness applies the protocol idle and the per-sample thermal wait **only when it is
 gating** -- so a smoke capture has no cool-down and drifts as the device heats.
