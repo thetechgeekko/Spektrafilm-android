@@ -271,8 +271,11 @@ object Ticket177BenchmarkChecks {
         // profileable process can read on this device (perf page-faults is refused).
         val minfltStart = procStatMinflt()
         val decodeStart = System.currentTimeMillis()
+        // #198: split the decode phase into codec, staging copy and conversion.
+        val decodeTimings = DecodeTimings()
         val image = decodeToLinearProPhoto(
             context, Uri.fromFile(File(sourcePath)), maxEdge = EXPORT_MAX_EDGE_PX,
+            timings = decodeTimings,
         )
         val decodeMs = System.currentTimeMillis() - decodeStart
         val minfltAfterDecode = procStatMinflt()
@@ -368,6 +371,11 @@ object Ticket177BenchmarkChecks {
             // Stage reconciliation: the host checks the phases against the total, so an
             // unaccounted gap cannot hide inside a headline number.
             .put("phases_sum_ms", decodeMs + simulateMs + gradeMs + encodeMs)
+            // #198: what the decode phase is made of (codec vs Bitmap staging vs conversion).
+            .put("decode_breakdown_ms", JSONObject()
+                .put("bitmap_decode", decodeTimings.bitmapDecodeMs)
+                .put("get_pixels", decodeTimings.getPixelsMs)
+                .put("convert", decodeTimings.convertMs))
             // The post-engine grade is a no-op at neutral values: record what was actually
             // asked for so no reader has to guess which path the grade number covers.
             .put("grade_inputs", JSONObject()

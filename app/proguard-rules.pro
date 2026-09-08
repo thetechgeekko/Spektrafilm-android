@@ -106,6 +106,9 @@
 # it calls the production decode, params, engine, grade and encoder entry points on the
 # minified app rather than re-implementing them, so those are cross-APK ABI too.
 -keep class com.spectrafilm.app.ImagePipelineKt { *; }
+# #198: the bench passes decodeToLinearProPhoto a DecodeTimings sink that no app code
+# constructs, so without this R8 deletes its constructor (InstantiationError in the test APK).
+-keep class com.spectrafilm.app.DecodeTimings { *; }
 -keep class com.spectrafilm.app.ParamsState { *; }
 -keep class com.spectrafilm.app.BuiltInPresets { *; }
 -keep class com.spectrafilm.app.BuiltInPreset { *; }

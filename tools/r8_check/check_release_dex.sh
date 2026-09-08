@@ -263,7 +263,12 @@ check_member 'Lcom/spectrafilm/app/Category;' method 'getLabelRes' '()I'
 check_member 'Lcom/spectrafilm/app/Category;' field 'GRAIN' 'Lcom/spectrafilm/app/Category;'
 
 # Ticket #177's benchmark phase drives the production export path across the APK boundary.
-check_member 'Lcom/spectrafilm/app/ImagePipelineKt;' method 'decodeToLinearProPhoto' '(Landroid/content/Context;Landroid/net/Uri;ILkotlin/jvm/functions/Function0;)Lcom/spectrafilm/engine/LinearImage;'
+check_member 'Lcom/spectrafilm/app/ImagePipelineKt;' method 'decodeToLinearProPhoto' '(Landroid/content/Context;Landroid/net/Uri;ILkotlin/jvm/functions/Function0;Lcom/spectrafilm/app/DecodeTimings;)Lcom/spectrafilm/engine/LinearImage;'
+# #198: the bench's decode breakdown sink; app code never constructs or reads it.
+check_member 'Lcom/spectrafilm/app/DecodeTimings;' method '<init>' '()V'
+check_member 'Lcom/spectrafilm/app/DecodeTimings;' method 'getBitmapDecodeMs' '()J'
+check_member 'Lcom/spectrafilm/app/DecodeTimings;' method 'getGetPixelsMs' '()J'
+check_member 'Lcom/spectrafilm/app/DecodeTimings;' method 'getConvertMs' '()J'
 check_member 'Lcom/spectrafilm/app/ImagePipelineKt;' method 'saveSimResultAsTiff' '(Landroid/content/Context;Lcom/spectrafilm/engine/SimResult;Lcom/spectrafilm/app/OutputDescriptor;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;'
 check_member 'Lcom/spectrafilm/app/ImagePipelineKt;' method 'saveSimResultAsPng16' '(Landroid/content/Context;Lcom/spectrafilm/engine/SimResult;Lcom/spectrafilm/app/OutputDescriptor;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;'
 check_member 'Lcom/spectrafilm/app/EngineHelpersKt;' method 'simResultToBitmapGraded' '(Lcom/spectrafilm/engine/SimResult;ZFFFLjava/util/List;Lcom/spectrafilm/engine/RenderCancellation;)Landroid/graphics/Bitmap;'

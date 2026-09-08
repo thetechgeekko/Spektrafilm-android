@@ -75,6 +75,23 @@ const val EXPORT_MAX_EDGE_PX = 16384
 private fun srgbToLinear(c: Float): Float =
     if (c <= 0.04045f) c / 12.92f else Math.pow(((c + 0.055) / 1.055), 2.4).toFloat()
 
+/**
+ * [srgbToLinear] over the 256 values an 8-bit channel can take, built by that same function
+ * so the table is bit-identical to calling it per pixel; a decoded 12.5 MP photo is otherwise
+ * 37.5 M `Math.pow` calls (#198 measured the conversion, not the codec, as the decode cost).
+ */
+private val SRGB_TO_LINEAR_8BIT: FloatArray = FloatArray(256) { srgbToLinear(it / 255f) }
+
+/** Optional wall-clock breakdown of [decodeToLinearProPhoto], for the #177 bench (#198). */
+class DecodeTimings {
+    /** Platform codec into a Bitmap ([decodeDownscaled]). */
+    var bitmapDecodeMs: Long = 0
+    /** `Bitmap.getPixels` staging copies inside the conversion. */
+    var getPixelsMs: Long = 0
+    /** The whole conversion ([bitmapToLinearProPhoto]), staging included. */
+    var convertMs: Long = 0
+}
+
 /** sRGB OETF: scene-linear (0..1) -> display sRGB (0..1). */
 private fun linearToSrgb(c: Float): Float {
     val v = c.coerceIn(0f, 1f)
@@ -131,8 +148,11 @@ fun decodeToLinearProPhoto(
     uri: Uri,
     maxEdge: Int = MAX_EDGE_PX,
     isCancelled: () -> Boolean = { false },
+    timings: DecodeTimings? = null,
 ): LinearImage {
+    val decodeStart = System.nanoTime()
     val src = decodeDownscaled(ctx, uri, maxEdge)
+    timings?.bitmapDecodeMs = (System.nanoTime() - decodeStart) / 1_000_000L
     try {
         // Export-scale (anything above the preview cap) decodes a full-res photo whose linear
         // float buffer (w*h*3*4) is large — 144 MB at 12 MP — so keep it OFF the managed heap.
@@ -140,6 +160,7 @@ fun decodeToLinearProPhoto(
             src,
             offHeap = maxEdge > MAX_EDGE_PX,
             isCancelled = isCancelled,
+            timings = timings,
         )
     } finally {
         src.recycle()
@@ -199,7 +220,9 @@ fun bitmapToLinearProPhoto(
     src: Bitmap,
     offHeap: Boolean = false,
     isCancelled: () -> Boolean = { false },
+    timings: DecodeTimings? = null,
 ): LinearImage {
+    val convertStart = System.nanoTime()
     val w = src.width
     val h = src.height
     val byteCount = checkedRgbFloatByteCount(w, h, "bitmap conversion")
@@ -224,30 +247,46 @@ fun bitmapToLinearProPhoto(
     nativeOwner?.close()
     val f = buf.asFloatBuffer()
     val m = SRGB_TO_PROPHOTO
+    val lut = SRGB_TO_LINEAR_8BIT
     // Read pixels in horizontal strips: avoids a full IntArray(w*h) (4 B/px) managed spike.
-    val bandRows = (1024 * 1024 / w).coerceIn(1, h)
+    // Half a megapixel per band keeps the two scratch arrays at 2 MB + 6 MB.
+    val bandRows = (512 * 1024 / w).coerceIn(1, h)
+    var getPixelsNs = 0L
     try {
         val rowPix = IntArray(w * bandRows)
+        // Converted band, written with one bulk put: the per-sample indexed put on a direct
+        // FloatBuffer was the other half of the old per-pixel cost. Same float expressions in
+        // the same order, so the stored values are the ones the per-sample loop produced.
+        val band = FloatArray(w * bandRows * 3)
         var y = 0
         while (y < h) {
             if (isCancelled()) throw CancellationException("bitmap conversion cancelled")
             val rows = minOf(bandRows, h - y)
+            val t0 = System.nanoTime()
             src.getPixels(rowPix, 0, w, 0, y, w, rows)
+            getPixelsNs += System.nanoTime() - t0
+            val n = w * rows
             var k = 0
-            var i = y * w * 3
-            repeat(w * rows) {
+            var o = 0
+            while (k < n) {
                 val argb = rowPix[k++]
-                val rl = srgbToLinear(((argb shr 16) and 0xFF) / 255f)
-                val gl = srgbToLinear(((argb shr 8) and 0xFF) / 255f)
-                val bl = srgbToLinear((argb and 0xFF) / 255f)
-                f.put(i, m[0] * rl + m[1] * gl + m[2] * bl)
-                f.put(i + 1, m[3] * rl + m[4] * gl + m[5] * bl)
-                f.put(i + 2, m[6] * rl + m[7] * gl + m[8] * bl)
-                i += 3
+                val rl = lut[(argb shr 16) and 0xFF]
+                val gl = lut[(argb shr 8) and 0xFF]
+                val bl = lut[argb and 0xFF]
+                band[o] = m[0] * rl + m[1] * gl + m[2] * bl
+                band[o + 1] = m[3] * rl + m[4] * gl + m[5] * bl
+                band[o + 2] = m[6] * rl + m[7] * gl + m[8] * bl
+                o += 3
             }
+            f.position(y * w * 3)
+            f.put(band, 0, n * 3)
             y += rows
         }
         if (isCancelled()) throw CancellationException("bitmap conversion cancelled")
+        timings?.let {
+            it.getPixelsMs = getPixelsNs / 1_000_000L
+            it.convertMs = (System.nanoTime() - convertStart) / 1_000_000L
+        }
         return image
     } catch (failure: Throwable) {
         image.close()
