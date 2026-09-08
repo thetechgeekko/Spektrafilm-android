@@ -122,9 +122,30 @@ function Get-SingleSignerSha256 {
 function Get-InstalledBasePath {
     param([Parameter(Mandatory = $true)][string]$PackageName)
 
-    $result = Invoke-Adb -Arguments @('shell', 'pm', 'path', $PackageName)
+    # `pm path` exits 1 with no output when the package is absent (a fresh device
+    # or emulator); that is the documented "not installed" answer, not an adb failure.
+    $adbArguments = @()
+    if (-not [string]::IsNullOrWhiteSpace($script:SelectedDevice)) {
+        $adbArguments += @('-s', $script:SelectedDevice)
+    }
+    $adbArguments += @('shell', 'pm', 'path', $PackageName)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $rawOutput = @(& $script:AdbPath @adbArguments 2>&1)
+        $pmExit = $global:LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $text = ($rawOutput | ForEach-Object { $_.ToString() }) -join "`n"
+    if ($pmExit -ne 0) {
+        if ([string]::IsNullOrWhiteSpace($text) -or $text -notmatch 'package:') {
+            return $null
+        }
+        throw "pm path $PackageName failed with exit code ${pmExit}:`n$text"
+    }
     $paths = @()
-    foreach ($line in ($result.Output -split "`r?`n")) {
+    foreach ($line in ($text -split "`r?`n")) {
         if ($line -match '^package:(.+)$') {
             $paths += $Matches[1].Trim()
         }
