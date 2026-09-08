@@ -158,6 +158,11 @@
     public static java.lang.Object getCOROUTINE_SUSPENDED();
 }
 -keep class kotlin.coroutines.jvm.internal.Boxing { *; }
+# Kotlin 2.2 (AGP 9 built-in Kotlin) compiles every suspend function to null out spilled
+# locals through this stdlib helper. The release test APK's suspend lambdas resolve it
+# from this APK, and R8 otherwise inlines the trivial body and drops the class
+# (device-only ClassNotFoundException: kotlin.coroutines.jvm.internal.SpillingKt).
+-keep class kotlin.coroutines.jvm.internal.SpillingKt { *; }
 -keep class kotlin.jdk7.AutoCloseableKt { *; }
 -keep class kotlin.io.CloseableKt {
     public static void closeFinally(java.io.Closeable, java.lang.Throwable);
@@ -169,6 +174,7 @@
 -keep class kotlin.ranges.RangesKt
 -keep class kotlin.ranges.RangesKt___RangesKt {
     public static kotlin.ranges.IntRange until(int, int);
+    public static long coerceAtLeast(long, long);
 }
 -keep class kotlin.ranges.IntRange { *; }
 -keep class kotlin.ranges.IntProgression {
