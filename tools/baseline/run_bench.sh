@@ -60,15 +60,29 @@ adb_ get-state >/dev/null 2>&1 || {
 }
 
 mkdir -p "$OUT"
-py_ "$REPO/tools/baseline/corpus/make_source.py" --check
-SOURCE=$OUT/corpus-source.png
-[ -f "$SOURCE" ] || py_ "$REPO/tools/baseline/corpus/make_source.py" --out "$SOURCE"
+# Stress runs (#204): SPK_BENCH_SOURCE=<image> with SPK_BENCH_CORPUS=<corpus.json> measure an
+# UNPINNED source through the same export path. That corpus must carry the source's own
+# sha256/bytes/width/height and STRESS* cell ids, so every sample, file name and report line
+# says what it is; the report is rendered against that corpus and is never gated. Without
+# the override the pinned corpus and its regenerated source are used, as before.
+CORPUS=${SPK_BENCH_CORPUS:-$REPO/tools/baseline/corpus.json}
+if [ -n "${SPK_BENCH_SOURCE:-}" ]; then
+  [ -n "${SPK_BENCH_CORPUS:-}" ] || { echo "run_bench: SPK_BENCH_SOURCE needs SPK_BENCH_CORPUS" >&2; exit 2; }
+  SOURCE=$SPK_BENCH_SOURCE
+  echo "run_bench: STRESS source $SOURCE via $CORPUS (unpinned; not a baseline)"
+else
+  py_ "$REPO/tools/baseline/corpus/make_source.py" --check
+  SOURCE=$OUT/corpus-source.png
+  [ -f "$SOURCE" ] || py_ "$REPO/tools/baseline/corpus/make_source.py" --out "$SOURCE"
+fi
+# BitmapFactory sniffs content, but keep the real extension so the device file is honest.
+DEVICE_SOURCE=$DEVICE_DIR/bench-source.${SOURCE##*.}
 
 APP_SHA=$(sha256sum "$APP_APK" | cut -d' ' -f1)
 echo "run_bench: app $APP_APK sha256=$APP_SHA runs=$RUNS cells=${CELLS:-all}"
 
-adb_ push "$(host_path "$SOURCE")" "$DEVICE_DIR/bench-source.png" >/dev/null
-adb_ push "$(host_path "$REPO/tools/baseline/corpus.json")" "$DEVICE_DIR/bench-corpus.json" >/dev/null
+adb_ push "$(host_path "$SOURCE")" "$DEVICE_SOURCE" >/dev/null
+adb_ push "$(host_path "$CORPUS")" "$DEVICE_DIR/bench-corpus.json" >/dev/null
 
 # Timing automation makes the engine emit spk.stage_timings.v1 for every render; the
 # logcat capture below is the native-stage half of the reconciliation evidence.
@@ -90,7 +104,7 @@ if [ "${SPK_BENCH_DETACH:-0}" = "1" ]; then
   adb_ shell "nohup am instrument -w -r \
     -e ticket177_phase bench \
     -e ticket177_corpus '$DEVICE_DIR/bench-corpus.json' \
-    -e ticket177_source '$DEVICE_DIR/bench-source.png' \
+    -e ticket177_source '$DEVICE_SOURCE' \
     -e ticket177_runs $RUNS \
     -e ticket177_cells '$CELLS' \
     -e ticket177_bypass_cache $BYPASS_CACHE \
@@ -115,7 +129,7 @@ else
   adb_ shell am instrument -w -r \
     -e ticket177_phase bench \
     -e ticket177_corpus "$DEVICE_DIR/bench-corpus.json" \
-    -e ticket177_source "$DEVICE_DIR/bench-source.png" \
+    -e ticket177_source "$DEVICE_SOURCE" \
     -e ticket177_runs "$RUNS" \
     -e ticket177_cells "'$CELLS'" \
     -e ticket177_bypass_cache "$BYPASS_CACHE" \
@@ -142,8 +156,9 @@ adb_ pull "$DEVICE_DIR/ticket177" "$(host_path "$OUT/capture")" >/dev/null
 # gate reports success, which is the worst way to fail.
 GATE=()
 GATE_RUNS=$(py_ -c "import json,sys;print(json.load(open(sys.argv[1]))['protocol']['gate_runs'])" \
-  "$REPO/tools/baseline/corpus.json")
-[ "$RUNS" -ge "$GATE_RUNS" ] && GATE=(--gate)
+  "$CORPUS")
+# A stress source is never gated, whatever its run count.
+[ -z "${SPK_BENCH_SOURCE:-}" ] && [ "$RUNS" -ge "$GATE_RUNS" ] && GATE=(--gate)
 py_ "$REPO/tools/baseline/bench_report.py" "$OUT/capture/capture.json" \
-  --expect-app-sha256 "$APP_SHA" \
+  --expect-app-sha256 "$APP_SHA" --corpus "$CORPUS" \
   --markdown "$OUT/report.md" "${GATE[@]}"

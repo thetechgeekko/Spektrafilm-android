@@ -63,6 +63,15 @@ std::thread fork-join per map) or 1 (the pool); `SPK_BENCH_CHUNKS_PER_WORKER`
 (`TICKET182_PARALLEL_POOL: ...`). Digests must be identical across modes: the pool
 changes only which thread runs a chunk.
 
+**An unpinned stress source (#204)**: `SPK_BENCH_SOURCE=<image> SPK_BENCH_CORPUS=<corpus.json>`
+runs any image (a 50 MP HEIC from the camera roll, say) through the same export path.
+The corpus you pass must carry that file's own `sha256`/`bytes`/`width`/`height` and
+`STRESS*` cell ids, so every sample, file name and report line says what it is; the
+report is rendered against that corpus and never gated, and its digests are not identity
+evidence. Without the override the pinned corpus and its regenerated source are used.
+Known limit: the digest step buffers the whole container on the ART heap, so 16-bit
+formats above ~25 MP will OOM the test process (measure JPEG_Q95 there).
+
 **The Fast GPU export route (#148)**: `SPK_BENCH_GPU_EXPORT=1` sets the same
 `gpuExport` bit as Settings > GPU export for every measured export (stream line
 `TICKET148_GPU_EXPORT: enabled=...`, `gpu_export` in the capture protocol and per
