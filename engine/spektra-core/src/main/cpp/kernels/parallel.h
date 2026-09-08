@@ -494,6 +494,9 @@ void parallel_dispatch_cancellable(int begin, int end, int nthreads,
 // work, joins every successfully-created thread, then rethrows on the owner.
 // `thread_factory` is injectable solely so the host regression can prove the
 // partial-construction path without exhausting process thread resources.
+// This entry point always forks its own threads: the injected factory IS the
+// thread lifecycle under test, so the persistent pool (issue #182) is only used
+// by parallel_dispatch_dynamic below, the default-factory route production takes.
 template <typename Worker, typename ThreadFactory>
 void parallel_dispatch_dynamic_with_factory(int nthreads, const Worker& worker,
                                             const ThreadFactory& thread_factory) {
@@ -508,45 +511,6 @@ void parallel_dispatch_dynamic_with_factory(int nthreads, const Worker& worker,
     }
 
     parallel_pin_to_big_cores();
-#ifndef SPK_USE_TBB
-    if (parallel_pool_enabled() && !pool_worker_thread()) {
-        // One claimable slot per worker invocation; each invocation drains the
-        // caller-owned atomic block queue, so which thread runs a slot (or how many
-        // slots the owner takes) cannot change which block is computed with which seed.
-        std::atomic<bool> pstop{false};
-        ParallelFailureState pfailure;
-        struct Ctx { const Worker* worker; std::atomic<bool>* stop; ParallelFailureState* failure; }
-            ctx{&worker, &pstop, &pfailure};
-        const PoolTask task{&ctx, [](void* c, int /*slot*/) {
-            auto* x = static_cast<Ctx*>(c);
-            if (x->stop->load(std::memory_order_acquire)) return;
-            try {
-                (*x->worker)(x->stop);
-            } catch (...) {
-                x->failure->capture_current();
-                x->stop->store(true, std::memory_order_release);
-            }
-        }};
-        struct Poll { std::atomic<bool>* stop; bool cancellable; } poll_ctx{&pstop, cancellable};
-        const auto poll = [](void* c) -> bool {
-            auto* x = static_cast<Poll*>(c);
-            if (x->stop->load(std::memory_order_acquire)) return true;
-            if (x->cancellable && parallel_cancellation_requested()) {
-                x->stop->store(true, std::memory_order_release);
-                return true;
-            }
-            return false;
-        };
-        if (pool_run(nthreads, task, /*owner_claims=*/!cancellable, poll, &poll_ctx)) {
-            pfailure.rethrow_if_captured();
-            if (cancellable && (pstop.load(std::memory_order_acquire) ||
-                                parallel_cancellation_latched())) {
-                throw ParallelCancelled{};
-            }
-            return;
-        }
-    }
-#endif  // SPK_USE_TBB
     std::atomic<bool> stop{false};
     std::atomic<int> workers_left{0};
     ParallelFailureState failure;
@@ -610,6 +574,55 @@ void parallel_dispatch_dynamic_with_factory(int nthreads, const Worker& worker,
 
 template <typename Worker>
 void parallel_dispatch_dynamic(int nthreads, const Worker& worker) {
+    if (nthreads < 1) nthreads = 1;
+    const bool cancellable = parallel_cancellation_active();
+    if (!cancellable && nthreads == 1) {
+        worker(nullptr);
+        return;
+    }
+    if (cancellable && parallel_cancellation_requested()) {
+        throw ParallelCancelled{};
+    }
+    parallel_pin_to_big_cores();
+#ifndef SPK_USE_TBB
+    if (nthreads > 1 && parallel_pool_enabled() && !pool_worker_thread()) {
+        // One claimable slot per worker invocation; each invocation drains the
+        // caller-owned atomic block queue, so which thread runs a slot (or how many
+        // slots the owner takes) cannot change which block is computed with which seed.
+        std::atomic<bool> pstop{false};
+        ParallelFailureState pfailure;
+        struct Ctx { const Worker* worker; std::atomic<bool>* stop; ParallelFailureState* failure; }
+            ctx{&worker, &pstop, &pfailure};
+        const PoolTask task{&ctx, [](void* c, int /*slot*/) {
+            auto* x = static_cast<Ctx*>(c);
+            if (x->stop->load(std::memory_order_acquire)) return;
+            try {
+                (*x->worker)(x->stop);
+            } catch (...) {
+                x->failure->capture_current();
+                x->stop->store(true, std::memory_order_release);
+            }
+        }};
+        struct Poll { std::atomic<bool>* stop; bool cancellable; } poll_ctx{&pstop, cancellable};
+        const auto poll = [](void* c) -> bool {
+            auto* x = static_cast<Poll*>(c);
+            if (x->stop->load(std::memory_order_acquire)) return true;
+            if (x->cancellable && parallel_cancellation_requested()) {
+                x->stop->store(true, std::memory_order_release);
+                return true;
+            }
+            return false;
+        };
+        if (pool_run(nthreads, task, /*owner_claims=*/!cancellable, poll, &poll_ctx)) {
+            pfailure.rethrow_if_captured();
+            if (cancellable && (pstop.load(std::memory_order_acquire) ||
+                                parallel_cancellation_latched())) {
+                throw ParallelCancelled{};
+            }
+            return;
+        }
+    }
+#endif  // SPK_USE_TBB
     const auto thread_factory = [](auto&& entry) {
         return std::thread(std::forward<decltype(entry)>(entry));
     };
