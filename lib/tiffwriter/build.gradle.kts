@@ -5,13 +5,12 @@
  * Android library wrapping the native 16-bit baseline TIFF writer (libsftiff.so,
  * built via CMake/NDK; dependency-free) plus the Kotlin TiffWriter facade.
  *
- * Mirrors lib:libraw's plain-AGP setup (com.android.library + kotlin.android +
+ * Mirrors lib:libraw's plain-AGP setup (com.android.library + built-in Kotlin +
  * externalNativeBuild CMake + abiFilters) so it configures/builds standalone the
  * moment the project lead adds it to settings.gradle.kts.
  */
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {

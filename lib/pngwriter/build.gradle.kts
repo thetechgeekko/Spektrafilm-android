@@ -11,13 +11,12 @@
  * runtime linker binds to the on-device system libz at app startup — no bundled
  * zlib sources or extra AAR dependency needed.
  *
- * Mirrors lib:tiffwriter's plain-AGP setup (com.android.library + kotlin.android +
+ * Mirrors lib:tiffwriter's plain-AGP setup (com.android.library + built-in Kotlin +
  * externalNativeBuild CMake + abiFilters) so it configures/builds standalone the
  * moment the project lead adds it to settings.gradle.kts.
  */
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {

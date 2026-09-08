@@ -3,7 +3,6 @@
 // CMake/NDK) plus the Kotlin facade (SpektraEngine / SpektraParams).
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {

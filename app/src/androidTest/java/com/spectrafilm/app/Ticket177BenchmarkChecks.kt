@@ -589,7 +589,7 @@ object Ticket177BenchmarkChecks {
         val actual = hex(digest.digest())
         require(equalsIgnoreCase(actual, expectedSha256)) {
             "stale APK: installed " + actual + " != pinned " +
-                expectedSha256.toLowerCase(Locale.ROOT)
+                expectedSha256.lowercase(Locale.ROOT)
         }
         val debuggable = (info.applicationInfo.flags and
             android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0

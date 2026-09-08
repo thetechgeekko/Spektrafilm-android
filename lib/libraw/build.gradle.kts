@@ -8,13 +8,12 @@
  * CMake/NDK with LibRaw compiled in statically) plus the Kotlin RawDecoder facade.
  *
  * This mirrors engine:spektra-core's plain-AGP setup (com.android.library +
- * kotlin.android + externalNativeBuild CMake + abiFilters) so the module
+ * built-in Kotlin + externalNativeBuild CMake + abiFilters) so the module
  * configures and builds standalone the moment the project lead adds it to
  * settings.gradle.kts — no host-specific convention plugins required.
  */
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
