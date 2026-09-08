@@ -645,11 +645,15 @@ void scan(const Profile& film, const ScanningParams& params,
                 Z += w * kCieCmf1931[l][2];
             }
             // 4. log_xyz = log10(max(xyz,0) + 1e-10); xyz = 10^log_xyz. The log/exp
-            //    round-trip just floors at 1e-10 and clamps negatives; reproduce that
-            //    exactly so float rounding matches the reference.
-            xyz[0] = std::pow(10.0, std::log10(std::fmax(X * inv_norm, 0.0) + 1e-10));
-            xyz[1] = std::pow(10.0, std::log10(std::fmax(Y * inv_norm, 0.0) + 1e-10));
-            xyz[2] = std::pow(10.0, std::log10(std::fmax(Z * inv_norm, 0.0) + 1e-10));
+            //    round trip just floors at 1e-10 and clamps negatives: 10^(log10(y))
+            //    == y to about one double ULP for every finite y >= 1e-10,
+            //    fmax(NaN, 0) + 1e-10 == 1e-10 either way and +inf stays +inf, so
+            //    the clamp is applied directly (issue #203: the six libm calls per
+            //    pixel were part of a 17 % libm share of the release-device export).
+            //    Inside the parity band, not byte-identical to the round trip.
+            xyz[0] = std::fmax(X * inv_norm, 0.0) + 1e-10;
+            xyz[1] = std::fmax(Y * inv_norm, 0.0) + 1e-10;
+            xyz[2] = std::fmax(Z * inv_norm, 0.0) + 1e-10;
         }
 
         // Scanner BLACK/WHITE XYZ correction (color_reference.py::

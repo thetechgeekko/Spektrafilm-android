@@ -449,12 +449,14 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // log_raw_print = _film_cmy_to_print_log_raw(cmy). Either interpolated
         // from the opt-in enlarger LUT or evaluated directly (the default,
         // byte-exact path — its exp10_vec SIMD is left untouched).
-        double lr0, lr1, lr2;
+        // y = 10^log_raw_print, the linear print exposure the tail multiplies.
+        double y0, y1, y2;
         if (lr_precomputed) {
+            // An interpolated log value: exponentiate it, as expose() does.
             const double* lr = lut_lr.data() + static_cast<size_t>(p) * 3;
-            lr0 = lr[0];
-            lr1 = lr[1];
-            lr2 = lr[2];
+            y0 = std::pow(10.0, lr[0]);
+            y1 = std::pow(10.0, lr[1]);
+            y2 = std::pow(10.0, lr[2]);
         } else {
         const float* dcmy = density_cmy + static_cast<size_t>(p) * 3;
         const double c0 = static_cast<double>(dcmy[0]);
@@ -514,20 +516,26 @@ void print_expose(const Profile& film, const Profile& print_profile,
         raw1 += preflash_raw[1];
         raw2 += preflash_raw[2];
 
-        // _film_cmy_to_print_log_raw returns log10(max(raw,0) + 1e-10).
-        lr0 = std::log10(std::fmax(raw0, 0.0) + 1e-10);
-        lr1 = std::log10(std::fmax(raw1, 0.0) + 1e-10);
-        lr2 = std::log10(std::fmax(raw2, 0.0) + 1e-10);
+        // _film_cmy_to_print_log_raw returns log10(max(raw,0) + 1e-10) and
+        // expose() immediately takes 10^ of it. That round trip is the clamp
+        // and floor itself: 10^(log10(y)) == y to about one double ULP for
+        // every finite y >= 1e-10, fmax(NaN, 0) + 1e-10 == 1e-10 on both routes
+        // and +inf stays +inf, so the direct path skips the two libm calls per
+        // channel (issue #203; they were 17 % of the export on the release
+        // device). Not byte-identical to the round trip, but well inside the
+        // parity band, which is what the goldens gate.
+        y0 = std::fmax(raw0, 0.0) + 1e-10;
+        y1 = std::fmax(raw1, 0.0) + 1e-10;
+        y2 = std::fmax(raw2, 0.0) + 1e-10;
         }  // end direct (non-LUT) path
 
         // expose(): raw = 10^log_raw; raw *= print_exposure * bw_correction;
         // then the optical diffusion filter (if active) runs on `raw`; finally
-        // return log10(max(raw,0) + 1e-10). The 10^/log10 round trip is
-        // reproduced verbatim so float rounding matches the reference.
+        // return log10(max(raw,0) + 1e-10).
         const double mult = params.print_exposure * params.bw_exposure_correction;
-        double r0 = std::pow(10.0, lr0) * mult;
-        double r1 = std::pow(10.0, lr1) * mult;
-        double r2 = std::pow(10.0, lr2) * mult;
+        double r0 = y0 * mult;
+        double r1 = y1 * mult;
+        double r2 = y2 * mult;
 
         if (diffusion) {
             double* rb = raw_buf.data() + static_cast<size_t>(p) * 3;
