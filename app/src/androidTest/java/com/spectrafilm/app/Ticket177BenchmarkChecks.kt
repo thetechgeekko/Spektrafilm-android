@@ -68,6 +68,7 @@ object Ticket177BenchmarkChecks {
         cellFilter: String,
         expectedAppSha256: String,
         bypassCache: Boolean,
+        gpuExport: Boolean = false,
     ): String {
         val corpus = JSONObject(String(readAllBytes(File(corpusPath)), Charsets.UTF_8))
         require(corpus.optString("schema") == "spk.bench_corpus.v1") {
@@ -105,7 +106,10 @@ object Ticket177BenchmarkChecks {
                 // encode was to reinstall between captures -- which meant giving up
                 // the protocol idle and the thermal wait, and those are exactly what
                 // a comparable measurement needs.
-                .put("cache_bypassed", bypassCache))
+                .put("cache_bypassed", bypassCache)
+                // #148: the experimental Fast GPU export route (scan stage on the GPU under
+                // the on-device self-check); tolerance-bounded, never an identity claim.
+                .put("gpu_export", gpuExport))
 
         // Create the engine once up front, exactly like the editor does before its first
         // render: asset wiring is process setup, not part of any measured export.
@@ -141,6 +145,7 @@ object Ticket177BenchmarkChecks {
                         context, cell, entry.value, entry.key, sourcePath, index,
                         cold = firstRender, thermalWait = cooled,
                         bypassCache = bypassCache,
+                        gpuExport = gpuExport,
                     )
                     firstRender = false
                     samples.put(sample)
@@ -176,8 +181,11 @@ object Ticket177BenchmarkChecks {
         cold: Boolean,
         thermalWait: JSONObject,
         bypassCache: Boolean = false,
+        gpuExport: Boolean = false,
     ): JSONObject {
         val state = stateFor(context, cell)
+        // #148: the same app-settings bit the editor sets from Settings > GPU export.
+        state.gpuExport = gpuExport
         val params = state.toParams()
         val descriptor = ExportOptions(
             format = format,
@@ -366,6 +374,7 @@ object Ticket177BenchmarkChecks {
             // from a content-addressed cache yet, so every sample here is a full re-render and
             // says so; the reporter refuses to read an SLO out of a full render.
             .put("served_from_cache", false)
+            .put("gpu_export", gpuExport)
             .put("render_id", renderId)
             .put("total_ms", totalMs)
             .put("phases_ms", JSONObject()

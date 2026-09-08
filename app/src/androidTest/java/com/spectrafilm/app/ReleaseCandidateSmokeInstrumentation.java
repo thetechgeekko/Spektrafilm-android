@@ -60,6 +60,8 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
     private static final String ARG_TICKET177_PARALLEL_POOL = "ticket177_parallel_pool";
     private static final String ARG_TICKET177_CHUNKS_PER_WORKER = "ticket177_chunks_per_worker";
     private static final String ARG_TICKET177_BYPASS_CACHE = "ticket177_bypass_cache";
+    // #148: measure the experimental Fast GPU export route ("1") instead of the exact CPU one.
+    private static final String ARG_TICKET177_GPU_EXPORT = "ticket177_gpu_export";
     private static final String ARG_TICKET177_EXPECT_APP_SHA256 =
             "ticket177_expect_app_sha256";
 
@@ -228,13 +230,17 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
                         "ticket177_chunks_per_worker must be in [0,64]");
                 com.spectrafilm.engine.SpektraEngine.setParallelPool(poolMode);
                 com.spectrafilm.engine.SpektraEngine.setParallelChunksPerWorker(chunksPerWorker);
+                final boolean gpuExport =
+                        "1".equals(arguments.getString(ARG_TICKET177_GPU_EXPORT, "0"));
                 final String benchStream = Ticket177BenchmarkChecks.run(
                         getTargetContext(), corpus, source, runs,
                         arguments.getString(ARG_TICKET177_CELLS, ""), expectedApp,
-                        "1".equals(arguments.getString(ARG_TICKET177_BYPASS_CACHE, "0")));
+                        "1".equals(arguments.getString(ARG_TICKET177_BYPASS_CACHE, "0")),
+                        gpuExport);
                 final String stream = "TICKET182_PARALLEL_POOL: mode=" + poolMode
                         + " chunks_per_worker=" + chunksPerWorker
                         + " workers=" + com.spectrafilm.engine.SpektraEngine.parallelPoolWorkers()
+                        + "\nTICKET148_GPU_EXPORT: enabled=" + gpuExport
                         + "\n" + benchStream;
                 results.putString("stream", stream);
                 if (!stream.contains("TICKET177_BENCH: PASS\n")) {
