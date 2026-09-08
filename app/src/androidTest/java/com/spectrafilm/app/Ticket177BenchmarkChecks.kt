@@ -267,11 +267,15 @@ object Ticket177BenchmarkChecks {
                     .put("vm_rss_kb", procStatusKb("VmRSS:")))
                 .put("environment", environment(context))
         }
+        // #178: minor page faults are the only first-touch/zero-fill signal a non-root
+        // profileable process can read on this device (perf page-faults is refused).
+        val minfltStart = procStatMinflt()
         val decodeStart = System.currentTimeMillis()
         val image = decodeToLinearProPhoto(
             context, Uri.fromFile(File(sourcePath)), maxEdge = EXPORT_MAX_EDGE_PX,
         )
         val decodeMs = System.currentTimeMillis() - decodeStart
+        val minfltAfterDecode = procStatMinflt()
 
         var renderId = 0L
         var engineDigest = ""
@@ -382,7 +386,9 @@ object Ticket177BenchmarkChecks {
                 .put("total_private_dirty_kb", memory.totalPrivateDirty)
                 .put("native_heap_alloc_kb", Debug.getNativeHeapAllocatedSize() / 1024L)
                 .put("vm_hwm_kb", procStatusKb("VmHWM:"))
-                .put("vm_rss_kb", procStatusKb("VmRSS:")))
+                .put("vm_rss_kb", procStatusKb("VmRSS:"))
+                .put("minor_faults_decode", minfltAfterDecode - minfltStart)
+                .put("minor_faults_total", procStatMinflt() - minfltStart))
             .put("environment", environment(context))
     }
 
@@ -810,6 +816,25 @@ object Ticket177BenchmarkChecks {
             .put("start_status", status)
             .put("waited_ms", System.currentTimeMillis() - start)
             .put("timed_out", status > required)
+    }
+
+    /**
+     * Minor page faults of this process so far (field 10 of /proc/self/stat), or -1.
+     * Java-only string calls: this APK resolves Kotlin stdlib members from the shrunk
+     * target APK, which keeps none of the StringsKt extension facades.
+     */
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
+    private fun procStatMinflt(): Long {
+        val stat = readProc("/proc/self/stat") as java.lang.String
+        val close = stat.lastIndexOf(41)
+        if (close < 0 || close + 2 > stat.length) return -1L
+        val fields = (stat.substring(close + 2) as java.lang.String).split(" ")
+        if (fields.size < 8) return -1L
+        return try {
+            java.lang.Long.parseLong(fields[7])
+        } catch (ignored: NumberFormatException) {
+            -1L
+        }
     }
 
     /** Peak ("VmHWM:") / current ("VmRSS:") resident set from /proc/self/status, in kB. */
