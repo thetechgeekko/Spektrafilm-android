@@ -109,6 +109,9 @@ constexpr int kParallelMinChunk = 8192;
 // however many chunks per worker are requested.
 constexpr int kParallelMinChunkFloor = 1024;
 
+// Default pooled split (see parallel_chunks_per_worker).
+constexpr int kParallelDefaultChunksPerWorker = 4;
+
 // Effective minimum chunk. Honours the SPK_PARALLEL_MIN_CHUNK environment override
 // (clamped to >= 1) when set; otherwise kParallelMinChunk. Unset — the shipping
 // default — is byte-identical to the previous behaviour.
@@ -130,15 +133,17 @@ int parallel_min_chunk();
 // wait on itself.
 //
 // mode 1 = on, 0 = off (per-call threads, the pre-#182 behaviour), -1 = defer to
-// the SPK_PARALLEL_POOL environment variable (unset = off). Safe between renders.
+// the SPK_PARALLEL_POOL environment variable (unset = ON; 0/off/false = off). Safe
+// between renders. Adopted as the default from the #182 release-device A/B.
 void parallel_set_pool(int mode);
 bool parallel_pool_enabled();
 // Threads the pool currently owns (0 when it has never been used, or is off).
 int parallel_pool_workers();
 // Chunks per worker for pooled dispatches: nthreads*this fixed chunks are claimed
 // dynamically, which lets a fast core take over a slow core's share. 1 keeps the
-// exact chunk boundaries of the per-call path. SPK_PARALLEL_CHUNKS_PER_WORKER
-// overrides (clamped to [1, 64]); parallel_set_chunks_per_worker(0) defers to it.
+// exact chunk boundaries of the per-call path; the default is 4 (the measured
+// win on big.LITTLE). SPK_PARALLEL_CHUNKS_PER_WORKER overrides (clamped to
+// [1, 64]); parallel_set_chunks_per_worker(0) defers to it.
 int parallel_chunks_per_worker();
 void parallel_set_chunks_per_worker(int n);
 

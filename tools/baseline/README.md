@@ -57,9 +57,9 @@ SPK_BENCH_BYPASS_CACHE=1 SPK_BENCH_PARALLEL_POOL=0 SPK_BENCH_OUT=build/ab/off ba
 SPK_BENCH_BYPASS_CACHE=1 SPK_BENCH_PARALLEL_POOL=1 SPK_BENCH_OUT=build/ab/on  bash tools/baseline/run_bench.sh <apk> 2 BASE
 ```
 
-`SPK_BENCH_PARALLEL_POOL` is -1 (engine default), 0 (a std::thread fork-join per
-map) or 1 (the pool); `SPK_BENCH_CHUNKS_PER_WORKER` (default 0 = 1) splits each
-pooled map finer. The instrumentation stream records the mode and the worker count
+`SPK_BENCH_PARALLEL_POOL` is -1 (engine default, which is the pool), 0 (a
+std::thread fork-join per map) or 1 (the pool); `SPK_BENCH_CHUNKS_PER_WORKER`
+(default 0 = the engine default of 4) splits each pooled map finer. The instrumentation stream records the mode and the worker count
 (`TICKET182_PARALLEL_POOL: ...`). Digests must be identical across modes: the pool
 changes only which thread runs a chunk.
 

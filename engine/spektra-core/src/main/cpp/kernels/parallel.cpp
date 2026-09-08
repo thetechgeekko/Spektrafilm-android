@@ -378,6 +378,12 @@ void parallel_set_pool(int mode) {
 bool parallel_pool_enabled() {
     const int mode = g_pool_mode.load(std::memory_order_relaxed);
     if (mode >= 0) return mode != 0;
+    // Default ON since the #182 release-device A/B (SM-S948W, 12 MP BASE exports,
+    // interleaved with cool-downs): -4.6% simulate / -3.3% whole render with the
+    // 4-chunks-per-worker split, identical digests. SPK_PARALLEL_POOL=0/off/false
+    // restores the per-call fork-join.
+    const char* v = std::getenv("SPK_PARALLEL_POOL");
+    if (!v || !*v) return true;
     return env_enabled("SPK_PARALLEL_POOL");
 }
 
@@ -400,7 +406,7 @@ int parallel_chunks_per_worker() {
         const int n = std::atoi(env);
         if (n >= 1) return n > 64 ? 64 : n;
     }
-    return 1;
+    return kParallelDefaultChunksPerWorker;
 }
 
 namespace detail {

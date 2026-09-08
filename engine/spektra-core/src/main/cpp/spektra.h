@@ -477,7 +477,7 @@ uint64_t spk_gpu_print_frames(void);
 void spk_set_big_cores(int mode);
 
 /* Persistent render worker pool (issue #182): 1 = on, 0 = off (per-call
- * threads), -1 = defer to SPK_PARALLEL_POOL (unset = off). Output is
+ * threads), -1 = defer to SPK_PARALLEL_POOL (unset = on). Output is
  * unaffected by construction: chunk boundaries do not depend on who runs them. */
 void spk_set_parallel_pool(int mode);
 /* Threads the pool owns, 0 when off or never used. */

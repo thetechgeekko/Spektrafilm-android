@@ -811,7 +811,8 @@ class SpektraEngine private constructor(
         /**
          * Persistent render worker pool (#182): 1 = on, 0 = off (a std::thread
          * fork-join per map, the pre-#182 behaviour), -1 = defer to the
-         * `SPK_PARALLEL_POOL` env var (unset = off). Output is unaffected by
+         * `SPK_PARALLEL_POOL` env var (unset = on, the default since the #182
+         * release-device A/B). Output is unaffected by
          * construction: chunk boundaries never depend on which thread runs them.
          */
         @JvmStatic fun setParallelPool(mode: Int) = nativeSetParallelPool(mode)
