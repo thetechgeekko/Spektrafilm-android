@@ -1546,6 +1546,8 @@ constexpr uint32_t kHalBlurFieldB = 3u;          // hi, lo
 constexpr uint32_t kHalBlurFieldP1 = 5u;
 constexpr uint32_t kHalBlurFieldP2 = 7u;
 constexpr uint32_t kHalBlurFieldP3 = 9u;
+constexpr uint32_t kHalBlurFieldFirRadius = 11u;
+constexpr int kHalMaxFirRadius = 256;            // the shader's tap-loop bound
 constexpr uint32_t kHalMaxBounces = 8u;          // the UI allows 1..5
 constexpr uint32_t kHalBlurSlots = 4u + kHalMaxBounces;
 constexpr uint32_t kHalFrameFloatCount = kHalFrameBlurBase + kHalBlurSlots * 3u * kHalBlurStride;
@@ -1694,6 +1696,17 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         const double per[] = {r.scatter_core_um[ch], r.scatter_tail_um[ch], r.scatter_tail_weight[ch],
                               r.halation_strength[ch], r.halation_first_sigma_um[ch]};
         for (double v : per) if (!std::isfinite(v)) { d.reason = "bad-request"; return false; }
+        // The CPU blends (1 - w) * core + w * tail with the raw weight, and a
+        // weight outside [0, 1] makes that a difference of two larger numbers.
+        // The f32 sum buffer cannot hold the result inside the tolerance band
+        // once it does (measured 5.3e-4 on log10(raw) at w = 1.2), so the pass
+        // declines rather than returning an image it cannot bound. Presets can
+        // carry such a weight: the import range check covers only the
+        // resource-amplifying parameters.
+        if (!(r.scatter_tail_weight[ch] >= 0.0 && r.scatter_tail_weight[ch] <= 1.0)) {
+            d.reason = "tail-weight-out-of-range";
+            return false;
+        }
     }
 
     // Activity by the CPU pass's own rules.
@@ -1704,9 +1717,13 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         sigmaCore[ch] = r.scatter_core_um[ch] * r.scatter_spatial_scale / r.pixel_size_um;
         lambdaTail[ch] = r.scatter_tail_um[ch] * r.scatter_spatial_scale / r.pixel_size_um;
         if (sigmaCore[ch] > 0.0 || lambdaTail[ch] > 0.0) anyScatterSigma = true;
-        const double mix = std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0);
-        if (mix < 1.0) coreNeeded = true;
-        if (mix > 0.0) tailNeeded = true;
+        // The CPU blend is (1 - w) * core + w * tail with the RAW w
+        // (model/diffusion.cpp), and w is known to be in [0, 1] here because
+        // the validation above declined anything else. A blur whose weight is
+        // exactly zero for all three channels contributes nothing, so it is
+        // the one case worth skipping.
+        if (r.scatter_tail_weight[ch] != 1.0) coreNeeded = true;
+        if (r.scatter_tail_weight[ch] != 0.0) tailNeeded = true;
         aTot[ch] = r.halation_strength[ch] * r.halation_amount;
         sigmaH[ch] = r.halation_first_sigma_um[ch] * r.halation_spatial_scale / r.pixel_size_um;
         if (aTot[ch] > 0.0) anyA = true;
@@ -1838,9 +1855,9 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                 const bool isIir = blur_is_iir(sigmaMode, component, ch);
                 double weight = 0.0;
                 if (sigmaMode == kHalSigmaCore) {
-                    weight = 1.0 - std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0);
+                    weight = 1.0 - r.scatter_tail_weight[ch];
                 } else if (sigmaMode == kHalSigmaTail) {
-                    weight = std::min(std::max(r.scatter_tail_weight[ch], 0.0), 1.0) * kHalTailAmplitude[component];
+                    weight = r.scatter_tail_weight[ch] * kHalTailAmplitude[component];
                 } else {
                     // pow(decay, b) / sum_b pow(decay, b), with the CPU's
                     // std::pow(0, 0) == 1 for a zero decay (which the UI
@@ -1854,7 +1871,16 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                 dst[kHalBlurFieldSigma] = static_cast<float>(sigma);
                 dst[kHalBlurFieldIsIir] = isIir ? 1.0f : 0.0f;
                 dst[kHalBlurFieldWeight] = static_cast<float>(weight);
-                if (!isIir) continue;
+                if (!isIir) {
+                    // gaussian_kernel_1d: radius = int(3 * sigma + 0.5) on the
+                    // f64 sigma. Derived on the device from the f32 sigma it
+                    // gains a tap pair wherever rounding crosses an integer.
+                    const double capped = std::max(sigma, 1e-6);  // max_eps, as the CPU callers apply it
+                    const double radius = std::floor(3.0 * capped + 0.5);
+                    dst[kHalBlurFieldFirRadius] =
+                        static_cast<float>(std::min(radius, static_cast<double>(kHalMaxFirRadius)));
+                    continue;
+                }
                 // yvv_coeffs (kernels/exponential_filter.cpp), verbatim in f64.
                 const double q = sigma >= 2.5 ? 0.98711 * sigma - 0.96330
                                               : 3.97156 - 4.14554 * std::sqrt(1.0 - 0.26891 * sigma);

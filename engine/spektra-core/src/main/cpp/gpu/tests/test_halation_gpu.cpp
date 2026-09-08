@@ -325,6 +325,58 @@ int main() {
               "a blur whose channels straddle the FIR/IIR boundary is fully written");
     }
 
+    // The FIR tap radius is int(3 * sigma + 0.5), a step function of sigma, so
+    // deriving it from the f32 sigma on the device takes an extra tap pair
+    // whenever rounding sigma up crosses one of those steps. Reachable slider
+    // values do land there, so the boundaries are gated directly: a sigma one
+    // ulp below 0.5, 1.5 and 2.5 px keeps the CPU on the lower radius while an
+    // f32 copy would round onto the higher one.
+    for (double boundary : {0.5, 1.5, 2.5}) {
+        const double sigma_px = std::nextafter(boundary, 0.0);
+        spk::HalationParams fr{};
+        fr.active = true;
+        fr.scatter_amount = 1.0;
+        fr.scatter_spatial_scale = 1.0;
+        for (int c = 0; c < 3; ++c) {
+            fr.scatter_core_um[c] = sigma_px;  // pitch 1 um below, so sigma == this
+            fr.scatter_tail_um[c] = 0.0;
+            fr.scatter_tail_weight[c] = 0.0;
+        }
+        fr.halation_n_bounces = 0;
+        std::vector<double> rCpu = raw, rGpu(raw.size());
+        spk::apply_halation_um(rCpu.data(), w, h, fr, 1.0);
+        spk::gpu::HalationScatterDiagnostics dr{};
+        const bool rOk = spk::gpu::halation_scatter(request_from(fr, raw, w, h, 1.0), rGpu.data(), &dr);
+        double rmax = 0.0, rrms = 0.0;
+        if (rOk) log10_metrics(rCpu, rGpu, &rmax, &rrms);
+        std::printf("FIR radius boundary, sigma = nextafter(%.1f, 0) px: ok=%d engaged=%d; vs CPU on log10(raw) max_abs=%.3e rms=%.3e\n",
+                    boundary, rOk ? 1 : 0, dr.engaged ? 1 : 0, rmax, rrms);
+        check(rOk && dr.engaged && rmax <= 1e-4 && rrms <= 1e-5,
+              "FIR tap radius matches the CPU at a sigma one ulp below " + std::to_string(boundary));
+    }
+
+    // The CPU blends with the raw scatter tail weight, and a weight outside
+    // [0, 1] - which a hand-edited or shared preset can carry, since the import
+    // range check covers only the resource-amplifying params - turns that blend
+    // into a difference of larger numbers that the f32 sum buffer cannot hold
+    // inside the band (5.3e-4 on log10(raw) at w = 1.2 when it was allowed
+    // through). The pass must decline it, not clamp it: clamping would render
+    // a different image from the CPU with nothing to say so.
+    {
+        spk::HalationParams oob = p;
+        const double weights[3] = {1.2, -0.3, 0.5};
+        for (int c = 0; c < 3; ++c) oob.scatter_tail_weight[c] = weights[c];
+        std::vector<double> oGpu(raw.size(), -1.0);
+        spk::gpu::HalationScatterDiagnostics dOob{};
+        const bool oOk = spk::gpu::halation_scatter(request_from(oob, raw, w, h, pixel_size_um), oGpu.data(), &dOob);
+        bool oUntouched = true;
+        for (double v : oGpu) oUntouched = oUntouched && v == -1.0;
+        std::printf("scatter tail weight outside [0,1] (1.2/-0.3/0.5): ok=%d reason=%s untouched=%d\n",
+                    oOk ? 1 : 0, dOob.reason, oUntouched ? 1 : 0);
+        check(!oOk && std::strcmp(dOob.reason, "tail-weight-out-of-range") == 0 && oUntouched,
+              "an out-of-range scatter tail weight is declined, leaving the CPU to render it");
+    }
+
     // A zero bounce decay is reachable from the UI (the slider runs 0..1) and
     // the CPU's std::pow(0, 0) is 1, while GLSL's pow(0, 0) is undefined; the
     // weights are computed on the host for exactly this reason.

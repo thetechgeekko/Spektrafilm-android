@@ -99,10 +99,11 @@ const uint kBlurFieldB = 3u;
 const uint kBlurFieldP1 = 5u;
 const uint kBlurFieldP2 = 7u;
 const uint kBlurFieldP3 = 9u;
+const uint kBlurFieldFirRadius = 11u;
 
-// truncate in kernels/exponential_filter.h (the sigma >= 3 FIR/IIR split is
-// the host's decision and arrives in the blur table).
-const float kTruncate = 3.0;
+// The sigma >= 3 FIR/IIR split and the FIR tap radius are the host's
+// decisions and arrive in the blur table; this bound only keeps the tap loop
+// finite if the table is ever wrong.
 const int kMaxFirRadius = 256;
 
 // Packed float triples: element (pixel, channel) is at pixel * 3 + channel.
@@ -189,6 +190,13 @@ int reflectIndex(int i, int n) {
 float blurSigma(uint slot, uint c) { return f(kFrameBlurBase + (slot * 3u + c) * kBlurStride + 0u); }
 bool blurIsIir(uint slot, uint c) { return f(kFrameBlurBase + (slot * 3u + c) * kBlurStride + 1u) != 0.0; }
 float blurWeight(uint slot, uint c) { return f(kFrameBlurBase + (slot * 3u + c) * kBlurStride + 2u); }
+// int(3 * sigma + 0.5), computed by the host from the f64 sigma. Deriving it
+// here from the f32 sigma would take one extra tap pair whenever rounding
+// sigma up crosses an integer of 3 * sigma + 0.5, which reachable slider
+// values do produce (measured 6.6e-2 on log10(raw), 660x the band).
+int blurFirRadius(uint slot, uint c) {
+  return min(int(f(kFrameBlurBase + (slot * 3u + c) * kBlurStride + kBlurFieldFirRadius)), kMaxFirRadius);
+}
 
 // The blur slot this dispatch is filtering: the scatter core, one of the three
 // exponential-tail surrogates, or one bounce.
@@ -349,11 +357,10 @@ void iirColumnAccumulate(uint line, uint n, uint slot, uint c, float weight) {
 // boundaries, radius int(3 * sigma + 0.5); radius 0 is the identity. Weights
 // via the incremental exp recurrence (upstream's form), normalised over the
 // 2r + 1 taps exactly like the CPU kernel.
-float firPixel(uvec2 gid, uint c, float sigma, bool alongX) {
+float firPixel(uvec2 gid, uint c, float sigma, int radius, bool alongX) {
   const int x = int(gid.x);
   const int y = int(gid.y);
   const float centre = in0[(gid.y * params.width + gid.x) * 3u + c];
-  const int radius = sigma > 0.0 ? min(int(kTruncate * sigma + 0.5), kMaxFirRadius) : 0;
   if (radius <= 0) {
     return centre;
   }
@@ -447,7 +454,7 @@ void main() {
     const uint slot = blurSlot();
     for (uint c = 0u; c < 3u; ++c) {
       if (!blurIsIir(slot, c)) {
-        const float v = firPixel(gid, c, blurSigma(slot, c), alongX);
+        const float v = firPixel(gid, c, blurSigma(slot, c), blurFirRadius(slot, c), alongX);
         buf1[index + c] = alongX ? v : buf1[index + c] + blurWeight(slot, c) * v;
       }
     }
@@ -474,11 +481,14 @@ void main() {
     // raw = raw + a_tot * halation_blur ; if renormalize: raw /= (1 + a_tot)
     const vec3 raw = vec3(in0[index], in0[index + 1u], in0[index + 2u]);
     const vec3 blur = vec3(buf1[index], buf1[index + 1u], buf1[index + 2u]);
-    const vec3 amount = max(vec3(
+    // a_tot = halation_strength * halation_amount, exactly as
+    // model/diffusion.cpp forms it: no clamp, because the CPU pass this must
+    // stay within tolerance of does not clamp either.
+    const vec3 amount = vec3(
       f(kFrameHalationStrengthR),
       f(kFrameHalationStrengthG),
       f(kFrameHalationStrengthB)
-    ), vec3(0.0)) * max(f(kFrameHalationAmount), 0.0);
+    ) * f(kFrameHalationAmount);
     vec3 resolved = raw + amount * blur;
     if (f(kFrameHalationRenormalize) > 0.5) {
       resolved /= (vec3(1.0) + amount);
