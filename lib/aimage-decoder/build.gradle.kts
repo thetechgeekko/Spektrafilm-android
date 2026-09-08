@@ -77,7 +77,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
 }
 
 dependencies {
@@ -92,6 +97,10 @@ dependencies {
  * export audit for every configured ABI. It intentionally does not install,
  * fetch a corpus, or wire this experiment into :app.
  */
+// AGP 9 drops android.sdkDirectory from the public DSL; the SDK location is a provider on
+// androidComponents.sdkComponents, resolved when the task runs.
+val sdkDir = androidComponents.sdkComponents.sdkDirectory
+
 tasks.register("verifyAImageDecoderHostAndAbi") {
     group = "verification"
     description = "Run AImageDecoder host CTest and API-24 weak-symbol/export audit"
@@ -136,10 +145,10 @@ tasks.register("verifyAImageDecoderHostAndAbi") {
         val windows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
         val executableSuffix = if (windows) ".exe" else ""
         val sdkCmake = file(
-            "${android.sdkDirectory}/cmake/3.22.1/bin/cmake$executableSuffix",
+            "${sdkDir.get().asFile}/cmake/3.22.1/bin/cmake$executableSuffix",
         )
         val sdkCtest = file(
-            "${android.sdkDirectory}/cmake/3.22.1/bin/ctest$executableSuffix",
+            "${sdkDir.get().asFile}/cmake/3.22.1/bin/ctest$executableSuffix",
         )
         val cmake = if (sdkCmake.isFile) sdkCmake.absolutePath else "cmake"
         val ctest = if (sdkCtest.isFile) sdkCtest.absolutePath else "ctest"
@@ -156,7 +165,7 @@ tasks.register("verifyAImageDecoderHostAndAbi") {
             ),
         )
 
-        val ndk = file("${android.sdkDirectory}/ndk/${android.ndkVersion}")
+        val ndk = file("${sdkDir.get().asFile}/ndk/${android.ndkVersion}")
         val prebuiltRoot = file("$ndk/toolchains/llvm/prebuilt")
         val prebuilts = prebuiltRoot.listFiles()?.filter { it.isDirectory }.orEmpty()
         check(prebuilts.size == 1) {

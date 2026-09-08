@@ -92,7 +92,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.
@@ -102,6 +101,12 @@ android {
         baseline = file("lint-baseline.xml")
         abortOnError = true
         checkReleaseBuilds = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
