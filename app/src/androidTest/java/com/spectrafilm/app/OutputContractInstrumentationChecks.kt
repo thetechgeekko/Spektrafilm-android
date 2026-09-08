@@ -30,7 +30,7 @@ object OutputContractInstrumentationChecks {
         require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             "ticket #174 connected probe requires API 26+ color-managed Bitmaps"
         }
-        ultraHdrIsRejectedBeforeRender()
+        ultraHdrContractIsClassifiedAndSpatial()
         bitmapTagsAndSdrEncodersRoundTrip(context)
 
         val descriptor = rendered(
@@ -47,18 +47,46 @@ object OutputContractInstrumentationChecks {
         tiff32fRoundTrip(context, icc)
     }
 
-    private fun ultraHdrIsRejectedBeforeRender() {
-        val failure = runCatching {
-            ExportOptions(
-                format = ExportFormat.ULTRA_HDR,
-                jpegQuality = 95,
-                size = ExportSize.FULL,
-                customLongEdge = 0,
-                customName = "",
-            ).outputDescriptor(ColorSpace.SRGB, outputCctfEncoding = true, Build.VERSION.SDK_INT)
+    /**
+     * Since c0d2127 (#140) Ultra HDR is SHIPPED_CLASSIFIED with a render-derived spatial gain map:
+     * the connected preflight must accept it on API 34+ with the quarter-resolution policy the unit
+     * tests pin, and still reject a non-sRGB base and a pre-34 device before any render.
+     */
+    private fun ultraHdrContractIsClassifiedAndSpatial() {
+        val options = ExportOptions(
+            format = ExportFormat.ULTRA_HDR,
+            jpegQuality = 95,
+            size = ExportSize.FULL,
+            customLongEdge = 0,
+            customName = "",
+        )
+        if (Build.VERSION.SDK_INT >= 34) {
+            val descriptor = options.outputDescriptor(
+                ColorSpace.SRGB,
+                outputCctfEncoding = true,
+                Build.VERSION.SDK_INT,
+            )
+            require(descriptor.existingExportClass == ExistingExportClass.ULTRA_HDR_SPATIAL_GAIN_MAP) {
+                "Ultra HDR classified as ${descriptor.existingExportClass}"
+            }
+            val gainMap = requireNotNull(descriptor.metadata.hdrGainMap) {
+                "Ultra HDR descriptor carries no gain-map contract"
+            }
+            require(gainMap.isSpatial && gainMap.downsample == 4) {
+                "Ultra HDR gain map is not the quarter-resolution spatial policy: $gainMap"
+            }
+        }
+        val nonSrgb = runCatching {
+            options.outputDescriptor(ColorSpace.ADOBE_RGB, outputCctfEncoding = true, Build.VERSION.SDK_INT)
         }.exceptionOrNull()
-        require(failure is IllegalArgumentException) {
-            "blocked Ultra HDR placeholder passed connected pre-render validation: $failure"
+        require(nonSrgb is IllegalArgumentException) {
+            "Ultra HDR accepted a non-sRGB base before render: $nonSrgb"
+        }
+        val pre34 = runCatching {
+            options.outputDescriptor(ColorSpace.SRGB, outputCctfEncoding = true, 33)
+        }.exceptionOrNull()
+        require(pre34 is IllegalArgumentException) {
+            "Ultra HDR accepted API 33 before render: $pre34"
         }
     }
 

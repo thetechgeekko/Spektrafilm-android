@@ -271,7 +271,7 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
                 results.putString(
                         "stream",
                         "TICKET174_OUTPUT_DESCRIPTOR: PASS "
-                                + "(SDR JPEG/PNG, PNG16, TIFF16, TIFF32F; blocked Ultra HDR)\n"
+                                + "(SDR JPEG/PNG, PNG16, TIFF16, TIFF32F; classified spatial Ultra HDR)\n"
                                 +
                         "TICKET170_INJECTED_FAILURES: PASS "
                                 + "(deterministic ENOSPC and interrupted-close fakes)\n"
