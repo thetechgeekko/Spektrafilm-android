@@ -187,6 +187,7 @@ struct StageTimingSnapshot {
     unsigned long long fft_fallbacks = 0;
     GpuPointwiseTimingSnapshot gpu_pointwise;
     GpuHalationTimingSnapshot gpu_halation;
+    GpuHalationTimingSnapshot gpu_dir_diffusion;
     double stages_ms[STG_COUNT] = {0};
 };
 
@@ -231,6 +232,24 @@ inline void stage_timing_note_gpu_halation(
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
     GpuHalationTimingSnapshot& h = state.current.gpu_halation;
+    h.attempted = attempted;
+    h.engaged = engaged;
+    h.reason = reason ? reason : "unknown";
+    h.slices = slices;
+    h.dispatches = dispatches;
+    h.halo_rows = halo_rows;
+    h.upload_ms = upload_ms;
+    h.gpu_ms = gpu_ms;
+    h.readback_ms = readback_ms;
+}
+
+inline void stage_timing_note_gpu_dir_diffusion(
+    bool attempted, bool engaged, const char* reason, uint32_t slices,
+    uint32_t dispatches, uint32_t halo_rows, double upload_ms, double gpu_ms,
+    double readback_ms) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    GpuHalationTimingSnapshot& h = state.current.gpu_dir_diffusion;
     h.attempted = attempted;
     h.engaged = engaged;
     h.reason = reason ? reason : "unknown";
@@ -401,16 +420,17 @@ inline int stage_timings_format(char* buf, int cap) {
     // The GPU halation pass (#206): where the halation stage's time went when
     // the pass was attempted, so a logcat line answers "did it engage, and was
     // the device or the f64<->f32 staging the cost".
-    if (snapshot.gpu_halation.attempted && off < cap - 1) {
+    const GpuHalationTimingSnapshot* notes[2] = {&snapshot.gpu_halation, &snapshot.gpu_dir_diffusion};
+    const char* labels[2] = {"gpu_halation", "gpu_dir"};
+    for (int i = 0; i < 2; ++i) {
+        if (!notes[i]->attempted || off >= cap - 1) continue;
         int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%sgpu_halation=%s/%s/slices%u/up%.1f/gpu%.1f/down%.1f",
-                              off ? " " : "",
-                              snapshot.gpu_halation.engaged ? "engaged" : "fallback",
-                              snapshot.gpu_halation.reason,
-                              snapshot.gpu_halation.slices,
-                              snapshot.gpu_halation.upload_ms,
-                              snapshot.gpu_halation.gpu_ms,
-                              snapshot.gpu_halation.readback_ms);
+                              "%s%s=%s/%s/slices%u/up%.1f/gpu%.1f/down%.1f",
+                              off ? " " : "", labels[i],
+                              notes[i]->engaged ? "engaged" : "fallback",
+                              notes[i]->reason, notes[i]->slices,
+                              notes[i]->upload_ms, notes[i]->gpu_ms,
+                              notes[i]->readback_ms);
         if (n > 0) off += n;
     }
     if (cap > 0) buf[off < cap ? off : cap - 1] = '\0';
@@ -496,6 +516,19 @@ inline int stage_timings_json_format(char* buf, int cap) {
         snapshot.gpu_halation.slices, snapshot.gpu_halation.dispatches,
         snapshot.gpu_halation.halo_rows, snapshot.gpu_halation.upload_ms,
         snapshot.gpu_halation.gpu_ms, snapshot.gpu_halation.readback_ms);
+    stage_timing_append(
+        buf, cap, &off,
+        "},\"gpu_dir_diffusion\":{\"attempted\":%s,\"engaged\":%s,\"reason\":\"",
+        snapshot.gpu_dir_diffusion.attempted ? "true" : "false",
+        snapshot.gpu_dir_diffusion.engaged ? "true" : "false");
+    stage_timing_append_json_string(buf, cap, &off, snapshot.gpu_dir_diffusion.reason);
+    stage_timing_append(
+        buf, cap, &off,
+        "\",\"slices\":%u,\"dispatches\":%u,\"halo_rows\":%u,"
+        "\"upload_ms\":%.1f,\"gpu_ms\":%.1f,\"readback_ms\":%.1f",
+        snapshot.gpu_dir_diffusion.slices, snapshot.gpu_dir_diffusion.dispatches,
+        snapshot.gpu_dir_diffusion.halo_rows, snapshot.gpu_dir_diffusion.upload_ms,
+        snapshot.gpu_dir_diffusion.gpu_ms, snapshot.gpu_dir_diffusion.readback_ms);
     stage_timing_append(
         buf, cap, &off,
         "},\"gpu_pointwise\":{\"requested\":%s,\"attempted\":%s,"

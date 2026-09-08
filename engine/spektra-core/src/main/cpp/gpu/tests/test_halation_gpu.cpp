@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "gpu/vulkan_compute.h"
+#include "kernels/exponential_filter.h"
 #include "model/diffusion.h"
 
 namespace {
@@ -218,10 +219,56 @@ int main() {
     for (double v : refused) untouched = untouched && v == -1.0;
     check(!hugeOk && std::strcmp(dh.reason, "sigma-too-large") == 0 && untouched,
           "sigma past the FIR cap is refused with the output untouched");
-    // The refusal tears the kernel down; the next call must rebuild and still agree.
+    // A refusal leaves the kernel warm; the next call must still agree byte for byte.
     std::vector<double> rebuilt(raw.size());
     check(spk::gpu::halation_scatter(r, rebuilt.data(), nullptr) && bytes_eq(gpu, rebuilt),
-          "after a refusal the rebuilt kernel reproduces the same bytes");
+          "after a refusal the kernel reproduces the same bytes");
+
+    // The DIR-coupler diffusion (model/couplers.cpp) is the scatter step with
+    // amount 1: (1 - w) * G(size) + w * Exp(tail). Digested defaults at an
+    // 18 um pitch: size 20 um (FIR class), tail 200 um (IIR class, sigma up to
+    // ~31 px). Reference = the CPU filters and blend exactly as couplers.cpp
+    // runs them, compared on the plane itself in density units: the correction
+    // is silver density times the inhibitor matrix, so the synthetic scene is
+    // scaled into that range (0..~3) before the comparison.
+    {
+        const double pitch = 18.0, size_um = 20.0, tail_um = 200.0, tail_w = 0.06;
+        std::vector<double> plane(raw.size());
+        for (size_t i = 0; i < raw.size(); ++i) plane[i] = raw[i] * 0.08;
+        std::vector<double> cpuCorr = plane, tailPlane(raw.size());
+        const double lt[3] = {tail_um / pitch, tail_um / pitch, tail_um / pitch};
+        const double sg[3] = {size_um / pitch, size_um / pitch, size_um / pitch};
+        spk::exponential_filter_per_channel_d(plane.data(), w, h, 3, lt, tailPlane.data());
+        spk::gaussian_blur_per_channel_d(cpuCorr.data(), w, h, 3, sg);
+        for (size_t i = 0; i < cpuCorr.size(); ++i) cpuCorr[i] = (1.0 - tail_w) * cpuCorr[i] + tail_w * tailPlane[i];
+        spk::gpu::HalationScatterRequest rd{};
+        rd.raw_rgb = plane.data();
+        rd.width = w;
+        rd.height = h;
+        rd.pixel_size_um = pitch;
+        rd.scatter_amount = 1.0;
+        rd.scatter_spatial_scale = 1.0;
+        rd.halation_n_bounces = 0;
+        for (int c = 0; c < 3; ++c) {
+            rd.scatter_core_um[c] = size_um;
+            rd.scatter_tail_um[c] = tail_um;
+            rd.scatter_tail_weight[c] = tail_w;
+        }
+        std::vector<double> gpuCorr(raw.size());
+        spk::gpu::HalationScatterDiagnostics dd{};
+        const bool dirOk = spk::gpu::halation_scatter(rd, gpuCorr.data(), &dd);
+        double dmax = 0.0, dsse = 0.0;
+        for (size_t i = 0; i < cpuCorr.size(); ++i) {
+            const double diff = std::fabs(cpuCorr[i] - gpuCorr[i]);
+            if (diff > dmax) dmax = diff;
+            dsse += diff * diff;
+        }
+        const double drms = std::sqrt(dsse / static_cast<double>(cpuCorr.size()));
+        std::printf("DIR-shaped diffusion: ok=%d engaged=%d halo=%u slices=%u; vs CPU filters max_abs=%.3e rms=%.3e\n",
+                    dirOk ? 1 : 0, dd.engaged ? 1 : 0, dd.halo_rows, dd.slices, dmax, drms);
+        check(dirOk && dd.engaged && dmax <= 1e-4 && drms <= 1e-5,
+              "DIR-shaped diffusion within the parity band vs the CPU filters");
+    }
 
     std::printf(failures == 0 ? "test_halation_gpu: ALL OK\n" : "test_halation_gpu: FAILURES\n");
     return failures == 0 ? 0 : 1;

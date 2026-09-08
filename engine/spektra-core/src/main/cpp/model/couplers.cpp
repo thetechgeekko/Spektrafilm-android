@@ -13,9 +13,12 @@
 #include "model/couplers.h"
 
 #include <cmath>
+#include <new>
 #include <vector>
 
+#include "gpu/vulkan_compute.h"
 #include "kernels/exponential_filter.h"
+#include "runtime/stage_timer.h"
 #include "kernels/parallel.h"
 #include "kernels/uniform_axis.h"
 
@@ -393,7 +396,46 @@ void apply_density_correction_dir_couplers_spatial(
     const double size_px = params.diffusion_size_um / pixel_size_um;
     const double tail_px = params.diffusion_tail_um / pixel_size_um;
     const double tail_w = params.diffusion_tail_weight;
-    {
+    // Fast GPU export (#206): the blend below is the halation pass's scatter
+    // step with amount 1 (core sigma = size, tail = exponential surrogate,
+    // tail mix = tail_w), so the same GPU pass diffuses the correction. The
+    // result replaces `correction` only when every slice succeeded; otherwise
+    // the f64 CPU filters below run unchanged.
+    bool diffused_on_gpu = false;
+    if (params.allow_gpu_diffusion && gpu::available()) {
+        gpu::HalationScatterRequest request{};
+        request.raw_rgb = correction.data();
+        request.width = w;
+        request.height = h;
+        request.pixel_size_um = pixel_size_um;
+        request.scatter_amount = 1.0;
+        request.scatter_spatial_scale = 1.0;
+        request.halation_n_bounces = 0;
+        for (int c = 0; c < 3; ++c) {
+            request.scatter_core_um[c] = params.diffusion_size_um;
+            request.scatter_tail_um[c] = params.diffusion_tail_um;
+            request.scatter_tail_weight[c] = tail_w;
+        }
+        std::vector<double> diffused;
+        bool allocated = true;
+        try {
+            diffused.resize(static_cast<size_t>(npix) * 3);
+        } catch (const std::bad_alloc&) {
+            allocated = false;
+        }
+        gpu::HalationScatterDiagnostics diagnostics{};
+        const bool ok = allocated && gpu::halation_scatter(request, diffused.data(), &diagnostics);
+        stage_timing_note_gpu_dir_diffusion(diagnostics.attempted, diagnostics.engaged,
+                                            diagnostics.reason, diagnostics.slices,
+                                            diagnostics.dispatches, diagnostics.halo_rows,
+                                            diagnostics.upload_ms, diagnostics.gpu_ms,
+                                            diagnostics.readback_ms);
+        if (ok && diagnostics.engaged) {
+            correction.swap(diffused);
+            diffused_on_gpu = true;
+        }
+    }
+    if (!diffused_on_gpu) {
         // ORDER MATTERS FOR MEMORY, NOT FOR MATH. The two filters are
         // independent: the exponential tail READS `correction` and WRITES
         // `tail`, while the Gaussian blurs `correction` in place. Running the
@@ -438,7 +480,7 @@ void apply_density_correction_dir_couplers_spatial(
             for (int i = lo; i < hi; ++i)
                 correction[i] = (1.0 - tail_w) * correction[i] + tail_w * tail[i];
         });
-    }
+    }  // !diffused_on_gpu
 
     // ---- interpolate_exposure_to_density(log_raw - correction, dc0, le, gamma) ----
     std::vector<double> axis_c[3], curve_c[3];

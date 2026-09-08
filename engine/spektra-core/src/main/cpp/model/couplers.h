@@ -53,6 +53,10 @@ struct DirCouplersParams {
     double diffusion_size_um = 0.0;
     double diffusion_tail_um = 0.0;
     double diffusion_tail_weight = 0.0;
+    // Fast GPU export latch (issue #206): diffuse the correction with the GPU
+    // scatter pass (the same Gaussian + exponential-tail blend). Set only by
+    // spk_simulate under gpu_export; the CPU filters stay the fallback.
+    bool allow_gpu_diffusion = false;
 };
 
 // Faithful port of numpy.interp(x, xp, fp) (numpy compiled_base.c) including the

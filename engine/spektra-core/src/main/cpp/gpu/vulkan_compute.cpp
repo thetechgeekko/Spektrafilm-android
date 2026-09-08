@@ -1971,10 +1971,22 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
         std::lock_guard<std::mutex> lk(gpu_mutex());
         Ctx& c = ctx();
         ok = halation_scatter_locked(c, request, out_rgb, d);
-        if (!ok) c.destroyHalation();
+        // A refusal decided before any Vulkan call (bad request, sigma or slice
+        // geometry) leaves the kernel state valid and warm; only a failure of the
+        // device path itself tears it down so the next call rebuilds from scratch.
+        if (!ok && (std::strcmp(d.reason, "pipeline-failed") == 0 ||
+                    std::strcmp(d.reason, "allocation-failed") == 0 ||
+                    std::strcmp(d.reason, "dispatch-failed") == 0)) {
+            c.destroyHalation();
+        }
     } catch (...) {
         d.reason = "exception";
         ok = false;
+        try {
+            std::lock_guard<std::mutex> lk(gpu_mutex());
+            ctx().destroyHalation();
+        } catch (...) {
+        }
     }
     return ok;
 }
