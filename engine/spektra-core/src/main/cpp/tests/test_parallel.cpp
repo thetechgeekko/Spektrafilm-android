@@ -576,6 +576,49 @@ int main(int argc, char** argv) {
         spk_set_big_cores(-1);
     }
 
+    // 9) PERSISTENT WORKER POOL (spk_set_parallel_pool, issue #182) toggled around
+    //    renders. The pool changes WHO runs a chunk, never the chunk boundaries, so
+    //    every route must be byte-identical pool-off vs pool-on, at 8 workers and at
+    //    1 (serial), and with the finer 4-chunks-per-worker split. This covers all
+    //    three dispatchers: fixed-chunk (scan/print maps), cancellable (only with a
+    //    scope, exercised by the JNI-side tests) and the grain block pool.
+    {
+        spk_params p = base;
+        p.scan_film = 1;
+        p.grain_active = 1;
+        p.halation_active = 1;
+
+        std::vector<float> off8, on8, on1, on8_fine, off8_after;
+        spk_set_parallel_pool(0);
+        ok &= simulate_with_threads(asset_dir, &in_img, &p, 8, &off8);
+
+        spk_set_parallel_pool(1);
+        ok &= simulate_with_threads(asset_dir, &in_img, &p, 8, &on8);
+        ok &= check_identical("parallel_pool off->on", off8, on8,
+                              "8-thread, per-call threads vs persistent pool");
+        const int pool_workers = spk_parallel_pool_workers();
+        const bool pool_ok = std::thread::hardware_concurrency() <= 1 || pool_workers > 0;
+        std::printf("[parallel_pool workers] %d -> %s\n", pool_workers,
+                    pool_ok ? "PASS" : "FAIL");
+        ok &= pool_ok;
+
+        ok &= simulate_with_threads(asset_dir, &in_img, &p, 1, &on1);
+        ok &= check_identical("parallel_pool 1 vs 8", on1, on8,
+                              "pool on, serial vs 8 workers");
+
+        spk_set_parallel_chunks_per_worker(4);
+        ok &= simulate_with_threads(asset_dir, &in_img, &p, 8, &on8_fine);
+        ok &= check_identical("parallel_pool fine split", off8, on8_fine,
+                              "8-thread, 1 vs 4 chunks per worker");
+        spk_set_parallel_chunks_per_worker(0);
+
+        spk_set_parallel_pool(0);
+        ok &= simulate_with_threads(asset_dir, &in_img, &p, 8, &off8_after);
+        ok &= check_identical("parallel_pool on->off", off8, off8_after,
+                              "8-thread, pool off vs restored");
+        spk_set_parallel_pool(-1);
+    }
+
     std::printf("%s\n", ok ? "ALL PASS" : "FAIL");
     return ok ? 0 : 1;
 }

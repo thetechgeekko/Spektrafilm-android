@@ -105,6 +105,10 @@ void parallel_set_big_cores(int mode);
 // spawn overhead dominating (e.g. small preview renders).
 constexpr int kParallelMinChunk = 8192;
 
+// Floor for the pooled finer split: a chunk never shrinks below this many items
+// however many chunks per worker are requested.
+constexpr int kParallelMinChunkFloor = 1024;
+
 // Effective minimum chunk. Honours the SPK_PARALLEL_MIN_CHUNK environment override
 // (clamped to >= 1) when set; otherwise kParallelMinChunk. Unset — the shipping
 // default — is byte-identical to the previous behaviour.
@@ -116,6 +120,27 @@ constexpr int kParallelMinChunk = 8192;
 // default. Setting this override lets the test force genuine multi-chunk execution
 // on the existing fixture, so 1-vs-N really compares split work against serial work.
 int parallel_min_chunk();
+
+// Persistent worker pool (issue #182). When enabled, the fixed-chunk dispatchers
+// below hand their chunks to a process-wide pool of long-lived workers instead of
+// spawning nthreads-1 std::threads per call. Chunk BOUNDARIES are unchanged: still
+// a pure function of (count, threads, chunks-per-worker), so which worker claims
+// which chunk cannot change a byte. A dispatch issued from inside a pool worker (a
+// nested map) uses the per-call fork-join exactly as before, so the pool can never
+// wait on itself.
+//
+// mode 1 = on, 0 = off (per-call threads, the pre-#182 behaviour), -1 = defer to
+// the SPK_PARALLEL_POOL environment variable (unset = off). Safe between renders.
+void parallel_set_pool(int mode);
+bool parallel_pool_enabled();
+// Threads the pool currently owns (0 when it has never been used, or is off).
+int parallel_pool_workers();
+// Chunks per worker for pooled dispatches: nthreads*this fixed chunks are claimed
+// dynamically, which lets a fast core take over a slow core's share. 1 keeps the
+// exact chunk boundaries of the per-call path. SPK_PARALLEL_CHUNKS_PER_WORKER
+// overrides (clamped to [1, 64]); parallel_set_chunks_per_worker(0) defers to it.
+int parallel_chunks_per_worker();
+void parallel_set_chunks_per_worker(int n);
 
 // Cooperative cancellation for long native maps. The callback is deliberately
 // owned and invoked by the thread that constructs the scope. Android's JNI
@@ -160,6 +185,35 @@ bool parallel_cancellation_poll(ParallelCancelCheck check,
 constexpr int kCancellationPollWork = 1024;
 
 namespace detail {
+
+// Type-erased unit handed to the persistent pool: chunk indices [0, nchunks).
+struct PoolTask {
+    void* ctx;
+    void (*fn)(void* ctx, int chunk_index);
+};
+
+// True while the current thread is executing a pool chunk (nested dispatches
+// then take the per-call path so the pool never waits on itself).
+bool pool_worker_thread() noexcept;
+
+// Run `task` for every chunk index in [0, nchunks) on the pool plus, when
+// `owner_claims` is set, on the calling thread; return once every claimed chunk
+// has finished. `poll` (optional) runs on the calling thread while it waits and
+// returns true to request an early stop: unclaimed chunks are then skipped and
+// claimed ones drain. Returns false WITHOUT running anything when the pool is
+// unavailable for this call (disabled, nested, or no worker could be created), in
+// which case the caller falls back to the per-call dispatcher.
+bool pool_run(int nchunks, PoolTask task, bool owner_claims,
+              bool (*poll)(void*), void* poll_ctx);
+
+// Number of pooled chunks for a dispatch that would otherwise use nthreads
+// equal chunks over `count` items: nthreads * chunks_per_worker, floored so a
+// chunk never drops below kParallelMinChunkFloor items, never below nthreads.
+inline int pool_chunk_count(int count, int nthreads) {
+    const int req = nthreads * parallel_chunks_per_worker();
+    const int cap = (count + kParallelMinChunkFloor - 1) / kParallelMinChunkFloor;
+    return std::max(1, std::min(req, std::max(cap, nthreads)));
+}
 
 // std::thread terminates the process when an exception escapes its entry point.
 // Capture the first failure, ask sibling chunks not yet started to stop, join the
@@ -221,6 +275,30 @@ void parallel_dispatch(int begin, int end, int nthreads, const Body& body) {
         tbb::simple_partitioner());
     return;
 #else
+    if (parallel_pool_enabled() && !pool_worker_thread()) {
+        const int nchunks = pool_chunk_count(count, nthreads);
+        const int chunk_p = (count + nchunks - 1) / nchunks;
+        ParallelFailureState pool_failure;
+        struct Ctx {
+            const Body* body; int begin; int end; int chunk; ParallelFailureState* failure;
+        } ctx{&body, begin, end, chunk_p, &pool_failure};
+        const PoolTask task{&ctx, [](void* c, int i) {
+            auto* x = static_cast<Ctx*>(c);
+            if (x->failure->stop_requested()) return;
+            const int cb = x->begin + i * x->chunk;
+            if (cb >= x->end) return;
+            const int ce = std::min(cb + x->chunk, x->end);
+            try {
+                (*x->body)(cb, ce);
+            } catch (...) {
+                x->failure->capture_current();
+            }
+        }};
+        if (pool_run(nchunks, task, /*owner_claims=*/true, nullptr, nullptr)) {
+            pool_failure.rethrow_if_captured();
+            return;
+        }
+    }
     std::vector<std::thread> workers;
     workers.reserve(static_cast<size_t>(nthreads - 1));
     ParallelFailureState failure;
@@ -287,6 +365,52 @@ void parallel_dispatch_cancellable(int begin, int end, int nthreads,
     }
 
     const int count = end - begin;
+#ifndef SPK_USE_TBB
+    if (parallel_pool_enabled() && !pool_worker_thread()) {
+        const int nchunks = pool_chunk_count(count, nthreads);
+        const int chunk_p = (count + nchunks - 1) / nchunks;
+        std::atomic<bool> pstop{false};
+        ParallelFailureState pfailure;
+        const std::thread::id owner = std::this_thread::get_id();
+        using RunBlocks = decltype(run_blocks);
+        struct Ctx {
+            const RunBlocks* run; int begin; int end; int chunk;
+            std::atomic<bool>* stop; ParallelFailureState* failure; std::thread::id owner;
+        } ctx{&run_blocks, begin, end, chunk_p, &pstop, &pfailure, owner};
+        const PoolTask task{&ctx, [](void* c, int i) {
+            auto* x = static_cast<Ctx*>(c);
+            const int cb = x->begin + i * x->chunk;
+            if (cb >= x->end) return;
+            const int ce = std::min(cb + x->chunk, x->end);
+            try {
+                // Only the owner thread may sample the thread-affine callback.
+                (*x->run)(cb, ce, x->stop, std::this_thread::get_id() == x->owner);
+            } catch (const ParallelCancelled&) {
+                x->stop->store(true, std::memory_order_relaxed);
+            } catch (...) {
+                x->failure->capture_current();
+                x->stop->store(true, std::memory_order_release);
+            }
+        }};
+        struct Poll { std::atomic<bool>* stop; } poll_ctx{&pstop};
+        const auto poll = [](void* c) -> bool {
+            auto* x = static_cast<Poll*>(c);
+            if (x->stop->load(std::memory_order_relaxed)) return true;
+            if (parallel_cancellation_requested()) {
+                x->stop->store(true, std::memory_order_relaxed);
+                return true;
+            }
+            return false;
+        };
+        if (pool_run(nchunks, task, /*owner_claims=*/true, poll, &poll_ctx)) {
+            pfailure.rethrow_if_captured();
+            if (pstop.load(std::memory_order_relaxed) || parallel_cancellation_latched()) {
+                throw ParallelCancelled{};
+            }
+            return;
+        }
+    }
+#endif  // SPK_USE_TBB
     const int chunk = (count + nthreads - 1) / nthreads;
     std::atomic<bool> stop{false};
     std::atomic<int> workers_left{0};
@@ -379,6 +503,45 @@ void parallel_dispatch_dynamic_with_factory(int nthreads, const Worker& worker,
     }
 
     parallel_pin_to_big_cores();
+#ifndef SPK_USE_TBB
+    if (parallel_pool_enabled() && !pool_worker_thread()) {
+        // One claimable slot per worker invocation; each invocation drains the
+        // caller-owned atomic block queue, so which thread runs a slot (or how many
+        // slots the owner takes) cannot change which block is computed with which seed.
+        std::atomic<bool> pstop{false};
+        ParallelFailureState pfailure;
+        struct Ctx { const Worker* worker; std::atomic<bool>* stop; ParallelFailureState* failure; }
+            ctx{&worker, &pstop, &pfailure};
+        const PoolTask task{&ctx, [](void* c, int /*slot*/) {
+            auto* x = static_cast<Ctx*>(c);
+            if (x->stop->load(std::memory_order_acquire)) return;
+            try {
+                (*x->worker)(x->stop);
+            } catch (...) {
+                x->failure->capture_current();
+                x->stop->store(true, std::memory_order_release);
+            }
+        }};
+        struct Poll { std::atomic<bool>* stop; bool cancellable; } poll_ctx{&pstop, cancellable};
+        const auto poll = [](void* c) -> bool {
+            auto* x = static_cast<Poll*>(c);
+            if (x->stop->load(std::memory_order_acquire)) return true;
+            if (x->cancellable && parallel_cancellation_requested()) {
+                x->stop->store(true, std::memory_order_release);
+                return true;
+            }
+            return false;
+        };
+        if (pool_run(nthreads, task, /*owner_claims=*/!cancellable, poll, &poll_ctx)) {
+            pfailure.rethrow_if_captured();
+            if (cancellable && (pstop.load(std::memory_order_acquire) ||
+                                parallel_cancellation_latched())) {
+                throw ParallelCancelled{};
+            }
+            return;
+        }
+    }
+#endif  // SPK_USE_TBB
     std::atomic<bool> stop{false};
     std::atomic<int> workers_left{0};
     ParallelFailureState failure;

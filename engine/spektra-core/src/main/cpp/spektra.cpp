@@ -3102,6 +3102,12 @@ void spk_diffusion_reset_fft_fallbacks(void) { spk::diffusion_reset_fft_fallback
 
 void spk_set_big_cores(int mode) { spk::parallel_set_big_cores(mode); }
 
+void spk_set_parallel_pool(int mode) { spk::parallel_set_pool(mode); }
+
+int spk_parallel_pool_workers(void) { return spk::parallel_pool_workers(); }
+
+void spk_set_parallel_chunks_per_worker(int n) { spk::parallel_set_chunks_per_worker(n); }
+
 int spk_big_core_count(void) { return spk::parallel_big_core_count(); }
 
 int spk_stage_timings(char* buf, int cap) {

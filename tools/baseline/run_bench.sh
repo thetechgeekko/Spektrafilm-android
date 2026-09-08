@@ -23,6 +23,10 @@ SERIAL=${4:-}
 # thermal wait); leave it off for an SLO capture, which is precisely a measurement
 # OF the cache-hit path.
 BYPASS_CACHE=${SPK_BENCH_BYPASS_CACHE:-0}
+# #182 same-process A/B: SPK_BENCH_PARALLEL_POOL=-1 (engine default) | 0 (per-call
+# threads) | 1 (persistent pool); SPK_BENCH_CHUNKS_PER_WORKER=0 (default) | n.
+PARALLEL_POOL=${SPK_BENCH_PARALLEL_POOL:--1}
+CHUNKS_PER_WORKER=${SPK_BENCH_CHUNKS_PER_WORKER:-0}
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # adb is a native binary: hand it native paths for LOCAL files (on Git Bash a /c/...
@@ -87,6 +91,8 @@ if [ "${SPK_BENCH_DETACH:-0}" = "1" ]; then
     -e ticket177_runs $RUNS \
     -e ticket177_cells '$CELLS' \
     -e ticket177_bypass_cache $BYPASS_CACHE \
+    -e ticket177_parallel_pool $PARALLEL_POOL \
+    -e ticket177_chunks_per_worker $CHUNKS_PER_WORKER \
     -e ticket177_expect_app_sha256 $APP_SHA \
     $PKG.test/$PKG.ReleaseCandidateSmokeInstrumentation \
     > /data/local/tmp/t177-instr.txt 2>&1 &" </dev/null
@@ -109,6 +115,8 @@ else
     -e ticket177_runs "$RUNS" \
     -e ticket177_cells "'$CELLS'" \
     -e ticket177_bypass_cache "$BYPASS_CACHE" \
+    -e ticket177_parallel_pool "$PARALLEL_POOL" \
+    -e ticket177_chunks_per_worker "$CHUNKS_PER_WORKER" \
     -e ticket177_expect_app_sha256 "$APP_SHA" \
     $PKG.test/$PKG.ReleaseCandidateSmokeInstrumentation | tee "$OUT/instrumentation.txt"
 fi

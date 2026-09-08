@@ -55,6 +55,10 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
     private static final String ARG_TICKET177_SOURCE = "ticket177_source";
     private static final String ARG_TICKET177_RUNS = "ticket177_runs";
     private static final String ARG_TICKET177_CELLS = "ticket177_cells";
+    // #182: persistent render worker pool for the same-process A/B. -1 leaves the
+    // engine default, 0 forces per-call threads, 1 forces the pool.
+    private static final String ARG_TICKET177_PARALLEL_POOL = "ticket177_parallel_pool";
+    private static final String ARG_TICKET177_CHUNKS_PER_WORKER = "ticket177_chunks_per_worker";
     private static final String ARG_TICKET177_BYPASS_CACHE = "ticket177_bypass_cache";
     private static final String ARG_TICKET177_EXPECT_APP_SHA256 =
             "ticket177_expect_app_sha256";
@@ -214,10 +218,24 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
                         ARG_TICKET177_EXPECT_APP_SHA256, "").trim().toLowerCase(Locale.ROOT);
                 require(isSha256(expectedApp),
                         "ticket177_expect_app_sha256 must be exactly 64 hex digits");
-                final String stream = Ticket177BenchmarkChecks.run(
+                final int poolMode = Integer.parseInt(
+                        arguments.getString(ARG_TICKET177_PARALLEL_POOL, "-1"));
+                require(poolMode >= -1 && poolMode <= 1,
+                        "ticket177_parallel_pool must be -1, 0 or 1");
+                final int chunksPerWorker = Integer.parseInt(
+                        arguments.getString(ARG_TICKET177_CHUNKS_PER_WORKER, "0"));
+                require(chunksPerWorker >= 0 && chunksPerWorker <= 64,
+                        "ticket177_chunks_per_worker must be in [0,64]");
+                com.spectrafilm.engine.SpektraEngine.setParallelPool(poolMode);
+                com.spectrafilm.engine.SpektraEngine.setParallelChunksPerWorker(chunksPerWorker);
+                final String benchStream = Ticket177BenchmarkChecks.run(
                         getTargetContext(), corpus, source, runs,
                         arguments.getString(ARG_TICKET177_CELLS, ""), expectedApp,
                         "1".equals(arguments.getString(ARG_TICKET177_BYPASS_CACHE, "0")));
+                final String stream = "TICKET182_PARALLEL_POOL: mode=" + poolMode
+                        + " chunks_per_worker=" + chunksPerWorker
+                        + " workers=" + com.spectrafilm.engine.SpektraEngine.parallelPoolWorkers()
+                        + "\n" + benchStream;
                 results.putString("stream", stream);
                 if (!stream.contains("TICKET177_BENCH: PASS\n")) {
                     finish(Activity.RESULT_CANCELED, results);

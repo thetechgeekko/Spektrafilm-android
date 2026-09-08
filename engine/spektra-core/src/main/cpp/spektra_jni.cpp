@@ -1841,6 +1841,44 @@ JNI(void, nativeSetBigCores)(JNIEnv* env, jclass /*clazz*/, jint mode) try {
     throw_unknown_cpp_exception(env);
 }
 
+/*
+ * Persistent render worker pool (issue #182). Same shape as the big-core
+ * setter: a process-wide scheduling policy, reachable from the shipping build
+ * so the release-device A/B can alternate it inside one process.
+ */
+JNI(void, nativeSetParallelPool)(JNIEnv* env, jclass /*clazz*/, jint mode) try {
+    spk_set_parallel_pool(static_cast<int>(mode));
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+}
+
+JNI(jint, nativeParallelPoolWorkers)(JNIEnv* env, jclass /*clazz*/) try {
+    return static_cast<jint>(spk_parallel_pool_workers());
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+    return 0;
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+    return 0;
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+    return 0;
+}
+
+JNI(void, nativeSetParallelChunksPerWorker)(JNIEnv* env, jclass /*clazz*/, jint n) try {
+    spk_set_parallel_chunks_per_worker(static_cast<int>(n));
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+}
+
 JNI(jint, nativeBigCoreCount)(JNIEnv* env, jclass /*clazz*/) try {
     return static_cast<jint>(spk_big_core_count());
 } catch (const std::bad_alloc&) {

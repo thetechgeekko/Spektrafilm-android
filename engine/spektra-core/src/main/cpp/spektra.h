@@ -476,6 +476,15 @@ uint64_t spk_gpu_print_frames(void);
  * how many workers split it, and every worker count is byte-identical. */
 void spk_set_big_cores(int mode);
 
+/* Persistent render worker pool (issue #182): 1 = on, 0 = off (per-call
+ * threads), -1 = defer to SPK_PARALLEL_POOL (unset = off). Output is
+ * unaffected by construction: chunk boundaries do not depend on who runs them. */
+void spk_set_parallel_pool(int mode);
+/* Threads the pool owns, 0 when off or never used. */
+int spk_parallel_pool_workers(void);
+/* Pooled chunks per worker (1 = the per-call boundaries); 0 = env/default. */
+void spk_set_parallel_chunks_per_worker(int n);
+
 /* Cores currently classified as big, or 0 when pinning is off, detection failed,
  * or the mask would cover every core (pinning to all cores is not pinning). Lets
  * the caller report whether the setting actually did anything on this device. */

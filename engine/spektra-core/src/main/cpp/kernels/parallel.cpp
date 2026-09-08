@@ -8,8 +8,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 #include <vector>
+#if defined(__linux__)
+#include <pthread.h>
+#endif
 
 #if defined(__linux__)
 #include <sched.h>
@@ -208,6 +213,250 @@ void parallel_pin_to_big_cores() {
     if (sched_setaffinity(0, sizeof(mask), &mask) == 0 && captured) restorable = true;
 #endif
 }
+
+
+// ---------------------------------------------------------------------------
+// Persistent worker pool (issue #182).
+//
+// One process-wide pool, created on first pooled dispatch and never destroyed
+// (a leaked singleton: worker threads block in a condition-variable wait at
+// process exit and there is no static-destruction-order hazard). A dispatch is
+// a Job on the OWNER's stack: workers claim chunk indices from it under the pool
+// mutex, run them unlocked, and account completion under the job's own mutex.
+// The owner retires the job only after every claimed chunk has been accounted,
+// and the accounting notify happens while the job mutex is held, so no worker
+// can touch a Job after its owner has left pool_run.
+//
+// Chunk boundaries are decided by the caller (parallel.h); the pool only
+// decides WHO runs a chunk, which cannot change a byte of a disjoint-write body.
+// ---------------------------------------------------------------------------
+namespace {
+
+std::atomic<int> g_pool_mode{-1};              // 1 on, 0 off, -1 env
+std::atomic<int> g_chunks_per_worker{0};       // 0 = env / default 1
+
+thread_local bool t_pool_worker = false;
+
+struct PoolJob {
+    spk::detail::PoolTask task;
+    int nchunks = 0;
+    int next = 0;          // next unclaimed chunk (pool mutex)
+    int finished = 0;      // chunks that ran or were skipped (job mutex)
+    bool stop = false;     // early stop requested by the owner (pool mutex)
+    std::mutex done_mutex;
+    std::condition_variable done_cv;
+};
+
+class ParallelPool {
+public:
+    // nullptr when no worker thread could be created (single core, or thread
+    // limits); the caller then uses the per-call dispatcher.
+    static ParallelPool* instance() {
+        static ParallelPool* pool = create();
+        return pool;
+    }
+
+    int workers() const { return static_cast<int>(threads_.size()); }
+
+    void submit(PoolJob* job) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            jobs_.push_back(job);
+        }
+        cv_.notify_all();
+    }
+
+    // Claim one chunk of `job` for the calling thread; -1 when none is left.
+    int claim(PoolJob* job) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (job->stop || job->next >= job->nchunks) return -1;
+        return job->next++;
+    }
+
+    void request_stop(PoolJob* job) {
+        int skipped = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!job->stop) {
+                job->stop = true;
+                skipped = job->nchunks - job->next;  // never claimed, never will be
+                job->next = job->nchunks;
+            }
+        }
+        if (skipped > 0) {
+            std::lock_guard<std::mutex> lock(job->done_mutex);
+            job->finished += skipped;
+            if (job->finished == job->nchunks) job->done_cv.notify_all();
+        }
+    }
+
+    void retire(PoolJob* job) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (size_t i = 0; i < jobs_.size(); ++i) {
+            if (jobs_[i] == job) {
+                jobs_.erase(jobs_.begin() + static_cast<std::ptrdiff_t>(i));
+                break;
+            }
+        }
+    }
+
+    static void run_chunk(PoolJob* job, int index) {
+        job->task.fn(job->task.ctx, index);
+        {
+            std::lock_guard<std::mutex> lock(job->done_mutex);
+            ++job->finished;
+            // Notify under the lock: the owner cannot retire the job (and free
+            // the cv) before this thread has released the mutex.
+            if (job->finished == job->nchunks) job->done_cv.notify_all();
+        }
+    }
+
+private:
+    static ParallelPool* create() {
+        const unsigned hw = std::thread::hardware_concurrency();
+        int n = hw == 0 ? 0 : static_cast<int>(hw) - 1;
+        if (n > 63) n = 63;
+        if (n <= 0) return nullptr;
+        auto* pool = new ParallelPool();
+        for (int t = 0; t < n; ++t) {
+            try {
+                pool->threads_.emplace_back([pool, t]() { pool->worker_main(t); });
+            } catch (...) {
+                break;  // keep whatever was created; zero means "unavailable"
+            }
+        }
+        if (pool->threads_.empty()) {
+            delete pool;
+            return nullptr;
+        }
+        return pool;
+    }
+
+    void worker_main(int index) {
+#if defined(__linux__)
+        char name[16];
+        std::snprintf(name, sizeof(name), "spk-pool-%d", index);
+        pthread_setname_np(pthread_self(), name);
+#endif
+        (void)index;
+        t_pool_worker = true;
+        for (;;) {
+            PoolJob* job = nullptr;
+            int chunk = -1;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                cv_.wait(lock, [this, &job, &chunk]() {
+                    for (PoolJob* j : jobs_) {
+                        if (!j->stop && j->next < j->nchunks) {
+                            job = j;
+                            chunk = j->next++;
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+            }
+            // Pinning policy may have changed since this worker was created; the
+            // per-thread latch makes this one predicted branch when it has not.
+            spk::parallel_pin_to_big_cores();
+            run_chunk(job, chunk);
+        }
+    }
+
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::vector<PoolJob*> jobs_;
+    std::vector<std::thread> threads_;
+};
+
+}  // namespace
+
+void parallel_set_pool(int mode) {
+    g_pool_mode.store(mode < 0 ? -1 : (mode != 0 ? 1 : 0), std::memory_order_relaxed);
+}
+
+bool parallel_pool_enabled() {
+    const int mode = g_pool_mode.load(std::memory_order_relaxed);
+    if (mode >= 0) return mode != 0;
+    return env_enabled("SPK_PARALLEL_POOL");
+}
+
+int parallel_pool_workers() {
+    if (!parallel_pool_enabled()) return 0;
+    ParallelPool* pool = ParallelPool::instance();
+    return pool ? pool->workers() : 0;
+}
+
+void parallel_set_chunks_per_worker(int n) {
+    if (n < 0) n = 0;
+    if (n > 64) n = 64;
+    g_chunks_per_worker.store(n, std::memory_order_relaxed);
+}
+
+int parallel_chunks_per_worker() {
+    const int set = g_chunks_per_worker.load(std::memory_order_relaxed);
+    if (set > 0) return set;
+    if (const char* env = std::getenv("SPK_PARALLEL_CHUNKS_PER_WORKER")) {
+        const int n = std::atoi(env);
+        if (n >= 1) return n > 64 ? 64 : n;
+    }
+    return 1;
+}
+
+namespace detail {
+
+bool pool_worker_thread() noexcept { return t_pool_worker; }
+
+bool pool_run(int nchunks, PoolTask task, bool owner_claims,
+              bool (*poll)(void*), void* poll_ctx) {
+    if (nchunks < 1 || !task.fn) return false;
+    if (t_pool_worker || !parallel_pool_enabled()) return false;
+    ParallelPool* pool = ParallelPool::instance();
+    if (!pool) return false;
+
+    PoolJob job;
+    job.task = task;
+    job.nchunks = nchunks;
+    pool->submit(&job);
+
+    bool stopped = false;
+    if (owner_claims) {
+        for (;;) {
+            const int index = pool->claim(&job);
+            if (index < 0) break;
+            ParallelPool::run_chunk(&job, index);
+            if (poll && !stopped && poll(poll_ctx)) {
+                stopped = true;
+                pool->request_stop(&job);
+            }
+        }
+    }
+    // Wait for the workers' chunks. With a poll callback, keep sampling from the
+    // owner thread (the only one allowed to touch a thread-affine cancellation
+    // callback) instead of blocking on a stale signal.
+    {
+        std::unique_lock<std::mutex> lock(job.done_mutex);
+        for (;;) {
+            int remaining = job.nchunks - job.finished;
+            if (remaining <= 0) break;
+            if (poll) {
+                job.done_cv.wait_for(lock, std::chrono::milliseconds(2));
+                if (!stopped && poll(poll_ctx)) {
+                    stopped = true;
+                    lock.unlock();
+                    pool->request_stop(&job);
+                    lock.lock();
+                }
+            } else {
+                job.done_cv.wait(lock);
+            }
+        }
+    }
+    pool->retire(&job);
+    return true;
+}
+
+}  // namespace detail
 
 int parallel_num_threads() {
     // Explicit override (tests, or a host that wants to pin the worker count).

@@ -49,6 +49,20 @@ first run of each cell/format renders and the rest are served, which is the poin
 SPK_BENCH_BYPASS_CACHE=1 bash tools/baseline/run_bench.sh <apk> 5 "BASE,HEAVY"
 ```
 
+**A same-process scheduler A/B (#182)** flips the engine's persistent render
+worker pool per capture, so alternating captures share one thermal envelope:
+
+```bash
+SPK_BENCH_BYPASS_CACHE=1 SPK_BENCH_PARALLEL_POOL=0 SPK_BENCH_OUT=build/ab/off bash tools/baseline/run_bench.sh <apk> 2 BASE
+SPK_BENCH_BYPASS_CACHE=1 SPK_BENCH_PARALLEL_POOL=1 SPK_BENCH_OUT=build/ab/on  bash tools/baseline/run_bench.sh <apk> 2 BASE
+```
+
+`SPK_BENCH_PARALLEL_POOL` is -1 (engine default), 0 (a std::thread fork-join per
+map) or 1 (the pool); `SPK_BENCH_CHUNKS_PER_WORKER` (default 0 = 1) splits each
+pooled map finer. The instrumentation stream records the mode and the worker count
+(`TICKET182_PARALLEL_POOL: ...`). Digests must be identical across modes: the pool
+changes only which thread runs a chunk.
+
 Use at least `gate_runs` runs. Below that the capture is a smoke run, and the
 harness applies the protocol idle and the per-sample thermal wait **only when it is
 gating** -- so a smoke capture has no cool-down and drifts as the device heats.

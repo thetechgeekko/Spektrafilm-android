@@ -809,6 +809,20 @@ class SpektraEngine private constructor(
         @JvmStatic fun setBigCores(mode: Int) = nativeSetBigCores(mode)
 
         /**
+         * Persistent render worker pool (#182): 1 = on, 0 = off (a std::thread
+         * fork-join per map, the pre-#182 behaviour), -1 = defer to the
+         * `SPK_PARALLEL_POOL` env var (unset = off). Output is unaffected by
+         * construction: chunk boundaries never depend on which thread runs them.
+         */
+        @JvmStatic fun setParallelPool(mode: Int) = nativeSetParallelPool(mode)
+
+        /** Threads the pool currently owns; 0 when off or never used. */
+        @JvmStatic fun parallelPoolWorkers(): Int = nativeParallelPoolWorkers()
+
+        /** Pooled chunks per worker (1 = the per-call boundaries); 0 = env/default. */
+        @JvmStatic fun setParallelChunksPerWorker(n: Int) = nativeSetParallelChunksPerWorker(n)
+
+        /**
          * Cores currently classified as "big", or 0 when pinning is off, detection
          * failed, or the mask would cover every core (pinning to all cores is not
          * pinning). Use it to report whether the setting did anything on this device.
@@ -821,6 +835,9 @@ class SpektraEngine private constructor(
             nativeDebugMarshalledParams(params)
 
         @JvmStatic private external fun nativeSetBigCores(mode: Int)
+        @JvmStatic private external fun nativeSetParallelPool(mode: Int)
+        @JvmStatic private external fun nativeParallelPoolWorkers(): Int
+        @JvmStatic private external fun nativeSetParallelChunksPerWorker(n: Int)
         @JvmStatic private external fun nativeBigCoreCount(): Int
         @JvmStatic private external fun nativeDebugMarshalledParams(params: Any?): String
         @JvmStatic private external fun nativeConfigureMemoryBudget(limitBytes: Long)
