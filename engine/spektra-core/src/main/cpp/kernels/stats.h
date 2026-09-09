@@ -26,6 +26,7 @@
 #ifndef SPK_KERNELS_STATS_H
 #define SPK_KERNELS_STATS_H
 
+#include <cmath>
 #include <cstdint>
 #include <random>
 
@@ -33,19 +34,91 @@ namespace spk {
 
 // Deterministic per-channel RNG wrapper. We expose uniform [0,1) and standard
 // normal draws so grain.cpp can mirror fast_stats' algorithm element by element.
+//
+// TWO GENERATORS, ONE SET OF DISTRIBUTIONS. `Exact` is the shipped mt19937 and
+// is what the Strict Exact route and every committed golden use; it must not
+// change. `Fast` is a xoshiro256++ with a hand-written uniform and a cached
+// Marsaglia polar normal, selected only on the Fast GPU export route (owner
+// decision, issue #180: that route may carry a different noise realisation
+// provided the distribution is gated statistically).
+//
+// Why the generator and not the distribution: libstdc++'s normal_distribution
+// already caches its polar pair, so the cost is not the transform. It is that
+// every uniform is a mt19937 draw -- large state, tempering, and two 32-bit
+// words per double -- and the grain sampler pulls ~190 M normals per 12.5 MP
+// export. xoshiro256++ is one 64-bit word of the same statistical quality for
+// this use, and needs no tempering.
+//
+// Determinism: integer state plus IEEE double arithmetic, no library
+// distribution objects, so one device reproduces itself exactly. Grain seeds
+// per fixed 8192-pixel block, not per worker, so output stays byte-identical
+// for any worker count on either generator.
 class StatsRng {
    public:
-    explicit StatsRng(uint64_t seed) : engine_(static_cast<uint32_t>(seed)) {}
+    enum class Generator { Exact, Fast };
+
+    explicit StatsRng(uint64_t seed, Generator generator = Generator::Exact)
+        : generator_(generator), engine_(static_cast<uint32_t>(seed)) {
+        // SplitMix64 expansion, the reference seeding for xoshiro.
+        uint64_t z = seed;
+        for (uint64_t& word : s_) {
+            z += 0x9E3779B97F4A7C15ull;
+            uint64_t x = z;
+            x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+            x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+            word = x ^ (x >> 31);
+        }
+    }
 
     // Uniform [0, 1) — analogue of numba's np.random.rand().
-    double uniform() { return uni_(engine_); }
+    double uniform() {
+        if (generator_ == Generator::Exact) return uni_(engine_);
+        // 53 significant bits, the same resolution as the exact path.
+        return static_cast<double>(next() >> 11) * 0x1.0p-53;
+    }
+
     // Standard normal — analogue of numba's np.random.randn().
-    double normal() { return nrm_(engine_); }
+    double normal() {
+        if (generator_ == Generator::Exact) return nrm_(engine_);
+        if (has_spare_) {
+            has_spare_ = false;
+            return spare_;
+        }
+        // Marsaglia polar: one log and one sqrt per PAIR of variates.
+        double u, v, sq;
+        do {
+            u = 2.0 * uniform() - 1.0;
+            v = 2.0 * uniform() - 1.0;
+            sq = u * u + v * v;
+        } while (sq >= 1.0 || sq == 0.0);
+        const double f = std::sqrt(-2.0 * std::log(sq) / sq);
+        spare_ = v * f;
+        has_spare_ = true;
+        return u * f;
+    }
 
    private:
+    static uint64_t rotl(uint64_t x, int k) { return (x << k) | (x >> (64 - k)); }
+
+    uint64_t next() {  // xoshiro256++
+        const uint64_t result = rotl(s_[0] + s_[3], 23) + s_[0];
+        const uint64_t t = s_[1] << 17;
+        s_[2] ^= s_[0];
+        s_[3] ^= s_[1];
+        s_[1] ^= s_[2];
+        s_[0] ^= s_[3];
+        s_[2] ^= t;
+        s_[3] = rotl(s_[3], 45);
+        return result;
+    }
+
+    Generator generator_ = Generator::Exact;
     std::mt19937 engine_;
     std::uniform_real_distribution<double> uni_{0.0, 1.0};
     std::normal_distribution<double> nrm_{0.0, 1.0};
+    uint64_t s_[4] = {0, 0, 0, 0};
+    double spare_ = 0.0;
+    bool has_spare_ = false;
 };
 
 // Single Poisson variate with rate lam, matching fast_poisson's branch structure.

@@ -25,6 +25,8 @@
 
 #include <cstdint>
 
+#include "kernels/stats.h"
+
 namespace spk {
 
 // Digested grain parameters. Field names mirror
@@ -60,6 +62,11 @@ struct GrainParams {
     // A single global offset is added so independent realisations can be drawn.
     int seed_base[3] = {0, 1, 2};
     int seed_offset = 0;
+    // Fast GPU export route only (owner decision, #180): draw the particle
+    // variates from the cheaper generator in kernels/stats.h. Same
+    // distributions and the same per-block seeding, a different realisation.
+    // False everywhere else, so Strict Exact and every golden are unaffected.
+    bool fast_sampler = false;
 };
 
 // layer_particle_model(density, density_max, n_particles_per_pixel,
@@ -78,7 +85,8 @@ struct GrainParams {
 // non-sublayer path and is not applied here.
 void layer_particle_model(const float* density, int npix, int width, int height,
                           double density_max, double n_particles_per_pixel,
-                          double grain_uniformity, uint64_t seed, float* out);
+                          double grain_uniformity, uint64_t seed, float* out,
+                          StatsRng::Generator generator = StatsRng::Generator::Exact);
 
 // Overload with the per-particle dye-cloud blur (sublayer path). When
 // blur_particle > 0, after sampling the grain plane is Gaussian-blurred with
@@ -89,7 +97,8 @@ void layer_particle_model(const float* density, int npix, int width, int height,
 void layer_particle_model(const float* density, int npix, int width, int height,
                           double density_max, double n_particles_per_pixel,
                           double grain_uniformity, uint64_t seed,
-                          double blur_particle, float* out);
+                          double blur_particle, float* out,
+                          StatsRng::Generator generator = StatsRng::Generator::Exact);
 
 // add_micro_structure(density_cmy_out, micro_structure, pixel_size_um):
 //
@@ -104,7 +113,8 @@ void layer_particle_model(const float* density, int npix, int width, int height,
 // `seed` seeds the deterministic lognormal RNG stream (statistical parity only).
 void add_micro_structure(float* inout, int npix, int width, int height,
                          const double micro_structure[2], double pixel_size_um,
-                         uint64_t seed);
+                         uint64_t seed,
+                         StatsRng::Generator generator = StatsRng::Generator::Exact);
 
 // apply_grain_to_density_layers(density_cmy_layers, ...): the sublayer grain path
 // (grain.sublayers_active == True). Mirrors grain.py::apply_grain_to_density_layers

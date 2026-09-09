@@ -2016,6 +2016,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // runs on the GPU for a preview, a tap or a bake.
     fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     fparams.dir_couplers.allow_gpu_diffusion = fparams.allow_gpu_halation;
+    // Owner decision #180: the Fast GPU export route may carry a different
+    // noise realisation, gated statistically. Same latch as the GPU spatial
+    // passes, so preview, tap and bake keep the Strict Exact sampler.
+    fparams.grain.fast_sampler = fparams.allow_gpu_halation;
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
         // density_max_curves are filled inside develop() from the film's
@@ -2506,6 +2510,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // runs on the GPU for a preview, a tap or a bake.
     fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     fparams.dir_couplers.allow_gpu_diffusion = fparams.allow_gpu_halation;
+    // Owner decision #180: the Fast GPU export route may carry a different
+    // noise realisation, gated statistically. Same latch as the GPU spatial
+    // passes, so preview, tap and bake keep the Strict Exact sampler.
+    fparams.grain.fast_sampler = fparams.allow_gpu_halation;
     if (print_stochastic) {
         // grain_active -> AgX particle grain inside develop(), exactly as the
         // scan route wires it. Deterministic seed; stays serial.

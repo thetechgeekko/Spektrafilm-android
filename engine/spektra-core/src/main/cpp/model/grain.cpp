@@ -32,10 +32,11 @@ namespace spk {
 
 void layer_particle_model(const float* density, int npix, int width, int height,
                           double density_max, double n_particles_per_pixel,
-                          double grain_uniformity, uint64_t seed, float* out) {
+                          double grain_uniformity, uint64_t seed, float* out,
+                          StatsRng::Generator generator) {
     layer_particle_model(density, npix, width, height, density_max,
                          n_particles_per_pixel, grain_uniformity, seed,
-                         /*blur_particle=*/0.0, out);
+                         /*blur_particle=*/0.0, out, generator);
 }
 
 // Pixels per independently-seeded grain block. FIXED — never derived from the worker
@@ -55,7 +56,8 @@ static inline uint64_t grain_block_seed(uint64_t seed, int block) {
 void layer_particle_model(const float* density, int npix, int width, int height,
                           double density_max, double n_particles_per_pixel,
                           double grain_uniformity, uint64_t seed,
-                          double blur_particle, float* out) {
+                          double blur_particle, float* out,
+                          StatsRng::Generator generator) {
     if (npix <= 0) return;
     if (!(n_particles_per_pixel > 0.0) ||
         !std::isfinite(n_particles_per_pixel)) {
@@ -106,7 +108,7 @@ void layer_particle_model(const float* density, int npix, int width, int height,
             if (b >= nblocks) break;
             const int i0 = b * kGrainBlockPixels;
             const int i1 = std::min(i0 + kGrainBlockPixels, npix);
-            StatsRng rng(grain_block_seed(seed, b));
+            StatsRng rng(grain_block_seed(seed, b), generator);
             for (int i = i0; i < i1; ++i) {
                 // Worker threads never touch the JNI-backed callback. They only
                 // observe the caller-owned stop flag, at a granularity small
@@ -147,7 +149,7 @@ void layer_particle_model(const float* density, int npix, int width, int height,
 
 void add_micro_structure(float* inout, int npix, int width, int height,
                          const double micro_structure[2], double pixel_size_um,
-                         uint64_t seed) {
+                         uint64_t seed, StatsRng::Generator generator) {
     // add_micro_structure(density_cmy_out, micro_structure, pixel_size_um).
     double blur_pixel = micro_structure[0] / pixel_size_um;
     double sigma = micro_structure[1] * 0.001 / pixel_size_um;  // nm -> µm -> px
@@ -157,7 +159,7 @@ void add_micro_structure(float* inout, int npix, int width, int height,
     // pixel AND per channel (np.ones_like(density_cmy_out) is (H,W,3)). One
     // deterministic stream produces the whole (npix,3) clumping field.
     std::vector<float> clumping(static_cast<size_t>(npix) * 3);
-    StatsRng rng(seed);
+    StatsRng rng(seed, generator);
     for (size_t i = 0; i < clumping.size(); ++i)
         clumping[i] = static_cast<float>(
             fast_lognormal_from_mean_std_one(1.0, sigma, rng));
@@ -174,6 +176,11 @@ void add_micro_structure(float* inout, int npix, int width, int height,
 void apply_grain_to_density(const float* density_cmy, int npix, int width,
                             int height, double pixel_size_um,
                             const GrainParams& grain, float* out) {
+    // One choice per render, from the params: the Fast GPU export route may
+    // use the cheaper generator (#180); everything else keeps mt19937.
+    const StatsRng::Generator generator = grain.fast_sampler
+                                             ? StatsRng::Generator::Fast
+                                             : StatsRng::Generator::Exact;
     if (!grain.active) {
         if (out != density_cmy)
             std::copy(density_cmy, density_cmy + static_cast<size_t>(npix) * 3, out);
@@ -210,7 +217,7 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
                                                   grain.seed_offset);
             layer_particle_model(shifted.data(), npix, width, height,
                                  density_max[c], n_ppp[c], grain.uniformity[c],
-                                 seed, layer_out.data());
+                                 seed, layer_out.data(), generator);
             spk::parallel_for(0, npix, [&](int i0, int i1) {
                 for (int i = i0; i < i1; ++i)
                     acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
@@ -234,6 +241,11 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                    const double* density_max_layers,
                                    double pixel_size_um, const GrainParams& grain,
                                    float* out) {
+    // One choice per render, from the params: the Fast GPU export route may
+    // use the cheaper generator (#180); everything else keeps mt19937.
+    const StatsRng::Generator generator = grain.fast_sampler
+                                             ? StatsRng::Generator::Fast
+                                             : StatsRng::Generator::Exact;
     // density_max_total[c] = sum over sublayers of density_max_layers[sl,c].
     double dmax_total[3] = {0, 0, 0};
     for (int sl = 0; sl < 3; ++sl)
@@ -277,7 +289,8 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                                   grain.seed_offset);
             layer_particle_model(shifted.data(), npix, width, height,
                                  dmax_lay[sl][c], n_ppp[sl][c], grain.uniformity[c],
-                                 seed, grain.blur_dye_clouds_um, layer_out.data());
+                                 seed, grain.blur_dye_clouds_um, layer_out.data(),
+                                 generator);
             spk::parallel_for(0, npix, [&](int i0, int i1) {
                 for (int i = i0; i < i1; ++i)
                     acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
@@ -293,7 +306,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // density_min subtraction and final blur — matching grain.py order).
     uint64_t micro_seed = static_cast<uint64_t>(777 + grain.seed_offset);
     add_micro_structure(out, npix, width, height, grain.micro_structure,
-                        pixel_size_um, micro_seed);
+                        pixel_size_um, micro_seed, generator);
 
     // density_cmy_out -= density_min
     for (int i = 0; i < npix; ++i)

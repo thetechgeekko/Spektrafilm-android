@@ -269,6 +269,72 @@ int main(int argc, char** argv) {
                     ok ? "PASS" : "FAIL");
     }
 
+    // ---------------------------------------------------------------------
+    // Fast GPU route sampler (#180). The owner decision allows that route a
+    // DIFFERENT noise realisation provided the distribution is gated
+    // statistically, so it is gated here on exactly the terms the exact
+    // sampler is: mean preservation against the smooth input, and noise
+    // magnitude against the oracle's. Strict Exact keeps mt19937 and every
+    // committed golden, which the parity suite proves separately.
+    double fast_mean[3] = {0, 0, 0}, fast_nstd[3] = {0, 0, 0};
+    {
+        spk::GrainParams fast = grain;
+        fast.fast_sampler = true;
+        std::vector<float> fout(static_cast<size_t>(npix) * 3);
+        for (int s = 0; s < S; ++s) {
+            fast.seed_offset = 1000 + s * 7;
+            spk::apply_grain_to_density(smooth.data(), npix, kSize, kSize,
+                                        kPixelSizeUm, fast, fout.data());
+            double m[3], nstd[3];
+            channel_mean(fout, npix, m);
+            channel_noise_std(fout, smooth, npix, nstd);
+            for (int c = 0; c < 3; ++c) { fast_mean[c] += m[c]; fast_nstd[c] += nstd[c]; }
+        }
+        for (int c = 0; c < 3; ++c) { fast_mean[c] /= S; fast_nstd[c] /= S; }
+    }
+
+    std::printf("\n=== fast sampler: mean preservation (|grainy_mean - smooth_mean| < %.0e) ===\n",
+                tol_mean);
+    for (int c = 0; c < 3; ++c) {
+        double d = std::fabs(fast_mean[c] - smooth_mean[c]);
+        bool ok = d < tol_mean;
+        pass = pass && ok;
+        std::printf("  [%s] smooth=%.6f  fast=%.6f (|d|=%.2e)  %s\n",
+                    chan[c], smooth_mean[c], fast_mean[c], d, ok ? "PASS" : "FAIL");
+    }
+
+    std::printf("\n=== fast sampler: noise magnitude (|fast_std/oracle_std - 1| < %.0f%%) ===\n",
+                tol_std_rel * 100.0);
+    for (int c = 0; c < 3; ++c) {
+        double rel = (oracle_nstd[c] > 0.0)
+                         ? std::fabs(fast_nstd[c] / oracle_nstd[c] - 1.0)
+                         : (fast_nstd[c] > 0 ? 1.0 : 0.0);
+        bool ok = rel < tol_std_rel;
+        pass = pass && ok;
+        std::printf("  [%s] fast_std=%.6f  oracle_std=%.6f  rel_err=%.1f%%  %s\n",
+                    chan[c], fast_nstd[c], oracle_nstd[c], rel * 100.0,
+                    ok ? "PASS" : "FAIL");
+    }
+
+    // The flag must actually change the realisation, and the fast path must be
+    // reproducible. Without the first check a no-op flag would pass every
+    // statistical assertion above; without the second the route would not be
+    // same-device deterministic, which the Fast GPU contract requires.
+    {
+        const size_t n3 = static_cast<size_t>(npix) * 3;
+        spk::GrainParams ex = grain;   ex.seed_offset = 4242;
+        spk::GrainParams fx = grain;   fx.fast_sampler = true; fx.seed_offset = 4242;
+        std::vector<float> a(n3), b(n3), b2(n3);
+        spk::apply_grain_to_density(smooth.data(), npix, kSize, kSize, kPixelSizeUm, ex, a.data());
+        spk::apply_grain_to_density(smooth.data(), npix, kSize, kSize, kPixelSizeUm, fx, b.data());
+        spk::apply_grain_to_density(smooth.data(), npix, kSize, kSize, kPixelSizeUm, fx, b2.data());
+        const bool differs = a != b;
+        const bool repeatable = b == b2;
+        pass = pass && differs && repeatable;
+        std::printf("\n=== fast sampler: realisation differs=%s, reproducible=%s ===\n",
+                    differs ? "yes" : "NO", repeatable ? "yes" : "NO");
+    }
+
     // Locality / blur sanity: the lag-1 spatial autocorrelation of the injected
     // noise (grainy - smooth) is a fingerprint of the final cloud-blur sigma
     // (0.65 px here). It must MATCH the oracle's lag-1 autocorrelation: if the
