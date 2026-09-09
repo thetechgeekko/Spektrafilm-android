@@ -1420,10 +1420,17 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
             const auto t_guard = std::chrono::steady_clock::now();
             float* dst = static_cast<float*>(s.in.mapped);
             const float* src = cmy + static_cast<size_t>(base) * 3u;
-            for (size_t i = 0; i < ncomp; ++i) {
-                const float v = src[i];
-                dst[i] = std::isfinite(v) ? v : 1e4f;
-            }
+            // Per-element map with disjoint writes, so the engine's deterministic
+            // chunks give the same bytes for any worker count -- the same
+            // argument every other stage here relies on. It was single-threaded
+            // over ~143 MiB a slice, several slices an export, which is why the
+            // measurement in the previous commit was worth taking first.
+            parallel_for(0, static_cast<int>(ncomp), [&](int lo, int hi) {
+                for (int i = lo; i < hi; ++i) {
+                    const float v = src[i];
+                    dst[i] = std::isfinite(v) ? v : 1e4f;
+                }
+            });
             guard_ms += std::chrono::duration<double, std::milli>(
                             std::chrono::steady_clock::now() - t_guard).count();
             bytes_up += static_cast<uint64_t>(ncomp) * sizeof(float);
@@ -1453,8 +1460,14 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
 
             // Read this slice back (persistently mapped, HOST_COHERENT).
             const auto t_back = std::chrono::steady_clock::now();
-            std::memcpy(rgb + static_cast<size_t>(base) * 3u, s.out.mapped,
-                        ncomp * sizeof(float));
+            {
+                const float* outp = static_cast<const float*>(s.out.mapped);
+                float* rgbp = rgb + static_cast<size_t>(base) * 3u;
+                parallel_for(0, static_cast<int>(ncomp), [&](int lo, int hi) {
+                    std::memcpy(rgbp + lo, outp + lo,
+                                static_cast<size_t>(hi - lo) * sizeof(float));
+                });
+            }
             back_ms += std::chrono::duration<double, std::milli>(
                            std::chrono::steady_clock::now() - t_back).count();
             bytes_down += static_cast<uint64_t>(ncomp) * sizeof(float);

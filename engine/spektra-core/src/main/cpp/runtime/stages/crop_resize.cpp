@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "kernels/parallel.h"
+
 namespace spk {
 namespace {
 
@@ -164,32 +166,40 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
         const int rad_x = build_gaussian_kernel(std::max(0.0, (fac_x - 1.0) / 2.0), &ker_x);
         const int rad_y = build_gaussian_kernel(std::max(0.0, (fac_y - 1.0) / 2.0), &ker_y);
         if (rad_x > 0 || rad_y > 0) {
-            std::vector<double> scratch;
+            // Each row (then each column) is filtered independently and writes
+            // only its own samples, so the rows split into deterministic
+            // chunks: every output runs the same scalar op sequence whatever
+            // the worker count. The line and scratch buffers become per-chunk,
+            // which is the only thing the split actually changes.
             // Along rows (width axis).
             if (rad_x > 0) {
-                std::vector<double> line(w);
-                for (int y = 0; y < h; ++y) {
-                    for (int c = 0; c < 3; ++c) {
-                        for (int x = 0; x < w; ++x)
-                            line[x] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
-                        gaussian_prefilter_line(line.data(), w, ker_x.data(), rad_x, &scratch);
-                        for (int x = 0; x < w; ++x)
-                            coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[x];
+                parallel_for_weighted(0, h, w, [&](int lo, int hi) {
+                    std::vector<double> line(w), scratch;
+                    for (int y = lo; y < hi; ++y) {
+                        for (int c = 0; c < 3; ++c) {
+                            for (int x = 0; x < w; ++x)
+                                line[x] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                            gaussian_prefilter_line(line.data(), w, ker_x.data(), rad_x, &scratch);
+                            for (int x = 0; x < w; ++x)
+                                coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[x];
+                        }
                     }
-                }
+                });
             }
             // Along columns (height axis).
             if (rad_y > 0) {
-                std::vector<double> line(h);
-                for (int x = 0; x < w; ++x) {
-                    for (int c = 0; c < 3; ++c) {
-                        for (int y = 0; y < h; ++y)
-                            line[y] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
-                        gaussian_prefilter_line(line.data(), h, ker_y.data(), rad_y, &scratch);
-                        for (int y = 0; y < h; ++y)
-                            coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[y];
+                parallel_for_weighted(0, w, h, [&](int lo, int hi) {
+                    std::vector<double> line(h), scratch;
+                    for (int x = lo; x < hi; ++x) {
+                        for (int c = 0; c < 3; ++c) {
+                            for (int y = 0; y < h; ++y)
+                                line[y] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                            gaussian_prefilter_line(line.data(), h, ker_y.data(), rad_y, &scratch);
+                            for (int y = 0; y < h; ++y)
+                                coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[y];
+                        }
                     }
-                }
+                });
             }
         }
     }
@@ -197,36 +207,44 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
     // 1) Prefilter the (anti-aliased) input into B-spline coefficients along both
     //    spatial axes. Channels are independent. Buffer holds (h x w x 3) doubles.
     // Along rows (x / width axis): for each row y and channel c, filter w samples.
+    // The B-spline prefilter is a causal/anti-causal recursion ALONG each line,
+    // but lines are independent, so the split is over lines and each keeps its
+    // own recursion exactly as the serial version ran it.
     {
-        std::vector<double> line(w);
-        for (int y = 0; y < h; ++y) {
-            for (int c = 0; c < 3; ++c) {
-                for (int x = 0; x < w; ++x)
-                    line[x] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
-                spline_prefilter_line(line.data(), w);
-                for (int x = 0; x < w; ++x)
-                    coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[x];
+        parallel_for_weighted(0, h, w, [&](int lo, int hi) {
+            std::vector<double> line(w);
+            for (int y = lo; y < hi; ++y) {
+                for (int c = 0; c < 3; ++c) {
+                    for (int x = 0; x < w; ++x)
+                        line[x] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                    spline_prefilter_line(line.data(), w);
+                    for (int x = 0; x < w; ++x)
+                        coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[x];
+                }
             }
-        }
+        });
     }
     // Along columns (y / height axis): for each column x and channel c, filter h.
     {
-        std::vector<double> line(h);
-        for (int x = 0; x < w; ++x) {
-            for (int c = 0; c < 3; ++c) {
-                for (int y = 0; y < h; ++y)
-                    line[y] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
-                spline_prefilter_line(line.data(), h);
-                for (int y = 0; y < h; ++y)
-                    coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[y];
+        parallel_for_weighted(0, w, h, [&](int lo, int hi) {
+            std::vector<double> line(h);
+            for (int x = lo; x < hi; ++x) {
+                for (int c = 0; c < 3; ++c) {
+                    for (int y = 0; y < h; ++y)
+                        line[y] = coef[(static_cast<size_t>(y) * w + x) * 3 + c];
+                    spline_prefilter_line(line.data(), h);
+                    for (int y = 0; y < h; ++y)
+                        coef[(static_cast<size_t>(y) * w + x) * 3 + c] = line[y];
+                }
             }
-        }
+        });
     }
 
     // 2) Interpolate along width (h x w x 3) -> (h x ow x 3).
     const double zoom_x = static_cast<double>(ow) / static_cast<double>(w);
     std::vector<double> tmp(static_cast<size_t>(h) * ow * 3);
-    for (int ox = 0; ox < ow; ++ox) {
+    parallel_for_weighted(0, ow, h, [&](int lo_ox, int hi_ox) {
+    for (int ox = lo_ox; ox < hi_ox; ++ox) {
         const double xx = (static_cast<double>(ox) + 0.5) / zoom_x - 0.5;
         const int fl = static_cast<int>(std::floor(xx));
         double wt[4];
@@ -242,11 +260,13 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
             }
         }
     }
+    });
 
     // 3) Interpolate along height (h x ow x 3) -> (oh x ow x 3).
     const double zoom_y = static_cast<double>(oh) / static_cast<double>(h);
     out->assign(static_cast<size_t>(oh) * ow * 3, 0.0);
-    for (int oy = 0; oy < oh; ++oy) {
+    parallel_for_weighted(0, oh, ow, [&](int lo_oy, int hi_oy) {
+    for (int oy = lo_oy; oy < hi_oy; ++oy) {
         const double yy = (static_cast<double>(oy) + 0.5) / zoom_y - 0.5;
         const int fl = static_cast<int>(std::floor(yy));
         double wt[4];
@@ -265,6 +285,7 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
             }
         }
     }
+    });
 
     *out_w = ow;
     *out_h = oh;
