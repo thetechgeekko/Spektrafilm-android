@@ -1093,8 +1093,16 @@ void preprocess_geometry(const spk_image* in, const spk_params* p,
     }
 
     std::vector<double> src(static_cast<size_t>(w) * h * 3);
-    for (size_t i = 0; i < src.size(); ++i)
-        src[i] = static_cast<double>(in->data[i]);
+    {
+        // Whole-frame f32 -> f64 materialisation: 37.5 M elements at 12.5 MP,
+        // and it was on one core inside the preprocess stage. Per-element map
+        // with disjoint writes, so deterministic chunks are byte-identical.
+        double* dst = src.data();
+        const float* srcf = in->data;
+        spk::parallel_for(0, static_cast<int>(src.size()), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(srcf[i]);
+        });
+    }
 
     // Auto-exposure (pipeline._preprocess -> FilmingStage.auto_exposure). Runs on
     // the original geometry, BEFORE crop_and_rescale. No-op when off.

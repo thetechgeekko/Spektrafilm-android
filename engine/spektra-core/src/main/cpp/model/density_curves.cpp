@@ -106,12 +106,22 @@ void interp_density_cmy_layers(const float* density_cmy, int npix,
             for (int k = 0; k < n; ++k) {
                 fp[k] = density_curves_layers[k * 9 + L * 3 + ch];
             }
-            for (int p = 0; p < npix; ++p) {
-                float x = density_cmy[p * 3 + ch];
-                if (positive_film) x = -x;
-                float v = interp1d_scalar(x, axis.data(), fp.data(), n);
-                out[p * 9 + L * 3 + ch] = v;
-            }
+            // Per-element map with disjoint writes -> deterministic chunks, so
+            // the result is byte-identical for any worker count. This was the
+            // single largest component of the grain stage on device: nine
+            // passes (3 channels x 3 layers) of npix interpolations, 112 M
+            // calls at 12.5 MP, on ONE core -- 1864-2153 ms of a ~3.6 s stage,
+            // measured, which is more than the particle sampler costs.
+            const float* axis_p = axis.data();
+            const float* fp_p = fp.data();
+            spk::parallel_for(0, npix, [&](int p0, int p1) {
+                for (int p = p0; p < p1; ++p) {
+                    float x = density_cmy[p * 3 + ch];
+                    if (positive_film) x = -x;
+                    float v = interp1d_scalar(x, axis_p, fp_p, n);
+                    out[p * 9 + L * 3 + ch] = v;
+                }
+            });
         }
     }
 }

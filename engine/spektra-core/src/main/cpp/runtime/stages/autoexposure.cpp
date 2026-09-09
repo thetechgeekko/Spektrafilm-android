@@ -13,6 +13,7 @@
 #include <cstring>
 #include <vector>
 
+#include "kernels/parallel.h"
 #include "runtime/stages/crop_resize.h"  // build_gaussian_kernel (shared AA kernel)
 
 namespace spk {
@@ -385,7 +386,11 @@ double apply_auto_exposure(double* image, int w, int h, AeColorSpace cs,
                                         known_method);
     const double gain = std::pow(2.0, ev);
     const size_t n = static_cast<size_t>(w) * h * 3;
-    for (size_t i = 0; i < n; ++i) image[i] *= gain;
+    // Full-resolution f64 gain, 37.5 M elements at 12.5 MP, previously serial.
+    // Each element is scaled independently, so chunking cannot change a value.
+    spk::parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+        for (int i = lo; i < hi; ++i) image[i] *= gain;
+    });
     return ev;
 }
 

@@ -719,10 +719,16 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
             //                           density_curves_layers_RAW, positive_film).
             // NOTE: apply_grain passes the RAW (un-normalized) density_curves_layers
             // here, while density_curves is the normalized curve axis.
-            std::vector<float> layers(static_cast<size_t>(npix) * 9);
-            interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
-                                      film.density_curves_layers.data(), n,
-                                      film.is_positive(), layers.data());
+            // 450 MB at 12.5 MP: allocated, zero-initialised, then filled.
+            // Timed together because the allocation and the fill are one cost.
+            std::vector<float> layers;
+            {
+                ScopedGrainPhase _p(GrainPhase::Layers);
+                layers.resize(static_cast<size_t>(npix) * 9);
+                interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
+                                          film.density_curves_layers.data(), n,
+                                          film.is_positive(), layers.data());
+            }
             // density_max_layers[sl,c] = nanmax over the log-exposure axis of the
             // RAW density_curves_layers (NOT normalized).
             double density_max_layers[9];

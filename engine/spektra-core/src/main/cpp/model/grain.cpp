@@ -27,6 +27,7 @@
 #include "kernels/gaussian.h"
 #include "kernels/parallel.h"
 #include "kernels/stats.h"
+#include "runtime/stage_timer.h"
 
 namespace spk {
 
@@ -136,12 +137,16 @@ void layer_particle_model(const float* density, int npix, int width, int height,
     // containing worker and partial thread-construction failures. With an
     // active JNI cancellation callback it keeps this caller as the sole polling
     // orchestrator; otherwise the caller participates in the work queue.
-    spk::detail::parallel_dispatch_dynamic(nthreads, worker);
+    {
+        ScopedGrainPhase _p(GrainPhase::Sampler);
+        spk::detail::parallel_dispatch_dynamic(nthreads, worker);
+    }
 
     // Per-particle dye-cloud blur: grain.py uses
     //   grain = fast_gaussian_filter(grain, blur_particle*sqrt(od_particle))
     // unconditionally when blur_particle > 0 (no >0.4 sigma threshold here).
     if (blur_particle > 0.0) {
+        ScopedGrainPhase _p(GrainPhase::ParticleBlur);
         double sigma = blur_particle * std::sqrt(od_particle);
         gaussian_blur_plane(out, width, height, static_cast<float>(sigma));
     }
@@ -169,8 +174,16 @@ void add_micro_structure(float* inout, int npix, int width, int height,
                       static_cast<float>(blur_pixel));
     }
 
-    for (size_t i = 0; i < clumping.size(); ++i)
-        inout[i] = static_cast<float>(static_cast<double>(inout[i]) * clumping[i]);
+    // Only the multiply: the clumping FILL above consumes one seeded stream in
+    // order and is serial by nature -- splitting it would change which variate
+    // lands on which pixel, which is a different image, not a faster one.
+    {
+        const float* cl = clumping.data();
+        spk::parallel_for(0, static_cast<int>(clumping.size()), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                inout[i] = static_cast<float>(static_cast<double>(inout[i]) * cl[i]);
+        });
+    }
 }
 
 void apply_grain_to_density(const float* density_cmy, int npix, int width,
@@ -218,10 +231,13 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
             layer_particle_model(shifted.data(), npix, width, height,
                                  density_max[c], n_ppp[c], grain.uniformity[c],
                                  seed, layer_out.data(), generator);
-            spk::parallel_for(0, npix, [&](int i0, int i1) {
-                for (int i = i0; i < i1; ++i)
-                    acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
-            });
+            {
+                ScopedGrainPhase _p(GrainPhase::Accum);
+                spk::parallel_for(0, npix, [&](int i0, int i1) {
+                    for (int i = i0; i < i1; ++i)
+                        acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
+                });
+            }
         }
         // /= n_sub_layers, then -= density_min[c]
         for (int i = 0; i < npix; ++i) {
@@ -278,6 +294,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     for (int c = 0; c < 3; ++c) {
         for (int sl = 0; sl < 3; ++sl) {
             // density_cmy_layers[:,sl,c] += density_min_layers[sl,c]
+            ScopedGrainPhase _prep(GrainPhase::Prep);
             spk::parallel_for(0, npix, [&](int i0, int i1) {
                 for (int i = i0; i < i1; ++i) {
                     float v = density_cmy_layers[static_cast<size_t>(i) * 9 + sl * 3 + c];
@@ -285,38 +302,56 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                                     dmin_layers[sl][c]);
                 }
             });
+            _prep.stop();
             uint64_t seed = static_cast<uint64_t>(grain.seed_base[c] + sl * 10 +
                                                   grain.seed_offset);
             layer_particle_model(shifted.data(), npix, width, height,
                                  dmax_lay[sl][c], n_ppp[sl][c], grain.uniformity[c],
                                  seed, grain.blur_dye_clouds_um, layer_out.data(),
                                  generator);
-            spk::parallel_for(0, npix, [&](int i0, int i1) {
-                for (int i = i0; i < i1; ++i)
-                    acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
-            });
+            {
+                ScopedGrainPhase _p(GrainPhase::Accum);
+                spk::parallel_for(0, npix, [&](int i0, int i1) {
+                    for (int i = i0; i < i1; ++i)
+                        acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
+                });
+            }
         }
     }
 
-    spk::parallel_for(0, static_cast<int>(acc.size()), [&](int i0, int i1) {
-        for (int i = i0; i < i1; ++i) out[i] = static_cast<float>(acc[i]);
-    });
+    {
+        ScopedGrainPhase _p(GrainPhase::Final);
+        spk::parallel_for(0, static_cast<int>(acc.size()), [&](int i0, int i1) {
+            for (int i = i0; i < i1; ++i) out[i] = static_cast<float>(acc[i]);
+        });
+    }
 
     // micro-structure clumping (operates on the accumulated grain, before the
     // density_min subtraction and final blur — matching grain.py order).
     uint64_t micro_seed = static_cast<uint64_t>(777 + grain.seed_offset);
-    add_micro_structure(out, npix, width, height, grain.micro_structure,
-                        pixel_size_um, micro_seed, generator);
+    {
+        ScopedGrainPhase _p(GrainPhase::Micro);
+        add_micro_structure(out, npix, width, height, grain.micro_structure,
+                            pixel_size_um, micro_seed, generator);
+    }
 
     // density_cmy_out -= density_min
-    for (int i = 0; i < npix; ++i)
-        for (int c = 0; c < 3; ++c)
-            out[i * 3 + c] = static_cast<float>(static_cast<double>(out[i * 3 + c]) -
-                                                grain.density_min[c]);
+    {
+        ScopedGrainPhase _p(GrainPhase::Final);
+        // The sibling conversion ten lines above is already parallel; this one
+        // was simply missed. Same shape, same 37.5 M elements at 12.5 MP.
+        spk::parallel_for(0, npix, [&](int i0, int i1) {
+            for (int i = i0; i < i1; ++i)
+                for (int c = 0; c < 3; ++c)
+                    out[i * 3 + c] = static_cast<float>(
+                        static_cast<double>(out[i * 3 + c]) - grain.density_min[c]);
+        });
+    }
 
     // Final per-channel Gaussian blur. NOTE: the layers path threshold is > 0
     // (grain.py: `if grain_blur>0`), unlike the non-sublayer path's > 0.4.
     if (grain.blur > 0.0) {
+        ScopedGrainPhase _p(GrainPhase::Final);
         gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
     }
 }

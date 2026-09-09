@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../kernels/gaussian.h"
+#include "../kernels/parallel.h"
 
 // NaN / Inf behavior — VERIFIED against the oracle (spektrafilm/model/glare.py
 // + spektrafilm/utils/fast_stats.py). add_glare / compute_random_glare_amount do
@@ -76,7 +77,9 @@ void compute_random_glare_amount(float amount, float roughness, float blur,
     gaussian_blur_plane(out, w, h, blur);
 
     // random /= 100
-    for (size_t i = 0; i < n; ++i) out[i] *= 0.01f;
+    spk::parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+        for (int i = lo; i < hi; ++i) out[i] *= 0.01f;
+    });
 }
 
 void add_glare(float* xyz, int w, int h, const float illuminant_xyz[3],

@@ -204,6 +204,21 @@ struct StageTimingSnapshot {
     GpuHalationTimingSnapshot gpu_halation;
     GpuHalationTimingSnapshot gpu_dir_diffusion;
     GpuScanTimingSnapshot gpu_scan;
+    // Where the grain stage's time actually goes, accumulated over every
+    // channel and sublayer of one render (#180). The stage is the largest item
+    // in an export and a host profile put 94.6 % of it in the sampler; the
+    // device did not agree, and there was no way to see which part disagreed.
+    // These are wall-clock inside the stage, so they sum to about the stage
+    // total; they are observability, nothing gates on them.
+    double grain_sampler_ms = 0.0;      // the per-pixel Poisson + Binomial walk
+    double grain_particle_blur_ms = 0.0;  // per-particle dye-cloud blur
+    double grain_prep_ms = 0.0;         // density shift into the per-layer buffer
+    double grain_accum_ms = 0.0;        // accumulate each layer into the total
+    double grain_micro_ms = 0.0;        // micro-structure clumping
+    double grain_final_ms = 0.0;        // final blur + density-min subtract
+    // Materialising the per-sublayer density array: npix * 9 floats, which
+    // is 450 MB at 12.5 MP, zero-initialised and then interpolated into.
+    double grain_layers_ms = 0.0;
     // Which grain sampler actually ran (#180). Without this the export cannot
     // show whether the Fast GPU route's cheaper generator engaged, and a
     // measured non-improvement is indistinguishable from a latch that never
@@ -269,6 +284,51 @@ inline void stage_timing_note_gpu_halation(
 
 // Accumulating, unlike the halation notes: dispatch_scan is called several
 // times per render and each call is one more piece of the same total.
+// Each grain phase adds into the render's running total. Called from the
+// stage itself, which runs many times per render (channel x sublayer).
+enum class GrainPhase { Sampler, ParticleBlur, Prep, Accum, Micro, Final, Layers };
+
+inline void stage_timing_note_grain_phase(GrainPhase phase, double ms) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    StageTimingSnapshot& c = state.current;
+    switch (phase) {
+        case GrainPhase::Sampler: c.grain_sampler_ms += ms; break;
+        case GrainPhase::ParticleBlur: c.grain_particle_blur_ms += ms; break;
+        case GrainPhase::Prep: c.grain_prep_ms += ms; break;
+        case GrainPhase::Accum: c.grain_accum_ms += ms; break;
+        case GrainPhase::Micro: c.grain_micro_ms += ms; break;
+        case GrainPhase::Final: c.grain_final_ms += ms; break;
+        case GrainPhase::Layers: c.grain_layers_ms += ms; break;
+    }
+}
+
+// Scoped helper so a phase cannot be left unclosed on an early return.
+class ScopedGrainPhase {
+   public:
+    explicit ScopedGrainPhase(GrainPhase phase)
+        : phase_(phase), started_(std::chrono::steady_clock::now()) {}
+    ~ScopedGrainPhase() { stop(); }
+
+    // Close early when the phase ends before the enclosing scope does.
+    // Idempotent, so the destructor cannot double-count.
+    void stop() {
+        if (stopped_) return;
+        stopped_ = true;
+        stage_timing_note_grain_phase(
+            phase_, std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - started_)
+                        .count());
+    }
+    ScopedGrainPhase(const ScopedGrainPhase&) = delete;
+    ScopedGrainPhase& operator=(const ScopedGrainPhase&) = delete;
+
+   private:
+    GrainPhase phase_;
+    std::chrono::steady_clock::time_point started_;
+    bool stopped_ = false;
+};
+
 inline void stage_timing_note_grain_sampler(bool fast) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
@@ -496,9 +556,14 @@ inline int stage_timings_format(char* buf, int cap) {
         if (n > 0) off += n;
     }
     if (snapshot.grain_ran && off < cap - 1) {
-        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%sgrain_sampler=%s", off ? " " : "",
-                              snapshot.grain_fast_sampler ? "fast" : "exact");
+        int n = std::snprintf(
+            buf + off, static_cast<size_t>(cap - off),
+            "%sgrain_sampler=%s grain_parts=samp%.0f/pblur%.0f/prep%.0f/acc%.0f/micro%.0f/fin%.0f/layers%.0f",
+            off ? " " : "", snapshot.grain_fast_sampler ? "fast" : "exact",
+            snapshot.grain_sampler_ms, snapshot.grain_particle_blur_ms,
+            snapshot.grain_prep_ms, snapshot.grain_accum_ms,
+            snapshot.grain_micro_ms, snapshot.grain_final_ms,
+            snapshot.grain_layers_ms);
         if (n > 0) off += n;
     }
     if (snapshot.gpu_submissions && off < cap - 1) {
