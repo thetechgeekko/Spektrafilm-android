@@ -494,8 +494,16 @@ struct Ctx {
     }
 
     // Create (or grow) a HOST_VISIBLE|COHERENT storage buffer and keep it mapped.
-    // Same memory type as the per-call host the probe validated; only the lifetime
-    // changed. Returns false on any Vulkan failure.
+    // Same memory type as the per-call host the probe validated; only the
+    // lifetime changed. Returns false on any Vulkan failure.
+    //
+    // HOST_CACHED is PREFERRED, not required (#148). These buffers are read
+    // back by the host -- the scan readback alone is ~143 MiB a slice -- and an
+    // uncached (write-combined) mapping is fast to write and slow to read,
+    // which is the wrong trade for a buffer that is both. COHERENT stays
+    // REQUIRED, so adding CACHED changes no synchronisation: there is still no
+    // explicit flush or invalidate to get wrong. A device without a
+    // cached+coherent type falls back to the original coherent-only type.
     bool ensureBuf(Buf& b, VkDeviceSize bytes) {
         if (b.cap >= bytes && b.buf) return true;
         destroyBuf(b);
@@ -511,8 +519,10 @@ struct Ctx {
         if (vkCreateBuffer(device, &bci, nullptr, &b.buf) != VK_SUCCESS) return false;
         VkMemoryRequirements req;
         vkGetBufferMemoryRequirements(device, b.buf, &req);
-        int mt = findMemType(req.memoryTypeBits,
-                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        constexpr VkMemoryPropertyFlags kHostRequired =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        int mt = findMemType(req.memoryTypeBits, kHostRequired | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+        if (mt < 0) mt = findMemType(req.memoryTypeBits, kHostRequired);
         if (mt < 0) return false;
         VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mai.allocationSize = req.size;
