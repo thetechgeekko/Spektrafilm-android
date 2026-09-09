@@ -175,6 +175,22 @@ struct GpuHalationTimingSnapshot {
     double readback_ms = 0.0;
 };
 
+// Render-local observability for the GPU spectral scan/print dispatches. One
+// export drives dispatch_scan several times and each call slices the frame, so
+// these accumulate across every call of a render. `guard_ms` is the upload
+// loop, which is also the non-finite guard, and `readback_ms` the copy out:
+// both are per-slice host work, and separating them from `gpu_ms` is what says
+// whether this pass is bound by the device or by moving bytes.
+struct GpuScanTimingSnapshot {
+    uint32_t calls = 0;
+    uint32_t slices = 0;
+    double guard_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+    uint64_t bytes_up = 0;
+    uint64_t bytes_down = 0;
+};
+
 // Immutable once published. `stages_ms` contains inclusive durations: the two
 // documented sub-measures remain nested inside scan and must not be added to it.
 struct StageTimingSnapshot {
@@ -187,6 +203,11 @@ struct StageTimingSnapshot {
     GpuPointwiseTimingSnapshot gpu_pointwise;
     GpuHalationTimingSnapshot gpu_halation;
     GpuHalationTimingSnapshot gpu_dir_diffusion;
+    GpuScanTimingSnapshot gpu_scan;
+    // Every fenced submit-and-wait this render performed, across all GPU
+    // passes. Each one is a full pipeline stall, so the count is the thing to
+    // drive down when stages are made resident.
+    uint32_t gpu_submissions = 0;
     double stages_ms[STG_COUNT] = {0};
 };
 
@@ -238,6 +259,29 @@ inline void stage_timing_note_gpu_halation(
     h.upload_ms = upload_ms;
     h.gpu_ms = gpu_ms;
     h.readback_ms = readback_ms;
+}
+
+// Accumulating, unlike the halation notes: dispatch_scan is called several
+// times per render and each call is one more piece of the same total.
+inline void stage_timing_note_gpu_scan_add(uint32_t slices, double guard_ms,
+                                           double gpu_ms, double readback_ms,
+                                           uint64_t bytes_up, uint64_t bytes_down) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    GpuScanTimingSnapshot& g = state.current.gpu_scan;
+    ++g.calls;
+    g.slices += slices;
+    g.guard_ms += guard_ms;
+    g.gpu_ms += gpu_ms;
+    g.readback_ms += readback_ms;
+    g.bytes_up += bytes_up;
+    g.bytes_down += bytes_down;
+}
+
+inline void stage_timing_note_gpu_submissions(uint32_t n) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    state.current.gpu_submissions += n;
 }
 
 inline void stage_timing_note_gpu_dir_diffusion(
@@ -428,6 +472,21 @@ inline int stage_timings_format(char* buf, int cap) {
                               notes[i]->readback_ms);
         if (n > 0) off += n;
     }
+    if (snapshot.gpu_scan.calls && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgpu_scan=calls%u/slices%u/guard%.1f/gpu%.1f/down%.1f/up%lluMB/dn%lluMB",
+                              off ? " " : "", snapshot.gpu_scan.calls,
+                              snapshot.gpu_scan.slices, snapshot.gpu_scan.guard_ms,
+                              snapshot.gpu_scan.gpu_ms, snapshot.gpu_scan.readback_ms,
+                              static_cast<unsigned long long>(snapshot.gpu_scan.bytes_up >> 20),
+                              static_cast<unsigned long long>(snapshot.gpu_scan.bytes_down >> 20));
+        if (n > 0) off += n;
+    }
+    if (snapshot.gpu_submissions && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgpu_submits=%u", off ? " " : "", snapshot.gpu_submissions);
+        if (n > 0) off += n;
+    }
     if (cap > 0) buf[off < cap ? off : cap - 1] = '\0';
     return off;
 }
@@ -526,7 +585,19 @@ inline int stage_timings_json_format(char* buf, int cap) {
         snapshot.gpu_dir_diffusion.readback_ms);
     stage_timing_append(
         buf, cap, &off,
-        "},\"gpu_pointwise\":{\"requested\":%s,\"attempted\":%s,"
+        "},\"gpu_scan\":{\"calls\":%u,\"slices\":%u,"
+        "\"guard_ms\":%.1f,\"gpu_ms\":%.1f,\"readback_ms\":%.1f,"
+        "\"bytes_up\":%llu,\"bytes_down\":%llu},"
+        "\"gpu_submissions\":%u,",
+        snapshot.gpu_scan.calls, snapshot.gpu_scan.slices,
+        snapshot.gpu_scan.guard_ms, snapshot.gpu_scan.gpu_ms,
+        snapshot.gpu_scan.readback_ms,
+        static_cast<unsigned long long>(snapshot.gpu_scan.bytes_up),
+        static_cast<unsigned long long>(snapshot.gpu_scan.bytes_down),
+        snapshot.gpu_submissions);
+    stage_timing_append(
+        buf, cap, &off,
+        "\"gpu_pointwise\":{\"requested\":%s,\"attempted\":%s,"
         "\"engaged\":%s,\"reason\":\"",
         snapshot.gpu_pointwise.requested ? "true" : "false",
         snapshot.gpu_pointwise.attempted ? "true" : "false",

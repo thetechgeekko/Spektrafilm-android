@@ -25,6 +25,7 @@
  * so the probe's error measurements are unaffected.
  */
 #include "gpu/vulkan_compute.h"
+#include "runtime/stage_timer.h"
 
 namespace spk::gpu {
 
@@ -1400,6 +1401,13 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
         push.m[4] = xyz2rgb[3]; push.m[5] = xyz2rgb[4]; push.m[6]  = xyz2rgb[5]; push.m[7]  = 0.0f;
         push.m[8] = xyz2rgb[6]; push.m[9] = xyz2rgb[7]; push.m[10] = xyz2rgb[8]; push.m[11] = 0.0f;
 
+        // Where this pass's time actually goes (#148 slice 1). The upload loop
+        // below is also the non-finite guard and the readback is a copy out;
+        // both are per-slice single-threaded host work over ~143 MiB a slice at
+        // export size, so they are timed apart from the device itself.
+        double guard_ms = 0.0, gpu_ms = 0.0, back_ms = 0.0;
+        uint64_t bytes_up = 0, bytes_down = 0;
+        uint32_t slices = 0;
         bool slice_ok = true;
         for (uint32_t base = 0; base < npix && slice_ok; base += MAX_SLICE) {
             const uint32_t n = (npix - base) < MAX_SLICE ? (npix - base) : MAX_SLICE;
@@ -1409,15 +1417,20 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
             // densities map to 1e4f (zero transmittance -> black) so the shader
             // never sees a NaN/Inf (clamp(NaN) is implementation-defined in
             // GLSL). Finite inputs are copied verbatim (bit-exact).
+            const auto t_guard = std::chrono::steady_clock::now();
             float* dst = static_cast<float*>(s.in.mapped);
             const float* src = cmy + static_cast<size_t>(base) * 3u;
             for (size_t i = 0; i < ncomp; ++i) {
                 const float v = src[i];
                 dst[i] = std::isfinite(v) ? v : 1e4f;
             }
+            guard_ms += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_guard).count();
+            bytes_up += static_cast<uint64_t>(ncomp) * sizeof(float);
 
             // Record + submit. The command buffer is reused; each slice's fence
             // is waited before the buffer is reset again.
+            const auto t_gpu = std::chrono::steady_clock::now();
             if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { slice_ok = false; break; }
             VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
             bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1435,11 +1448,20 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
             if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { slice_ok = false; break; }
             if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { slice_ok = false; break; }
             if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { slice_ok = false; break; }
+            gpu_ms += std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - t_gpu).count();
 
             // Read this slice back (persistently mapped, HOST_COHERENT).
+            const auto t_back = std::chrono::steady_clock::now();
             std::memcpy(rgb + static_cast<size_t>(base) * 3u, s.out.mapped,
                         ncomp * sizeof(float));
+            back_ms += std::chrono::duration<double, std::milli>(
+                           std::chrono::steady_clock::now() - t_back).count();
+            bytes_down += static_cast<uint64_t>(ncomp) * sizeof(float);
+            ++slices;
         }
+        stage_timing_note_gpu_scan_add(slices, guard_ms, gpu_ms, back_ms, bytes_up, bytes_down);
+        stage_timing_note_gpu_submissions(slices);
         ok = slice_ok;
     } while (false);
 
@@ -1933,6 +1955,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         si.pCommandBuffers = &k.cmd;
         if (vkQueueSubmit(c.queue, 1, &si, k.fence) != VK_SUCCESS) return false;
         if (vkWaitForFences(c.device, 1, &k.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) return false;
+        stage_timing_note_gpu_submissions(1);
         return vkResetFences(c.device, 1, &k.fence) == VK_SUCCESS;
     };
     // `width`/`height` are the dims of the image the op walks: the frame, or
