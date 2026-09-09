@@ -204,6 +204,12 @@ struct StageTimingSnapshot {
     GpuHalationTimingSnapshot gpu_halation;
     GpuHalationTimingSnapshot gpu_dir_diffusion;
     GpuScanTimingSnapshot gpu_scan;
+    // Which grain sampler actually ran (#180). Without this the export cannot
+    // show whether the Fast GPU route's cheaper generator engaged, and a
+    // measured non-improvement is indistinguishable from a latch that never
+    // fired.
+    bool grain_fast_sampler = false;
+    bool grain_ran = false;
     // Every fenced submit-and-wait this render performed, across all GPU
     // passes. Each one is a full pipeline stall, so the count is the thing to
     // drive down when stages are made resident.
@@ -263,6 +269,13 @@ inline void stage_timing_note_gpu_halation(
 
 // Accumulating, unlike the halation notes: dispatch_scan is called several
 // times per render and each call is one more piece of the same total.
+inline void stage_timing_note_grain_sampler(bool fast) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    state.current.grain_ran = true;
+    state.current.grain_fast_sampler = fast;
+}
+
 inline void stage_timing_note_gpu_scan_add(uint32_t slices, double guard_ms,
                                            double gpu_ms, double readback_ms,
                                            uint64_t bytes_up, uint64_t bytes_down) {
@@ -480,6 +493,12 @@ inline int stage_timings_format(char* buf, int cap) {
                               snapshot.gpu_scan.gpu_ms, snapshot.gpu_scan.readback_ms,
                               static_cast<unsigned long long>(snapshot.gpu_scan.bytes_up >> 20),
                               static_cast<unsigned long long>(snapshot.gpu_scan.bytes_down >> 20));
+        if (n > 0) off += n;
+    }
+    if (snapshot.grain_ran && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgrain_sampler=%s", off ? " " : "",
+                              snapshot.grain_fast_sampler ? "fast" : "exact");
         if (n > 0) off += n;
     }
     if (snapshot.gpu_submissions && off < cap - 1) {

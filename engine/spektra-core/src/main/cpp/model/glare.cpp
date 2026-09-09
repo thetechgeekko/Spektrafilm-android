@@ -45,7 +45,8 @@ inline float lognormal_sample(double mu, double sigma, double z) {
 }  // namespace
 
 void compute_random_glare_amount(float amount, float roughness, float blur,
-                                 int w, int h, uint64_t seed, float* out) {
+                                 int w, int h, uint64_t seed, float* out,
+                                 StatsRng::Generator generator) {
     const size_t n = static_cast<size_t>(w) * h;
     // fast_lognormal_from_mean_std: mean m = amount, std s = roughness*amount,
     // uniform over the plane (amount*ones / (roughness*amount)*ones).
@@ -65,10 +66,9 @@ void compute_random_glare_amount(float amount, float roughness, float blur,
 
     // Deterministic standard-normal stream (numpy uses np.random.randn per pixel;
     // here we use a seedable mt19937 + normal_distribution for reproducibility).
-    std::mt19937 rng(static_cast<uint32_t>(seed ^ (seed >> 32)));
-    std::normal_distribution<double> randn(0.0, 1.0);
+    StatsRng rng(seed ^ (seed >> 32), generator);
     for (size_t i = 0; i < n; ++i) {
-        double z = randn(rng);
+        double z = rng.normal();
         out[i] = lognormal_sample(mu, sigma, z);
     }
 

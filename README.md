@@ -9,7 +9,7 @@ whole analog chain: negative, enlarger, print, scan.
 [![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-3DDC84.svg)](#install)
 [![ABIs](https://img.shields.io/badge/ABIs-arm64--v8a%20%7C%20armeabi--v7a%20%7C%20x86__64-lightgrey.svg)](#install)
 [![Engine](https://img.shields.io/badge/engine-native%20C%2B%2B%20(NDK%20r28c)-orange.svg)](docs/ARCHITECTURE.md)
-[![Parity](https://img.shields.io/badge/parity-42%20gated%20cases%20%C3%97%202%20flag%20legs-success.svg)](#a-note-on-accuracy)
+[![Parity](https://img.shields.io/badge/parity-43%20gated%20cases%20%C3%97%202%20flag%20legs-success.svg)](#a-note-on-accuracy)
 
 *Film modeling powered by [spektrafilm](https://github.com/andreavolpato/spektrafilm).
 Dedicated to the [pixls.us](https://pixls.us) community.*
@@ -147,7 +147,7 @@ below.
 The port was done parity-first. We ran the real Python engine headless as an oracle, captured golden
 vectors of intermediate results, then ported each stage to C++ and gated it against those vectors.
 The current gate is oracle tolerance (`max_abs <= 1e-4`, `rms <= 1e-5`) plus same-build worker-count
-invariance. A `tools/parity` harness and CI enforce 42 cases, twice: at `-O2` and at the flags the
+invariance. A `tools/parity` harness and CI enforce 43 cases, twice: at `-O2` and at the flags the
 release APK actually ships with.
 
 | Stage | Difference vs the original |

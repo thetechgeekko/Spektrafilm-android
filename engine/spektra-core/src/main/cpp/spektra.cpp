@@ -2176,6 +2176,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // GPU preview fast-path (#146): set only when spk_simulate_preview latched
     // allow_gpu_scan; scan() re-gates on frame eligibility + the self-check.
     sparams.allow_gpu = (p->allow_gpu_scan != 0);
+    sparams.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     sparams.output_color_space = p->output_color_space;
     sparams.output_cctf_encoding = (p->output_cctf_encoding != 0);
     // OPT-IN output gamut compression (scan_film route). Default kLegacyClip (0) keeps

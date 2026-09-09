@@ -163,6 +163,10 @@ struct ScanningParams {
     // scanner case) and skips the LUT entirely. ANY failure falls through to the
     // unchanged CPU path.
     bool allow_gpu = false;
+    // Fast GPU export route only (#180): draw the glare field's variates from
+    // the cheaper generator in kernels/stats.h. Same distribution, a different
+    // realisation. False for preview, tap and bake.
+    bool fast_sampler = false;
 };
 
 // One-time GPU scan self-check state: 0 = not yet run, 1 = passed, 2 = failed

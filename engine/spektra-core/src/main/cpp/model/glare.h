@@ -17,6 +17,8 @@
 
 #include <cstdint>
 
+#include "kernels/stats.h"
+
 namespace spk {
 
 // compute_random_glare_amount(amount, roughness, blur, shape):
@@ -27,8 +29,15 @@ namespace spk {
 // Writes a single-channel (h*w, row-major) glare amount plane into `out`.
 // `seed` makes the RNG deterministic (std::mt19937). `blur` is the Gaussian
 // sigma in pixels (glare.py passes glare.blur directly to the filter).
+// `generator` selects the RNG: Exact (mt19937) everywhere by default, Fast on
+// the Fast GPU export route only, where a different noise realisation is
+// permitted provided the distribution is gated (owner decision, issue #180).
+// The field is a pure function of these arguments -- it reads no image pixel --
+// so the generator is the only thing that varies.
 void compute_random_glare_amount(float amount, float roughness, float blur,
-                                 int w, int h, uint64_t seed, float* out);
+                                 int w, int h, uint64_t seed, float* out,
+                                 StatsRng::Generator generator =
+                                     StatsRng::Generator::Exact);
 
 // add_glare(xyz, illuminant_xyz, glare): if active and percent > 0,
 //   xyz += glare_amount[:,:,None] * illuminant_xyz[None,None,:]

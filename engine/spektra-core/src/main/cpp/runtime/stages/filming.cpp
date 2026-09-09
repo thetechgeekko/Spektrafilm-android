@@ -706,6 +706,7 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
     // develop, which calls apply_grain after apply_density_correction_dir_couplers.
     if (params.grain.active) {
         ScopedStage _t(STG_GRAIN);
+        stage_timing_note_grain_sampler(params.grain.fast_sampler);
         GrainParams grain = params.grain;
         // The sublayer path is selected when sublayers_active AND the profile
         // actually carries density_curves_layers; otherwise fall back to the

@@ -398,7 +398,10 @@ void scan(const Profile& film, const ScanningParams& params,
         ScopedStage _tg(STG_GLARE);
         compute_random_glare_amount(params.glare_percent, params.glare_roughness,
                                     params.glare_blur, width, height,
-                                    params.glare_seed, glare_field.data());
+                                    params.glare_seed, glare_field.data(),
+                                    params.fast_sampler
+                                        ? StatsRng::Generator::Fast
+                                        : StatsRng::Generator::Exact);
     }
 
     const double inv_norm = 1.0 / norm;

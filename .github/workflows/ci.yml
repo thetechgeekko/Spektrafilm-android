@@ -644,6 +644,14 @@ jobs:
           # tests/gen_grain_ref.py / gen_grain_sublayer_ref.py.
           build_run test_grain "$G/scan_portra/film_density_cmy.spkvec" tests/grain_ref_density.spkvec
           build_run test_grain_sublayer "$G/scan_portra/film_density_cmy.spkvec" tests/grain_sublayer_ref_density.spkvec "$ASSET/profiles/kodak_portra_400.json"
+          # test_glare_sampler: the viewing-glare field is stochastic too, and the
+          # Fast GPU export route may draw it from a cheaper generator (#180).
+          # Each generator is checked against the lognormal MODEL rather than
+          # against the other, so two identically-wrong generators cannot agree
+          # their way through; it also asserts the fast path is a DIFFERENT
+          # realisation (a no-op flag would pass every moment check) and that it
+          # reproduces itself, which the Fast GPU determinism contract requires.
+          build_run test_glare_sampler
           # test_binomial_shortcircuit: fast_binomial_one returns n directly when
           # pow(1-p,n) has underflowed to 0 instead of walking the loop to k=n+1.
           # The two grain tests above are STATISTICAL and cannot see that, so this

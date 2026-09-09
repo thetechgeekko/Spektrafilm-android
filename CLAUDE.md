@@ -102,10 +102,10 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 A test passes when its output contains no `FAIL` line. `tools/parity/run_engine_parity.sh`
 builds and runs the whole suite locally with the same argv as CI (it fails loudly if its table
 drifts from the workflow's `build_run` count). `engine-parity` is a **two-leg matrix** — the same
-42 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
+43 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
 APK's numerics were otherwise never gated. A plain local run reproduces the `-O2` leg only; for the
 other, prefix `SPK_PARITY_EXTRA_FLAGS="-O3 -ffast-math -fno-finite-math-only"`. CI `engine-parity`
-gates (42 tests):
+gates (43 tests):
 `simulate_e2e` (goldens + BOTH film-density memos + the print-density memo + per-param key
 completeness), `filming`, `spatial`, `crop_resize`, `downscale` (minification AA prefilter),
 `autoexposure`, `small_preview_aa` (AE metering downscale AA), `diffusion` (+`_e2e`),
@@ -126,7 +126,7 @@ compression), the spektral-param wiring gates
 `spatial_decouple_e2e` (per-effect spatial gating: lens blur ON / halation OFF),
 `print_spatial_e2e` (print-route filming spatial branch),
 **`test_parallel`** (thread-invariance, fresh engine per thread count), and the
-statistical grain gates `test_grain` + `test_grain_sublayer` (mean preservation +
+statistical grain gates `test_grain` + `test_grain_sublayer` (+ `test_glare_sampler`, which gates the viewing-glare field's two generators against the lognormal model) (mean preservation +
 noise std vs committed oracle references — the stochastic stage byte goldens
 cannot cover), and `test_binomial_shortcircuit` (element-wise: `fast_binomial_one`'s
 degenerate-CDF short-circuit against a verbatim transcription of the loop it replaces,
