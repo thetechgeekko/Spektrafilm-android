@@ -822,8 +822,15 @@ void scan(const Profile& film, const ScanningParams& params,
                         params.unsharp_sigma};
         gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
         const double amt = params.unsharp_amount;
-        for (size_t i = 0; i < total; ++i)
-            lin_rgb[i] = lin_rgb[i] + amt * (lin_rgb[i] - blur[i]);
+        // Per-element map with disjoint writes -> deterministic chunks, the same
+        // argument the encode below already relies on. It was serial over
+        // npix * 3 f64 elements (37.5 M at 12.5 MP, ~900 MB of traffic) inside
+        // the stage that measures 471 ms on device.
+        const double* blur_p = blur.data();
+        parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                lin_rgb[i] = lin_rgb[i] + amt * (lin_rgb[i] - blur_p[i]);
+        });
     }
 
     // Encode the (compressed/blurred/sharpened) plane — the same encode_pixel
