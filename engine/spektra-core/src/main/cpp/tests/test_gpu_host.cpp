@@ -21,6 +21,10 @@
  *  2. The GPU preview render is within the oracle tolerance band (max_abs <=
  *     1e-4) of the CPU EXPORT render on the same pixels (input chosen small
  *     enough that spk_simulate_preview skips the downscale, so grids match).
+ *     The GPU EXPORT band is taken with grain and glare off: under owner
+ *     decision #180 gpu_export also selects the cheaper sampler, so with them
+ *     on the two routes carry different noise by design and the band would
+ *     measure that instead of the shaders. See run_case.
  *     For scale: the forced scanner LUT is profile/domain dependent at LUT17:
  *     the locked D50 case is <=5e-5, while K75P 2383/2393 are about
  *     0.0040/0.0073 vs direct. GPU preview bypasses that LUT when it engages.
@@ -162,17 +166,56 @@ void run_case(spk_engine* eng, const spk_params& base, const char* label,
 
     // EXPERIMENTAL GPU export (#154): the export path also offloads under
     // gpu_export. The CPU export (exp_a) is the oracle-verified reference.
+    //
+    // Owner decision #180 split this into two contracts. gpu_export now also
+    // selects the cheaper grain and glare sampler, so a Fast GPU export
+    // deliberately carries a DIFFERENT noise realisation from Strict Exact.
+    // A max_abs band between the two therefore measures that realisation, not
+    // the shaders: with the stochastic stages on it reads 8.6e-4..1.0e-2 on
+    // this matrix purely from the sampler swap. So the numeric band is taken
+    // with grain and glare OFF, where it still gates every GPU kernel on every
+    // route (measured 6.6e-7..2.9e-6 under lavapipe, two to four orders inside
+    // the gate), and the stochastic configuration is gated on the property it
+    // actually has: same-device determinism. The distribution itself is gated
+    // by test_grain, test_grain_sublayer and test_glare_sampler.
     spk_params exp_gpu_p = base;
     exp_gpu_p.gpu_export = 1;
     std::vector<float> exp_gpu;
     if (!render(eng, exp_gpu_p, false, &exp_gpu)) return;
+
+    // The same pair with every stochastic stage disabled: the shader band.
+    spk_params det_cpu_p = base;
+    det_cpu_p.grain_active = 0;
+    det_cpu_p.glare_active = 0;
+    det_cpu_p.print_glare_active = 0;
+    spk_params det_gpu_p = det_cpu_p;
+    det_gpu_p.gpu_export = 1;
+    std::vector<float> det_cpu, det_gpu;
+    if (!render(eng, det_cpu_p, false, &det_cpu)) return;
+    if (!render(eng, det_gpu_p, false, &det_gpu)) return;
+
     if (gpu_present) {
-        const double exp_band = max_abs(exp_gpu, exp_a);
-        std::printf("info %s: GPU-export-vs-CPU-export max_abs=%.3e\n", label, exp_band);
-        check(exp_band <= 1e-4,
-              std::string(label) + ": GPU export within 1e-4 of CPU export");
+        const double det_band = max_abs(det_gpu, det_cpu);
+        std::printf(
+            "info %s: GPU-export-vs-CPU-export max_abs=%.3e (grain/glare off), "
+            "%.3e (on, sampler realisation differs by #180)\n",
+            label, det_band, max_abs(exp_gpu, exp_a));
+        check(det_band <= 1e-4,
+              std::string(label) +
+                  ": GPU export within 1e-4 of CPU export (grain/glare off)");
+        // Without this the band above could pass vacuously by not offloading.
+        check(!bytes_eq(det_gpu, det_cpu),
+              std::string(label) +
+                  ": GPU export engaged with the stochastic stages off");
         check(!bytes_eq(exp_gpu, exp_a),
               std::string(label) + ": GPU export actually engaged");
+        // What the Fast GPU route promises for the stochastic stages is
+        // same-device determinism, not agreement with Strict Exact (#180).
+        std::vector<float> exp_gpu2;
+        if (render(eng, exp_gpu_p, false, &exp_gpu2))
+            check(bytes_eq(exp_gpu, exp_gpu2),
+                  std::string(label) +
+                      ": Fast GPU export is same-device deterministic");
         // gpu_export must NOT leak into the preview path (independent toggles).
         spk_params prev_exp_p = base;
         prev_exp_p.gpu_export = 1;  // gpu_preview stays 0
@@ -181,8 +224,15 @@ void run_case(spk_engine* eng, const spk_params& base, const char* label,
             check(bytes_eq(prev_exp, prev_cpu),
                   std::string(label) + ": gpu_export does not affect the preview path");
     } else {
-        check(bytes_eq(exp_gpu, exp_a),
-              std::string(label) + ": no GPU => gpu_export is a byte-identical no-op");
+        // Nothing offloads, so the deterministic pair must be byte-identical.
+        // gpu_export still picks the cheaper sampler -- that is a CPU-side win
+        // and applies with or without a GPU -- so the stochastic pair
+        // legitimately differs here. That is the #180 contract, not a fallback
+        // leak, which is why the no-op law is asserted on the deterministic
+        // pair.
+        check(bytes_eq(det_gpu, det_cpu),
+              std::string(label) +
+                  ": no GPU => gpu_export is a byte-identical no-op (grain/glare off)");
     }
 }
 
