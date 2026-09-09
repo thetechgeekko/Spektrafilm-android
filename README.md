@@ -1,23 +1,18 @@
+<div align="center">
+
 # Spektrafilm for Android
 
-> **Development status:** the current tree has active post-v0.9.0 implementation work and remains
-> under a production-release hold. Public positioning relative to the owner's Latent camera project
-> is an unresolved human decision in
-> [Make README and project status truthful for the next release](https://github.com/thetechgeekko/Spektrafilm-android/issues/144).
-> Live engineering work and known gates are in the [execution index](docs/EXECUTION_INDEX.md).
+**Spectral film simulation on your phone.** Not a colour LUT — a physically-based simulation of the
+whole analog chain: negative, enlarger, print, scan.
 
-<details>
-<summary>Earlier owner status note (retained verbatim pending that decision)</summary>
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-3DDC84.svg)](#install)
+[![ABIs](https://img.shields.io/badge/ABIs-arm64--v8a%20%7C%20armeabi--v7a%20%7C%20x86__64-lightgrey.svg)](#install)
+[![Engine](https://img.shields.io/badge/engine-native%20C%2B%2B%20(NDK%20r28c)-orange.svg)](docs/ARCHITECTURE.md)
+[![Parity](https://img.shields.io/badge/parity-42%20gated%20cases%20%C3%97%202%20flag%20legs-success.svg)](#a-note-on-accuracy)
 
-Hello fellow geeks this app was a concept to do Spectral simulation BUT getting it perfect took a long time even after using Claude Max plan and running multiple agents to complete the app. So basically its a AI slop (And i am sorry for that). Even after getting good results from the app i was not satisfied. As i wanted a app which actually takes raw and processes it at extreme super fast speed just like taking a HDR+ photo in GCAM. As soon as i exported one photo from this app i was confident that i could do better and relentlessly worked on a different app which can take straight film emulated high images with a swipe to change presets, and have a one another way of taking the picture the HDR way not like Google's exposure fusion which gives pop effect to a photo. Researching day and night , but no luck . First i tried taking raw capture straight from sensor just like how motioncam does, yes, it is very hard until you read AOSP and everything was laid out there but you have to add your own tricks like using multiple workers to process the raw stream, package the raw buffer, merge bracketed buffer, get depth map , do film emulation and export the image as jpeg. I also tried taking raw frames+pcm audio+gyro data and convert it with film emulation Its still under WIP as there are so many bugs and i do not want to use AI for this as this is one of the projects that I wanted to do since 2016. So, therefore from this moment this app will be superseded by "Latent" a Film emulation Camera app. If i had any free time i will update the app and make it faster if someone needs it.
-
-</details>
-
-Spectral film simulation on your phone — a native port of the
-[spektrafilm](https://github.com/andreavolpato/spektrafilm) engine, with a Jetpack Compose editor.
-
-*Film modeling powered by [spektrafilm](https://github.com/andreavolpato/spektrafilm). Dedicated to
-the [pixls.us](https://pixls.us) community.*
+*Film modeling powered by [spektrafilm](https://github.com/andreavolpato/spektrafilm).
+Dedicated to the [pixls.us](https://pixls.us) community.*
 
 <table>
   <tr>
@@ -34,14 +29,32 @@ the [pixls.us](https://pixls.us) community.*
   </tr>
 </table>
 
+</div>
+
+> [!IMPORTANT]
+> **Development status:** the current tree has active post-v0.9.0 implementation work and remains
+> under a production-release hold. Public positioning relative to the owner's Latent camera project
+> is an unresolved human decision in
+> [Make README and project status truthful for the next release](https://github.com/thetechgeekko/Spektrafilm-android/issues/144).
+> Live engineering work and known gates are in the [execution index](docs/EXECUTION_INDEX.md).
+
+<details>
+<summary>Earlier owner status note (retained verbatim pending that decision)</summary>
+
+Hello fellow geeks this app was a concept to do Spectral simulation BUT getting it perfect took a long time even after using Claude Max plan and running multiple agents to complete the app. So basically its a AI slop (And i am sorry for that). Even after getting good results from the app i was not satisfied. As i wanted a app which actually takes raw and processes it at extreme super fast speed just like taking a HDR+ photo in GCAM. As soon as i exported one photo from this app i was confident that i could do better and relentlessly worked on a different app which can take straight film emulated high images with a swipe to change presets, and have a one another way of taking the picture the HDR way not like Google's exposure fusion which gives pop effect to a photo. Researching day and night , but no luck . First i tried taking raw capture straight from sensor just like how motioncam does, yes, it is very hard until you read AOSP and everything was laid out there but you have to add your own tricks like using multiple workers to process the raw stream, package the raw buffer, merge bracketed buffer, get depth map , do film emulation and export the image as jpeg. I also tried taking raw frames+pcm audio+gyro data and convert it with film emulation Its still under WIP as there are so many bugs and i do not want to use AI for this as this is one of the projects that I wanted to do since 2016. So, therefore from this moment this app will be superseded by "Latent" a Film emulation Camera app. If i had any free time i will update the app and make it faster if someone needs it.
+
+</details>
+
+---
+
 ## What it is
 
-Most "film looks" are a color LUT — a lookup table that nudges your pixels toward a mood. This is not
-that. Spektrafilm runs your photo through a physically-based simulation of the actual analog process:
-it reconstructs a spectrum for each pixel, exposes a virtual emulsion that has real spectral
-sensitivities, develops the dyes through the film's measured density curves, prints that negative
-through a virtual enlarger onto paper, and scans the result. Negative, enlarger, print, scan — the
-whole chain, the way it really happens.
+Most "film looks" are a colour LUT — a lookup table that nudges your pixels toward a mood. This is
+not that. Spektrafilm runs your photo through a physically-based simulation of the actual analog
+process: it reconstructs a spectrum for each pixel, exposes a virtual emulsion that has real
+spectral sensitivities, develops the dyes through the film's measured density curves, prints that
+negative through a virtual enlarger onto paper, and scans the result. Negative, enlarger, print,
+scan — the whole chain, the way it really happens.
 
 The engine is a parity-first C++ port of Andrea Volpato's research project. Its stages are checked
 against the pinned Python oracle within the declared numeric tolerance, with byte-identical output
@@ -52,9 +65,9 @@ editor that should feel familiar if you've used Lightroom.
 
 ## What you can do with it
 
-**Choose a film and a paper.** 28 film and paper profiles — color negative, slide, motion-picture,
+**Choose a film and a paper.** 28 film and paper profiles — colour negative, slide, motion-picture,
 print film, and RGB papers — listed by friendly name and grouped by category, each with its ISO,
-color balance, and era. The print path works for any film/paper pairing, not just preset
+colour balance, and era. The print path works for any film/paper pairing, not just preset
 combinations.
 
 **Start from a look, then make it yours.** 28 built-in presets cover researched film-and-print
@@ -67,19 +80,18 @@ scanner. Latest-upstream coverage and any inert or unavailable controls are trac
 README does not treat an older parity baseline as permanent full-feature parity.
 
 **Edit like a photographer.** A tone curve (master plus per-channel red/green/blue), contrast,
-saturation and vibrance, and local masks — radial, gradient, and luminance/color range with
-eyedroppers — that adjust exposure, color, clarity, texture, sharpness and tone in just one
-part of the frame. Local edits sit on top of the film render; the
-simulation underneath stays untouched.
+saturation and vibrance, and local masks — radial, gradient, and luminance/colour range with
+eyedroppers — that adjust exposure, colour, clarity, texture, sharpness and tone in just one part of
+the frame. Local edits sit on top of the film render; the simulation underneath stays untouched.
 
 **Get white balance right.** An eyedropper sets neutral from a tap, warmth and tint work on any
 photo, and "balance to film stock" warms the input to a tungsten stock's reference light — the
 digital equivalent of an 85 filter — so tungsten film doesn't render a daylight scene blue.
 
 **Bring in RAW, send out real files.** Supported RAW and DNG files use the pinned, patched LibRaw
-decoder; unsupported compressed inputs may use Android's display-referred platform fallback and
-are not claimed to be RAW/oracle-identical. The usual photo picker and a built-in demo image are
-also available. Rendered JPEG, PNG8/16, and TIFF16/32F exports offer six output spaces. PNG16 and
+decoder; unsupported compressed inputs may use Android's display-referred platform fallback and are
+not claimed to be RAW/oracle-identical. The usual photo picker and a built-in demo image are also
+available. Rendered JPEG, PNG8/16, and TIFF16/32F exports offer six output spaces. PNG16 and
 rendered TIFF carry the selected ICC profile; bitmap JPEG/PNG8 tagging needs API 26+, falls back to
 plain sRGB tagging on API 24–25, and cannot faithfully tag ACES in its 8-bit path. Scene-linear
 TIFF32F is a separate pre-simulation export: verbatim decoded input primaries, deliberately untagged
@@ -94,13 +106,29 @@ you reopen or export. The original RAW is never modified.
 ## Install
 
 Download the latest public APK from the
-[Releases](https://github.com/thetechgeekko/Spektrafilm-android/releases/latest) page, allow installs from
-unknown sources, and open it. CI artifacts are development evidence, not production-signed releases.
-Minimum Android 7.0 (API 24). The native engine ships for arm64-v8a, armeabi-v7a, and x86_64.
+[Releases](https://github.com/thetechgeekko/Spektrafilm-android/releases/latest) page, allow installs
+from unknown sources, and open it. CI artifacts are development evidence, not production-signed
+releases. Minimum Android 7.0 (API 24). The native engine ships for arm64-v8a, armeabi-v7a, and
+x86_64.
+
+## Two render routes
+
+| | Strict Exact (default) | Fast GPU (opt-in, experimental) |
+|---|---|---|
+| Runs on | CPU, f64 | Vulkan compute, f32 |
+| Contract | bit-exact against the oracle within tolerance | tolerance-bounded against that CPU route |
+| Determinism | byte-identical across worker counts | same-device deterministic |
+| On failure | — | fails closed to the CPU route |
+| Used as parity evidence | yes | never |
+
+The GPU route is opt-in and exists to make exports faster, not to redefine what correct means. Every
+GPU pass is gated against the f64 CPU stage before it ships, and refuses the request rather than
+returning an image it cannot bound.
 
 ## How it was made
 
-This app stands on open color science and open source, and the credit belongs to the projects below.
+This app stands on open colour science and open source, and the credit belongs to the projects
+below.
 
 - **[spektrafilm](https://github.com/andreavolpato/spektrafilm)** by **Andrea Volpato** is the engine
   this project ports — the spectral science, the film-stock profiles, and the LUTs are all his. If
@@ -108,19 +136,19 @@ This app stands on open color science and open source, and the credit belongs to
   [discuss.pixls.us](https://discuss.pixls.us/t/spectral-film-simulations-from-scratch/48209).
 - **[Image Toolbox](https://github.com/T8RIN/ImageToolbox)** by **T8RIN (Malik Mukhametzyanov)** —
   the Android image-editor architecture that shaped this app's design.
-- **[colour-science](https://www.colour-science.org/)** — the color-science library whose color
+- **[colour-science](https://www.colour-science.org/)** — the colour-science library whose colour
   matching functions, illuminants, and transforms define what "correct" means here.
 - **[LibRaw](https://www.libraw.org/)** — on-device RAW/DNG decoding.
-- The **[pixls.us](https://pixls.us)** community, for keeping open photography and open color science
-  alive and welcoming. This app is dedicated to you.
+- The **[pixls.us](https://pixls.us)** community, for keeping open photography and open colour
+  science alive and welcoming. This app is dedicated to you.
 
 ### A note on accuracy
 
 The port was done parity-first. We ran the real Python engine headless as an oracle, captured golden
 vectors of intermediate results, then ported each stage to C++ and gated it against those vectors.
-The current gate is oracle tolerance (`max_abs <= 1e-4`, `rms <= 1e-5`) plus same-build
-worker-count invariance. A `tools/parity` harness and CI enforce 39 cases at O2 and at the shipping
-compiler flags.
+The current gate is oracle tolerance (`max_abs <= 1e-4`, `rms <= 1e-5`) plus same-build worker-count
+invariance. A `tools/parity` harness and CI enforce 42 cases, twice: at `-O2` and at the flags the
+release APK actually ships with.
 
 | Stage | Difference vs the original |
 |-------|----------------------------|
@@ -135,6 +163,33 @@ These are representative stage measurements, not a promise of universal byte ide
 levels, current limitations, and the full implementation route are in the
 [execution index](docs/EXECUTION_INDEX.md).
 
+## Documentation
+
+**Start here**
+
+- [`docs/EXECUTION_INDEX.md`](docs/EXECUTION_INDEX.md) — current authority order and live-work loop
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — engine and app architecture
+
+**Contracts**
+
+- [`docs/BIT_IDENTICAL_EXPORT_ROADMAP.md`](docs/BIT_IDENTICAL_EXPORT_ROADMAP.md) — exactness and performance
+- [`docs/JNI_LIFETIME_SAFETY.md`](docs/JNI_LIFETIME_SAFETY.md) — the native boundary
+- [`docs/TRANSACTIONAL_STORAGE.md`](docs/TRANSACTIONAL_STORAGE.md) — storage and URI access
+- [`docs/LICENSING.md`](docs/LICENSING.md) — licence obligations
+- [`docs/RAW_DNG.md`](docs/RAW_DNG.md) — RAW/DNG decode notes
+
+**Release and process**
+
+- [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) — maintainer release checklist
+- [`docs/PRODUCTION_READINESS_PLAN.md`](docs/PRODUCTION_READINESS_PLAN.md) — release acceptance
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to build, gate, and submit a change
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed, per version
+- [`tools/parity/`](tools/parity/) — the golden-vector parity harness
+
+Dated files (`docs/AUDIT.md`, `docs/*_2026-*.md`) and `docs/research/**` record findings from when
+they were written. They are evidence, not a work queue.
+
 ## Author
 
 Built and directed by **Akshay**.
@@ -143,16 +198,6 @@ Built and directed by **Akshay**.
 - YouTube: [@Akshayishere](https://www.youtube.com/@Akshayishere/videos)
 
 If the app brings you something, say hi and share your renders.
-
-## Documentation
-
-- [`docs/EXECUTION_INDEX.md`](docs/EXECUTION_INDEX.md) — current authority order and live-work loop
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — engine and app architecture
-- [`docs/PRODUCTION_READINESS_PLAN.md`](docs/PRODUCTION_READINESS_PLAN.md) — release acceptance architecture
-- [`docs/BIT_IDENTICAL_EXPORT_ROADMAP.md`](docs/BIT_IDENTICAL_EXPORT_ROADMAP.md) — exactness and performance contract
-- [`docs/RAW_DNG.md`](docs/RAW_DNG.md) — RAW/DNG decode notes
-- [`tools/parity/`](tools/parity/) — the golden-vector parity harness
-- [`NOTICE.md`](NOTICE.md) — attributions
 
 ## License
 

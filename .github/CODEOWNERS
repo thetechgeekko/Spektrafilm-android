@@ -1,0 +1,20 @@
+# Every change is reviewed by the maintainer. The engine and the release
+# machinery are listed separately so a reviewer can see at a glance when a
+# pull request touches a gated surface.
+
+*                                   @thetechgeekko
+
+# The parity-gated engine: any change here must keep the 42-case suite green
+# at both flag legs.
+/engine/spektra-core/src/main/cpp/  @thetechgeekko
+/tools/parity/                      @thetechgeekko
+
+# Release, signing and CI integrity.
+/.github/workflows/                 @thetechgeekko
+/tools/r8_check/                    @thetechgeekko
+/tools/compliance/                  @thetechgeekko
+
+# Licensing and attribution are GPL obligations, not preferences.
+/LICENSE                            @thetechgeekko
+/NOTICE.md                          @thetechgeekko
+/docs/LICENSING.md                  @thetechgeekko

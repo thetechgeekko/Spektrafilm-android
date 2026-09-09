@@ -1,0 +1,69 @@
+name: Bug report
+description: Something renders wrong, crashes, or behaves differently than documented.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include the version and the device. A render complaint without the
+        source file and the parameters is very hard to act on.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Settings shows the version and versionCode. Say if it is a CI build.
+      placeholder: "0.9.0 (versionCode 11), from Releases"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: "Pixel 7, Android 15"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a DNG from ...
+        2. Select preset ...
+        3. Export as TIFF16
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Render / image is wrong
+        - Crash or freeze
+        - Export or file output
+        - RAW / DNG import
+        - Editor UI
+        - Presets or masks
+        - Performance
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Source file and preset
+      description: >
+        If the render is wrong, attach or link the source file and the exported preset
+        JSON. Without them a render report usually cannot be reproduced.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logcat
+      description: If it crashed, paste the stack trace.
+      render: text

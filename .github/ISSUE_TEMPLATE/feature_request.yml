@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a capability or a change to how something works.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening: `docs/EXECUTION_INDEX.md` lists what is already planned, and
+        `docs/ROADMAP.md` what is already committed to. This project is a parity-first
+        port, so anything that changes the rendered image has to answer to the oracle.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that you cannot do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: dropdown
+    id: parity
+    attributes:
+      label: Would this change the rendered image?
+      options:
+        - "No — UI, workflow, or export plumbing only"
+        - "Yes — it changes pixels"
+        - "I do not know"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you have tried instead
