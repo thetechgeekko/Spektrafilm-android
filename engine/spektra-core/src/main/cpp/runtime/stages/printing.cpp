@@ -432,8 +432,14 @@ void print_expose(const Profile& film, const Profile& print_profile,
 
         lut_lr.resize(static_cast<size_t>(npix) * 3);
         std::vector<double> dens_d(static_cast<size_t>(npix) * 3);
-        for (size_t i = 0; i < dens_d.size(); ++i)
-            dens_d[i] = static_cast<double>(density_cmy[i]);
+        // Same per-element map; the enlarger-LUT accelerator path only, which
+        // the benchmark does not take, so this is unmeasured here.
+        {
+            double* dp = dens_d.data();
+            parallel_for(0, static_cast<int>(dens_d.size()), [&](int lo, int hi) {
+                for (int i = lo; i < hi; ++i) dp[i] = static_cast<double>(density_cmy[i]);
+            });
+        }
         apply_prepared_lut_3d_pchip(*prepared, dens_d.data(), width, height,
                                     lut_lr.data());
     }
@@ -553,10 +559,17 @@ void print_expose(const Profile& film, const Profile& print_profile,
         apply_diffusion_filter_um(raw_buf.data(), width, height,
                                   params.diffusion_filter, params.pixel_size_um);
         const size_t total = static_cast<size_t>(npix) * 3;
-        for (size_t i = 0; i < total; ++i) {
-            log_raw_print_out[i] = static_cast<float>(
-                std::log10(std::fmax(raw_buf[i], 0.0) + 1e-10));
-        }
+        // Per-element map with disjoint writes -> deterministic chunks. Only
+        // reached when the print diffusion filter is on, so it is not on the
+        // path the 12.5 MP benchmark measures; it is 37.5 M elements when it
+        // does run, which is not something to leave on one core.
+        const double* raw_p = raw_buf.data();
+        parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i) {
+                log_raw_print_out[i] = static_cast<float>(
+                    std::log10(std::fmax(raw_p[i], 0.0) + 1e-10));
+            }
+        });
     }
 }
 
