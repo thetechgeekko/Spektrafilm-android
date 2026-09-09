@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+### The Fast GPU export route: halation and coupler diffusion on the device (#206)
+
+- The in-emulsion scatter and back-reflection halation pass now runs on the GPU, adapted
+  from spektrafilm-ofx's `SpektraHalation.comp` (pinned `86476af`, GPL-3.0) with this
+  engine's own parameters and its own Young-van Vliet IIR. The same pass diffuses the
+  DIR-coupler correction, which is the scatter step with amount 1.
+- The pass keeps the whole frame resident on the device (four packed f32 planes, 48 B/px,
+  refused above 1 GiB with the CPU running instead). An earlier row-sliced design could not
+  make the IIR exact: a slice restarts the recursion, the transient needs a 10-sigma halo,
+  and the DIR tail's halo never fit the slice budget, so that pass refused at export scale
+  and never engaged.
+- The shader derives no parameter of its own. Sigmas, the FIR/IIR class, accumulation
+  weights, the IIR coefficients and the FIR tap radius are all computed on the host in f64
+  and shipped in a table, because f32-derived values each diverged from the oracle:
+  rounded coefficients move the poles and change the filter's shape (0.20 of a unit step at
+  sigma 256 px), an f32 sigma can cross the class boundary and leave a channel unwritten,
+  and the tap radius is a step function that gains a tap at reachable slider values.
+  Coefficients and the recursion state are double-float, since Adreno has no fp64.
+- A scatter tail weight outside [0, 1] is declined rather than clamped: the CPU blends with
+  the raw weight, and clamping on one route only would be an unbounded divergence.
+- Gated under lavapipe against the f64 CPU pass at both flag legs: the halation scene
+  2.1e-7 / 4.5e-8 on log10(raw), flat field 8e-13 to 1.1e-9 for sigma 12 to 256 px, every
+  UI-reachable wide sigma ~2.1e-7, mixed FIR/IIR channels 1.7e-7, the DIR shape at the
+  12.5 MP pitch 1.0e-7 to 2.5e-7 in density. Three warm runs byte-identical.
+- Measured on SM-S948W at 12.5 MP: the Fast GPU export is **40.2 % faster than the CPU
+  route** (8/8 paired captures), halation 600 ms against 2547 ms, and the DIR diffusion
+  engages at export scale for the first time (1313 ms on the CPU to 610 ms).
+- The Strict Exact CPU route is unchanged and remains the authority. The GPU route stays
+  opt-in, tolerance-bounded, same-device deterministic, fails closed to the CPU, and is
+  never used as parity evidence.
+
+### Export profiling and single-threaded work removed (#148)
+
+- The spectral scan and print dispatches now report where their time goes: the upload/
+  non-finite guard, the device time and the readback are timed separately, with bytes moved
+  each way, plus a count of every fenced submit-and-wait across all GPU passes.
+- That measurement immediately corrected the plan it was written to size. The whole GPU
+  scan path on SM-S948W is 52 ms (guard 21.1, device 18.2, readback 12.6, 285 MB each way),
+  not the 250-700 ms two planned slices assumed.
+- `dispatch_scan`'s guard and readback, and all six whole-image loops in `crop_and_rescale`
+  (which contained no parallel work at all), now split into the engine's deterministic
+  chunks. Byte-identical: 42/42 at both flag legs and again pinned to 1 and to 8 workers.
+  Measured at -0.7 % on the device, which is inside the noise, and recorded as such rather
+  than as a speed-up.
+- Host-visible staging prefers `HOST_CACHED` memory; coherent stays required, so no
+  synchronisation changes.
+
+### Repository structure
+
+- Added `CONTRIBUTING.md`, `SECURITY.md`, issue templates, a pull request template and
+  `CODEOWNERS`, none of which existed.
+- README: corrected a stale claim that CI enforces 39 parity cases (it is 42, at two flag
+  legs) and documented the two render routes and their differing contracts.
+
 ### Exact RAW decode handoff and release profiling (#158)
 
 - Replaced the decoded `std::vector<float>` plus JNI `malloc`/memcpy pair with one
