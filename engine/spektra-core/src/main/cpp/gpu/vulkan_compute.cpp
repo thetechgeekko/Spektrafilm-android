@@ -25,6 +25,7 @@
  * so the probe's error measurements are unaffected.
  */
 #include "gpu/vulkan_compute.h"
+#include "runtime/memory_budget.h"
 #include "runtime/stage_timer.h"
 
 namespace spk::gpu {
@@ -125,6 +126,11 @@ struct Buf {
     VkDeviceMemory mem = VK_NULL_HANDLE;
     void* mapped = nullptr;
     VkDeviceSize cap = 0;
+    // Admission against the process coordinator, released when the buffer is.
+    // Device memory was invisible to it until now: a 12.5 MP Fast GPU export
+    // holds ~571 MiB of device-local buffers, which is more than the whole
+    // COMPACT tier, and it reported as zero.
+    spk::memory::MemoryReservation reservation;
 };
 
 // SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
@@ -142,6 +148,7 @@ struct ResidentBuf {
     VkDeviceSize cap = 0;
     VkDeviceSize allocationSize = 0;
     VkMemoryPropertyFlags memoryFlags = 0;
+    spk::memory::MemoryReservation reservation;
 };
 
 enum PointwiseTable : size_t {
@@ -273,6 +280,7 @@ struct Ctx {
         if (b.mem) { vkFreeMemory(device, b.mem, nullptr); b.mem = VK_NULL_HANDLE; }
         if (b.buf) { vkDestroyBuffer(device, b.buf, nullptr); b.buf = VK_NULL_HANDLE; }
         b.cap = 0;
+        b.reservation.reset();
     }
 
     void destroyResidentBuf(ResidentBuf& b) {
@@ -291,6 +299,7 @@ struct Ctx {
         b.cap = 0;
         b.allocationSize = 0;
         b.memoryFlags = 0;
+        b.reservation.reset();
     }
 
     void destroyPointwise() {
@@ -397,6 +406,24 @@ struct Ctx {
             vkDestroyBuffer(device, buffer, nullptr);
             return false;
         }
+        // Admission BEFORE the driver allocation, so a device over its budget
+        // is refused here and the caller falls back to the CPU, rather than
+        // discovering it as a driver OOM or an Android low-memory kill. The
+        // default coordinator limit is unbounded, so this changes nothing until
+        // a limit is actually set.
+        const bool deviceLocal =
+            (memoryProperties.memoryTypes[memoryType].propertyFlags &
+             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
+        spk::memory::MemoryReservation reservation =
+            spk::memory::process_memory_budget().try_reserve(
+                static_cast<std::uint64_t>(req.size),
+                deviceLocal ? spk::memory::MemoryDomain::GpuDevice
+                            : spk::memory::MemoryDomain::GpuHost,
+                spk::memory::MemoryStage::Gpu);
+        if (!reservation) {
+            vkDestroyBuffer(device, buffer, nullptr);
+            return false;
+        }
         VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mai.allocationSize = req.size;
         mai.memoryTypeIndex = static_cast<uint32_t>(memoryType);
@@ -421,6 +448,7 @@ struct Ctx {
         b.mem = memory;
         b.mapped = mapped;
         b.cap = bytes;
+        b.reservation = std::move(reservation);
         b.allocationSize = req.size;
         b.memoryFlags = memoryProperties.memoryTypes[memoryType].propertyFlags;
         ++diagnostics.buffer_allocations;
@@ -524,6 +552,10 @@ struct Ctx {
         int mt = findMemType(req.memoryTypeBits, kHostRequired | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
         if (mt < 0) mt = findMemType(req.memoryTypeBits, kHostRequired);
         if (mt < 0) return false;
+        b.reservation = spk::memory::process_memory_budget().try_reserve(
+            static_cast<std::uint64_t>(req.size), spk::memory::MemoryDomain::GpuHost,
+            spk::memory::MemoryStage::Gpu);
+        if (!b.reservation) return false;
         VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mai.allocationSize = req.size;
         mai.memoryTypeIndex = (uint32_t)mt;
