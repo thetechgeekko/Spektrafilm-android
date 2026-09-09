@@ -2987,4 +2987,87 @@ stage. At 12 MP that is 5.3 s -> 3.5 s on an effect that is OFF by default, in a
 change to the one kernel whose exactness the whole parity suite leans on. Left
 undone deliberately.
 
+## 28. The grain stage was never sampler-bound, and a hot phone said otherwise (#148, #180)
+
+#180 was opened to decide the grain numeric contract, on the premise that the
+sampler was the pathological cost. A host profile had put 94.6 % of the grain
+stage in the per-pixel Poisson/Binomial walk. The device never agreed, and
+there was no instrumentation that could say which part disagreed -- the stage
+reported one number.
+
+So the first change was observability, not speed: `ScopedGrainPhase` accumulates
+seven phases (sampler, particle blur, prep, accumulate, micro-structure, final,
+layers) across every channel and sublayer of one render, and the export logs
+them. Nothing gates on them.
+
+The answer was not the sampler. It was `interp_density_cmy_layers`, running
+112 M interpolations on one core, in `model/density_curves.cpp` -- a file no
+sweep in this document had ever opened. It was 53-55 % of the grain stage. The
+fix is six lines: wrap the inner loop in `spk::parallel_for`, disjoint writes,
+so deterministic chunking cannot change a value.
+
+### Measured on device, cooled, 4 paired captures (S26 Ultra, HEAVY 12.5 MP, Fast GPU both arms)
+
+| phase | before | after | delta |
+|---|---|---|---|
+| simulate | 7546 +/- 283 ms | 5975 +/- 169 ms | **-20.8 %** |
+| grain | 3846 +/- 49 | 2228 +/- 77 | -42.1 % |
+| **layers** | **2101 +/- 36** | **481 +/- 26** | **-77.1 % (4.4x)** |
+| sampler | 1123 +/- 21 | 1139 +/- 53 | +1.4 % |
+| preprocess | 323 +/- 6 | 326 +/- 4 | +0.9 % |
+
+After was faster in **16/16** format pairs; total export -18.7 %. The engine
+sample digest is identical between the two arms in every format, so the change
+is byte-identical on device, not merely within a band.
+
+### Five of the six loops I parallelised are worth nothing
+
+The same commit parallelised six serial whole-image loops. Only one of them
+moves: `layers`, at 4.4x. The preprocess f32->f64 materialisation (37.5 M
+elements) is +0.9 %, the auto-exposure gain, the grain density-min subtract, the
+micro-structure multiply and the glare /100 tail are all inside their own noise.
+That is the fourth time in this document that a loop which *looks* expensive by
+element count measures as nothing. Element count is not a cost model; the
+profile is.
+
+### The hot-phone lesson, which cost a wrong number in a commit message
+
+The first paired run of this change was taken on a thermally saturated phone
+with a fixed 45 s cool-down. It reported **-12.7 %, faster in 7/8 pairs, min
+-26.6 %, max +13.7 %** -- and that figure went into commit `0c6094f`. It is
+wrong, and the tell was in the data at the time: the **sampler** phase, whose
+code is byte-identical in both arms, read 1463 ms in one arm and 2542 ms in the
+other. A phase that cannot have changed had moved by 74 %.
+
+Re-run with a thermal gate instead of a sleep -- no capture starts until the
+live HAL readings are back under skin 35.5 C / AP 38.0 C -- every run entered
+within 35.0-35.4 C, and the same two APKs gave -20.8 % with a quarter of the
+spread:
+
+| | fixed 45 s sleep (hot) | thermal gate (cooled) |
+|---|---|---|
+| before | 9351 +/- 1077 ms | 7546 +/- 283 ms |
+| after | 7318 +/- 1562 ms | 5975 +/- 169 ms |
+| paired | -12.7 %, 7/8 | -20.8 %, 16/16 |
+| sampler phase (identical code) | 1463 vs 2542 ms | 1123 vs 1139 ms |
+
+The cooled run is the one to quote. **A fixed sleep is not a cool-down** -- it
+is a fixed sleep, and on a phone that has just run eight 12.5 MP exports it
+buys nothing. Gate on the temperature, and put the entry temperature in the
+artefact so a reader can check it. `tools/baseline/wait_cool.sh` is that gate,
+factored out so the next A/B does not have to rediscover it.
+
+The corollary is the more useful one: **instrument a phase whose code you did
+not touch, and let it be your thermometer.** The sampler was that control here,
+and it is what proved the -12.7 % run untrustworthy without needing to re-run
+anything.
+
+### What this does to #180
+
+The decision #180 exists to make -- may a faster grain sampler change the noise
+realisation -- was answered yes by the owner, and the cheaper generator did
+ship for the Fast GPU route. But it is worth 2.8 %, not the 1300-1900 ms the
+issue was scoped around. The pathological cost the issue names was in a
+different file, was not stochastic, and needed no numeric contract at all.
+
 *Film modeling powered by spektrafilm (GPLv3).*
