@@ -33,7 +33,10 @@
 layout(local_size_x = WG) in;
 
 layout(std430, binding = 0) readonly  buffer InBuf  { float src[];    };
-layout(std430, binding = 1) writeonly buffer OutBuf { float dst[];    };
+// NOT writeonly: MODE_UNSHARP reads the plane it writes (the sharpened result
+// is a function of the original, which lives in the destination half).
+layout(std430, binding = 1) buffer OutBuf { float dst[];    };
+// The tc_lut in MODE_EXPOSE; the SECOND PLANE in MODE_MIX and MODE_UNSHARP.
 layout(std430, binding = 2) readonly  buffer TcLut  { float tc_lut[]; };
 // axis | curve, each n*3 floats, channel-interleaved exactly as the host holds
 // them. For MODE_DEVELOP the host supplies the axis
@@ -50,6 +53,24 @@ shared float s_max[WG];
 #define MODE_DEVELOP 1u   // exposure -> density curves
 #define MODE_MAX     2u   // per-workgroup max of the source, for the boost
 #define MODE_BOOST   3u   // numba_boost_hightlights.boost_highlights
+#define MODE_MIX     4u   // (1 - amt) * src + amt * other
+#define MODE_UNSHARP 5u   // src + amt * (src - other)
+
+// TWO-INPUT POINTWISE, which the pipeline needs in three places and had in none:
+//
+//   the diffusion resolve   E_out = (1 - p_s) * E_in + p_s * (K_s * E_in)
+//   the unsharp mask        rgb  += amount * (rgb - G(sigma) * rgb)
+//   (and the same shape turns up wherever a filtered plane is blended back)
+//
+// Each is trivial arithmetic over two whole planes, so on its own each would be
+// an upload, a dispatch and a readback to do one multiply-add per component --
+// which is why all three are still on the CPU. Under residency they are free,
+// and they are the reason residency is worth having.
+//
+// The SECOND PLANE arrives on binding 2, which the tc_lut occupies in
+// MODE_EXPOSE and nothing occupies in these modes. That is why this needed no
+// new descriptor layout and no new pipeline: the layout already had a spare
+// float buffer, it was just called something else.
 
 // THE HIGHLIGHT BOOST NEEDS A FRAME-WIDE MAXIMUM before its per-element map,
 // which is why it is two modes and not one. MODE_MAX reduces each workgroup to a
@@ -87,6 +108,7 @@ layout(push_constant) uniform Push {
     float inv_max_raw;
     float boost_scale;
     float boost_a;
+    float mix_amount;     // p_s for MODE_MIX, the unsharp amount for MODE_UNSHARP
     // Auto-exposure gain, applied to the SOURCE. expose_f32_gain folds
     // 2^ae_ev into the float32 read rather than materialising a scaled plane;
     // this reproduces that placement instead of asking the caller to pre-scale.
@@ -176,6 +198,18 @@ void main() {
 
     if (group >= pc.total_groups) return;
     uint p = group * WG + gl_LocalInvocationID.x;
+
+    if (pc.mode == MODE_MIX || pc.mode == MODE_UNSHARP) {
+        // Component-wise, like the boost modes: pc.npix is the component count.
+        if (p >= pc.npix) return;
+        float a = finite_or(src[p], 0.0);
+        float b = finite_or(tc_lut[p], 0.0);
+        float o = (pc.mode == MODE_MIX)
+                      ? (1.0 - pc.mix_amount) * a + pc.mix_amount * b
+                      : a + pc.mix_amount * (a - b);
+        dst[p] = finite_or(o, 0.0);
+        return;
+    }
 
     if (pc.mode == MODE_BOOST) {
         // Component-wise, like MODE_MAX: pc.npix is the component count.

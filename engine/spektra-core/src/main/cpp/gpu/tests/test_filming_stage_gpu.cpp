@@ -402,6 +402,63 @@ void boost_case(const char* label, double boost_ev, double boost_range,
     check(max_abs <= 1e-4 * std::max(peak, 1.0), label);
 }
 
+// TWO-INPUT BLENDS (#222). The diffusion resolve and the unsharp mask.
+//
+// Both are one multiply-add per component, so the arithmetic is not what needs
+// checking -- the ALIASING is. In both real call sites the destination IS the
+// first source (`raw` and `lin_rgb` are updated in place), and the unsharp form
+// reads its destination as well as writing it. A pass that bound the destination
+// writeonly, or that ping-ponged the resident pair under an in-place caller,
+// would produce a plausible-looking image built from the wrong half.
+void blend_case(const char* label, bool unsharp, double amount) {
+    const int w = 37, h = 11;
+    const size_t comps = static_cast<size_t>(w) * h * 3;
+    std::vector<double> a(comps), b(comps);
+    for (size_t i = 0; i < comps; ++i) {
+        const double t = static_cast<double>(i) / comps;
+        a[i] = 0.05 + 2.0 * t;
+        b[i] = 0.30 + 1.1 * std::sin(9.0 * t);   // the "filtered" plane
+    }
+    std::vector<double> cpu(comps);
+    for (size_t i = 0; i < comps; ++i)
+        cpu[i] = unsharp ? a[i] + amount * (a[i] - b[i])
+                         : (1.0 - amount) * a[i] + amount * b[i];
+
+    // IN PLACE, exactly as both callers do it.
+    std::vector<double> gpu = a;
+    spk::gpu::FilmingStageDiagnostics d{};
+    const bool ok = spk::gpu::blend_mix(gpu.data(), b.data(), gpu.data(), w, h,
+                                        amount, unsharp, &d);
+    if (!ok) {
+        std::printf("[FAIL] %s: refused (%s)\n", label, d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+    double max_abs = 0.0, peak = 0.0;
+    for (size_t i = 0; i < comps; ++i) {
+        max_abs = std::max(max_abs, std::fabs(cpu[i] - gpu[i]));
+        peak = std::max(peak, std::fabs(cpu[i]));
+    }
+    std::printf("  %s: max_abs %.3e  peak %.4g  bar %.3e\n",
+                label, max_abs, peak, 1e-4 * peak);
+    check(max_abs <= 1e-4 * std::max(peak, 1.0), label);
+
+    // And the blend must actually be a blend: amount 0 has to reproduce `a`
+    // exactly, which catches a mode that ignored its amount or swapped its
+    // inputs -- both of which still look like a smooth image.
+    std::vector<double> ident = a;
+    spk::gpu::FilmingStageDiagnostics d0{};
+    if (spk::gpu::blend_mix(ident.data(), b.data(), ident.data(), w, h, 0.0,
+                            unsharp, &d0)) {
+        double worst = 0.0;
+        for (size_t i = 0; i < comps; ++i)
+            worst = std::max(worst, std::fabs(ident[i] - a[i]));
+        std::printf("  %s at amount 0: worst %.3e\n", label, worst);
+        check(worst <= 1e-6, "amount 0 reproduces the first input");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -421,6 +478,8 @@ int main() {
     boost_case("boost_ev 1.0, range 0.5", 1.0, 0.5, 0.0, true);
     boost_case("boost_ev 2.5, range 0.9, protect +2 EV", 2.5, 0.9, 2.0, true);
     boost_case("boost_ev 0 (identity)", 0.0, 0.5, 0.0, false);
+    blend_case("diffusion resolve, p_s 0.35", false, 0.35);
+    blend_case("unsharp mask, amount 0.8", true, 0.8);
     boost_case("protect_ev far above the maximum (identity)", 1.0, 0.5, 12.0, false);
     residency_case();
     refusal_cases();

@@ -1172,8 +1172,16 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
         });
     }
 
-    // E_out = (1 - p_s) * E_in + p_s * blurred. Per-element map.
+    // E_out = (1 - p_s) * E_in + p_s * blurred. Per-element map, and one of the
+    // three places the engine blends a filtered plane back (#222).
     const int total = w * h * 3;
+    {
+        gpu::FilmingStageDiagnostics gd{};
+        if (allow_gpu_fft &&
+            gpu::blend_mix(raw, blurred.data(), raw, w, h, p_s,
+                           /*unsharp=*/false, &gd))
+            return;
+    }
     parallel_for(0, total, [&](int lo, int hi) {
         for (int i = lo; i < hi; ++i)
             raw[i] = (1.0 - p_s) * raw[i] + p_s * blurred[i];

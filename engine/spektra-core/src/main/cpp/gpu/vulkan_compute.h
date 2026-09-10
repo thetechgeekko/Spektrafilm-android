@@ -435,6 +435,21 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
                      const float* axis, const float* curve, uint32_t points,
                      float* out_density, FilmingStageDiagnostics* diagnostics);
 
+// TWO-INPUT POINTWISE BLENDS on the GPU (#222; filming_stage.comp modes 4-5).
+//
+//   blend_mix      out = (1 - amount) * a + amount * b
+//   blend_unsharp  out = a + amount * (a - b)
+//
+// The engine needs this shape in three places -- the diffusion resolve, the
+// scanner unsharp mask, and anywhere a filtered plane is blended back -- and all
+// three are still on the CPU for the same reason: on its own, one multiply-add
+// per component does not pay for an upload and a readback. Under residency it
+// costs nothing, which is most of the argument for residency.
+//
+// `a` and `out` may be the same buffer. `count` is COMPONENTS, not pixels.
+bool blend_mix(const double* a, const double* b, double* out, int width, int height,
+               double amount, bool unsharp, FilmingStageDiagnostics* diagnostics);
+
 // HIGHLIGHT BOOST on the GPU (#219; shader gpu/filming_stage.comp modes 2-3).
 //
 // numba_boost_hightlights.boost_highlights, which is a per-element map over a

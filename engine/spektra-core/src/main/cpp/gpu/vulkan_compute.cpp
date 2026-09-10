@@ -105,6 +105,11 @@ bool filming_expose(const double*, const float*, double, uint32_t, int, int,
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool blend_mix(const double*, const double*, double*, int, int, double, bool,
+               FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool highlight_boost(double*, int, int, double, double, double,
                      FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
@@ -2130,14 +2135,17 @@ struct FilmingStagePush {
     float inv_max_raw;
     float boost_scale;
     float boost_a;
+    float mix_amount;
     float src_gain;
 };
-static_assert(sizeof(FilmingStagePush) == 52, "push block must match filming_stage.comp");
+static_assert(sizeof(FilmingStagePush) == 56, "push block must match filming_stage.comp");
 
 constexpr uint32_t kFilmModeExpose = 0u;
 constexpr uint32_t kFilmModeDevelop = 1u;
 constexpr uint32_t kFilmModeMax = 2u;
 constexpr uint32_t kFilmModeBoost = 3u;
+constexpr uint32_t kFilmModeMix = 4u;
+constexpr uint32_t kFilmModeUnsharp = 5u;
 constexpr uint32_t kFilmFlagLog10 = 1u;
 
 // One dispatch, four buffers, one upload and one readback. Both entry points
@@ -2179,6 +2187,11 @@ struct FilmingStageRun {
     float inv_max_raw = 0.0f;
     float boost_scale = 0.0f;
     float boost_a = 0.0f;
+    float mix_amount = 0.0f;
+    // MODE_MIX / MODE_UNSHARP carry their second plane on binding 2, where
+    // MODE_EXPOSE carries the tc_lut. Given as f64 because that is what the
+    // engine's planes are; converted on upload like everything else.
+    const double* second_f64 = nullptr;
     // MODE_MAX needs one float of table space per workgroup, which is far more
     // than a curve; the run sizes binding 3 for whichever use is larger.
     size_t table_b_floats_min = 0;
@@ -2200,7 +2213,8 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     // boost modes need NEITHER -- MODE_MAX only writes partial maxima into the
     // table buffer and MODE_BOOST carries its scalars in the push block. An
     // unconditional "a table must be present" check refused them both.
-    const bool needs_table = r.mode == kFilmModeExpose || r.mode == kFilmModeDevelop;
+    const bool needs_table = r.mode == kFilmModeExpose || r.mode == kFilmModeDevelop ||
+                             r.mode == kFilmModeMix || r.mode == kFilmModeUnsharp;
     if (needs_table && r.tc_count == 0 && r.curve_count == 0)
         return give_up("null-table");
 
@@ -2220,6 +2234,9 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     // MODE_MAX produces its answer in the table buffer, not in the plane, so it
     // is the one mode with no destination at all.
     const bool writes_plane = r.mode != kFilmModeMax;
+    // The blend modes read their destination as well as write it, so the
+    // resident pair cannot ping-pong: `a` and `out` are the same half.
+    const bool in_place = r.mode == kFilmModeUnsharp;
     if (!resident) {
         if ((r.src_f64 == nullptr) == (r.src_f32 == nullptr)) return give_up("bad-source");
         if (writes_plane && (r.dst_f64 == nullptr) == (r.dst_f32 == nullptr))
@@ -2311,8 +2328,11 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         {
             if (r.tc_count) {
                 float* tc = static_cast<float*>(s.dyeB.mapped);
-                for (size_t i = 0; i < r.tc_count; ++i)
-                    tc[i] = static_cast<float>(r.tc_table[i]);
+                const double* srcTable = r.second_f64 ? r.second_f64 : r.tc_table;
+                parallel_for(0, static_cast<int>(r.tc_count), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i)
+                        tc[i] = static_cast<float>(srcTable[i]);
+                });
             }
             if (r.curve_count) {
                 float* cv = static_cast<float*>(s.cmfB.mapped);
@@ -2338,6 +2358,7 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         push.inv_max_raw = r.inv_max_raw;
         push.boost_scale = r.boost_scale;
         push.boost_a = r.boost_a;
+        push.mix_amount = r.mix_amount;
 
         const auto t_gpu = std::chrono::steady_clock::now();
         bool dispatch_ok = true;
@@ -2369,7 +2390,7 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
             // The result is the new front. Nothing crosses the bus. MODE_MAX
             // wrote no plane, so it must leave the front alone or the next pass
             // would read the stale half.
-            if (writes_plane) c.frame.front ^= 1u;
+            if (writes_plane && !in_place) c.frame.front ^= 1u;
         } else if (writes_plane) {
             const float* src = static_cast<const float*>(s.out.mapped);
             if (r.dst_f64) {
@@ -2461,6 +2482,44 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
     r.n = static_cast<int32_t>(points);
     r.dst_f32 = out_density;
     return run_filming_stage(r, diagnostics);
+}
+
+bool blend_mix(const double* a, const double* b, double* out, int width, int height,
+               double amount, bool unsharp, FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (width <= 0 || height <= 0 || !std::isfinite(amount))
+        return give_up("invalid-request");
+    const uint64_t comps64 = static_cast<uint64_t>(width) * height * 3;
+    if (comps64 == 0 || comps64 > UINT32_MAX) return give_up("invalid-request");
+    const uint32_t comps = static_cast<uint32_t>(comps64);
+    const bool resident = frame_active(width, height);
+    // `b` is always a host plane: it is the FILTERED copy, which no pass leaves
+    // resident. Only `a`/`out` can come from the frame.
+    if (b == nullptr) return give_up("invalid-request");
+    if (!resident && (a == nullptr || out == nullptr)) return give_up("invalid-request");
+
+    FilmingStageRun r;
+    r.mode = unsharp ? kFilmModeUnsharp : kFilmModeMix;
+    r.npix = comps;
+    r.npix_is_components = true;
+    r.width = width;
+    r.height = height;
+    r.src_f64 = resident ? nullptr : a;
+    r.dst_f64 = resident ? nullptr : out;
+    r.second_f64 = b;
+    r.tc_count = comps;
+    r.mix_amount = static_cast<float>(amount);
+    r.n = 2;
+    r.L = 2;
+    if (!run_filming_stage(r, &d)) return give_up(d.reason);
+    if (diagnostics) *diagnostics = d;
+    return true;
 }
 
 bool highlight_boost(double* rgb, int width, int height, double boost_ev,

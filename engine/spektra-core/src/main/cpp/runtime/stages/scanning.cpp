@@ -915,6 +915,20 @@ void scan(const Profile& film, const ScanningParams& params,
         // npix * 3 f64 elements (37.5 M at 12.5 MP, ~900 MB of traffic) inside
         // the stage that measures 471 ms on device.
         const double* blur_p = blur.data();
+        // The same two-input blend the diffusion resolve uses (#222). Behind the
+        // same knob as the blur above, because on its own it is one multiply-add
+        // per component against an upload and a readback -- it only pays when the
+        // frame is already resident.
+        bool mixed = false;
+        {
+            const char* gv = std::getenv("SPK_GPU_BLUR");
+            if (gv && gv[0] == '1') {
+                spk::gpu::FilmingStageDiagnostics gd{};
+                mixed = spk::gpu::blend_mix(lin_rgb, blur_p, lin_rgb, width, height,
+                                            amt, /*unsharp=*/true, &gd);
+            }
+        }
+        if (!mixed)
         parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
             for (int i = lo; i < hi; ++i)
                 lin_rgb[i] = lin_rgb[i] + amt * (lin_rgb[i] - blur_p[i]);
