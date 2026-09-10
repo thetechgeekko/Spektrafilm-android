@@ -262,10 +262,22 @@ namespace {
 // gaussian_kernel_1d uses radius = int(truncate*sigma + 0.5) with truncate 3,
 // and gaussian_fir_plane returns immediately at radius 0 -- an exact identity,
 // not an approximation of one. So radius 0 is the precise condition under which
-// skipping the blur is not a difference at all. It holds at every geometry this
-// app reaches (sigma 0.077 px at 12.5 MP, 0.036 px at 1080p, vs the 1/6 px
-// threshold), but it is TESTED rather than assumed, because it is a function of
-// od_particle and a user-settable blur_dye_clouds_um.
+// skipping the blur is not a difference at all.
+//
+// It is TESTED per cell rather than assumed, and the device says that was the
+// right call. An earlier version of this comment claimed identity held "at every
+// geometry this app reaches, sigma 0.077 px at 12.5 MP" -- that was the MIDDLE
+// cell (sl=1, c=1). The binding cell is the coarsest one, the largest
+// agx_particle_scale[c] * agx_particle_scale_layers[sl] product, because
+// od_particle = dmax_layer / n_ppp grows as particles per pixel fall. Measured
+// at 12.5 MP export pitch (8.82 um/px, tools/gpu_probe/probe_grain_main.cpp):
+//
+//   sl=1 c=1  n_ppp 129.76  sigma 0.0765 px  radius 0
+//   sl=0 c=2  n_ppp  25.95  sigma 0.1726 px  radius 1   <-- refuses
+//
+// So the GPU route engages at video and preview pitch and declines at export
+// pitch, missing the 1/6 px threshold by 3.5% on one cell out of nine. Export
+// needs the dye-cloud blur in the shader, not a looser test here.
 bool dye_cloud_blur_is_identity(double blur_particle, double od_particle) {
     if (!(blur_particle > 0.0)) return true;
     const float sigma = static_cast<float>(blur_particle * std::sqrt(od_particle));
