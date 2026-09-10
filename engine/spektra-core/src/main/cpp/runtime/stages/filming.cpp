@@ -668,11 +668,11 @@ void expose_impl(const Src& src, int width, int height,
     // active (schema default false), so default params stay bit-exact.
     if (params.diffusion_filter.active) {
         ScopedStage _t(STG_DIFFUSION);
-        // Fast GPU route only. The Gaussian-mixture PSF is 13x outside the oracle
-        // band at 12.5 MP, so Strict Exact keeps the FFT; and the GPU pass returns
-        // false without touching `raw` on any refusal, so this falls back rather
-        // than half-applying.
-        if (!(params.allow_gpu_halation &&
+        // Off by default and nothing sets the latch -- see params.h for the device
+        // numbers that took it off the Fast GPU route. The GPU pass returns false
+        // without touching `raw` on any refusal, so this falls back rather than
+        // half-applying, and with the latch clear it is the FFT unconditionally.
+        if (!(params.allow_gpu_diffusion_filter &&
               gpu_diffusion_pass(raw, width, height, params.diffusion_filter,
                                  params.pixel_size_um))) {
             apply_diffusion_filter_um(raw, width, height,

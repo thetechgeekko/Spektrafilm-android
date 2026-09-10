@@ -78,6 +78,24 @@ struct FilmingParams {
     // tap or bake. The CPU pass stays the fallback for any GPU failure.
     bool allow_gpu_halation = false;
 
+    // Separate latch for the camera DIFFUSION filter's GPU route (#213), and it is
+    // separate on purpose: nothing sets it, so the route is off everywhere.
+    //
+    // It shipped for one commit riding `allow_gpu_halation`, which is wrong. That
+    // flag means "this render accepts a tolerance-bounded GPU implementation of the
+    // same arithmetic" -- true of the halation pass, measured at ~2.1e-7 against the
+    // CPU. The diffusion route is not that. Its PSF is a Gaussian MIXTURE fitted to
+    // an exponential, the fit is worst at the r = 0 cusp, and the cusp is the bright
+    // core of the bloom. On device (tools/gpu_probe/probe_diffusion_main.cpp,
+    // Adreno 840, bright speculars on a dim field) it measured 18-37% RELATIVE error
+    // on the rendered image for 1.6-1.8x -- and refused outright at 12.5 MP, where a
+    // single ~2 s submission trips the GPU watchdog. A user with the GPU toggle on
+    // would have got a visibly different bloom with nothing announcing it.
+    //
+    // Kept wired rather than deleted because the pass, the fit and the probe are the
+    // evidence for the next attempt; see docs/research/spektrafilm-ofx-port.md.
+    bool allow_gpu_diffusion_filter = false;
+
     // Camera lens blur, in micrometres (camera.lens_blur_um). Applied in expose()
     // on the float64 raw irradiance, AFTER the optical diffusion filter and BEFORE
     // halation — exactly matching filming.py::expose, which calls
