@@ -198,6 +198,20 @@ struct HalationScatterRequest {
     double halation_first_sigma_um[3] = {0.0, 0.0, 0.0};
     int halation_n_bounces = 0;
     double halation_bounce_decay = 0.5;
+    // MIXTURE MODE (#213). When mixture_count > 0 the three fixed
+    // exponential-tail surrogates are replaced by an arbitrary weighted set of
+    // Gaussians, and `scatter_amount` is the convex-combination fraction. That is
+    // all the camera diffusion filter needs: its PSF decomposes into exactly this
+    // (model/diffusion.cpp, build_diffusion_mixture) and its resolve,
+    // (1 - p_s) * E_in + p_s * (K_s * E_in), is the SAME expression the scatter
+    // resolve already computes. So no new shader: this pass generalises.
+    //
+    // sigmas are in PIXELS (already through spatial_scale / pixel_size_um, so
+    // scatter_spatial_scale must be 1 and pixel_size_um is unused for them), and
+    // weights are per component per channel, component-major: [comp * 3 + ch].
+    const double* mixture_sigma_px = nullptr;
+    const double* mixture_weight = nullptr;
+    int mixture_count = 0;
     bool halation_renormalize = true;
     // 0 = the host's staging band (64 MiB of whole rows); a test sets it small
     // to prove that the upload/readback banding never touches the numbers.

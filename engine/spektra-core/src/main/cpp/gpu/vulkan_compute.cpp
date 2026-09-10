@@ -1626,7 +1626,12 @@ constexpr uint32_t kHalBlurFieldP3 = 9u;
 constexpr uint32_t kHalBlurFieldFirRadius = 11u;
 constexpr int kHalMaxFirRadius = 256;            // the shader's tap-loop bound
 constexpr uint32_t kHalMaxBounces = 8u;          // the UI allows 1..5
-constexpr uint32_t kHalBlurSlots = 4u + kHalMaxBounces;
+// The mixture (#213) puts one slot per Gaussian and a 7-term fit over three
+// groups reaches 54, so the table is sized for it rather than for the bounces.
+// The shader indexes frameFloats as a runtime-sized array and derives no bound of
+// its own, so this is a host-side capacity decision only -- no SPIR-V change.
+constexpr uint32_t kHalMaxMixture = 64u;
+constexpr uint32_t kHalBlurSlots = 4u + kHalMaxBounces + kHalMaxMixture;
 constexpr uint32_t kHalFrameFloatCount = kHalFrameBlurBase + kHalBlurSlots * 3u * kHalBlurStride;
 constexpr double kHalSmallSigmaMax = 3.0;        // kSmallSigmaMaxD: IIR at and above
 // Largest blur sigma (px) the pass accepts. The gate measures the double-float
@@ -1806,6 +1811,16 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         if (aTot[ch] > 0.0) anyA = true;
         if (sigmaH[ch] > 0.0) anySigmaH = true;
     }
+    // Mixture mode (#213) supplies its own component set, so the scatter core /
+    // tail micrometre fields are unused and cannot be what decides activation.
+    // Every component is a tail slot; there is no separate core.
+    if (r.mixture_count > 0) {
+        anyScatterSigma = false;
+        for (int i = 0; i < r.mixture_count; ++i)
+            if (r.mixture_sigma_px[i] > 0.0) { anyScatterSigma = true; break; }
+        coreNeeded = false;
+        tailNeeded = anyScatterSigma;
+    }
     const bool scatterActive = r.scatter_amount > 0.0 && anyScatterSigma;
     const int bounces = r.halation_n_bounces;
     const bool bounceActive = bounces >= 1 && anyA && anySigmaH;
@@ -1828,6 +1843,14 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     }
     if (!(sigmaMax <= kHalMaxSigma)) { d.reason = "sigma-too-large"; return false; }
     if (bounceActive && static_cast<uint32_t>(bounces) > kHalMaxBounces) { d.reason = "too-many-bounces"; return false; }
+    if (r.mixture_count > 0) {
+        if (!r.mixture_sigma_px || !r.mixture_weight) { d.reason = "invalid-request"; return false; }
+        if (static_cast<uint32_t>(r.mixture_count) > kHalMaxMixture) { d.reason = "too-many-components"; return false; }
+        for (int i = 0; i < r.mixture_count * 3; ++i)
+            if (!std::isfinite(r.mixture_weight[i])) { d.reason = "invalid-request"; return false; }
+        for (int i = 0; i < r.mixture_count; ++i)
+            if (!std::isfinite(r.mixture_sigma_px[i])) { d.reason = "invalid-request"; return false; }
+    }
 
     // Whole-frame residency: four packed f32 planes, each one storage range,
     // against the fixed budget and the device's largest device-local heap.
@@ -1876,7 +1899,14 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         const double scale = sigmaMode == kHalSigmaBounce ? std::max(r.halation_spatial_scale, 0.0)
                                                           : std::max(r.scatter_spatial_scale, 0.0);
         if (sigmaMode == kHalSigmaCore) return std::max(r.scatter_core_um[ch], 0.0) * scale / r.pixel_size_um;
-        if (sigmaMode == kHalSigmaTail) return std::max(r.scatter_tail_um[ch], 0.0) * kHalTailRatio[component] * scale / r.pixel_size_um;
+        if (sigmaMode == kHalSigmaTail) {
+            // Mixture components arrive already in pixels: the caller resolved
+            // spatial_scale and pixel_size_um when it built them, so applying them
+            // again here would square the scaling.
+            if (r.mixture_count > 0)
+                return std::max(r.mixture_sigma_px[component], 0.0);
+            return std::max(r.scatter_tail_um[ch], 0.0) * kHalTailRatio[component] * scale / r.pixel_size_um;
+        }
         return std::max(r.halation_first_sigma_um[ch], 0.0) * scale *
                std::sqrt(static_cast<double>(component + 1u)) / r.pixel_size_um;
     };
@@ -1932,9 +1962,15 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                 const bool isIir = blur_is_iir(sigmaMode, component, ch);
                 double weight = 0.0;
                 if (sigmaMode == kHalSigmaCore) {
-                    weight = 1.0 - r.scatter_tail_weight[ch];
+                    // In mixture mode there is no separate core: the whole PSF is
+                    // the component set, which already sums to one.
+                    weight = r.mixture_count > 0 ? 0.0 : 1.0 - r.scatter_tail_weight[ch];
                 } else if (sigmaMode == kHalSigmaTail) {
-                    weight = r.scatter_tail_weight[ch] * kHalTailAmplitude[component];
+                    // Mixture weights are per component per channel and already
+                    // carry the group weight and the halo warmth tint.
+                    weight = r.mixture_count > 0
+                                 ? r.mixture_weight[component * 3u + ch]
+                                 : r.scatter_tail_weight[ch] * kHalTailAmplitude[component];
                 } else {
                     // pow(decay, b) / sum_b pow(decay, b), with the CPU's
                     // std::pow(0, 0) == 1 for a zero decay (which the UI
@@ -1974,7 +2010,9 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         };
         if (scatterActive) {
             fill(0u, kHalSigmaCore, 0u);
-            for (uint32_t comp = 0; comp < 3; ++comp) fill(1u + comp, kHalSigmaTail, comp);
+            const uint32_t tailComps =
+                r.mixture_count > 0 ? static_cast<uint32_t>(r.mixture_count) : 3u;
+            for (uint32_t comp = 0; comp < tailComps; ++comp) fill(1u + comp, kHalSigmaTail, comp);
         }
         if (bounceActive) {
             for (uint32_t b = 0; b < static_cast<uint32_t>(bounces); ++b) fill(4u + b, kHalSigmaBounce, b);
@@ -2084,7 +2122,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     if (scatterActive) {
         dispatch(4, kHalOpClear, 0, 0, W, H);
         if (coreNeeded) blur(kHalSigmaCore, 0, false);
-        if (tailNeeded) for (uint32_t comp = 0; comp < 3; ++comp) blur(kHalSigmaTail, comp, false);
+        if (tailNeeded) {
+            const uint32_t tailComps =
+                r.mixture_count > 0 ? static_cast<uint32_t>(r.mixture_count) : 3u;
+            for (uint32_t comp = 0; comp < tailComps; ++comp) blur(kHalSigmaTail, comp, false);
+        }
         dispatch(5, kHalOpScatterResolve, 0, 0, W, H);  // scattered -> X
     }
     if (bounceActive) {
