@@ -91,6 +91,7 @@ TESTS=(
   "test_grain|$G/scan_portra/film_density_cmy.spkvec|tests/grain_ref_density.spkvec"
   "test_grain_sublayer|$G/scan_portra/film_density_cmy.spkvec|tests/grain_sublayer_ref_density.spkvec|$ASSET/profiles/kodak_portra_400.json"
   "test_glare_sampler"
+  "test_normal_generator"
   "test_binomial_shortcircuit"
 )
 

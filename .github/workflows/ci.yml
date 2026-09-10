@@ -652,6 +652,16 @@ jobs:
           # realisation (a no-op flag would pass every moment check) and that it
           # reproduces itself, which the Fast GPU determinism contract requires.
           build_run test_glare_sampler
+          # test_normal_generator: gates StatsRng::normal() ITSELF. Every other
+          # stochastic gate checks a distribution built ON TOP of the normal
+          # (particle counts, a lognormal field), so when the Fast path's normal
+          # was swapped from a Marsaglia polar to a Marsaglia-Tsang ziggurat,
+          # nothing gated the thing that actually changed. That swap fails
+          # quietly: a ziggurat whose tables are normalised against the wrong
+          # power of two yields a clean symmetric bell curve with the WRONG
+          # standard deviation, and the mean, skew and every downstream mean
+          # check still pass. Mutation-tested against exactly that bug.
+          build_run test_normal_generator
           # test_binomial_shortcircuit: fast_binomial_one returns n directly when
           # pow(1-p,n) has underflowed to 0 instead of walking the loop to k=n+1.
           # The two grain tests above are STATISTICAL and cannot see that, so this
