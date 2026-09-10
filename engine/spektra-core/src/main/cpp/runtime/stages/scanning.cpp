@@ -396,12 +396,27 @@ void scan(const Profile& film, const ScanningParams& params,
         // added to a stage total. Until now glare had no slot at all and so cost
         // nothing visible even when switched on (perf-lab §18).
         ScopedStage _tg(STG_GLARE);
-        compute_random_glare_amount(params.glare_percent, params.glare_roughness,
-                                    params.glare_blur, width, height,
-                                    params.glare_seed, glare_field.data(),
-                                    params.fast_sampler
-                                        ? StatsRng::Generator::Fast
-                                        : StatsRng::Generator::Exact);
+        // GPU field (#215, gpu/glare.comp): the lognormal draw, its blur and the
+        // /100 in one dispatch that uploads nothing and reads back one plane.
+        // It rides `fast_sampler` -- the SAME latch, for the same reason: the
+        // draw is a different RNG realisation of the same distribution, which is
+        // exactly what owner decision #180 scoped to export. It refuses (leaving
+        // the buffer untouched) on an IIR-class blur sigma or a radius wider than
+        // it will carry, and the CPU field below is the fallback.
+        gpu::GlareRequest greq;
+        greq.amount = params.glare_percent;
+        greq.roughness = params.glare_roughness;
+        greq.blur_px = params.glare_blur;
+        greq.seed = static_cast<uint32_t>(params.glare_seed);
+        gpu::GlareDiagnostics gdiag{};
+        if (!(params.fast_sampler &&
+              gpu::glare_field(glare_field.data(), width, height, greq, &gdiag)))
+            compute_random_glare_amount(params.glare_percent, params.glare_roughness,
+                                        params.glare_blur, width, height,
+                                        params.glare_seed, glare_field.data(),
+                                        params.fast_sampler
+                                            ? StatsRng::Generator::Fast
+                                            : StatsRng::Generator::Exact);
     }
 
     const double inv_norm = 1.0 / norm;

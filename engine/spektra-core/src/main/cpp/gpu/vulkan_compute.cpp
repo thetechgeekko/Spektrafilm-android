@@ -85,6 +85,10 @@ bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool gaussian_blur_rgb(double*, int, int, const double*) { return false; }
+bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
+    if (d) { *d = GlareDiagnostics{}; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool grain_sample(const GrainSampleRequest&, float*, GrainSampleDiagnostics* d) {
     if (d) { *d = GrainSampleDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
@@ -115,6 +119,7 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 
 #include "gpu/cctf_encode_spv.h"
 #include "gpu/filming_spv.h"
+#include "gpu/glare_spv.h"
 #include "gpu/grain_spv.h"
 #include "gpu/halation_scatter_spv.h"
 #include "kernels/parallel.h"
@@ -207,6 +212,9 @@ struct Ctx {
     // already declares. So it needs no pipeline code of its own -- the buffer
     // ROLES differ, not the layout.
     Kernel grainK;
+    // glare.comp (#215): same four-binding shape again (xyz in, xyz out, blur
+    // taps, one unused slot the layout requires).
+    Kernel glareK;
     // halation_scatter.comp (#206): one pipeline, eleven descriptor sets (one
     // per buffer-role permutation of the op sequence), four device-local
     // whole-frame work buffers, one mapped staging band, one frame-floats
@@ -508,6 +516,7 @@ struct Ctx {
         destroyKernel(scanFused);
         destroyKernel(scanLin);
         destroyKernel(grainK);
+        destroyKernel(glareK);
     }
     void destroyHalation() {
         if (!device) return;
@@ -2533,6 +2542,198 @@ bool gaussian_blur_rgb(double* rgb, int width, int height,
     parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
         for (int i = lo; i < hi; ++i) rgb[i] = out[i];
     });
+    return true;
+}
+
+// --- Viewing-glare field (#215) ---------------------------------------------
+// One dispatch: lognormal field, its blur, the /100 and the add into XYZ. See
+// gpu/glare.comp for why the blur needs no scratch plane.
+namespace {
+
+struct GlarePush {
+    uint32_t npix;
+    uint32_t groups_x;
+    uint32_t width;
+    uint32_t height;
+    uint32_t radius;
+    uint32_t seed;
+    float mu;
+    float sigma;
+    float scale;
+};
+
+}  // namespace
+
+bool glare_field(float* field, int width, int height, const GlareRequest& request,
+                 GlareDiagnostics* diagnostics) {
+    GlareDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+
+    if (!field || width <= 0 || height <= 0) return give_up("empty-frame");
+    if (!std::isfinite(request.amount) || !std::isfinite(request.roughness) ||
+        !std::isfinite(request.blur_px))
+        return give_up("invalid-request");
+    if (!(request.amount > 0.0)) return give_up("inactive");
+
+    // mu and sigma exactly as model/glare.cpp derives them, in f64, once.
+    const double m = request.amount;
+    // `sd` not `s`: the kernel reference below is also called s, and the two
+    // shadow each other in a way the no-Vulkan build cannot see (it compiles the
+    // stub instead of this function).
+    const double sd = request.roughness * request.amount;
+    double mu = 0.0, sigma = 0.0;
+    if (m > 0.0) {
+        const double sigma2 = std::log(1.0 + (sd * sd) / (m * m));
+        sigma = std::sqrt(sigma2);
+        mu = std::log(m) - sigma2 / 2.0;
+    }
+    if (!std::isfinite(mu) || !std::isfinite(sigma)) return give_up("invalid-request");
+
+    // The blur reduction, matching kernels/gaussian.cpp. A recompute loop cannot
+    // express an IIR recursion, so sigma at or above the CPU's FIR/IIR switch is
+    // refused outright rather than silently answered with a FIR.
+    const float blur = static_cast<float>(request.blur_px);
+    if (blur >= 3.0f) return give_up("blur-is-iir-class");
+    int radius = 0;
+    float taps[2 * kGlareMaxBlurRadius + 1] = {0.0f};
+    if (blur > 0.0f) {
+        radius = static_cast<int>(3.0f * blur + 0.5f);
+        if (radius < 0) radius = 0;
+        if (radius > kGlareMaxBlurRadius) return give_up("blur-too-wide");
+        if (radius > 0) {
+            const int size = 2 * radius + 1;
+            double total = 0.0;
+            for (int i = 0; i < size; ++i) {
+                const double x = static_cast<double>(i - radius);
+                const double val = std::exp(-0.5 * (x / blur) * (x / blur));
+                taps[i] = static_cast<float>(val);
+                total += val;
+            }
+            if (total != 0.0)
+                for (int i = 0; i < size; ++i)
+                    taps[i] = static_cast<float>(taps[i] / total);
+        }
+    }
+    d.blur_radius = static_cast<uint32_t>(radius);
+    if (radius > 0 &&
+        (width < 2 * radius + 1 || height < 2 * radius + 1))
+        return give_up("frame-smaller-than-kernel");
+
+    const uint32_t npix = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return give_up("gpu-unavailable");
+    const VkPhysicalDeviceLimits& limits = c.properties.limits;
+    Ctx::Kernel& s = c.glareK;
+
+    const PointwiseDispatchGrid grid =
+        plan_pointwise_dispatch(npix, limits.maxComputeWorkGroupCount[0],
+                                limits.maxComputeWorkGroupCount[1]);
+    if (!grid.valid) return give_up("dispatch-too-large");
+
+    // One plane out, not three: this pass produces the field, and the
+    // `xyz += field * illuminant` half stays fused in scanning.cpp's f64 loop.
+    const VkDeviceSize frameBytes = static_cast<VkDeviceSize>(npix) * sizeof(float);
+    const VkDeviceSize tapBytes =
+        static_cast<VkDeviceSize>(2 * kGlareMaxBlurRadius + 1) * sizeof(float);
+    if (frameBytes > limits.maxStorageBufferRange) return give_up("buffer-too-large");
+
+    bool ok = false;
+    do {
+        if (!s.pipelineReady &&
+            !build_scan_pipeline(c, s, kGlareSpv, sizeof(kGlareSpv)))
+            break;
+        const bool hadIn = s.in.cap >= 16 && s.in.buf;
+        const bool hadOut = s.out.cap >= frameBytes && s.out.buf;
+        if (!c.ensureBuf(s.in, 16)) break;   // binding 0 is unused by this shader
+        if (!c.ensureBuf(s.out, frameBytes)) break;
+        if (!c.ensureBuf(s.dyeB, tapBytes)) break;
+        if (!c.ensureBuf(s.cmfB, 16)) break;   // unused; the layout wants 4 bindings
+        if (!hadIn || !hadOut) {
+            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkDescriptorBufferInfo dbi[4];
+            VkWriteDescriptorSet wds[4];
+            for (uint32_t i = 0; i < 4; ++i) {
+                dbi[i] = VkDescriptorBufferInfo{bufs[i], 0, caps[i]};
+                wds[i] = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                wds[i].dstSet = s.dset;
+                wds[i].dstBinding = i;
+                wds[i].descriptorCount = 1;
+                wds[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                wds[i].pBufferInfo = &dbi[i];
+            }
+            vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+        }
+        std::memcpy(s.dyeB.mapped, taps, static_cast<size_t>(tapBytes));
+
+        // Nothing to upload: the field is generated from its seed, so this pass
+        // reads no image at all. That also means it moves npix floats instead of
+        // 4*npix, which is most of why it is cheap.
+        const size_t ncomp = static_cast<size_t>(npix);
+
+        GlarePush push{};
+        push.npix = npix;
+        push.groups_x = grid.groups_x;
+        push.width = static_cast<uint32_t>(width);
+        push.height = static_cast<uint32_t>(height);
+        push.radius = static_cast<uint32_t>(radius);
+        push.seed = request.seed;
+        push.mu = static_cast<float>(mu);
+        push.sigma = static_cast<float>(sigma);
+        push.scale = 0.01f;   // glare.py: random /= 100
+
+        const auto t_gpu = std::chrono::steady_clock::now();
+        bool dispatch_ok = true;
+        do {
+            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { dispatch_ok = false; break; }
+            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) { dispatch_ok = false; break; }
+            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
+                                    &s.dset, 0, nullptr);
+            vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(GlarePush), &push);
+            vkCmdDispatch(s.cmd, grid.groups_x, grid.groups_y, 1);
+            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) { dispatch_ok = false; break; }
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &s.cmd;
+            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
+            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { dispatch_ok = false; break; }
+            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
+        } while (false);
+        d.gpu_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - t_gpu).count();
+        if (!dispatch_ok) break;
+
+        const auto t_back = std::chrono::steady_clock::now();
+        {
+            const float* outp = static_cast<const float*>(s.out.mapped);
+            parallel_for(0, static_cast<int>(ncomp), [&](int lo, int hi) {
+                std::memcpy(field + lo, outp + lo,
+                            static_cast<size_t>(hi - lo) * sizeof(float));
+            });
+        }
+        d.readback_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_back).count();
+        ok = true;
+    } while (false);
+
+    if (!ok) {
+        c.destroyScan();
+        return give_up("dispatch-failed");
+    }
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
     return true;
 }
 

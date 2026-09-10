@@ -201,6 +201,51 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 bool gaussian_blur_rgb(double* rgb, int width, int height,
                        const double sigma_px[3]);
 
+// Viewing-glare field on the GPU (#215; shader gpu/glare.comp).
+//
+// model/glare.cpp::compute_random_glare_amount in one dispatch: the per-pixel
+// lognormal draw, its Gaussian blur and the /100. No scratch plane, because the
+// RNG is counter-based and a pixel regenerates its neighbours' draws rather than
+// reading them (the same trick gpu/grain.comp uses for the dye-cloud blur).
+//
+// It produces the FIELD, not the composited image. add_glare's
+// `xyz += field * illuminant` is fused into scanning.cpp's per-pixel f64 lambda
+// and is not separable from it; the field build is the expensive half and is
+// what STG_GLARE measures. It also means this pass uploads NOTHING -- the field
+// comes from its seed -- and reads back one plane rather than three.
+//
+// FAST GPU. The draw is a different realisation from the CPU's mt19937 stream,
+// so this may only ride a latch that admits a different realisation, exactly as
+// the grain sampler does. It is never parity evidence.
+//
+// Refuses rather than approximates: a blur sigma at or above the CPU's FIR/IIR
+// switch (3.0) cannot be expressed by a recompute loop at all, and a radius past
+// kGlareMaxBlurRadius would need a truncated kernel, which is a different filter.
+// The schema default blur is 0.5 px, i.e. radius 2 and 25 draws per pixel.
+constexpr int kGlareMaxBlurRadius = 4;
+
+struct GlareRequest {
+    double amount = 0.0;        // glare_percent; the lognormal mean
+    double roughness = 0.0;     // std = roughness * amount
+    double blur_px = 0.0;
+    uint32_t seed = 0;
+};
+
+struct GlareDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "";
+    uint32_t blur_radius = 0;
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
+// `field` is width*height floats, written only when the whole pass succeeded.
+// On any refusal it is untouched and the caller runs the CPU path. Never throws.
+bool glare_field(float* field, int width, int height, const GlareRequest& request,
+                 GlareDiagnostics* diagnostics);
+
 // AgX particle grain sampler on the GPU (#214; shader gpu/grain.comp).
 //
 // Ports the SAMPLER of model/grain.cpp::layer_particle_model -- the

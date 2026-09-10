@@ -37,6 +37,7 @@
 #include "kernels/exponential_filter.h"
 #include "kernels/gaussian.h"
 #include "model/diffusion.h"
+#include "model/glare.h"
 
 namespace {
 
@@ -505,6 +506,109 @@ int main() {
             const double zero[3] = {0.0, 0.0, 0.0};
             const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, zero);
             check(!ok && bytes_eq(gpu, raw), "sigma 0 is refused (the CPU blur is a no-op there)");
+        }
+    }
+
+
+    // --- gpu::glare_field vs the CPU field it replaces ------------------------
+    // A different RNG realisation, so nothing pixel-wise can be asserted. What
+    // CAN be is the distribution, and it is closed-form: the lognormal is
+    // constructed from (mean m, std s) = (amount, roughness*amount), so after the
+    // /100 the field has
+    //     E[field]  = amount / 100
+    //     sd[field] = roughness * amount / 100      (before the blur)
+    // and the blur preserves the mean while reducing the sd by a known factor.
+    // Comparing sd against the CPU FIELD rather than against the unblurred
+    // closed form is what catches a skipped or mis-sized blur.
+    {
+        const int gw = 512, gh = 512;
+        const size_t gn = static_cast<size_t>(gw) * gh;
+        struct GCase { double amount, roughness, blur; const char* what; };
+        const GCase gcases[] = {
+            {0.03, 0.7, 0.5, "schema defaults (amount 0.03, roughness 0.7, blur 0.5)"},
+            {0.03, 0.7, 0.0, "no blur (radius 0)"},
+            {0.10, 1.2, 1.2, "stronger and wider (radius 4)"},
+        };
+        for (const GCase& g : gcases) {
+            std::vector<float> cpu(gn, 0.0f), gpu(gn, 0.0f);
+            spk::compute_random_glare_amount(
+                static_cast<float>(g.amount), static_cast<float>(g.roughness),
+                static_cast<float>(g.blur), gw, gh, 12345u, cpu.data(),
+                spk::StatsRng::Generator::Exact);
+
+            spk::gpu::GlareRequest req;
+            req.amount = g.amount;
+            req.roughness = g.roughness;
+            req.blur_px = g.blur;
+            req.seed = 12345u;
+            spk::gpu::GlareDiagnostics diag{};
+            const bool ok = spk::gpu::glare_field(gpu.data(), gw, gh, req, &diag);
+            std::printf("glare %s: ok=%d engaged=%d reason=%s radius=%u gpu=%.2fms\n",
+                        g.what, ok ? 1 : 0, diag.engaged ? 1 : 0,
+                        diag.reason && *diag.reason ? diag.reason : "none",
+                        diag.blur_radius, diag.gpu_ms);
+            if (!ok || !diag.engaged) {
+                check(false, std::string("glare field engaged: ") + g.what);
+                continue;
+            }
+
+            double sc = 0.0, sg = 0.0, qc = 0.0, qg = 0.0;
+            for (size_t i = 0; i < gn; ++i) {
+                sc += cpu[i]; qc += static_cast<double>(cpu[i]) * cpu[i];
+                sg += gpu[i]; qg += static_cast<double>(gpu[i]) * gpu[i];
+            }
+            const double n = static_cast<double>(gn);
+            const double mc = sc / n, mg = sg / n;
+            const double vc = qc / n - mc * mc, vg = qg / n - mg * mg;
+            const double sdc = vc > 0 ? std::sqrt(vc) : 0.0;
+            const double sdg = vg > 0 ? std::sqrt(vg) : 0.0;
+            const double expect_mean = g.amount / 100.0;
+            std::printf("  mean cpu %.6e gpu %.6e (closed form %.6e)  sd cpu %.6e gpu %.6e  ratio %.4f\n",
+                        mc, mg, expect_mean, sdc, sdg, sdc > 0 ? sdg / sdc : 0.0);
+            // 6-sigma on the combined standard error of two independent means.
+            const double band = 6.0 * std::sqrt(2.0) * sdc / std::sqrt(n);
+            check(std::fabs(mg - mc) < band, std::string("glare mean matches the CPU field: ") + g.what);
+            check(std::fabs(mg - expect_mean) < 6.0 * sdg / std::sqrt(n) + 1e-9,
+                  std::string("glare mean matches the closed form: ") + g.what);
+            check(sdc > 0.0 && std::fabs(sdg / sdc - 1.0) < 0.05,
+                  std::string("glare noise magnitude matches the CPU field (the blur was not skipped): ") + g.what);
+        }
+
+        // Determinism, and that the seed actually moves the field.
+        {
+            std::vector<float> a(gn, 0.0f), b(gn, 0.0f), cdiff(gn, 0.0f);
+            spk::gpu::GlareRequest req;
+            req.amount = 0.03; req.roughness = 0.7; req.blur_px = 0.5; req.seed = 7u;
+            spk::gpu::GlareDiagnostics dd{};
+            const bool o1 = spk::gpu::glare_field(a.data(), gw, gh, req, &dd);
+            const bool o2 = spk::gpu::glare_field(b.data(), gw, gh, req, &dd);
+            req.seed = 8u;
+            const bool o3 = spk::gpu::glare_field(cdiff.data(), gw, gh, req, &dd);
+            check(o1 && o2 && a == b, "same glare request is byte-identical (same device)");
+            check(o3 && cdiff != a, "a new glare seed draws a new field");
+        }
+
+        // Refusals. An IIR-class sigma cannot be expressed by a recompute loop at
+        // all, and a radius past the cap would need a truncated kernel - a
+        // different filter. Both must leave the caller's buffer alone.
+        {
+            std::vector<float> untouched(gn, 42.0f);
+            spk::gpu::GlareRequest req;
+            req.amount = 0.03; req.roughness = 0.7; req.blur_px = 3.0; req.seed = 1u;
+            spk::gpu::GlareDiagnostics dd{};
+            const bool ok = spk::gpu::glare_field(untouched.data(), gw, gh, req, &dd);
+            bool all42 = true;
+            for (float v : untouched) if (v != 42.0f) { all42 = false; break; }
+            check(!ok && all42 && std::string(dd.reason) == "blur-is-iir-class",
+                  "an IIR-class blur sigma is refused, buffer untouched");
+
+            std::vector<float> untouched2(gn, 42.0f);
+            req.blur_px = 2.0;   // radius int(6.5) = 6 > kGlareMaxBlurRadius
+            const bool ok2 = spk::gpu::glare_field(untouched2.data(), gw, gh, req, &dd);
+            bool all42b = true;
+            for (float v : untouched2) if (v != 42.0f) { all42b = false; break; }
+            check(!ok2 && all42b && std::string(dd.reason) == "blur-too-wide",
+                  "a blur radius past the cap is refused, buffer untouched");
         }
     }
 

@@ -8,6 +8,7 @@
 #     the device evidence for that slice is bound to these exact binaries.
 #   halation_scatter: Android NDK 28.2.13676358, the pinned build NDK (#206).
 #   grain: Android NDK 28.2.13676358, the pinned build NDK (#214).
+#   glare: Android NDK 28.2.13676358, the pinned build NDK (#215).
 # Digests are over LF content, which is what git stores; a Windows working tree
 # checks these files out with CRLF, so normalise before comparing.
 # Exact command (run once for each source/output pair from this directory):
@@ -22,3 +23,5 @@ D8ED4EEC480EDB5E81E8F734E1B741E9240BF0DD4D881396411A69CDC6AB578B  scan_spectral_
 B99D09592E46C0C5C51C9DC79AAFA35088BC5BA931244175622690B013818427  halation_scatter_spv.inc
 DA8CA6ED04D424271F96D49FCE4A2F3789FA049293008E4E58BE208E96126618  grain.comp
 37A752EE30DC74B3E30EB529098808C55C546B173D077E9A7ED72C2A9EB6D569  grain_spv.inc
+C9C3264DA66C17E10BD81B5DAA5F2F5820449003E079A85DDD10EAF91B769065  glare.comp
+F015F7D02872ECA7D1A57644679D205B0DFA72D301060590532A6653197CB161  glare_spv.inc

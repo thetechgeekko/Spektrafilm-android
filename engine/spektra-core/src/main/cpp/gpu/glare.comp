@@ -1,0 +1,123 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Viewing-glare field (#215). Ports model/glare.cpp::compute_random_glare_amount:
+//
+//   field[i] = exp(mu + sigma * z_i)        (lognormal, one draw per pixel)
+//   field    = gaussian_blur(field, blur)   (single plane, sigma in pixels)
+//   field   *= 0.01
+//
+// It produces the FIELD, not the composited image. The `xyz += field *
+// illuminant` half is fused into scanning.cpp's per-pixel f64 lambda and is not
+// separable from it, so lifting it here would mean restructuring the scan loop
+// to materialise an XYZ frame that does not currently exist. The field build is
+// glare's expensive half anyway -- a full-resolution stochastic field plus a
+// blur -- which is exactly what STG_GLARE measures.
+//
+// It is ONE dispatch with no scratch plane, for the reason gpu/grain.comp gives:
+// the RNG is counter-based, so a pixel's draw is a pure function of its
+// coordinates and an invocation can regenerate its NEIGHBOURS' draws rather than
+// read them. The blur becomes a local loop with no intermediate buffer, no
+// barrier and no halo, and it is exact at every edge because there is no edge.
+//
+// That is affordable here specifically because the blur is narrow. The schema
+// default glare_blur is 0.5 px, i.e. radius = int(3*0.5 + 0.5) = 2, so 25
+// evaluations per pixel. The host refuses anything past kGlareMaxBlurRadius
+// rather than truncating the kernel, and refuses sigma at or above the CPU's
+// FIR/IIR switch entirely -- a recompute loop cannot express an IIR recursion,
+// and silently substituting a FIR for one would be a different filter.
+//
+// FAST GPU. The draw is a different realisation from the CPU's mt19937 stream,
+// exactly as the grain sampler is, so this may only ride a latch that admits a
+// different realisation. It is never parity evidence.
+//
+// The kernel derives no parameter of its own: mu, sigma, the blur radius and
+// every filter tap are computed on the host in f64.
+#define WG 64
+#define MAX_TAPS 9
+layout(local_size_x = WG) in;
+
+// Binding 0 is unused: build_scan_pipeline lays out four storage bindings and
+// every one must be written, so it takes a small dummy rather than a shape of
+// its own.
+layout(std430, binding = 0) readonly  buffer UnusedBuf { float unused_in[]; };
+layout(std430, binding = 1) writeonly buffer OutBuf { float field_out[]; };
+// The 1D Gaussian taps, 2*radius+1 of them, host-normalised.
+layout(std430, binding = 2) readonly  buffer TapBuf { float tap[]; };
+
+layout(push_constant) uniform Push {
+    uint npix;
+    uint groups_x;
+    uint width;
+    uint height;
+    uint radius;
+    uint seed;
+    float mu;
+    float sigma;
+    float scale;     // the /100 in glare.py, passed rather than hardcoded
+} pc;
+
+// PCG-RXS-M-XS, 32-bit (O'Neill).
+uint pcg(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+uint mix2(uint a, uint b) {
+    return pcg(pcg(a) ^ pcg(b + 0x9e3779b9u));
+}
+
+// scipy.ndimage mode='reflect', matching kernels/gaussian.cpp::reflect.
+int reflect_idx(int i, int n) {
+    if (i < 0) i = -i - 1;
+    else if (i >= n) i = 2 * n - 1 - i;
+    return clamp(i, 0, n - 1);
+}
+
+// One lognormal draw, regenerable from coordinates alone.
+float glare_at(uint gp) {
+    // fast_lognormal's sigma < 1e-6 short-circuit returns exp(mu) with NO
+    // normal consumed. Counter-based generation makes that free to honour: there
+    // is no stream position to keep in step.
+    if (pc.sigma < 1e-6) return exp(pc.mu);
+    uint h0 = mix2(pc.seed, gp);
+    uint h1 = pcg(h0 ^ 0xa5a5a5a5u);
+    float u0 = (float(h0 >> 8u) + 1.0) * (1.0 / 16777216.0);   // (0,1]
+    float u1 = float(h1 >> 8u) * (1.0 / 16777216.0);           // [0,1)
+    float z = sqrt(-2.0 * log(u0)) * cos(6.28318530717958647692 * u1);
+    return exp(pc.mu + pc.sigma * z);
+}
+
+void main() {
+    uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+    uint p = group * WG + gl_LocalInvocationID.x;
+    if (p >= pc.npix) return;
+
+    int w = int(pc.width);
+    int h = int(pc.height);
+    int x = int(p % pc.width);
+    int y = int(p / pc.width);
+    int r = int(pc.radius);
+
+    float g;
+    if (r <= 0) {
+        g = glare_at(p);
+    } else {
+        // Separable Gaussian as the outer product of the 1D kernel with itself,
+        // the two reflects taken independently -- algebraically what the CPU's
+        // vertical-then-horizontal pass computes.
+        g = 0.0;
+        for (int dy = -r; dy <= r; ++dy) {
+            int yy = reflect_idx(y + dy, h);
+            float row = 0.0;
+            for (int dx = -r; dx <= r; ++dx) {
+                int xx = reflect_idx(x + dx, w);
+                row += tap[uint(dx + r)] * glare_at(uint(yy) * pc.width + uint(xx));
+            }
+            g += tap[uint(dy + r)] * row;
+        }
+    }
+    field_out[p] = g * pc.scale;
+}
