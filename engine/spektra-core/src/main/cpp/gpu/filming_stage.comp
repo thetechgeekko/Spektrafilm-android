@@ -40,10 +40,28 @@ layout(std430, binding = 2) readonly  buffer TcLut  { float tc_lut[]; };
 // interpolate_exposure_to_density builds -- xp[k,c] = log_exposure[k]/gamma[c] --
 // and the NORMALIZED density curves. Deriving either here would break the rule
 // that the kernel owns no parameter.
-layout(std430, binding = 3) readonly  buffer Curves { float curves[]; };
+// NOT readonly: MODE_MAX writes one float per workgroup here. Every other mode
+// only reads it, and the host sizes it for whichever use is larger.
+layout(std430, binding = 3) buffer Curves { float curves[]; };
+
+shared float s_max[WG];
 
 #define MODE_EXPOSE  0u   // ProPhoto RGB -> raw irradiance
 #define MODE_DEVELOP 1u   // exposure -> density curves
+#define MODE_MAX     2u   // per-workgroup max of the source, for the boost
+#define MODE_BOOST   3u   // numba_boost_hightlights.boost_highlights
+
+// THE HIGHLIGHT BOOST NEEDS A FRAME-WIDE MAXIMUM before its per-element map,
+// which is why it is two modes and not one. MODE_MAX reduces each workgroup to a
+// single float and the host takes the max of those, IN f64, and derives every
+// scalar the map needs -- the same rule the rest of this engine follows: the
+// kernel owns no parameter.
+//
+// The reduction is a plain shared-memory tree with no atomics, and it is
+// deterministic for free: max is associative AND commutative, so the order the
+// partial maxima combine in cannot change the answer. (A SUM reduced this way
+// would not be, which is exactly the distinction the CPU-side PSF sum has to
+// respect.)
 
 // FLAG_LOG10 folds log10(max(v,0) + 1e-10) into whichever stage carries it.
 // The CPU pipeline puts that log10 in two different places depending on what
@@ -62,6 +80,13 @@ layout(push_constant) uniform Push {
     int   L;              // tc_lut edge
     int   n;              // curve points
     float exp_mult;       // 2^exposure_compensation_ev
+    // boost_highlights, every one host-derived in f64 from the frame maximum:
+    //   x > raw_x0  ->  x + boost_scale * (exp(a*dx) - a*dx - 1),
+    //   dx = (x - raw_x0) * inv_max_raw
+    float raw_x0;
+    float inv_max_raw;
+    float boost_scale;
+    float boost_a;
     // Auto-exposure gain, applied to the SOURCE. expose_f32_gain folds
     // 2^ae_ev into the float32 read rather than materialising a scaled plane;
     // this reproduces that placement instead of asking the caller to pre-scale.
@@ -130,8 +155,41 @@ float interp_curve(float x, int c) {
 
 void main() {
     uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+
+    if (pc.mode == MODE_MAX) {
+        // npix here counts COMPONENTS, not pixels: the CPU takes its maximum
+        // over the whole w*h*3 plane, not per pixel.
+        uint lid = gl_LocalInvocationID.x;
+        uint i = group * WG + lid;
+        // Out-of-range lanes contribute 0, which cannot raise the maximum of a
+        // non-negative irradiance plane and keeps every lane in the barrier.
+        s_max[lid] = (group < pc.total_groups && i < pc.npix)
+                         ? max(finite_or(src[i], 0.0), 0.0) : 0.0;
+        barrier();
+        for (uint stride = WG / 2u; stride > 0u; stride >>= 1u) {
+            if (lid < stride) s_max[lid] = max(s_max[lid], s_max[lid + stride]);
+            barrier();
+        }
+        if (lid == 0u && group < pc.total_groups) curves[group] = s_max[0];
+        return;
+    }
+
     if (group >= pc.total_groups) return;
     uint p = group * WG + gl_LocalInvocationID.x;
+
+    if (pc.mode == MODE_BOOST) {
+        // Component-wise, like MODE_MAX: pc.npix is the component count.
+        if (p >= pc.npix) return;
+        float x = finite_or(src[p], 0.0);
+        if (x > pc.raw_x0) {
+            float dx = (x - pc.raw_x0) * pc.inv_max_raw;
+            float ax = pc.boost_a * dx;
+            x = x + pc.boost_scale * (exp(ax) - ax - 1.0);
+        }
+        dst[p] = finite_or(x, 0.0);
+        return;
+    }
+
     if (p >= pc.npix) return;
 
     if (pc.mode == MODE_EXPOSE) {

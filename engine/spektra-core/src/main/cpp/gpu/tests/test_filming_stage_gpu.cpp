@@ -35,6 +35,7 @@
 
 #include "gpu/vulkan_compute.h"
 #include "kernels/interp.h"
+#include "model/diffusion.h"
 #include "runtime/params.h"
 #include "runtime/stages/filming.h"
 
@@ -340,6 +341,67 @@ void residency_case() {
     }
 }
 
+// HIGHLIGHT BOOST (#219). The GPU pass against the engine's own CPU map.
+//
+// The interesting half is the FRAME MAXIMUM, not the per-element curve. The CPU
+// scans the whole w*h*3 plane; the GPU reduces per workgroup and the host takes
+// the maximum of the partials. That is only equal if the reduction covers every
+// component and the out-of-range lanes contribute nothing -- so the plane here
+// is deliberately NOT a multiple of the 64-wide workgroup, and its single
+// largest value is parked in the last few components, where a reduction that
+// drops its tail would miss it and quietly boost by the wrong scale.
+void boost_case(const char* label, double boost_ev, double boost_range,
+                double protect_ev, bool expect_gpu) {
+    const int w = 101, h = 13;                     // 101*13*3 = 3939 components
+    const size_t comps = static_cast<size_t>(w) * h * 3;
+    std::vector<double> base(comps);
+    for (size_t i = 0; i < comps; ++i) {
+        const double t = static_cast<double>(i) / comps;
+        base[i] = 0.004 * std::pow(2.0, 9.0 * t);   // ~9 stops
+    }
+    // The maximum, in the tail, past the last whole workgroup.
+    base[comps - 3] = 17.5;
+
+    spk::HalationParams hp;
+    hp.boost_ev = boost_ev;
+    hp.boost_range = boost_range;
+    hp.protect_ev = protect_ev;
+
+    std::vector<double> cpu = base, gpu = base;
+    spk::apply_highlight_boost(cpu.data(), w, h, hp, /*allow_gpu=*/false);
+
+    spk::gpu::FilmingStageDiagnostics d{};
+    const bool ok = spk::gpu::highlight_boost(gpu.data(), w, h, boost_ev,
+                                              boost_range, protect_ev, &d);
+    if (!expect_gpu) {
+        std::printf("  %s: gpu ok=%d reason=%s (identity, left to the CPU)\n",
+                    label, ok ? 1 : 0, d.reason);
+        check(!ok, label);
+        // A refusal must leave the plane exactly as it was, because the CPU map
+        // is about to run over the same memory.
+        check(gpu == base, "a refused boost leaves the plane untouched");
+        return;
+    }
+    if (!ok) {
+        std::printf("[FAIL] %s: gpu refused (%s)\n", label, d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+
+    double max_abs = 0.0, peak = 0.0;
+    bool moved = false;
+    for (size_t i = 0; i < comps; ++i) {
+        max_abs = std::max(max_abs, std::fabs(cpu[i] - gpu[i]));
+        peak = std::max(peak, std::fabs(cpu[i]));
+        if (cpu[i] != base[i]) moved = true;
+    }
+    std::printf("  %s: max_abs %.3e  peak %.4g  bar %.3e\n",
+                label, max_abs, peak, 1e-4 * peak);
+    check(moved, "the CPU reference actually boosted something");
+    check(max_abs <= 1e-4 * std::max(peak, 1.0), label);
+}
+
 }  // namespace
 
 int main() {
@@ -352,6 +414,14 @@ int main() {
     expose_case("expose fused, f32 source with gain 2^1.5", false, true, 2.8284271247461903);
 
     develop_case();
+    // A real boost, then the two identities the CPU short-circuits: a
+    // non-positive boost_ev, and a protect point at or above the maximum. Both
+    // must be REFUSED rather than reproduced -- an identity is cheaper to skip
+    // than to dispatch, and the refusal has to leave the plane untouched.
+    boost_case("boost_ev 1.0, range 0.5", 1.0, 0.5, 0.0, true);
+    boost_case("boost_ev 2.5, range 0.9, protect +2 EV", 2.5, 0.9, 2.0, true);
+    boost_case("boost_ev 0 (identity)", 0.0, 0.5, 0.0, false);
+    boost_case("protect_ev far above the maximum (identity)", 1.0, 0.5, 12.0, false);
     residency_case();
     refusal_cases();
 

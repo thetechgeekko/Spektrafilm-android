@@ -76,7 +76,12 @@ struct HalationParams {
 // under deactivate_spatial_effects), so it fires whenever boost_ev > 0. boost_ev <= 0
 // (schema/UI default 0) is a strict identity, so default params stay bit-exact. The
 // global max(raw) reduction is order-independent, so the result is thread-invariant.
-void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params);
+// `allow_gpu` offers the pass to gpu::highlight_boost first (#219). The GPU
+// route needs a frame-wide maximum, so it is two dispatches with the scalars
+// derived on the host in f64 between them; on any refusal -- including the
+// identities the CPU short-circuits -- nothing is written and the CPU map runs.
+void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params,
+                           bool allow_gpu = false);
 
 // apply_halation_um: in-place on the float64 raw irradiance image `raw`, shape
 // (h, w, 3) row-major channel-interleaved. `pixel_size_um` converts the µm

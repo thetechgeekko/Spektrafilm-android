@@ -105,6 +105,11 @@ bool filming_expose(const double*, const float*, double, uint32_t, int, int,
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool highlight_boost(double*, int, int, double, double, double,
+                     FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool filming_develop(const float*, uint32_t, int, int, const float*, const float*,
                      uint32_t, float*, FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
@@ -2121,12 +2126,18 @@ struct FilmingStagePush {
     int32_t L;
     int32_t n;
     float exp_mult;
+    float raw_x0;
+    float inv_max_raw;
+    float boost_scale;
+    float boost_a;
     float src_gain;
 };
-static_assert(sizeof(FilmingStagePush) == 36, "push block must match filming_stage.comp");
+static_assert(sizeof(FilmingStagePush) == 52, "push block must match filming_stage.comp");
 
 constexpr uint32_t kFilmModeExpose = 0u;
 constexpr uint32_t kFilmModeDevelop = 1u;
+constexpr uint32_t kFilmModeMax = 2u;
+constexpr uint32_t kFilmModeBoost = 3u;
 constexpr uint32_t kFilmFlagLog10 = 1u;
 
 // One dispatch, four buffers, one upload and one readback. Both entry points
@@ -2136,6 +2147,14 @@ struct FilmingStageRun {
     uint32_t mode = 0;
     uint32_t flags = 0;
     uint32_t npix = 0;
+    // THE UNIT OF `npix` DIFFERS BY MODE, and getting it wrong overran the
+    // caller's buffer by 3x. MODE_EXPOSE and MODE_DEVELOP are per PIXEL and
+    // touch three components each; the two boost modes are per COMPONENT,
+    // because the CPU takes its maximum and applies its map over the whole
+    // (h, w, 3) array rather than per pixel. The dispatch grid is planned on
+    // `npix` either way, so it has to be the element count the shader bounds
+    // itself with.
+    bool npix_is_components = false;
     // When the frame is resident this pass reads the resident half and writes
     // the other, and does no transfer at all. `width`/`height` are only needed
     // to confirm the resident geometry is this frame's.
@@ -2156,6 +2175,13 @@ struct FilmingStageRun {
     int32_t n = 0;
     float exp_mult = 1.0f;
     float src_gain = 1.0f;
+    float raw_x0 = 0.0f;
+    float inv_max_raw = 0.0f;
+    float boost_scale = 0.0f;
+    float boost_a = 0.0f;
+    // MODE_MAX needs one float of table space per workgroup, which is far more
+    // than a curve; the run sizes binding 3 for whichever use is larger.
+    size_t table_b_floats_min = 0;
     double* dst_f64 = nullptr;         // exactly one of these two
     float* dst_f32 = nullptr;
 };
@@ -2170,7 +2196,13 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     };
 
     if (r.npix == 0) return give_up("empty-frame");
-    if (r.tc_count == 0 && r.curve_count == 0) return give_up("null-table");
+    // MODE_EXPOSE needs the tc_lut and MODE_DEVELOP needs the curves; the two
+    // boost modes need NEITHER -- MODE_MAX only writes partial maxima into the
+    // table buffer and MODE_BOOST carries its scalars in the push block. An
+    // unconditional "a table must be present" check refused them both.
+    const bool needs_table = r.mode == kFilmModeExpose || r.mode == kFilmModeDevelop;
+    if (needs_table && r.tc_count == 0 && r.curve_count == 0)
+        return give_up("null-table");
 
     std::lock_guard<std::mutex> lk(gpu_mutex());
     Ctx& c = ctx();
@@ -2179,12 +2211,19 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     // RESIDENT when the frame is open and this is its geometry. The host
     // pointers are then ignored, which is the whole point: no upload, no
     // readback, no f64 <-> f32 conversion.
+    const uint64_t geom_elems = r.npix_is_components
+                                   ? static_cast<uint64_t>(r.width) * r.height * 3
+                                   : static_cast<uint64_t>(r.width) * r.height;
     const bool resident = c.frame.open && r.width > 0 && r.height > 0 &&
                           c.frame.width == r.width && c.frame.height == r.height &&
-                          static_cast<uint64_t>(r.width) * r.height == r.npix;
+                          geom_elems == r.npix;
+    // MODE_MAX produces its answer in the table buffer, not in the plane, so it
+    // is the one mode with no destination at all.
+    const bool writes_plane = r.mode != kFilmModeMax;
     if (!resident) {
         if ((r.src_f64 == nullptr) == (r.src_f32 == nullptr)) return give_up("bad-source");
-        if ((r.dst_f64 == nullptr) == (r.dst_f32 == nullptr)) return give_up("bad-destination");
+        if (writes_plane && (r.dst_f64 == nullptr) == (r.dst_f32 == nullptr))
+            return give_up("bad-destination");
     }
     d.resident = resident;
     const VkPhysicalDeviceLimits& limits = c.properties.limits;
@@ -2195,15 +2234,21 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
                                 limits.maxComputeWorkGroupCount[1]);
     if (!grid.valid) return give_up("dispatch-too-large");
 
-    const size_t comps = static_cast<size_t>(r.npix) * 3;
+    const size_t comps = r.npix_is_components ? static_cast<size_t>(r.npix)
+                                              : static_cast<size_t>(r.npix) * 3;
     const VkDeviceSize planeBytes = static_cast<VkDeviceSize>(comps) * sizeof(float);
     // The layout has four bindings and every one must be backed, so the table
     // the active mode does not use still gets a minimal buffer rather than a
     // null descriptor.
     const VkDeviceSize tblABytes =
         r.tc_count ? static_cast<VkDeviceSize>(r.tc_count) * sizeof(float) : 16;
-    const VkDeviceSize tblBBytes =
+    VkDeviceSize tblBBytes =
         r.curve_count ? static_cast<VkDeviceSize>(r.curve_count) * 2 * sizeof(float) : 16;
+    if (r.table_b_floats_min) {
+        const VkDeviceSize want =
+            static_cast<VkDeviceSize>(r.table_b_floats_min) * sizeof(float);
+        if (want > tblBBytes) tblBBytes = want;
+    }
     if (planeBytes > limits.maxStorageBufferRange ||
         tblABytes > limits.maxStorageBufferRange)
         return give_up("buffer-too-large");
@@ -2289,6 +2334,10 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         push.n = r.n;
         push.exp_mult = r.exp_mult;
         push.src_gain = r.src_gain;
+        push.raw_x0 = r.raw_x0;
+        push.inv_max_raw = r.inv_max_raw;
+        push.boost_scale = r.boost_scale;
+        push.boost_a = r.boost_a;
 
         const auto t_gpu = std::chrono::steady_clock::now();
         bool dispatch_ok = true;
@@ -2317,9 +2366,11 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
 
         const auto t_back = std::chrono::steady_clock::now();
         if (resident) {
-            // The result is the new front. Nothing crosses the bus.
-            c.frame.front ^= 1u;
-        } else {
+            // The result is the new front. Nothing crosses the bus. MODE_MAX
+            // wrote no plane, so it must leave the front alone or the next pass
+            // would read the stale half.
+            if (writes_plane) c.frame.front ^= 1u;
+        } else if (writes_plane) {
             const float* src = static_cast<const float*>(s.out.mapped);
             if (r.dst_f64) {
                 double* dst = r.dst_f64;
@@ -2410,6 +2461,101 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
     r.n = static_cast<int32_t>(points);
     r.dst_f32 = out_density;
     return run_filming_stage(r, diagnostics);
+}
+
+bool highlight_boost(double* rgb, int width, int height, double boost_ev,
+                     double boost_range, double protect_ev,
+                     FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (width <= 0 || height <= 0) return give_up("invalid-request");
+    if (!(boost_ev > 0.0)) return give_up("inactive");   // the CPU's identity
+    const uint64_t comps64 = static_cast<uint64_t>(width) * height * 3;
+    if (comps64 == 0 || comps64 > UINT32_MAX) return give_up("invalid-request");
+    const uint32_t comps = static_cast<uint32_t>(comps64);
+    const bool resident = frame_active(width, height);
+    if (!resident && rgb == nullptr) return give_up("invalid-request");
+
+    // PASS 1: per-workgroup maxima. The source is a COMPONENT plane here, so
+    // npix carries the component count and the geometry is deliberately not the
+    // frame's -- MODE_MAX and MODE_BOOST are 1-D over components, matching the
+    // CPU's np.max over the whole (h, w, 3) array.
+    const uint32_t groups = (comps + 63u) / 64u;
+    FilmingStageRun mx;
+    mx.mode = kFilmModeMax;
+    mx.npix = comps;
+    mx.npix_is_components = true;
+    mx.width = width;
+    mx.height = height;
+    mx.src_f64 = resident ? nullptr : rgb;
+    mx.src_f32 = nullptr;
+    // MODE_MAX writes into binding 3 and reads nothing from binding 2, but every
+    // binding must still be backed.
+    mx.curve_count = 0;
+    mx.table_b_floats_min = groups;
+    mx.n = 2;
+    mx.L = 2;
+    // The destination is unused by MODE_MAX, but the run insists on exactly one
+    // being named; in the resident case it flips the front, which this pass must
+    // NOT do, so the flip is suppressed by the mode below.
+    mx.dst_f32 = nullptr;
+    mx.dst_f64 = nullptr;
+    if (!run_filming_stage(mx, &d)) return give_up(d.reason);
+
+    // The maximum of the partial maxima, in f64 and on the host, exactly as
+    // apply_highlight_boost computes it. Order does not matter: max is
+    // associative and commutative, so this is the same number the serial CPU
+    // scan produces regardless of how the workgroups divided the plane.
+    double max_raw = 0.0;
+    {
+        std::lock_guard<std::mutex> lk(gpu_mutex());
+        Ctx& c = ctx();
+        const float* partial = static_cast<const float*>(c.filmK.cmfB.mapped);
+        if (partial == nullptr) return give_up("dispatch-failed");
+        for (uint32_t g = 0; g < groups; ++g) {
+            const double v = static_cast<double>(partial[g]);
+            if (v > max_raw) max_raw = v;
+        }
+    }
+    if (!(max_raw > 0.0)) return give_up("inactive");   // the CPU's zero branch
+
+    // Every scalar the map needs, derived in f64 -- verbatim from
+    // model/diffusion.cpp::apply_highlight_boost.
+    constexpr double kMidgray = 0.184;
+    double raw_x0 = kMidgray * std::pow(2.0, protect_ev);
+    if (raw_x0 < 0.0) raw_x0 = 0.0;
+    if (raw_x0 > max_raw) raw_x0 = max_raw;
+    if (raw_x0 == max_raw) return give_up("inactive");
+    const double a = std::pow(28.0, 1.0 - boost_range);
+    const double x0 = raw_x0 / max_raw;
+    const double denom = std::exp(a * (1.0 - x0)) - a * (1.0 - x0) - 1.0;
+    if (!(denom > 0.0)) return give_up("degenerate-range");
+    const double k = (std::pow(2.0, boost_ev) - 1.0) / denom;
+
+    // PASS 2: the map.
+    FilmingStageRun bp;
+    bp.mode = kFilmModeBoost;
+    bp.npix = comps;
+    bp.npix_is_components = true;
+    bp.width = width;
+    bp.height = height;
+    bp.src_f64 = resident ? nullptr : rgb;
+    bp.dst_f64 = resident ? nullptr : rgb;
+    bp.curve_count = 0;
+    bp.n = 2;
+    bp.L = 2;
+    bp.raw_x0 = static_cast<float>(raw_x0);
+    bp.inv_max_raw = static_cast<float>(1.0 / max_raw);
+    bp.boost_scale = static_cast<float>(k * max_raw);
+    bp.boost_a = static_cast<float>(a);
+    if (!run_filming_stage(bp, &d)) return give_up(d.reason);
+    if (diagnostics) *diagnostics = d;
+    return true;
 }
 
 // --- f32 FFT convolution (#216) ---------------------------------------------

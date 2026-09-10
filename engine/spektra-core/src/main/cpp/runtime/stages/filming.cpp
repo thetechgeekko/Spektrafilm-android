@@ -705,7 +705,8 @@ void expose_impl(const Src& src, int width, int height,
     // never boost_ev, so the boost fires whenever boost_ev > 0. boost_ev == 0
     // (schema/UI default) is a strict identity -> default goldens stay bit-exact.
     { ScopedStage _t(STG_HIGHLIGHT_BOOST);
-      apply_highlight_boost(raw, width, height, params.halation); }
+      apply_highlight_boost(raw, width, height, params.halation,
+                            params.allow_gpu_filming); }
 
     // Camera optical diffusion filter (Black Pro-Mist family), applied on the
     // float64 irradiance AFTER the highlight boost and BEFORE lens blur /

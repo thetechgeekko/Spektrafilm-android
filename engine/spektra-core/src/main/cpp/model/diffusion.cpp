@@ -898,6 +898,22 @@ struct DiffusionClock {
     }
 };
 
+// A refusal here is invisible without this: the CPU map runs, the picture is
+// right, and the only symptom is a stage timing that did not move. Several of
+// the reasons are legitimate identities the CPU short-circuits too ("inactive"),
+// so this distinguishes "declined on purpose" from "declined because something
+// broke".
+static void note_gpu_boost(const gpu::FilmingStageDiagnostics& d) {
+    const char* dbg = std::getenv("SPK_GPU_DEBUG");
+    if (!dbg || dbg[0] != '1') return;
+    std::fprintf(stderr,
+                 "[gpu-debug] highlight_boost engaged=%d resident=%d reason=%s "
+                 "up=%.1f gpu=%.1f down=%.1f\n",
+                 d.engaged ? 1 : 0, d.resident ? 1 : 0,
+                 d.reason && *d.reason ? d.reason : "-", d.upload_ms, d.gpu_ms,
+                 d.readback_ms);
+}
+
 static void note_gpu_fft(int channel, const gpu::FftConvolveDiagnostics& d) {
     const char* dbg = std::getenv("SPK_GPU_DEBUG");
     if (!dbg || dbg[0] != '1') return;
@@ -1164,7 +1180,8 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     });
 }
 
-void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params) {
+void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params,
+                           bool allow_gpu) {
     // Port of spektrafilm/utils/numba_boost_hightlights.py::boost_highlights, called
     // by filming.py::expose as boost_highlights(raw, boost_ev, boost_range,
     // protect_ev) with the default midgray = 0.184. boost_ev <= 0 is a strict
@@ -1172,6 +1189,13 @@ void apply_highlight_boost(double* raw, int w, int h, const HalationParams& para
     const double boost_ev = params.boost_ev;
     if (boost_ev <= 0.0) return;
     if (w <= 0 || h <= 0) return;
+    if (allow_gpu) {
+        gpu::FilmingStageDiagnostics gd{};
+        if (gpu::highlight_boost(raw, w, h, boost_ev, params.boost_range,
+                                 params.protect_ev, &gd))
+            return;
+        note_gpu_boost(gd);
+    }
     const double boost_range = params.boost_range;
     const double protect_ev = params.protect_ev;
     const double midgray = 0.184;  // boost_highlights default; filming.py passes none.

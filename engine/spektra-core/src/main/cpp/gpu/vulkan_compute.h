@@ -435,6 +435,23 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
                      const float* axis, const float* curve, uint32_t points,
                      float* out_density, FilmingStageDiagnostics* diagnostics);
 
+// HIGHLIGHT BOOST on the GPU (#219; shader gpu/filming_stage.comp modes 2-3).
+//
+// numba_boost_hightlights.boost_highlights, which is a per-element map over a
+// scalar derived from the FRAME MAXIMUM. That maximum is why it is not a
+// one-dispatch pass: the kernel reduces each workgroup to a float, the host
+// takes the maximum of those IN f64 and derives raw_x0, a, k and the scale from
+// it, and a second dispatch applies the map. The kernel still owns no parameter.
+//
+// `rgb` is width*height*3 f64, boosted IN PLACE, and may be null when a frame is
+// resident. Returns false without touching it on any refusal -- including the
+// cases the CPU treats as identities (boost_ev <= 0, raw_x0 == max_raw), which
+// are left to the CPU rather than reproduced, because an identity is cheaper to
+// skip than to dispatch.
+bool highlight_boost(double* rgb, int width, int height, double boost_ev,
+                     double boost_range, double protect_ev,
+                     FilmingStageDiagnostics* diagnostics);
+
 // f32 FFT convolution on the GPU (#216; shader gpu/fft_convolve.comp).
 //
 // Computes the SAME operator kernels/fft_convolve.h computes -- the direct
