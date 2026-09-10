@@ -3953,15 +3953,27 @@ bool build_blur_request(int width, int height, const double sigma_px[3],
     if (!sigma_px || width <= 0 || height <= 0) return false;
     for (int c = 0; c < 3; ++c)
         if (!std::isfinite(sigma_px[c]) || sigma_px[c] <= 0.0) return false;
-    // The gate is now OPEN by default and SPK_GPU_BLUR_IIR=0 closes it, rather
-    // than the other way round, for the reason above: the numbers that closed it
-    // were taken on host-coherent work buffers, and a wide IIR blur is almost
-    // entirely memory traffic. Correctness at these sigmas is not the question --
-    // the gate exercises IIR-class blurs at 12, 63, 128 and 256 px against the
-    // CPU filter and they agree to 1e-13..1e-9.
-    double iir_gate = std::numeric_limits<double>::infinity();
+    // CLOSED BY DEFAULT, and this time on a PAIRED, COOLED, INTERLEAVED
+    // measurement rather than a single capture. I opened it on the reasoning
+    // that the original numbers were taken while halation's work buffers were
+    // host-coherent -- true, and it demonstrably mattered elsewhere (halation
+    // 256.6 -> 72.3 ms, and the FFT) -- but it did not change THIS conclusion.
+    // At 12.5 MP, two interleaved pairs:
+    //
+    //   lens_blur    sigma 3.03 (IIR)   GPU 291.9 / 252.5   CPU 148.1 / 146.6
+    //   scan_spatial FIR                GPU 322.8 / 326.1   CPU 350.7 / 340.7
+    //
+    // i.e. the GPU loses 1.8x on the IIR side and wins ~1.05x on the FIR side,
+    // and the split falls exactly on this threshold. The CPU's Young-van Vliet
+    // is O(1) in sigma while this pass pays whole-frame residency and a
+    // transpose whatever the sigma is; no memory fix changes that shape.
+    //
+    // SPK_GPU_BLUR_IIR=1 opens it, for measuring rather than for shipping.
+    // Correctness is not the reason it is closed: a sigma-18 IIR blur matches
+    // the CPU filter to 8.3e-07.
+    double iir_gate = 3.0;
     if (const char* v = std::getenv("SPK_GPU_BLUR_IIR"))
-        if (v[0] == '0') iir_gate = 3.0;
+        if (v[0] == '1') iir_gate = std::numeric_limits<double>::infinity();
     for (int c = 0; c < 3; ++c)
         if (sigma_px[c] >= iir_gate) return false;
     const bool uniform = (sigma_px[0] == sigma_px[1]) && (sigma_px[1] == sigma_px[2]);
