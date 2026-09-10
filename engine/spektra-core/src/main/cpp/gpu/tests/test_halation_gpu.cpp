@@ -29,13 +29,13 @@
 // fallback law only and says so.
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "gpu/vulkan_compute.h"
 #include "kernels/exponential_filter.h"
-#include "kernels/gaussian.h"
 #include "model/diffusion.h"
 #include "model/glare.h"
 
@@ -567,13 +567,45 @@ int main() {
             const double hi[3] = {3.0, 3.0, 3.0};
             check(spk::gpu::gaussian_blur_rgb(just_under.data(), w, h, lo),
                   "sigma just under 3 is accepted (FIR class, GPU wins)");
+            // THE IIR GATE IS NOW AN OVERRIDE, NOT AN OPT-IN. It used to refuse
+            // sigma >= 3 unconditionally, on a measurement taken while
+            // halation's work buffers were still host-coherent -- i.e. on the
+            // memory bug, for a filter that is almost entirely memory traffic.
+            // So the default is now open and SPK_GPU_BLUR_IIR=0 closes it, and
+            // BOTH directions are checked here rather than only the one that
+            // happens to be the default.
+            setenv("SPK_GPU_BLUR_IIR", "0", 1);
             const bool over = spk::gpu::gaussian_blur_rgb(just_over.data(), w, h, hi);
             check(!over && bytes_eq(just_over, raw),
-                  "sigma at the IIR threshold is refused, buffer untouched");
-            std::vector<double> wide = raw;
+                  "with the gate closed, sigma at the IIR threshold is refused");
+            std::vector<double> wide_closed = raw;
             const double w18[3] = {18.0, 18.0, 18.0};
-            check(!spk::gpu::gaussian_blur_rgb(wide.data(), w, h, w18) && bytes_eq(wide, raw),
-                  "a wide IIR blur is refused, buffer untouched");
+            check(!spk::gpu::gaussian_blur_rgb(wide_closed.data(), w, h, w18) &&
+                      bytes_eq(wide_closed, raw),
+                  "with the gate closed, a wide IIR blur is refused, buffer untouched");
+            unsetenv("SPK_GPU_BLUR_IIR");
+
+            // Open (the default): a wide blur must RUN, and agree with the CPU
+            // filter. Accepting it is only worth anything if the answer is right,
+            // and an IIR blur is where the f32 pole placement could bite -- which
+            // is why this compares against the CPU rather than just checking it
+            // returned true.
+            std::vector<double> wide_open = raw;
+            const bool ran = spk::gpu::gaussian_blur_rgb(wide_open.data(), w, h, w18);
+            check(ran, "with the gate open, a wide IIR blur runs");
+            if (ran) {
+                std::vector<double> cpu_wide = raw;
+                spk::gaussian_blur_per_channel_d(cpu_wide.data(), w, h, 3, w18);
+                double worst = 0.0, peak = 0.0;
+                for (size_t i = 0; i < raw.size(); ++i) {
+                    worst = std::max(worst, std::fabs(cpu_wide[i] - wide_open[i]));
+                    peak = std::max(peak, std::fabs(cpu_wide[i]));
+                }
+                std::printf("  wide IIR blur (sigma 18): max_abs %.3e  peak %.4g\n",
+                            worst, peak);
+                check(worst <= 1e-4 * std::max(peak, 1.0),
+                      "the wide IIR blur matches the CPU filter");
+            }
         }
 
         // A blur is a MIX-FREE resolve (amount 1), so a mean-preserving check is

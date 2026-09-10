@@ -3953,9 +3953,15 @@ bool build_blur_request(int width, int height, const double sigma_px[3],
     if (!sigma_px || width <= 0 || height <= 0) return false;
     for (int c = 0; c < 3; ++c)
         if (!std::isfinite(sigma_px[c]) || sigma_px[c] <= 0.0) return false;
-    double iir_gate = 3.0;
+    // The gate is now OPEN by default and SPK_GPU_BLUR_IIR=0 closes it, rather
+    // than the other way round, for the reason above: the numbers that closed it
+    // were taken on host-coherent work buffers, and a wide IIR blur is almost
+    // entirely memory traffic. Correctness at these sigmas is not the question --
+    // the gate exercises IIR-class blurs at 12, 63, 128 and 256 px against the
+    // CPU filter and they agree to 1e-13..1e-9.
+    double iir_gate = std::numeric_limits<double>::infinity();
     if (const char* v = std::getenv("SPK_GPU_BLUR_IIR"))
-        if (v[0] == '1') iir_gate = std::numeric_limits<double>::infinity();
+        if (v[0] == '0') iir_gate = 3.0;
     for (int c = 0; c < 3; ++c)
         if (sigma_px[c] >= iir_gate) return false;
     const bool uniform = (sigma_px[0] == sigma_px[1]) && (sigma_px[1] == sigma_px[2]);

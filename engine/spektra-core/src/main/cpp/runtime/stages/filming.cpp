@@ -753,9 +753,12 @@ void expose_impl(const Src& src, int width, int height,
             // Same knob as the scanner blurs (runtime/stages/scanning.cpp):
             // the GPU route is correct and gated, and its last export
             // measurement predates the work buffers becoming GPU-private.
+            // Same override as the scanner blurs (runtime/stages/scanning.cpp).
             const char* gv = std::getenv("SPK_GPU_BLUR");
-            if (!(gv && gv[0] == '1' &&
-                  gpu::gaussian_blur_rgb(raw, width, height, sg)))
+            const bool want_gpu = (gv && gv[0] == '0')   ? false
+                                  : (gv && gv[0] == '1') ? true
+                                                         : params.allow_gpu_filming;
+            if (!(want_gpu && gpu::gaussian_blur_rgb(raw, width, height, sg)))
                 gaussian_blur_per_channel_d(raw, width, height, 3, sg);
         }
     }

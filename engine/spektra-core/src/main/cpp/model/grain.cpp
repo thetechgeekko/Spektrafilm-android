@@ -200,9 +200,13 @@ void add_micro_structure(float* inout, int npix, int width, int height,
 //
 // Behind the same SPK_GPU_BLUR knob as the other two blurs, so every blur
 // decision in the engine flips together rather than one at a time.
-static bool try_gpu_grain_blur(float* out, int width, int height, double sigma) {
+static bool try_gpu_grain_blur(float* out, int width, int height, double sigma,
+                               bool latch) {
     const char* gv = std::getenv("SPK_GPU_BLUR");
-    if (!gv || gv[0] != '1') return false;
+    const bool want = (gv && gv[0] == '0')   ? false
+                      : (gv && gv[0] == '1') ? true
+                                             : latch;
+    if (!want) return false;
     const double sg[3] = {sigma, sigma, sigma};
     return gpu::gaussian_blur_rgb_f32(out, width, height, sg);
 }
@@ -269,7 +273,8 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
 
     // Final per-channel Gaussian blur (sigma in pixels). Python threshold: > 0.4.
     if (grain.blur > 0.4) {
-        if (!try_gpu_grain_blur(out, width, height, grain.blur))
+        if (!try_gpu_grain_blur(out, width, height, grain.blur,
+                                grain.allow_gpu_sampler))
             gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
     }
 }
@@ -466,7 +471,8 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // (grain.py: `if grain_blur>0`), unlike the non-sublayer path's > 0.4.
     if (grain.blur > 0.0) {
         ScopedGrainPhase _p(GrainPhase::Final);
-        if (!try_gpu_grain_blur(out, width, height, grain.blur))
+        if (!try_gpu_grain_blur(out, width, height, grain.blur,
+                                grain.allow_gpu_sampler))
             gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
     }
 }

@@ -65,9 +65,33 @@ bool gpu_debug_enabled() {
 // 54.0 ms CPU against 67.3 ms with the GPU blur wired in, at 1440x1440) -- and
 // that measurement predates halation's work buffers becoming GPU-private, which
 // is the cost it was actually measuring.
-bool try_gpu_blur(double* rgb, int width, int height, const double sigma_px[3]) {
+// SPK_GPU_BLUR: 0 forces the CPU blur, 1 forces the GPU one, unset follows the
+// frame's latch. It is an OVERRIDE rather than an opt-in, so the two can still
+// be interleaved in one binary on a cooled device -- which is the only way the
+// remaining question about this route gets settled, given this phone drifts
+// ~30% between captures.
+//
+// The route now follows the latch by default because the measurement that took
+// it OFF is no longer valid: scan_spatial 54.0 ms CPU against 67.3 ms with the
+// GPU blur wired in, and the sigma>=3 refusal behind it, were both taken while
+// halation's four whole-frame work buffers were allocated from the first
+// DEVICE_LOCAL memory type -- which on a unified-memory phone is normally
+// HOST_VISIBLE|HOST_COHERENT. A wide blur is almost entirely memory traffic, so
+// that measurement was measuring the bug, not the blur.
+//
+// Correctness is not in question either way: the blur is gated against the CPU
+// filter at 1.7e-06..5.7e-06 max_abs inside a 1e-4 band, and refuses without
+// touching the plane, so the CPU path runs over the same memory on any refusal.
+inline bool gpu_blur_enabled(bool latch) {
     const char* v = std::getenv("SPK_GPU_BLUR");
-    if (!v || v[0] != '1') return false;
+    if (v && v[0] == '0') return false;
+    if (v && v[0] == '1') return true;
+    return latch;
+}
+
+bool try_gpu_blur(double* rgb, int width, int height, const double sigma_px[3],
+                  bool latch) {
+    if (!gpu_blur_enabled(latch)) return false;
     return gpu::gaussian_blur_rgb(rgb, width, height, sigma_px);
 }
 
@@ -875,7 +899,7 @@ void scan(const Profile& film, const ScanningParams& params,
         double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
         // The GPU route is measured slower IN AN EXPORT -- see the note on the
         // unsharp blur below -- so it is behind a knob until that is re-measured.
-        if (!try_gpu_blur(lin_rgb, width, height, sg))
+        if (!try_gpu_blur(lin_rgb, width, height, sg, params.allow_gpu))
             gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
     }
 
@@ -907,7 +931,7 @@ void scan(const Profile& film, const ScanningParams& params,
         // what a dedicated small-FIR shader (no mixture machinery, no f64 round
         // trip) would be measured against. Wiring this back on needs that shader
         // first, and a number.
-        if (!try_gpu_blur(blur.data(), width, height, sg))
+        if (!try_gpu_blur(blur.data(), width, height, sg, params.allow_gpu))
             gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
         const double amt = params.unsharp_amount;
         // Per-element map with disjoint writes -> deterministic chunks, the same
@@ -921,8 +945,7 @@ void scan(const Profile& film, const ScanningParams& params,
         // frame is already resident.
         bool mixed = false;
         {
-            const char* gv = std::getenv("SPK_GPU_BLUR");
-            if (gv && gv[0] == '1') {
+            if (gpu_blur_enabled(params.allow_gpu)) {
                 spk::gpu::FilmingStageDiagnostics gd{};
                 mixed = spk::gpu::blend_mix(lin_rgb, blur_p, lin_rgb, width, height,
                                             amt, /*unsharp=*/true, &gd);
