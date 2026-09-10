@@ -4,7 +4,7 @@
 param(
     [string]$NdkRoot,
     # Regenerate only this pair, e.g. -Shader halation_scatter.comp. Omit to
-    # regenerate all four, which is almost never what a single change wants.
+    # regenerate all five, which is almost never what a single change wants.
     [string]$Shader
 )
 
@@ -25,7 +25,8 @@ $pairs = @(
     @('filming.comp', 'filming_spv.inc'),
     @('printing.comp', 'printing_spv.inc'),
     @('scan_spectral_chain.comp', 'scan_spectral_chain_spv.inc'),
-    @('halation_scatter.comp', 'halation_scatter_spv.inc')
+    @('halation_scatter.comp', 'halation_scatter_spv.inc'),
+    @('grain.comp', 'grain_spv.inc')
 )
 
 # Regenerating everything rewrites shaders you did not touch: glslc from a

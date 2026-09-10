@@ -84,6 +84,10 @@ bool available() { return false; }
 bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
+bool grain_sample(const GrainSampleRequest&, float*, GrainSampleDiagnostics* d) {
+    if (d) { *d = GrainSampleDiagnostics{}; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool halation_scatter(const HalationScatterRequest&, double*,
                       HalationScatterDiagnostics* diagnostics) noexcept {
     if (diagnostics) {
@@ -110,6 +114,7 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 
 #include "gpu/cctf_encode_spv.h"
 #include "gpu/filming_spv.h"
+#include "gpu/grain_spv.h"
 #include "gpu/halation_scatter_spv.h"
 #include "kernels/parallel.h"
 #include "gpu/printing_spv.h"
@@ -195,6 +200,12 @@ struct Ctx {
     };
     Kernel scanFused;  // scan_spectral.comp (density -> encoded sRGB)
     Kernel scanLin;    // scan_spectral_lin.comp (density -> unclipped linear RGB)
+    // grain.comp (#214) reuses this shape exactly: four storage bindings
+    // (density cells, accumulated output, per-cell constants, one atomic
+    // counter) and a push constant that fits inside the range the scan layout
+    // already declares. So it needs no pipeline code of its own -- the buffer
+    // ROLES differ, not the layout.
+    Kernel grainK;
     // halation_scatter.comp (#206): one pipeline, eleven descriptor sets (one
     // per buffer-role permutation of the op sequence), four device-local
     // whole-frame work buffers, one mapped staging band, one frame-floats
@@ -495,6 +506,7 @@ struct Ctx {
         vkDeviceWaitIdle(device);
         destroyKernel(scanFused);
         destroyKernel(scanLin);
+        destroyKernel(grainK);
     }
     void destroyHalation() {
         if (!device) return;
@@ -1541,6 +1553,216 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
     return dispatch_scan(c, c.scanLin, kScanSpectralLinSpv, sizeof(kScanSpectralLinSpv),
                          cmy, rgb, npix, dye, icmf, xyz2rgb);
 }
+
+// --- AgX particle grain sampler (#214) --------------------------------------
+// Shape follows dispatch_scan above deliberately: one dispatch per slice, one
+// upload, one readback, grow-only persistent buffers. The only structural
+// additions are the per-cell constant block and the atomic out-of-branch
+// counter that makes the approximation measurable per frame.
+namespace {
+
+// std430 push constant; must match grain.comp's Push block exactly.
+struct GrainPush {
+    uint32_t npix;
+    uint32_t ncells;
+    uint32_t seed_offset;
+    uint32_t pixel_base;
+};
+
+constexpr uint32_t kGrainCellStride = 8u;   // floats per cell, matches CELL_STRIDE
+
+bool grain_cells_valid(const GrainSampleRequest& r) {
+    for (int k = 0; k < r.cell_count; ++k) {
+        const GrainCell& g = r.cells[k];
+        if (!std::isfinite(g.density_min) || !std::isfinite(g.density_max) ||
+            !std::isfinite(g.n_particles_per_pixel) || !std::isfinite(g.uniformity))
+            return false;
+        if (!(g.density_max > 0.0) || !(g.n_particles_per_pixel > 0.0)) return false;
+        if (g.uniformity < 0.0 || g.uniformity > 1.0) return false;
+        if (g.channel < 0 || g.channel > 2) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
+                  GrainSampleDiagnostics* diagnostics) {
+    GrainSampleDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+
+    // Fail closed on every shape question BEFORE touching Vulkan, so a bad
+    // request can never half-write the caller's buffer.
+    if (out_rgb == nullptr || request.density_cells == nullptr ||
+        request.cells == nullptr)
+        return give_up("null-span");
+    if (request.npix == 0) return give_up("empty-frame");
+    if (request.cell_count <= 0 || request.cell_count > kGrainMaxCells)
+        return give_up("cell-count");
+    if (!grain_cells_valid(request)) return give_up("bad-cell");
+    d.samples = static_cast<uint64_t>(request.npix) *
+                static_cast<uint64_t>(request.cell_count);
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return give_up("gpu-unavailable");
+    Ctx::Kernel& s = c.grainK;
+
+    const uint32_t ncells = static_cast<uint32_t>(request.cell_count);
+    const uint32_t MAX_SLICE = 65535u * 64u;   // the spec-guaranteed dispatch floor
+    const uint32_t sliceCap = request.npix < MAX_SLICE ? request.npix : MAX_SLICE;
+    const VkDeviceSize inBytes =
+        static_cast<VkDeviceSize>(sliceCap) * ncells * sizeof(float);
+    const VkDeviceSize outBytes =
+        static_cast<VkDeviceSize>(sliceCap) * 3u * sizeof(float);
+    const VkDeviceSize cellBytes =
+        static_cast<VkDeviceSize>(kGrainMaxCells) * kGrainCellStride * sizeof(float);
+    const VkDeviceSize counterBytes = 16;      // one uint, padded
+
+    bool ok = false;
+    do {
+        if (!s.pipelineReady &&
+            !build_scan_pipeline(c, s, kGrainSpv, sizeof(kGrainSpv)))
+            break;
+
+        const bool hadIn = s.in.cap >= inBytes && s.in.buf;
+        const bool hadOut = s.out.cap >= outBytes && s.out.buf;
+        if (!c.ensureBuf(s.in, inBytes)) break;
+        if (!c.ensureBuf(s.out, outBytes)) break;
+        if (!c.ensureBuf(s.dyeB, cellBytes)) break;      // per-cell constants
+        if (!c.ensureBuf(s.cmfB, counterBytes)) break;   // out-of-branch counter
+        if (!hadIn || !hadOut) {
+            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkDescriptorBufferInfo dbi[4];
+            VkWriteDescriptorSet wds[4];
+            for (uint32_t i = 0; i < 4; ++i) {
+                dbi[i] = VkDescriptorBufferInfo{bufs[i], 0, caps[i]};
+                wds[i] = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                wds[i].dstSet = s.dset;
+                wds[i].dstBinding = i;
+                wds[i].descriptorCount = 1;
+                wds[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                wds[i].pBufferInfo = &dbi[i];
+            }
+            vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+        }
+
+        // Per-cell constants, reduced from the host's f64 exactly once. The
+        // shader recomputes none of them -- including od_particle, which is the
+        // one value it could plausibly have derived itself.
+        {
+            float* cellDst = static_cast<float*>(s.dyeB.mapped);
+            std::memset(cellDst, 0, static_cast<size_t>(cellBytes));
+            for (uint32_t k = 0; k < ncells; ++k) {
+                const GrainCell& g = request.cells[k];
+                float* e = cellDst + static_cast<size_t>(k) * kGrainCellStride;
+                e[0] = static_cast<float>(g.density_min);
+                e[1] = static_cast<float>(g.density_max);
+                e[2] = static_cast<float>(g.n_particles_per_pixel);
+                e[3] = static_cast<float>(g.uniformity);
+                e[4] = static_cast<float>(g.density_max / g.n_particles_per_pixel);
+                e[5] = static_cast<float>(g.channel);
+                const uint32_t seed = g.seed_base;
+                std::memcpy(&e[6], &seed, sizeof(uint32_t));
+                e[7] = 0.0f;
+            }
+        }
+
+        GrainPush push{};
+        push.ncells = ncells;
+        push.seed_offset = request.seed_offset;
+
+        bool slice_ok = true;
+        uint64_t outside = 0;
+        for (uint32_t base = 0; base < request.npix && slice_ok; base += MAX_SLICE) {
+            const uint32_t n = (request.npix - base) < MAX_SLICE
+                                   ? (request.npix - base) : MAX_SLICE;
+            const size_t nin = static_cast<size_t>(n) * ncells;
+            const size_t nout = static_cast<size_t>(n) * 3u;
+
+            // Upload, and guard non-finite densities here rather than in the
+            // shader: clamp(NaN) is implementation-defined in GLSL, so shader
+            // NaN behaviour must never decide a pixel. The CPU sampler yields
+            // zero grain for a non-finite density (fast_poisson_one rejects a
+            // NaN rate), and density 0 is the closest finite stand-in.
+            const auto t_up = std::chrono::steady_clock::now();
+            {
+                float* dst = static_cast<float*>(s.in.mapped);
+                const float* src =
+                    request.density_cells + static_cast<size_t>(base) * ncells;
+                parallel_for(0, static_cast<int>(nin), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) {
+                        const float v = src[i];
+                        dst[i] = std::isfinite(v) ? v : 0.0f;
+                    }
+                });
+            }
+            // Zero the counter for this slice; it is summed across slices below.
+            const uint32_t zero = 0;
+            std::memcpy(s.cmfB.mapped, &zero, sizeof(uint32_t));
+            d.upload_ms += std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - t_up).count();
+
+            const auto t_gpu = std::chrono::steady_clock::now();
+            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { slice_ok = false; break; }
+            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) { slice_ok = false; break; }
+            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
+                                    &s.dset, 0, nullptr);
+            push.npix = n;
+            push.pixel_base = base;
+            vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(GrainPush), &push);
+            vkCmdDispatch(s.cmd, (n + 63u) / 64u, 1, 1);
+            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) { slice_ok = false; break; }
+
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &s.cmd;
+            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { slice_ok = false; break; }
+            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { slice_ok = false; break; }
+            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { slice_ok = false; break; }
+            d.gpu_ms += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_gpu).count();
+
+            const auto t_back = std::chrono::steady_clock::now();
+            {
+                const float* outp = static_cast<const float*>(s.out.mapped);
+                float* dst = out_rgb + static_cast<size_t>(base) * 3u;
+                parallel_for(0, static_cast<int>(nout), [&](int lo, int hi) {
+                    std::memcpy(dst + lo, outp + lo,
+                                static_cast<size_t>(hi - lo) * sizeof(float));
+                });
+                uint32_t got = 0;
+                std::memcpy(&got, s.cmfB.mapped, sizeof(uint32_t));
+                outside += got;
+            }
+            d.readback_ms += std::chrono::duration<double, std::milli>(
+                                 std::chrono::steady_clock::now() - t_back).count();
+            ++d.slices;
+        }
+        d.out_of_branch = outside;
+        ok = slice_ok;
+    } while (false);
+
+    if (!ok) {
+        c.destroyScan();
+        return give_up("dispatch-failed");
+    }
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
 
 // ---------------------------------------------------------------------------
 // In-emulsion scatter + back-reflection halation (issue #206).

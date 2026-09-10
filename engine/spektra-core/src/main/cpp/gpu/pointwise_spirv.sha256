@@ -7,6 +7,7 @@
 #     current NDK: a newer glslc emits different bytes for the same source, and
 #     the device evidence for that slice is bound to these exact binaries.
 #   halation_scatter: Android NDK 28.2.13676358, the pinned build NDK (#206).
+#   grain: Android NDK 28.2.13676358, the pinned build NDK (#214).
 # Digests are over LF content, which is what git stores; a Windows working tree
 # checks these files out with CRLF, so normalise before comparing.
 # Exact command (run once for each source/output pair from this directory):
@@ -19,3 +20,5 @@ EA6303990DF71A0B6B0A98B1BB0EFAD3BA49FE368210AFCAEB8DCB4EC3E9F0BD  scan_spectral_
 D8ED4EEC480EDB5E81E8F734E1B741E9240BF0DD4D881396411A69CDC6AB578B  scan_spectral_chain_spv.inc
 2F5A690E371018FB8D64EF25CB5CFB962ECF3120E87B85BE73BB5F98FD8F002D  halation_scatter.comp
 B99D09592E46C0C5C51C9DC79AAFA35088BC5BA931244175622690B013818427  halation_scatter_spv.inc
+069B1DA402C5AE088521F2BEAC6EB5B81CB1308DF195C3C83B2C331A0056FAA1  grain.comp
+ECA93136BF9176AE2CBB7593B89A111E6A6CEE1E2ADCC8D7EF148E1C25128F8D  grain_spv.inc

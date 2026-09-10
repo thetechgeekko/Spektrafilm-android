@@ -176,6 +176,72 @@ bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
 bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
                           const float* dye, const float* icmf, const float* xyz2rgb);
 
+// AgX particle grain sampler on the GPU (#214; shader gpu/grain.comp).
+//
+// Ports the SAMPLER of model/grain.cpp::layer_particle_model -- the
+// Poisson(lam) -> Binomial(seeds, p) draw that is 94.6% of the grain stage and
+// the largest single item in a full-resolution export. The spatial parts of the
+// stage (the per-particle dye-cloud blur, add_micro_structure, the final 0.65 px
+// blur) stay on the host, as does the /n_sub and the -= density_min tail: those
+// are frame-level parameters, and the kernel derives none of its own.
+//
+// FAST GPU, and an approximation with a MEASURED bound rather than a hoped-for
+// one. The shader implements only the Normal-approximation branches of
+// fast_poisson / fast_binomial, which is where the real workload already lives
+// (tools/gpu_probe/census_grain_branches.cpp: 99.39% of samples at 1080p,
+// 99.95% at preview, 90.05% at 12.5 MP export). Samples that fall outside those
+// branches are COUNTED into diagnostics.out_of_branch, so the caller can apply a
+// policy per frame instead of assuming the residue is small. The CPU sampler
+// remains the reference and the fallback.
+//
+// The realisation differs from the CPU's by construction: the shader uses a
+// counter-based RNG keyed on (seed_base, frame-wide pixel index, cell, frame
+// offset) so the result is independent of dispatch order, workgroup size and
+// slicing. That is the same class of change as fast_sampler (#180) -- same
+// distributions, different draw -- and it is never parity evidence.
+constexpr int kGrainMaxCells = 9;   // 3 sublayers x 3 channels
+
+// One (sublayer, channel) cell, every value computed on the host in f64.
+struct GrainCell {
+    double density_min = 0.0;              // added to the plane before p is formed
+    double density_max = 1.0;
+    double n_particles_per_pixel = 0.0;
+    double uniformity = 0.0;
+    int channel = 0;                       // 0..2: which output channel accumulates
+    // seed_base[c] + sublayer*10, WITHOUT the per-frame offset. The offset is
+    // passed separately and mixed in the shader: the CPU's scheme ADDS its three
+    // terms, so an offset of 1 makes channel 1 collide with channel 2's previous
+    // frame. Added seeds alias; mixed seeds do not.
+    uint32_t seed_base = 0;
+};
+
+struct GrainSampleRequest {
+    // npix * cell_count floats, index p * cell_count + k, matching `cells`.
+    const float* density_cells = nullptr;
+    const GrainCell* cells = nullptr;
+    int cell_count = 0;
+    uint32_t npix = 0;
+    uint32_t seed_offset = 0;
+};
+
+struct GrainSampleDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "";
+    uint32_t slices = 0;
+    uint64_t samples = 0;         // npix * cell_count
+    uint64_t out_of_branch = 0;   // samples the CPU would have drawn from another branch
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
+// Writes npix*3 accumulated grain floats to `out_rgb` only when the whole pass
+// succeeded; on any failure `out_rgb` is untouched and the caller runs the CPU
+// sampler. Never throws.
+bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
+                  GrainSampleDiagnostics* diagnostics);
+
 // In-emulsion scatter + back-reflection halation on the GPU (issue #206; shader
 // gpu/halation_scatter.comp, adapted from spektrafilm OFX). Same model and
 // parameters as model/diffusion.cpp::apply_halation_um, computed in f32 on the

@@ -234,6 +234,27 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   on a device before tagging. Later exact candidate/device evidence and the mandatory commands live
   in `docs/RELEASE_CHECKLIST.md`; dated audit sections are not current release evidence.
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
+- **The GPU gates CAN be run locally, and must be — parity does not cover GPU code.**
+  `tools/parity/run_engine_parity.sh` compiles WITHOUT `SPK_ENABLE_VULKAN`, so
+  `gpu::available()` is false there and every GPU branch is dead. A 44/44 parity
+  run is therefore NOT evidence for a change under `gpu/`. The gates that see it
+  are `tests/test_gpu_host.cpp`, `gpu/tests/test_halation_gpu.cpp` and
+  `gpu/tests/test_grain_gpu.cpp`, which need a Vulkan ICD; CI runs them in the
+  "Engine (C++ host build)" job under lavapipe (a CPU rasterizer, so they gate
+  correctness and NOT performance). This used to be CI-only because the WSL box
+  had no Vulkan headers. It does not need root: the lavapipe ICD and
+  `libvulkan.so.1` are already installed, and Vulkan-Headers is header-only —
+  `git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers ~/vkhdr`,
+  then build with `-I$HOME/vkhdr/include` and link
+  `/usr/lib/x86_64-linux-gnu/libvulkan.so.1` by path instead of `-lvulkan`
+  (there is no `.so` symlink without `libvulkan-dev`), with
+  `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`. Every one of these
+  gates requires the run to have ENGAGED a device (`grep -q engaged=1`), because
+  they all pass vacuously without one — a green run that validated nothing looks
+  identical to a green run that validated everything.
+  Cost of not doing this: `26d3d94` put the grain sampler on the wrong latch and
+  only CI caught it, and `6abde78` shipped an 18-37%-error diffusion route on the
+  user's GPU toggle with no gate able to see it at all (`0fb3938`).
 - Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
   so `Presets` JSON round-trips on the plain JVM.
 - `docs/EXECUTION_INDEX.md` defines documentation authority and the dependency-aware execution loop.

@@ -1,0 +1,133 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// AgX particle grain sampler (#214). Ports the SAMPLER of
+// model/grain.cpp::layer_particle_model -- the Poisson(lam) -> Binomial(seeds, p)
+// draw that is 94.6% of the grain stage and the largest single item in an export.
+//
+// It implements ONLY the Normal-approximation branches of fast_poisson /
+// fast_binomial, and that is a deliberate, measured choice rather than a
+// shortcut. tools/gpu_probe/census_grain_branches.cpp counts which branch the
+// real workload lands in:
+//
+//   1080p video    99.39% binomial-normal, 100.00% poisson-normal
+//   640 preview    99.95%                  100.00%
+//   12.5 MP export 90.05%                   99.01%
+//
+// The branches this shader omits (Knuth, Bernoulli, CDF inversion) are the ones
+// f32 cannot hold anyway -- CDF inversion needs pow(1-p, n) for n up to 5.9e4,
+// which underflows f32 roughly 280 decades before it underflows the f64 the CPU
+// uses. Rather than reformulate them in the log domain for a fraction of a
+// percent of pixels, this shader COUNTS the samples that fall outside its two
+// branches into `counters.out_of_branch`, and the host decides whether that
+// count is acceptable for the frame. An approximation you can measure per frame
+// is a different thing from one you hope is small.
+//
+// The kernel derives NO parameter of its own: every dmin/dmax/n_ppp/od_particle
+// comes from the host in f64 and arrives already reduced to f32, exactly as the
+// halation port does.
+#define WG 64
+#define CELL_STRIDE 8u
+layout(local_size_x = WG) in;
+
+// density_cmy_layers, npix * ncells, index p * ncells + k. k is the flattened
+// (sublayer, channel) cell in the host's order.
+layout(std430, binding = 0) readonly  buffer InBuf  { float density[]; };
+// Accumulated grain, npix * 3. The host does the /n_sub, the -= density_min and
+// the final blur, because those are frame-level parameters, not per-pixel work.
+layout(std430, binding = 1) writeonly buffer OutBuf { float grain_out[]; };
+// Per-cell constants: dmin, dmax, n_ppp, uniformity, od_particle, channel,
+// seed_base (bit-cast uint), pad.
+layout(std430, binding = 2) readonly  buffer CellBuf { float cell[]; };
+layout(std430, binding = 3) buffer CountBuf { uint out_of_branch; } counters;
+
+layout(push_constant) uniform Push {
+    uint npix;         // pixels in THIS slice
+    uint ncells;
+    uint seed_offset;  // mixed, never added -- see below
+    // The frame is dispatched in slices (the host caps a dispatch at the
+    // spec-guaranteed 65535 workgroups). `pixel_base` is this slice's offset, and
+    // the RNG is keyed on base + local index rather than on the local index, so
+    // the grain does not simply repeat every 4,193,280 pixels. Slicing the frame
+    // differently must not change the image.
+    uint pixel_base;
+} pc;
+
+// PCG-RXS-M-XS, 32-bit (O'Neill). Counter-based: no state, so a sample depends
+// only on its coordinates and the frame's seed, which is what makes the result
+// independent of dispatch order, workgroup size and how many frames were
+// dropped.
+uint pcg(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// Every input is hashed BEFORE being combined, and that matters here more than
+// it usually does. The CPU seeds a stream with seed_base[c] + sublayer*10 +
+// seed_offset, whose terms are {0,1,2} + {0,10,20} + offset -- an ADDITIVE
+// scheme, so a per-frame offset of 1 makes channel 1's seed collide with what
+// channel 2 had on the previous frame. Added seeds alias; mixed seeds do not.
+uint mix3(uint a, uint b, uint c) {
+    return pcg(pcg(a) ^ pcg(b + 0x9e3779b9u) ^ pcg(c + 0x85ebca6bu));
+}
+
+void main() {
+    uint p = gl_GlobalInvocationID.x;
+    if (p >= pc.npix) return;
+    uint gp = p + pc.pixel_base;   // stable frame-wide index; RNG key only
+
+    float acc[3];
+    acc[0] = 0.0; acc[1] = 0.0; acc[2] = 0.0;
+    uint outside = 0u;
+
+    for (uint k = 0u; k < pc.ncells; ++k) {
+        uint b = k * CELL_STRIDE;
+        float dmin = cell[b + 0u];
+        float dmax = cell[b + 1u];
+        float n_ppp = cell[b + 2u];
+        float uni = cell[b + 3u];
+        float od = cell[b + 4u];
+        uint ch = uint(cell[b + 5u]);
+        uint seed_base = floatBitsToUint(cell[b + 6u]);
+
+        // probability_of_development, clipped exactly as grain.py does. The clip
+        // is what keeps p strictly inside (0,1), so the CPU's p<=0 and p>=1
+        // early-outs are unreachable and need no branch here.
+        float d = density[p * pc.ncells + k] + dmin;
+        float pr = clamp(d / dmax, 1e-6, 1.0 - 1e-6);
+        float sat = 1.0 - pr * uni * (1.0 - 1e-6);
+        float lam = n_ppp / sat;
+
+        uint h0 = mix3(seed_base, gp, pc.seed_offset ^ (k * 0x27d4eb2fu));
+        uint h1 = pcg(h0 ^ 0xa5a5a5a5u);
+        // Box-Muller: two uniforms in, two independent normals out, which is
+        // exactly the two draws this cell needs (Poisson then Binomial). u0 is
+        // pushed into (0,1] so log() cannot see zero.
+        float u0 = (float(h0 >> 8u) + 1.0) * (1.0 / 16777216.0);
+        float u1 = float(h1 >> 8u) * (1.0 / 16777216.0);
+        float rad = sqrt(-2.0 * log(u0));
+        float ang = 6.28318530717958647692 * u1;
+        float z0 = rad * cos(ang);
+        float z1 = rad * sin(ang);
+
+        // fast_poisson: Normal(lam, sqrt(lam)) above lam = 30.
+        float seeds = max(round(lam + sqrt(lam) * z0), 0.0);
+        // fast_binomial: Normal(n*p, sqrt(n*p*(1-p))) when n >= 25 and var > 10.
+        float var = seeds * pr * (1.0 - pr);
+        float dev = clamp(round(seeds * pr + sqrt(var) * z1), 0.0, seeds);
+
+        // The CPU would have taken a different branch for these; count them so
+        // the host can refuse the frame instead of guessing.
+        if (lam < 30.0 || seeds < 25.0 || var <= 10.0) outside += 1u;
+
+        acc[ch] += dev * od * sat;
+    }
+
+    grain_out[p * 3u + 0u] = acc[0];
+    grain_out[p * 3u + 1u] = acc[1];
+    grain_out[p * 3u + 2u] = acc[2];
+    // One atomic per pixel at most, and only when something fell outside.
+    if (outside > 0u) atomicAdd(counters.out_of_branch, outside);
+}
