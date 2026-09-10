@@ -67,6 +67,17 @@ struct GrainParams {
     // distributions and the same per-block seeding, a different realisation.
     // False everywhere else, so Strict Exact and every golden are unaffected.
     bool fast_sampler = false;
+    // GPU particle sampler (#214), sublayer path only. Its own latch, defaulted
+    // OFF and set by nobody yet, for the reason recorded in runtime/params.h:
+    // a route whose output differs from the CPU's must not ride a flag that
+    // means "same arithmetic, different implementation".
+    //
+    // Even when set it is only an ATTEMPT. apply_grain_to_density_layers
+    // refuses on the host whenever the CPU would do spatial work this pass does
+    // not reproduce -- a non-degenerate per-particle dye-cloud blur, or active
+    // micro-structure clumping -- so the GPU route runs only where the two
+    // paths differ in the draw alone.
+    bool allow_gpu_sampler = false;
 };
 
 // layer_particle_model(density, density_max, n_particles_per_pixel,

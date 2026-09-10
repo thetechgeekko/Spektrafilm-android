@@ -19,9 +19,13 @@
  */
 #include "model/grain.h"
 
+#include "gpu/vulkan_compute.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <array>
 #include <vector>
 
 #include "kernels/gaussian.h"
@@ -252,6 +256,78 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
     }
 }
 
+namespace {
+
+// Would the CPU's per-particle dye-cloud blur actually change the plane?
+// gaussian_kernel_1d uses radius = int(truncate*sigma + 0.5) with truncate 3,
+// and gaussian_fir_plane returns immediately at radius 0 -- an exact identity,
+// not an approximation of one. So radius 0 is the precise condition under which
+// skipping the blur is not a difference at all. It holds at every geometry this
+// app reaches (sigma 0.077 px at 12.5 MP, 0.036 px at 1080p, vs the 1/6 px
+// threshold), but it is TESTED rather than assumed, because it is a function of
+// od_particle and a user-settable blur_dye_clouds_um.
+bool dye_cloud_blur_is_identity(double blur_particle, double od_particle) {
+    if (!(blur_particle > 0.0)) return true;
+    const float sigma = static_cast<float>(blur_particle * std::sqrt(od_particle));
+    return static_cast<int>(kGaussianTruncate * sigma + 0.5f) == 0;
+}
+
+// The GPU sampler replaces the accumulate loop only. Returns true when `out`
+// holds the accumulated grain; false leaves `out` untouched for the CPU loop.
+bool gpu_grain_accumulate(const float* density_cmy_layers, int npix,
+                          const double dmin_layers[3][3],
+                          const double dmax_lay[3][3], const double n_ppp[3][3],
+                          double pixel_size_um, const GrainParams& grain,
+                          float* out) {
+    if (!grain.allow_gpu_sampler || !gpu::available()) return false;
+
+    // add_micro_structure runs on the ACCUMULATED grain, so if it is active the
+    // GPU route would have to reproduce it before the tail; it does not, and
+    // skipping it would silently drop a stage rather than approximate one.
+    const double micro_sigma = grain.micro_structure[1] * 0.001 / pixel_size_um;
+    if (micro_sigma > 0.05) return false;
+
+    std::array<gpu::GrainCell, 9> cells{};
+    int k = 0;
+    for (int sl = 0; sl < 3; ++sl) {
+        for (int c = 0; c < 3; ++c) {
+            const double od = dmax_lay[sl][c] / n_ppp[sl][c];
+            if (!(n_ppp[sl][c] > 0.0) || !(dmax_lay[sl][c] > 0.0)) return false;
+            if (!dye_cloud_blur_is_identity(grain.blur_dye_clouds_um, od)) return false;
+            gpu::GrainCell& cell = cells[static_cast<size_t>(k)];
+            cell.density_min = dmin_layers[sl][c];
+            cell.density_max = dmax_lay[sl][c];
+            cell.n_particles_per_pixel = n_ppp[sl][c];
+            cell.uniformity = grain.uniformity[c];
+            cell.channel = c;
+            // seed_base[c] + sublayer*10, WITHOUT seed_offset: the offset is
+            // passed separately and mixed in the shader. Folding it in here
+            // would rebuild the additive collision the shader exists to avoid.
+            cell.seed_base = static_cast<uint32_t>(grain.seed_base[c] + sl * 10);
+            ++k;
+        }
+    }
+    // The cell order must match the buffer layout the caller already has:
+    // density_cmy_layers is (npix, 3 sublayers, 3 channels) row-major, i.e.
+    // index pix*9 + sl*3 + c -- exactly cell index sl*3 + c. No repack.
+    gpu::GrainSampleRequest request;
+    request.density_cells = density_cmy_layers;
+    request.cells = cells.data();
+    request.cell_count = 9;
+    request.npix = static_cast<uint32_t>(npix);
+    request.seed_offset = static_cast<uint32_t>(grain.seed_offset);
+
+    // No stage_timer channel yet, deliberately: the route is off by default and
+    // has no device measurement, so there is nothing for a production readout to
+    // report. out_of_branch is read directly by gpu/tests/test_grain_gpu.cpp and
+    // by the probe. Wire a channel when the route is enabled, not before.
+    gpu::GrainSampleDiagnostics diagnostics{};
+    const bool ok = gpu::grain_sample(request, out, &diagnostics);
+    return ok && diagnostics.engaged;
+}
+
+}  // namespace
+
 void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                    int width, int height,
                                    const double* density_max_layers,
@@ -286,12 +362,25 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
         }
     }
 
-    // Accumulator per channel-interleaved pixel.
-    std::vector<double> acc(static_cast<size_t>(npix) * 3, 0.0);
-    std::vector<float> shifted(static_cast<size_t>(npix));   // one sublayer plane
-    std::vector<float> layer_out(static_cast<size_t>(npix));
+    // Try the GPU sampler BEFORE allocating the CPU scratch. `acc` alone is
+    // npix*3 doubles -- 300 MB at 12.5 MP -- and allocating it only to leave it
+    // untouched would hand the memory coordinator a peak that the GPU route was
+    // supposed to remove.
+    const bool gpu_done = gpu_grain_accumulate(density_cmy_layers, npix,
+                                               dmin_layers, dmax_lay, n_ppp,
+                                               pixel_size_um, grain, out);
 
-    for (int c = 0; c < 3; ++c) {
+    // Accumulator per channel-interleaved pixel (CPU route only).
+    std::vector<double> acc;
+    std::vector<float> shifted;    // one sublayer plane
+    std::vector<float> layer_out;
+    if (!gpu_done) {
+        acc.assign(static_cast<size_t>(npix) * 3, 0.0);
+        shifted.resize(static_cast<size_t>(npix));
+        layer_out.resize(static_cast<size_t>(npix));
+    }
+
+    for (int c = 0; c < 3 && !gpu_done; ++c) {
         for (int sl = 0; sl < 3; ++sl) {
             // density_cmy_layers[:,sl,c] += density_min_layers[sl,c]
             ScopedGrainPhase _prep(GrainPhase::Prep);
@@ -319,7 +408,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
         }
     }
 
-    {
+    if (!gpu_done) {
         ScopedGrainPhase _p(GrainPhase::Final);
         spk::parallel_for(0, static_cast<int>(acc.size()), [&](int i0, int i1) {
             for (int i = i0; i < i1; ++i) out[i] = static_cast<float>(acc[i]);

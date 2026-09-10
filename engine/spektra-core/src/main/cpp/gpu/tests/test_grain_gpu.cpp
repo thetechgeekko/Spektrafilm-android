@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "gpu/vulkan_compute.h"
+#include "model/grain.h"
 
 namespace {
 
@@ -219,6 +220,85 @@ int main() {
     bool all42 = true;
     for (float v : untouched) if (v != 42.0f) { all42 = false; break; }
     check(!ok5 && all42, "a rejected request leaves the caller's buffer untouched");
+
+
+    // --- end-to-end through apply_grain_to_density_layers --------------------
+    // The checks above gate the PASS. This one gates the WIRING, which is a
+    // separate thing to get wrong: cell order, the seed split, the tail that
+    // still runs on the host, and above all the refusals -- a route that
+    // silently skips the CPU's spatial work would look perfect in every
+    // statistical check and be wrong on real film.
+    {
+        const int w = 256, h = 256;
+        const int n = w * h;
+        const double pixel_size_um = 18.75;   // 1080p-class
+        std::vector<float> layers(static_cast<size_t>(n) * 9u, 0.35f);
+        double dmax_layers[9];
+        for (int i = 0; i < 9; ++i) dmax_layers[i] = 2.2 / 3.0;
+
+        spk::GrainParams gp;
+        gp.active = true;
+        gp.sublayers_active = true;
+        gp.blur = 0.0;    // isolate the sampler from the final blur
+
+        std::vector<float> cpu(static_cast<size_t>(n) * 3u, 0.0f);
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gp, cpu.data());
+
+        spk::GrainParams gg = gp;
+        gg.allow_gpu_sampler = true;
+        std::vector<float> gpu(static_cast<size_t>(n) * 3u, 0.0f);
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gg, gpu.data());
+
+        check(gpu != cpu, "the GPU route actually ran (a different realisation)");
+        for (int c = 0; c < 3; ++c) {
+            const Moments mc = moments(cpu, c, 3);
+            const Moments mg = moments(gpu, c, 3);
+            // Two independent estimates of the same expectation. Combined
+            // standard error is sqrt(2)*sd/sqrt(n); 6x that is a band no
+            // correct implementation misses and no swapped cell survives.
+            const double band = 6.0 * std::sqrt(2.0) * mc.sd / std::sqrt(static_cast<double>(n));
+            std::printf("  e2e ch%d cpu %.6f  gpu %.6f  |diff| %.2e  band %.2e\n",
+                        c, mc.mean, mg.mean, std::fabs(mg.mean - mc.mean), band);
+            check(std::fabs(mg.mean - mc.mean) < band,
+                  "end-to-end mean agrees with the CPU route");
+        }
+
+        // Refusal 1: a dye-cloud blur wide enough to be a real filter. The CPU
+        // blurs each sublayer plane before accumulating and this pass does not,
+        // so the only correct answer is to decline and let the CPU run --
+        // which means the result must be BIT-IDENTICAL to the flag-off run.
+        spk::GrainParams gb = gg;
+        gb.blur_dye_clouds_um = 5.0;
+        std::vector<float> blurred_gpu(static_cast<size_t>(n) * 3u, 0.0f);
+        std::vector<float> blurred_cpu(static_cast<size_t>(n) * 3u, 0.0f);
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gb, blurred_gpu.data());
+        spk::GrainParams gb_cpu = gb;
+        gb_cpu.allow_gpu_sampler = false;
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gb_cpu, blurred_cpu.data());
+        check(blurred_gpu == blurred_cpu,
+              "a non-degenerate dye-cloud blur is refused, byte-for-byte");
+
+        // Refusal 2: active micro-structure clumping. sigma = sigma_nm*1e-3 /
+        // pixel_size_um must exceed 0.05 for add_micro_structure to do anything,
+        // which needs sigma_nm > 50*pixel_size_um -- far above the schema
+        // default of 30, but reachable, and it is a user-settable param.
+        spk::GrainParams gm = gg;
+        gm.micro_structure[1] = 2000.0;
+        std::vector<float> micro_gpu(static_cast<size_t>(n) * 3u, 0.0f);
+        std::vector<float> micro_cpu(static_cast<size_t>(n) * 3u, 0.0f);
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gm, micro_gpu.data());
+        spk::GrainParams gm_cpu = gm;
+        gm_cpu.allow_gpu_sampler = false;
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gm_cpu, micro_cpu.data());
+        check(micro_gpu == micro_cpu,
+              "active micro-structure is refused, byte-for-byte");
+    }
 
     if (g_failures == 0) {
         std::printf("test_grain_gpu: ALL OK\n");
