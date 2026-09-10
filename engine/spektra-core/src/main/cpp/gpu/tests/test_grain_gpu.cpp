@@ -113,6 +113,8 @@ int main() {
     req.density_cells = density.data();
     req.cells = cells.data();
     req.cell_count = ncells;
+    req.width = 256u;
+    req.height = 256u;
     req.npix = npix;
     req.seed_offset = 0;
 
@@ -192,6 +194,29 @@ int main() {
         check(frac < 0.5, "an added-seed collision did not reproduce a neighbour channel");
     }
 
+    // --- the host's radius reduction -----------------------------------------
+    // radius = int(3*sigma + 0.5), so 1/6 px is the first radius-1 sigma. These
+    // two sit either side of it, and the boundary is what decides whether a
+    // 12.5 MP export engages: its coarsest cell lands at 0.1726 px.
+    {
+        std::vector<spk::gpu::GrainCell> sharp = cells, soft = cells;
+        for (auto& cell : sharp) cell.blur_sigma_px = 0.16;   // radius 0
+        for (auto& cell : soft) cell.blur_sigma_px = 0.1726;  // radius 1, as at 12.5 MP
+        std::vector<float> tmp(out.size(), 0.0f);
+        spk::gpu::GrainSampleRequest rs = req;
+        rs.cells = sharp.data();
+        spk::gpu::GrainSampleDiagnostics ds;
+        const bool oks = spk::gpu::grain_sample(rs, tmp.data(), &ds);
+        spk::gpu::GrainSampleRequest ro = req;
+        ro.cells = soft.data();
+        spk::gpu::GrainSampleDiagnostics dsoft;
+        const bool oko = spk::gpu::grain_sample(ro, tmp.data(), &dsoft);
+        std::printf("  radius: sigma 0.1600 -> %u   sigma 0.1726 -> %u\n",
+                    ds.max_blur_radius, dsoft.max_blur_radius);
+        check(oks && ds.max_blur_radius == 0, "sigma below 1/6 px reduces to radius 0");
+        check(oko && dsoft.max_blur_radius == 1, "the 12.5 MP coarsest cell reduces to radius 1");
+    }
+
     // --- the out-of-branch counter is real -----------------------------------
     // Starve the cell of particles so lam falls under the Knuth threshold. The
     // pass must still succeed, and must REPORT that it left its branches --
@@ -265,22 +290,56 @@ int main() {
                   "end-to-end mean agrees with the CPU route");
         }
 
-        // Refusal 1: a dye-cloud blur wide enough to be a real filter. The CPU
-        // blurs each sublayer plane before accumulating and this pass does not,
-        // so the only correct answer is to decline and let the CPU run --
-        // which means the result must be BIT-IDENTICAL to the flag-off run.
+        // A REAL dye-cloud blur (radius 1 at this geometry) is now carried by
+        // the shader, not refused. The sharp check is the standard deviation,
+        // not the mean: blurring leaves the mean alone but cuts the noise by a
+        // known factor, so a GPU that quietly skipped the blur would still pass
+        // every mean test and fail here.
         spk::GrainParams gb = gg;
         gb.blur_dye_clouds_um = 5.0;
-        std::vector<float> blurred_gpu(static_cast<size_t>(n) * 3u, 0.0f);
-        std::vector<float> blurred_cpu(static_cast<size_t>(n) * 3u, 0.0f);
+        std::vector<float> blur_gpu(static_cast<size_t>(n) * 3u, 0.0f);
+        std::vector<float> blur_cpu(static_cast<size_t>(n) * 3u, 0.0f);
         spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
-                                           pixel_size_um, gb, blurred_gpu.data());
+                                           pixel_size_um, gb, blur_gpu.data());
         spk::GrainParams gb_cpu = gb;
         gb_cpu.allow_gpu_sampler = false;
         spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
-                                           pixel_size_um, gb_cpu, blurred_cpu.data());
-        check(blurred_gpu == blurred_cpu,
-              "a non-degenerate dye-cloud blur is refused, byte-for-byte");
+                                           pixel_size_um, gb_cpu, blur_cpu.data());
+        check(blur_gpu != blur_cpu, "the blurred GPU route ran (a different realisation)");
+        bool any_reduced = false;
+        for (int c = 0; c < 3; ++c) {
+            const Moments bc = moments(blur_cpu, c, 3);
+            const Moments bg = moments(blur_gpu, c, 3);
+            const Moments uc = moments(cpu, c, 3);
+            std::printf("  blur ch%d cpu sd %.6f  gpu sd %.6f  (unblurred cpu sd %.6f)  "
+                        "ratio %.4f\n",
+                        c, bc.sd, bg.sd, uc.sd, bc.sd > 0.0 ? bg.sd / bc.sd : 0.0);
+            if (bc.sd < uc.sd * 0.95) any_reduced = true;
+            check(std::fabs(bg.sd / bc.sd - 1.0) < 0.03,
+                  "GPU blurred noise matches the CPU's (the blur was not skipped)");
+        }
+        // Only the coarsest cells (largest od_particle) reach radius >= 1, so a
+        // channel whose cells are all fine is barely touched -- ch2 moved 10%
+        // here while ch0 moved 0.1%. What must hold is that the CPU reference
+        // really did blur SOMETHING, otherwise the agreement above is agreement
+        // between two no-ops.
+        check(any_reduced, "the CPU reference actually applied a dye-cloud blur");
+
+        // Too wide to carry: kGrainMaxBlurRadius is 3, and this asks for far
+        // more. A truncated kernel is a different filter, so the only correct
+        // answer is to decline -- which must be bit-identical to the CPU run.
+        spk::GrainParams gw = gg;
+        gw.blur_dye_clouds_um = 50.0;
+        std::vector<float> wide_gpu(static_cast<size_t>(n) * 3u, 0.0f);
+        std::vector<float> wide_cpu(static_cast<size_t>(n) * 3u, 0.0f);
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gw, wide_gpu.data());
+        spk::GrainParams gw_cpu = gw;
+        gw_cpu.allow_gpu_sampler = false;
+        spk::apply_grain_to_density_layers(layers.data(), n, w, h, dmax_layers,
+                                           pixel_size_um, gw_cpu, wide_cpu.data());
+        check(wide_gpu == wide_cpu,
+              "a dye-cloud blur wider than the shader carries is refused, byte-for-byte");
 
         // Refusal 2: active micro-structure clumping. sigma = sigma_nm*1e-3 /
         // pixel_size_um must exceed 0.05 for add_micro_structure to do anything,

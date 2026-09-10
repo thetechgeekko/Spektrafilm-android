@@ -2,62 +2,77 @@
 // SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
 // SPDX-License-Identifier: GPL-3.0-only
 //
-// AgX particle grain sampler (#214). Ports the SAMPLER of
-// model/grain.cpp::layer_particle_model -- the Poisson(lam) -> Binomial(seeds, p)
-// draw that is 94.6% of the grain stage and the largest single item in an export.
+// AgX particle grain sampler (#214). Ports model/grain.cpp::layer_particle_model
+// -- the Poisson(lam) -> Binomial(seeds, p) draw that is 94.6% of the grain stage
+// and the largest single item in an export -- INCLUDING its per-particle
+// dye-cloud blur.
 //
 // It implements ONLY the Normal-approximation branches of fast_poisson /
-// fast_binomial, and that is a deliberate, measured choice rather than a
-// shortcut. tools/gpu_probe/census_grain_branches.cpp counts which branch the
-// real workload lands in:
+// fast_binomial, and that is a measured choice rather than a shortcut.
+// tools/gpu_probe/census_grain_branches.cpp counts which branch the real
+// workload lands in:
 //
 //   1080p video    99.39% binomial-normal, 100.00% poisson-normal
 //   640 preview    99.95%                  100.00%
 //   12.5 MP export 90.05%                   99.01%
 //
-// The branches this shader omits (Knuth, Bernoulli, CDF inversion) are the ones
-// f32 cannot hold anyway -- CDF inversion needs pow(1-p, n) for n up to 5.9e4,
-// which underflows f32 roughly 280 decades before it underflows the f64 the CPU
-// uses. Rather than reformulate them in the log domain for a fraction of a
-// percent of pixels, this shader COUNTS the samples that fall outside its two
-// branches into `counters.out_of_branch`, and the host decides whether that
-// count is acceptable for the frame. An approximation you can measure per frame
-// is a different thing from one you hope is small.
+// The branches this omits (Knuth, Bernoulli, CDF inversion) are the ones f32
+// cannot hold anyway -- CDF inversion needs pow(1-p, n) for n up to 5.9e4, which
+// underflows f32 roughly 280 decades before it underflows the f64 the CPU uses.
+// Rather than reformulate them for a fraction of a percent of pixels, this
+// shader COUNTS the samples that fall outside its two branches into
+// `counters.out_of_branch`, and the host decides whether that is acceptable for
+// the frame. An approximation you can measure per frame is a different thing
+// from one you hope is small.
 //
-// The kernel derives NO parameter of its own: every dmin/dmax/n_ppp/od_particle
-// comes from the host in f64 and arrives already reduced to f32, exactly as the
-// halation port does.
+// THE DYE-CLOUD BLUR IS RECOMPUTED, NOT STORED. grain.py blurs each sublayer
+// plane by sigma = blur_dye_clouds_um * sqrt(od_particle) before accumulating.
+// The obvious GPU shape for that is sample -> scratch plane -> separable blur ->
+// accumulate: three passes, two extra whole-frame buffers and a halo wherever
+// the frame is split. None of that is needed here, because the RNG is
+// counter-based: a pixel's grain is a pure function of its coordinates, so any
+// invocation can regenerate its NEIGHBOURS' draws from scratch. The blur becomes
+// a local loop with no scratch, no barriers and no halo -- and it is exact at
+// every boundary, because there is no boundary.
+//
+// The cost is (2r+1)^2 evaluations for a cell of radius r, and it is charged
+// per cell, so it is only paid where the blur is real. At export pitch eight of
+// the nine cells have r = 0 (one evaluation) and one has r = 1 (nine), so the
+// whole frame costs 17 evaluations per pixel against 9.
+//
+// The kernel derives NO parameter of its own: every dmin/dmax/n_ppp/od_particle,
+// the radius and every filter tap come from the host in f64.
 #define WG 64
-#define CELL_STRIDE 8u
+#define CELL_STRIDE 16u
+#define MAX_RADIUS 3
 layout(local_size_x = WG) in;
 
 // density_cmy_layers, npix * ncells, index p * ncells + k. k is the flattened
-// (sublayer, channel) cell in the host's order.
+// (sublayer, channel) cell in the host's order. WHOLE FRAME, not a slice -- the
+// blur reads neighbours, so a sliced upload would need a halo.
 layout(std430, binding = 0) readonly  buffer InBuf  { float density[]; };
 // Accumulated grain, npix * 3. The host does the /n_sub, the -= density_min and
-// the final blur, because those are frame-level parameters, not per-pixel work.
+// the final blur: those are frame-level parameters, not per-pixel work.
 layout(std430, binding = 1) writeonly buffer OutBuf { float grain_out[]; };
-// Per-cell constants: dmin, dmax, n_ppp, uniformity, od_particle, channel,
-// seed_base (bit-cast uint), pad.
+// Per-cell constants, CELL_STRIDE floats each:
+//   0 dmin, 1 dmax, 2 n_ppp, 3 uniformity, 4 od_particle, 5 channel,
+//   6 seed_base (bit-cast uint), 7 radius, 8..14 kernel taps, 15 pad.
 layout(std430, binding = 2) readonly  buffer CellBuf { float cell[]; };
 layout(std430, binding = 3) buffer CountBuf { uint out_of_branch; } counters;
 
 layout(push_constant) uniform Push {
-    uint npix;         // pixels in THIS slice
+    uint npix;
     uint ncells;
-    uint seed_offset;  // mixed, never added -- see below
-    // The frame is dispatched in slices (the host caps a dispatch at the
-    // spec-guaranteed 65535 workgroups). `pixel_base` is this slice's offset, and
-    // the RNG is keyed on base + local index rather than on the local index, so
-    // the grain does not simply repeat every 4,193,280 pixels. Slicing the frame
-    // differently must not change the image.
-    uint pixel_base;
+    uint seed_offset;   // mixed, never added -- see below
+    uint groups_x;      // 2D dispatch flattened to one pixel index
+    uint width;
+    uint height;
 } pc;
 
 // PCG-RXS-M-XS, 32-bit (O'Neill). Counter-based: no state, so a sample depends
-// only on its coordinates and the frame's seed, which is what makes the result
-// independent of dispatch order, workgroup size and how many frames were
-// dropped.
+// only on its coordinates and the frame's seed. That is what makes the result
+// independent of dispatch order and workgroup size -- and what lets the blur
+// below regenerate a neighbour instead of reading it.
 uint pcg(uint v) {
     uint state = v * 747796405u + 2891336453u;
     uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -73,10 +88,69 @@ uint mix3(uint a, uint b, uint c) {
     return pcg(pcg(a) ^ pcg(b + 0x9e3779b9u) ^ pcg(c + 0x85ebca6bu));
 }
 
+// scipy.ndimage mode='reflect' (d c b a | a b c d | d c b a), matching
+// kernels/gaussian.cpp::reflect. The clamp is a guard for a frame smaller than
+// the kernel, where the two-branch form would run off the end; the host also
+// refuses that case, so this is belt and braces.
+int reflect_idx(int i, int n) {
+    if (i < 0) i = -i - 1;
+    else if (i >= n) i = 2 * n - 1 - i;
+    return clamp(i, 0, n - 1);
+}
+
+// One particle draw for one cell at one pixel. `count` is false for the blur's
+// neighbour evaluations so the out-of-branch tally stays a count of PIXELS, not
+// of kernel taps.
+float sample_cell(uint k, uint gp, uint b, bool count, inout uint outside) {
+    float dmin = cell[b + 0u];
+    float dmax = cell[b + 1u];
+    float n_ppp = cell[b + 2u];
+    float uni = cell[b + 3u];
+    float od = cell[b + 4u];
+    uint seed_base = floatBitsToUint(cell[b + 6u]);
+
+    // probability_of_development, clipped exactly as grain.py does. The clip
+    // keeps p strictly inside (0,1), so the CPU's p<=0 and p>=1 early-outs are
+    // unreachable and need no branch here.
+    float d = density[gp * pc.ncells + k] + dmin;
+    float pr = clamp(d / dmax, 1e-6, 1.0 - 1e-6);
+    float sat = 1.0 - pr * uni * (1.0 - 1e-6);
+    float lam = n_ppp / sat;
+
+    uint h0 = mix3(seed_base, gp, pc.seed_offset ^ (k * 0x27d4eb2fu));
+    uint h1 = pcg(h0 ^ 0xa5a5a5a5u);
+    // Box-Muller: two uniforms in, two independent normals out, which is exactly
+    // the two draws this cell needs (Poisson then Binomial). u0 is pushed into
+    // (0,1] so log() cannot see zero.
+    float u0 = (float(h0 >> 8u) + 1.0) * (1.0 / 16777216.0);
+    float u1 = float(h1 >> 8u) * (1.0 / 16777216.0);
+    float rad = sqrt(-2.0 * log(u0));
+    float ang = 6.28318530717958647692 * u1;
+    float z0 = rad * cos(ang);
+    float z1 = rad * sin(ang);
+
+    // fast_poisson: Normal(lam, sqrt(lam)) above lam = 30.
+    float seeds = max(round(lam + sqrt(lam) * z0), 0.0);
+    // fast_binomial: Normal(n*p, sqrt(n*p*(1-p))) when n >= 25 and var > 10.
+    float vr = seeds * pr * (1.0 - pr);
+    float dev = clamp(round(seeds * pr + sqrt(vr) * z1), 0.0, seeds);
+
+    // The CPU would have taken a different branch for these; count them so the
+    // host can refuse the frame instead of guessing.
+    if (count && (lam < 30.0 || seeds < 25.0 || vr <= 10.0)) outside += 1u;
+
+    return dev * od * sat;
+}
+
 void main() {
-    uint p = gl_GlobalInvocationID.x;
+    uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+    uint p = group * WG + gl_LocalInvocationID.x;
     if (p >= pc.npix) return;
-    uint gp = p + pc.pixel_base;   // stable frame-wide index; RNG key only
+
+    int w = int(pc.width);
+    int h = int(pc.height);
+    int x = int(p % pc.width);
+    int y = int(p / pc.width);
 
     float acc[3];
     acc[0] = 0.0; acc[1] = 0.0; acc[2] = 0.0;
@@ -84,45 +158,37 @@ void main() {
 
     for (uint k = 0u; k < pc.ncells; ++k) {
         uint b = k * CELL_STRIDE;
-        float dmin = cell[b + 0u];
-        float dmax = cell[b + 1u];
-        float n_ppp = cell[b + 2u];
-        float uni = cell[b + 3u];
-        float od = cell[b + 4u];
         uint ch = uint(cell[b + 5u]);
-        uint seed_base = floatBitsToUint(cell[b + 6u]);
+        int r = int(cell[b + 7u]);
 
-        // probability_of_development, clipped exactly as grain.py does. The clip
-        // is what keeps p strictly inside (0,1), so the CPU's p<=0 and p>=1
-        // early-outs are unreachable and need no branch here.
-        float d = density[p * pc.ncells + k] + dmin;
-        float pr = clamp(d / dmax, 1e-6, 1.0 - 1e-6);
-        float sat = 1.0 - pr * uni * (1.0 - 1e-6);
-        float lam = n_ppp / sat;
-
-        uint h0 = mix3(seed_base, gp, pc.seed_offset ^ (k * 0x27d4eb2fu));
-        uint h1 = pcg(h0 ^ 0xa5a5a5a5u);
-        // Box-Muller: two uniforms in, two independent normals out, which is
-        // exactly the two draws this cell needs (Poisson then Binomial). u0 is
-        // pushed into (0,1] so log() cannot see zero.
-        float u0 = (float(h0 >> 8u) + 1.0) * (1.0 / 16777216.0);
-        float u1 = float(h1 >> 8u) * (1.0 / 16777216.0);
-        float rad = sqrt(-2.0 * log(u0));
-        float ang = 6.28318530717958647692 * u1;
-        float z0 = rad * cos(ang);
-        float z1 = rad * sin(ang);
-
-        // fast_poisson: Normal(lam, sqrt(lam)) above lam = 30.
-        float seeds = max(round(lam + sqrt(lam) * z0), 0.0);
-        // fast_binomial: Normal(n*p, sqrt(n*p*(1-p))) when n >= 25 and var > 10.
-        float var = seeds * pr * (1.0 - pr);
-        float dev = clamp(round(seeds * pr + sqrt(var) * z1), 0.0, seeds);
-
-        // The CPU would have taken a different branch for these; count them so
-        // the host can refuse the frame instead of guessing.
-        if (lam < 30.0 || seeds < 25.0 || var <= 10.0) outside += 1u;
-
-        acc[ch] += dev * od * sat;
+        float g;
+        if (r <= 0) {
+            g = sample_cell(k, p, b, true, outside);
+        } else {
+            // Separable Gaussian as the outer product of the 1D kernel with
+            // itself, with the two reflects taken independently -- which is
+            // algebraically what the CPU's vertical-then-horizontal pass
+            // computes, since out[i,j] = sum_m sum_k K[m]K[k] *
+            // img[reflect(i+k), reflect(j+m)].
+            float total = 0.0;
+            for (int dy = -r; dy <= r; ++dy) {
+                int yy = reflect_idx(y + dy, h);
+                float row = 0.0;
+                for (int dx = -r; dx <= r; ++dx) {
+                    int xx = reflect_idx(x + dx, w);
+                    uint gq = uint(yy) * pc.width + uint(xx);
+                    // The centre tap decides this pixel's branch tally; the
+                    // neighbours deliberately do not count, so out_of_branch
+                    // stays a count of PIXELS rather than of kernel taps.
+                    bool centre = (dx == 0 && dy == 0);
+                    row += cell[b + 8u + uint(dx + r)] *
+                           sample_cell(k, gq, b, centre, outside);
+                }
+                total += cell[b + 8u + uint(dy + r)] * row;
+            }
+            g = total;
+        }
+        acc[ch] += g;
     }
 
     grain_out[p * 3u + 0u] = acc[0];

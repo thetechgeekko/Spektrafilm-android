@@ -258,36 +258,21 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
 
 namespace {
 
-// Would the CPU's per-particle dye-cloud blur actually change the plane?
-// gaussian_kernel_1d uses radius = int(truncate*sigma + 0.5) with truncate 3,
-// and gaussian_fir_plane returns immediately at radius 0 -- an exact identity,
-// not an approximation of one. So radius 0 is the precise condition under which
-// skipping the blur is not a difference at all.
+// The per-particle dye-cloud blur is no longer a refusal. gpu/grain.comp carries
+// it, by recomputing neighbours rather than storing a plane -- the RNG is
+// counter-based, so a pixel's grain is a pure function of its coordinates and any
+// invocation can regenerate its neighbours' draws. The host still owns the
+// decision: it hands over sigma in pixels, and gpu::grain_sample reduces that to
+// a radius and taps in f64 (reproducing gaussian_kernel_1d exactly, mixed
+// precision included) and refuses anything wider than it will carry.
 //
-// It is TESTED per cell rather than assumed, and the device says that was the
-// right call. An earlier version of this comment claimed identity held "at every
-// geometry this app reaches, sigma 0.077 px at 12.5 MP" -- that was the MIDDLE
-// cell (sl=1, c=1). The binding cell is the coarsest one, the largest
-// agx_particle_scale[c] * agx_particle_scale_layers[sl] product, because
-// od_particle = dmax_layer / n_ppp grows as particles per pixel fall. Measured
-// at 12.5 MP export pitch (8.82 um/px, tools/gpu_probe/probe_grain_main.cpp):
-//
-//   sl=1 c=1  n_ppp 129.76  sigma 0.0765 px  radius 0
-//   sl=0 c=2  n_ppp  25.95  sigma 0.1726 px  radius 1   <-- refuses
-//
-// So the GPU route engages at video and preview pitch and declines at export
-// pitch, missing the 1/6 px threshold by 3.5% on one cell out of nine. Export
-// needs the dye-cloud blur in the shader, not a looser test here.
-bool dye_cloud_blur_is_identity(double blur_particle, double od_particle) {
-    if (!(blur_particle > 0.0)) return true;
-    const float sigma = static_cast<float>(blur_particle * std::sqrt(od_particle));
-    return static_cast<int>(kGaussianTruncate * sigma + 0.5f) == 0;
-}
-
+// This is what unblocked export. At 12.5 MP pitch eight of the nine cells have
+// radius 0 and one -- the coarsest, sl=0 c=2, sigma 0.1726 px -- has radius 1,
+// which is why the earlier identity-only test declined the whole frame there.
 // The GPU sampler replaces the accumulate loop only. Returns true when `out`
 // holds the accumulated grain; false leaves `out` untouched for the CPU loop.
-bool gpu_grain_accumulate(const float* density_cmy_layers, int npix,
-                          const double dmin_layers[3][3],
+bool gpu_grain_accumulate(const float* density_cmy_layers, int npix, int width,
+                          int height, const double dmin_layers[3][3],
                           const double dmax_lay[3][3], const double n_ppp[3][3],
                           double pixel_size_um, const GrainParams& grain,
                           float* out) {
@@ -303,10 +288,13 @@ bool gpu_grain_accumulate(const float* density_cmy_layers, int npix,
     int k = 0;
     for (int sl = 0; sl < 3; ++sl) {
         for (int c = 0; c < 3; ++c) {
-            const double od = dmax_lay[sl][c] / n_ppp[sl][c];
             if (!(n_ppp[sl][c] > 0.0) || !(dmax_lay[sl][c] > 0.0)) return false;
-            if (!dye_cloud_blur_is_identity(grain.blur_dye_clouds_um, od)) return false;
+            const double od = dmax_lay[sl][c] / n_ppp[sl][c];
             gpu::GrainCell& cell = cells[static_cast<size_t>(k)];
+            // grain.py: fast_gaussian_filter(grain, blur_particle*sqrt(od_particle)).
+            cell.blur_sigma_px = grain.blur_dye_clouds_um > 0.0
+                                     ? grain.blur_dye_clouds_um * std::sqrt(od)
+                                     : 0.0;
             cell.density_min = dmin_layers[sl][c];
             cell.density_max = dmax_lay[sl][c];
             cell.n_particles_per_pixel = n_ppp[sl][c];
@@ -326,6 +314,8 @@ bool gpu_grain_accumulate(const float* density_cmy_layers, int npix,
     request.density_cells = density_cmy_layers;
     request.cells = cells.data();
     request.cell_count = 9;
+    request.width = static_cast<uint32_t>(width);
+    request.height = static_cast<uint32_t>(height);
     request.npix = static_cast<uint32_t>(npix);
     request.seed_offset = static_cast<uint32_t>(grain.seed_offset);
 
@@ -378,9 +368,9 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // npix*3 doubles -- 300 MB at 12.5 MP -- and allocating it only to leave it
     // untouched would hand the memory coordinator a peak that the GPU route was
     // supposed to remove.
-    const bool gpu_done = gpu_grain_accumulate(density_cmy_layers, npix,
-                                               dmin_layers, dmax_lay, n_ppp,
-                                               pixel_size_um, grain, out);
+    const bool gpu_done = gpu_grain_accumulate(density_cmy_layers, npix, width,
+                                               height, dmin_layers, dmax_lay,
+                                               n_ppp, pixel_size_um, grain, out);
 
     // Accumulator per channel-interleaved pixel (CPU route only).
     std::vector<double> acc;

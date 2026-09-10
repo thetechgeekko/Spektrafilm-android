@@ -71,8 +71,8 @@ void report_refusal_margin(double pixel_size_um, const spk::GrainParams& g,
     for (int sl = 0; sl < 3; ++sl)
         for (int c = 0; c < 3; ++c) dmax_total[c] += dmax_layers[sl * 3 + c];
     const double pixel_area = pixel_size_um * pixel_size_um;
-    std::printf("dye-cloud blur per cell (identity iff radius == 0, "
-                "radius = int(3*sigma + 0.5), so sigma < 1/6):\n");
+    std::printf("dye-cloud blur per cell (radius = int(3*sigma + 0.5); the shader\n"
+                "carries radius <= 3 by recomputing neighbours, wider is refused):\n");
     double worst_sigma = 0.0;
     int worst_sl = -1, worst_c = -1;
     for (int sl = 0; sl < 3; ++sl) {
@@ -89,11 +89,13 @@ void report_refusal_margin(double pixel_size_um, const spk::GrainParams& g,
             const int radius = static_cast<int>(3.0f * static_cast<float>(sigma) + 0.5f);
             if (sigma > worst_sigma) { worst_sigma = sigma; worst_sl = sl; worst_c = c; }
             std::printf("  sl=%d c=%d  n_ppp %8.2f  od %.6f  sigma %.4f px  radius %d%s\n",
-                        sl, c, n_ppp, od, sigma, radius, radius == 0 ? "" : "  <-- REFUSES");
+                        sl, c, n_ppp, od, sigma, radius, radius == 0 ? "  (unblurred)"
+                                   : (radius <= 3 ? "  <-- blurred on GPU"
+                                                  : "  <-- TOO WIDE, refuses"));
         }
     }
-    std::printf("  worst cell sl=%d c=%d sigma %.4f px (threshold %.4f)\n\n",
-                worst_sl, worst_c, worst_sigma, 1.0 / 6.0);
+    std::printf("  worst cell sl=%d c=%d sigma %.4f px (radius 1 above %.4f, refused above %.4f)\n\n",
+                worst_sl, worst_c, worst_sigma, 1.0 / 6.0, 3.5 / 3.0);
 }
 
 }  // namespace
@@ -169,8 +171,9 @@ int main(int argc, char** argv) {
     if (!engaged) {
         std::printf("\nThe pass refused and fell back, which is a correct outcome but means\n"
                     "there is no GPU result to compare and no speedup. Reasons it can refuse:\n"
-                    "a non-degenerate dye-cloud blur, active micro-structure, or a dispatch\n"
-                    "failure (which is what 12.5 MP diffusion hit in #213).\n");
+                    "a dye-cloud blur wider than radius 3, active micro-structure, a buffer\n"
+                    "the device will not allocate, or a dispatch failure (which is what\n"
+                    "12.5 MP diffusion hit in #213).\n");
         return 1;
     }
     std::printf("                     %9.2fx warm\n\n", gpu_ms > 0 ? cpu_ms / gpu_ms : 0.0);

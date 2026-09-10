@@ -199,7 +199,14 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 // offset) so the result is independent of dispatch order, workgroup size and
 // slicing. That is the same class of change as fast_sampler (#180) -- same
 // distributions, different draw -- and it is never parity evidence.
-constexpr int kGrainMaxCells = 9;   // 3 sublayers x 3 channels
+constexpr int kGrainMaxCells = 9;    // 3 sublayers x 3 channels
+// Largest per-particle dye-cloud blur the shader will carry. The blur is
+// evaluated by RECOMPUTING neighbours rather than storing a plane, so a cell of
+// radius r costs (2r+1)^2 draws; 3 caps that at 49 and covers sigma up to
+// (3 + 0.5)/3 = 1.167 px, well past the 0.173 px the coarsest cell reaches at
+// 12.5 MP export pitch. Anything wider is refused to the CPU rather than
+// truncated, because a truncated kernel is a different filter.
+constexpr int kGrainMaxBlurRadius = 3;
 
 // One (sublayer, channel) cell, every value computed on the host in f64.
 struct GrainCell {
@@ -213,13 +220,20 @@ struct GrainCell {
     // terms, so an offset of 1 makes channel 1 collide with channel 2's previous
     // frame. Added seeds alias; mixed seeds do not.
     uint32_t seed_base = 0;
+    // Per-particle dye-cloud blur for THIS cell, sigma in pixels
+    // (blur_dye_clouds_um * sqrt(od_particle) in grain.py). The host reduces it
+    // to a radius and taps; 0 means the cell is unblurred.
+    double blur_sigma_px = 0.0;
 };
 
 struct GrainSampleRequest {
     // npix * cell_count floats, index p * cell_count + k, matching `cells`.
+    // WHOLE FRAME: the dye-cloud blur reads neighbours, so this is not sliced.
     const float* density_cells = nullptr;
     const GrainCell* cells = nullptr;
     int cell_count = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;    // npix == width * height
     uint32_t npix = 0;
     uint32_t seed_offset = 0;
 };
@@ -229,7 +243,8 @@ struct GrainSampleDiagnostics {
     bool engaged = false;
     const char* reason = "";
     uint32_t slices = 0;
-    uint64_t samples = 0;         // npix * cell_count
+    uint32_t max_blur_radius = 0;  // widest dye-cloud kernel carried this frame
+    uint64_t samples = 0;          // npix * cell_count
     uint64_t out_of_branch = 0;   // samples the CPU would have drawn from another branch
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
