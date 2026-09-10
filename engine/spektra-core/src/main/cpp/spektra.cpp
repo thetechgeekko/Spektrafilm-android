@@ -2019,15 +2019,30 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // upscale_factor), computed in preprocess_geometry above. Inert while every
     // spatial effect self-gates off.
     fparams.pixel_size_um = resize_pixel_size_um;
-    // Fast GPU export only (#206): gpu_export sets allow_gpu_scan on its
-    // private copy; preview clears gpu_export, so the halation pass never
-    // runs on the GPU for a preview, a tap or a bake.
-    fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
-    fparams.dir_couplers.allow_gpu_diffusion = fparams.allow_gpu_halation;
-    // Owner decision #180: the Fast GPU export route may carry a different
-    // noise realisation, gated statistically. Same latch as the GPU spatial
-    // passes, so preview, tap and bake keep the Strict Exact sampler.
-    fparams.grain.fast_sampler = fparams.allow_gpu_halation;
+    // The Fast GPU route. ONE latch, three consumers, so that extending it is a
+    // single edit and the grain-sampler consequence below is visible rather than
+    // incidental.
+    //
+    // This used to additionally require `gpu_export != 0`, which meant the two
+    // spatial GPU kernels that already exist -- halation/scatter and the DIR
+    // diffusion that reuses it -- were unreachable from the interactive path even
+    // with the user's GPU toggle on. Owner direction (2026-09-10) is that the app
+    // should run on the GPU, so the latch is now the route flag itself.
+    //
+    // `allow_gpu_scan` is INTERNAL and set in exactly two places: spk_simulate
+    // when the user asked for gpu_export, and spk_simulate_preview when the user's
+    // gpu_preview toggle is on. Tap and bake clear it unconditionally
+    // (`tp.allow_gpu_scan = 0`, `bp.allow_gpu_scan = 0`), so those stay Strict
+    // Exact, and a default render -- where neither toggle is set -- is
+    // byte-identical to before this change. That is what keeps the 44 goldens green.
+    const bool fast_gpu_route = (p->allow_gpu_scan != 0);
+    fparams.allow_gpu_halation = fast_gpu_route;
+    fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
+    // Owner decision #180: the Fast GPU route may carry a different noise
+    // realisation, gated statistically rather than against a byte golden. It rides
+    // the same latch, so enabling the GPU preview now also moves the preview's
+    // grain to the cheaper sampler -- a different realisation, same distribution.
+    fparams.grain.fast_sampler = fast_gpu_route;
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
         // density_max_curves are filled inside develop() from the film's
@@ -2514,15 +2529,30 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
     fparams.lens_blur_um = static_cast<double>(p->lens_blur_um);
     fparams.pixel_size_um = resize_pixel_size_um;
-    // Fast GPU export only (#206): gpu_export sets allow_gpu_scan on its
-    // private copy; preview clears gpu_export, so the halation pass never
-    // runs on the GPU for a preview, a tap or a bake.
-    fparams.allow_gpu_halation = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
-    fparams.dir_couplers.allow_gpu_diffusion = fparams.allow_gpu_halation;
-    // Owner decision #180: the Fast GPU export route may carry a different
-    // noise realisation, gated statistically. Same latch as the GPU spatial
-    // passes, so preview, tap and bake keep the Strict Exact sampler.
-    fparams.grain.fast_sampler = fparams.allow_gpu_halation;
+    // The Fast GPU route. ONE latch, three consumers, so that extending it is a
+    // single edit and the grain-sampler consequence below is visible rather than
+    // incidental.
+    //
+    // This used to additionally require `gpu_export != 0`, which meant the two
+    // spatial GPU kernels that already exist -- halation/scatter and the DIR
+    // diffusion that reuses it -- were unreachable from the interactive path even
+    // with the user's GPU toggle on. Owner direction (2026-09-10) is that the app
+    // should run on the GPU, so the latch is now the route flag itself.
+    //
+    // `allow_gpu_scan` is INTERNAL and set in exactly two places: spk_simulate
+    // when the user asked for gpu_export, and spk_simulate_preview when the user's
+    // gpu_preview toggle is on. Tap and bake clear it unconditionally
+    // (`tp.allow_gpu_scan = 0`, `bp.allow_gpu_scan = 0`), so those stay Strict
+    // Exact, and a default render -- where neither toggle is set -- is
+    // byte-identical to before this change. That is what keeps the 44 goldens green.
+    const bool fast_gpu_route = (p->allow_gpu_scan != 0);
+    fparams.allow_gpu_halation = fast_gpu_route;
+    fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
+    // Owner decision #180: the Fast GPU route may carry a different noise
+    // realisation, gated statistically rather than against a byte golden. It rides
+    // the same latch, so enabling the GPU preview now also moves the preview's
+    // grain to the cheaper sampler -- a different realisation, same distribution.
+    fparams.grain.fast_sampler = fast_gpu_route;
     if (print_stochastic) {
         // grain_active -> AgX particle grain inside develop(), exactly as the
         // scan route wires it. Deterministic seed; stays serial.
