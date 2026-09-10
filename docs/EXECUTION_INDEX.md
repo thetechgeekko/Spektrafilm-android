@@ -80,8 +80,10 @@ executable source for direct review:
 
 Target/compile SDK 36 is current-tree truth (raised under #171 for Android 16 behavior and the Google Play API-36 policy; both channels ship the same target), not release approval. The owner has selected a free
 GitHub release followed by a paid Google Play supporter channel that unlocks nothing. API-36 and
-Android behavior qualification remain live in [#171](https://github.com/thetechgeekko/Spektrafilm-android/issues/171),
-and the final Play publication contract lives in [#200](https://github.com/thetechgeekko/Spektrafilm-android/issues/200).
+Android behavior qualification was resolved and closed in
+[#171](https://github.com/thetechgeekko/Spektrafilm-android/issues/171); the final Play
+publication contract remains open in
+[#200](https://github.com/thetechgeekko/Spektrafilm-android/issues/200).
 The two channels must represent the same logical release; APK/AAB signing, ZIP layout, and
 device-split bytes are reported separately. Likewise, a locally device-qualified debug-key
 candidate is not production-signing evidence.
@@ -99,8 +101,9 @@ candidate is not production-signing evidence.
   f32 rewrite would be a new numeric contract. Vulkan uses float32. Float16 is an optional measured
   optimization only after an explicit quality gate, never a default assumption.
 - Sensor precision, processing precision, and file encoding depth are different contracts. The app
-  can write 16-bit integer and 32-bit-float files. Current-source preservation is tracked by
-  [Preserve declared native RAW sample precision through linear conversion](https://github.com/thetechgeekko/Spektrafilm-android/issues/190);
+  can write 16-bit integer and 32-bit-float files. Current-source preservation was settled in
+  [Preserve declared native RAW sample precision through linear conversion](https://github.com/thetechgeekko/Spektrafilm-android/issues/190)
+  (closed);
   future official Android 17 capability research is standalone
   [Track official Android 17 RAW14 capability and design a gated adapter](https://github.com/thetechgeekko/Spektrafilm-android/issues/193); an honest HDR gain-map contract is separate again.
 - The 1–2 second promise is not yet a universal cold-render claim. The credible strict perceived
