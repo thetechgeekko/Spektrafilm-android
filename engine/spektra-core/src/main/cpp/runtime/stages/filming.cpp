@@ -39,6 +39,80 @@ std::atomic<long long> g_gpu_halation_frames{0};
 // leaves `raw` untouched for the CPU pass. A no-op parameter set is reported
 // as success without engaging the device (the CPU pass would not change the
 // image either).
+// The camera diffusion filter on the GPU (#213). Same contract as
+// gpu_halation_pass below: true only when the whole pass succeeded and `raw` holds
+// its result, false leaves `raw` untouched for the CPU pass.
+//
+// It runs on the SAME kernel. The diffusion PSF decomposes into a weighted set of
+// Gaussians (model/diffusion.cpp, build_diffusion_mixture) and its resolve,
+// (1 - p_s) * E_in + p_s * (K_s * E_in), is the expression the scatter resolve
+// already computes -- so the halation pass's mixture mode runs it unchanged.
+//
+// THIS IS AN APPROXIMATION, and a coarser one than the halation port. Fitting an
+// exponential with Gaussians is worst at r = 0, where the exponential has a cusp,
+// and that cusp is the bright core of the bloom. Measured against the exact PSF at
+// 12.5 MP, Black Pro-Mist: max_abs 1.4e-03 with the 7-term fit -- 13x outside the
+// 1e-4 oracle band (tests/bench_diffusion_mixture.cpp). It is therefore gated to the
+// Fast GPU route only; Strict Exact keeps the FFT.
+bool gpu_diffusion_pass(double* raw, int width, int height,
+                        const DiffusionFilterParams& p, double pixel_size_um) {
+    if (!gpu::available()) return false;
+
+    std::vector<DiffusionGaussian> comps;
+    double p_s = 0.0;
+    int radius = 0;
+    // kDiffusionMixtureTerms: Gaussians per exponential term. 7 measured 2.5x tighter
+    // than the upstream 3-term OFX fit for ~2x the components; the components are
+    // separable blurs whose cost is O(1) in sigma, so they are cheap to add.
+    constexpr int kDiffusionMixtureTerms = 7;
+    if (!build_diffusion_mixture(p, pixel_size_um, width, height,
+                                 kDiffusionMixtureTerms, &comps, &p_s, &radius))
+        return false;   // a no-op parameter set; let the CPU path's own gate decide
+    if (comps.empty()) return false;
+
+    std::vector<double> sigma(comps.size());
+    std::vector<double> weight(comps.size() * 3u);
+    for (size_t i = 0; i < comps.size(); ++i) {
+        sigma[i] = comps[i].sigma_px;
+        for (int c = 0; c < 3; ++c) weight[i * 3u + static_cast<size_t>(c)] = comps[i].weight[c];
+    }
+
+    gpu::HalationScatterRequest request{};
+    request.raw_rgb = raw;
+    request.width = width;
+    request.height = height;
+    // The component sigmas are already in pixels, so the pass must not scale them
+    // again: pixel_size_um is unused for them and the spatial scale is unity.
+    request.pixel_size_um = pixel_size_um > 0.0 ? pixel_size_um : 1.0;
+    request.scatter_spatial_scale = 1.0;
+    request.scatter_amount = p_s;          // the convex-combination fraction
+    request.mixture_sigma_px = sigma.data();
+    request.mixture_weight = weight.data();
+    request.mixture_count = static_cast<int>(comps.size());
+    // Halation is a separate stage and must not run here.
+    request.halation_amount = 0.0;
+    request.halation_n_bounces = 0;
+
+    const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
+    std::vector<double> out;
+    try {
+        out.resize(total);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    gpu::HalationScatterDiagnostics diagnostics{};
+    const bool ok = gpu::halation_scatter(request, out.data(), &diagnostics);
+    stage_timing_note_gpu_halation(diagnostics.attempted, diagnostics.engaged,
+                                   diagnostics.reason, diagnostics.bands,
+                                   diagnostics.dispatches, diagnostics.upload_ms,
+                                   diagnostics.gpu_ms, diagnostics.readback_ms);
+    if (!ok || !diagnostics.engaged) return false;
+    parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
+        for (int i = lo; i < hi; ++i) raw[i] = out[i];
+    });
+    return true;
+}
+
 bool gpu_halation_pass(double* raw, int width, int height,
                        const HalationParams& p, double pixel_size_um) {
     if (!gpu::available()) return false;
@@ -594,8 +668,16 @@ void expose_impl(const Src& src, int width, int height,
     // active (schema default false), so default params stay bit-exact.
     if (params.diffusion_filter.active) {
         ScopedStage _t(STG_DIFFUSION);
-        apply_diffusion_filter_um(raw, width, height,
-                                  params.diffusion_filter, params.pixel_size_um);
+        // Fast GPU route only. The Gaussian-mixture PSF is 13x outside the oracle
+        // band at 12.5 MP, so Strict Exact keeps the FFT; and the GPU pass returns
+        // false without touching `raw` on any refusal, so this falls back rather
+        // than half-applying.
+        if (!(params.allow_gpu_halation &&
+              gpu_diffusion_pass(raw, width, height, params.diffusion_filter,
+                                 params.pixel_size_um))) {
+            apply_diffusion_filter_um(raw, width, height,
+                                      params.diffusion_filter, params.pixel_size_um);
+        }
     }
 
     // Camera lens blur (camera.lens_blur_um), applied on the float64 irradiance
