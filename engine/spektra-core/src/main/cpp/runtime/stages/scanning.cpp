@@ -10,6 +10,8 @@
  * Port of spektrafilm (GPLv3) by Andrea Volpato — film modeling powered by
  * spektrafilm.
  */
+#include <cstdlib>
+#include <cstdio>
 #include "runtime/stages/scanning.h"
 
 #include <atomic>
@@ -35,6 +37,29 @@
 #include "model/spectral.h"
 
 namespace spk {
+
+namespace {
+
+// SPK_GPU_DEBUG=1 prints why a Fast GPU sub-pass declined. These passes are
+// fail-closed by design, so a refusal is INVISIBLE from the outside: the image
+// is right and only the clock says anything happened. An end-to-end export
+// measurement showed glare and the unsharp blur silently on the CPU with no way
+// to ask why, which is what this exists to stop.
+bool gpu_debug_enabled() {
+    static const bool on = [] {
+        const char* v = std::getenv("SPK_GPU_DEBUG");
+        return v && v[0] == '1';
+    }();
+    return on;
+}
+
+void gpu_debug_note(const char* what, const char* reason) {
+    if (!gpu_debug_enabled()) return;
+    std::fprintf(stderr, "[gpu-debug] %s declined: %s\n", what,
+                 reason && *reason ? reason : "(no reason)");
+}
+
+}  // namespace
 
 namespace {
 
@@ -409,14 +434,18 @@ void scan(const Profile& film, const ScanningParams& params,
         greq.blur_px = params.glare_blur;
         greq.seed = static_cast<uint32_t>(params.glare_seed);
         gpu::GlareDiagnostics gdiag{};
-        if (!(params.fast_sampler &&
-              gpu::glare_field(glare_field.data(), width, height, greq, &gdiag)))
+        const bool glare_gpu = params.fast_sampler &&
+                               gpu::glare_field(glare_field.data(), width, height,
+                                                greq, &gdiag);
+        if (!glare_gpu) {
+            gpu_debug_note("glare field", params.fast_sampler ? gdiag.reason : "latch off");
             compute_random_glare_amount(params.glare_percent, params.glare_roughness,
                                         params.glare_blur, width, height,
                                         params.glare_seed, glare_field.data(),
                                         params.fast_sampler
                                             ? StatsRng::Generator::Fast
                                             : StatsRng::Generator::Exact);
+        }
     }
 
     const double inv_norm = 1.0 / norm;
@@ -827,8 +856,10 @@ void scan(const Profile& film, const ScanningParams& params,
     if (params.lens_blur > 0.0) {
         double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
         if (!(params.allow_gpu &&
-              gpu::gaussian_blur_rgb(lin_rgb, width, height, sg)))
+              gpu::gaussian_blur_rgb(lin_rgb, width, height, sg))) {
+            gpu_debug_note("scanner lens blur", params.allow_gpu ? "pass refused" : "latch off");
             gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
+        }
     }
 
     // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
@@ -843,8 +874,10 @@ void scan(const Profile& film, const ScanningParams& params,
         // Only the BLUR TERM moves; the mix below stays on the CPU because it is
         // a cheap per-element map over a buffer that has to come back anyway.
         if (!(params.allow_gpu &&
-              gpu::gaussian_blur_rgb(blur.data(), width, height, sg)))
+              gpu::gaussian_blur_rgb(blur.data(), width, height, sg))) {
+            gpu_debug_note("unsharp blur", params.allow_gpu ? "pass refused" : "latch off");
             gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
+        }
         const double amt = params.unsharp_amount;
         // Per-element map with disjoint writes -> deterministic chunks, the same
         // argument the encode below already relies on. It was serial over

@@ -1600,6 +1600,16 @@ spk::ScanningParams build_print_scanning_params(
     spk::ScanningParams params;
     params.scan_film = false;
     params.allow_gpu = (p->allow_gpu_scan != 0);
+    // The print route never set this, and the scan_film route (below) always
+    // did. That asymmetry was invisible while nothing read it on this route --
+    // it only chose the CPU glare generator -- but gpu/glare.comp rides it, so
+    // the GPU glare field silently never engaged on the DEFAULT route. An
+    // end-to-end export split is what found it: glare_field measured 384.9 ms on
+    // the Fast GPU route against 353.3 on the CPU one, i.e. slightly worse, and
+    // the fail-closed design meant nothing said why until SPK_GPU_DEBUG existed.
+    // Same expression as the scan_film site, so #180's export-only scoping is
+    // unchanged.
+    params.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     params.output_color_space = p->output_color_space;
     params.output_cctf_encoding = (p->output_cctf_encoding != 0);
     params.output_gamut_compress =

@@ -123,6 +123,14 @@ void run(const char* asset_dir, const Config& c, const std::vector<float>& scene
     p.output_cctf_encoding = 1;
     p.rgb_to_raw_method = SPK_RGB2RAW_HANATOS2025;
     p.preview_max_size = 0;   // full resolution -- this is the export case
+    // SPK_STAGE_SPLIT_GPU=1 takes the Fast GPU export route, which is what makes
+    // this an A/B rather than a CPU profile. gpu_export is the user-facing toggle
+    // and allow_gpu_scan is what spk_simulate derives from it; setting the toggle
+    // is enough. Off by default so every existing capture stays comparable.
+    {
+        const char* g = std::getenv("SPK_STAGE_SPLIT_GPU");
+        if (g && g[0] == '1') p.gpu_export = 1;
+    }
 
     spk_image in_img{const_cast<float*>(scene.data()), w, h, SPK_CS_PROPHOTO};
 
@@ -154,6 +162,11 @@ void run(const char* asset_dir, const Config& c, const std::vector<float>& scene
 }  // namespace
 
 int main(int argc, char** argv) {
+    {
+        const char* g = std::getenv("SPK_STAGE_SPLIT_GPU");
+        std::printf("route: %s\n", (g && g[0] == '1') ? "Fast GPU export (gpu_export=1)"
+                                                : "CPU (Strict Exact)");
+    }
     const char* asset_dir = argc > 1 ? argv[1] : "../assets/spektra";
     const int side = argc > 2 ? std::atoi(argv[2]) : 1024;
     const int reps = argc > 3 ? std::atoi(argv[3]) : 3;
