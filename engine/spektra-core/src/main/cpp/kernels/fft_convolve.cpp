@@ -84,25 +84,42 @@ void columns(double* spec, int n, int bins, const FftPlan& plan, bool inverse) {
     });
 }
 
-// Real n x n plane -> r2c spectrum (n rows x bins complex).
-void forward2(const double* plane, double* spec, int n, int bins,
-              const RfftPlan& rp, const FftPlan& cp) {
+// The real n x n plane is NEVER materialised. It used to be a third scratch
+// buffer the same size as a spectrum (n*n doubles against n*(n/2+1)*2), and
+// scratch is what the memory budget refuses -- a refusal that silently drops the
+// transform to the next size down, which on a 12.5 MP frame is 4 tiles becoming
+// 130 (#204). Rows are produced and consumed one at a time instead, from a
+// per-worker temporary, so the buffer disappears without changing a single
+// arithmetic operation: identical transforms, on identical values, in identical
+// order, so the output is BIT-IDENTICAL to the plane version.
+//
+// n doubles per worker (256 KB total at n=4096 over 8 workers) replaces 134 MB.
+
+// Rows -> r2c spectrum. `fill_row(r, dst)` must write exactly n doubles.
+template <typename FillRow>
+void forward2_rows(FillRow fill_row, double* spec, int n, int bins,
+                   const RfftPlan& rp, const FftPlan& cp) {
     parallel_for(0, n, [&](int lo, int hi) {
-        for (int r = lo; r < hi; ++r)
-            rp.forward(plane + static_cast<size_t>(r) * n,
-                       spec + static_cast<size_t>(r) * bins * 2);
+        std::vector<double> row(static_cast<size_t>(n));
+        for (int r = lo; r < hi; ++r) {
+            fill_row(r, row.data());
+            rp.forward(row.data(), spec + static_cast<size_t>(r) * bins * 2);
+        }
     });
     columns(spec, n, bins, cp, /*inverse=*/false);
 }
 
-// r2c spectrum -> real n x n plane. Unscaled; the caller applies 1/(n*n).
-void inverse2(double* spec, double* plane, int n, int bins,
-              const RfftPlan& rp, const FftPlan& cp) {
+// r2c spectrum -> rows. Unscaled; the consumer applies 1/(n*n).
+template <typename TakeRow>
+void inverse2_rows(double* spec, TakeRow take_row, int n, int bins,
+                   const RfftPlan& rp, const FftPlan& cp) {
     columns(spec, n, bins, cp, /*inverse=*/true);
     parallel_for(0, n, [&](int lo, int hi) {
-        for (int r = lo; r < hi; ++r)
-            rp.inverse(spec + static_cast<size_t>(r) * bins * 2,
-                       plane + static_cast<size_t>(r) * n);
+        std::vector<double> row(static_cast<size_t>(n));
+        for (int r = lo; r < hi; ++r) {
+            rp.inverse(spec + static_cast<size_t>(r) * bins * 2, row.data());
+            take_row(r, row.data());
+        }
     });
 }
 
@@ -190,17 +207,20 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
     if (deny_scratch_for_test) throw std::bad_alloc{};
     std::vector<double> kspec(spec_sz, 0.0);
     std::vector<double> tspec(spec_sz, 0.0);
-    std::vector<double> plane(plane_sz, 0.0);
+    (void)plane_sz;  // the real plane is produced row by row, never stored
 
     const RfftPlan rp(n);
     const FftPlan  cp(n);
 
     // Kernel spectrum: kern at the ORIGIN (see the derivation above), zero elsewhere.
-    for (int i = 0; i < ks; ++i)
-        for (int j = 0; j < ks; ++j)
-            plane[static_cast<size_t>(i) * n + j] =
-                kern[static_cast<size_t>(i) * ks + j];
-    forward2(plane.data(), kspec.data(), n, bins, rp, cp);
+    forward2_rows(
+        [&](int r, double* dst) {
+            std::fill(dst, dst + n, 0.0);
+            if (r < ks)
+                for (int j = 0; j < ks; ++j)
+                    dst[j] = kern[static_cast<size_t>(r) * ks + j];
+        },
+        kspec.data(), n, bins, rp, cp);
 
     // Two unscaled inverse transforms are applied per tile (columns, then rows),
     // each wanting 1/n.
@@ -211,19 +231,18 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
             // Load the n x n input window at (y0, x0). Rows/cols past the padded
             // plane are zero; they only ever feed outputs beyond (h, w), which are
             // discarded below.
-            std::fill(plane.begin(), plane.end(), 0.0);
             const int rows = std::min(n, ph - y0);
             const int cols = std::min(n, pw - x0);
-            parallel_for(0, rows, [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) {
-                    const double* src =
-                        padded + static_cast<size_t>(y0 + i) * pw + x0;
-                    double* dst = plane.data() + static_cast<size_t>(i) * n;
-                    for (int j = 0; j < cols; ++j) dst[j] = src[j];
-                }
-            });
-
-            forward2(plane.data(), tspec.data(), n, bins, rp, cp);
+            forward2_rows(
+                [&](int r, double* dst) {
+                    std::fill(dst, dst + n, 0.0);
+                    if (r < rows) {
+                        const double* src =
+                            padded + static_cast<size_t>(y0 + r) * pw + x0;
+                        for (int j = 0; j < cols; ++j) dst[j] = src[j];
+                    }
+                },
+                tspec.data(), n, bins, rp, cp);
 
             // Pointwise complex multiply by the kernel spectrum.
             parallel_for(0, n, [&](int lo, int hi) {
@@ -239,21 +258,21 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
                 }
             });
 
-            inverse2(tspec.data(), plane.data(), n, bins, rp, cp);
-
             // Exact outputs live at [ks-1 + i][ks-1 + j] for i,j in [0, block).
             const int ny = std::min(block, h - y0);
             const int nx = std::min(block, w - x0);
-            parallel_for(0, ny, [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) {
-                    const double* src = plane.data() +
-                        static_cast<size_t>(ks - 1 + i) * n + (ks - 1);
+            inverse2_rows(
+                tspec.data(),
+                [&](int r, const double* row) {
+                    const int i = r - (ks - 1);
+                    if (i < 0 || i >= ny) return;   // a row nobody reads
+                    const double* src = row + (ks - 1);
                     double* dst = out + (static_cast<size_t>(y0 + i) * w + x0) *
                                             out_stride + out_offset;
                     for (int j = 0; j < nx; ++j)
                         dst[static_cast<size_t>(j) * out_stride] = src[j] * scale;
-                }
-            });
+                },
+                n, bins, rp, cp);
         }
     }
     return true;

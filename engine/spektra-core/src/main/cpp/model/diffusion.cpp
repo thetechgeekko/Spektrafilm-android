@@ -405,10 +405,15 @@ const char* tuning_knob(const char* env_name, const char* prop_name, char* buf,
     return nullptr;
 }
 
-// Scratch for one N x N transform: two r2c spectra plus one real plane.
+// Scratch for one N x N transform: two r2c spectra. The real n x n plane used
+// to be a third buffer of the same order; fft_convolve now produces and
+// consumes it a row at a time from a per-worker temporary, so it is no longer
+// reserved. At n = 4096 that is 402.6 MB -> 268.4 MB, which is the difference
+// between the budget admitting the fast transform and silently dropping to the
+// next size down (#204).
 double fft_scratch_bytes(int n) {
     const double nd = n;
-    return 2.0 * nd * (nd / 2.0 + 1.0) * 2.0 * 8.0 + nd * nd * 8.0;
+    return 2.0 * nd * (nd / 2.0 + 1.0) * 2.0 * 8.0;
 }
 
 int fft_max_transform() {
