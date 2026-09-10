@@ -396,6 +396,8 @@ struct FilmingStageDiagnostics {
     bool attempted = false;
     bool engaged = false;
     const char* reason = "";     // process-lifetime literal
+    // True when the pass ran against the resident frame and moved nothing.
+    bool resident = false;
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;
@@ -413,9 +415,14 @@ struct FilmingStageDiagnostics {
 // and `out_log_raw` (the log10 folded in) must be non-null -- that mirrors
 // expose_impl's `pointwise_fused` split, which exists so a 12 MP render need
 // not materialise a 288 MB f64 plane it will not read.
+//
+// `width`/`height` are what let the pass notice a RESIDENT frame of this
+// geometry (see frame_open above). When one is open every host pointer here is
+// ignored and may be null: the source is the resident plane and the result stays
+// resident.
 bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
-                    uint32_t npix, const double* tc_lut, uint32_t tc_edge,
-                    double exposure_multiplier, double* out_raw,
+                    uint32_t npix, int width, int height, const double* tc_lut,
+                    uint32_t tc_edge, double exposure_multiplier, double* out_raw,
                     float* out_log_raw, FilmingStageDiagnostics* diagnostics);
 
 // DEVELOP: density_curves.py::interpolate_exposure_to_density. `axis` is the
@@ -424,9 +431,9 @@ bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
 // compute, as everywhere else here. The POINTWISE DIR couplers are deliberately
 // not folded in -- on a real render the coupler correction is diffused, which is
 // a spatial pass with its own kernel.
-bool filming_develop(const float* log_raw, uint32_t npix, const float* axis,
-                     const float* curve, uint32_t points, float* out_density,
-                     FilmingStageDiagnostics* diagnostics);
+bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
+                     const float* axis, const float* curve, uint32_t points,
+                     float* out_density, FilmingStageDiagnostics* diagnostics);
 
 // f32 FFT convolution on the GPU (#216; shader gpu/fft_convolve.comp).
 //
@@ -552,6 +559,9 @@ struct HalationScatterDiagnostics {
     bool attempted = false;
     bool engaged = false;
     const char* reason = "none";  // process-lifetime literal
+    // True when the pass read and wrote the resident frame (#220) and moved
+    // nothing across the bus.
+    bool resident = false;
     uint32_t bands = 0;       // staging bands uploaded (transfer granularity only)
     uint32_t dispatches = 0;
     // Host-side wall clock: f64 -> f32 staging + upload copies, the pass's

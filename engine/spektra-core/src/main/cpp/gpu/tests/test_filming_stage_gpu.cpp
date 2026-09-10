@@ -180,8 +180,9 @@ void develop_case() {
                           curve.data(), n, cpu.data());
 
     spk::gpu::FilmingStageDiagnostics d{};
-    const bool ok = spk::gpu::filming_develop(log_raw.data(), npix, axis.data(),
-                                              curve.data(), n, gpu.data(), &d);
+    const bool ok = spk::gpu::filming_develop(log_raw.data(), npix, npix, 1,
+                                              axis.data(), curve.data(), n,
+                                              gpu.data(), &d);
     if (!ok) {
         std::printf("[FAIL] develop refused (%s)\n", d.reason);
         ++g_failures;
@@ -207,7 +208,7 @@ void refusal_cases() {
         std::vector<float> out = pristine;
         spk::gpu::FilmingStageDiagnostics d{};
         // Both outputs null: the pass cannot know where to write.
-        const bool ok = spk::gpu::filming_expose(rgb.data(), nullptr, 1.0, npix,
+        const bool ok = spk::gpu::filming_expose(rgb.data(), nullptr, 1.0, npix, npix, 1,
                                                  tc.data.data(), 8, 1.0,
                                                  nullptr, nullptr, &d);
         std::printf("  refusal 'no destination': ok=%d reason=%s untouched=%d\n",
@@ -220,7 +221,7 @@ void refusal_cases() {
         // Both sources given: ambiguous, and silently preferring one would make
         // an f32 caller's gain vanish.
         std::vector<float> rgb32(rgb.size(), 0.5f);
-        const bool ok = spk::gpu::filming_expose(rgb.data(), rgb32.data(), 1.0, npix,
+        const bool ok = spk::gpu::filming_expose(rgb.data(), rgb32.data(), 1.0, npix, npix, 1,
                                                  tc.data.data(), 8, 1.0,
                                                  nullptr, out.data(), &d);
         std::printf("  refusal 'two sources': ok=%d reason=%s untouched=%d\n",
@@ -230,7 +231,7 @@ void refusal_cases() {
     {
         std::vector<float> out = pristine;
         spk::gpu::FilmingStageDiagnostics d{};
-        const bool ok = spk::gpu::filming_expose(rgb.data(), nullptr, 1.0, npix,
+        const bool ok = spk::gpu::filming_expose(rgb.data(), nullptr, 1.0, npix, npix, 1,
                                                  nullptr, 8, 1.0, nullptr,
                                                  out.data(), &d);
         std::printf("  refusal 'null tc_lut': ok=%d reason=%s untouched=%d\n",
@@ -240,7 +241,7 @@ void refusal_cases() {
     {
         std::vector<float> out = pristine;
         spk::gpu::FilmingStageDiagnostics d{};
-        const bool ok = spk::gpu::filming_develop(nullptr, npix, axis.data(),
+        const bool ok = spk::gpu::filming_develop(nullptr, npix, npix, 1, axis.data(),
                                                   curve.data(), 2, out.data(), &d);
         std::printf("  refusal 'null exposure': ok=%d reason=%s untouched=%d\n",
                     ok ? 1 : 0, d.reason, out == pristine ? 1 : 0);
@@ -250,11 +251,92 @@ void refusal_cases() {
         std::vector<float> out = pristine;
         spk::gpu::FilmingStageDiagnostics d{};
         std::vector<float> lr(static_cast<size_t>(npix) * 3, 0.0f);
-        const bool ok = spk::gpu::filming_develop(lr.data(), npix, axis.data(),
+        const bool ok = spk::gpu::filming_develop(lr.data(), npix, npix, 1, axis.data(),
                                                   curve.data(), 1, out.data(), &d);
         std::printf("  refusal 'one curve point': ok=%d reason=%s untouched=%d\n",
                     ok ? 1 : 0, d.reason, out == pristine ? 1 : 0);
         check(!ok && out == pristine, "develop with a degenerate curve refused");
+    }
+}
+
+// FRAME RESIDENCY (#220). The mechanism, not a stage: open a frame, run the
+// develop pass against it, close, and check the answer is the one the
+// non-resident call gives.
+//
+// The point of the check is that residency must be INVISIBLE to the result. It
+// changes where the bytes live and nothing else -- same kernel, same tables,
+// same f32 arithmetic -- so a difference here is a plumbing bug (a descriptor
+// still pointing at the mapped pair, a ping-pong half not flipped, a missing
+// barrier), not a numerical one. Anything but an exact match is a failure, which
+// is a stronger bar than the tolerance the rest of this file uses, and it can be
+// because nothing about the arithmetic has changed.
+void residency_case() {
+    const int w = 129, h = 7;                  // not a multiple of the workgroup
+    const int npix = w * h;
+    const int n = 21;
+    std::vector<float> axis(static_cast<size_t>(n) * 3);
+    std::vector<float> curve(static_cast<size_t>(n) * 3);
+    for (int k = 0; k < n; ++k) {
+        const double t = static_cast<double>(k) / (n - 1);
+        for (int c = 0; c < 3; ++c) {
+            axis[k * 3 + c] = static_cast<float>(-3.0 + 5.0 * t * t + 0.2 * c);
+            curve[k * 3 + c] = static_cast<float>(0.1 + 2.0 * std::pow(t, 1.0 + 0.3 * c));
+        }
+    }
+    std::vector<double> src(static_cast<size_t>(npix) * 3);
+    for (size_t i = 0; i < src.size(); ++i)
+        src[i] = -4.0 + 8.0 * (static_cast<double>(i) / src.size());
+    std::vector<float> src32(src.size());
+    for (size_t i = 0; i < src.size(); ++i) src32[i] = static_cast<float>(src[i]);
+
+    // Non-resident: the ordinary path, host in and host out.
+    std::vector<float> plain(src.size(), -1.0f);
+    spk::gpu::FilmingStageDiagnostics d0{};
+    if (!spk::gpu::filming_develop(src32.data(), npix, w, h, axis.data(),
+                                   curve.data(), n, plain.data(), &d0)) {
+        std::printf("[FAIL] residency: non-resident develop refused (%s)\n", d0.reason);
+        ++g_failures;
+        return;
+    }
+    check(!d0.resident, "a develop with no frame open is not resident");
+
+    // Resident: one upload, the pass, one readback.
+    spk::gpu::FrameDiagnostics fo{}, fc{};
+    if (!spk::gpu::frame_open(src.data(), w, h, &fo)) {
+        std::printf("[FAIL] residency: frame_open refused (%s)\n", fo.reason);
+        ++g_failures;
+        return;
+    }
+    check(spk::gpu::frame_active(w, h), "frame_active reports the open frame");
+    check(!spk::gpu::frame_active(w + 1, h), "frame_active rejects a different geometry");
+
+    spk::gpu::FilmingStageDiagnostics d1{};
+    const bool ok = spk::gpu::filming_develop(nullptr, npix, w, h, axis.data(),
+                                              curve.data(), n, nullptr, &d1);
+    check(ok && d1.resident, "develop runs resident with null host pointers");
+
+    std::vector<double> back(src.size(), -1.0);
+    const bool closed = spk::gpu::frame_close(back.data(), &fc);
+    check(closed, "frame_close reads the plane back");
+    check(!spk::gpu::frame_active(w, h), "the frame is closed afterwards");
+
+    if (!ok || !closed) return;
+    double worst = 0.0;
+    for (size_t i = 0; i < plain.size(); ++i)
+        worst = std::max(worst, std::fabs(static_cast<double>(plain[i]) - back[i]));
+    std::printf("  residency: worst |resident - non-resident| = %.3e\n", worst);
+    check(worst == 0.0, "residency changes where the bytes live and nothing else");
+
+    // And it must fail closed: a second open without a close is a caller bug,
+    // and silently reusing the plane would render the previous frame's image.
+    spk::gpu::FrameDiagnostics f2{};
+    if (spk::gpu::frame_open(src.data(), w, h, &f2)) {
+        spk::gpu::FrameDiagnostics f3{};
+        const bool again = spk::gpu::frame_open(src.data(), w, h, &f3);
+        std::printf("  residency: second open ok=%d reason=%s\n", again ? 1 : 0, f3.reason);
+        check(!again, "a second frame_open without a close is refused");
+        spk::gpu::frame_discard();
+        check(!spk::gpu::frame_active(w, h), "frame_discard closes without a readback");
     }
 }
 
@@ -270,6 +352,7 @@ int main() {
     expose_case("expose fused, f32 source with gain 2^1.5", false, true, 2.8284271247461903);
 
     develop_case();
+    residency_case();
     refusal_cases();
 
     std::printf("engaged=%d\n", g_engaged ? 1 : 0);

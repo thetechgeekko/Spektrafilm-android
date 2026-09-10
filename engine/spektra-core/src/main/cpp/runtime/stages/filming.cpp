@@ -638,7 +638,7 @@ void expose_impl(const Src& src, int width, int height,
             gpu::FilmingStageDiagnostics gd{};
             const bool ok = gpu::filming_expose(
                 gpu_rgb_f64, gpu_rgb_f32, gpu_gain,
-                static_cast<uint32_t>(npix), tc_lut.data.data(),
+                static_cast<uint32_t>(npix), width, height, tc_lut.data.data(),
                 static_cast<uint32_t>(tc_lut.shape[0]), exp_mult,
                 /*out_raw=*/nullptr, log_raw_out, &gd);
             note_gpu_filming("expose_fused", gd);
@@ -676,7 +676,8 @@ void expose_impl(const Src& src, int width, int height,
         gpu::FilmingStageDiagnostics gd{};
         done = gpu::filming_expose(
             gpu_rgb_f64, gpu_rgb_f32, gpu_gain, static_cast<uint32_t>(npix),
-            tc_lut.data.data(), static_cast<uint32_t>(tc_lut.shape[0]), exp_mult,
+            width, height, tc_lut.data.data(),
+            static_cast<uint32_t>(tc_lut.shape[0]), exp_mult,
             raw, /*out_log_raw=*/nullptr, &gd);
         note_gpu_filming("expose", gd);
     }
@@ -840,7 +841,7 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
                                      : film.log_exposure[k];
           gpu::FilmingStageDiagnostics gd{};
           done = gpu::filming_develop(log_raw, static_cast<uint32_t>(npix),
-                                      xp.data(), ndc.data(),
+                                      width, height, xp.data(), ndc.data(),
                                       static_cast<uint32_t>(n),
                                       density_cmy_out, &gd);
           note_gpu_filming("develop", gd);

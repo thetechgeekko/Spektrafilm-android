@@ -423,6 +423,44 @@ int main() {
     check(spk::gpu::halation_scatter(r, rebuilt.data(), nullptr) && bytes_eq(gpu, rebuilt),
           "after a refusal the kernel reproduces the same bytes");
 
+    // FRAME RESIDENCY (#220). The same pass, reading and writing the resident
+    // plane instead of the caller's f64 buffers.
+    //
+    // The bar is EXACT equality, not a tolerance, and it can be: residency
+    // changes where the bytes live and nothing else -- same shader, same
+    // parameters, same f32 arithmetic, with two device-to-device copies standing
+    // in for the banded host staging. Anything but a byte match is a plumbing
+    // bug (a stale ping-pong half, a missing barrier, a copy of the wrong
+    // buffer), so a tolerance here would only hide one.
+    {
+        spk::gpu::FrameDiagnostics fo{}, fc{};
+        if (!spk::gpu::frame_open(raw.data(), w, h, &fo)) {
+            check(false, std::string("frame_open refused: ") + fo.reason);
+        } else {
+            spk::gpu::HalationScatterDiagnostics dres{};
+            // Null host planes on purpose: a resident pass must not need them,
+            // or every caller would still have to keep them alive.
+            spk::gpu::HalationScatterRequest rr = r;
+            rr.raw_rgb = nullptr;
+            const bool okr = spk::gpu::halation_scatter(rr, nullptr, &dres);
+            check(okr && dres.engaged && dres.resident,
+                  "halation runs resident with null host planes");
+            std::vector<double> back(raw.size(), -1.0);
+            const bool closed = spk::gpu::frame_close(back.data(), &fc);
+            check(closed, "frame_close reads the halation result back");
+            if (okr && closed) {
+                double worst = 0.0;
+                for (size_t i = 0; i < gpu.size(); ++i)
+                    worst = std::max(worst, std::fabs(gpu[i] - back[i]));
+                std::printf("  halation residency: worst |resident - staged| = %.3e\n",
+                            worst);
+                check(worst == 0.0,
+                      "resident halation is byte-identical to the staged path");
+            }
+            spk::gpu::frame_discard();
+        }
+    }
+
     // DIR-coupler diffusion shape: digested defaults (size 20 um, tail 200 um,
     // tail weight 0.06) at the 18 um pitch of a 3 MP export and at the 8.8 um
     // pitch of the 12.5 MP export, where the tail sigma reaches 63 px. The

@@ -99,13 +99,14 @@ bool frame_close(double*, FrameDiagnostics* d) {
 }
 void frame_discard() {}
 bool frame_active(int, int) { return false; }
-bool filming_expose(const double*, const float*, double, uint32_t, const double*,
-                    uint32_t, double, double*, float*, FilmingStageDiagnostics* d) {
+bool filming_expose(const double*, const float*, double, uint32_t, int, int,
+                    const double*, uint32_t, double, double*, float*,
+                    FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
-bool filming_develop(const float*, uint32_t, const float*, const float*, uint32_t,
-                     float*, FilmingStageDiagnostics* d) {
+bool filming_develop(const float*, uint32_t, int, int, const float*, const float*,
+                     uint32_t, float*, FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
@@ -231,6 +232,11 @@ struct Ctx {
         VkFence fence = VK_NULL_HANDLE;
         Buf in, out, dyeB, cmfB;                // in/out grow-only; tables fixed
         bool pipelineReady = false;
+        // Whether the descriptor set currently names the RESIDENT frame
+        // planes rather than the mapped in/out pair (#220). Switching
+        // between them changes which buffers the set points at, so it has
+        // to force a rewrite the same way growing a buffer does.
+        bool boundResident = false;
     };
     Kernel scanFused;  // scan_spectral.comp (density -> encoded sRGB)
     Kernel scanLin;    // scan_spectral_lin.comp (density -> unclipped linear RGB)
@@ -1962,6 +1968,146 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
     return true;
 }
 
+// --- frame residency (#220) -------------------------------------------------
+namespace {
+
+// Allocate (or reuse) the ping-pong pair, the staging buffer and the one-off
+// command objects. Device-local and HOST_VISIBLE-shunning for the planes, for
+// the reason findPreferredMemType documents: on a unified-memory phone every
+// type is DEVICE_LOCAL and the first match is the host-coherent one.
+bool ensure_frame(Ctx& c, int width, int height) {
+    const uint64_t comps = static_cast<uint64_t>(width) * height * 3;
+    const VkDeviceSize bytes = comps * sizeof(float);
+    constexpr VkBufferUsageFlags kUsage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    PointwiseChainDiagnostics unused{};
+    for (ResidentBuf& b : c.frame.plane) {
+        if (!c.ensureResidentBuf(b, bytes, kUsage,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 /*persistentMap=*/false, unused,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+            return false;
+    }
+    if (!c.ensureBuf(c.frame.staging, bytes)) return false;
+    if (c.frame.cpool == VK_NULL_HANDLE) {
+        VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        cpci.queueFamilyIndex = c.queueFamily;
+        if (vkCreateCommandPool(c.device, &cpci, nullptr, &c.frame.cpool) != VK_SUCCESS)
+            return false;
+        VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        cbai.commandPool = c.frame.cpool;
+        cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cbai.commandBufferCount = 1;
+        if (vkAllocateCommandBuffers(c.device, &cbai, &c.frame.cmd) != VK_SUCCESS) return false;
+        VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        if (vkCreateFence(c.device, &fci, nullptr, &c.frame.fence) != VK_SUCCESS) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool frame_open(const double* rgb, int width, int height,
+                FrameDiagnostics* diagnostics) {
+    FrameDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (rgb == nullptr || width <= 0 || height <= 0) return give_up("invalid-request");
+    const uint64_t comps = static_cast<uint64_t>(width) * height * 3;
+    if (comps > UINT32_MAX) return give_up("frame-too-large");
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return give_up("gpu-unavailable");
+    if (c.frame.open) return give_up("already-open");
+    if (comps * sizeof(float) > c.properties.limits.maxStorageBufferRange)
+        return give_up("buffer-too-large");
+
+    const auto t0 = std::chrono::steady_clock::now();
+    if (!ensure_frame(c, width, height)) { c.destroyFrame(); return give_up("allocation-failed"); }
+    c.frame.front = 0;
+    {
+        float* dst = static_cast<float*>(c.frame.staging.mapped);
+        parallel_for(0, static_cast<int>(comps), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i) {
+                const double v = rgb[i];
+                dst[i] = std::isfinite(v) ? static_cast<float>(v) : 0.0f;
+            }
+        });
+    }
+    if (!c.frameCopy(/*toDevice=*/true, comps * sizeof(float))) {
+        c.destroyFrame();
+        return give_up("upload-failed");
+    }
+    c.frame.width = width;
+    c.frame.height = height;
+    c.frame.open = true;
+    d.ms = std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - t0).count();
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
+bool frame_close(double* rgb, FrameDiagnostics* diagnostics) {
+    FrameDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (rgb == nullptr) return give_up("invalid-request");
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok || !c.frame.open) return give_up("not-open");
+    const uint64_t comps =
+        static_cast<uint64_t>(c.frame.width) * c.frame.height * 3;
+    const auto t0 = std::chrono::steady_clock::now();
+    if (!c.frameCopy(/*toDevice=*/false, comps * sizeof(float))) {
+        c.frame.open = false;
+        return give_up("readback-failed");
+    }
+    {
+        const float* src = static_cast<const float*>(c.frame.staging.mapped);
+        parallel_for(0, static_cast<int>(comps), [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i) rgb[i] = static_cast<double>(src[i]);
+        });
+    }
+    c.frame.open = false;
+    d.ms = std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - t0).count();
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
+void frame_discard() {
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return;
+    // The plane stays allocated -- it is grow-only scratch like every other
+    // buffer here -- but it must stop being ADVERTISED, or the next frame reads
+    // a stale image as if it were its own input.
+    c.frame.open = false;
+}
+
+bool frame_active(int width, int height) {
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    return c.ok && c.frame.open && c.frame.width == width && c.frame.height == height;
+}
+
 // --- filming pointwise stages (#218) ----------------------------------------
 namespace {
 
@@ -1990,6 +2136,11 @@ struct FilmingStageRun {
     uint32_t mode = 0;
     uint32_t flags = 0;
     uint32_t npix = 0;
+    // When the frame is resident this pass reads the resident half and writes
+    // the other, and does no transfer at all. `width`/`height` are only needed
+    // to confirm the resident geometry is this frame's.
+    int width = 0;
+    int height = 0;
     const double* src_f64 = nullptr;   // exactly one of these two
     const float* src_f32 = nullptr;
     // Binding 2 is the tc_lut and binding 3 the concatenated axis|curve, and
@@ -2019,13 +2170,23 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     };
 
     if (r.npix == 0) return give_up("empty-frame");
-    if ((r.src_f64 == nullptr) == (r.src_f32 == nullptr)) return give_up("bad-source");
-    if ((r.dst_f64 == nullptr) == (r.dst_f32 == nullptr)) return give_up("bad-destination");
     if (r.tc_count == 0 && r.curve_count == 0) return give_up("null-table");
 
     std::lock_guard<std::mutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
+
+    // RESIDENT when the frame is open and this is its geometry. The host
+    // pointers are then ignored, which is the whole point: no upload, no
+    // readback, no f64 <-> f32 conversion.
+    const bool resident = c.frame.open && r.width > 0 && r.height > 0 &&
+                          c.frame.width == r.width && c.frame.height == r.height &&
+                          static_cast<uint64_t>(r.width) * r.height == r.npix;
+    if (!resident) {
+        if ((r.src_f64 == nullptr) == (r.src_f32 == nullptr)) return give_up("bad-source");
+        if ((r.dst_f64 == nullptr) == (r.dst_f32 == nullptr)) return give_up("bad-destination");
+    }
+    d.resident = resident;
     const VkPhysicalDeviceLimits& limits = c.properties.limits;
     Ctx::Kernel& s = c.filmK;
 
@@ -2053,17 +2214,27 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
             !build_scan_pipeline(c, s, kFilmingStageSpv, sizeof(kFilmingStageSpv),
                                  sizeof(FilmingStagePush)))
             break;
-        const bool hadIn = s.in.cap >= planeBytes && s.in.buf;
-        const bool hadOut = s.out.cap >= planeBytes && s.out.buf;
         const bool hadA = s.dyeB.cap >= tblABytes && s.dyeB.buf;
         const bool hadB = s.cmfB.cap >= tblBBytes && s.cmfB.buf;
-        if (!c.ensureBuf(s.in, planeBytes)) break;
-        if (!c.ensureBuf(s.out, planeBytes)) break;
+        bool hadIn = true, hadOut = true;
+        if (!resident) {
+            hadIn = s.in.cap >= planeBytes && s.in.buf;
+            hadOut = s.out.cap >= planeBytes && s.out.buf;
+            if (!c.ensureBuf(s.in, planeBytes)) break;
+            if (!c.ensureBuf(s.out, planeBytes)) break;
+        }
         if (!c.ensureBuf(s.dyeB, tblABytes)) break;
         if (!c.ensureBuf(s.cmfB, tblBBytes)) break;
-        if (!hadIn || !hadOut || !hadA || !hadB) {
-            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
-            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+        // The descriptor set is rewritten whenever the buffers it names change,
+        // and switching between the resident planes and the mapped pair changes
+        // them, so residency is part of the condition.
+        if (!hadIn || !hadOut || !hadA || !hadB || resident != s.boundResident) {
+            VkBuffer inBuf = resident ? c.frame.plane[c.frame.front].buf : s.in.buf;
+            VkBuffer outBuf = resident ? c.frame.plane[c.frame.front ^ 1u].buf : s.out.buf;
+            VkDeviceSize inCap = resident ? c.frame.plane[c.frame.front].cap : s.in.cap;
+            VkDeviceSize outCap = resident ? c.frame.plane[c.frame.front ^ 1u].cap : s.out.cap;
+            VkBuffer bufs[4] = {inBuf, outBuf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {inCap, outCap, s.dyeB.cap, s.cmfB.cap};
             VkDescriptorBufferInfo dbi[4];
             VkWriteDescriptorSet wds[4];
             for (uint32_t i = 0; i < 4; ++i) {
@@ -2076,10 +2247,11 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
                 wds[i].pBufferInfo = &dbi[i];
             }
             vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+            s.boundResident = resident;
         }
 
         const auto t_up = std::chrono::steady_clock::now();
-        {
+        if (!resident) {
             float* dst = static_cast<float*>(s.in.mapped);
             if (r.src_f64) {
                 const double* src = r.src_f64;
@@ -2090,6 +2262,8 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
             } else {
                 std::memcpy(dst, r.src_f32, static_cast<size_t>(planeBytes));
             }
+        }
+        {
             if (r.tc_count) {
                 float* tc = static_cast<float*>(s.dyeB.mapped);
                 for (size_t i = 0; i < r.tc_count; ++i)
@@ -2142,7 +2316,10 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         if (!dispatch_ok) break;
 
         const auto t_back = std::chrono::steady_clock::now();
-        {
+        if (resident) {
+            // The result is the new front. Nothing crosses the bus.
+            c.frame.front ^= 1u;
+        } else {
             const float* src = static_cast<const float*>(s.out.mapped);
             if (r.dst_f64) {
                 double* dst = r.dst_f64;
@@ -2171,8 +2348,8 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
 }  // namespace
 
 bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
-                    uint32_t npix, const double* tc_lut, uint32_t tc_edge,
-                    double exposure_multiplier, double* out_raw,
+                    uint32_t npix, int width, int height, const double* tc_lut,
+                    uint32_t tc_edge, double exposure_multiplier, double* out_raw,
                     float* out_log_raw, FilmingStageDiagnostics* diagnostics) {
     if (tc_lut == nullptr || tc_edge < 2 || !std::isfinite(gain) ||
         !std::isfinite(exposure_multiplier)) {
@@ -2187,6 +2364,8 @@ bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
     r.mode = kFilmModeExpose;
     r.flags = out_log_raw ? kFilmFlagLog10 : 0u;
     r.npix = npix;
+    r.width = width;
+    r.height = height;
     r.src_f64 = rgb_f64;
     r.src_f32 = rgb_f32;
     r.src_gain = static_cast<float>(gain);
@@ -2200,10 +2379,16 @@ bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
     return run_filming_stage(r, diagnostics);
 }
 
-bool filming_develop(const float* log_raw, uint32_t npix, const float* axis,
-                     const float* curve, uint32_t points, float* out_density,
-                     FilmingStageDiagnostics* diagnostics) {
-    if (log_raw == nullptr || axis == nullptr || curve == nullptr || points < 2) {
+bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
+                     const float* axis, const float* curve, uint32_t points,
+                     float* out_density, FilmingStageDiagnostics* diagnostics) {
+    // The host pointers are only required when there is no resident frame to
+    // read instead. Checking residency HERE rather than inside the run keeps the
+    // refusal reasons honest: a caller that forgot the plane still gets
+    // "invalid-request" instead of a confusing dispatch failure.
+    const bool resident = frame_active(width, height);
+    if (axis == nullptr || curve == nullptr || points < 2 ||
+        (!resident && (log_raw == nullptr || out_density == nullptr))) {
         if (diagnostics) {
             *diagnostics = FilmingStageDiagnostics{};
             diagnostics->attempted = true;
@@ -2215,6 +2400,8 @@ bool filming_develop(const float* log_raw, uint32_t npix, const float* axis,
     r.mode = kFilmModeDevelop;
     r.flags = 0u;              // the caller already holds log-exposure
     r.npix = npix;
+    r.width = width;
+    r.height = height;
     r.src_f32 = log_raw;
     r.curve_axis = axis;
     r.curve_values = curve;
@@ -2857,8 +3044,20 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                              HalationScatterDiagnostics& d) {
     d.attempted = true;
     if (!c.ok) { d.reason = "no-device"; return false; }
-    if (!r.raw_rgb || !out || out == r.raw_rgb || r.width <= 0 || r.height <= 0 ||
-        !(r.pixel_size_um > 0.0)) {
+    if (r.width <= 0 || r.height <= 0 || !(r.pixel_size_um > 0.0)) {
+        d.reason = "bad-request";
+        return false;
+    }
+    // RESIDENT (#220): the source is already on the device and the result may
+    // stay there, so the host planes are not required -- and must not be, or a
+    // resident caller would have to keep a 300 MB f64 buffer alive for a pass
+    // that never touches it. The two banded host loops below collapse to one
+    // device-to-device copy each: ~50 ms of conversion and bus traffic per call
+    // at 12.5 MP, and this pass runs three times per frame (halation, the DIR
+    // diffusion, and every gaussian_blur_rgb caller).
+    const bool resident = c.frame.open && c.frame.width == r.width &&
+                          c.frame.height == r.height;
+    if (!resident && (!r.raw_rgb || !out || out == r.raw_rgb)) {
         d.reason = "bad-request";
         return false;
     }
@@ -3207,8 +3406,22 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     };
 
     // Upload: rows [y0, y1) as packed f32 (the engine's deterministic parallel
-    // chunks, disjoint writes), one copy per band.
-    {
+    // chunks, disjoint writes), one copy per band -- unless the frame is
+    // resident, in which case the plane is already device-side in the right
+    // format and one copy replaces the whole loop.
+    if (resident) {
+        const auto t0 = std::chrono::steady_clock::now();
+        if (!begin()) { d.reason = "dispatch-failed"; return false; }
+        barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        VkBufferCopy whole{0, 0, frameBytes};
+        vkCmdCopyBuffer(k.cmd, c.frame.plane[c.frame.front].buf,
+                        k.work[kHalSrc].buf, 1, &whole);
+        if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+        ++bands;
+        d.upload_ms += std::chrono::duration<double, std::milli>(
+                           std::chrono::steady_clock::now() - t0).count();
+    } else {
         const auto t0 = std::chrono::steady_clock::now();
         for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
             const uint32_t rows = std::min(bandRows, H - y0);
@@ -3251,8 +3464,21 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
     d.gpu_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - gpuStart).count();
 
-    // Readback: rows [y0, y1) into the caller's f64 plane, one copy per band.
-    {
+    // Readback: rows [y0, y1) into the caller's f64 plane, one copy per band --
+    // or, resident, straight into the other half of the ping-pong, and the
+    // caller's f64 plane is never written because nobody is going to read it.
+    if (resident) {
+        const auto t0 = std::chrono::steady_clock::now();
+        if (!begin()) { d.reason = "dispatch-failed"; return false; }
+        barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        VkBufferCopy whole{0, 0, frameBytes};
+        vkCmdCopyBuffer(k.cmd, result, c.frame.plane[c.frame.front ^ 1u].buf, 1, &whole);
+        if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+        c.frame.front ^= 1u;
+        d.readback_ms += std::chrono::duration<double, std::milli>(
+                             std::chrono::steady_clock::now() - t0).count();
+    } else {
         const auto t0 = std::chrono::steady_clock::now();
         for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
             const uint32_t rows = std::min(bandRows, H - y0);
@@ -3277,6 +3503,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     d.reason = "none";
     d.bands = bands;
     d.dispatches = dispatches;
+    d.resident = resident;
     return true;
 }
 
