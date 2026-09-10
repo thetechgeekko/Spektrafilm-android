@@ -791,7 +791,7 @@ jobs:
         # build-tools 36 is the AGP 9 minimum (buildToolsVersion in app/build.gradle.kts) and
         # also provides the zipalign `-P 16` used by the 16 KB gate below,
         # which page-aligns the bundled .so to 16 KB offsets in the APK.
-        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0" "platforms;android-37"
 
       - name: Run JVM unit tests
         run: |
