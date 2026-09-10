@@ -89,6 +89,16 @@ bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
     if (d) { *d = GlareDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool frame_open(const double*, int, int, FrameDiagnostics* d) {
+    if (d) { *d = FrameDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
+bool frame_close(double*, FrameDiagnostics* d) {
+    if (d) { *d = FrameDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
+void frame_discard() {}
+bool frame_active(int, int) { return false; }
 bool filming_expose(const double*, const float*, double, uint32_t, const double*,
                     uint32_t, double, double*, float*, FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
@@ -247,6 +257,22 @@ struct Ctx {
     // real plane (host writes the source, host reads the output) stays mapped.
     Kernel fftK;                          // pipeline objects + the mapped buffers
     std::array<ResidentBuf, 3> fftWork{};  // A, B, twiddles+kernel spectrum
+
+    // The resident frame (#220): a device-local ping-pong pair carrying the
+    // f32 interleaved plane between passes, plus the one host-visible staging
+    // buffer the single upload and single readback go through. `front` names
+    // the half holding the current image; a pass that writes flips it.
+    struct FrameResidency {
+        std::array<ResidentBuf, 2> plane{};
+        Buf staging;
+        VkCommandPool cpool = VK_NULL_HANDLE;
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        int width = 0;
+        int height = 0;
+        uint32_t front = 0;
+        bool open = false;
+    } frame;
     // filming_stage.comp (#218): four bindings again -- source, destination,
     // the tc_lut and the concatenated axis|curve table.
     Kernel filmK;
@@ -562,6 +588,57 @@ struct Ctx {
         s.pipelineReady = false;
     }
 
+    void destroyFrame() {
+        if (!device) return;
+        if (frame.fence) { vkDestroyFence(device, frame.fence, nullptr); frame.fence = VK_NULL_HANDLE; }
+        if (frame.cpool) {
+            vkDestroyCommandPool(device, frame.cpool, nullptr);
+            frame.cpool = VK_NULL_HANDLE;
+            frame.cmd = VK_NULL_HANDLE;
+        }
+        for (ResidentBuf& b : frame.plane) destroyResidentBuf(b);
+        destroyBuf(frame.staging);
+        frame.width = frame.height = 0;
+        frame.front = 0;
+        frame.open = false;
+    }
+
+    // One staging <-> plane copy, submitted and waited on. Both directions go
+    // through the same path because both are a single vkCmdCopyBuffer with the
+    // barrier that makes the write visible to whoever reads next.
+    bool frameCopy(bool toDevice, VkDeviceSize bytes) {
+        if (vkResetCommandBuffer(frame.cmd, 0) != VK_SUCCESS) return false;
+        VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(frame.cmd, &bi) != VK_SUCCESS) return false;
+        VkMemoryBarrier pre{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        pre.srcAccessMask = toDevice ? VK_ACCESS_HOST_WRITE_BIT : VK_ACCESS_SHADER_WRITE_BIT;
+        pre.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(frame.cmd,
+                             toDevice ? VK_PIPELINE_STAGE_HOST_BIT
+                                      : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &pre, 0, nullptr, 0, nullptr);
+        VkBufferCopy region{0, 0, bytes};
+        if (toDevice)
+            vkCmdCopyBuffer(frame.cmd, frame.staging.buf, frame.plane[frame.front].buf, 1, &region);
+        else
+            vkCmdCopyBuffer(frame.cmd, frame.plane[frame.front].buf, frame.staging.buf, 1, &region);
+        VkMemoryBarrier post{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        post.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        post.dstAccessMask = toDevice ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_HOST_READ_BIT;
+        vkCmdPipelineBarrier(frame.cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             toDevice ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+                                      : VK_PIPELINE_STAGE_HOST_BIT,
+                             0, 1, &post, 0, nullptr, 0, nullptr);
+        if (vkEndCommandBuffer(frame.cmd) != VK_SUCCESS) return false;
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &frame.cmd;
+        if (vkQueueSubmit(queue, 1, &si, frame.fence) != VK_SUCCESS) return false;
+        if (vkWaitForFences(device, 1, &frame.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) return false;
+        return vkResetFences(device, 1, &frame.fence) == VK_SUCCESS;
+    }
+
     void destroyScan() {
         if (!device) return;
         vkDeviceWaitIdle(device);
@@ -571,6 +648,7 @@ struct Ctx {
         destroyKernel(glareK);
         destroyKernel(fftK);
         for (ResidentBuf& b : fftWork) destroyResidentBuf(b);
+        destroyFrame();
         destroyKernel(filmK);
     }
     void destroyHalation() {

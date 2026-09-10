@@ -333,6 +333,52 @@ struct GrainSampleDiagnostics {
 bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
                   GrainSampleDiagnostics* diagnostics);
 
+// FRAME RESIDENCY (#220).
+//
+// Every pass in this header is otherwise self-contained: convert f64 -> f32,
+// upload, dispatch, read back, convert back. A 12.5 MP export does that eight
+// times, and the movement is measurable -- filming_expose alone spends 12 ms up
+// and 25 ms down around an 8-32 ms kernel.
+//
+// The cost is not why residency matters, though. ~300 ms of an ~8600 ms export
+// is movement, against 4742 ms in the diffusion transform. What residency
+// changes is WHICH STAGES CAN GO ON THE GPU AT ALL: filming_develop measures
+// 29.5 ms on the CPU and ~45 ms on the GPU, with a 16-35 ms kernel, purely
+// because of its round trip. A cheap pointwise stage moved to the GPU on its own
+// gets SLOWER. It only becomes free once the frame is already there.
+//
+// While a frame is open, a participating pass reads the resident plane and
+// writes the other half of a device-local ping-pong, and does no transfer at
+// all. Passes that do not participate are unaffected: they see a closed frame
+// and behave exactly as before.
+struct FrameDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "";   // process-lifetime literal
+    double ms = 0.0;
+};
+
+// Uploads width*height*3 f64 components once and leaves them device-resident.
+// Fails closed: on any refusal no frame is open and every pass behaves as it
+// does today, so a caller may always proceed without checking.
+bool frame_open(const double* rgb, int width, int height,
+                FrameDiagnostics* diagnostics);
+
+// Reads the resident plane back into `rgb` and closes the frame. Returns false
+// if no frame was open or the readback failed -- in which case the caller's
+// buffer is untouched and the CPU result it already holds is still valid.
+bool frame_close(double* rgb, FrameDiagnostics* diagnostics);
+
+// Closes the frame WITHOUT reading back. For the abort path: a caller that has
+// fallen back to the CPU mid-pipeline must not leave a stale plane resident for
+// the next frame to pick up.
+void frame_discard();
+
+// True when a frame of exactly this geometry is resident. Passes use it to
+// decide whether to transfer; callers use it to decide whether the GPU route is
+// still live after a pass refused.
+bool frame_active(int width, int height);
+
 // Filming pointwise stages on the GPU (#218; shader gpu/filming_stage.comp).
 //
 // These are the two halves of the filming stage that render_pointwise_chain
