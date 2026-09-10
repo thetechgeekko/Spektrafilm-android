@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### A ziggurat normal for the Fast grain sampler (#148, #180)
+
+- The sampler's common path draws two normals per pixel per sublayer (Poisson at lambda
+  ~500 and Binomial both take their normal-approximation branch). That normal was a
+  Marsaglia polar -- a rejection loop over two uniforms plus a log, a sqrt and a divide per
+  PAIR -- and is now a Marsaglia-Tsang ziggurat, which returns on a table lookup and one
+  multiply for 98.8 % of draws. Fast generator only; Strict Exact is untouched.
+- In isolation at the shipping flags: 4.50 ns -> 2.00 ns per draw, 2.25x. In the sampler at
+  one thread: 82.8 -> 56.4 ms, so the Fast-vs-Exact ratio goes 1.51x -> 2.11x.
+- On device (SM-S948W, HEAVY 12.5 MP, Fast GPU both arms, thermally gated, 4 paired
+  captures, first run of each arm dropped per the Tier A protocol): the **sampler phase
+  1072 +/- 34 ms -> 884 +/- 21 ms, -17.5 %**, arms non-overlapping; export simulate
+  5774 +/- 105 -> 5664 +/- 137 ms, **-1.9 %**, faster in 10/12 pairs. Including every run
+  the sampler reads -10.0 % at +/-140, the outlier being the first export on a freshly
+  installed APK.
+- New gate `test_normal_generator`, because every other stochastic gate checks a
+  distribution built ON TOP of the normal and nothing was gating the generator itself. The
+  failure mode is silent: a ziggurat normalised against the wrong power of two produces a
+  clean symmetric bell curve with sd 0.50 instead of 1.0 while the mean, the skew and every
+  downstream check still pass. It gates moments, kurtosis, a bin-by-bin comparison against
+  the normal CDF over +/-4 sigma, tail reachability and same-seed reproducibility, and is
+  mutation-tested against exactly that bug.
+- The ziggurat tracks the normal CDF better than the shipped mt19937 path: worst bin
+  deviation 0.00019 against 0.00041, kurtosis 2.9976 against 3.0025.
+- Parity is 44 cases at both flag legs.
+
 ### The grain stage was never sampler-bound (#148, #180)
 
 - The grain stage now reports where its time goes — sampler, particle blur, prep,

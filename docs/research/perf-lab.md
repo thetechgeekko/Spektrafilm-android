@@ -3138,4 +3138,65 @@ ship for the Fast GPU route. But it is worth 2.8 %, not the 1300-1900 ms the
 issue was scoped around. The pathological cost the issue names was in a
 different file, was not stochastic, and needed no numeric contract at all.
 
+## 29. The normal draw: 2.25x in isolation, 17.5% on the stage, 1.9% on the export
+
+With the sublayer interpolation fixed (section 28), the grain sampler became the largest
+single item in a 12.5 MP Fast GPU export: 1055 ms of ~5800. Its common path is two normal
+draws per pixel per sublayer -- Poisson at lambda ~500 and Binomial both take their
+normal-approximation branch -- and the normal was a Marsaglia polar: a rejection loop over
+two uniforms plus a log, a sqrt and a divide per PAIR.
+
+Replaced with a Marsaglia-Tsang ziggurat (Fast generator only; Strict Exact is untouched).
+
+### The three numbers, and why they differ
+
+| measurement | result |
+|---|---|
+| the normal draw, in isolation | 4.50 ns -> 2.00 ns, **2.25x** |
+| the sampler, host, one thread | 82.8 -> 56.4 ms, **1.47x** |
+| the sampler phase, on device | 1072 +/- 34 -> 884 +/- 21 ms, **-17.5 %** |
+| the whole export, on device | 5774 +/- 105 -> 5664 +/- 137 ms, **-1.9 %** |
+
+Each step down is the same arithmetic: the normal is about a third of the sampler, the
+sampler is about a fifth of the export. A 2.25x on a component that is 32 % of a stage is
+an 18 % stage win, and the device measured 17.5 % -- the prediction held, which is worth
+recording because the last four times this notebook predicted a device number it was
+wrong.
+
+**-1.9 % on the export is the honest headline.** The sampler saves ~188 ms of ~5800 ms.
+Do not quote the 2.25x as an export figure.
+
+### The first-run exclusion, which is the difference between -10 % and -17.5 %
+
+Including every capture the sampler reads -10.0 %, with the after arm at +/-140 against the
+before arm's +/-44. One value causes all of it: R2's second render at 1274 ms, the first
+export on a freshly installed APK. Every later after-run sits in 850-906.
+
+The Tier A protocol already says to discard the first run; the A/B script did not. Both
+figures belong in the record, and a paired A/B script should install, run once, discard,
+and only then start pairing.
+
+### The gate that did not exist, and the bug that proves it was needed
+
+Every stochastic gate in the suite checks a distribution built ON TOP of the normal --
+particle counts, a lognormal field. Nothing gated the generator.
+
+The first ziggurat here normalised its tables against 2^53 while the signed magnitude spans
+2^52. It produced a clean, symmetric, entirely plausible bell curve with **sd 0.50 instead
+of 1.0**, and the mean, the skew, and every downstream mean-preservation check passed. It
+was caught only because the throwaway bench happened to print the standard deviation.
+
+`tests/test_normal_generator.cpp` now gates moments, skew, kurtosis, a bin-by-bin
+comparison against the exact normal CDF over +/-4 sigma, tail reachability, and same-seed
+reproducibility -- the ziggurat consumes a VARIABLE number of raw words per draw, so
+determinism is not automatic. Mutation-tested against the 2^53 bug: three assertions fail
+while mean and skew still look perfect.
+
+The lesson generalises past this change: **a statistical gate on a derived quantity does not
+gate the primitive underneath it.** Mean-preservation checks are particularly weak here,
+because a wrongly-scaled generator is still perfectly mean-preserving.
+
+Incidentally the ziggurat tracks the normal CDF better than the shipped mt19937 path: worst
+bin deviation 0.00019 against 0.00041, and kurtosis 2.9976 against 3.0025.
+
 *Film modeling powered by spektrafilm (GPLv3).*
