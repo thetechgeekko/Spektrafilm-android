@@ -1054,6 +1054,26 @@ struct PreprocessedInput {
     double gain = 1.0;
 };
 
+// ONE predicate for both halves of one invariant, because they are not
+// independent: the direct form leaves `pin.rgb` EMPTY, and every buffer memo
+// keys off those bytes. The existing comments spell the coupling out -- "the
+// direct form requires disable_buffer_memos != 0" and "use_scan_film_cache
+// requires disable_buffer_memos == 0" -- and if the two ever disagreed the memo
+// would hash an empty buffer, collide with every other empty-buffer render, and
+// serve a WRONG CACHED IMAGE. Silent, and worse than a crash.
+//
+// A GPU export is a one-shot render by definition: `gpu_export` is set by
+// spk_simulate for an export, and the memo it would build is never read back.
+// Folding it in here removes the whole-frame float32 -> float64 widening that
+// preprocess otherwise performs purely to have bytes to hash -- 61 ms and a
+// 288 MB allocation at 12.5 MP, for a cache used once. The direct form is
+// documented as value-identical (float->double widening is exact and the gain
+// multiply is the same double op in the same order) and is gated by
+// test_simulate_e2e scenario G's flag-on vs flag-off byte identity.
+inline bool one_shot_render(const spk_params* p) noexcept {
+    return p->disable_buffer_memos != 0 || p->gpu_export != 0;
+}
+
 void preprocess_geometry(const spk_image* in, const spk_params* p,
                          PreprocessedInput* out, int* width, int* height,
                          double* pixel_size_um) {
@@ -1074,7 +1094,7 @@ void preprocess_geometry(const spk_image* in, const spk_params* p,
     const bool geometry_noop =
         (p->crop == 0) &&
         (p->upscale_factor == 1.0f || p->upscale_factor == 0.0f);
-    if (geometry_noop && p->disable_buffer_memos != 0) {
+    if (geometry_noop && one_shot_render(p)) {
         // Direct form: meter straight off the float32 frame (byte-identical EV —
         // see measure_auto_exposure_ev_f32) and let filming fold the gain into
         // each pixel load. No float64 image is ever built.
@@ -2171,7 +2191,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // Also skipped for one-shot renders (disable_buffer_memos, EXPORT_FASTPATH
     // item 2): no key hash, no lookup, no store — the warm slot stays intact.
     const bool use_scan_film_cache =
-        !scan_tap_bypass && !grain && p->disable_buffer_memos == 0;
+        !scan_tap_bypass && !grain && !one_shot_render(p);
 
     bool scan_film_cache_hit = false;
     // Computed ONCE per render (EXPORT_FASTPATH item 2): the key hashes the
@@ -2994,7 +3014,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     const size_t out_elems = static_cast<size_t>(npix) * 3;
     const bool tap_bypass = (tap_log_raw != nullptr) || (tap_film_density_cmy != nullptr);
     const bool use_film_cache =
-        !tap_bypass && !print_stochastic && p->disable_buffer_memos == 0;
+        !tap_bypass && !print_stochastic && !one_shot_render(p);
 
     bool film_cache_hit = false;
     // Computed ONCE per render (EXPORT_FASTPATH item 2): the key hashes the
@@ -3068,7 +3088,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // Bypassed for tap renders AND for one-shot renders (disable_buffer_memos,
     // EXPORT_FASTPATH item 2 — the key hashes the whole float32 film buffer).
     const bool pd_bypass = tap_bypass || (tap_print_density_cmy != nullptr) ||
-                           p->disable_buffer_memos != 0;
+                           one_shot_render(p);
     bool pd_hit = false;
     // Computed ONCE per render (item 2): was recomputed on the store leg of
     // every miss, hashing the full film_density_cmy buffer twice.
