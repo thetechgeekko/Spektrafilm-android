@@ -230,11 +230,22 @@ data class SettingsParams(
      */
     val gpuPreview: Boolean = false,
     /**
-     * EXPERIMENTAL GPU export (#154, #149 option B). When true, `simulate`
-     * (export) also routes the scan stage through the GPU under the same
-     * on-device self-check + CPU fallback ("oracle-verified on your device").
-     * Full-res exports are dispatched in slices. Independent of [gpuPreview];
-     * default false, so a plain export is byte-identical to the CPU engine.
+     * EXPERIMENTAL Fast GPU export (#154, #149 option B). When true, `simulate`
+     * (export) routes the scan stage, halation and coupler diffusion through
+     * the GPU under an on-device self-check with per-frame CPU fallback
+     * ("oracle-verified on your device"). Full-res exports are dispatched in
+     * slices. Independent of [gpuPreview].
+     *
+     * This flag is NOT only a GPU switch. Under owner decision #180 it also
+     * selects a cheaper grain and viewing-glare sampler, which draws a
+     * DIFFERENT noise realisation from the Strict Exact route — same
+     * distribution, gated statistically by test_grain, test_grain_sublayer and
+     * test_glare_sampler, but not the same samples. That happens with or
+     * without a usable GPU, because the cheaper sampler is a CPU-side win too,
+     * so this is not something the GPU fallback undoes. Repeat exports on one
+     * device stay byte-identical.
+     *
+     * Default false, so a plain export is byte-identical to the CPU engine.
      */
     val gpuExport: Boolean = false,
 )

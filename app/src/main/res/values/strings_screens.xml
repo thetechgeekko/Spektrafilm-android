@@ -177,7 +177,7 @@
     <string name="screen_settings_gpu_engine">GPU engine (Vulkan, experimental)</string>
     <string name="screen_settings_gpu_engine_note">Run the film simulation\'s scan stage on the GPU for interactive previews — more accurate than the preview LUT and verified against the CPU engine on this device at first use, with automatic CPU fallback. Export always uses the exact CPU engine. Applies on the next return to the editor.</string>
     <string name="screen_settings_gpu_export">GPU export (Vulkan, experimental)</string>
-    <string name="screen_settings_gpu_export_note">Also run the scan stage on the GPU for full-resolution exports — \"oracle-verified on your device\": the result is checked against the CPU engine on this device and falls back to CPU automatically if it ever drifts. Off by default. Independent of the preview toggle.</string>
+    <string name="screen_settings_gpu_export_note">Run more of the export on the GPU at full resolution. The colour stages are checked against the CPU engine on this device and fall back to CPU automatically if they ever drift. Grain and viewing glare are different: they are re-drawn with a faster random generator, so the noise pattern will not match the default engine — same amount and character of grain, different speckle. Repeat exports on this device stay identical. For an export that matches the default engine exactly, leave this off. Off by default. Independent of the preview toggle.</string>
     <string name="screen_settings_updates_heading">Updates &amp; diagnostics</string>
     <string name="screen_settings_checking">Checking…</string>
     <string name="screen_settings_update_check_failed">Couldn\'t check (no connection?).</string>

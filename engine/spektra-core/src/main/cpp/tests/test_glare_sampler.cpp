@@ -44,6 +44,25 @@ void moments(const std::vector<float>& v, double* mean, double* stddev) {
     *stddev = std::sqrt(ss / static_cast<double>(v.size()));
 }
 
+// Normalised autocorrelation of the field at a given sample lag. A lag of 1 is
+// the horizontal neighbour; a lag of w is the vertical one. For an independent
+// draw per pixel this is zero up to sampling error, and the standard error of
+// r on n samples is about 1/sqrt(n).
+double autocorr(const std::vector<float>& v, size_t lag) {
+    if (v.size() <= lag) return 0.0;
+    double m = 0.0;
+    for (float x : v) m += static_cast<double>(x);
+    m /= static_cast<double>(v.size());
+    double num = 0.0, den = 0.0;
+    for (size_t i = 0; i < v.size(); ++i) {
+        const double d = static_cast<double>(v[i]) - m;
+        den += d * d;
+        if (i + lag < v.size())
+            num += d * (static_cast<double>(v[i + lag]) - m);
+    }
+    return den > 0.0 ? num / den : 0.0;
+}
+
 // One field, one generator. Returns the measured mean and relative std of the
 // field in its pre-scaling units (the function scales by 1/100 at the end).
 void field_stats(float amount, float roughness, float blur, int w, int h,
@@ -125,6 +144,49 @@ int main() {
                     r0, r1, m0, m1);
         check(std::fabs(m1 / m0 - 1.0) < 0.02, "blurring preserves the field mean");
         check(r1 < r0 * 0.75, "blurring reduces the field's spatial variation");
+    }
+
+    // Autocorrelation (#180 acceptance). Matching the mean and the variance is
+    // not enough to accept a cheaper generator: a weak PRNG can hit both and
+    // still leave neighbouring pixels correlated, which on an image reads as
+    // visible structure in what should be grain. Both generators are checked
+    // at the horizontal neighbour (lags 1..4) and at the vertical one (lag w),
+    // on the unblurred field where the draws are independent by construction
+    // and the true value is therefore zero.
+    //
+    // 76 800 samples put the standard error of r near 1/sqrt(n) = 0.0036, so
+    // 0.02 is roughly 5.5 sigma -- loose enough not to flake, tight enough that
+    // any real neighbour coupling fails it.
+    {
+        const size_t n = static_cast<size_t>(w) * h;
+        const double bound = 0.02;
+        for (int fast = 0; fast < 2; ++fast) {
+            const auto gen = fast ? spk::StatsRng::Generator::Fast
+                                  : spk::StatsRng::Generator::Exact;
+            const char* name = fast ? "fast" : "exact";
+            std::vector<float> field;
+            double mean = 0.0, rel = 0.0;
+            field_stats(4.0f, 0.4f, 0.0f, w, h, seed, gen, &mean, &rel, &field);
+            double worst = 0.0;
+            for (size_t lag : {size_t(1), size_t(2), size_t(3), size_t(4),
+                               static_cast<size_t>(w)}) {
+                const double r = autocorr(field, lag);
+                std::printf("%-5s autocorr lag %-4zu = %+.5f\n", name, lag, r);
+                worst = std::fmax(worst, std::fabs(r));
+            }
+            check(worst < bound,
+                  std::string(name) + " field is uncorrelated at neighbouring lags");
+            (void)n;
+        }
+        // A blurred field MUST correlate -- if it does not, the measurement
+        // above is not sensitive enough to have proved anything.
+        std::vector<float> soft;
+        double m1 = 0.0, r1 = 0.0;
+        field_stats(4.0f, 0.4f, 2.0f, w, h, seed, spk::StatsRng::Generator::Fast,
+                    &m1, &r1, &soft);
+        const double r_soft = autocorr(soft, 1);
+        std::printf("blurred field autocorr lag 1 = %+.5f (positive control)\n", r_soft);
+        check(r_soft > 0.5, "the autocorrelation measure detects a blurred field");
     }
 
     std::printf(failures == 0 ? "test_glare_sampler: ALL OK\n"

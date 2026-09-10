@@ -3062,6 +3062,74 @@ not touch, and let it be your thermometer.** The sampler was that control here,
 and it is what proved the -12.7 % run untrustworthy without needing to re-run
 anything.
 
+### Scene dependence: the decomposition barely moves, the ratio does not move at all
+
+#180 asks for the grain time decomposed across scenes, so the same two builds
+were run on the corpus's other grain cells, thermally gated:
+
+| cell | route + effects | layers before | layers after | speedup | layers share of grain |
+|---|---|---|---|---|---|
+| HEAVY | print + grain + halation + DIR | 2101 ms | 481 ms | 4.4x | 55 % |
+| PRINT_GRAIN | print + grain | 1934 | 437 | 4.4x | 55 % |
+| SCAN_GRAIN | scan + grain | 1894 | 424 | 4.5x | 54 % |
+
+`SCAN_CLEAN` and `BASE` (grain off) emit no grain phase lines at all, which is
+the control that says the instrumentation costs nothing when the stage does not
+run.
+
+So across route and effect combination the answer is that grain time does NOT
+meaningfully depend on the scene: `layers` is 54-55 % of the stage every time,
+and the fix is 4.4-4.5x every time. That is a real answer, but note what these
+cells actually vary -- they are one image at different routes and effect sets.
+They do not vary image CONTENT, so on their own they cannot speak to the
+density dependence #180's scope actually asks about.
+
+### The adversarial density scene is the CLEAR end, and it is a `pow` call
+
+`tests/bench_grain_density.cpp` sweeps the sampler over uniform density planes.
+It is a benchmark, deliberately not in the parity table.
+
+| density | p | exact ms | fast ms | speedup |
+|---|---|---|---|---|
+| 0.010 | 0.005 | 201.0 | 176.6 | 1.14x |
+| 0.035 | 0.016 | 246.9 | 222.8 | 1.11x |
+| 0.042 | 0.019 | **251.3** | 221.7 | 1.13x |
+| 0.048 | 0.022 | **124.0** | 85.6 | 1.45x |
+| 0.110 | 0.050 | 124.7 | 82.2 | 1.52x |
+| 1.100 | 0.500 | 124.9 | 82.8 | 1.51x |
+| 2.190 | 0.995 | 114.1 | 76.5 | 1.49x |
+
+A **step**, not a slope, and it lands exactly where `fast_binomial_one` changes
+branch: `var = n*p*(1-p) > 10` takes the normal approximation (one normal
+draw), and below it the CDF inversion runs -- a branch that evaluates
+`std::pow(1-p, n)` **once per pixel**. With n ~ 500 that crossover is p =
+0.0204, which is where the step is. The sweep was run in both directions and
+the step follows the density, not the loop position, so it is not a warm-up
+artefact.
+
+Three things fall out of it:
+
+**The pathological regime is near-clear film, not dense film.** Twice the cost
+per pixel below the step. The dense end escapes for a non-obvious reason:
+as p rises, `saturation = 1 - p*uniformity` shrinks, the Poisson mean
+`n_particles/saturation` grows, and `var` climbs back over 10 from the other
+side. Both ends of p have a small `p*(1-p)`; only the low end also has a small
+n.
+
+**The #180 sampler is worth least exactly where the sampler costs most.** Below
+the step the cheaper generator buys 1.11-1.14x against 1.45-1.54x above it,
+because the `pow` is generator-independent and dominates what is left. The
+optimisation and the pathology do not overlap.
+
+**The threshold is in p, so the density it corresponds to moves with pixel
+size** -- n scales with pixel area. Do not quote 0.045 as a constant; re-run the
+sweep.
+
+None of this is a defect: the branch is a faithful port of the Numba code and
+the short-circuit in §25 already removed the genuinely degenerate walk. It is
+the map of where the remaining cost lives, which is what #180 asked for and did
+not have.
+
 ### What this does to #180
 
 The decision #180 exists to make -- may a faster grain sampler change the noise
