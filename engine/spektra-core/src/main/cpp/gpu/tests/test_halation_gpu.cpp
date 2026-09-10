@@ -35,6 +35,7 @@
 
 #include "gpu/vulkan_compute.h"
 #include "kernels/exponential_filter.h"
+#include "kernels/gaussian.h"
 #include "model/diffusion.h"
 
 namespace {
@@ -437,6 +438,74 @@ int main() {
         dir_shaped(plane, w, h, 8.8, 20.0, 200.0, 1.00, "12.5 MP pitch, tail weight 1");
         dir_shaped(plane, w, h, 8.8, 20.0, 500.0, 0.06, "12.5 MP pitch, 500 um tail");
         dir_shaped(plane, w, h, 8.8, 20.0, 500.0, 1.00, "12.5 MP pitch, 500 um tail, weight 1");
+    }
+
+
+    // --- gpu::gaussian_blur_rgb vs the CPU blur it replaces --------------------
+    // Three CPU stages call gaussian_blur_per_channel_d(rgb, w, h, 3, sigma): the
+    // camera lens blur, the scanner lens blur, and the unsharp mask's blur term.
+    // gpu::gaussian_blur_rgb expresses all three on this same kernel, so what has
+    // to be gated is that it really is the same filter -- across the FIR/IIR class
+    // boundary at sigma 3, and on the unequal-sigma path, which takes a different
+    // route through the mixture (three components instead of one).
+    {
+        struct Case { double s0, s1, s2; const char* what; };
+        const Case cases[] = {
+            {0.7, 0.7, 0.7, "unsharp default sigma 0.7 (FIR, uniform)"},
+            {2.9, 2.9, 2.9, "sigma 2.9, just under the FIR/IIR boundary"},
+            {3.1, 3.1, 3.1, "sigma 3.1, just over it (IIR)"},
+            {18.0, 18.0, 18.0, "sigma 18 (IIR, a wide scanner blur)"},
+            {1.5, 3.5, 7.0, "unequal sigmas: one component per channel"},
+        };
+        for (const Case& c : cases) {
+            std::vector<double> cpu = raw, gpu = raw;
+            const double sg[3] = {c.s0, c.s1, c.s2};
+            spk::gaussian_blur_per_channel_d(cpu.data(), w, h, 3, sg);
+            const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, sg);
+            if (!ok) {
+                check(false, std::string("blur engaged: ") + c.what);
+                continue;
+            }
+            double max_abs = 0.0, rms = 0.0;
+            abs_metrics(cpu, gpu, &max_abs, &rms);
+            std::printf("blur %s: engaged=1 vs CPU max_abs=%.3e rms=%.3e\n",
+                        c.what, max_abs, rms);
+            // Same band the DIR-shaped diffusion cases above are held to. This is
+            // Fast GPU, so the band is the claim -- not byte equality.
+            check(max_abs <= 1e-4 && rms <= 1e-5,
+                  std::string("blur within the parity band vs the CPU filter: ") + c.what);
+        }
+
+        // A blur is a MIX-FREE resolve (amount 1), so a mean-preserving check is
+        // not enough on its own -- a pass that returned the input unblurred would
+        // also preserve the mean. Assert the image actually changed.
+        {
+            std::vector<double> gpu = raw;
+            const double sg[3] = {4.0, 4.0, 4.0};
+            const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, sg);
+            check(ok && !bytes_eq(gpu, raw), "the blur actually altered the image");
+        }
+
+        // The sigma cap must be enforced on MIXTURE sigmas. It was not: sigmaMax
+        // was built only from scatter_core/scatter_tail, which mixture mode does
+        // not use, so kHalMaxSigma was checking values the request never touched
+        // and an arbitrarily wide blur passed validation. Refusal here is the
+        // fail-closed contract, and the caller runs the CPU blur.
+        {
+            std::vector<double> gpu = raw;
+            const double sg[3] = {5000.0, 5000.0, 5000.0};   // far past kHalMaxSigma 256
+            const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, sg);
+            check(!ok && bytes_eq(gpu, raw),
+                  "a sigma past the cap is refused and leaves the buffer untouched");
+        }
+
+        // Degenerate requests must refuse rather than dispatch.
+        {
+            std::vector<double> gpu = raw;
+            const double zero[3] = {0.0, 0.0, 0.0};
+            const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, zero);
+            check(!ok && bytes_eq(gpu, raw), "sigma 0 is refused (the CPU blur is a no-op there)");
+        }
     }
 
     std::printf(failures == 0 ? "test_halation_gpu: ALL OK\n" : "test_halation_gpu: FAILURES\n");

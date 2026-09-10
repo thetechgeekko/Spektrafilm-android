@@ -84,6 +84,7 @@ bool available() { return false; }
 bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
+bool gaussian_blur_rgb(double*, int, int, const double*) { return false; }
 bool grain_sample(const GrainSampleRequest&, float*, GrainSampleDiagnostics* d) {
     if (d) { *d = GrainSampleDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
@@ -2109,16 +2110,26 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
             sigmaMax = std::max(sigmaMax, sigmaH[ch] * std::sqrt(static_cast<double>(bounces)));
         }
     }
-    if (!(sigmaMax <= kHalMaxSigma)) { d.reason = "sigma-too-large"; return false; }
     if (bounceActive && static_cast<uint32_t>(bounces) > kHalMaxBounces) { d.reason = "too-many-bounces"; return false; }
     if (r.mixture_count > 0) {
         if (!r.mixture_sigma_px || !r.mixture_weight) { d.reason = "invalid-request"; return false; }
         if (static_cast<uint32_t>(r.mixture_count) > kHalMaxMixture) { d.reason = "too-many-components"; return false; }
         for (int i = 0; i < r.mixture_count * 3; ++i)
             if (!std::isfinite(r.mixture_weight[i])) { d.reason = "invalid-request"; return false; }
-        for (int i = 0; i < r.mixture_count; ++i)
+        // MIXTURE SIGMAS MUST FEED sigmaMax. They did not, and that was a hole:
+        // in mixture mode blur_sigma() returns mixture_sigma_px[component]
+        // directly, so sigmaCore/lambdaTail -- the only inputs sigmaMax was built
+        // from -- are unused, and the kHalMaxSigma check below was testing values
+        // this request never uses. An arbitrarily large mixture sigma therefore
+        // passed validation. The pass is meant to be fail-closed, so it is
+        // checked on the value that actually reaches the kernel.
+        for (int i = 0; i < r.mixture_count; ++i) {
             if (!std::isfinite(r.mixture_sigma_px[i])) { d.reason = "invalid-request"; return false; }
+            if (r.mixture_sigma_px[i] < 0.0) { d.reason = "invalid-request"; return false; }
+            sigmaMax = std::max(sigmaMax, r.mixture_sigma_px[i]);
+        }
     }
+    if (!(sigmaMax <= kHalMaxSigma)) { d.reason = "sigma-too-large"; return false; }
 
     // Whole-frame residency: four packed f32 planes, each one storage range,
     // against the fixed budget and the device's largest device-local heap.
@@ -2465,6 +2476,64 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
         }
     }
     return ok;
+}
+
+// Per-channel Gaussian blur, expressed on the halation kernel's mixture mode.
+// See the header for why this needs no shader of its own.
+bool gaussian_blur_rgb(double* rgb, int width, int height,
+                       const double sigma_px[3]) {
+    if (!rgb || !sigma_px || width <= 0 || height <= 0) return false;
+    for (int c = 0; c < 3; ++c)
+        if (!std::isfinite(sigma_px[c]) || sigma_px[c] <= 0.0) return false;
+
+    // One component per DISTINCT sigma. The mixture carries one sigma per
+    // component and a weight per component per channel, so equal sigmas collapse
+    // to a single blur while unequal ones become three disjoint ones -- channel c
+    // takes component c with weight 1 and the others with weight 0.
+    const bool uniform = (sigma_px[0] == sigma_px[1]) && (sigma_px[1] == sigma_px[2]);
+    const int ncomp = uniform ? 1 : 3;
+    double sigma[3];
+    double weight[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    if (uniform) {
+        sigma[0] = sigma_px[0];
+        weight[0] = weight[1] = weight[2] = 1.0;
+    } else {
+        for (int c = 0; c < 3; ++c) {
+            sigma[c] = sigma_px[c];
+            weight[c * 3 + c] = 1.0;
+        }
+    }
+
+    HalationScatterRequest request{};
+    request.raw_rgb = rgb;
+    request.width = width;
+    request.height = height;
+    // Sigmas are already in pixels, so the pass must not scale them again.
+    request.pixel_size_um = 1.0;
+    request.scatter_spatial_scale = 1.0;
+    // amount 1 turns the resolve (1 - amount) * src + amount * blurred into a
+    // plain blur; halation is a separate stage and must not run here.
+    request.scatter_amount = 1.0;
+    request.mixture_sigma_px = sigma;
+    request.mixture_weight = weight;
+    request.mixture_count = ncomp;
+    request.halation_amount = 0.0;
+    request.halation_n_bounces = 0;
+
+    const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
+    std::vector<double> out;
+    try {
+        out.resize(total);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    HalationScatterDiagnostics diagnostics{};
+    const bool ok = halation_scatter(request, out.data(), &diagnostics);
+    if (!ok || !diagnostics.engaged) return false;
+    parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
+        for (int i = lo; i < hi; ++i) rgb[i] = out[i];
+    });
+    return true;
 }
 
 }  // namespace spk::gpu

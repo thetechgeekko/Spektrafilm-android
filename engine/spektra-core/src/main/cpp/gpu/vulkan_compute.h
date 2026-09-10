@@ -176,6 +176,31 @@ bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
 bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
                           const float* dye, const float* icmf, const float* xyz2rgb);
 
+// Per-channel 2D Gaussian blur of an interleaved f64 RGB frame, on the GPU.
+//
+// This is the engine's three remaining CPU blurs -- the camera lens blur
+// (filming.expose), the scanner lens blur and the unsharp mask's blur term
+// (scanning's spatial branch) -- all of which call
+// gaussian_blur_per_channel_d(rgb, w, h, 3, sigma). It needs NO NEW SHADER:
+// gpu/halation_scatter.comp in mixture mode is already a weighted set of
+// Gaussians with a resolve of (1 - amount) * src + amount * blurred, so a blur
+// is that pass with amount = 1 and unit weight, and halation switched off. The
+// DIR-coupler diffusion (runtime/stages/filming.cpp) uses the same reuse.
+//
+// FAST GPU, and not a candidate for Strict Exact even though the model is
+// identical arithmetic on paper. The kernel stores intermediates in f32, sweeps
+// X-then-Y where the CPU sweeps vertical-then-horizontal, and carries the
+// Young-van Vliet state as a double-float pair rather than f64. Those are
+// tolerance-bounded differences, not absences -- but they are differences, so
+// this must never ride a latch that promises the CPU's bytes.
+//
+// Sigmas are in PIXELS and are the host's to compute in f64. Equal sigmas cost
+// one blur; unequal sigmas cost three, one per channel, because the underlying
+// mixture carries one sigma per component. Returns false without touching
+// `rgb` on any refusal, and the caller runs the CPU blur.
+bool gaussian_blur_rgb(double* rgb, int width, int height,
+                       const double sigma_px[3]);
+
 // AgX particle grain sampler on the GPU (#214; shader gpu/grain.comp).
 //
 // Ports the SAMPLER of model/grain.cpp::layer_particle_model -- the

@@ -811,7 +811,9 @@ void scan(const Profile& film, const ScanningParams& params,
     // the existing goldens stay bit-exact.
     if (params.lens_blur > 0.0) {
         double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
-        gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
+        if (!(params.allow_gpu &&
+              gpu::gaussian_blur_rgb(lin_rgb, width, height, sg)))
+            gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
     }
 
     // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
@@ -823,7 +825,11 @@ void scan(const Profile& film, const ScanningParams& params,
         std::vector<double> blur(lin_rgb, lin_rgb + total);
         double sg[3] = {params.unsharp_sigma, params.unsharp_sigma,
                         params.unsharp_sigma};
-        gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
+        // Only the BLUR TERM moves; the mix below stays on the CPU because it is
+        // a cheap per-element map over a buffer that has to come back anyway.
+        if (!(params.allow_gpu &&
+              gpu::gaussian_blur_rgb(blur.data(), width, height, sg)))
+            gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
         const double amt = params.unsharp_amount;
         // Per-element map with disjoint writes -> deterministic chunks, the same
         // argument the encode below already relies on. It was serial over

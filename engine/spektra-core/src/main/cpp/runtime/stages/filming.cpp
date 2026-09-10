@@ -695,7 +695,15 @@ void expose_impl(const Src& src, int width, int height,
         if (sigma > 0.0) {
             ScopedStage _t(STG_LENS_BLUR);
             double sg[3] = {sigma, sigma, sigma};
-            gaussian_blur_per_channel_d(raw, width, height, 3, sg);
+            // The GPU blur is the halation kernel in mixture mode with amount 1
+            // (gpu::gaussian_blur_rgb) -- no new shader. It returns false without
+            // touching `raw` on any refusal, so this falls back rather than
+            // half-applying. Fast GPU only: the kernel's f32 intermediates and
+            // double-float IIR state are tolerance-bounded differences from the
+            // f64 CPU blur, not absences.
+            if (!(params.allow_gpu_halation &&
+                  gpu::gaussian_blur_rgb(raw, width, height, sg)))
+                gaussian_blur_per_channel_d(raw, width, height, 3, sg);
         }
     }
 
