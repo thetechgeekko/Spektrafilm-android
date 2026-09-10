@@ -451,12 +451,13 @@ int main() {
     // route through the mixture (three components instead of one).
     {
         struct Case { double s0, s1, s2; const char* what; };
+        // FIR-class only: the pass refuses sigma >= 3, because the device says the
+        // GPU loses to the CPU's O(1) IIR above that (0.62x at 12.5 MP). The
+        // refusals are gated separately below.
         const Case cases[] = {
             {0.7, 0.7, 0.7, "unsharp default sigma 0.7 (FIR, uniform)"},
             {2.9, 2.9, 2.9, "sigma 2.9, just under the FIR/IIR boundary"},
-            {3.1, 3.1, 3.1, "sigma 3.1, just over it (IIR)"},
-            {18.0, 18.0, 18.0, "sigma 18 (IIR, a wide scanner blur)"},
-            {1.5, 3.5, 7.0, "unequal sigmas: one component per channel"},
+            {1.5, 2.5, 2.9, "unequal sigmas: one component per channel"},
         };
         for (const Case& c : cases) {
             std::vector<double> cpu = raw, gpu = raw;
@@ -477,12 +478,31 @@ int main() {
                   std::string("blur within the parity band vs the CPU filter: ") + c.what);
         }
 
+        // The IIR-class refusal is a PERFORMANCE decision expressed as a
+        // correctness-shaped gate, so it is worth stating plainly: the CPU is
+        // faster there, so taking the GPU path would be a measured regression.
+        // A sigma either side of the threshold must therefore behave differently.
+        {
+            std::vector<double> just_under = raw, just_over = raw;
+            const double lo[3] = {2.99, 2.99, 2.99};
+            const double hi[3] = {3.0, 3.0, 3.0};
+            check(spk::gpu::gaussian_blur_rgb(just_under.data(), w, h, lo),
+                  "sigma just under 3 is accepted (FIR class, GPU wins)");
+            const bool over = spk::gpu::gaussian_blur_rgb(just_over.data(), w, h, hi);
+            check(!over && bytes_eq(just_over, raw),
+                  "sigma at the IIR threshold is refused, buffer untouched");
+            std::vector<double> wide = raw;
+            const double w18[3] = {18.0, 18.0, 18.0};
+            check(!spk::gpu::gaussian_blur_rgb(wide.data(), w, h, w18) && bytes_eq(wide, raw),
+                  "a wide IIR blur is refused, buffer untouched");
+        }
+
         // A blur is a MIX-FREE resolve (amount 1), so a mean-preserving check is
         // not enough on its own -- a pass that returned the input unblurred would
         // also preserve the mean. Assert the image actually changed.
         {
             std::vector<double> gpu = raw;
-            const double sg[3] = {4.0, 4.0, 4.0};
+            const double sg[3] = {2.5, 2.5, 2.5};   // FIR class, so accepted
             const bool ok = spk::gpu::gaussian_blur_rgb(gpu.data(), w, h, sg);
             check(ok && !bytes_eq(gpu, raw), "the blur actually altered the image");
         }

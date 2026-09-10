@@ -198,6 +198,12 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 // one blur; unequal sigmas cost three, one per channel, because the underlying
 // mixture carries one sigma per component. Returns false without touching
 // `rgb` on any refusal, and the caller runs the CPU blur.
+//
+// FIR-CLASS SIGMAS ONLY (< 3.0). Above that the CPU switches to an IIR that is
+// O(1) in sigma while this pass still pays whole-frame residency and a
+// transpose, and the device says the GPU then LOSES: 0.62x at 12.5 MP, 0.91x at
+// 1080p, against 1.59x and 1.46x below the threshold. Measured, not assumed --
+// tools/gpu_probe/probe_spatial_main.cpp.
 bool gaussian_blur_rgb(double* rgb, int width, int height,
                        const double sigma_px[3]);
 

@@ -2495,6 +2495,21 @@ bool gaussian_blur_rgb(double* rgb, int width, int height,
     for (int c = 0; c < 3; ++c)
         if (!std::isfinite(sigma_px[c]) || sigma_px[c] <= 0.0) return false;
 
+    // IIR-CLASS SIGMAS GO BACK TO THE CPU, on measurement rather than taste.
+    // Above sigma 3 the CPU switches to Young-van Vliet, which is O(1) in sigma;
+    // this pass pays whole-frame residency and a transpose whatever the sigma is.
+    // On device (Adreno 840, tools/gpu_probe/probe_spatial_main.cpp):
+    //
+    //   sigma 0.70 (FIR)  1080p  50.7 -> 34.7 ms  1.46x     12.5MP 285.1 -> 179.8 ms  1.59x
+    //   sigma 3.50 (IIR)  1080p  46.5 -> 51.2 ms  0.91x     12.5MP 161.4 -> 261.5 ms  0.62x
+    //
+    // So the GPU loses outright at 12.5 MP for a wide blur, and the CPU IIR is
+    // even faster there than its own FIR at sigma 0.7. The threshold is the same
+    // kSmallSigmaMax the CPU dispatches on, which is not a coincidence: it is
+    // exactly where the CPU stops paying for radius.
+    for (int c = 0; c < 3; ++c)
+        if (sigma_px[c] >= 3.0) return false;
+
     // One component per DISTINCT sigma. The mixture carries one sigma per
     // component and a weight per component per channel, so equal sigmas collapse
     // to a single blur while unequal ones become three disjoint ones -- channel c
