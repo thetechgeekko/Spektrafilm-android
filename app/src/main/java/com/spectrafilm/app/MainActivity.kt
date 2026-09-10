@@ -2029,38 +2029,51 @@ class MainActivity : ComponentActivity() {
                 adoptSource(uri, SourceKind.PHOTO, displayName, ctx.getString(R.string.editor_status_photo_selected))
             }
         }
-        // Shared RAW/photo dispatch for the document picker AND #162 inbound VIEW/SEND:
-        // one mcraw guard, one MIME/extension routing decision, one adoption path.
+        // Shared dispatch for the document picker AND #162 inbound VIEW/SEND: one routing
+        // decision (detectSourceKind, SourceDetect.kt), one adoption path. The picker accepts
+        // */*, so every kind below is genuinely reachable — including the motion kinds, which
+        // used to fall through the still-image test and be handed to LibRaw as corrupt RAW.
+        fun refuseUnsupported(statusRes: Int, snackRes: Int) {
+            status = ctx.getString(statusRes)
+            scope.launch {
+                snackbarHost.currentSnackbarData?.dismiss()
+                snackbarHost.showSnackbar(ctx.getString(snackRes))
+            }
+        }
         fun adoptIncomingImage(uri: Uri) {
-            run {
-                val name = uri.lastPathSegment ?: "raw"
-                if (McrawContainer.isMcrawFileName(name)) {
-                    // MotionCam RAW-video container: recognized (see McrawContainer /
-                    // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so
-                    // don't set a RAW source that would fail — tell the user instead.
-                    status = ctx.getString(R.string.editor_status_mcraw_unsupported)
-                    scope.launch {
-                        snackbarHost.currentSnackbarData?.dismiss()
-                        snackbarHost.showSnackbar(ctx.getString(R.string.editor_snack_mcraw_coming))
-                    }
-                } else {
-                    val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
-                    if (isNonRawImage(name, mime)) {
-                        // A JPEG/HEIC chosen via the RAW document picker: process it on the normal
-                        // photo path rather than forcing it through LibRaw (which would fail, then
-                        // fall back to a lossy display-referred decode). RAW/DNG and ambiguous
-                        // content URIs (e.g. MIUI document IDs with no extension) fall through to
-                        // the RAW path below, so a genuine DNG is never misrouted.
-                        adoptSource(uri, SourceKind.PHOTO, name.substringAfterLast('/'), ctx.getString(R.string.editor_status_photo_selected))
-                    } else {
-                        adoptSource(
-                            uri,
-                            SourceKind.RAW,
-                            ctx.getString(R.string.editor_source_raw_name, name.substringAfterLast('/')),
-                            ctx.getString(R.string.editor_status_raw_selected),
-                        )
-                    }
-                }
+            val name = uri.lastPathSegment ?: "raw"
+            val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+            when (detectSourceKind(name, mime)) {
+                // MotionCam RAW-video container: recognized (see McrawContainer /
+                // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so don't set
+                // a RAW source that would fail — tell the user instead.
+                SourceFileKind.MCRAW -> refuseUnsupported(
+                    R.string.editor_status_mcraw_unsupported,
+                    R.string.editor_snack_mcraw_coming,
+                )
+                // A motion clip. The engine simulates stills today, so refuse it the same honest
+                // way as .mcraw rather than failing deep inside the RAW decoder.
+                SourceFileKind.VIDEO -> refuseUnsupported(
+                    R.string.editor_status_video_unsupported,
+                    R.string.editor_snack_video_coming,
+                )
+                // A JPEG/HEIC chosen via the RAW document picker: process it on the normal photo
+                // path rather than forcing it through LibRaw (which would fail, then fall back to
+                // a lossy display-referred decode).
+                SourceFileKind.PHOTO -> adoptSource(
+                    uri,
+                    SourceKind.PHOTO,
+                    name.substringAfterLast('/'),
+                    ctx.getString(R.string.editor_status_photo_selected),
+                )
+                // RAW/DNG, and every ambiguous content URI (e.g. MIUI document IDs with no
+                // extension), so a genuine DNG is never misrouted.
+                SourceFileKind.RAW -> adoptSource(
+                    uri,
+                    SourceKind.RAW,
+                    ctx.getString(R.string.editor_source_raw_name, name.substringAfterLast('/')),
+                    ctx.getString(R.string.editor_status_raw_selected),
+                )
             }
         }
         val rawPicker = rememberLauncherForActivityResult(

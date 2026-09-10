@@ -83,6 +83,8 @@
     <string name="editor_status_photo_selected">photo selected</string>
     <string name="editor_status_mcraw_unsupported">MotionCam .mcraw clips aren\'t supported yet (RAW-video import in progress)</string>
     <string name="editor_snack_mcraw_coming">MotionCam .mcraw import is coming — single RAW/DNG works today</string>
+    <string name="editor_status_video_unsupported">Video clips aren\'t supported yet (motion simulation in progress)</string>
+    <string name="editor_snack_video_coming">Video simulation is coming — stills (RAW/DNG and photos) work today</string>
     <string name="editor_source_raw_name">RAW: %1$s</string>
     <string name="editor_status_raw_selected">RAW selected</string>
     <string name="editor_status_shared_image_unsupported">couldn\'t open the shared image (unsupported source)</string>
