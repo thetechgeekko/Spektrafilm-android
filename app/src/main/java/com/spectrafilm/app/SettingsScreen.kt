@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -61,10 +62,14 @@ fun SettingsScreen(
     filmGroups: List<DropdownGroup>,
     printGroups: List<DropdownGroup>,
     onThemeChanged: (ThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
     onShowOnboarding: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
+    // Evaluated during composition / captured by it: LocalResources recomposes on a
+    // configuration change where LocalContext.current.getString does not.
+    val res = LocalResources.current
     val scope = rememberCoroutineScope()
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
@@ -72,6 +77,7 @@ fun SettingsScreen(
 
     // Local mirrors of the persisted values so controls update without a recomposition key.
     var theme by remember { mutableStateOf(settings.theme) }
+    var dynamicColor by remember { mutableStateOf(settings.dynamicColor) }
     var outputCs by remember { mutableStateOf(settings.defaultOutputColorSpace) }
     var previewSize by remember { mutableIntStateOf(settings.previewMaxSize) }
     var draftSize by remember { mutableIntStateOf(settings.draftRenderMaxPx) }
@@ -110,6 +116,21 @@ fun SettingsScreen(
                 display = { it.display },
                 onSelect = { theme = it; settings.theme = it; onThemeChanged(it) },
             )
+            // Only offered where the platform can actually do it (API 31+). Showing a switch that
+            // silently does nothing is worse than not showing one.
+            if (dynamicColorSupported) {
+                SettingToggleRow(
+                    title = stringResource(R.string.screen_settings_dynamic_color),
+                    note = stringResource(R.string.screen_settings_dynamic_color_note),
+                    checked = dynamicColor,
+                    onCheckedChange = {
+                        dynamicColor = it
+                        settings.dynamicColor = it
+                        onDynamicColorChanged(it)
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
 
         // --- Defaults ---
@@ -211,22 +232,22 @@ fun SettingsScreen(
             Button(
                 onClick = {
                     if (checking) return@Button
-                    checking = true; updateStatus = ctx.getString(R.string.screen_settings_checking)
+                    checking = true; updateStatus = res.getString(R.string.screen_settings_checking)
                     scope.launch {
                         val info = AppUpdater.checkForUpdate(ctx)
                         checking = false
                         when {
                             info == null ->
-                                updateStatus = ctx.getString(R.string.screen_settings_update_check_failed)
+                                updateStatus = res.getString(R.string.screen_settings_update_check_failed)
                             info.isNewer -> {
                                 pendingUpdate = info
-                                updateStatus = ctx.getString(
+                                updateStatus = res.getString(
                                     R.string.screen_settings_update_available_tag, info.latestTag,
                                 )
                             }
                             else ->
                                 updateStatus =
-                                    ctx.getString(R.string.screen_settings_up_to_date, info.currentVersion)
+                                    res.getString(R.string.screen_settings_up_to_date, info.currentVersion)
                         }
                     }
                 },

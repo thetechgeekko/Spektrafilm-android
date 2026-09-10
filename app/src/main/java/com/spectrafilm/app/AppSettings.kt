@@ -151,6 +151,15 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
             .getOrDefault(ThemeMode.SYSTEM)
         set(v) { prefs.edit().putString(KEY_THEME, v.name).apply() }
 
+    /**
+     * Material You: derive the palette from the user's wallpaper (API 31+). Defaults ON, which is
+     * the platform's own default behaviour; the stored value is still honoured on devices that
+     * cannot do it, so toggling it on an older phone is remembered rather than silently discarded.
+     */
+    var dynamicColor: Boolean
+        get() = prefs.getBoolean(KEY_DYNAMIC_COLOR, true)
+        set(v) { prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, v).apply() }
+
     var defaultOutputColorSpace: ColorSpace
         get() = runCatching { ColorSpace.valueOf(prefs.getString(KEY_OUTPUT_CS, ColorSpace.SRGB.name)!!) }
             .getOrDefault(ColorSpace.SRGB)
@@ -219,6 +228,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         private const val KEY_BIG_CORES = "big_cores_experiment"
         private const val LEGACY_KEY_BIG_CORES = "big_cores"
         private const val KEY_THEME = "theme"
+        private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_OUTPUT_CS = "output_color_space"
         private const val KEY_PREVIEW_MAX = "preview_max_size"
         private const val KEY_FILM = "default_film_profile"

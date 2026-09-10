@@ -157,6 +157,8 @@
     <string name="screen_settings_title">Settings</string>
     <string name="screen_settings_appearance">Appearance</string>
     <string name="screen_settings_theme">Theme</string>
+    <string name="screen_settings_dynamic_color">Material You colour</string>
+    <string name="screen_settings_dynamic_color_note">Derive the palette from your wallpaper. Off uses the built-in scheme.</string>
     <string name="screen_settings_render_defaults">Render defaults</string>
     <string name="screen_settings_render_defaults_note">Applied when the app starts. Per-image edits and presets still override these.</string>
     <string name="screen_settings_default_output_cs">Default output color space</string>

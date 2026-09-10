@@ -28,7 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -50,8 +50,10 @@ fun ExportSheet(
     onDismiss: () -> Unit,
     onExport: () -> Unit,
 ) {
-    // Dropdown's `display` is a plain (non-composable) lambda, so resolve via the context.
-    val context = LocalContext.current
+    // Dropdown's `display` is a plain (non-composable) lambda, so stringResource cannot go inside
+    // it. LocalResources is the lint-approved read and, unlike LocalContext.current.getString,
+    // recomposes when the configuration changes (locale, font scale).
+    val resources = LocalResources.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -72,7 +74,7 @@ fun ExportSheet(
                 label = stringResource(R.string.tool_export_format),
                 selected = options.format,
                 options = ExportFormat.entries.toList(),
-                display = { context.getString(it.labelRes()) },
+                display = { resources.getString(it.labelRes()) },
                 onSelect = { onOptionsChange(options.copy(format = it)) },
             )
             if (options.format == ExportFormat.JPEG || options.format == ExportFormat.ULTRA_HDR) {
@@ -111,7 +113,7 @@ fun ExportSheet(
                     label = stringResource(R.string.tool_export_dimensions),
                     selected = options.size,
                     options = ExportSize.entries.toList(),
-                    display = { context.getString(it.labelRes) },
+                    display = { resources.getString(it.labelRes) },
                     onSelect = { onOptionsChange(options.copy(size = it)) },
                 )
                 if (options.size == ExportSize.CUSTOM) {
@@ -145,7 +147,7 @@ fun ExportSheet(
                     label = stringResource(R.string.tool_export_color_space),
                     selected = colorSpace,
                     options = ColorSpace.entries.toList(),
-                    display = { context.getString(it.labelRes()) },
+                    display = { resources.getString(it.labelRes()) },
                     onSelect = onColorSpaceChange,
                 )
                 SwitchRow(

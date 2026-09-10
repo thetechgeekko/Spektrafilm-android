@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -459,16 +460,29 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
-            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                AppRoot(settings = settings, onThemeChanged = { themeMode = it })
+            var dynamicColor by remember { mutableStateOf(settings.dynamicColor) }
+            SpektraTheme(dark = dark, dynamicColor = dynamicColor) {
+                AppRoot(
+                    settings = settings,
+                    onThemeChanged = { themeMode = it },
+                    onDynamicColorChanged = { dynamicColor = it },
+                )
             }
         }
     }
 
     /** Hosts onboarding + top-level navigation around the editor. */
     @Composable
-    private fun AppRoot(settings: AppSettings, onThemeChanged: (ThemeMode) -> Unit) {
+    private fun AppRoot(
+        settings: AppSettings,
+        onThemeChanged: (ThemeMode) -> Unit,
+        onDynamicColorChanged: (Boolean) -> Unit,
+    ) {
         val ctx = LocalContext.current
+        // Reads evaluated DURING composition go through LocalResources, not ctx: unlike
+        // LocalContext.current.getString it recomposes on a configuration change (locale,
+        // font scale). ctx stays for everything else it is used for.
+        val res = LocalResources.current
         val appContext = ctx.applicationContext
         // Acquire before startup read: once this host exists, callbacks from an overlapping
         // outgoing Activity may no longer publish a logically older cursor after restoration.
@@ -497,7 +511,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 CircularProgressIndicator(
                     color = Color.White,
-                    modifier = Modifier.semantics { contentDescription = ctx.getString(R.string.editor_loading) },
+                    modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
                 )
             }
             return
@@ -591,11 +605,11 @@ class MainActivity : ComponentActivity() {
                     liveSessionMutatedDuringRecovery = false
                     sessionWriteAccess = EditorSessionWriteAccess.WRITABLE
                     editorAuthorityReady = true
-                    pendingSessionRestoreNotice = ctx.getString(R.string.editor_session_recovered)
+                    pendingSessionRestoreNotice = res.getString(R.string.editor_session_recovered)
                 }
                 EditorSessionWriteAccess.PROTECTED -> {
                     sessionWriteAccess = EditorSessionWriteAccess.PROTECTED
-                    pendingSessionRestoreNotice = ctx.getString(R.string.editor_session_newer_version)
+                    pendingSessionRestoreNotice = res.getString(R.string.editor_session_newer_version)
                 }
                 EditorSessionWriteAccess.RECOVERING -> error("recovery returned unavailable")
             }
@@ -677,8 +691,8 @@ class MainActivity : ComponentActivity() {
             editorRestoration = reconciled
             latestEditorSession = reconciled.document
             pendingSessionRestoreNotice = when {
-                !reconciled.retainedSessionCursor -> ctx.getString(R.string.editor_session_source_changed)
-                reconciled.source.authorizationRequired -> ctx.getString(R.string.editor_session_access_expired)
+                !reconciled.retainedSessionCursor -> res.getString(R.string.editor_session_source_changed)
+                reconciled.source.authorizationRequired -> res.getString(R.string.editor_session_access_expired)
                 else -> pendingSessionRestoreNotice
             }
             editorAuthorityReady = true
@@ -748,7 +762,7 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
                         color = Color.White,
-                        modifier = Modifier.semantics { contentDescription = ctx.getString(R.string.editor_loading) },
+                        modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
                     )
                 }
             } else screenState.SaveableStateProvider(screen) {
@@ -778,6 +792,7 @@ class MainActivity : ComponentActivity() {
                             filmGroups = settingsFilmGroups,
                             printGroups = settingsPrintGroups,
                             onThemeChanged = onThemeChanged,
+                            onDynamicColorChanged = onDynamicColorChanged,
                             onShowOnboarding = { showOnboarding = true; navigateTo(Screen.EDITOR) },
                             onOpenDiagnostics = { navigateTo(Screen.DIAGNOSTICS) },
                         )
