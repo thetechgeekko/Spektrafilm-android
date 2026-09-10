@@ -306,6 +306,42 @@ def _check_local_links(path: Path, text: str,
     return errors
 
 
+def _user_facing_claim_errors(strings_xml: str) -> list[str]:
+    """The Settings strings are where a user actually reads our claims.
+
+    docs/MOBILE_STRATEGY.md is already guarded against "export always uses the
+    CPU engine", because that stopped being true when the Fast GPU export route
+    landed. The Android string resources were never covered by that rule, and
+    they carried the same claim in two toggles until #185. Since owner decision
+    #180 the Fast GPU route also re-draws grain and viewing glare from a cheaper
+    generator, so an unconditional promise about export in ANY string is wrong.
+    """
+    errors: list[str] = []
+    banned = (
+        "Export is always the exact CPU engine",
+        "Export always uses the exact CPU engine",
+        "Export always uses the CPU engine",
+    )
+    for phrase in banned:
+        if phrase in strings_xml:
+            errors.append(
+                "app/src/main/res/values/strings_screens.xml: stale export claim "
+                f"{phrase!r} - a preview toggle may only promise what it controls "
+                "(see #180, #185)"
+            )
+    # The GPU export toggle must disclose the different noise realisation.
+    if "screen_settings_gpu_export_note" in strings_xml:
+        note_start = strings_xml.index("screen_settings_gpu_export_note")
+        note = strings_xml[note_start : note_start + 1200].lower()
+        if "grain" not in note or "will not match" not in note:
+            errors.append(
+                "app/src/main/res/values/strings_screens.xml: "
+                "screen_settings_gpu_export_note must disclose that grain and glare "
+                "will not match the default engine (#180 migration disclosure)"
+            )
+    return errors
+
+
 def _preset_set_errors(asset_ids: list[str], documented_ids: list[str]) -> list[str]:
     errors: list[str] = []
     if len(asset_ids) != len(set(asset_ids)):
@@ -471,6 +507,14 @@ def main() -> int:
             "export always uses the CPU engine",
         ),
     }
+
+    strings_screens = (
+        ROOT / "app" / "src" / "main" / "res" / "values" / "strings_screens.xml"
+    )
+    try:
+        errors.extend(_user_facing_claim_errors(strings_screens.read_text(encoding="utf-8")))
+    except OSError as exc:
+        errors.append(f"{strings_screens.relative_to(ROOT)}: {exc}")
 
     errors.extend(_preset_set_errors(asset_preset_ids, documented_preset_ids))
     errors.extend(

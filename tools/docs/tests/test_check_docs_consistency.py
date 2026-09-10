@@ -232,6 +232,32 @@ class DocsConsistencyTest(unittest.TestCase):
                 errors = checker._check_local_links(page, text)
         self.assertEqual(errors, [])
 
+    def test_user_facing_claim_gate_rejects_unconditional_export_promises(self) -> None:
+        good = (
+            '<string name="screen_settings_gpu_preview_note">This toggle never affects '
+            'export.</string>'
+            '<string name="screen_settings_gpu_export_note">Grain and viewing glare are '
+            'different: the noise pattern will not match the default engine.</string>'
+        )
+        self.assertEqual(checker._user_facing_claim_errors(good), [])
+
+        stale = good.replace(
+            "This toggle never affects export.",
+            "Export is always the exact CPU engine.",
+        )
+        errors = checker._user_facing_claim_errors(stale)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("stale export claim", errors[0])
+
+    def test_user_facing_claim_gate_requires_the_180_disclosure(self) -> None:
+        missing = (
+            '<string name="screen_settings_gpu_export_note">Run more of the export on '
+            'the GPU. Everything is checked against the CPU engine.</string>'
+        )
+        errors = checker._user_facing_claim_errors(missing)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("migration disclosure", errors[0])
+
     def test_preset_set_comparison_detects_missing_extra_and_duplicates(self) -> None:
         errors = checker._preset_set_errors(["a", "a", "b"], ["a", "c", "c"])
         joined = "\n".join(errors)
