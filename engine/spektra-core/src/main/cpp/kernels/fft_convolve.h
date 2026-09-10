@@ -52,10 +52,29 @@ namespace spk {
 // picks the cheapest admissible transform below it, because the largest one is
 // often the slowest (a 12 MP Pro-Mist kernel wants N = 4096 and is 5.0x faster
 // there than at 2048, while a 1536 px one is 2x SLOWER at 4096 than at 1024).
-// The ceiling exists only to bound scratch: 100.7 MB at N = 2048, 402.8 MB at
-// N = 4096, and it grows 4x per doubling. 4096 is affordable because the r2c
-// change halved the spectra; 8192 (1.5 GB) is not, and measured slower than
-// 4096 anyway.
+// The ceiling exists only to bound scratch: 67.1 MB at N = 2048, 268.4 MB at
+// N = 4096, 1.07 GB at N = 8192, growing 4x per doubling.
+//
+// This used to say 8192 was unaffordable at 1.5 GB and "measured slower than
+// 4096 anyway". BOTH halves of that are now wrong, and a real user export is
+// what showed it:
+//
+//   fft=n4096/ks3059/convs3/clamped0     12.5 MP, Black Pro-Mist, 12572 ms
+//
+// The kernel is ks = 3059, not the ks ~ 1725 the old note was measured at. At
+// 4096 the usable block is 1038 px, so a 12.5 MP frame needs 12 tiles; at 8192
+// it needs ONE. Measured at that geometry, 4096: 5652 ms (12 tiles) against
+// 8192: 3956 ms (1 tile) -- 1.43x the other way. "8192 is slower" held only
+// for the mid-size kernels it was measured on, where 8192 buys one tile that
+// was already four.
+//
+// And the 1.5 GB figure predated dropping the real n x n plane: the scratch is
+// two spectra now, so 8192 is 1.07 GB.
+//
+// Raising the ceiling is fail-safe rather than a gamble: model/diffusion.cpp's
+// reserve_fft_scratch already walks the ceiling DOWN until the process memory
+// budget admits a size, so a device that cannot afford 8192 gets exactly the
+// 4096 it gets today. The ceiling admits a candidate; it never forces one.
 //
 // Callers that must not risk that much scratch pass a smaller max_transform --
 // model/diffusion.cpp clamps this by the process memory budget's own headroom,
@@ -65,7 +84,7 @@ namespace spk {
 // a controlled std::bad_alloc denial. It must propagate to the render boundary;
 // callers must never replace it with the DIRECT O(w*h*ks^2) loop, which for
 // Black Pro-Mist at 12 MP is the ~10.9-hour path this file exists to remove.
-constexpr int kFftConvMaxTransform = 4096;
+constexpr int kFftConvMaxTransform = 8192;
 
 // `padded` is the reflect-padded plane, (h + ks - 1) rows by (w + ks - 1) cols
 // (i.e. padded by radius = (ks-1)/2 on every side), row-major, stride pw.
