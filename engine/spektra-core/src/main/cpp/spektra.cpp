@@ -2054,6 +2054,19 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     //
     // So it stays export-only, exactly as #180 scoped it.
     fparams.grain.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
+    // The GPU particle sampler (#214) rides the SAME latch, and for the same
+    // reason rather than by analogy: it also chooses a different RNG realisation
+    // of the same distribution, so #180's scoping decision covers it exactly.
+    // Putting it on the wider Fast GPU latch would repeat the preview mistake
+    // described above, and putting it on `allow_gpu_halation` would repeat
+    // 6abde78 -- that flag means "same arithmetic, different implementation",
+    // which this is not.
+    //
+    // On device (Adreno 840, tools/gpu_probe/probe_grain_main.cpp) the sampler
+    // measures 1170.3 -> 58.6 ms at 12.5 MP and 173.2 -> 8.7 ms at 1080p, both
+    // ~20x, with the per-particle dye-cloud blur carried in the shader. It
+    // refuses to the CPU on anything it cannot reproduce exactly.
+    fparams.grain.allow_gpu_sampler = fparams.grain.fast_sampler;
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
         // density_max_curves are filled inside develop() from the film's
@@ -2575,6 +2588,19 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     //
     // So it stays export-only, exactly as #180 scoped it.
     fparams.grain.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
+    // The GPU particle sampler (#214) rides the SAME latch, and for the same
+    // reason rather than by analogy: it also chooses a different RNG realisation
+    // of the same distribution, so #180's scoping decision covers it exactly.
+    // Putting it on the wider Fast GPU latch would repeat the preview mistake
+    // described above, and putting it on `allow_gpu_halation` would repeat
+    // 6abde78 -- that flag means "same arithmetic, different implementation",
+    // which this is not.
+    //
+    // On device (Adreno 840, tools/gpu_probe/probe_grain_main.cpp) the sampler
+    // measures 1170.3 -> 58.6 ms at 12.5 MP and 173.2 -> 8.7 ms at 1080p, both
+    // ~20x, with the per-particle dye-cloud blur carried in the shader. It
+    // refuses to the CPU on anything it cannot reproduce exactly.
+    fparams.grain.allow_gpu_sampler = fparams.grain.fast_sampler;
     if (print_stochastic) {
         // grain_active -> AgX particle grain inside develop(), exactly as the
         // scan route wires it. Deterministic seed; stays serial.
