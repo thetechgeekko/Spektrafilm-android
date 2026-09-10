@@ -105,6 +105,15 @@ bool filming_expose(const double*, const float*, double, uint32_t, int, int,
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool grain_layers(const float*, uint32_t, int, int, const float*, const float*,
+                  uint32_t, bool, float*, FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
+bool exposure_log10(const double*, float*, int, int, FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool blend_mix(const double*, const double*, double*, int, int, double, bool,
                FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
@@ -2146,6 +2155,9 @@ constexpr uint32_t kFilmModeMax = 2u;
 constexpr uint32_t kFilmModeBoost = 3u;
 constexpr uint32_t kFilmModeMix = 4u;
 constexpr uint32_t kFilmModeUnsharp = 5u;
+constexpr uint32_t kFilmModeLog10 = 6u;
+constexpr uint32_t kFilmModeLayers = 7u;
+constexpr uint32_t kFilmFlagPositive = 2u;
 constexpr uint32_t kFilmFlagLog10 = 1u;
 
 // One dispatch, four buffers, one upload and one readback. Both entry points
@@ -2195,6 +2207,12 @@ struct FilmingStageRun {
     // MODE_MAX needs one float of table space per workgroup, which is far more
     // than a curve; the run sizes binding 3 for whichever use is larger.
     size_t table_b_floats_min = 0;
+    // MODE_LAYERS writes NINE floats per pixel, not three, so the destination
+    // cannot be sized from the source. 0 means "same as the source".
+    size_t dst_elems = 0;
+    // MODE_LAYERS hands over ONE contiguous table (the axis followed by the
+    // layer curves) rather than two halves of equal length.
+    bool curve_single_block = false;
     double* dst_f64 = nullptr;         // exactly one of these two
     float* dst_f32 = nullptr;
 };
@@ -2214,7 +2232,8 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     // table buffer and MODE_BOOST carries its scalars in the push block. An
     // unconditional "a table must be present" check refused them both.
     const bool needs_table = r.mode == kFilmModeExpose || r.mode == kFilmModeDevelop ||
-                             r.mode == kFilmModeMix || r.mode == kFilmModeUnsharp;
+                             r.mode == kFilmModeMix || r.mode == kFilmModeUnsharp ||
+                             r.mode == kFilmModeLayers;
     if (needs_table && r.tc_count == 0 && r.curve_count == 0)
         return give_up("null-table");
 
@@ -2228,7 +2247,10 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     const uint64_t geom_elems = r.npix_is_components
                                    ? static_cast<uint64_t>(r.width) * r.height * 3
                                    : static_cast<uint64_t>(r.width) * r.height;
-    const bool resident = c.frame.open && r.width > 0 && r.height > 0 &&
+    // MODE_LAYERS writes npix*9, which is not the frame's shape, so it can never
+    // BE the resident plane -- it is the grain sampler's input buffer instead.
+    const bool frame_shaped = r.mode != kFilmModeLayers;
+    const bool resident = frame_shaped && c.frame.open && r.width > 0 && r.height > 0 &&
                           c.frame.width == r.width && c.frame.height == r.height &&
                           geom_elems == r.npix;
     // MODE_MAX produces its answer in the table buffer, not in the plane, so it
@@ -2253,20 +2275,26 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
 
     const size_t comps = r.npix_is_components ? static_cast<size_t>(r.npix)
                                               : static_cast<size_t>(r.npix) * 3;
+    const size_t dstComps = r.dst_elems ? r.dst_elems : comps;
     const VkDeviceSize planeBytes = static_cast<VkDeviceSize>(comps) * sizeof(float);
+    const VkDeviceSize dstBytes = static_cast<VkDeviceSize>(dstComps) * sizeof(float);
     // The layout has four bindings and every one must be backed, so the table
     // the active mode does not use still gets a minimal buffer rather than a
     // null descriptor.
     const VkDeviceSize tblABytes =
         r.tc_count ? static_cast<VkDeviceSize>(r.tc_count) * sizeof(float) : 16;
-    VkDeviceSize tblBBytes =
-        r.curve_count ? static_cast<VkDeviceSize>(r.curve_count) * 2 * sizeof(float) : 16;
+    VkDeviceSize tblBBytes = 16;
+    if (r.curve_count) {
+        const size_t halves = r.curve_single_block ? 1u : 2u;
+        tblBBytes = static_cast<VkDeviceSize>(r.curve_count) * halves * sizeof(float);
+    }
     if (r.table_b_floats_min) {
         const VkDeviceSize want =
             static_cast<VkDeviceSize>(r.table_b_floats_min) * sizeof(float);
         if (want > tblBBytes) tblBBytes = want;
     }
     if (planeBytes > limits.maxStorageBufferRange ||
+        dstBytes > limits.maxStorageBufferRange ||
         tblABytes > limits.maxStorageBufferRange)
         return give_up("buffer-too-large");
 
@@ -2281,9 +2309,9 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         bool hadIn = true, hadOut = true;
         if (!resident) {
             hadIn = s.in.cap >= planeBytes && s.in.buf;
-            hadOut = s.out.cap >= planeBytes && s.out.buf;
+            hadOut = s.out.cap >= dstBytes && s.out.buf;
             if (!c.ensureBuf(s.in, planeBytes)) break;
-            if (!c.ensureBuf(s.out, planeBytes)) break;
+            if (!c.ensureBuf(s.out, dstBytes)) break;
         }
         if (!c.ensureBuf(s.dyeB, tblABytes)) break;
         if (!c.ensureBuf(s.cmfB, tblBBytes)) break;
@@ -2337,8 +2365,9 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
             if (r.curve_count) {
                 float* cv = static_cast<float*>(s.cmfB.mapped);
                 std::memcpy(cv, r.curve_axis, r.curve_count * sizeof(float));
-                std::memcpy(cv + r.curve_count, r.curve_values,
-                            r.curve_count * sizeof(float));
+                if (!r.curve_single_block)
+                    std::memcpy(cv + r.curve_count, r.curve_values,
+                                r.curve_count * sizeof(float));
             }
         }
         d.upload_ms = std::chrono::duration<double, std::milli>(
@@ -2399,7 +2428,7 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
                     for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(src[i]);
                 });
             } else {
-                std::memcpy(r.dst_f32, src, static_cast<size_t>(planeBytes));
+                std::memcpy(r.dst_f32, src, static_cast<size_t>(dstBytes));
             }
         }
         d.readback_ms = std::chrono::duration<double, std::milli>(
@@ -2482,6 +2511,88 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
     r.n = static_cast<int32_t>(points);
     r.dst_f32 = out_density;
     return run_filming_stage(r, diagnostics);
+}
+
+bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height,
+                  const float* density_curves, const float* density_curves_layers,
+                  uint32_t points, bool positive_film, float* out,
+                  FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (density_cmy == nullptr || density_curves == nullptr ||
+        density_curves_layers == nullptr || out == nullptr || points < 2 ||
+        npix == 0 || width <= 0 || height <= 0)
+        return give_up("invalid-request");
+    if (static_cast<uint64_t>(npix) * 9 > UINT32_MAX) return give_up("frame-too-large");
+
+    // The axis and the layer curves go over as ONE table, because the shader
+    // reads both from one binding. The axis is NEGATED here for positive film --
+    // on the host, in the same place the CPU does it -- so the shader's
+    // ascending search holds without needing to know why.
+    std::vector<float> table(static_cast<size_t>(points) * 12);
+    for (uint32_t k = 0; k < points; ++k)
+        for (int ch = 0; ch < 3; ++ch) {
+            const float a = density_curves[k * 3 + ch];
+            table[static_cast<size_t>(k) * 3 + ch] = positive_film ? -a : a;
+        }
+    const size_t layersOff = static_cast<size_t>(points) * 3;
+    std::memcpy(table.data() + layersOff, density_curves_layers,
+                static_cast<size_t>(points) * 9 * sizeof(float));
+
+    FilmingStageRun r;
+    r.mode = kFilmModeLayers;
+    r.flags = positive_film ? kFilmFlagPositive : 0u;
+    r.npix = npix;
+    r.width = width;
+    r.height = height;
+    r.src_f32 = density_cmy;
+    r.dst_f32 = out;
+    r.dst_elems = static_cast<size_t>(npix) * 9;
+    r.curve_axis = table.data();
+    r.curve_count = static_cast<size_t>(points) * 12;
+    r.curve_single_block = true;
+    r.n = static_cast<int32_t>(points);
+    r.L = 2;
+    if (!run_filming_stage(r, &d)) return give_up(d.reason);
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
+bool exposure_log10(const double* raw, float* log_raw, int width, int height,
+                    FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (width <= 0 || height <= 0) return give_up("invalid-request");
+    const uint64_t comps64 = static_cast<uint64_t>(width) * height * 3;
+    if (comps64 == 0 || comps64 > UINT32_MAX) return give_up("invalid-request");
+    const bool resident = frame_active(width, height);
+    if (!resident && (raw == nullptr || log_raw == nullptr))
+        return give_up("invalid-request");
+
+    FilmingStageRun r;
+    r.mode = kFilmModeLog10;
+    r.npix = static_cast<uint32_t>(comps64);
+    r.npix_is_components = true;
+    r.width = width;
+    r.height = height;
+    r.src_f64 = resident ? nullptr : raw;
+    r.dst_f32 = resident ? nullptr : log_raw;
+    r.curve_count = 0;
+    r.n = 2;
+    r.L = 2;
+    if (!run_filming_stage(r, &d)) return give_up(d.reason);
+    if (diagnostics) *diagnostics = d;
+    return true;
 }
 
 bool blend_mix(const double* a, const double* b, double* out, int width, int height,

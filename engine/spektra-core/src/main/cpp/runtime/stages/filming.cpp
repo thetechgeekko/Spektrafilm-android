@@ -794,6 +794,15 @@ void expose_impl(const Src& src, int width, int height,
 
     // log_raw = log10(fmax(raw, 0) + 1e-10). Element-wise -> deterministic
     // parallel chunks (byte-identical to the serial loop for any thread count).
+    {
+        gpu::FilmingStageDiagnostics gd{};
+        if (gpu_expose_ok &&
+            gpu::exposure_log10(raw, log_raw_out, width, height, &gd)) {
+            note_gpu_filming("log10", gd);
+            return;
+        }
+        note_gpu_filming("log10", gd);
+    }
     parallel_for(0, npix * 3, [&](int lo, int hi) {
         for (int i = lo; i < hi; ++i) {
             double lr = std::log10(std::fmax(raw[i], 0.0) + 1e-10);
@@ -889,9 +898,23 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
             {
                 ScopedGrainPhase _p(GrainPhase::Layers);
                 layers.resize(static_cast<size_t>(npix) * 9);
-                interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
-                                          film.density_curves_layers.data(), n,
-                                          film.is_positive(), layers.data());
+                // Nine interpolations per pixel -- 112M at 12.5 MP, and the
+                // largest CPU item left in this stage. Its output is the GPU
+                // grain sampler's input, so the 450 MB buffer is on the wrong
+                // side of the bus while this runs on the host (#223).
+                gpu::FilmingStageDiagnostics gd{};
+                const bool on_gpu =
+                    params.allow_gpu_filming &&
+                    gpu::grain_layers(density_cmy_out, static_cast<uint32_t>(npix),
+                                      width, height, ndc.data(),
+                                      film.density_curves_layers.data(),
+                                      static_cast<uint32_t>(n), film.is_positive(),
+                                      layers.data(), &gd);
+                note_gpu_filming("grain_layers", gd);
+                if (!on_gpu)
+                    interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
+                                              film.density_curves_layers.data(), n,
+                                              film.is_positive(), layers.data());
             }
             // density_max_layers[sl,c] = nanmax over the log-exposure axis of the
             // RAW density_curves_layers (NOT normalized).

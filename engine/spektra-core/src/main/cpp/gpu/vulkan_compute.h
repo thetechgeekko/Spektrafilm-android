@@ -435,6 +435,29 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
                      const float* axis, const float* curve, uint32_t points,
                      float* out_density, FilmingStageDiagnostics* diagnostics);
 
+// THE PER-SUBLAYER DENSITIES on the GPU (#223; filming_stage.comp mode 7).
+//
+// density_curves.py::interp_density_cmy_layers -- nine interpolations per pixel,
+// 112M at 12.5 MP, and the largest CPU item left in the grain stage at 247 ms on
+// device. `density_curves` is the NORMALIZED axis (points*3) and
+// `density_curves_layers` the RAW per-sublayer curves (points*9), exactly as
+// apply_grain passes them. `out` is npix*9 -- 450 MB at 12.5 MP, which is also
+// why this is worth moving: it is the grain sampler's input, and the sampler is
+// already on the GPU.
+bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height,
+                  const float* density_curves, const float* density_curves_layers,
+                  uint32_t points, bool positive_film, float* out,
+                  FilmingStageDiagnostics* diagnostics);
+
+// THE EXPOSURE BRIDGE on the GPU (#222; filming_stage.comp mode 6).
+//
+// log_raw = log10(max(raw, 0) + 1e-10), the f64 linear irradiance the spatial
+// stages produce turned into the f32 log-exposure plane that BOTH the density
+// curves and the DIR couplers index by. It is a plane in its own right for that
+// reason -- folding it into develop would leave the couplers without it.
+bool exposure_log10(const double* raw, float* log_raw, int width, int height,
+                    FilmingStageDiagnostics* diagnostics);
+
 // TWO-INPUT POINTWISE BLENDS on the GPU (#222; filming_stage.comp modes 4-5).
 //
 //   blend_mix      out = (1 - amount) * a + amount * b

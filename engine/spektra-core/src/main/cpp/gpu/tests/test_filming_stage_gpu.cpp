@@ -35,6 +35,7 @@
 
 #include "gpu/vulkan_compute.h"
 #include "kernels/interp.h"
+#include "model/density_curves.h"
 #include "model/diffusion.h"
 #include "runtime/params.h"
 #include "runtime/stages/filming.h"
@@ -459,6 +460,111 @@ void blend_case(const char* label, bool unsharp, double amount) {
     }
 }
 
+// THE EXPOSURE BRIDGE (#222). log10(max(raw, 0) + 1e-10).
+//
+// The "expose unfused" case above already exercises this indirectly, but only
+// as a fallback would too: if the GPU pass REFUSED, the CPU loop would run and
+// that case would still pass. So this one calls it directly and insists it
+// engaged, and feeds it the values that decide the formula -- exact zero and a
+// negative, where the +1e-10 floor is the whole point and a max() in the wrong
+// place gives -inf or NaN instead of -10.
+void log10_case() {
+    const int w = 71, h = 5;
+    const size_t comps = static_cast<size_t>(w) * h * 3;
+    std::vector<double> raw(comps);
+    for (size_t i = 0; i < comps; ++i) {
+        const double t = static_cast<double>(i) / comps;
+        raw[i] = 1e-6 * std::pow(10.0, 8.0 * t);
+    }
+    raw[0] = 0.0;            // the floor
+    raw[1] = -3.5;           // clamped to 0 first, then floored
+    raw[comps - 1] = 0.0;
+
+    std::vector<float> cpu(comps), gpu(comps, -1.0f);
+    for (size_t i = 0; i < comps; ++i)
+        cpu[i] = static_cast<float>(std::log10(std::fmax(raw[i], 0.0) + 1e-10));
+
+    spk::gpu::FilmingStageDiagnostics d{};
+    const bool ok = spk::gpu::exposure_log10(raw.data(), gpu.data(), w, h, &d);
+    if (!ok) {
+        std::printf("[FAIL] log10: refused (%s)\n", d.reason);
+        ++g_failures;
+        return;
+    }
+    check(d.engaged, "the log10 bridge engaged rather than falling back");
+    if (d.engaged) g_engaged = true;
+    double max_abs = 0.0;
+    bool finite = true;
+    for (size_t i = 0; i < comps; ++i) {
+        max_abs = std::max(max_abs, std::fabs(static_cast<double>(cpu[i]) - gpu[i]));
+        finite = finite && std::isfinite(gpu[i]);
+    }
+    std::printf("  log10 bridge: max_abs %.3e (log10 units)  zero -> %.4f\n",
+                max_abs, gpu[0]);
+    check(finite, "no non-finite output at zero or negative input");
+    check(max_abs <= 1e-4, "log10 bridge matches the CPU");
+}
+
+// THE PER-SUBLAYER DENSITIES (#223), against the engine's own interpolator.
+//
+// Run for BOTH film polarities, because positive film negates the query AND the
+// axis to keep interp1d's ascending requirement, and the negation is split
+// between host and shader -- the host flips the axis, the shader flips the
+// query. Get one of the two wrong and negative film still passes while positive
+// film silently reads the curve backwards.
+//
+// The axis is deliberately non-uniform and the queries run off both ends, so the
+// clamped edges and the binary search are both exercised; and the nine outputs
+// per pixel carry DIFFERENT curves, so a transposed (sublayer, channel) index
+// shows up rather than cancelling.
+void layers_case(bool positive) {
+    const int w = 53, h = 9;
+    const int npix = w * h;
+    const int n = 29;
+    std::vector<float> ndc(static_cast<size_t>(n) * 3);
+    std::vector<float> curves(static_cast<size_t>(n) * 9);
+    for (int k = 0; k < n; ++k) {
+        const double t = static_cast<double>(k) / (n - 1);
+        for (int ch = 0; ch < 3; ++ch)
+            ndc[k * 3 + ch] = static_cast<float>(0.05 + 2.6 * t * t + 0.11 * ch * t);
+        for (int L = 0; L < 3; ++L)
+            for (int ch = 0; ch < 3; ++ch)
+                curves[static_cast<size_t>(k) * 9 + L * 3 + ch] =
+                    static_cast<float>(0.02 + (0.7 + 0.35 * L + 0.13 * ch) * std::pow(t, 1.0 + 0.2 * L));
+    }
+    std::vector<float> density(static_cast<size_t>(npix) * 3);
+    for (int p = 0; p < npix; ++p)
+        for (int ch = 0; ch < 3; ++ch)
+            density[p * 3 + ch] = static_cast<float>(
+                -0.5 + 4.0 * (static_cast<double>(p) / npix) + 0.07 * ch);
+
+    std::vector<float> cpu(static_cast<size_t>(npix) * 9, -1.0f);
+    spk::interp_density_cmy_layers(density.data(), npix, ndc.data(), curves.data(),
+                                   n, positive, cpu.data());
+
+    std::vector<float> gpu(static_cast<size_t>(npix) * 9, -2.0f);
+    spk::gpu::FilmingStageDiagnostics d{};
+    const bool ok = spk::gpu::grain_layers(density.data(), npix, w, h, ndc.data(),
+                                           curves.data(), n, positive, gpu.data(), &d);
+    const char* pol = positive ? "positive film" : "negative film";
+    if (!ok) {
+        std::printf("[FAIL] grain layers (%s): refused (%s)\n", pol, d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+    double max_abs = 0.0, peak = 0.0;
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        max_abs = std::max(max_abs, std::fabs(static_cast<double>(cpu[i]) - gpu[i]));
+        peak = std::max(peak, std::fabs(static_cast<double>(cpu[i])));
+    }
+    std::printf("  grain layers (%s): max_abs %.3e  peak %.4g  bar %.3e\n",
+                pol, max_abs, peak, 1e-4 * peak);
+    check(max_abs <= 1e-4 * std::max(peak, 1.0),
+          positive ? "grain layers match the CPU (positive film)"
+                   : "grain layers match the CPU (negative film)");
+}
+
 }  // namespace
 
 int main() {
@@ -471,6 +577,9 @@ int main() {
     expose_case("expose fused, f32 source with gain 2^1.5", false, true, 2.8284271247461903);
 
     develop_case();
+    log10_case();
+    layers_case(/*positive=*/false);
+    layers_case(/*positive=*/true);
     // A real boost, then the two identities the CPU short-circuits: a
     // non-positive boost_ev, and a protect point at or above the maximum. Both
     // must be REFUSED rather than reproduced -- an identity is cheaper to skip

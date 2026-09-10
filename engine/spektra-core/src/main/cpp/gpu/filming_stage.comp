@@ -55,6 +55,28 @@ shared float s_max[WG];
 #define MODE_BOOST   3u   // numba_boost_hightlights.boost_highlights
 #define MODE_MIX     4u   // (1 - amt) * src + amt * other
 #define MODE_UNSHARP 5u   // src + amt * (src - other)
+#define MODE_LOG10   6u   // log10(max(src, 0) + 1e-10), the exposure bridge
+#define MODE_LAYERS  7u   // density_cmy -> the 9 per-sublayer densities
+
+#define FLAG_POSITIVE 2u  // positive film: negate the query AND the axis
+
+// MODE_LAYERS IS THE GRAIN SAMPLER'S INPUT, and the largest CPU item left in the
+// grain stage: nine interpolations per pixel (3 channels x 3 sublayers), which
+// is 112M of them at 12.5 MP, measured at 247 ms on device -- more than the
+// particle sampler itself costs there. It also materialises npix*9 floats, 450 MB
+// at that size, purely to hand them to a pass that is already on the GPU.
+//
+// One search serves three sublayers: the axis is per CHANNEL, so the bracket for
+// a given channel is found once and evaluated against each sublayer's curve.
+
+// MODE_LOG10 IS ITS OWN MODE rather than a flag on develop, and that is not
+// arbitrary. The pipeline is
+//
+//   expose -> [spatial] -> log10 -> develop(log_raw) -> DIR couplers(log_raw)
+//
+// and BOTH develop and the DIR couplers read log_raw. Folding the log10 into
+// develop would leave the couplers without the plane they index by, so the
+// bridge has to exist as a plane in its own right.
 
 // TWO-INPUT POINTWISE, which the pipeline needs in three places and had in none:
 //
@@ -198,6 +220,58 @@ void main() {
 
     if (group >= pc.total_groups) return;
     uint p = group * WG + gl_LocalInvocationID.x;
+
+    if (pc.mode == MODE_LAYERS) {
+        // Per PIXEL here, not per component: nine outputs each.
+        if (p >= pc.npix) return;
+        int n = pc.n;
+        int layersOff = n * 3;          // curves = [axis n*3][layer curves n*9]
+        bool positive = (pc.flags & FLAG_POSITIVE) != 0u;
+        for (int ch = 0; ch < 3; ++ch) {
+            float x = finite_or(src[p * 3u + uint(ch)], 0.0);
+            if (positive) x = -x;
+            // The axis is already negated by the host for positive film, so the
+            // ascending-order requirement holds either way and this is one
+            // clamped linear search, shared by the three sublayers below.
+            float x0 = curves[ch];
+            float xN = curves[(n - 1) * 3 + ch];
+            int low = 0;
+            int high = n - 1;
+            float t = 0.0;
+            bool below = x <= x0;
+            bool above = x >= xN;
+            if (!below && !above) {
+                while (high - low > 1) {
+                    int mid = low + (high - low) / 2;
+                    if (x < curves[mid * 3 + ch]) high = mid; else low = mid;
+                }
+                float xl = curves[low * 3 + ch];
+                float xh = curves[high * 3 + ch];
+                float dx = xh - xl;
+                t = (dx != 0.0) ? (x - xl) / dx : 0.0;
+            }
+            for (int L = 0; L < 3; ++L) {
+                float v;
+                if (below)      v = curves[layersOff + L * 3 + ch];
+                else if (above) v = curves[layersOff + (n - 1) * 9 + L * 3 + ch];
+                else {
+                    float y0 = curves[layersOff + low * 9 + L * 3 + ch];
+                    float y1 = curves[layersOff + high * 9 + L * 3 + ch];
+                    v = y0 + t * (y1 - y0);
+                }
+                dst[p * 9u + uint(L * 3 + ch)] = v;
+            }
+        }
+        return;
+    }
+
+    if (pc.mode == MODE_LOG10) {
+        // Component-wise: pc.npix is the component count.
+        if (p >= pc.npix) return;
+        float v = finite_or(src[p], 0.0);
+        dst[p] = finite_or(log10f(max(v, 0.0) + 1e-10), -10.0);
+        return;
+    }
 
     if (pc.mode == MODE_MIX || pc.mode == MODE_UNSHARP) {
         // Component-wise, like the boost modes: pc.npix is the component count.
