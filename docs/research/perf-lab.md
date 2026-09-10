@@ -3199,4 +3199,82 @@ because a wrongly-scaled generator is still perfectly mean-preserving.
 Incidentally the ziggurat tracks the normal CDF better than the shipped mt19937 path: worst
 bin deviation 0.00019 against 0.00041, and kurtosis 2.9976 against 3.0025.
 
+## 30. The stage that dominates real exports was never in the benchmark (#148, #204)
+
+Every profile in this notebook, including sections 28 and 29, was taken on the bench corpus.
+No corpus cell enables the diffusion filter. So the stage that dominates a real user's
+export has been invisible to all of it.
+
+Read off logcat on the owner's own 12.5 MP export:
+
+```
+export id=444  4080x3060  simulate=23924 ms
+  camera_diffusion=13559.6   <- 57 % of the simulation
+  grain=3912.9  halation=2023.7  scan=1582.4  dir_couplers=1131.7
+  grain_sampler=exact
+```
+
+`grain_sampler=exact` also means every Fast-GPU optimisation in sections 28-29 does not
+apply to this export at all.
+
+### The wrong diagnosis, and what caught it
+
+`reserve_fft_scratch` steps the FFT transform DOWN when the memory budget cannot admit its
+scratch, silently -- the only FFT signal was `fft_fallbacks`, which counts direct-loop
+fallbacks and reads 0 in that case. The clamp is brutal where it bites: at ks=1725 it is
+11846 ms against 2398 ms, and at ks=2001 it is 463461 ms against 2249 ms, because the tile
+count goes 4 -> 130 -> 5440.
+
+That fit the 13559 ms almost exactly, so I concluded the ceiling was clamping the export
+and wrote it up on #204. **It was not.** The instrumentation added to test it said:
+
+```
+fft=n4096/ks3059/convs3/clamped0
+```
+
+`clamped0` -- nothing was refused. And `ks=3059`, not the ks~1725 the old notes were
+measured at. The match was a coincidence between two different causes that land on the
+same number. Worth keeping as a warning: a hypothesis that predicts the observed value to
+within 2 % can still be the wrong mechanism.
+
+### The real cause: a constant, not a budget
+
+`kFftConvMaxTransform = 4096`. At ks=3059 the usable block is 4096-3059+1 = 1038 px, so a
+12.5 MP frame needs **12 tiles**; at 8192 it needs **one**.
+
+The header comment defended 4096 on two grounds, both of which had expired:
+
+- *"8192 measured slower than 4096 anyway"* -- true at ks~1725, where 8192 buys one tile
+  that was already four. At ks=3059: 4096 = 5652 ms (12 tiles), 8192 = 3956 ms (1 tile).
+- *"8192 is 1.5 GB"* -- it was, until the `n x n` real plane was removed. Rows are now
+  produced and consumed one at a time from a per-worker temporary, so scratch is two
+  spectra: 402.6 -> 268.4 MB at n=4096, and 8192 is **1.07 GB**.
+
+The plane removal is **bit-identical**, verified by digest before and after at three kernel
+sizes rather than by tolerance -- identical operations in identical order, only the storage
+changed. It is also slightly faster, because the old path `std::fill`-ed 134 MB per tile.
+
+### Measured end to end, on the owner's export
+
+| | camera_diffusion | export total |
+|---|---|---|
+| before | 13559 ms | 25319 ms |
+| plane removed | 12572 | 22861 |
+| ceiling 8192 | **8092** | **18298** |
+| | **-40.3 %** | **-27.7 %** |
+
+Device-confirmed `fft=n8192/ks3059/convs3/clamped0`, and the export completed -- no
+device-health kill, which was the real risk of admitting 1.07 GB inside a 1.5 GiB budget
+that tracks reserved bytes rather than RSS.
+
+### Two things to carry forward
+
+**`ks` scales with image width.** The tile count at a fixed ceiling therefore grows with
+resolution, so the 50 MP case in #204 hits this wall harder. The lever there is the
+transform ceiling and the scratch that bounds it, not the tier table.
+
+**Benchmark the configuration users actually run.** A corpus that never enables the
+dominant effect cannot find the dominant cost, and no amount of care inside the benchmark
+fixes that. This one was found by reading logcat.
+
 *Film modeling powered by spektrafilm (GPLv3).*

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### The diffusion filter: -40 % on the stage that dominates a real export (#148, #204)
+
+- `camera_diffusion` (Black Pro-Mist and friends) is 57 % of a 12.5 MP export with the
+  filter on, and appears in NO bench cell -- no corpus cell enables it -- so every profile
+  this project has taken was blind to it. Found by reading logcat on a real export.
+- The FFT convolution's `n x n` real plane is gone: rows are produced and consumed one at a
+  time from a per-worker temporary. Scratch at n=4096 goes 402.6 -> 268.4 MB. **Bit-identical**,
+  verified by digest before and after at three kernel sizes rather than by tolerance --
+  identical operations in identical order, only the storage changed. Slightly faster too,
+  because the old path zero-filled 134 MB per tile.
+- The transform ceiling is raised 4096 -> 8192. At the measured kernel (ks=3059) the usable
+  block at 4096 is 1038 px, so a 12.5 MP frame needs 12 tiles; at 8192 it needs one --
+  5652 ms against 3956 ms. Both reasons the ceiling was 4096 had expired: "8192 is slower"
+  held only for mid-size kernels, and "8192 is 1.5 GB" became 1.07 GB when the plane went.
+  Fail-safe by construction: the budget already walks the ceiling down when it cannot
+  afford a size.
+- The render timings now report `fft=n<N>/ks<KS>/convs<N>/clamped<N>`, so the transform
+  actually used is visible. It was not, and that cost a wrong diagnosis: the clamp
+  hypothesis predicted the observed 13.5 s to within 2 % and was still the wrong mechanism
+  (`clamped0` on the device).
+- Measured on device, same image and settings: camera_diffusion **13559 -> 8092 ms (-40.3 %)**,
+  export total **25319 -> 18298 ms (-27.7 %)**, no device-health kill.
+
 ### A ziggurat normal for the Fast grain sampler (#148, #180)
 
 - The sampler's common path draws two normals per pixel per sublayer (Poisson at lambda
