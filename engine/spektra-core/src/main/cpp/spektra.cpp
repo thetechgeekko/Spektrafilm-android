@@ -2038,11 +2038,22 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     const bool fast_gpu_route = (p->allow_gpu_scan != 0);
     fparams.allow_gpu_halation = fast_gpu_route;
     fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
-    // Owner decision #180: the Fast GPU route may carry a different noise
-    // realisation, gated statistically rather than against a byte golden. It rides
-    // the same latch, so enabling the GPU preview now also moves the preview's
-    // grain to the cheaper sampler -- a different realisation, same distribution.
-    fparams.grain.fast_sampler = fast_gpu_route;
+    // The grain sampler does NOT ride that latch, and the difference is the whole
+    // point of separating them.
+    //
+    // The two flags above choose a different IMPLEMENTATION of the same arithmetic:
+    // GPU halation is tolerance-bounded against the CPU pass at ~2.1e-7, so moving
+    // the preview onto it leaves the preview essentially where it was.
+    //
+    // fast_sampler chooses a different RNG REALISATION (owner decision #180) -- same
+    // distribution, different noise. On a preview that is not a small error, it is a
+    // different image: measured 5.109e-03 from the export against the CPU LUT
+    // preview's 3.415e-04. Riding it on the wider latch therefore made the GPU
+    // preview WORSE than the CPU preview and tripped test_gpu_host's
+    // "within 1e-4 of export or beats the CPU preview" gate.
+    //
+    // So it stays export-only, exactly as #180 scoped it.
+    fparams.grain.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     if (grain) {
         // grain_active && stochastic effects on -> AgX particle grain. The
         // density_max_curves are filled inside develop() from the film's
@@ -2548,11 +2559,22 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     const bool fast_gpu_route = (p->allow_gpu_scan != 0);
     fparams.allow_gpu_halation = fast_gpu_route;
     fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
-    // Owner decision #180: the Fast GPU route may carry a different noise
-    // realisation, gated statistically rather than against a byte golden. It rides
-    // the same latch, so enabling the GPU preview now also moves the preview's
-    // grain to the cheaper sampler -- a different realisation, same distribution.
-    fparams.grain.fast_sampler = fast_gpu_route;
+    // The grain sampler does NOT ride that latch, and the difference is the whole
+    // point of separating them.
+    //
+    // The two flags above choose a different IMPLEMENTATION of the same arithmetic:
+    // GPU halation is tolerance-bounded against the CPU pass at ~2.1e-7, so moving
+    // the preview onto it leaves the preview essentially where it was.
+    //
+    // fast_sampler chooses a different RNG REALISATION (owner decision #180) -- same
+    // distribution, different noise. On a preview that is not a small error, it is a
+    // different image: measured 5.109e-03 from the export against the CPU LUT
+    // preview's 3.415e-04. Riding it on the wider latch therefore made the GPU
+    // preview WORSE than the CPU preview and tripped test_gpu_host's
+    // "within 1e-4 of export or beats the CPU preview" gate.
+    //
+    // So it stays export-only, exactly as #180 scoped it.
+    fparams.grain.fast_sampler = (p->gpu_export != 0 && p->allow_gpu_scan != 0);
     if (print_stochastic) {
         // grain_active -> AgX particle grain inside develop(), exactly as the
         // scan route wires it. Deterministic seed; stays serial.
