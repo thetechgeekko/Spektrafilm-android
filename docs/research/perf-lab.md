@@ -3277,4 +3277,75 @@ transform ceiling and the scratch that bounds it, not the tier table.
 dominant effect cannot find the dominant cost, and no amount of care inside the benchmark
 fixes that. This one was found by reading logcat.
 
+## 31. The host was accused of a 23-46 ms fixed cost it no longer has (#208, #207)
+
+The video map opened with a claim that looked airtight: the Vulkan host carries **23-46 ms of
+fixed per-call overhead**, which alone exceeds a 33.33 ms frame, so real-time video is blocked on
+rebuilding the host before anything else can be scheduled.
+
+The arithmetic behind it was correct. Solving §Tier 2 of `docs/research/gpu-device-probe.md`
+(24.8 ms at 0.307 MP, 101.5 ms at 12 MP, cool run) for `fixed + marginal * MP` gives 6.56 ms/MP and
+22.8 ms fixed; the hot row gives 8.55 ms/MP and 45.7 ms. Hence "23-46 ms".
+
+Measured directly, on the same device class, against the **unmodified** host:
+
+| frame | median (warm) | p95 | throughput |
+|---|---:|---:|---:|
+| 1920x1080 (2.074 MP) | 24.33 ms | 29.99 | 85.2 MPix/s |
+| 3840x2160 (8.294 MP) | 65.82 ms | 72.78 | 126.0 MPix/s |
+
+Solving those two:
+
+```
+marginal = (65.82 - 24.33) / (8.294 - 2.074) = 6.67 ms/MP  ->  150 MPix/s
+fixed    = 24.33 - 2.074 * 6.67                            ->  10.5 ms
+```
+
+`scan_spectral_linear` alone measures 3.59 ms and 15.06 ms at the same two sizes: marginal
+1.84 ms/MP (543 MPix/s), fixed **indistinguishable from zero**.
+
+The marginal rate reproduces (150 vs the expected 106-152). The fixed term does not: **10.5 ms, not
+23-46**.
+
+### What the old number actually was
+
+A cold-start cost, read as a per-call cost. The resident chain's own diagnostics say so on every
+warm call:
+
+```
+pipeline_creates 0   buffer_allocations 0   interstage_host_bytes 0
+```
+
+and cold-to-warm is **4.0x** (96.24 -> 24.33 ms). The Tier 2 captures predate the grow-only
+resident buffers and persistent pipelines now in `gpu/vulkan_compute.cpp`, so the table was
+measuring a host that no longer exists. Nothing in the reasoning was wrong except its age.
+
+### Sustained, which is the number that matters
+
+60 s of continuous 1080p dispatch, 2460 frames, thermal gate passed at entry (skin 30.9 / ap 32.3):
+
+| window | median | throughput |
+|---|---:|---:|
+| first 10 % | 25.06 ms | 82.7 MPix/s |
+| last 10 % | 25.89 ms | 80.1 MPix/s |
+
+**+3.3 % drift.** Against §28, where a byte-identical phase swung 74 % on thermal state alone, that
+is the genuinely surprising result, and it is the only reason the headline is worth stating:
+**the pointwise chain sustains 1080p30 at 0.78x of budget.** 4K is 1.97x over and settled.
+
+### The trap the good news sets
+
+The measured chain is filming -> printing -> scan, **pointwise only**. No grain, no halation, no
+DIR spatial diffusion, no camera diffusion filter, no glare, no scanner unsharp — exactly the list
+`pointwise_route_ineligibility` (`spektra.cpp:1630-1681`) rejects on stock defaults, and exactly
+the stages that cost **5876 ms of a 7619 ms** 12.5 MP still.
+
+So the budget for every remaining stage is not a 33 ms frame. It is **7.4 ms** (33.33 - 25.89).
+Quoting "1080p30 meets" without that sentence would be the same species of error as the claim this
+section corrects.
+
+**A performance premise ages.** This one was true when it was written and false when it was acted
+on, and the diagnostic that disproved it (`pipeline_creates`, `buffer_allocations`,
+`interstage_host_bytes`) was already in the struct. Re-measure before you rebuild.
+
 *Film modeling powered by spektrafilm (GPLv3).*
