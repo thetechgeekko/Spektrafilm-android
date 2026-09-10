@@ -1,0 +1,160 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// f32 FFT convolution on the GPU (#216). The camera diffusion filter is 6.9 s of
+// a 10.9 s 12.5 MP export with Black Pro-Mist on -- 63%, the largest single cost
+// in the engine -- and it is an FFT convolution the CPU runs on one core.
+// kernels/fft_convolve.cpp already computes the right operator; what it does not
+// have is parallelism. This is that operator, in f32, on the GPU.
+//
+// f32 IS NOT THE RISK HERE, and that is measured rather than assumed:
+// tools/gpu_probe/probe_f32_fft_main.cpp ran the engine's own templated FFT
+// convolution at both precisions on the real Black Pro-Mist PSF and got
+// max_abs 1.2e-06 against a scene peaking at 3.8 -- inside the 1e-4 parity band
+// -- and 0.000 8-bit display codes. The precision objection to this work was
+// retired before the work started.
+//
+// ALGORITHM: Stockham autosort, radix-2, OUT OF PLACE, in global memory.
+// Deliberately not a shared-memory FFT. Shared memory would cap the transform at
+// whatever fits (n = 4096 is 32 KB of complex f32, exactly the usual limit) and
+// would need bank-conflict tuning to beat the simple version. Global memory
+// ping-pong has no size ceiling, every stage is independently checkable against
+// kernels/fft.cpp, and the transform we need is capped at 2048 anyway because the
+// host tiles above that.
+//
+// Stockham is chosen over Cooley-Tukey because it is AUTOSORT: no bit-reversal
+// permutation pass, and every stage reads and writes linearly, which is what a
+// GPU wants. The cost is the second buffer, which we need for ping-pong anyway.
+//
+// THE KERNEL DERIVES NO PARAMETER OF ITS OWN, as everywhere else in this engine.
+// The twiddle table is computed by the host in f64 and uploaded as f32; the
+// transform size, the stage count, the tile origin and the 1/(n*n) scale all
+// arrive in the push constant. The shader owns no decision.
+#define WG 64
+layout(local_size_x = WG) in;
+
+// Complex, interleaved re/im. Two buffers, ping-ponged across stages.
+layout(std430, binding = 0) buffer BufA { vec2 a[]; };
+layout(std430, binding = 1) buffer BufB { vec2 b[]; };
+// Twiddles for this transform size: w[k] = exp(sign * -2*pi*i*k/n) for k < n/2,
+// host-computed in f64. Also carries the kernel spectrum after it, at offset
+// `kern_offset` -- one buffer, because the layout has four bindings and the
+// real input needs one of them.
+layout(std430, binding = 2) readonly buffer TwBuf { vec2 tw[]; };
+// The padded real tile on input, and the real output window on the way out.
+layout(std430, binding = 3) buffer RealBuf { float img[]; };
+
+#define OP_PACK       0u   // real padded tile -> complex A, zero-filled
+#define OP_STAGE      1u   // one Stockham radix-2 stage along x
+#define OP_TRANSPOSE  2u   // complex transpose
+#define OP_MUL        3u   // pointwise complex multiply by the kernel spectrum
+#define OP_UNPACK     4u   // scale, take the real part, write the output window
+
+layout(push_constant) uniform Push {
+    uint op;
+    uint n;             // transform size, a power of two
+    uint stage;         // 0 .. log2(n)-1, for OP_STAGE
+    uint sign_neg;      // 1 = forward (e^-i), 0 = inverse (e^+i)
+    uint src_is_a;      // ping-pong selector
+    uint groups_x;
+    // OP_PACK / OP_UNPACK geometry
+    uint pad_w;         // padded tile stride
+    uint pad_h;
+    uint tile_x;        // origin of this tile inside the padded image
+    uint tile_y;
+    uint out_w;         // output window
+    uint out_h;
+    uint out_x;
+    uint out_y;
+    uint out_stride;
+    uint out_offset;
+    uint kern_offset;   // where the kernel spectrum starts in TwBuf
+    float scale;        // 1/(n*n), host-computed
+} pc;
+
+vec2 cmul(vec2 p, vec2 q) {
+    return vec2(p.x * q.x - p.y * q.y, p.x * q.y + p.y * q.x);
+}
+
+uint gid() {
+    uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+    return group * WG + gl_LocalInvocationID.x;
+}
+
+void main() {
+    uint t = gid();
+    uint n = pc.n;
+
+    if (pc.op == OP_PACK) {
+        // One thread per complex cell of the n x n tile. Cells outside the
+        // padded source are zero: the CPU path pads the image before calling, so
+        // a tile that runs off the edge is genuinely zero here too.
+        if (t >= n * n) return;
+        uint y = t / n, x = t - y * n;
+        uint sx = pc.tile_x + x, sy = pc.tile_y + y;
+        float v = (sx < pc.pad_w && sy < pc.pad_h)
+                      ? img[sy * pc.pad_w + sx] : 0.0;
+        a[t] = vec2(v, 0.0);
+        return;
+    }
+
+    if (pc.op == OP_TRANSPOSE) {
+        if (t >= n * n) return;
+        uint y = t / n, x = t - y * n;
+        // Read src[y][x] -> dst[x][y]. Naive, and deliberately so: a tiled
+        // transpose is a real optimisation but an unnecessary risk before the
+        // whole chain is proven correct.
+        if (pc.src_is_a == 1u) b[x * n + y] = a[t];
+        else                   a[x * n + y] = b[t];
+        return;
+    }
+
+    if (pc.op == OP_MUL) {
+        // The kernel spectrum is real-symmetric in general but stored full
+        // complex, so this is a plain complex multiply.
+        if (t >= n * n) return;
+        vec2 k = tw[pc.kern_offset + t];
+        if (pc.src_is_a == 1u) a[t] = cmul(a[t], k);
+        else                   b[t] = cmul(b[t], k);
+        return;
+    }
+
+    if (pc.op == OP_UNPACK) {
+        if (t >= pc.out_w * pc.out_h) return;
+        uint y = t / pc.out_w, x = t - y * pc.out_w;
+        // The valid region of a same-size convolution starts at (ks-1) into the
+        // transform; the host passes it as the tile origin already resolved.
+        uint sx = pc.out_x + x, sy = pc.out_y + y;
+        vec2 v = (pc.src_is_a == 1u) ? a[sy * n + sx] : b[sy * n + sx];
+        img[pc.out_offset + (y * pc.out_stride) + x] = v.x * pc.scale;
+        return;
+    }
+
+    // OP_STAGE: one radix-2 Stockham butterfly stage along x, for every row.
+    // n/2 butterflies per row, n rows.
+    uint half_n = n >> 1u;
+    if (t >= half_n * n) return;
+    uint row = t / half_n;
+    uint j = t - row * half_n;          // butterfly index within the row
+
+    uint L = 1u << pc.stage;            // sub-transforms already completed
+    uint k = j & (L - 1u);              // position inside the sub-transform
+    uint base = (j - k) << 1u;          // where this pair writes
+
+    // Twiddle index: the host table holds exp(-2*pi*i*m/n) for m < n/2, so the
+    // stage's angle 2*pi*k/(2L) becomes index k * (n / (2L)).
+    uint step = n / (L << 1u);
+    vec2 w = tw[k * step];
+    if (pc.sign_neg == 0u) w.y = -w.y;   // inverse: conjugate
+
+    uint ro = row * n;
+    vec2 x0, x1;
+    if (pc.src_is_a == 1u) { x0 = a[ro + j]; x1 = a[ro + j + half_n]; }
+    else                   { x0 = b[ro + j]; x1 = b[ro + j + half_n]; }
+    vec2 tv = cmul(w, x1);
+    vec2 lo = x0 + tv;
+    vec2 hi = x0 - tv;
+    if (pc.src_is_a == 1u) { b[ro + base + k] = lo; b[ro + base + k + L] = hi; }
+    else                   { a[ro + base + k] = lo; a[ro + base + k + L] = hi; }
+}
