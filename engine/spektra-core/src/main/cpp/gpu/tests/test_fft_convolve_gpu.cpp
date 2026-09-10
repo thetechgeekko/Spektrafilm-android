@@ -1,0 +1,334 @@
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Gate for the f32 GPU FFT convolution (#216), run under a Vulkan ICD.
+//
+// The host parity suite CANNOT see this pass: tools/parity/run_engine_parity.sh
+// compiles without SPK_ENABLE_VULKAN, so gpu::available() is false there and
+// every line under gpu/ is dead. A 44/44 run is not evidence for this file.
+//
+// WHAT IS ASSERTED, and why in this order:
+//
+//   1. AGAINST THE DIRECT LOOP, on a case small enough to run it. This is the
+//      only check that can catch a TRANSLATION: an FFT convolution that places
+//      the kernel centred rather than at the origin, or reads the valid window
+//      at the wrong offset, still produces a beautifully smooth image -- shifted
+//      by the kernel radius. Comparing against another FFT implementation that
+//      shares the convention would agree with it.
+//   2. AGAINST kernels/fft_convolve.h's f64 path, single tile and multi tile.
+//      This is the operator the engine actually runs, and multi-tile is where
+//      overlap-save bookkeeping lives.
+//   3. INTERLEAVED output addressing, because the engine convolves one channel
+//      of an interleaved RGB plane at a time and a stride bug writes a perfect
+//      result into the wrong channel.
+//   4. REFUSALS, byte-for-byte: on any refusal the caller's buffer must be
+//      untouched, because the caller then runs the CPU path over the same
+//      memory and a half-written output would silently blend two answers.
+//
+// TOLERANCE, not equality. This is Fast GPU: f32 against f64, and a full
+// complex transform against the CPU's real-to-complex one, so the roundings
+// differ by construction. The bar is the engine's parity band scaled by the
+// scene peak -- max_abs <= 1e-4 * peak, rms <= 1e-5 * peak -- which is the same
+// unit tools/gpu_probe/probe_f32_fft_main.cpp reported 0.000 display codes at.
+#include <cmath>
+#include <cstdio>
+#include <cstdint>
+#include <cstdlib>
+#include <vector>
+
+#include "gpu/vulkan_compute.h"
+#include "kernels/fft_convolve.h"
+#include "model/diffusion.h"
+
+namespace {
+
+int g_failures = 0;
+bool g_engaged = false;
+
+void check(bool ok, const char* what) {
+    std::printf("%s %s\n", ok ? "[PASS]" : "[FAIL]", what);
+    if (!ok) ++g_failures;
+}
+
+// A sharply peaked, sum-normalised, long-tailed PSF -- the shape
+// model/diffusion.cpp builds for Black Pro-Mist, at a size the direct loop can
+// still be run against.
+std::vector<double> make_psf(int ks, double lambda_px) {
+    std::vector<double> k(static_cast<size_t>(ks) * ks);
+    const int r = (ks - 1) / 2;
+    double total = 0.0;
+    for (int y = 0; y < ks; ++y)
+        for (int x = 0; x < ks; ++x) {
+            const double dy = y - r, dx = x - r;
+            const double v = std::exp(-std::sqrt(dx * dx + dy * dy) / lambda_px);
+            k[static_cast<size_t>(y) * ks + x] = v;
+            total += v;
+        }
+    for (double& v : k) v /= total;
+    return k;
+}
+
+// Bright speculars on a gradient: what a diffusion filter is bought for, and
+// an image whose convolution is NOT translation-invariant to the eye, so a
+// half-pixel misplacement shows up as error rather than as a plausible picture.
+std::vector<double> make_padded(int pw, int ph) {
+    std::vector<double> p(static_cast<size_t>(pw) * ph);
+    for (int y = 0; y < ph; ++y)
+        for (int x = 0; x < pw; ++x) {
+            const double t = static_cast<double>(x) / (pw > 1 ? pw - 1 : 1);
+            const double u = static_cast<double>(y) / (ph > 1 ? ph - 1 : 1);
+            p[static_cast<size_t>(y) * pw + x] = 0.02 + 0.08 * t + 0.05 * u;
+        }
+    const int pts[][2] = {{1, 3}, {2, 2}, {3, 4}, {5, 5}, {7, 2}};
+    for (const auto& q : pts) {
+        const int cx = pw * q[0] / 8, cy = ph * q[1] / 8;
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int x = cx + dx, y = cy + dy;
+                if (x < 0 || y < 0 || x >= pw || y >= ph) continue;
+                p[static_cast<size_t>(y) * pw + x] = 40.0;
+            }
+    }
+    return p;
+}
+
+struct Error {
+    double max_abs = 0.0;
+    double rms = 0.0;
+    double peak = 0.0;
+};
+
+Error compare(const std::vector<double>& ref, const std::vector<double>& got,
+              int stride, int offset) {
+    Error e;
+    double sq = 0.0;
+    for (size_t i = 0; i < ref.size(); ++i) {
+        const double a = ref[i];
+        const double b = got[i * static_cast<size_t>(stride) +
+                             static_cast<size_t>(offset)];
+        const double diff = std::fabs(a - b);
+        if (diff > e.max_abs) e.max_abs = diff;
+        if (std::fabs(a) > e.peak) e.peak = std::fabs(a);
+        sq += diff * diff;
+    }
+    e.rms = std::sqrt(sq / static_cast<double>(ref.size()));
+    return e;
+}
+
+// The operator, spelled out exactly as kernels/fft_convolve.h documents it.
+std::vector<double> direct(const std::vector<double>& padded, int pw,
+                           const std::vector<double>& kern, int ks, int w, int h) {
+    std::vector<double> out(static_cast<size_t>(w) * h, 0.0);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            double acc = 0.0;
+            for (int i = 0; i < ks; ++i)
+                for (int j = 0; j < ks; ++j)
+                    acc += padded[static_cast<size_t>(y + i) * pw + (x + j)] *
+                           kern[static_cast<size_t>(ks - 1 - i) * ks + (ks - 1 - j)];
+            out[static_cast<size_t>(y) * w + x] = acc;
+        }
+    return out;
+}
+
+spk::gpu::FftConvolveRequest make_request(const std::vector<double>& padded,
+                                          const std::vector<double>& kern,
+                                          int w, int h, int ks, int max_transform) {
+    spk::gpu::FftConvolveRequest r;
+    r.padded = padded.data();
+    r.pw = w + ks - 1;
+    r.ph = h + ks - 1;
+    r.kern = kern.data();
+    r.ks = ks;
+    r.width = w;
+    r.height = h;
+    r.max_transform = max_transform;
+    return r;
+}
+
+// One case: build the scene, run the GPU pass, compare against `ref`.
+void run_case(const char* label, int w, int h, int ks, double lambda,
+              int max_transform, int out_stride, int out_offset, bool against_direct) {
+    const int pw = w + ks - 1, ph = h + ks - 1;
+    const std::vector<double> pad64 = make_padded(pw, ph);
+    const std::vector<double> k64 = make_psf(ks, lambda);
+
+    std::vector<double> ref;
+    if (against_direct) {
+        ref = direct(pad64, pw, k64, ks, w, h);
+    } else {
+        ref.assign(static_cast<size_t>(w) * h, 0.0);
+        if (!spk::fft_convolve_same<double>(pad64.data(), pw, ph, k64.data(), ks, w, h,
+                                            ref.data(), 1, 0, max_transform)) {
+            check(false, "cpu reference refused");
+            return;
+        }
+    }
+
+    // A sentinel in every slot the pass must not touch, so a stride bug shows as
+    // a surviving sentinel rather than as a plausible number.
+    std::vector<double> got(static_cast<size_t>(w) * h * out_stride, -12345.0);
+    spk::gpu::FftConvolveRequest r = make_request(pad64, k64, w, h, ks, max_transform);
+    r.out_stride = out_stride;
+    r.out_offset = out_offset;
+    spk::gpu::FftConvolveDiagnostics d{};
+    const bool ok = spk::gpu::fft_convolve(r, got.data(), &d);
+    if (!ok) {
+        std::printf("[FAIL] %s: refused (%s)\n", label, d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+
+    const Error e = compare(ref, got, out_stride, out_offset);
+    const double abs_bar = 1e-4 * e.peak, rms_bar = 1e-5 * e.peak;
+    std::printf("  %s: n=%d tiles=%u dispatches=%u  peak %.4g  max_abs %.3e (bar %.3e)"
+                "  rms %.3e (bar %.3e)  gpu %.1f ms\n",
+                label, d.transform_size, d.tiles, d.dispatches, e.peak,
+                e.max_abs, abs_bar, e.rms, rms_bar, d.gpu_ms);
+    check(e.max_abs <= abs_bar && e.rms <= rms_bar, label);
+
+    // Untouched components stay untouched.
+    bool sentinels_ok = true;
+    for (int slot = 0; slot < out_stride; ++slot) {
+        if (slot == out_offset) continue;
+        for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
+            if (got[i * out_stride + slot] != -12345.0) { sentinels_ok = false; break; }
+    }
+    if (out_stride > 1) check(sentinels_ok, "other components untouched");
+}
+
+void run_refusals() {
+    const int w = 32, h = 24, ks = 7;
+    const std::vector<double> pad = make_padded(w + ks - 1, h + ks - 1);
+    const std::vector<double> kern = make_psf(ks, 2.0);
+    const std::vector<double> pristine(static_cast<size_t>(w) * h, -777.0);
+
+    struct Case {
+        const char* what;
+        void (*mutate)(spk::gpu::FftConvolveRequest&);
+    };
+    const Case cases[] = {
+        {"null padded", [](spk::gpu::FftConvolveRequest& r) { r.padded = nullptr; }},
+        {"null kernel", [](spk::gpu::FftConvolveRequest& r) { r.kern = nullptr; }},
+        {"even kernel", [](spk::gpu::FftConvolveRequest& r) { r.ks += 1; }},
+        {"pw mismatch", [](spk::gpu::FftConvolveRequest& r) { r.pw += 1; }},
+        {"ph mismatch", [](spk::gpu::FftConvolveRequest& r) { r.ph -= 1; }},
+        {"empty frame", [](spk::gpu::FftConvolveRequest& r) { r.width = 0; }},
+        {"offset >= stride", [](spk::gpu::FftConvolveRequest& r) {
+             r.out_stride = 2; r.out_offset = 2; }},
+    };
+    for (const Case& cs : cases) {
+        std::vector<double> out = pristine;
+        spk::gpu::FftConvolveRequest r = make_request(pad, kern, w, h, ks,
+                                                      spk::gpu::kFftGpuMaxTransform);
+        cs.mutate(r);
+        spk::gpu::FftConvolveDiagnostics d{};
+        const bool ok = spk::gpu::fft_convolve(r, out.data(), &d);
+        const bool untouched = (out == pristine);
+        std::printf("  refusal '%s': ok=%d reason=%s untouched=%d\n",
+                    cs.what, ok ? 1 : 0, d.reason, untouched ? 1 : 0);
+        check(!ok && untouched && !d.engaged, cs.what);
+    }
+
+    // A kernel wider than the GPU's scratch ceiling is a REFUSAL, never a
+    // truncated transform: fft_convolve_transform_size raises its own cap to
+    // keep the usable block positive, so it hands back a size above the ceiling
+    // rather than failing, and this is the check that turns that into a denial.
+    {
+        const int big_ks = 2 * spk::gpu::kFftGpuMaxTransform + 1;
+        std::vector<double> bigpad(static_cast<size_t>(w + big_ks - 1) *
+                                   (h + big_ks - 1), 0.0);
+        std::vector<double> bigkern(static_cast<size_t>(big_ks) * big_ks, 0.0);
+        std::vector<double> out = pristine;
+        spk::gpu::FftConvolveRequest r = make_request(bigpad, bigkern, w, h, big_ks,
+                                                      spk::gpu::kFftGpuMaxTransform);
+        spk::gpu::FftConvolveDiagnostics d{};
+        const bool ok = spk::gpu::fft_convolve(r, out.data(), &d);
+        std::printf("  refusal 'kernel past scratch ceiling': ok=%d reason=%s n=%d\n",
+                    ok ? 1 : 0, d.reason, d.transform_size);
+        check(!ok && out == pristine, "kernel past scratch ceiling refused");
+    }
+}
+
+// THE WIRING CHECK. Every other assertion here calls gpu::fft_convolve
+// directly, which proves the pass works and proves nothing about whether the
+// engine ever reaches it. That distinction has cost this project twice: the GPU
+// glare field was committed, gated and green while a missing line in
+// build_print_scanning_params kept its latch clear, so it ran in no export at
+// all and measured SLOWER than the CPU (the price of attempt-then-fallback).
+//
+// The observable is the OUTPUT. The device answers in f32 and the host in f64,
+// so if the latch reaches the pass the two renders differ -- by ~1e-6, not by
+// nothing. A byte-identical pair means the GPU route was never taken.
+void run_wiring() {
+    const int w = 128, h = 128;
+    std::vector<double> base(static_cast<size_t>(w) * h * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c)
+                base[(static_cast<size_t>(y) * w + x) * 3 + c] =
+                    0.05 + 0.4 * (static_cast<double>(x) / w) +
+                    ((x % 37 == 0 && y % 29 == 0) ? 30.0 : 0.0);
+
+    spk::DiffusionFilterParams p;
+    p.active = true;
+    p.strength = 1.0;
+    p.spatial_scale = 1.0;
+    // Force the transform branch rather than relying on the cost model landing
+    // there for this geometry: the direct loop has no GPU route, so a case that
+    // silently chose it would compare the CPU against itself and pass.
+    setenv("SPK_DIFFUSION_FFT", "1", 1);
+
+    std::vector<double> cpu = base, gpu = base;
+    spk::apply_diffusion_filter_um(cpu.data(), w, h, p, 5.0, /*allow_gpu_fft=*/false);
+    spk::apply_diffusion_filter_um(gpu.data(), w, h, p, 5.0, /*allow_gpu_fft=*/true);
+    unsetenv("SPK_DIFFUSION_FFT");
+
+    double max_abs = 0.0, peak = 0.0;
+    bool differs = false;
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        if (cpu[i] != gpu[i]) differs = true;
+        max_abs = std::max(max_abs, std::fabs(cpu[i] - gpu[i]));
+        peak = std::max(peak, std::fabs(cpu[i]));
+    }
+    std::printf("  wiring: differs=%d  max_abs %.3e  peak %.4g  bar %.3e\n",
+                differs ? 1 : 0, max_abs, peak, 1e-4 * peak);
+    check(differs, "latch reaches the GPU pass (renders are not identical)");
+    check(max_abs <= 1e-4 * peak, "wired GPU render stays inside the parity band");
+
+    // And the latch OFF must be exactly the CPU path, with no GPU influence.
+    std::vector<double> again = base;
+    spk::apply_diffusion_filter_um(again.data(), w, h, p, 5.0, /*allow_gpu_fft=*/false);
+    check(again == cpu, "latch off is byte-identical to the CPU path");
+}
+
+}  // namespace
+
+int main() {
+    std::printf("== test_fft_convolve_gpu ==\n");
+    std::printf("gpu available: %s\n", spk::gpu::available() ? "yes" : "NO");
+
+    // 1. The translation check. Small enough for the O(w*h*ks^2) direct loop.
+    run_case("vs direct loop 24x18 ks=5", 24, 18, 5, 1.5,
+             spk::gpu::kFftGpuMaxTransform, 1, 0, /*against_direct=*/true);
+
+    // 2. The engine's own operator, single tile then multi tile. The second case
+    //    caps the transform at 128 so a 200x120 frame needs 6 overlap-save tiles;
+    //    without the cap it would fit in one and the tiling would go untested.
+    run_case("vs cpu f64 96x72 ks=11", 96, 72, 11, 3.0,
+             spk::gpu::kFftGpuMaxTransform, 1, 0, false);
+    run_case("vs cpu f64 200x120 ks=31 (6 tiles)", 200, 120, 31, 6.0, 128, 1, 0, false);
+
+    // 3. Interleaved addressing: the middle channel of an RGB plane.
+    run_case("interleaved stride 3 offset 1", 96, 72, 11, 3.0,
+             spk::gpu::kFftGpuMaxTransform, 3, 1, false);
+
+    run_refusals();
+    run_wiring();
+
+    std::printf("engaged=%d\n", g_engaged ? 1 : 0);
+    if (g_failures == 0) std::printf("test_fft_convolve_gpu: ALL OK\n");
+    else std::printf("test_fft_convolve_gpu: %d FAIL\n", g_failures);
+    return g_failures == 0 ? 0 : 1;
+}

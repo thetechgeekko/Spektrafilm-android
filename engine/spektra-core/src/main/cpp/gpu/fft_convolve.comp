@@ -37,10 +37,12 @@ layout(local_size_x = WG) in;
 // Complex, interleaved re/im. Two buffers, ping-ponged across stages.
 layout(std430, binding = 0) buffer BufA { vec2 a[]; };
 layout(std430, binding = 1) buffer BufB { vec2 b[]; };
-// Twiddles for this transform size: w[k] = exp(sign * -2*pi*i*k/n) for k < n/2,
-// host-computed in f64. Also carries the kernel spectrum after it, at offset
-// `kern_offset` -- one buffer, because the layout has four bindings and the
-// real input needs one of them.
+// Twiddles for this transform size: w[k] = exp(-2*pi*i*k/n) for k < n,
+// host-computed in f64 (the inverse conjugates in the shader rather than
+// needing a second table). A FULL turn, not a half one: a radix-4 group needs
+// W^(3*k*step), whose index reaches 3n/4. Also carries the kernel spectrum
+// after it, at offset `kern_offset` -- one buffer, because the layout has four
+// bindings and the real input needs one of them.
 layout(std430, binding = 2) readonly buffer TwBuf { vec2 tw[]; };
 // The padded real tile on input, and the real output window on the way out.
 layout(std430, binding = 3) buffer RealBuf { float img[]; };
@@ -50,11 +52,30 @@ layout(std430, binding = 3) buffer RealBuf { float img[]; };
 #define OP_TRANSPOSE  2u   // complex transpose
 #define OP_MUL        3u   // pointwise complex multiply by the kernel spectrum
 #define OP_UNPACK     4u   // scale, take the real part, write the output window
+#define OP_STAGE4     5u   // one Stockham radix-4 stage along x
+
+// RADIX 4 IS WHY THIS PASS IS AFFORDABLE, and the reason is bandwidth, not
+// arithmetic. Every stage reads the whole n x n plane and writes it back: at
+// n = 4096 that is 268 MB of traffic per pass, and a radix-2 transform needs
+// log2(n) = 12 of them per 1-D direction, i.e. 48 for the forward+inverse 2-D
+// pair. Measured on an Adreno 840, that put a 12.5 MP Black Pro-Mist channel at
+// ~1.55 s -- level with the CPU's f64 transform, which moves HALF the data
+// because it exploits Hermitian symmetry.
+//
+// Radix 4 does log4(n) = 6 passes for the same transform. Same butterflies, same
+// twiddles, half the trips through memory. The arithmetic per element is
+// slightly HIGHER (three complex twiddle multiplies per group of four instead of
+// one per pair); that is the right trade when the kernel is memory-bound, which
+// this one provably is.
 
 layout(push_constant) uniform Push {
     uint op;
     uint n;             // transform size, a power of two
-    uint stage;         // 0 .. log2(n)-1, for OP_STAGE
+    // L, the number of sub-transforms already completed, for OP_STAGE /
+    // OP_STAGE4. It used to be the stage INDEX, which only works when every
+    // pass has the same radix; a mixed radix-4/radix-2 sequence (needed when
+    // log2(n) is odd) has to carry the accumulated L instead. The host owns it.
+    uint stage;
     uint sign_neg;      // 1 = forward (e^-i), 0 = inverse (e^+i)
     uint src_is_a;      // ping-pong selector
     uint groups_x;
@@ -131,19 +152,77 @@ void main() {
         return;
     }
 
+    if (pc.op == OP_STAGE4) {
+        // n/4 butterfly groups per row, n rows.
+        uint quarter = n >> 2u;
+        if (t >= quarter * n) return;
+        uint row = t / quarter;
+        uint j = t - row * quarter;
+        uint L = pc.stage;
+        uint k = j & (L - 1u);
+        uint base = (j - k) << 2u;
+        // The host table holds exp(-2*pi*i*m/n) for m < n, not m < n/2: a
+        // radix-4 group needs W^(3*k*step) and 3*k*step reaches past n/2.
+        uint step = n / (L << 2u);
+        uint ro = row * n;
+
+        vec2 x0, x1, x2, x3;
+        if (pc.src_is_a == 1u) {
+            x0 = a[ro + j];
+            x1 = a[ro + j + quarter];
+            x2 = a[ro + j + 2u * quarter];
+            x3 = a[ro + j + 3u * quarter];
+        } else {
+            x0 = b[ro + j];
+            x1 = b[ro + j + quarter];
+            x2 = b[ro + j + 2u * quarter];
+            x3 = b[ro + j + 3u * quarter];
+        }
+
+        uint ks = k * step;
+        vec2 w1 = tw[ks];
+        vec2 w2 = tw[2u * ks];
+        vec2 w3 = tw[3u * ks];
+        if (pc.sign_neg == 0u) { w1.y = -w1.y; w2.y = -w2.y; w3.y = -w3.y; }
+        vec2 y0 = x0;
+        vec2 y1 = cmul(w1, x1);
+        vec2 y2 = cmul(w2, x2);
+        vec2 y3 = cmul(w3, x3);
+
+        // W_4 = -i forward, +i inverse, so only the odd outputs change sign.
+        vec2 t0 = y0 + y2;
+        vec2 t1 = y0 - y2;
+        vec2 t2 = y1 + y3;
+        vec2 t3 = y1 - y3;
+        vec2 jt3 = (pc.sign_neg == 1u) ? vec2(t3.y, -t3.x)   // -i * t3
+                                       : vec2(-t3.y, t3.x);  // +i * t3
+        vec2 z0 = t0 + t2;
+        vec2 z1 = t1 + jt3;
+        vec2 z2 = t0 - t2;
+        vec2 z3 = t1 - jt3;
+
+        uint o = ro + base + k;
+        if (pc.src_is_a == 1u) {
+            b[o] = z0; b[o + L] = z1; b[o + 2u * L] = z2; b[o + 3u * L] = z3;
+        } else {
+            a[o] = z0; a[o + L] = z1; a[o + 2u * L] = z2; a[o + 3u * L] = z3;
+        }
+        return;
+    }
+
     // OP_STAGE: one radix-2 Stockham butterfly stage along x, for every row.
-    // n/2 butterflies per row, n rows.
+    // n/2 butterflies per row, n rows. Still needed: log2(n) is odd for half the
+    // admissible transform sizes, and one radix-2 pass finishes those.
     uint half_n = n >> 1u;
     if (t >= half_n * n) return;
     uint row = t / half_n;
     uint j = t - row * half_n;          // butterfly index within the row
 
-    uint L = 1u << pc.stage;            // sub-transforms already completed
+    uint L = pc.stage;                  // sub-transforms already completed
     uint k = j & (L - 1u);              // position inside the sub-transform
     uint base = (j - k) << 1u;          // where this pair writes
 
-    // Twiddle index: the host table holds exp(-2*pi*i*m/n) for m < n/2, so the
-    // stage's angle 2*pi*k/(2L) becomes index k * (n / (2L)).
+    // Twiddle index: the stage's angle 2*pi*k/(2L) becomes index k * (n / (2L)).
     uint step = n / (L << 1u);
     vec2 w = tw[k * step];
     if (pc.sign_neg == 0u) w.y = -w.y;   // inverse: conjugate

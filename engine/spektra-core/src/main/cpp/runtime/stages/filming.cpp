@@ -14,6 +14,8 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <new>
 #include <vector>
@@ -111,6 +113,19 @@ bool gpu_diffusion_pass(double* raw, int width, int height,
         for (int i = lo; i < hi; ++i) raw[i] = out[i];
     });
     return true;
+}
+
+// Observability for the pointwise filming route, on the same SPK_GPU_DEBUG
+// switch the scanning and diffusion stages use. A refusal here is otherwise
+// invisible: the CPU loop runs, the picture is right, and the only symptom is a
+// stage timing that did not move.
+static void note_gpu_filming(const char* what, const gpu::FilmingStageDiagnostics& d) {
+    const char* dbg = std::getenv("SPK_GPU_DEBUG");
+    if (!dbg || dbg[0] != '1') return;
+    std::fprintf(stderr,
+                 "[gpu-debug] filming_%s engaged=%d reason=%s up=%.1f gpu=%.1f down=%.1f\n",
+                 what, d.engaged ? 1 : 0, d.reason && *d.reason ? d.reason : "-",
+                 d.upload_ms, d.gpu_ms, d.readback_ms);
 }
 
 bool gpu_halation_pass(double* raw, int width, int height,
@@ -583,7 +598,12 @@ struct SrcF32Gain {
 template <typename Src>
 void expose_impl(const Src& src, int width, int height,
                  const FilmingParams& params, const NdArray& tc_lut,
-                 float* log_raw_out) {
+                 float* log_raw_out,
+                 // The same source the Src adapter wraps, handed to the GPU pass
+                 // directly: exactly one is non-null, and `gpu_gain` is the
+                 // expose_f32_gain auto-exposure factor (1.0 on the f64 path).
+                 const double* gpu_rgb_f64, const float* gpu_rgb_f32,
+                 double gpu_gain) {
     const int npix = width * height;
     int L = tc_lut.shape[0];
     double scale = static_cast<double>(L - 1);
@@ -604,8 +624,26 @@ void expose_impl(const Src& src, int width, int height,
           params.lens_blur_um / params.pixel_size_um > 0.0) &&  // lens blur gate
         !params.halation.active &&                   // halation gate
         params.bw_exposure_correction == 1.0;        // b/w correction gate
+    // GPU EXPOSE (#218). Tried first in both branches; on refusal nothing has
+    // been written and the CPU loop below runs over the same memory. The latch
+    // is off unless the caller set it, so the default route is unchanged.
+    const bool gpu_expose_ok =
+        params.allow_gpu_filming && tc_lut.shape.size() == 3 &&
+        tc_lut.shape[0] >= 2 && tc_lut.shape[0] == tc_lut.shape[1] &&
+        tc_lut.shape[2] == 3;
+
     if (pointwise_fused) {
         ScopedStage _t(STG_FILMING_EXPOSE);
+        if (gpu_expose_ok) {
+            gpu::FilmingStageDiagnostics gd{};
+            const bool ok = gpu::filming_expose(
+                gpu_rgb_f64, gpu_rgb_f32, gpu_gain,
+                static_cast<uint32_t>(npix), tc_lut.data.data(),
+                static_cast<uint32_t>(tc_lut.shape[0]), exp_mult,
+                /*out_raw=*/nullptr, log_raw_out, &gd);
+            note_gpu_filming("expose_fused", gd);
+            if (ok) return;
+        }
         parallel_for(0, npix, [&](int lo, int hi) {
             for (int p = lo; p < hi; ++p) {
                 double in[3];
@@ -633,6 +671,16 @@ void expose_impl(const Src& src, int width, int height,
     std::unique_ptr<double[]> raw_buf(new double[static_cast<size_t>(npix) * 3]);
     double* const raw = raw_buf.get();
     { ScopedStage _t(STG_FILMING_EXPOSE);
+    bool done = false;
+    if (gpu_expose_ok) {
+        gpu::FilmingStageDiagnostics gd{};
+        done = gpu::filming_expose(
+            gpu_rgb_f64, gpu_rgb_f32, gpu_gain, static_cast<uint32_t>(npix),
+            tc_lut.data.data(), static_cast<uint32_t>(tc_lut.shape[0]), exp_mult,
+            raw, /*out_log_raw=*/nullptr, &gd);
+        note_gpu_filming("expose", gd);
+    }
+    if (!done)
     parallel_for(0, npix, [&](int lo, int hi) {
         for (int p = lo; p < hi; ++p) {
             double in[3];
@@ -676,7 +724,8 @@ void expose_impl(const Src& src, int width, int height,
               gpu_diffusion_pass(raw, width, height, params.diffusion_filter,
                                  params.pixel_size_um))) {
             apply_diffusion_filter_um(raw, width, height,
-                                      params.diffusion_filter, params.pixel_size_um);
+                                      params.diffusion_filter, params.pixel_size_um,
+                                      params.allow_gpu_diffusion_fft);
         }
     }
 
@@ -749,14 +798,15 @@ void expose_impl(const Src& src, int width, int height,
 
 void expose(const double* rgb, int width, int height, const FilmingParams& params,
             const NdArray& tc_lut, float* log_raw_out) {
-    expose_impl(SrcF64{rgb}, width, height, params, tc_lut, log_raw_out);
+    expose_impl(SrcF64{rgb}, width, height, params, tc_lut, log_raw_out,
+                rgb, nullptr, 1.0);
 }
 
 void expose_f32_gain(const float* rgb, double gain, int width, int height,
                      const FilmingParams& params, const NdArray& tc_lut,
                      float* log_raw_out) {
     expose_impl(SrcF32Gain{rgb, gain}, width, height, params, tc_lut,
-                log_raw_out);
+                log_raw_out, nullptr, rgb, gain);
 }
 
 void develop(const float* log_raw, int width, int height, const Profile& film,
@@ -770,6 +820,26 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
 
     // density_cmy = interpolate_exposure_to_density(log_raw, ndc, le, gamma)
     { ScopedStage _t(STG_DEVELOP);
+      bool done = false;
+      if (params.allow_gpu_filming && n >= 2) {
+          // The GPU kernel owns no parameter, so the per-channel axis
+          // interpolate_exposure_to_density builds internally --
+          // xp[k,c] = log_exposure[k] / gamma[c] -- is built here instead.
+          const float* g = params.density_curve_gamma;
+          std::vector<float> xp(static_cast<size_t>(n) * 3);
+          for (int k = 0; k < n; ++k)
+              for (int c = 0; c < 3; ++c)
+                  xp[static_cast<size_t>(k) * 3 + c] =
+                      (g[c] != 0.0f) ? (film.log_exposure[k] / g[c])
+                                     : film.log_exposure[k];
+          gpu::FilmingStageDiagnostics gd{};
+          done = gpu::filming_develop(log_raw, static_cast<uint32_t>(npix),
+                                      xp.data(), ndc.data(),
+                                      static_cast<uint32_t>(n),
+                                      density_cmy_out, &gd);
+          note_gpu_filming("develop", gd);
+      }
+      if (!done)
       interpolate_exposure_to_density(log_raw, npix, ndc.data(),
                                       film.log_exposure.data(), n,
                                       params.density_curve_gamma, density_cmy_out); }

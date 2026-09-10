@@ -135,9 +135,15 @@ struct DiffusionFilterParams {
 unsigned long long diffusion_fft_fallbacks();
 void diffusion_reset_fft_fallbacks();
 
+// `allow_gpu_fft` offers the FFT branch to gpu::fft_convolve first (#216) --
+// the SAME operator in f32 on the device, not the Gaussian-mixture surrogate
+// that rides allow_gpu_diffusion_filter. It is a Fast GPU route: on any refusal
+// the pass falls through to the CPU transform with nothing written, so the
+// output is either the device's f32 answer or the host's f64 one, never a mix.
 void apply_diffusion_filter_um(double* raw, int w, int h,
                                const DiffusionFilterParams& params,
-                               double pixel_size_um);
+                               double pixel_size_um,
+                               bool allow_gpu_fft = false);
 
 // ---------------------------------------------------------------------------
 // Separable Gaussian-mixture approximation of the diffusion PSF (#213).

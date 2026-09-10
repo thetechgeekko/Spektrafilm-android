@@ -333,6 +333,121 @@ struct GrainSampleDiagnostics {
 bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
                   GrainSampleDiagnostics* diagnostics);
 
+// Filming pointwise stages on the GPU (#218; shader gpu/filming_stage.comp).
+//
+// These are the two halves of the filming stage that render_pointwise_chain
+// already knows how to compute but never gets to, because that route is
+// all-or-nothing: spektra.cpp's pointwise_route_ineligibility refuses it the
+// moment grain, halation, camera diffusion, a lens blur or a scan spatial
+// effect is active, which is every render a user actually makes. Splitting the
+// kernel at the log10 makes each half a NODE the pipeline can call on its own,
+// with the spatial passes running between them exactly as they do on the CPU.
+//
+// FAST GPU. f32 against the CPU's f64, tolerance-bounded, never parity
+// evidence -- the same contract as every other pass in this header.
+
+struct FilmingStageDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "";     // process-lifetime literal
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
+// EXPOSE: ProPhoto RGB -> camera raw irradiance, via the Hanatos2025 tc_lut
+// (tc_edge*tc_edge*3 doubles, the NdArray the profile loader produces).
+//
+// Exactly one of `rgb_f64` and `rgb_f32` is the source, matching the engine's
+// two entry points: expose() takes a float64 plane, expose_f32_gain() takes the
+// float32 preprocess output plus the auto-exposure gain. `gain` multiplies the
+// source and is 1.0 for the f64 path.
+//
+// Exactly one of `out_raw` (the linear irradiance the spatial stages consume)
+// and `out_log_raw` (the log10 folded in) must be non-null -- that mirrors
+// expose_impl's `pointwise_fused` split, which exists so a 12 MP render need
+// not materialise a 288 MB f64 plane it will not read.
+bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
+                    uint32_t npix, const double* tc_lut, uint32_t tc_edge,
+                    double exposure_multiplier, double* out_raw,
+                    float* out_log_raw, FilmingStageDiagnostics* diagnostics);
+
+// DEVELOP: density_curves.py::interpolate_exposure_to_density. `axis` is the
+// per-channel axis that function builds (log_exposure[k] / gamma[c], points*3)
+// and `curve` the NORMALIZED density curves (points*3); both are the host's to
+// compute, as everywhere else here. The POINTWISE DIR couplers are deliberately
+// not folded in -- on a real render the coupler correction is diffused, which is
+// a spatial pass with its own kernel.
+bool filming_develop(const float* log_raw, uint32_t npix, const float* axis,
+                     const float* curve, uint32_t points, float* out_density,
+                     FilmingStageDiagnostics* diagnostics);
+
+// f32 FFT convolution on the GPU (#216; shader gpu/fft_convolve.comp).
+//
+// Computes the SAME operator kernels/fft_convolve.h computes -- the direct
+// diffusion loop, reassociated through a transform -- in f32 on the device. That
+// operator is 6.9 s of a 10.9 s 12.5 MP export with Black Pro-Mist on, i.e. 63%
+// of the engine, and the CPU runs its column pass on one core.
+//
+// f32 IS NOT THE RISK, and that is measured rather than assumed:
+// tools/gpu_probe/probe_f32_fft_main.cpp ran the engine's own templated
+// implementation at both precisions on the real Black Pro-Mist PSF and got
+// max_abs 1.2e-06 against a scene peaking at 3.8 -- inside the 1e-4 parity band
+// -- and 0.000 8-bit display codes.
+//
+// FAST GPU. The transform is f32 where the CPU's is f64, and it is a FULL
+// complex transform where the CPU exploits Hermitian symmetry, so the rounding
+// differs by construction. Tolerance-bounded, never parity evidence.
+//
+// SCRATCH IS WHAT CAPS THE TRANSFORM. Two complex ping-pong planes plus the
+// kernel spectrum is 3 * n^2 * 8 bytes: 25 MB at n = 1024, 402 MB at n = 4096
+// and 1.6 GB at n = 8192. The CPU path affords 8192 because its spectra are
+// n x (n/2+1) real-to-complex; this one does not, so it refuses above
+// kFftGpuMaxTransform and the caller runs the CPU path for kernels that need a
+// larger transform.
+constexpr int kFftGpuMaxTransform = 4096;
+
+// Planes cross in f64, exactly as HalationScatterRequest does, and the f32
+// conversion happens inside the mapped upload. The engine's diffusion stage
+// holds f64 planes; taking f32 here would force a whole extra staging copy of
+// the padded plane -- 176 MB per channel at a 12.5 MP Black Pro-Mist export --
+// for no numerical gain, since the device rounds to f32 either way.
+struct FftConvolveRequest {
+    // The reflect-padded plane, ph = height + ks - 1 rows by pw = width + ks - 1
+    // columns, row-major with stride pw. Same layout kernels/fft_convolve.h takes.
+    const double* padded = nullptr;
+    int pw = 0;
+    int ph = 0;
+    const double* kern = nullptr;   // ks x ks row-major; ks odd and >= 1
+    int ks = 0;
+    int width = 0;
+    int height = 0;
+    // Output addressing, matching the CPU entry point: the component at (x, y)
+    // is written to out[(y * width + x) * out_stride + out_offset], so an
+    // interleaved RGB plane is filled one channel per call.
+    int out_stride = 1;
+    int out_offset = 0;
+    int max_transform = kFftGpuMaxTransform;
+};
+
+struct FftConvolveDiagnostics {
+    bool attempted = false;
+    bool engaged = false;
+    const char* reason = "";     // process-lifetime literal
+    int transform_size = 0;      // n actually used
+    uint32_t tiles = 0;          // overlap-save tiles, one submission each
+    uint32_t dispatches = 0;
+    double upload_ms = 0.0;
+    double gpu_ms = 0.0;
+    double readback_ms = 0.0;
+};
+
+// Writes width*height components through `out` only when the whole pass
+// succeeded; on any refusal `out` is untouched and the caller runs the CPU
+// convolution. Never throws.
+bool fft_convolve(const FftConvolveRequest& request, double* out,
+                  FftConvolveDiagnostics* diagnostics);
+
 // In-emulsion scatter + back-reflection halation on the GPU (issue #206; shader
 // gpu/halation_scatter.comp, adapted from spektrafilm OFX). Same model and
 // parameters as model/diffusion.cpp::apply_halation_um, computed in f32 on the

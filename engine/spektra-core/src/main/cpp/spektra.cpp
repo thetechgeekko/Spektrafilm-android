@@ -2047,6 +2047,16 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // byte-identical to before this change. That is what keeps the 44 goldens green.
     const bool fast_gpu_route = (p->allow_gpu_scan != 0);
     fparams.allow_gpu_halation = fast_gpu_route;
+    // The diffusion FFT convolution (#216). Same latch as halation and for the
+    // same reason: it is the SAME operator the CPU runs, in f32, so it belongs
+    // with the tolerance-bounded routes and not with fast_sampler's
+    // different-realisation export-only one. It is NOT allow_gpu_diffusion_filter
+    // -- that latch carries the Gaussian-mixture SURROGATE, whose measured error
+    // is 18-37%, and the two must never share a flag.
+    fparams.allow_gpu_diffusion_fft = fast_gpu_route;
+    // The pointwise filming halves (#218), same latch again: same operator,
+    // f32 instead of f64, tolerance-bounded and never parity evidence.
+    fparams.allow_gpu_filming = fast_gpu_route;
     fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
     // The grain sampler does NOT ride that latch, and the difference is the whole
     // point of separating them.
@@ -2581,6 +2591,16 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // byte-identical to before this change. That is what keeps the 44 goldens green.
     const bool fast_gpu_route = (p->allow_gpu_scan != 0);
     fparams.allow_gpu_halation = fast_gpu_route;
+    // The diffusion FFT convolution (#216). Same latch as halation and for the
+    // same reason: it is the SAME operator the CPU runs, in f32, so it belongs
+    // with the tolerance-bounded routes and not with fast_sampler's
+    // different-realisation export-only one. It is NOT allow_gpu_diffusion_filter
+    // -- that latch carries the Gaussian-mixture SURROGATE, whose measured error
+    // is 18-37%, and the two must never share a flag.
+    fparams.allow_gpu_diffusion_fft = fast_gpu_route;
+    // The pointwise filming halves (#218), same latch again: same operator,
+    // f32 instead of f64, tolerance-bounded and never parity evidence.
+    fparams.allow_gpu_filming = fast_gpu_route;
     fparams.dir_couplers.allow_gpu_diffusion = fast_gpu_route;
     // The grain sampler does NOT ride that latch, and the difference is the whole
     // point of separating them.

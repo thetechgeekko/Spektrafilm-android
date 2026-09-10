@@ -10,6 +10,10 @@
 #   grain: Android NDK 28.2.13676358, the pinned build NDK (#214).
 #   glare: Android NDK 28.2.13676358, the pinned build NDK (#215).
 #   fft_convolve: Android NDK 28.2.13676358, the pinned build NDK (#216).
+#   filming_stage: Android NDK 28.2.13676358, the pinned build NDK (#218).
+#     It duplicates filming.comp's math ON PURPOSE, split at the log10 so
+#     the spatial stages can run between the halves; filming.comp keeps its
+#     NDK 27 bytes because the #148 device evidence is bound to them.
 # Digests are over LF content, which is what git stores; a Windows working tree
 # checks these files out with CRLF, so normalise before comparing.
 # Exact command (run once for each source/output pair from this directory):
@@ -26,5 +30,7 @@ DA8CA6ED04D424271F96D49FCE4A2F3789FA049293008E4E58BE208E96126618  grain.comp
 37A752EE30DC74B3E30EB529098808C55C546B173D077E9A7ED72C2A9EB6D569  grain_spv.inc
 C9C3264DA66C17E10BD81B5DAA5F2F5820449003E079A85DDD10EAF91B769065  glare.comp
 F015F7D02872ECA7D1A57644679D205B0DFA72D301060590532A6653197CB161  glare_spv.inc
-22E2C8B836EF1C55EC8E3CF54E4C2FB4633E0B5747905F9F03207C3CEF7910B3  fft_convolve.comp
-9BAC11556E21DDAB4799752E18BF8568A9505260C74121302AFD8606B182CB47  fft_convolve_spv.inc
+74AF343EA6AB20DF16EB1EE8953F1078359C04D1DA67CB1A4B76CA4DA2891709  fft_convolve.comp
+BE14CCA19334D508D2817F0CE2C45B55D9B1A64B213AE2A042FC56BB5BBA2315  fft_convolve_spv.inc
+23528F77F9C0AF871882A7F4FDEFAC07588571E322D772EAB1FE963C9CF6F8C5  filming_stage.comp
+439AD34192D9AC96E4720EAA21D60A4275D4BBAAA1BA6EF05CC7CFD24942BAB5  filming_stage_spv.inc

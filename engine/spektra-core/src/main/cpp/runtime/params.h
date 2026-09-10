@@ -94,7 +94,19 @@ struct FilmingParams {
     //
     // Kept wired rather than deleted because the pass, the fit and the probe are the
     // evidence for the next attempt; see docs/research/spektrafilm-ofx-port.md.
+    // The two POINTWISE filming halves on the GPU (#218): expose and the
+    // density-curve develop. Separate from the spatial latches above because
+    // they are a different kind of pass -- no neighbourhood, no scratch, and no
+    // FIR/IIR class question -- and because a user turning off a bloom should
+    // not also turn off the exposure kernel.
+    bool allow_gpu_filming = false;
     bool allow_gpu_diffusion_filter = false;
+    // The diffusion FFT convolution on the GPU (#216) -- the SAME operator the
+    // CPU runs, in f32, not the Gaussian-mixture surrogate above. Separate latch
+    // on purpose: the two routes differ from the CPU by ~1e-6 and by 18-37%
+    // respectively, so one flag must never enable both. Off by default until the
+    // device A/B says it wins.
+    bool allow_gpu_diffusion_fft = false;
 
     // Camera lens blur, in micrometres (camera.lens_blur_um). Applied in expose()
     // on the float64 raw irradiance, AFTER the optical diffusion filter and BEFORE

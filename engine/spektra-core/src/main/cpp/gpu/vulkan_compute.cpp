@@ -89,6 +89,20 @@ bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
     if (d) { *d = GlareDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool filming_expose(const double*, const float*, double, uint32_t, const double*,
+                    uint32_t, double, double*, float*, FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
+bool filming_develop(const float*, uint32_t, const float*, const float*, uint32_t,
+                     float*, FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
+bool fft_convolve(const FftConvolveRequest&, double*, FftConvolveDiagnostics* d) {
+    if (d) { *d = FftConvolveDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool grain_sample(const GrainSampleRequest&, float*, GrainSampleDiagnostics* d) {
     if (d) { *d = GrainSampleDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
@@ -118,7 +132,10 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <vector>
 
 #include "gpu/cctf_encode_spv.h"
+#include "gpu/fft_convolve_spv.h"
+#include "gpu/filming_stage_spv.h"
 #include "gpu/filming_spv.h"
+#include "kernels/fft_convolve.h"
 #include "gpu/glare_spv.h"
 #include "gpu/grain_spv.h"
 #include "gpu/halation_scatter_spv.h"
@@ -215,6 +232,14 @@ struct Ctx {
     // glare.comp (#215): same four-binding shape again (xyz in, xyz out, blur
     // taps, one unused slot the layout requires).
     Kernel glareK;
+    // fft_convolve.comp (#216): the same four-binding shape once more (complex
+    // ping-pong A and B, the twiddle + kernel-spectrum table, the real padded
+    // plane). Its push block is larger than the scan one, which is the only
+    // reason build_scan_pipeline takes a push size.
+    Kernel fftK;
+    // filming_stage.comp (#218): four bindings again -- source, destination,
+    // the tc_lut and the concatenated axis|curve table.
+    Kernel filmK;
     // halation_scatter.comp (#206): one pipeline, eleven descriptor sets (one
     // per buffer-role permutation of the op sequence), four device-local
     // whole-frame work buffers, one mapped staging band, one frame-floats
@@ -517,6 +542,8 @@ struct Ctx {
         destroyKernel(scanLin);
         destroyKernel(grainK);
         destroyKernel(glareK);
+        destroyKernel(fftK);
+        destroyKernel(filmK);
     }
     void destroyHalation() {
         if (!device) return;
@@ -610,7 +637,11 @@ struct ScanPush { uint32_t npix; float m[12]; };  // std430 push constant (match
 // Build one kernel's persistent pipeline objects (everything except the
 // grow-only image buffers) from its SPIR-V blob. Called once per kernel; on
 // failure the caller tears down via destroyScan().
-bool build_scan_pipeline(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t spvBytes) {
+// `pushBytes` exists because gpu/fft_convolve.comp's push block (72 bytes) is
+// wider than ScanPush (52). Declaring a range shorter than the shader reads is
+// invalid use that a driver may honour or not, so the size is the caller's.
+bool build_scan_pipeline(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t spvBytes,
+                         uint32_t pushBytes = sizeof(ScanPush)) {
     VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     smci.codeSize = spvBytes;
     smci.pCode = spv;
@@ -628,7 +659,7 @@ bool build_scan_pipeline(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t spv
     dlci.pBindings = b;
     if (vkCreateDescriptorSetLayout(c.device, &dlci, nullptr, &s.dsl) != VK_SUCCESS) return false;
 
-    VkPushConstantRange pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ScanPush)};
+    VkPushConstantRange pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0, pushBytes};
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plci.setLayoutCount = 1;
     plci.pSetLayouts = &s.dsl;
@@ -1813,6 +1844,623 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
     if (!ok) {
         c.destroyScan();
         return give_up("dispatch-failed");
+    }
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
+// --- filming pointwise stages (#218) ----------------------------------------
+namespace {
+
+// std430 push constant; must match filming_stage.comp's Push block exactly.
+struct FilmingStagePush {
+    uint32_t npix;
+    uint32_t groups_x;
+    uint32_t total_groups;
+    uint32_t mode;
+    uint32_t flags;
+    int32_t L;
+    int32_t n;
+    float exp_mult;
+    float src_gain;
+};
+static_assert(sizeof(FilmingStagePush) == 36, "push block must match filming_stage.comp");
+
+constexpr uint32_t kFilmModeExpose = 0u;
+constexpr uint32_t kFilmModeDevelop = 1u;
+constexpr uint32_t kFilmFlagLog10 = 1u;
+
+// One dispatch, four buffers, one upload and one readback. Both entry points
+// funnel through here because they differ only in which table they carry and
+// what the source/destination element types are.
+struct FilmingStageRun {
+    uint32_t mode = 0;
+    uint32_t flags = 0;
+    uint32_t npix = 0;
+    const double* src_f64 = nullptr;   // exactly one of these two
+    const float* src_f32 = nullptr;
+    // Binding 2 is the tc_lut and binding 3 the concatenated axis|curve, and
+    // each mode leaves the other empty. The shader's interp_curve reads BOTH
+    // halves of the curve table from binding 3, so the axis and the curve must
+    // land in ONE buffer, not one binding each.
+    const double* tc_table = nullptr;   // f64: the profile's NdArray, converted on upload
+    size_t tc_count = 0;
+    const float* curve_axis = nullptr;
+    const float* curve_values = nullptr;
+    size_t curve_count = 0;            // per half, i.e. points*3
+    int32_t L = 0;
+    int32_t n = 0;
+    float exp_mult = 1.0f;
+    float src_gain = 1.0f;
+    double* dst_f64 = nullptr;         // exactly one of these two
+    float* dst_f32 = nullptr;
+};
+
+bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+
+    if (r.npix == 0) return give_up("empty-frame");
+    if ((r.src_f64 == nullptr) == (r.src_f32 == nullptr)) return give_up("bad-source");
+    if ((r.dst_f64 == nullptr) == (r.dst_f32 == nullptr)) return give_up("bad-destination");
+    if (r.tc_count == 0 && r.curve_count == 0) return give_up("null-table");
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return give_up("gpu-unavailable");
+    const VkPhysicalDeviceLimits& limits = c.properties.limits;
+    Ctx::Kernel& s = c.filmK;
+
+    const PointwiseDispatchGrid grid =
+        plan_pointwise_dispatch(r.npix, limits.maxComputeWorkGroupCount[0],
+                                limits.maxComputeWorkGroupCount[1]);
+    if (!grid.valid) return give_up("dispatch-too-large");
+
+    const size_t comps = static_cast<size_t>(r.npix) * 3;
+    const VkDeviceSize planeBytes = static_cast<VkDeviceSize>(comps) * sizeof(float);
+    // The layout has four bindings and every one must be backed, so the table
+    // the active mode does not use still gets a minimal buffer rather than a
+    // null descriptor.
+    const VkDeviceSize tblABytes =
+        r.tc_count ? static_cast<VkDeviceSize>(r.tc_count) * sizeof(float) : 16;
+    const VkDeviceSize tblBBytes =
+        r.curve_count ? static_cast<VkDeviceSize>(r.curve_count) * 2 * sizeof(float) : 16;
+    if (planeBytes > limits.maxStorageBufferRange ||
+        tblABytes > limits.maxStorageBufferRange)
+        return give_up("buffer-too-large");
+
+    bool ok = false;
+    do {
+        if (!s.pipelineReady &&
+            !build_scan_pipeline(c, s, kFilmingStageSpv, sizeof(kFilmingStageSpv),
+                                 sizeof(FilmingStagePush)))
+            break;
+        const bool hadIn = s.in.cap >= planeBytes && s.in.buf;
+        const bool hadOut = s.out.cap >= planeBytes && s.out.buf;
+        const bool hadA = s.dyeB.cap >= tblABytes && s.dyeB.buf;
+        const bool hadB = s.cmfB.cap >= tblBBytes && s.cmfB.buf;
+        if (!c.ensureBuf(s.in, planeBytes)) break;
+        if (!c.ensureBuf(s.out, planeBytes)) break;
+        if (!c.ensureBuf(s.dyeB, tblABytes)) break;
+        if (!c.ensureBuf(s.cmfB, tblBBytes)) break;
+        if (!hadIn || !hadOut || !hadA || !hadB) {
+            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkDescriptorBufferInfo dbi[4];
+            VkWriteDescriptorSet wds[4];
+            for (uint32_t i = 0; i < 4; ++i) {
+                dbi[i] = VkDescriptorBufferInfo{bufs[i], 0, caps[i]};
+                wds[i] = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                wds[i].dstSet = s.dset;
+                wds[i].dstBinding = i;
+                wds[i].descriptorCount = 1;
+                wds[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                wds[i].pBufferInfo = &dbi[i];
+            }
+            vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+        }
+
+        const auto t_up = std::chrono::steady_clock::now();
+        {
+            float* dst = static_cast<float*>(s.in.mapped);
+            if (r.src_f64) {
+                const double* src = r.src_f64;
+                parallel_for(0, static_cast<int>(comps), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i)
+                        dst[i] = static_cast<float>(src[i]);
+                });
+            } else {
+                std::memcpy(dst, r.src_f32, static_cast<size_t>(planeBytes));
+            }
+            if (r.tc_count) {
+                float* tc = static_cast<float*>(s.dyeB.mapped);
+                for (size_t i = 0; i < r.tc_count; ++i)
+                    tc[i] = static_cast<float>(r.tc_table[i]);
+            }
+            if (r.curve_count) {
+                float* cv = static_cast<float*>(s.cmfB.mapped);
+                std::memcpy(cv, r.curve_axis, r.curve_count * sizeof(float));
+                std::memcpy(cv + r.curve_count, r.curve_values,
+                            r.curve_count * sizeof(float));
+            }
+        }
+        d.upload_ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - t_up).count();
+
+        FilmingStagePush push{};
+        push.npix = r.npix;
+        push.groups_x = grid.groups_x;
+        push.total_groups = grid.total_groups;
+        push.mode = r.mode;
+        push.flags = r.flags;
+        push.L = r.L;
+        push.n = r.n;
+        push.exp_mult = r.exp_mult;
+        push.src_gain = r.src_gain;
+
+        const auto t_gpu = std::chrono::steady_clock::now();
+        bool dispatch_ok = true;
+        do {
+            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { dispatch_ok = false; break; }
+            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) { dispatch_ok = false; break; }
+            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
+                                    &s.dset, 0, nullptr);
+            vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(FilmingStagePush), &push);
+            vkCmdDispatch(s.cmd, grid.groups_x, grid.groups_y, 1);
+            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) { dispatch_ok = false; break; }
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &s.cmd;
+            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
+            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { dispatch_ok = false; break; }
+            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
+        } while (false);
+        d.gpu_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - t_gpu).count();
+        if (!dispatch_ok) break;
+
+        const auto t_back = std::chrono::steady_clock::now();
+        {
+            const float* src = static_cast<const float*>(s.out.mapped);
+            if (r.dst_f64) {
+                double* dst = r.dst_f64;
+                parallel_for(0, static_cast<int>(comps), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(src[i]);
+                });
+            } else {
+                std::memcpy(r.dst_f32, src, static_cast<size_t>(planeBytes));
+            }
+        }
+        d.readback_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_back).count();
+        ok = true;
+    } while (false);
+
+    if (!ok) {
+        c.destroyScan();
+        return give_up("dispatch-failed");
+    }
+    d.engaged = true;
+    d.reason = "";
+    if (diagnostics) *diagnostics = d;
+    return true;
+}
+
+}  // namespace
+
+bool filming_expose(const double* rgb_f64, const float* rgb_f32, double gain,
+                    uint32_t npix, const double* tc_lut, uint32_t tc_edge,
+                    double exposure_multiplier, double* out_raw,
+                    float* out_log_raw, FilmingStageDiagnostics* diagnostics) {
+    if (tc_lut == nullptr || tc_edge < 2 || !std::isfinite(gain) ||
+        !std::isfinite(exposure_multiplier)) {
+        if (diagnostics) {
+            *diagnostics = FilmingStageDiagnostics{};
+            diagnostics->attempted = true;
+            diagnostics->reason = "invalid-request";
+        }
+        return false;
+    }
+    FilmingStageRun r;
+    r.mode = kFilmModeExpose;
+    r.flags = out_log_raw ? kFilmFlagLog10 : 0u;
+    r.npix = npix;
+    r.src_f64 = rgb_f64;
+    r.src_f32 = rgb_f32;
+    r.src_gain = static_cast<float>(gain);
+    r.tc_table = tc_lut;
+    r.tc_count = static_cast<size_t>(tc_edge) * tc_edge * 3;
+    r.L = static_cast<int32_t>(tc_edge);
+    r.n = 2;   // unused by MODE_EXPOSE, but must stay a valid curve length
+    r.exp_mult = static_cast<float>(exposure_multiplier);
+    r.dst_f64 = out_raw;
+    r.dst_f32 = out_log_raw;
+    return run_filming_stage(r, diagnostics);
+}
+
+bool filming_develop(const float* log_raw, uint32_t npix, const float* axis,
+                     const float* curve, uint32_t points, float* out_density,
+                     FilmingStageDiagnostics* diagnostics) {
+    if (log_raw == nullptr || axis == nullptr || curve == nullptr || points < 2) {
+        if (diagnostics) {
+            *diagnostics = FilmingStageDiagnostics{};
+            diagnostics->attempted = true;
+            diagnostics->reason = "invalid-request";
+        }
+        return false;
+    }
+    FilmingStageRun r;
+    r.mode = kFilmModeDevelop;
+    r.flags = 0u;              // the caller already holds log-exposure
+    r.npix = npix;
+    r.src_f32 = log_raw;
+    r.curve_axis = axis;
+    r.curve_values = curve;
+    r.curve_count = static_cast<size_t>(points) * 3;
+    r.L = 2;
+    r.n = static_cast<int32_t>(points);
+    r.dst_f32 = out_density;
+    return run_filming_stage(r, diagnostics);
+}
+
+// --- f32 FFT convolution (#216) ---------------------------------------------
+//
+// The host owns every decision, as everywhere else here: the transform size
+// comes from the CPU path's own cost model (kernels/fft_convolve.h's
+// fft_convolve_transform_size, so the two paths tile identically), the twiddle
+// table is generated in f64 and uploaded as f32, and the tile geometry is
+// resolved before a command buffer exists. The shader owns no parameter.
+//
+// ONE SUBMISSION PER TILE, not one per convolution. A 4096 transform is 52
+// dispatches over 16.7M elements each; batching a whole multi-tile convolution
+// into one command buffer is the shape that trips the ~2 s GPU watchdog. A tile
+// is the natural unit anyway -- it is what the CPU path loops over.
+namespace {
+
+// std430 push constant; must match fft_convolve.comp's Push block exactly.
+struct FftPush {
+    uint32_t op;
+    uint32_t n;
+    uint32_t stage;
+    uint32_t sign_neg;
+    uint32_t src_is_a;
+    uint32_t groups_x;
+    uint32_t pad_w;
+    uint32_t pad_h;
+    uint32_t tile_x;
+    uint32_t tile_y;
+    uint32_t out_w;
+    uint32_t out_h;
+    uint32_t out_x;
+    uint32_t out_y;
+    uint32_t out_stride;
+    uint32_t out_offset;
+    uint32_t kern_offset;
+    float scale;
+};
+static_assert(sizeof(FftPush) == 72, "push block must match fft_convolve.comp");
+
+constexpr uint32_t kFftOpPack = 0u;
+constexpr uint32_t kFftOpStage = 1u;
+constexpr uint32_t kFftOpTranspose = 2u;
+constexpr uint32_t kFftOpMul = 3u;
+constexpr uint32_t kFftOpUnpack = 4u;
+constexpr uint32_t kFftOpStage4 = 5u;
+
+}  // namespace
+
+bool fft_convolve(const FftConvolveRequest& r, double* out,
+                  FftConvolveDiagnostics* diagnostics) {
+    FftConvolveDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+
+    // Every shape question is answered before Vulkan is touched, so a bad
+    // request can never half-write the caller's output.
+    if (out == nullptr || r.padded == nullptr || r.kern == nullptr)
+        return give_up("null-span");
+    if (r.ks < 1 || (r.ks % 2) == 0) return give_up("kernel-not-odd");
+    if (r.width < 1 || r.height < 1) return give_up("empty-frame");
+    if (r.pw != r.width + r.ks - 1 || r.ph != r.height + r.ks - 1)
+        return give_up("geometry-mismatch");
+    if (r.out_stride < 1 || r.out_offset < 0 || r.out_offset >= r.out_stride)
+        return give_up("bad-out-addressing");
+
+    const int w = r.width, h = r.height, ks = r.ks, pw = r.pw, ph = r.ph;
+    int cap = r.max_transform;
+    if (cap > kFftGpuMaxTransform) cap = kFftGpuMaxTransform;
+    const int n = fft_convolve_transform_size(w, h, ks, cap);
+    d.transform_size = n;
+    // fft_convolve_transform_size raises its own cap to keep B = n - ks + 1
+    // positive, so a kernel wider than kFftGpuMaxTransform comes back ABOVE the
+    // ceiling rather than as a failure. That is the scratch refusal.
+    if (n <= 0 || (n & (n - 1)) != 0 || n < ks + 1) return give_up("transform-invalid");
+    if (n > kFftGpuMaxTransform) return give_up("transform-too-large");
+
+    const uint32_t un = static_cast<uint32_t>(n);
+    const int block = n - ks + 1;
+
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok) return give_up("gpu-unavailable");
+    const VkPhysicalDeviceLimits& limits = c.properties.limits;
+    Ctx::Kernel& s = c.fftK;
+
+    // Buffer roles: in = complex A, out = complex B, dyeB = twiddles + kernel
+    // spectrum, cmfB = the real plane (padded input, then the output window).
+    const uint64_t complexCount = static_cast<uint64_t>(n) * n;
+    const VkDeviceSize complexBytes = complexCount * 8;             // vec2 f32
+    // A FULL turn of twiddles, not a half one: a radix-4 group needs
+    // W^(3*k*step), whose index reaches 3n/4. n extra vec2 is 32 KB at n = 4096.
+    const uint32_t kernOffset = un;                                 // in vec2 units
+    const VkDeviceSize twBytes = (static_cast<uint64_t>(kernOffset) + complexCount) * 8;
+    const uint64_t paddedCount = static_cast<uint64_t>(pw) * ph;
+    const uint64_t outCount = static_cast<uint64_t>(w) * h;
+    const VkDeviceSize realBytes = (paddedCount + outCount) * sizeof(float);
+    if (complexBytes > limits.maxStorageBufferRange ||
+        twBytes > limits.maxStorageBufferRange ||
+        realBytes > limits.maxStorageBufferRange)
+        return give_up("buffer-too-large");
+
+    uint32_t dispatches = 0;
+    bool grid_ok = true;
+
+    bool ok = false;
+    do {
+        if (!s.pipelineReady &&
+            !build_scan_pipeline(c, s, kFftConvolveSpv, sizeof(kFftConvolveSpv),
+                                 sizeof(FftPush)))
+            break;
+
+        const bool hadA = s.in.cap >= complexBytes && s.in.buf;
+        const bool hadB = s.out.cap >= complexBytes && s.out.buf;
+        const bool hadTw = s.dyeB.cap >= twBytes && s.dyeB.buf;
+        const bool hadReal = s.cmfB.cap >= realBytes && s.cmfB.buf;
+        if (!c.ensureBuf(s.in, complexBytes)) break;
+        if (!c.ensureBuf(s.out, complexBytes)) break;
+        if (!c.ensureBuf(s.dyeB, twBytes)) break;
+        if (!c.ensureBuf(s.cmfB, realBytes)) break;
+        if (!hadA || !hadB || !hadTw || !hadReal) {
+            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkDescriptorBufferInfo dbi[4];
+            VkWriteDescriptorSet wds[4];
+            for (uint32_t i = 0; i < 4; ++i) {
+                dbi[i] = VkDescriptorBufferInfo{bufs[i], 0, caps[i]};
+                wds[i] = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                wds[i].dstSet = s.dset;
+                wds[i].dstBinding = i;
+                wds[i].descriptorCount = 1;
+                wds[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                wds[i].pBufferInfo = &dbi[i];
+            }
+            vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+        }
+
+        // Twiddles, in f64, once per call. w[k] = exp(-2*pi*i*k/n) for k < n;
+        // the inverse conjugates in the shader rather than needing a second table.
+        const auto t_up = std::chrono::steady_clock::now();
+        {
+            float* tw = static_cast<float*>(s.dyeB.mapped);
+            const double step = -6.283185307179586476925286766559 / static_cast<double>(n);
+            for (uint32_t k = 0; k < un; ++k) {
+                const double a = step * static_cast<double>(k);
+                tw[k * 2 + 0] = static_cast<float>(std::cos(a));
+                tw[k * 2 + 1] = static_cast<float>(std::sin(a));
+            }
+        }
+        float* real = static_cast<float*>(s.cmfB.mapped);
+        for (size_t i = 0; i < static_cast<size_t>(ks) * ks; ++i)
+            real[i] = static_cast<float>(r.kern[i]);
+        d.upload_ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - t_up).count();
+
+        auto barrier = [](VkCommandBuffer cmd, VkAccessFlags src, VkAccessFlags dst,
+                          VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+            VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+            mb.srcAccessMask = src;
+            mb.dstAccessMask = dst;
+            vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 1, &mb, 0, nullptr, 0, nullptr);
+        };
+
+        auto emit = [&](VkCommandBuffer cmd, FftPush& p, uint32_t op, uint64_t threads) {
+            if (threads == 0 || threads > UINT32_MAX) { grid_ok = false; return; }
+            const PointwiseDispatchGrid g = plan_pointwise_dispatch(
+                static_cast<uint32_t>(threads), limits.maxComputeWorkGroupCount[0],
+                limits.maxComputeWorkGroupCount[1]);
+            if (!g.valid) { grid_ok = false; return; }
+            p.op = op;
+            p.groups_x = g.groups_x;
+            vkCmdPushConstants(cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(FftPush), &p);
+            vkCmdDispatch(cmd, g.groups_x, g.groups_y, 1);
+            barrier(cmd, VK_ACCESS_SHADER_WRITE_BIT,
+                    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            ++dispatches;
+        };
+
+        // One 2D transform: FFT along rows, transpose, FFT along rows again.
+        // Forward leaves the spectrum TRANSPOSED and the inverse undoes exactly
+        // that, so the pair round-trips to the original orientation.
+        // RADIX 4 WHEREVER IT FITS. Each butterfly pass reads and writes the whole
+        // n x n plane -- 268 MB of traffic at n = 4096 -- so the pass COUNT is the
+        // cost, and radix 4 needs log4(n) passes where radix 2 needs log2(n).
+        // A radix-2 pass finishes the sizes whose log2 is odd; `stage` carries the
+        // accumulated L rather than a stage index precisely so the two can mix.
+        auto emit_fft2 = [&](VkCommandBuffer cmd, FftPush& p, bool inverse) {
+            p.sign_neg = inverse ? 0u : 1u;
+            for (int pass = 0; pass < 2; ++pass) {
+                for (uint32_t L = 1u; L < un;) {
+                    p.stage = L;
+                    if ((un / L) % 4u == 0u) {
+                        emit(cmd, p, kFftOpStage4, complexCount / 4);
+                        L *= 4u;
+                    } else {
+                        emit(cmd, p, kFftOpStage, complexCount / 2);
+                        L *= 2u;
+                    }
+                    p.src_is_a ^= 1u;
+                }
+                if (pass == 0) {
+                    emit(cmd, p, kFftOpTranspose, complexCount);
+                    p.src_is_a ^= 1u;
+                }
+            }
+        };
+
+        auto run = [&](auto&& record) -> bool {
+            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) return false;
+            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) return false;
+            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
+                                    &s.dset, 0, nullptr);
+            // Host writes (the twiddles, the padded plane) and the previous
+            // submission's transfer into the twiddle buffer both have to be
+            // visible to this one. Cross-submission visibility is not implied by
+            // the fence for device reads, so it is stated once per command buffer.
+            barrier(s.cmd, VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            record(s.cmd);
+            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) return false;
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &s.cmd;
+            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) return false;
+            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+                return false;
+            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) return false;
+            return true;
+        };
+
+        const auto t_gpu = std::chrono::steady_clock::now();
+        bool gpu_ok = true;
+
+        // Pass 1: the kernel spectrum. The kernel sits at the ORIGIN of the
+        // transform, not centred -- centring would translate the image by the
+        // radius (see the derivation in kernels/fft_convolve.cpp). It is
+        // transformed by the same code as the tiles, so it lands in the same
+        // transposed layout the pointwise multiply expects.
+        {
+            FftPush p{};
+            p.n = un;
+            p.pad_w = static_cast<uint32_t>(ks);
+            p.pad_h = static_cast<uint32_t>(ks);
+            p.kern_offset = kernOffset;
+            p.src_is_a = 1u;
+            gpu_ok = run([&](VkCommandBuffer cmd) {
+                emit(cmd, p, kFftOpPack, complexCount);   // always writes A
+                emit_fft2(cmd, p, /*inverse=*/false);
+                barrier(cmd, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                VkBufferCopy region{0, static_cast<VkDeviceSize>(kernOffset) * 8, complexBytes};
+                vkCmdCopyBuffer(cmd, p.src_is_a ? s.in.buf : s.out.buf, s.dyeB.buf,
+                                1, &region);
+            });
+        }
+
+        // The padded plane, over the kernel staging area it no longer needs.
+        // Non-finite inputs are guarded HERE and not in the shader: the CPU path
+        // propagates them through a linear sum, but a NaN in a transform poisons
+        // the whole tile rather than one output, which is a different failure.
+        if (gpu_ok && grid_ok) {
+            const auto t_up2 = std::chrono::steady_clock::now();
+            parallel_for(0, static_cast<int>(ph), [&](int lo, int hi) {
+                for (int y = lo; y < hi; ++y) {
+                    const double* src = r.padded + static_cast<size_t>(y) * pw;
+                    float* dst = real + static_cast<size_t>(y) * pw;
+                    for (int x = 0; x < pw; ++x) {
+                        const double v = src[x];
+                        dst[x] = std::isfinite(v) ? static_cast<float>(v) : 0.0f;
+                    }
+                }
+            });
+            d.upload_ms += std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - t_up2).count();
+        }
+
+        // Pass 2..N: one overlap-save tile per submission.
+        const float scale = static_cast<float>(
+            1.0 / (static_cast<double>(n) * static_cast<double>(n)));
+        for (int y0 = 0; gpu_ok && grid_ok && y0 < h; y0 += block) {
+            for (int x0 = 0; gpu_ok && grid_ok && x0 < w; x0 += block) {
+                const int ny = std::min(block, h - y0);
+                const int nx = std::min(block, w - x0);
+                FftPush p{};
+                p.n = un;
+                p.pad_w = static_cast<uint32_t>(pw);
+                p.pad_h = static_cast<uint32_t>(ph);
+                p.tile_x = static_cast<uint32_t>(x0);
+                p.tile_y = static_cast<uint32_t>(y0);
+                p.out_w = static_cast<uint32_t>(nx);
+                p.out_h = static_cast<uint32_t>(ny);
+                p.out_x = static_cast<uint32_t>(ks - 1);
+                p.out_y = static_cast<uint32_t>(ks - 1);
+                p.out_stride = static_cast<uint32_t>(w);
+                p.out_offset = static_cast<uint32_t>(
+                    paddedCount + static_cast<uint64_t>(y0) * w + x0);
+                p.kern_offset = kernOffset;
+                p.scale = scale;
+                p.src_is_a = 1u;
+                gpu_ok = run([&](VkCommandBuffer cmd) {
+                    emit(cmd, p, kFftOpPack, complexCount);
+                    emit_fft2(cmd, p, /*inverse=*/false);
+                    emit(cmd, p, kFftOpMul, complexCount);      // in place: no flip
+                    emit_fft2(cmd, p, /*inverse=*/true);
+                    emit(cmd, p, kFftOpUnpack,
+                         static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny));
+                });
+                ++d.tiles;
+            }
+        }
+        d.gpu_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - t_gpu).count();
+        d.dispatches = dispatches;
+        if (!gpu_ok) break;
+        if (!grid_ok) { d.reason = "dispatch-too-large"; break; }
+
+        const auto t_back = std::chrono::steady_clock::now();
+        {
+            const float* src = real + paddedCount;
+            const int stride = r.out_stride, offset = r.out_offset;
+            parallel_for(0, h, [&](int lo, int hi) {
+                for (int y = lo; y < hi; ++y) {
+                    const float* srow = src + static_cast<size_t>(y) * w;
+                    double* drow = out + static_cast<size_t>(y) * w * stride + offset;
+                    for (int x = 0; x < w; ++x)
+                        drow[static_cast<size_t>(x) * stride] = srow[x];
+                }
+            });
+        }
+        d.readback_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_back).count();
+        ok = true;
+    } while (false);
+
+    if (!ok) {
+        const char* reason = d.reason && d.reason[0] ? d.reason : "dispatch-failed";
+        c.destroyScan();
+        return give_up(reason);
     }
     d.engaged = true;
     d.reason = "";

@@ -24,10 +24,12 @@
 #include <map>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
 
+#include "gpu/vulkan_compute.h"
 #include "kernels/exponential_filter.h"
 #include "kernels/fft_convolve.h"
 #include "kernels/parallel.h"
@@ -869,9 +871,27 @@ bool diffusion_mixture_psf_error(const DiffusionFilterParams& params,
     return true;
 }
 
+// Observability for the GPU FFT route, on the same SPK_GPU_DEBUG switch the
+// scanning stage uses. Without it a refusal is invisible: the CPU transform
+// runs, the picture is right, and the only symptom is a stage timing that did
+// not improve -- which reads as "the GPU is not much faster here" rather than
+// as "the GPU never ran". That misreading has already cost this project one
+// wrong conclusion about the glare field.
+static void note_gpu_fft(int channel, const gpu::FftConvolveDiagnostics& d) {
+    const char* dbg = std::getenv("SPK_GPU_DEBUG");
+    if (!dbg || dbg[0] != '1') return;
+    std::fprintf(stderr,
+                 "[gpu-debug] diffusion_fft ch%d engaged=%d reason=%s n=%d "
+                 "tiles=%u dispatches=%u up=%.1f gpu=%.1f down=%.1f\n",
+                 channel, d.engaged ? 1 : 0, d.reason && *d.reason ? d.reason : "-",
+                 d.transform_size, d.tiles, d.dispatches, d.upload_ms, d.gpu_ms,
+                 d.readback_ms);
+}
+
 void apply_diffusion_filter_um(double* raw, int w, int h,
                                const DiffusionFilterParams& params,
-                               double pixel_size_um) {
+                               double pixel_size_um,
+                               bool allow_gpu_fft) {
     if (!params.active) return;
     if (params.strength <= 0.0 || params.spatial_scale <= 0.0) return;
     if (w <= 0 || h <= 0 || pixel_size_um <= 0.0) return;
@@ -1010,6 +1030,39 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
         // The direct loop stays reachable only when the cost model selects it for
         // a small kernel. Once FFT is selected, memory denial must fail closed.
         if (use_fft(w, h, ks)) {
+            // The same operator on the GPU, in f32 (#216). Tried BEFORE the host
+            // reservation below, because that reservation is what turns a
+            // memory-tight device into a bad_alloc and there is no reason to pay
+            // it for a transform that is not going to run here. On refusal
+            // nothing is written and the CPU transform runs over the same memory.
+            // Same tuning-knob convention as SPK_DIFFUSION_FFT above, and it
+            // exists for the same reason: the ONLY honest way to size this route
+            // is to interleave GPU and CPU runs of the SAME binary on a cooled
+            // device. Two separately-built binaries drift by ~30% between
+            // captures, which is larger than the effect being measured.
+            char gpu_knob[92] = {0};
+            if (const char* gv = tuning_knob("SPK_DIFFUSION_GPU",
+                                             "debug.spektra.diffgpu",
+                                             gpu_knob, sizeof(gpu_knob))) {
+                if (gv[0] == '0') allow_gpu_fft = false;
+                if (gv[0] == '1') allow_gpu_fft = true;
+            }
+            if (allow_gpu_fft) {
+                gpu::FftConvolveRequest gr;
+                gr.padded = padded.data();
+                gr.pw = pw;
+                gr.ph = ph;
+                gr.kern = kern.data();
+                gr.ks = ks;
+                gr.width = w;
+                gr.height = h;
+                gr.out_stride = 3;
+                gr.out_offset = c;
+                gpu::FftConvolveDiagnostics gd{};
+                const bool gpu_ok = gpu::fft_convolve(gr, blurred.data(), &gd);
+                note_gpu_fft(c, gd);
+                if (gpu_ok) continue;
+            }
             int cap = 0;
             const memory::MemoryReservation scratch =
                 reserve_fft_scratch(w, h, ks, &cap);

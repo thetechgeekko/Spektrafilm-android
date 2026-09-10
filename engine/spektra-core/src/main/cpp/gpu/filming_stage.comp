@@ -1,0 +1,212 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Spektrafilm Android contributors
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// The filming pointwise math as TWO SEPARABLE STAGES (#218), so it can run on
+// the GPU during a real render instead of only on a render with every other
+// effect switched off.
+//
+// WHY THIS EXISTS ALONGSIDE gpu/filming.comp, which computes the same numbers.
+// filming.comp fuses expose and develop into one dispatch, and that fusion is
+// exactly what makes it unusable here: in the real pipeline the SPATIAL stages
+// -- highlight boost, camera diffusion, lens blur, halation -- sit between the
+// two halves, operating on the linear irradiance before the log10.
+// spektra.cpp's pointwise_route_ineligibility spells the consequence out: the
+// fused route refuses on `grain`, `halation`, `camera_diffusion`,
+// `camera_lens_blur`, `scan_spatial` and a dozen more, i.e. on every render a
+// user actually makes. Splitting the kernel at the log10 removes that
+// all-or-nothing property: expose runs, the spatial passes run, develop runs.
+//
+// filming.comp IS DELIBERATELY LEFT ALONE. Its SPIR-V is pinned to an NDK 27
+// glslc build because the #148 connected-device oracle evidence is bound to
+// those exact bytes (see pointwise_spirv.sha256). Editing it would detach that
+// evidence for a route that still has its own use. The cost is that the expose
+// and develop math now exists in two places; the mitigation is that
+// gpu/tests/test_filming_stage_gpu.cpp checks BOTH halves against the CPU
+// implementation, which is the thing either copy is supposed to agree with.
+//
+// FOUR BINDINGS, because that is what Ctx::Kernel/build_scan_pipeline already
+// provides and this needed no pipeline code of its own. filming.comp spends one
+// binding per curve; here the four curves are concatenated into one buffer at
+// fixed strides of n*3, which the shader derives from `n` alone.
+#define WG 64
+layout(local_size_x = WG) in;
+
+layout(std430, binding = 0) readonly  buffer InBuf  { float src[];    };
+layout(std430, binding = 1) writeonly buffer OutBuf { float dst[];    };
+layout(std430, binding = 2) readonly  buffer TcLut  { float tc_lut[]; };
+// axis | curve, each n*3 floats, channel-interleaved exactly as the host holds
+// them. For MODE_DEVELOP the host supplies the axis
+// interpolate_exposure_to_density builds -- xp[k,c] = log_exposure[k]/gamma[c] --
+// and the NORMALIZED density curves. Deriving either here would break the rule
+// that the kernel owns no parameter.
+layout(std430, binding = 3) readonly  buffer Curves { float curves[]; };
+
+#define MODE_EXPOSE  0u   // ProPhoto RGB -> raw irradiance
+#define MODE_DEVELOP 1u   // exposure -> density curves
+
+// FLAG_LOG10 folds log10(max(v,0) + 1e-10) into whichever stage carries it.
+// The CPU pipeline puts that log10 in two different places depending on what
+// else is switched on: expose_impl fuses it into the float32 output when every
+// stage between the irradiance and the log10 is inert, and otherwise applies it
+// as its own pass after halation. One flag reproduces both placements instead
+// of needing two shaders.
+#define FLAG_LOG10   1u
+
+layout(push_constant) uniform Push {
+    uint  npix;
+    uint  groups_x;
+    uint  total_groups;
+    uint  mode;
+    uint  flags;
+    int   L;              // tc_lut edge
+    int   n;              // curve points
+    float exp_mult;       // 2^exposure_compensation_ev
+    // Auto-exposure gain, applied to the SOURCE. expose_f32_gain folds
+    // 2^ae_ev into the float32 read rather than materialising a scaled plane;
+    // this reproduces that placement instead of asking the caller to pre-scale.
+    float src_gain;
+} pc;
+
+float finite_or(float v, float fallback) {
+    return (isnan(v) || isinf(v)) ? fallback : v;
+}
+
+float mitchell(float t) {
+    const float B = 1.0 / 3.0;
+    const float C = 1.0 / 3.0;
+    float x = abs(t);
+    if (x < 1.0)
+        return (1.0 / 6.0) * ((12.0 - 9.0 * B - 6.0 * C) * x * x * x +
+                              (-18.0 + 12.0 * B + 6.0 * C) * x * x + (6.0 - 2.0 * B));
+    if (x < 2.0)
+        return (1.0 / 6.0) * ((-B - 6.0 * C) * x * x * x + (6.0 * B + 30.0 * C) * x * x +
+                              (-12.0 * B - 48.0 * C) * x + (8.0 * B + 24.0 * C));
+    return 0.0;
+}
+
+int safe_index(int idx, int L) {
+    if (idx < 0) return -idx;
+    if (idx >= L) return 2 * (L - 1) - idx;
+    return idx;
+}
+
+float cubic_bf(float coord, int L, out int base) {
+    if (coord <= 0.0) coord = 0.0;
+    else if (coord >= float(L - 1)) coord = float(L - 1);
+    if (coord >= float(L - 1)) { base = L - 2; return 1.0; }
+    int b = int(floor(coord));
+    base = clamp(b, 0, L - 2);
+    return coord - float(base);
+}
+
+float log10f(float v) { return log2(v) * 0.30102999566398119521; }
+
+// Per-channel linear interpolation with clamped ends, over the concatenated
+// axis|curve buffer. Same structure as filming.comp's interp_dev/interp_dir,
+// which the #148 device gate checked against the CPU.
+float interp_curve(float x, int c) {
+    int n = pc.n;
+    int curve_off = n * 3;
+    float x0 = curves[c];
+    float xN = curves[(n - 1) * 3 + c];
+    if (x <= x0) return curves[curve_off + c];
+    if (x >= xN) return curves[curve_off + (n - 1) * 3 + c];
+    int low = 0;
+    int high = n - 1;
+    while (high - low > 1) {
+        int middle = low + (high - low) / 2;
+        if (x < curves[middle * 3 + c]) high = middle;
+        else low = middle;
+    }
+    float xl = curves[low * 3 + c];
+    float xh = curves[high * 3 + c];
+    float dx = xh - xl;
+    float t = (dx != 0.0) ? (x - xl) / dx : 0.0;
+    float y0 = curves[curve_off + low * 3 + c];
+    float y1 = curves[curve_off + high * 3 + c];
+    return y0 + t * (y1 - y0);
+}
+
+void main() {
+    uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+    if (group >= pc.total_groups) return;
+    uint p = group * WG + gl_LocalInvocationID.x;
+    if (p >= pc.npix) return;
+
+    if (pc.mode == MODE_EXPOSE) {
+        // Explicit containment, as in filming.comp: an invalid source component
+        // becomes black before any coordinate or index calculation.
+        float r   = finite_or(src[p * 3u + 0u], 0.0) * pc.src_gain;
+        float g   = finite_or(src[p * 3u + 1u], 0.0) * pc.src_gain;
+        float bch = finite_or(src[p * 3u + 2u], 0.0) * pc.src_gain;
+
+        float X = 0.7815775876144749 * r + 0.12427353211547089 * g + 0.05084064074531416 * bch;
+        float Y = 0.28106991658512925 * r + 0.7111246050020191 * g + 0.0078043503519031375 * bch;
+        float Z = 0.0008785229438793953 * r + 0.0012166783269637077 * g + 0.9190442562432091 * bch;
+        float bsum = X + Y + Z;
+        float denom = max(bsum, 1e-10);
+        float cx = clamp(X / denom, 0.0, 1.0);
+        float cy = clamp(Y / denom, 0.0, 1.0);
+        float qy = clamp(cy / max(1.0 - cx, 1e-10), 0.0, 1.0);
+        float qx = clamp((1.0 - cx) * (1.0 - cx), 0.0, 1.0);
+        float bmul = finite_or(bsum, 0.0);
+
+        int L = pc.L;
+        float scale = float(L - 1);
+        int xb; float xf = cubic_bf(qx * scale, L, xb);
+        int yb; float yf = cubic_bf(qy * scale, L, yb);
+        float wx[4] = float[4](mitchell(xf + 1.0), mitchell(xf),
+                               mitchell(xf - 1.0), mitchell(xf - 2.0));
+        float wy[4] = float[4](mitchell(yf + 1.0), mitchell(yf),
+                               mitchell(yf - 1.0), mitchell(yf - 2.0));
+        float acc0 = 0.0, acc1 = 0.0, acc2 = 0.0, wsum = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            int xi = safe_index(xb - 1 + i, L);
+            for (int j = 0; j < 4; ++j) {
+                int yj = safe_index(yb - 1 + j, L);
+                float w = wx[i] * wy[j];
+                wsum += w;
+                int cell = (xi * L + yj) * 3;
+                acc0 += w * tc_lut[cell + 0];
+                acc1 += w * tc_lut[cell + 1];
+                acc2 += w * tc_lut[cell + 2];
+            }
+        }
+        if (wsum != 0.0) { acc0 /= wsum; acc1 /= wsum; acc2 /= wsum; }
+
+        // The three spatial stages operate on the LINEAR irradiance, so the
+        // log10 is folded in only when the host says every one of them is inert
+        // -- the same condition expose_impl's `pointwise_fused` tests.
+        float v0 = acc0 * bmul * pc.exp_mult;
+        float v1 = acc1 * bmul * pc.exp_mult;
+        float v2 = acc2 * bmul * pc.exp_mult;
+        if ((pc.flags & FLAG_LOG10) != 0u) {
+            dst[p * 3u + 0u] = finite_or(log10f(max(v0, 0.0) + 1e-10), -10.0);
+            dst[p * 3u + 1u] = finite_or(log10f(max(v1, 0.0) + 1e-10), -10.0);
+            dst[p * 3u + 2u] = finite_or(log10f(max(v2, 0.0) + 1e-10), -10.0);
+        } else {
+            dst[p * 3u + 0u] = finite_or(v0, 0.0);
+            dst[p * 3u + 1u] = finite_or(v1, 0.0);
+            dst[p * 3u + 2u] = finite_or(v2, 0.0);
+        }
+        return;
+    }
+
+    // MODE_DEVELOP: density_curves.py::interpolate_exposure_to_density. The
+    // POINTWISE DIR couplers are NOT folded in: on a real render the coupler
+    // correction is diffused (dir_couplers.diffusion_size_um > 0), which is a
+    // spatial pass with its own kernel, and a fused pointwise tail here would be
+    // dead code that could silently disagree with it.
+    float e0 = finite_or(src[p * 3u + 0u], 0.0);
+    float e1 = finite_or(src[p * 3u + 1u], 0.0);
+    float e2 = finite_or(src[p * 3u + 2u], 0.0);
+    if ((pc.flags & FLAG_LOG10) != 0u) {
+        e0 = log10f(max(e0, 0.0) + 1e-10);
+        e1 = log10f(max(e1, 0.0) + 1e-10);
+        e2 = log10f(max(e2, 0.0) + 1e-10);
+    }
+    dst[p * 3u + 0u] = finite_or(interp_curve(e0, 0), 1e4);
+    dst[p * 3u + 1u] = finite_or(interp_curve(e1, 1), 1e4);
+    dst[p * 3u + 2u] = finite_or(interp_curve(e2, 2), 1e4);
+}
