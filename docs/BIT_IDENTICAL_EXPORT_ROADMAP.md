@@ -92,9 +92,40 @@ decoded samples + normalized metadata; complete container SHA-256 where C4 appli
 ### Tier A reference device and protocol
 
 Only one gating tier: **SM-S948W, Android 16 / API 36**, release R8-minified signed candidate,
-foreground, screen on, unplugged, battery > 50%, ambient thermal state, 60 s idle between runs,
-**11 runs with the first discarded**, p50/p95 taken from the remaining 10. Any other device is
-reported, never gating.
+foreground, screen on, unplugged, battery > 50%,
+**each run entered below skin 35.5 °C / AP 38.0 °C on the live thermal HAL**,
+**11 runs with the first discarded**, p50/p95 taken from the remaining 10, with the entry
+temperature recorded per run. Any other device is reported, never gating.
+
+> **The temperature gate replaces the "60 s idle between runs" this protocol used to specify,
+> and that change is load-bearing.** A fixed idle is not a cool-down. A paired A/B measured
+> behind a 45 s idle reported −12.7 % with a ±1077 ms spread; the identical two builds behind
+> the temperature gate reported −20.8 % with ±283 ms. On a phone that has just run several
+> 12.5 MP exports, a fixed wait buys nothing, and the resulting spread is wide enough to invert
+> a paired result.
+>
+> **This does not replace `require_thermal_status`; it is stricter than it, and it applies where
+> that one does not.** Two distinct gaps, both measured:
+>
+> - `thermal_status` reports *throttling severity*, not temperature. Across the discarded hot
+>   run its 20 samples read status 0, 1 **and** 2 — so it does catch a badly overheated phone.
+>   But it is coarse: status can sit at 0 while the AP is more than 10 °C above where a cooled
+>   run starts, and that difference alone moved the paired figure by 8 points.
+> - The harness applies the protocol idle and the per-sample thermal wait **only when a capture
+>   is gating** (`runs >= gate_runs`). A `runs=1` smoke capture gets no wait at all, which is
+>   exactly how the −12.7 % run was taken. Any capture that will be quoted — gating or not —
+>   needs the gate applied explicitly.
+>
+> Use [`tools/baseline/wait_cool.sh`](../tools/baseline/wait_cool.sh), which polls the **live**
+> HAL block. `dumpsys thermalservice` prints a "Cached temperatures" block first that can be
+> minutes stale — it read AP 47.1 °C while the live block read 34.7 °C on the same call. The
+> script exits non-zero at its cap so a hot sample is recorded as hot rather than silently
+> trusted.
+>
+> Publish the per-run entry temperatures **and** the per-sample `thermal_status` alongside
+> p50/p95. Without them a reader cannot tell a qualifying run from a lucky one, and the
+> cooled run above is distinguishable from the discarded one precisely because it held
+> status 0 across all 32 samples. Evidence: `docs/research/perf-lab.md` §28.
 
 ### Workload cells
 
