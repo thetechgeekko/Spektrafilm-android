@@ -290,10 +290,13 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
     if (spk_stage_timings(timings, sizeof(timings)) > 0) {
         const bool diffusion_ran =
             std::strstr(timings, "camera_diffusion") != nullptr;
-        char fallback[48] = {0};
+        char fallback[160] = {0};
         if (diffusion_ran) {
-            std::snprintf(fallback, sizeof(fallback), " fft_fallbacks=%llu",
-                          snapshot.fft_fallbacks);
+            std::snprintf(fallback, sizeof(fallback),
+                          " fft_fallbacks=%llu fft=n%d/ks%d/convs%llu/clamped%llu",
+                          snapshot.fft_fallbacks, snapshot.fft_min_n,
+                          snapshot.fft_max_ks,
+                          snapshot.fft_convolutions, snapshot.fft_clamped);
         }
         __android_log_print(ANDROID_LOG_INFO, "Spektra",
                             "stage timings ms [%s id=%llu]: %s%s",

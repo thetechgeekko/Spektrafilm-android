@@ -436,6 +436,10 @@ int fft_max_transform() {
 // twice.
 memory::MemoryReservation reserve_fft_scratch(int w, int h, int ks, int* chosen_cap) {
     const int ceiling = fft_max_transform();
+    // What the selector would pick if memory were free. Recorded next to what it
+    // actually got, because the gap between them is invisible otherwise and is
+    // worth 5x on a 12 MP frame.
+    const int unclamped_n = fft_convolve_transform_size(w, h, ks, ceiling);
     memory::MemoryBudget& budget = memory::process_memory_budget();
     for (int cap = ceiling; cap >= 16; cap /= 2) {
         const int n = fft_convolve_transform_size(w, h, ks, cap);
@@ -445,6 +449,7 @@ memory::MemoryReservation reserve_fft_scratch(int w, int h, int ks, int* chosen_
             memory::MemoryDomain::NativeScratch, memory::MemoryStage::Spatial);
         if (reservation) {
             *chosen_cap = cap;
+            stage_timing_note_fft_choice(n, unclamped_n, ks);
             return reservation;
         }
         // The size the selector picked is independent of the ceiling below some

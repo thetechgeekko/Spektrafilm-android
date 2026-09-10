@@ -200,6 +200,17 @@ struct StageTimingSnapshot {
     int status_code = 0;
     double wall_ms = 0.0;
     unsigned long long fft_fallbacks = 0;
+    // Which FFT the diffusion convolution actually got (#148). The transform
+    // size swings this stage by 5x on a 12 MP frame, and reserve_fft_scratch
+    // steps it DOWN whenever the memory budget cannot admit the scratch -- so
+    // the same build can be fast or slow on the same image depending only on
+    // what else is resident. None of that was observable: the only FFT signal
+    // was a count of direct-loop fallbacks, which stays 0 in exactly the case
+    // that hurts. Observability only, nothing gates on it.
+    unsigned long long fft_convolutions = 0;   // convolutions that took the FFT
+    unsigned long long fft_clamped = 0;        // ...of which the budget shrank
+    int fft_min_n = 0;                         // smallest transform actually used
+    int fft_max_ks = 0;                        // largest kernel that got here
     GpuPointwiseTimingSnapshot gpu_pointwise;
     GpuHalationTimingSnapshot gpu_halation;
     GpuHalationTimingSnapshot gpu_dir_diffusion;
@@ -259,6 +270,19 @@ inline const StageTimingSnapshot& stage_timing_snapshot() {
 
 inline uint64_t stage_timing_render_id() {
     return stage_timing_snapshot().render_id;
+}
+
+// One diffusion convolution's transform choice. `unclamped_n` is what the
+// selector would have picked against the ceiling alone, so n < unclamped_n is
+// exactly "the memory budget made this slower".
+inline void stage_timing_note_fft_choice(int n, int unclamped_n, int ks) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    StageTimingSnapshot& c = state.current;
+    ++c.fft_convolutions;
+    if (n > 0 && unclamped_n > 0 && n < unclamped_n) ++c.fft_clamped;
+    if (n > 0 && (c.fft_min_n == 0 || n < c.fft_min_n)) c.fft_min_n = n;
+    if (ks > c.fft_max_ks) c.fft_max_ks = ks;
 }
 
 inline void stage_timing_note_fft_fallback() {
