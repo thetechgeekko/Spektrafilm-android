@@ -748,7 +748,13 @@ void expose_impl(const Src& src, int width, int height,
             // runtime/stages/scanning.cpp): routing a small FIR through the
             // mixture kernel costs a whole-frame f64 staging vector and two
             // conversions, which is more than the blur itself.
-            gaussian_blur_per_channel_d(raw, width, height, 3, sg);
+            // Same knob as the scanner blurs (runtime/stages/scanning.cpp):
+            // the GPU route is correct and gated, and its last export
+            // measurement predates the work buffers becoming GPU-private.
+            const char* gv = std::getenv("SPK_GPU_BLUR");
+            if (!(gv && gv[0] == '1' &&
+                  gpu::gaussian_blur_rgb(raw, width, height, sg)))
+                gaussian_blur_per_channel_d(raw, width, height, 3, sg);
         }
     }
 

@@ -1126,10 +1126,15 @@ bool render_pointwise_chain(const PointwiseChainRequest& request,
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
                                  VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
                              true, d) ||
+        // Interstage only -- the chain uploads through frameStaging and reads
+        // back through it, so the ping buffers are never host-mapped and should
+        // be GPU-private where the device offers it.
         !c.ensureResidentBuf(s.ping[0], prepared.frameBytes, kPingUsage,
-                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false, d) ||
+                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false, d,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
         !c.ensureResidentBuf(s.ping[1], prepared.frameBytes, kPingUsage,
-                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false, d)) {
+                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false, d,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
         return fail(PointwiseFallbackReason::allocation_failed);
     }
 
@@ -2905,11 +2910,18 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     if (!c.ensureBuf(k.staging, stagingBytes)) { d.reason = "allocation-failed"; return false; }
     if (!c.ensureBuf(k.frame, kHalFrameFloatCount * sizeof(float))) { d.reason = "allocation-failed"; return false; }
     PointwiseChainDiagnostics scratchDiagnostics{};
+    // GPU-private if the device has such a type: these four are written and read
+    // only by the IIR/FIR sweeps, never by the host (the staging band above is
+    // what the host touches). Without the avoid mask, DEVICE_LOCAL on a
+    // unified-memory phone resolves to the first matching type, which is
+    // normally HOST_VISIBLE|HOST_COHERENT -- see findPreferredMemType.
     for (ResidentBuf& b : k.work) {
         if (!c.ensureResidentBuf(b, frameBytes,
                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, scratchDiagnostics)) {
+                                 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false,
+                                 scratchDiagnostics,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
             d.reason = "allocation-failed";
             return false;
         }
@@ -3242,8 +3254,19 @@ bool gaussian_blur_rgb(double* rgb, int width, int height,
     // even faster there than its own FIR at sigma 0.7. The threshold is the same
     // kSmallSigmaMax the CPU dispatches on, which is not a coincidence: it is
     // exactly where the CPU stops paying for radius.
+    //
+    // THAT MEASUREMENT PREDATES THE WORK BUFFERS BECOMING GPU-PRIVATE. It was
+    // taken while halation's four whole-frame scratch buffers were allocated
+    // from the first DEVICE_LOCAL memory type, which on a unified-memory phone
+    // is normally HOST_VISIBLE|HOST_COHERENT -- so the pass was paying
+    // host-coherent bandwidth for every sweep, which is exactly the cost a wide
+    // IIR blur is made of. SPK_GPU_BLUR_IIR=1 lifts the gate so the two can be
+    // compared again in one binary rather than argued about.
+    double iir_gate = 3.0;
+    if (const char* v = std::getenv("SPK_GPU_BLUR_IIR"))
+        if (v[0] == '1') iir_gate = std::numeric_limits<double>::infinity();
     for (int c = 0; c < 3; ++c)
-        if (sigma_px[c] >= 3.0) return false;
+        if (sigma_px[c] >= iir_gate) return false;
 
     // One component per DISTINCT sigma. The mixture carries one sigma per
     // component and a weight per component per channel, so equal sigmas collapse

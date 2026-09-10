@@ -53,6 +53,24 @@ bool gpu_debug_enabled() {
     return on;
 }
 
+// The GPU Gaussian blur, offered to a CPU call site.
+//
+// It is off unless BOTH the frame latch and the knob agree, and it exists as a
+// helper rather than three copies because the interesting part is the same at
+// every site: gpu::gaussian_blur_rgb returns false without touching the plane on
+// any refusal, so the CPU call below always runs over the same memory.
+//
+// SPK_GPU_BLUR=1 turns it on. It is a knob rather than a default because the
+// last measurement said the GPU route LOSES inside a real export (scan_spatial
+// 54.0 ms CPU against 67.3 ms with the GPU blur wired in, at 1440x1440) -- and
+// that measurement predates halation's work buffers becoming GPU-private, which
+// is the cost it was actually measuring.
+bool try_gpu_blur(double* rgb, int width, int height, const double sigma_px[3]) {
+    const char* v = std::getenv("SPK_GPU_BLUR");
+    if (!v || v[0] != '1') return false;
+    return gpu::gaussian_blur_rgb(rgb, width, height, sigma_px);
+}
+
 void gpu_debug_note(const char* what, const char* reason) {
     if (!gpu_debug_enabled()) return;
     std::fprintf(stderr, "[gpu-debug] %s declined: %s\n", what,
@@ -855,9 +873,10 @@ void scan(const Profile& film, const ScanningParams& params,
     // the existing goldens stay bit-exact.
     if (params.lens_blur > 0.0) {
         double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
-        // CPU. The GPU route is measured slower IN AN EXPORT -- see the note on
-        // the unsharp blur below.
-        gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
+        // The GPU route is measured slower IN AN EXPORT -- see the note on the
+        // unsharp blur below -- so it is behind a knob until that is re-measured.
+        if (!try_gpu_blur(lin_rgb, width, height, sg))
+            gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
     }
 
     // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
@@ -888,7 +907,8 @@ void scan(const Profile& film, const ScanningParams& params,
         // what a dedicated small-FIR shader (no mixture machinery, no f64 round
         // trip) would be measured against. Wiring this back on needs that shader
         // first, and a number.
-        gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
+        if (!try_gpu_blur(blur.data(), width, height, sg))
+            gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
         const double amt = params.unsharp_amount;
         // Per-element map with disjoint writes -> deterministic chunks, the same
         // argument the encode below already relies on. It was serial over

@@ -1177,11 +1177,26 @@ void apply_highlight_boost(double* raw, int w, int h, const HalationParams& para
     const double midgray = 0.184;  // boost_highlights default; filming.py passes none.
     const size_t total = static_cast<size_t>(w) * h * 3;
 
-    // max_raw = np.max(x). A plain reduction; max is order-independent, so this is
-    // byte-identical for any worker count (the boost stays thread-invariant).
-    double max_raw = raw[0];
-    for (size_t i = 1; i < total; ++i)
-        if (raw[i] > max_raw) max_raw = raw[i];
+    // max_raw = np.max(x). PARALLEL, and byte-identical for free: max IS
+    // associative and commutative, so unlike a sum it does not care what order
+    // the reduction runs in. That is why this one needs no serial fix-up pass
+    // the way the PSF sum above does.
+    //
+    // It used to be a serial scan over w*h*3 doubles -- 37.5M elements at a
+    // 12.5 MP export, on one core -- which was most of this stage.
+    std::vector<double> row_max(static_cast<size_t>(h));
+    parallel_for_weighted(0, h, w * 3, [&](int lo, int hi) {
+        for (int y = lo; y < hi; ++y) {
+            const double* row = raw + static_cast<size_t>(y) * w * 3;
+            double m = row[0];
+            for (int i = 1; i < w * 3; ++i)
+                if (row[i] > m) m = row[i];
+            row_max[static_cast<size_t>(y)] = m;
+        }
+    });
+    double max_raw = row_max[0];
+    for (int y = 1; y < h; ++y)
+        if (row_max[static_cast<size_t>(y)] > max_raw) max_raw = row_max[static_cast<size_t>(y)];
     if (max_raw == 0.0) {
         for (size_t i = 0; i < total; ++i) raw[i] = 0.0;
         return;
