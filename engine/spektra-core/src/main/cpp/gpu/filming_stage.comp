@@ -57,6 +57,12 @@ shared float s_max[WG];
 #define MODE_UNSHARP 5u   // src + amt * (src - other)
 #define MODE_LOG10   6u   // log10(max(src, 0) + 1e-10), the exposure bridge
 #define MODE_LAYERS  7u   // density_cmy -> the 9 per-sublayer densities
+#define MODE_SUBC    8u   // dst[p,c] = src[p,c] - k[c], a per-CHANNEL constant
+
+// MODE_SUBC exists because "subtract a constant" is not one constant: the grain
+// stage's tail is `out -= density_min[c]`, three different values indexed by
+// channel. A single-scalar subtract would be quietly wrong on two channels out
+// of three, which is the kind of error that survives a mean check.
 
 #define FLAG_POSITIVE 2u  // positive film: negate the query AND the axis
 
@@ -131,6 +137,14 @@ layout(push_constant) uniform Push {
     float boost_scale;
     float boost_a;
     float mix_amount;     // p_s for MODE_MIX, the unsharp amount for MODE_UNSHARP
+    // THREE SCALARS, not an array. A push-constant `float[3]` has a stride of 4
+    // under std430 and 16 under std140, and which one a push block resolves to
+    // is exactly the sort of thing that is easy to be confident about and wrong
+    // about -- a silent 12-byte shift of everything after it. Scalars have the
+    // same layout under either rule.
+    float sub_c0;         // MODE_SUBC: one constant per channel
+    float sub_c1;
+    float sub_c2;
     // Auto-exposure gain, applied to the SOURCE. expose_f32_gain folds
     // 2^ae_ev into the float32 read rather than materialising a scaled plane;
     // this reproduces that placement instead of asking the caller to pre-scale.
@@ -220,6 +234,15 @@ void main() {
 
     if (group >= pc.total_groups) return;
     uint p = group * WG + gl_LocalInvocationID.x;
+
+    if (pc.mode == MODE_SUBC) {
+        // Per PIXEL: three components each, so the channel index is meaningful.
+        if (p >= pc.npix) return;
+        dst[p * 3u + 0u] = finite_or(src[p * 3u + 0u] - pc.sub_c0, 0.0);
+        dst[p * 3u + 1u] = finite_or(src[p * 3u + 1u] - pc.sub_c1, 0.0);
+        dst[p * 3u + 2u] = finite_or(src[p * 3u + 2u] - pc.sub_c2, 0.0);
+        return;
+    }
 
     if (pc.mode == MODE_LAYERS) {
         // Per PIXEL here, not per component: nine outputs each.

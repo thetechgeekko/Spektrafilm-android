@@ -429,8 +429,13 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // density_cmy_out -= density_min
     {
         ScopedGrainPhase _p(GrainPhase::Final);
+        gpu::FilmingStageDiagnostics gd{};
+        const bool on_gpu =
+            grain.allow_gpu_sampler &&
+            gpu::subtract_per_channel(out, out, width, height, grain.density_min, &gd);
         // The sibling conversion ten lines above is already parallel; this one
         // was simply missed. Same shape, same 37.5 M elements at 12.5 MP.
+        if (!on_gpu)
         spk::parallel_for(0, npix, [&](int i0, int i1) {
             for (int i = i0; i < i1; ++i)
                 for (int c = 0; c < 3; ++c)

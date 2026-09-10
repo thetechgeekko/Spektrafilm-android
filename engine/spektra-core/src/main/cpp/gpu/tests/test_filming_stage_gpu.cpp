@@ -565,6 +565,59 @@ void layers_case(bool positive) {
                    : "grain layers match the CPU (negative film)");
 }
 
+// THE PER-CHANNEL CONSTANT SUBTRACT (#223): grain's `out -= density_min[c]`.
+//
+// Trivial arithmetic, so the gate is built around the two ways it goes wrong
+// rather than around the result:
+//
+//   - THREE DIFFERENT CONSTANTS, well separated. A pass that used one scalar for
+//     all three channels, or that read the push block at the wrong offset, is
+//     still perfectly smooth and still shifts the image -- it just shifts two
+//     channels by the wrong amount, which reads as a colour cast and survives
+//     any mean or noise check.
+//   - IN PLACE, because that is how grain calls it (src and dst are both `out`).
+void subc_case() {
+    const int w = 67, h = 5;
+    const int npix = w * h;
+    const double k[3] = {0.07, 0.31, 0.94};   // deliberately far apart
+    std::vector<float> base(static_cast<size_t>(npix) * 3);
+    for (int p = 0; p < npix; ++p)
+        for (int c = 0; c < 3; ++c)
+            base[p * 3 + c] = static_cast<float>(0.5 + 2.0 * (static_cast<double>(p) / npix)
+                                                 + 0.25 * c);
+
+    std::vector<float> cpu(base.size());
+    for (int p = 0; p < npix; ++p)
+        for (int c = 0; c < 3; ++c)
+            cpu[p * 3 + c] = static_cast<float>(
+                static_cast<double>(base[p * 3 + c]) - k[c]);
+
+    std::vector<float> gpu = base;             // IN PLACE, as grain does it
+    spk::gpu::FilmingStageDiagnostics d{};
+    const bool ok = spk::gpu::subtract_per_channel(gpu.data(), gpu.data(), w, h, k, &d);
+    if (!ok) {
+        std::printf("[FAIL] per-channel subtract: refused (%s)\n", d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+    double max_abs = 0.0;
+    double per_ch[3] = {0.0, 0.0, 0.0};
+    for (int p = 0; p < npix; ++p)
+        for (int c = 0; c < 3; ++c) {
+            const double e = std::fabs(static_cast<double>(cpu[p * 3 + c]) - gpu[p * 3 + c]);
+            max_abs = std::max(max_abs, e);
+            per_ch[c] = std::max(per_ch[c], e);
+        }
+    std::printf("  per-channel subtract: max_abs %.3e  per channel %.3e / %.3e / %.3e\n",
+                max_abs, per_ch[0], per_ch[1], per_ch[2]);
+    check(max_abs <= 1e-6, "per-channel subtract matches the CPU");
+    // Reported per channel as well as overall, because the failure this is for
+    // lands on ONE channel and an overall maximum says only "something moved".
+    check(per_ch[0] <= 1e-6 && per_ch[1] <= 1e-6 && per_ch[2] <= 1e-6,
+          "every channel used its own constant");
+}
+
 }  // namespace
 
 int main() {
@@ -580,6 +633,7 @@ int main() {
     log10_case();
     layers_case(/*positive=*/false);
     layers_case(/*positive=*/true);
+    subc_case();
     // A real boost, then the two identities the CPU short-circuits: a
     // non-positive boost_ev, and a protect point at or above the maximum. Both
     // must be REFUSED rather than reproduced -- an identity is cheaper to skip

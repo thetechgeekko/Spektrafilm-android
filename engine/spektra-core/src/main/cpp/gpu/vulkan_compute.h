@@ -435,6 +435,14 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
                      const float* axis, const float* curve, uint32_t points,
                      float* out_density, FilmingStageDiagnostics* diagnostics);
 
+// A PER-CHANNEL CONSTANT SUBTRACT (#223; filming_stage.comp mode 8).
+//
+// The grain stage's tail, `density_cmy -= density_min[c]`. Three constants, one
+// per channel -- not one scalar, which is why it is its own entry point rather
+// than a special case of the blend.
+bool subtract_per_channel(const float* src, float* dst, int width, int height,
+                          const double k[3], FilmingStageDiagnostics* diagnostics);
+
 // THE PER-SUBLAYER DENSITIES on the GPU (#223; filming_stage.comp mode 7).
 //
 // density_curves.py::interp_density_cmy_layers -- nine interpolations per pixel,

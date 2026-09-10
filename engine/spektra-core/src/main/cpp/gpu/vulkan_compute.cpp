@@ -105,6 +105,11 @@ bool filming_expose(const double*, const float*, double, uint32_t, int, int,
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
+bool subtract_per_channel(const float*, float*, int, int, const double*,
+                          FilmingStageDiagnostics* d) {
+    if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
+    return false;
+}
 bool grain_layers(const float*, uint32_t, int, int, const float*, const float*,
                   uint32_t, bool, float*, FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
@@ -2145,9 +2150,12 @@ struct FilmingStagePush {
     float boost_scale;
     float boost_a;
     float mix_amount;
+    float sub_c0;
+    float sub_c1;
+    float sub_c2;
     float src_gain;
 };
-static_assert(sizeof(FilmingStagePush) == 56, "push block must match filming_stage.comp");
+static_assert(sizeof(FilmingStagePush) == 68, "push block must match filming_stage.comp");
 
 constexpr uint32_t kFilmModeExpose = 0u;
 constexpr uint32_t kFilmModeDevelop = 1u;
@@ -2157,6 +2165,7 @@ constexpr uint32_t kFilmModeMix = 4u;
 constexpr uint32_t kFilmModeUnsharp = 5u;
 constexpr uint32_t kFilmModeLog10 = 6u;
 constexpr uint32_t kFilmModeLayers = 7u;
+constexpr uint32_t kFilmModeSubC = 8u;
 constexpr uint32_t kFilmFlagPositive = 2u;
 constexpr uint32_t kFilmFlagLog10 = 1u;
 
@@ -2200,6 +2209,7 @@ struct FilmingStageRun {
     float boost_scale = 0.0f;
     float boost_a = 0.0f;
     float mix_amount = 0.0f;
+    float sub_c[3] = {0.0f, 0.0f, 0.0f};
     // MODE_MIX / MODE_UNSHARP carry their second plane on binding 2, where
     // MODE_EXPOSE carries the tc_lut. Given as f64 because that is what the
     // engine's planes are; converted on upload like everything else.
@@ -2388,6 +2398,9 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
         push.boost_scale = r.boost_scale;
         push.boost_a = r.boost_a;
         push.mix_amount = r.mix_amount;
+        push.sub_c0 = r.sub_c[0];
+        push.sub_c1 = r.sub_c[1];
+        push.sub_c2 = r.sub_c[2];
 
         const auto t_gpu = std::chrono::steady_clock::now();
         bool dispatch_ok = true;
@@ -2511,6 +2524,40 @@ bool filming_develop(const float* log_raw, uint32_t npix, int width, int height,
     r.n = static_cast<int32_t>(points);
     r.dst_f32 = out_density;
     return run_filming_stage(r, diagnostics);
+}
+
+bool subtract_per_channel(const float* src, float* dst, int width, int height,
+                          const double k[3], FilmingStageDiagnostics* diagnostics) {
+    FilmingStageDiagnostics d{};
+    d.attempted = true;
+    auto give_up = [&](const char* reason) {
+        d.reason = reason;
+        if (diagnostics) *diagnostics = d;
+        return false;
+    };
+    if (width <= 0 || height <= 0 || k == nullptr) return give_up("invalid-request");
+    const uint64_t npix64 = static_cast<uint64_t>(width) * height;
+    if (npix64 == 0 || npix64 * 3 > UINT32_MAX) return give_up("invalid-request");
+    for (int i = 0; i < 3; ++i)
+        if (!std::isfinite(k[i])) return give_up("invalid-request");
+    const bool resident = frame_active(width, height);
+    if (!resident && (src == nullptr || dst == nullptr))
+        return give_up("invalid-request");
+
+    FilmingStageRun r;
+    r.mode = kFilmModeSubC;
+    r.npix = static_cast<uint32_t>(npix64);
+    r.width = width;
+    r.height = height;
+    r.src_f32 = resident ? nullptr : src;
+    r.dst_f32 = resident ? nullptr : dst;
+    r.curve_count = 0;
+    r.n = 2;
+    r.L = 2;
+    for (int i = 0; i < 3; ++i) r.sub_c[i] = static_cast<float>(k[i]);
+    if (!run_filming_stage(r, &d)) return give_up(d.reason);
+    if (diagnostics) *diagnostics = d;
+    return true;
 }
 
 bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height,
