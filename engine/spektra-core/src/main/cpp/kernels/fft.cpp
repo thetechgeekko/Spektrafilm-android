@@ -23,7 +23,8 @@ int fft_next_pow2(int v) {
     return n;
 }
 
-FftPlan::FftPlan(int n) : n_(n) {
+template <typename T>
+FftPlanT<T>::FftPlanT(int n) : n_(n) {
     if (n_ < 1) { n_ = 1; }
     levels_ = 0;
     while ((1 << levels_) < n_) ++levels_;
@@ -43,20 +44,21 @@ FftPlan::FftPlan(int n) : n_(n) {
     const int half = n_ / 2;
     tw_.resize(static_cast<size_t>(half) * 2);
     for (int k = 0; k < half; ++k) {
-        double a = -2.0 * M_PI * static_cast<double>(k) / static_cast<double>(n_);
+        T a = -2.0 * M_PI * static_cast<double>(k) / static_cast<double>(n_);
         tw_[static_cast<size_t>(k) * 2 + 0] = std::cos(a);
         tw_[static_cast<size_t>(k) * 2 + 1] = std::sin(a);
     }
 }
 
-void FftPlan::run(double* data, bool inverse) const {
+template <typename T>
+void FftPlanT<T>::run(T* data, bool inverse) const {
     if (n_ <= 1) return;
 
     // Bit-reversal permutation (swap each pair once).
     for (int i = 0; i < n_; ++i) {
         int j = rev_[static_cast<size_t>(i)];
         if (j > i) {
-            double tr = data[2 * i], ti = data[2 * i + 1];
+            T tr = data[2 * i], ti = data[2 * i + 1];
             data[2 * i] = data[2 * j];
             data[2 * i + 1] = data[2 * j + 1];
             data[2 * j] = tr;
@@ -74,16 +76,16 @@ void FftPlan::run(double* data, bool inverse) const {
         for (int base = 0; base < n_; base += len) {
             for (int k = 0; k < half; ++k) {
                 const size_t t = static_cast<size_t>(k) * stride;
-                const double wr = tw_[t * 2 + 0];
-                const double wi = sgn * tw_[t * 2 + 1];
+                const T wr = tw_[t * 2 + 0];
+                const T wi = sgn * tw_[t * 2 + 1];
 
                 const int i0 = base + k;
                 const int i1 = i0 + half;
                 const double ar = data[2 * i0], ai = data[2 * i0 + 1];
                 const double br = data[2 * i1], bi = data[2 * i1 + 1];
 
-                const double tr = br * wr - bi * wi;
-                const double ti = br * wi + bi * wr;
+                const T tr = br * wr - bi * wi;
+                const T ti = br * wi + bi * wr;
 
                 data[2 * i0]     = ar + tr;
                 data[2 * i0 + 1] = ai + ti;
@@ -94,8 +96,10 @@ void FftPlan::run(double* data, bool inverse) const {
     }
 }
 
-void FftPlan::forward(double* data) const { run(data, /*inverse=*/false); }
-void FftPlan::inverse(double* data) const { run(data, /*inverse=*/true); }
+template <typename T>
+void FftPlanT<T>::forward(T* data) const { run(data, /*inverse=*/false); }
+template <typename T>
+void FftPlanT<T>::inverse(T* data) const { run(data, /*inverse=*/true); }
 
 
 // ---------------------------------------------------------------------------
@@ -128,23 +132,25 @@ void FftPlan::inverse(double* data) const { run(data, /*inverse=*/true); }
 // then z = IFFT_M(Z) and x[2k] = Re(z[k]), x[2k+1] = Im(z[k]).
 // ---------------------------------------------------------------------------
 
-RfftPlan::RfftPlan(int n) : n_(n) {
+template <typename T>
+RfftPlanT<T>::RfftPlanT(int n) : n_(n) {
     if (n_ < 2) { n_ = 2; }
     const int m = n_ / 2;
-    half_ = FftPlan(m);
+    half_ = FftPlanT<T>(m);
     tw_.resize(static_cast<size_t>(m + 1) * 2);
     for (int k = 0; k <= m; ++k) {
-        const double a = -2.0 * M_PI * static_cast<double>(k) / static_cast<double>(n_);
+        const T a = -2.0 * M_PI * static_cast<double>(k) / static_cast<double>(n_);
         tw_[static_cast<size_t>(k) * 2 + 0] = std::cos(a);
         tw_[static_cast<size_t>(k) * 2 + 1] = std::sin(a);
     }
 }
 
-void RfftPlan::forward(const double* real_in, double* spectrum_out) const {
+template <typename T>
+void RfftPlanT<T>::forward(const T* real_in, T* spectrum_out) const {
     const int m = n_ / 2;
     // z[k] = x[2k] + i*x[2k+1], transformed in place in the caller's output
     // buffer's first 2*m doubles (it has 2*(m+1), so there is room).
-    std::vector<double> z(static_cast<size_t>(m) * 2);
+    std::vector<T> z(static_cast<size_t>(m) * 2);
     for (int k = 0; k < m; ++k) {
         z[static_cast<size_t>(k) * 2 + 0] = real_in[2 * k];
         z[static_cast<size_t>(k) * 2 + 1] = real_in[2 * k + 1];
@@ -159,40 +165,41 @@ void RfftPlan::forward(const double* real_in, double* spectrum_out) const {
         const double br =  z[static_cast<size_t>(kb) * 2 + 0];
         const double bi = -z[static_cast<size_t>(kb) * 2 + 1];   // conj
 
-        const double er = 0.5 * (ar + br);
-        const double ei = 0.5 * (ai + bi);
+        const T er = 0.5 * (ar + br);
+        const T ei = 0.5 * (ai + bi);
         // (A - B) * (-i/2)
         const double dr = ar - br, di = ai - bi;
-        const double orr =  0.5 * di;
-        const double oi = -0.5 * dr;
+        const T orr =  0.5 * di;
+        const T oi = -0.5 * dr;
 
-        const double wr = tw_[static_cast<size_t>(k) * 2 + 0];
-        const double wi = tw_[static_cast<size_t>(k) * 2 + 1];
+        const T wr = tw_[static_cast<size_t>(k) * 2 + 0];
+        const T wi = tw_[static_cast<size_t>(k) * 2 + 1];
 
         spectrum_out[static_cast<size_t>(k) * 2 + 0] = er + (wr * orr - wi * oi);
         spectrum_out[static_cast<size_t>(k) * 2 + 1] = ei + (wr * oi + wi * orr);
     }
 }
 
-void RfftPlan::inverse(const double* spectrum_in, double* real_out) const {
+template <typename T>
+void RfftPlanT<T>::inverse(const T* spectrum_in, T* real_out) const {
     const int m = n_ / 2;
-    std::vector<double> z(static_cast<size_t>(m) * 2);
+    std::vector<T> z(static_cast<size_t>(m) * 2);
     for (int k = 0; k < m; ++k) {
-        const double xr = spectrum_in[static_cast<size_t>(k) * 2 + 0];
-        const double xi = spectrum_in[static_cast<size_t>(k) * 2 + 1];
-        const double yr =  spectrum_in[static_cast<size_t>(m - k) * 2 + 0];
-        const double yi = -spectrum_in[static_cast<size_t>(m - k) * 2 + 1];  // conj
+        const T xr = spectrum_in[static_cast<size_t>(k) * 2 + 0];
+        const T xi = spectrum_in[static_cast<size_t>(k) * 2 + 1];
+        const T yr =  spectrum_in[static_cast<size_t>(m - k) * 2 + 0];
+        const T yi = -spectrum_in[static_cast<size_t>(m - k) * 2 + 1];  // conj
 
-        const double er = 0.5 * (xr + yr);
-        const double ei = 0.5 * (xi + yi);
+        const T er = 0.5 * (xr + yr);
+        const T ei = 0.5 * (xi + yi);
         const double dr = 0.5 * (xr - yr);
         const double di = 0.5 * (xi - yi);
 
         // O[k] = conj(W_k) * (X[k] - conj(X[M-k]))/2
-        const double wr =  tw_[static_cast<size_t>(k) * 2 + 0];
-        const double wi = -tw_[static_cast<size_t>(k) * 2 + 1];   // conj(W_k)
-        const double orr = wr * dr - wi * di;
-        const double oi = wr * di + wi * dr;
+        const T wr =  tw_[static_cast<size_t>(k) * 2 + 0];
+        const T wi = -tw_[static_cast<size_t>(k) * 2 + 1];   // conj(W_k)
+        const T orr = wr * dr - wi * di;
+        const T oi = wr * di + wi * dr;
 
         // Z[k] = E[k] + i*O[k]
         z[static_cast<size_t>(k) * 2 + 0] = er - oi;
@@ -207,5 +214,12 @@ void RfftPlan::inverse(const double* spectrum_in, double* real_out) const {
         real_out[2 * k + 1] = 2.0 * z[static_cast<size_t>(k) * 2 + 1];
     }
 }
+
+// Explicit instantiations. double is what the engine and the parity suite use;
+// float exists to be MEASURED against it (owner request, 2026-09-10).
+template class FftPlanT<double>;
+template class FftPlanT<float>;
+template class RfftPlanT<double>;
+template class RfftPlanT<float>;
 
 }  // namespace spk

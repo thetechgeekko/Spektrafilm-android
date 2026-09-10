@@ -37,19 +37,34 @@
 #include <vector>
 
 namespace spk {
+//
+// TEMPLATED ON THE SCALAR (owner request, 2026-09-10): "use f32 for the whole
+// thing even if we break parity, test it". The f64 path is unchanged -- FftPlan
+// and RfftPlan are aliases for the double instantiation, so every existing caller
+// compiles to the same code and the parity suite is untouched. The float
+// instantiation exists so the two can be measured against each other AT THE SAME
+// ALGORITHM, which a hand-rolled float FFT in a bench could not do honestly.
+//
+// Twiddles are computed in double and stored as T on purpose. They are constants,
+// so computing them at the working precision would throw away accuracy the host
+// gets for free -- the same rule the GPU passes follow (the kernel derives no
+// parameter of its own).
 
 // Interleaved complex64: re at [2i], im at [2i+1]. Chosen over std::complex so the
 // buffers can be memset/moved as plain doubles and so the layout is explicit.
-using CplxBuf = std::vector<double>;
+template <typename T>
+using CplxBufT = std::vector<T>;
+using CplxBuf = CplxBufT<double>;
 
 // Precomputed twiddles + bit-reversal permutation for one transform size.
 // Build once, reuse across every transform of that size (including across threads
 // — it is read-only after construction).
-class FftPlan {
+template <typename T>
+class FftPlanT {
 public:
-    FftPlan() = default;
+    FftPlanT() = default;
     // n MUST be a power of two and >= 1.
-    explicit FftPlan(int n);
+    explicit FftPlanT(int n);
 
     int size() const { return n_; }
 
@@ -57,20 +72,20 @@ public:
     // sequence of n_ elements, interleaved re/im, starting at `data`.
     // Neither direction scales; inverse_scale() below is applied by the caller
     // exactly once, which keeps the scaling out of the inner loops.
-    void forward(double* data) const;
-    void inverse(double* data) const;
+    void forward(T* data) const;
+    void inverse(T* data) const;
 
     // 1/n, to be applied once after an inverse transform.
-    double inverse_scale() const { return inv_n_; }
+    T inverse_scale() const { return inv_n_; }
 
 private:
-    void run(double* data, bool inverse) const;
+    void run(T* data, bool inverse) const;
 
     int n_ = 0;
     int levels_ = 0;
     double inv_n_ = 0.0;
     std::vector<int> rev_;        // bit-reversal permutation
-    std::vector<double> tw_;      // interleaved cos/-sin twiddles, n_/2 entries
+    std::vector<T> tw_;      // interleaved cos/-sin twiddles, n_/2 entries
 };
 
 // Real-input transform of length n (n a power of two, n >= 2), built on an
@@ -91,29 +106,35 @@ private:
 // Deterministic on the same terms as FftPlan: fixed order, precomputed twiddles,
 // no reduction. forward() and inverse() are exact inverses up to rounding, with
 // inverse() NOT scaled -- apply inverse_scale() once, as with FftPlan.
-class RfftPlan {
+template <typename T>
+class RfftPlanT {
 public:
-    RfftPlan() = default;
-    explicit RfftPlan(int n);
+    RfftPlanT() = default;
+    explicit RfftPlanT(int n);
 
     int size() const { return n_; }
     // Number of complex bins produced: n/2 + 1.
     int bins() const { return n_ / 2 + 1; }
 
     // real[n_] -> spectrum[2 * bins()] interleaved re/im. Buffers must not alias.
-    void forward(const double* real_in, double* spectrum_out) const;
+    void forward(const T* real_in, T* spectrum_out) const;
     // spectrum[2 * bins()] -> real[n_]. Unscaled; multiply by inverse_scale().
     // The input spectrum is READ-ONLY (an internal scratch copy is made), so a
     // caller may reuse a shared kernel spectrum across many inverse transforms.
-    void inverse(const double* spectrum_in, double* real_out) const;
+    void inverse(const T* spectrum_in, T* real_out) const;
 
-    double inverse_scale() const { return half_.size() > 0 ? 1.0 / n_ : 1.0; }
+    T inverse_scale() const { return half_.size() > 0 ? 1.0 / n_ : 1.0; }
 
 private:
     int n_ = 0;
-    FftPlan half_;              // length n_/2
-    std::vector<double> tw_;    // exp(-2*pi*i*k/n_) for k in [0, n_/2], interleaved
+    FftPlanT<T> half_;              // length n_/2
+    std::vector<T> tw_;    // exp(-2*pi*i*k/n_) for k in [0, n_/2], interleaved
 };
+
+using FftPlan = FftPlanT<double>;
+using RfftPlan = RfftPlanT<double>;
+using FftPlanF = FftPlanT<float>;
+using RfftPlanF = RfftPlanT<float>;
 
 // Smallest power of two >= v (v >= 1).
 int fft_next_pow2(int v);

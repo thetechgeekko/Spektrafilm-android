@@ -94,10 +94,16 @@ constexpr int kFftConvMaxTransform = 8192;
 // Returns false and writes nothing only if the arguments are inconsistent.
 // Scratch allocation failure throws std::bad_alloc so a cost-selected FFT can
 // never silently become an effectively unbounded direct convolution.
-bool fft_convolve_same(const double* padded, int pw, int ph,
-                       const double* kern, int ks,
+// TEMPLATED ON THE SCALAR (owner request, 2026-09-10). The double instantiation
+// is what the engine and the parity suite call, unchanged; the float one exists
+// so f32 can be measured against f64 AT THE SAME ALGORITHM. The COST MODEL and
+// the transform-size choice stay in double either way -- they are host planning
+// arithmetic, not image data, and this engine's rule is that planning is f64.
+template <typename T>
+bool fft_convolve_same(const T* padded, int pw, int ph,
+                       const T* kern, int ks,
                        int w, int h,
-                       double* out, int out_stride, int out_offset,
+                       T* out, int out_stride, int out_offset,
                        int max_transform = kFftConvMaxTransform);
 
 #if defined(SPK_FFT_CONVOLVE_TEST_HOOKS)

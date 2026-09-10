@@ -65,9 +65,10 @@ namespace {
 // line and scattered back -- striding the transform through the spectrum directly
 // is dramatically slower. Independent per column, so the parallel split cannot
 // change any result and the determinism contract survives for any worker count.
-void columns(double* spec, int n, int bins, const FftPlan& plan, bool inverse) {
+template <typename T>
+void columns(T* spec, int n, int bins, const FftPlanT<T>& plan, bool inverse) {
     parallel_for(0, bins, [&](int lo, int hi) {
-        std::vector<double> col(static_cast<size_t>(n) * 2);
+        std::vector<T> col(static_cast<size_t>(n) * 2);
         for (int c = lo; c < hi; ++c) {
             for (int r = 0; r < n; ++r) {
                 const size_t s = (static_cast<size_t>(r) * bins + c) * 2;
@@ -96,11 +97,11 @@ void columns(double* spec, int n, int bins, const FftPlan& plan, bool inverse) {
 // n doubles per worker (256 KB total at n=4096 over 8 workers) replaces 134 MB.
 
 // Rows -> r2c spectrum. `fill_row(r, dst)` must write exactly n doubles.
-template <typename FillRow>
-void forward2_rows(FillRow fill_row, double* spec, int n, int bins,
-                   const RfftPlan& rp, const FftPlan& cp) {
+template <typename T, typename FillRow>
+void forward2_rows(FillRow fill_row, T* spec, int n, int bins,
+                   const RfftPlanT<T>& rp, const FftPlanT<T>& cp) {
     parallel_for(0, n, [&](int lo, int hi) {
-        std::vector<double> row(static_cast<size_t>(n));
+        std::vector<T> row(static_cast<size_t>(n));
         for (int r = lo; r < hi; ++r) {
             fill_row(r, row.data());
             rp.forward(row.data(), spec + static_cast<size_t>(r) * bins * 2);
@@ -110,12 +111,12 @@ void forward2_rows(FillRow fill_row, double* spec, int n, int bins,
 }
 
 // r2c spectrum -> rows. Unscaled; the consumer applies 1/(n*n).
-template <typename TakeRow>
-void inverse2_rows(double* spec, TakeRow take_row, int n, int bins,
-                   const RfftPlan& rp, const FftPlan& cp) {
+template <typename T, typename TakeRow>
+void inverse2_rows(T* spec, TakeRow take_row, int n, int bins,
+                   const RfftPlanT<T>& rp, const FftPlanT<T>& cp) {
     columns(spec, n, bins, cp, /*inverse=*/true);
     parallel_for(0, n, [&](int lo, int hi) {
-        std::vector<double> row(static_cast<size_t>(n));
+        std::vector<T> row(static_cast<size_t>(n));
         for (int r = lo; r < hi; ++r) {
             rp.inverse(spec + static_cast<size_t>(r) * bins * 2, row.data());
             take_row(r, row.data());
@@ -177,10 +178,11 @@ int fft_convolve_transform_size(int w, int h, int ks, int max_transform) {
     return best_n;
 }
 
-static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
-                                   const double* kern, int ks,
+template <typename T>
+static bool fft_convolve_same_impl(const T* padded, int pw, int ph,
+                                   const T* kern, int ks,
                                    int w, int h,
-                                   double* out, int out_stride, int out_offset,
+                                   T* out, int out_stride, int out_offset,
                                    int max_transform,
                                    bool deny_scratch_for_test,
                                    int forced_n) {
@@ -205,16 +207,16 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
     // because the direct convolution is prohibitively expensive; returning
     // false here used to turn memory pressure into an hours-long fallback.
     if (deny_scratch_for_test) throw std::bad_alloc{};
-    std::vector<double> kspec(spec_sz, 0.0);
-    std::vector<double> tspec(spec_sz, 0.0);
+    std::vector<T> kspec(spec_sz, T(0));
+    std::vector<T> tspec(spec_sz, T(0));
     (void)plane_sz;  // the real plane is produced row by row, never stored
 
-    const RfftPlan rp(n);
-    const FftPlan  cp(n);
+    const RfftPlanT<T> rp(n);
+    const FftPlanT<T>  cp(n);
 
     // Kernel spectrum: kern at the ORIGIN (see the derivation above), zero elsewhere.
     forward2_rows(
-        [&](int r, double* dst) {
+        [&](int r, T* dst) {
             std::fill(dst, dst + n, 0.0);
             if (r < ks)
                 for (int j = 0; j < ks; ++j)
@@ -224,7 +226,7 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
 
     // Two unscaled inverse transforms are applied per tile (columns, then rows),
     // each wanting 1/n.
-    const double scale = 1.0 / (static_cast<double>(n) * static_cast<double>(n));
+    const T scale = static_cast<T>(1.0 / (static_cast<double>(n) * static_cast<double>(n)));
 
     for (int y0 = 0; y0 < h; y0 += block) {
         for (int x0 = 0; x0 < w; x0 += block) {
@@ -234,10 +236,10 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
             const int rows = std::min(n, ph - y0);
             const int cols = std::min(n, pw - x0);
             forward2_rows(
-                [&](int r, double* dst) {
+                [&](int r, T* dst) {
                     std::fill(dst, dst + n, 0.0);
                     if (r < rows) {
-                        const double* src =
+                        const T* src =
                             padded + static_cast<size_t>(y0 + r) * pw + x0;
                         for (int j = 0; j < cols; ++j) dst[j] = src[j];
                     }
@@ -247,11 +249,11 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
             // Pointwise complex multiply by the kernel spectrum.
             parallel_for(0, n, [&](int lo, int hi) {
                 for (int i = lo; i < hi; ++i) {
-                    double* t = tspec.data() + static_cast<size_t>(i) * bins * 2;
-                    const double* k = kspec.data() + static_cast<size_t>(i) * bins * 2;
+                    T* t = tspec.data() + static_cast<size_t>(i) * bins * 2;
+                    const T* k = kspec.data() + static_cast<size_t>(i) * bins * 2;
                     for (int j = 0; j < bins; ++j) {
-                        const double ar = t[j * 2], ai = t[j * 2 + 1];
-                        const double br = k[j * 2], bi = k[j * 2 + 1];
+                        const T ar = t[j * 2], ai = t[j * 2 + 1];
+                        const T br = k[j * 2], bi = k[j * 2 + 1];
                         t[j * 2]     = ar * br - ai * bi;
                         t[j * 2 + 1] = ar * bi + ai * br;
                     }
@@ -263,11 +265,11 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
             const int nx = std::min(block, w - x0);
             inverse2_rows(
                 tspec.data(),
-                [&](int r, const double* row) {
+                [&](int r, const T* row) {
                     const int i = r - (ks - 1);
                     if (i < 0 || i >= ny) return;   // a row nobody reads
-                    const double* src = row + (ks - 1);
-                    double* dst = out + (static_cast<size_t>(y0 + i) * w + x0) *
+                    const T* src = row + (ks - 1);
+                    T* dst = out + (static_cast<size_t>(y0 + i) * w + x0) *
                                             out_stride + out_offset;
                     for (int j = 0; j < nx; ++j)
                         dst[static_cast<size_t>(j) * out_stride] = src[j] * scale;
@@ -278,10 +280,11 @@ static bool fft_convolve_same_impl(const double* padded, int pw, int ph,
     return true;
 }
 
-bool fft_convolve_same(const double* padded, int pw, int ph,
-                       const double* kern, int ks,
+template <typename T>
+bool fft_convolve_same(const T* padded, int pw, int ph,
+                       const T* kern, int ks,
                        int w, int h,
-                       double* out, int out_stride, int out_offset,
+                       T* out, int out_stride, int out_offset,
                        int max_transform) {
     return fft_convolve_same_impl(
         padded, pw, ph, kern, ks, w, h, out, out_stride, out_offset,
@@ -307,5 +310,12 @@ bool fft_convolve_same_forced_n_for_test(
         forced_n, /*deny_scratch_for_test=*/false, forced_n);
 }
 #endif
+
+// Explicit instantiations: double for the engine and the parity suite, float to
+// be measured against it (owner request, 2026-09-10).
+template bool fft_convolve_same<double>(const double*, int, int, const double*, int,
+                                        int, int, double*, int, int, int);
+template bool fft_convolve_same<float>(const float*, int, int, const float*, int,
+                                       int, int, float*, int, int, int);
 
 }  // namespace spk
