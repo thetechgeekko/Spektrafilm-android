@@ -44,7 +44,20 @@ layout(std430, binding = 1) buffer BufB { vec2 b[]; };
 // after it, at offset `kern_offset` -- one buffer, because the layout has four
 // bindings and the real input needs one of them.
 layout(std430, binding = 2) readonly buffer TwBuf { vec2 tw[]; };
-// The padded real tile on input, and the real output window on the way out.
+// The real plane buffer, in three regions the host lays out:
+//   [0, w*h)                one channel's SOURCE plane
+//   [out_offset base, ...)  that channel's output window
+//   [kern_base, ...)        that channel's ks x ks kernel, staged for the
+//                           kernel transform
+//
+// THE REFLECT PADDING IS DONE HERE, not by the host. It used to arrive as a
+// pre-built (h+ks-1) x (w+ks-1) FLOAT64 plane, rebuilt per channel: at a 12.5 MP
+// export with ks ~ 2300 that is a 275 MB allocation written three times, plus an
+// f64 -> f32 conversion of the same size on upload, to carry an image whose
+// unpadded f32 plane is 50 MB. Reading the source through the same reflect map
+// the host used costs one integer fold per texel and removes all of it -- and
+// removes the host allocation entirely, which matters more, because that plane
+// is what makes this stage's peak memory.
 layout(std430, binding = 3) buffer RealBuf { float img[]; };
 
 #define OP_PACK       0u   // real padded tile -> complex A, zero-filled
@@ -53,6 +66,7 @@ layout(std430, binding = 3) buffer RealBuf { float img[]; };
 #define OP_MUL        3u   // pointwise complex multiply by the kernel spectrum
 #define OP_UNPACK     4u   // scale, take the real part, write the output window
 #define OP_STAGE4     5u   // one Stockham radix-4 stage along x
+#define OP_PACK_KERNEL 6u  // ks x ks kernel at the transform ORIGIN -> complex A
 
 // RADIX 4 IS WHY THIS PASS IS AFFORDABLE, and the reason is bandwidth, not
 // arithmetic. Every stage reads the whole n x n plane and writes it back: at
@@ -80,10 +94,19 @@ layout(push_constant) uniform Push {
     uint src_is_a;      // ping-pong selector
     uint groups_x;
     // OP_PACK / OP_UNPACK geometry
-    uint pad_w;         // padded tile stride
-    uint pad_h;
+    uint pad_w;         // padded plane width  = src_w + ks - 1
+    uint pad_h;         // padded plane height = src_h + ks - 1
     uint tile_x;        // origin of this tile inside the padded image
     uint tile_y;
+    // Source addressing for OP_PACK. The padded coordinate p maps to the source
+    // index reflect(p - radius): numpy's mode='reflect', mirror WITHOUT
+    // repeating the edge sample, transcribed from the host lambda that used to
+    // build the padded plane.
+    uint radius;
+    uint src_w;
+    uint src_h;
+    uint kern_base;     // float offset of the staged kernel plane in RealBuf
+    uint ks;
     uint out_w;         // output window
     uint out_h;
     uint out_x;
@@ -98,6 +121,17 @@ vec2 cmul(vec2 p, vec2 q) {
     return vec2(p.x * q.x - p.y * q.y, p.x * q.y + p.y * q.x);
 }
 
+// numpy mode='reflect': mirror without repeating the edge sample. A verbatim
+// transcription of apply_diffusion_filter_um's `reflect` lambda, so the GPU tile
+// sees exactly the pixels the CPU one did.
+int reflect_idx(int p, int n) {
+    if (n <= 1) return 0;
+    int period = 2 * (n - 1);
+    int m = p % period;
+    if (m < 0) m += period;
+    return m < n ? m : period - m;
+}
+
 uint gid() {
     uint group = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
     return group * WG + gl_LocalInvocationID.x;
@@ -108,14 +142,31 @@ void main() {
     uint n = pc.n;
 
     if (pc.op == OP_PACK) {
-        // One thread per complex cell of the n x n tile. Cells outside the
-        // padded source are zero: the CPU path pads the image before calling, so
-        // a tile that runs off the edge is genuinely zero here too.
+        // One thread per complex cell of the n x n tile. Cells past the padded
+        // plane are zero -- they only ever feed outputs beyond (h, w), which the
+        // unpack discards -- and cells inside it read the source through the
+        // reflect map.
         if (t >= n * n) return;
         uint y = t / n, x = t - y * n;
-        uint sx = pc.tile_x + x, sy = pc.tile_y + y;
-        float v = (sx < pc.pad_w && sy < pc.pad_h)
-                      ? img[sy * pc.pad_w + sx] : 0.0;
+        uint px = pc.tile_x + x, py = pc.tile_y + y;
+        float v = 0.0;
+        if (px < pc.pad_w && py < pc.pad_h) {
+            int sx = reflect_idx(int(px) - int(pc.radius), int(pc.src_w));
+            int sy = reflect_idx(int(py) - int(pc.radius), int(pc.src_h));
+            v = img[uint(sy) * pc.src_w + uint(sx)];
+        }
+        a[t] = vec2(v, 0.0);
+        return;
+    }
+
+    if (pc.op == OP_PACK_KERNEL) {
+        // The kernel sits at the ORIGIN of the transform, not centred: centring
+        // would shift the answer by the radius (see the derivation in
+        // kernels/fft_convolve.cpp).
+        if (t >= n * n) return;
+        uint y = t / n, x = t - y * n;
+        float v = (x < pc.ks && y < pc.ks)
+                      ? img[pc.kern_base + y * pc.ks + x] : 0.0;
         a[t] = vec2(v, 0.0);
         return;
     }

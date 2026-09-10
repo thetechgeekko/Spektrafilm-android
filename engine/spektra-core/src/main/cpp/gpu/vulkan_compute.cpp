@@ -125,6 +125,7 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -232,11 +233,20 @@ struct Ctx {
     // glare.comp (#215): same four-binding shape again (xyz in, xyz out, blur
     // taps, one unused slot the layout requires).
     Kernel glareK;
-    // fft_convolve.comp (#216): the same four-binding shape once more (complex
-    // ping-pong A and B, the twiddle + kernel-spectrum table, the real padded
-    // plane). Its push block is larger than the scan one, which is the only
-    // reason build_scan_pipeline takes a push size.
-    Kernel fftK;
+    // fft_convolve.comp (#216): the same four-binding shape once more. Its push
+    // block is larger than the scan one, which is the only reason
+    // build_scan_pipeline takes a push size.
+    //
+    // ITS SCRATCH IS DEVICE-LOCAL AND UNMAPPED, unlike every other kernel here,
+    // and that is the difference between this pass working and not. A, B and the
+    // twiddle/kernel-spectrum table are touched ONLY by the GPU -- 26 whole-plane
+    // passes per tile, ~7 GB of traffic at n = 4096 -- while Ctx::ensureBuf hands
+    // out HOST_VISIBLE|HOST_COHERENT memory, which a mobile driver may serve
+    // uncached or write-combined. Measured effective bandwidth on that memory was
+    // 10-19 GB/s against a part that should manage several times more. Only the
+    // real plane (host writes the source, host reads the output) stays mapped.
+    Kernel fftK;                          // pipeline objects + the mapped buffers
+    std::array<ResidentBuf, 3> fftWork{};  // A, B, twiddles+kernel spectrum
     // filming_stage.comp (#218): four bindings again -- source, destination,
     // the tc_lut and the concatenated axis|curve table.
     Kernel filmK;
@@ -390,13 +400,28 @@ struct Ctx {
         s.pipelinesReady = false;
     }
 
+    // `avoid` exists because DEVICE_LOCAL alone does not mean what it sounds
+    // like on a unified-memory phone: every memory type there is DEVICE_LOCAL,
+    // and the FIRST one is typically also HOST_VISIBLE|HOST_COHERENT. Asking
+    // for DEVICE_LOCAL and taking the first match therefore hands back exactly
+    // the host-coherent memory a GPU-only scratch buffer wants to escape --
+    // which a driver may serve uncached or write-combined. Naming the bits to
+    // shun is the only way to express "GPU-private if such a type exists".
+    //
+    // Three passes, widening: shun+prefer, prefer, required. A device with no
+    // GPU-private type still gets an allocation rather than a refusal.
     int findPreferredMemType(uint32_t bits, VkMemoryPropertyFlags required,
-                             VkMemoryPropertyFlags preferred) const {
-        for (uint32_t pass = 0; pass < 2; ++pass) {
-            const VkMemoryPropertyFlags wanted = pass == 0 ? (required | preferred) : required;
+                             VkMemoryPropertyFlags preferred,
+                             VkMemoryPropertyFlags avoid = 0) const {
+        for (uint32_t pass = 0; pass < 3; ++pass) {
+            const VkMemoryPropertyFlags wanted =
+                pass == 2 ? required : (required | preferred);
+            const VkMemoryPropertyFlags shun = pass == 0 ? avoid : 0;
             for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
-                if ((bits & (1u << i)) &&
-                    (memoryProperties.memoryTypes[i].propertyFlags & wanted) == wanted) {
+                const VkMemoryPropertyFlags flags =
+                    memoryProperties.memoryTypes[i].propertyFlags;
+                if ((bits & (1u << i)) && (flags & wanted) == wanted &&
+                    (flags & shun) == 0) {
                     return static_cast<int>(i);
                 }
             }
@@ -422,7 +447,8 @@ struct Ctx {
                            VkMemoryPropertyFlags required,
                            VkMemoryPropertyFlags preferred,
                            bool persistentMap,
-                           PointwiseChainDiagnostics& diagnostics) {
+                           PointwiseChainDiagnostics& diagnostics,
+                           VkMemoryPropertyFlags avoid = 0) {
         if (bytes == 0) return false;
         if (b.buf && b.mem && b.cap >= bytes &&
             (b.memoryFlags & required) == required && (!persistentMap || b.mapped)) {
@@ -440,7 +466,8 @@ struct Ctx {
 
         VkMemoryRequirements req{};
         vkGetBufferMemoryRequirements(device, buffer, &req);
-        const int memoryType = findPreferredMemType(req.memoryTypeBits, required, preferred);
+        const int memoryType =
+            findPreferredMemType(req.memoryTypeBits, required, preferred, avoid);
         if (memoryType < 0) {
             vkDestroyBuffer(device, buffer, nullptr);
             return false;
@@ -543,6 +570,7 @@ struct Ctx {
         destroyKernel(grainK);
         destroyKernel(glareK);
         destroyKernel(fftK);
+        for (ResidentBuf& b : fftWork) destroyResidentBuf(b);
         destroyKernel(filmK);
     }
     void destroyHalation() {
@@ -2140,6 +2168,11 @@ struct FftPush {
     uint32_t pad_h;
     uint32_t tile_x;
     uint32_t tile_y;
+    uint32_t radius;
+    uint32_t src_w;
+    uint32_t src_h;
+    uint32_t kern_base;
+    uint32_t ks;
     uint32_t out_w;
     uint32_t out_h;
     uint32_t out_x;
@@ -2149,7 +2182,7 @@ struct FftPush {
     uint32_t kern_offset;
     float scale;
 };
-static_assert(sizeof(FftPush) == 72, "push block must match fft_convolve.comp");
+static_assert(sizeof(FftPush) == 92, "push block must match fft_convolve.comp");
 
 constexpr uint32_t kFftOpPack = 0u;
 constexpr uint32_t kFftOpStage = 1u;
@@ -2157,6 +2190,7 @@ constexpr uint32_t kFftOpTranspose = 2u;
 constexpr uint32_t kFftOpMul = 3u;
 constexpr uint32_t kFftOpUnpack = 4u;
 constexpr uint32_t kFftOpStage4 = 5u;
+constexpr uint32_t kFftOpPackKernel = 6u;
 
 }  // namespace
 
@@ -2172,16 +2206,17 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
 
     // Every shape question is answered before Vulkan is touched, so a bad
     // request can never half-write the caller's output.
-    if (out == nullptr || r.padded == nullptr || r.kern == nullptr)
+    if (out == nullptr || r.src_rgb == nullptr || r.kern == nullptr)
         return give_up("null-span");
     if (r.ks < 1 || (r.ks % 2) == 0) return give_up("kernel-not-odd");
     if (r.width < 1 || r.height < 1) return give_up("empty-frame");
-    if (r.pw != r.width + r.ks - 1 || r.ph != r.height + r.ks - 1)
-        return give_up("geometry-mismatch");
+    if (r.channel < 0 || r.channel > 2) return give_up("bad-channel");
     if (r.out_stride < 1 || r.out_offset < 0 || r.out_offset >= r.out_stride)
         return give_up("bad-out-addressing");
 
-    const int w = r.width, h = r.height, ks = r.ks, pw = r.pw, ph = r.ph;
+    const int w = r.width, h = r.height, ks = r.ks;
+    const int radius = (ks - 1) / 2;
+    const int pw = w + ks - 1, ph = h + ks - 1;
     int cap = r.max_transform;
     if (cap > kFftGpuMaxTransform) cap = kFftGpuMaxTransform;
     const int n = fft_convolve_transform_size(w, h, ks, cap);
@@ -2209,9 +2244,14 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
     // W^(3*k*step), whose index reaches 3n/4. n extra vec2 is 32 KB at n = 4096.
     const uint32_t kernOffset = un;                                 // in vec2 units
     const VkDeviceSize twBytes = (static_cast<uint64_t>(kernOffset) + complexCount) * 8;
-    const uint64_t paddedCount = static_cast<uint64_t>(pw) * ph;
-    const uint64_t outCount = static_cast<uint64_t>(w) * h;
-    const VkDeviceSize realBytes = (paddedCount + outCount) * sizeof(float);
+    // The real plane buffer: the source plane, the output window, and a staging
+    // slot for this channel's kernel. No padded plane -- that is the point.
+    const uint64_t srcCount = static_cast<uint64_t>(w) * h;
+    const uint64_t outCount = srcCount;
+    const uint64_t kernCount = static_cast<uint64_t>(ks) * ks;
+    const uint64_t outBase = srcCount;
+    const uint64_t kernBase = srcCount + outCount;
+    const VkDeviceSize realBytes = (srcCount + outCount + kernCount) * sizeof(float);
     if (complexBytes > limits.maxStorageBufferRange ||
         twBytes > limits.maxStorageBufferRange ||
         realBytes > limits.maxStorageBufferRange)
@@ -2227,17 +2267,46 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
                                  sizeof(FftPush)))
             break;
 
-        const bool hadA = s.in.cap >= complexBytes && s.in.buf;
-        const bool hadB = s.out.cap >= complexBytes && s.out.buf;
-        const bool hadTw = s.dyeB.cap >= twBytes && s.dyeB.buf;
+        // A, B and the table are GPU-only scratch: device-local, never mapped.
+        // The staging buffer for the twiddles is host-visible and tiny (n vec2,
+        // 32 KB at n = 4096), copied in at the head of the first submission.
+        constexpr VkBufferUsageFlags kWorkUsage =
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        const VkDeviceSize twStageBytes = static_cast<VkDeviceSize>(kernOffset) * 8;
+        PointwiseChainDiagnostics unused{};
+        const bool hadA = c.fftWork[0].cap >= complexBytes && c.fftWork[0].buf;
+        const bool hadB = c.fftWork[1].cap >= complexBytes && c.fftWork[1].buf;
+        const bool hadTw = c.fftWork[2].cap >= twBytes && c.fftWork[2].buf;
         const bool hadReal = s.cmfB.cap >= realBytes && s.cmfB.buf;
-        if (!c.ensureBuf(s.in, complexBytes)) break;
-        if (!c.ensureBuf(s.out, complexBytes)) break;
-        if (!c.ensureBuf(s.dyeB, twBytes)) break;
-        if (!c.ensureBuf(s.cmfB, realBytes)) break;
+        if (!c.ensureResidentBuf(c.fftWork[0], complexBytes, kWorkUsage,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 /*persistentMap=*/false, unused,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) break;
+        if (!c.ensureResidentBuf(c.fftWork[1], complexBytes, kWorkUsage,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 /*persistentMap=*/false, unused,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) break;
+        if (!c.ensureResidentBuf(c.fftWork[2], twBytes, kWorkUsage,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 /*persistentMap=*/false, unused,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) break;
+        if (!c.ensureBuf(s.dyeB, twStageBytes)) break;   // twiddle staging, mapped
+        if (!c.ensureBuf(s.cmfB, realBytes)) break;      // real plane, mapped
+        // Report what the driver actually handed back, because "device-local"
+        // is a request, not a guarantee: a device whose every memory type is
+        // host-visible will fall through to one, and the pass would then be
+        // running on exactly the memory it meant to avoid, silently.
+        d.scratch_host_visible =
+            (c.fftWork[0].memoryFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
         if (!hadA || !hadB || !hadTw || !hadReal) {
-            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
-            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkBuffer bufs[4] = {c.fftWork[0].buf, c.fftWork[1].buf,
+                                c.fftWork[2].buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {c.fftWork[0].cap, c.fftWork[1].cap,
+                                    c.fftWork[2].cap, s.cmfB.cap};
             VkDescriptorBufferInfo dbi[4];
             VkWriteDescriptorSet wds[4];
             for (uint32_t i = 0; i < 4; ++i) {
@@ -2256,7 +2325,7 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         // the inverse conjugates in the shader rather than needing a second table.
         const auto t_up = std::chrono::steady_clock::now();
         {
-            float* tw = static_cast<float*>(s.dyeB.mapped);
+            float* tw = static_cast<float*>(s.dyeB.mapped);   // staging
             const double step = -6.283185307179586476925286766559 / static_cast<double>(n);
             for (uint32_t k = 0; k < un; ++k) {
                 const double a = step * static_cast<double>(k);
@@ -2265,8 +2334,23 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
             }
         }
         float* real = static_cast<float*>(s.cmfB.mapped);
-        for (size_t i = 0; i < static_cast<size_t>(ks) * ks; ++i)
-            real[i] = static_cast<float>(r.kern[i]);
+        // The source plane, gathered out of the interleaved image, and the
+        // kernel. Non-finite inputs are guarded HERE and not in the shader: the
+        // CPU path propagates them through a linear sum, but a NaN inside a
+        // transform poisons the whole tile rather than one output, which is a
+        // different failure.
+        {
+            const double* src = r.src_rgb;
+            const int ch = r.channel;
+            parallel_for(0, static_cast<int>(srcCount), [&](int lo, int hi) {
+                for (int i = lo; i < hi; ++i) {
+                    const double v = src[static_cast<size_t>(i) * 3 + ch];
+                    real[i] = std::isfinite(v) ? static_cast<float>(v) : 0.0f;
+                }
+            });
+            for (size_t i = 0; i < kernCount; ++i)
+                real[kernBase + i] = static_cast<float>(r.kern[i]);
+        }
         d.upload_ms = std::chrono::duration<double, std::milli>(
                           std::chrono::steady_clock::now() - t_up).count();
 
@@ -2304,12 +2388,25 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         // cost, and radix 4 needs log4(n) passes where radix 2 needs log2(n).
         // A radix-2 pass finishes the sizes whose log2 is odd; `stage` carries the
         // accumulated L rather than a stage index precisely so the two can mix.
+        // RADIX 2 vs RADIX 4, selectable, because the device did not agree with
+        // the arithmetic. Radix 4 halves the number of whole-plane passes, which
+        // on a memory-bound kernel should halve the time; measured on an Adreno
+        // 840 it was SLOWER. The suspects are the three scattered twiddle
+        // gathers a radix-4 group needs against radix 2's one, and four
+        // concurrent memory streams per thread against two. Rather than argue
+        // it, this makes the two comparable in ONE binary on a cooled device --
+        // the only comparison this phone's ~30% between-capture drift does not
+        // swamp.
+        bool use_radix4 = true;
+        if (const char* rv = std::getenv("SPK_FFT_RADIX"))
+            if (rv[0] == '2') use_radix4 = false;
+
         auto emit_fft2 = [&](VkCommandBuffer cmd, FftPush& p, bool inverse) {
             p.sign_neg = inverse ? 0u : 1u;
             for (int pass = 0; pass < 2; ++pass) {
                 for (uint32_t L = 1u; L < un;) {
                     p.stage = L;
-                    if ((un / L) % 4u == 0u) {
+                    if (use_radix4 && (un / L) % 4u == 0u) {
                         emit(cmd, p, kFftOpStage4, complexCount / 4);
                         L *= 4u;
                     } else {
@@ -2364,39 +2461,26 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         {
             FftPush p{};
             p.n = un;
-            p.pad_w = static_cast<uint32_t>(ks);
-            p.pad_h = static_cast<uint32_t>(ks);
+            p.ks = static_cast<uint32_t>(ks);
+            p.kern_base = static_cast<uint32_t>(kernBase);
             p.kern_offset = kernOffset;
             p.src_is_a = 1u;
             gpu_ok = run([&](VkCommandBuffer cmd) {
-                emit(cmd, p, kFftOpPack, complexCount);   // always writes A
+                // The twiddles go device-side first: they are read by every
+                // butterfly pass, so leaving them in host-coherent memory would
+                // reintroduce exactly the cost the resident buffers remove.
+                VkBufferCopy twCopy{0, 0, twStageBytes};
+                vkCmdCopyBuffer(cmd, s.dyeB.buf, c.fftWork[2].buf, 1, &twCopy);
+                barrier(cmd, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                emit(cmd, p, kFftOpPackKernel, complexCount);  // always writes A
                 emit_fft2(cmd, p, /*inverse=*/false);
                 barrier(cmd, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
                 VkBufferCopy region{0, static_cast<VkDeviceSize>(kernOffset) * 8, complexBytes};
-                vkCmdCopyBuffer(cmd, p.src_is_a ? s.in.buf : s.out.buf, s.dyeB.buf,
-                                1, &region);
+                vkCmdCopyBuffer(cmd, p.src_is_a ? c.fftWork[0].buf : c.fftWork[1].buf,
+                                c.fftWork[2].buf, 1, &region);
             });
-        }
-
-        // The padded plane, over the kernel staging area it no longer needs.
-        // Non-finite inputs are guarded HERE and not in the shader: the CPU path
-        // propagates them through a linear sum, but a NaN in a transform poisons
-        // the whole tile rather than one output, which is a different failure.
-        if (gpu_ok && grid_ok) {
-            const auto t_up2 = std::chrono::steady_clock::now();
-            parallel_for(0, static_cast<int>(ph), [&](int lo, int hi) {
-                for (int y = lo; y < hi; ++y) {
-                    const double* src = r.padded + static_cast<size_t>(y) * pw;
-                    float* dst = real + static_cast<size_t>(y) * pw;
-                    for (int x = 0; x < pw; ++x) {
-                        const double v = src[x];
-                        dst[x] = std::isfinite(v) ? static_cast<float>(v) : 0.0f;
-                    }
-                }
-            });
-            d.upload_ms += std::chrono::duration<double, std::milli>(
-                               std::chrono::steady_clock::now() - t_up2).count();
         }
 
         // Pass 2..N: one overlap-save tile per submission.
@@ -2412,13 +2496,16 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
                 p.pad_h = static_cast<uint32_t>(ph);
                 p.tile_x = static_cast<uint32_t>(x0);
                 p.tile_y = static_cast<uint32_t>(y0);
+                p.radius = static_cast<uint32_t>(radius);
+                p.src_w = static_cast<uint32_t>(w);
+                p.src_h = static_cast<uint32_t>(h);
                 p.out_w = static_cast<uint32_t>(nx);
                 p.out_h = static_cast<uint32_t>(ny);
                 p.out_x = static_cast<uint32_t>(ks - 1);
                 p.out_y = static_cast<uint32_t>(ks - 1);
                 p.out_stride = static_cast<uint32_t>(w);
                 p.out_offset = static_cast<uint32_t>(
-                    paddedCount + static_cast<uint64_t>(y0) * w + x0);
+                    outBase + static_cast<uint64_t>(y0) * w + x0);
                 p.kern_offset = kernOffset;
                 p.scale = scale;
                 p.src_is_a = 1u;
@@ -2441,7 +2528,7 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
 
         const auto t_back = std::chrono::steady_clock::now();
         {
-            const float* src = real + paddedCount;
+            const float* src = real + outBase;
             const int stride = r.out_stride, offset = r.out_offset;
             parallel_for(0, h, [&](int lo, int hi) {
                 for (int y = lo; y < hi; ++y) {

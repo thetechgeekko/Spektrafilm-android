@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 #include <map>
@@ -877,14 +878,36 @@ bool diffusion_mixture_psf_error(const DiffusionFilterParams& params,
 // not improve -- which reads as "the GPU is not much faster here" rather than
 // as "the GPU never ran". That misreading has already cost this project one
 // wrong conclusion about the glare field.
+struct DiffusionClock {
+    bool on = false;
+    std::chrono::steady_clock::time_point t0;
+    DiffusionClock() {
+        const char* dbg = std::getenv("SPK_GPU_DEBUG");
+        on = dbg && dbg[0] == '1';
+        t0 = std::chrono::steady_clock::now();
+    }
+    double lap() {
+        const auto now = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(now - t0).count();
+        t0 = now;
+        return ms;
+    }
+    void note(const char* what, double ms) const {
+        if (!on) return;
+        std::fprintf(stderr, "[gpu-debug] diffusion_%s %.1f ms\n", what, ms);
+    }
+};
+
 static void note_gpu_fft(int channel, const gpu::FftConvolveDiagnostics& d) {
     const char* dbg = std::getenv("SPK_GPU_DEBUG");
     if (!dbg || dbg[0] != '1') return;
     std::fprintf(stderr,
                  "[gpu-debug] diffusion_fft ch%d engaged=%d reason=%s n=%d "
-                 "tiles=%u dispatches=%u up=%.1f gpu=%.1f down=%.1f\n",
+                 "tiles=%u dispatches=%u host_visible_scratch=%d "
+                 "up=%.1f gpu=%.1f down=%.1f\n",
                  channel, d.engaged ? 1 : 0, d.reason && *d.reason ? d.reason : "-",
-                 d.transform_size, d.tiles, d.dispatches, d.upload_ms, d.gpu_ms,
+                 d.transform_size, d.tiles, d.dispatches,
+                 d.scratch_host_visible ? 1 : 0, d.upload_ms, d.gpu_ms,
                  d.readback_ms);
 }
 
@@ -916,6 +939,7 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     if (radius > cap) radius = cap;
 
     const int ks = 2 * radius + 1;
+    DiffusionClock clk;
     // effective_warmth = halo_warmth_base + halo_warmth.
     const double effective_warmth = cfg.halo_warmth_base + params.halo_warmth;
 
@@ -956,24 +980,41 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     std::vector<std::vector<double>> psf(3, std::vector<double>(
                                                 static_cast<size_t>(ks) * ks));
     double psf_sum[3] = {0.0, 0.0, 0.0};
-    for (int yy = 0; yy < ks; ++yy) {
-        for (int xx = 0; xx < ks; ++xx) {
-            double dx = static_cast<double>(xx - cx);
-            double dy = static_cast<double>(yy - cy);
-            double r = std::sqrt(dx * dx + dy * dy);
-            double core = cfg.w_c * exp_sum(r, core_lambdas, core_weights);
-            double bloom = cfg.w_b * exp_sum(r, bloom_lambdas, bloom_weights);
-            size_t idx = static_cast<size_t>(yy) * ks + xx;
-            for (int c = 0; c < 3; ++c) {
-                double halo = cfg.w_h * exp_sum(r, halo_lambdas, halo_per_ch[c]);
-                double v = core + halo + bloom;
-                psf[c][idx] = v;
-                psf_sum[c] += v;
+    // PARALLEL, AND STILL BYTE-IDENTICAL. This loop used to run on ONE core, and
+    // it is not small: ks reaches ~2300 at a 12.5 MP export, so it is 5.4M cells
+    // x 5 exp_sum calls (core, bloom, and one halo per channel), each a sum over
+    // several exponentials. That is the kind of cost that hides inside a stage
+    // timing and gets attributed to whatever else the stage does -- here, to the
+    // convolution.
+    //
+    // The only cross-iteration dependency was the psf_sum accumulator, and
+    // splitting it out is what keeps the result bit-exact: the values are
+    // computed in parallel (disjoint writes, no reduction), then summed SERIALLY
+    // in flat index order. The old loop accumulated psf_sum[c] in exactly that
+    // order too -- for a fixed idx it did c = 0,1,2 and moved on -- so the
+    // sequence of additions per channel is unchanged, and floating-point
+    // addition being non-associative therefore costs nothing here.
+    parallel_for_weighted(0, ks, ks, [&](int lo, int hi) {
+        for (int yy = lo; yy < hi; ++yy) {
+            for (int xx = 0; xx < ks; ++xx) {
+                double dx = static_cast<double>(xx - cx);
+                double dy = static_cast<double>(yy - cy);
+                double r = std::sqrt(dx * dx + dy * dy);
+                double core = cfg.w_c * exp_sum(r, core_lambdas, core_weights);
+                double bloom = cfg.w_b * exp_sum(r, bloom_lambdas, bloom_weights);
+                size_t idx = static_cast<size_t>(yy) * ks + xx;
+                for (int c = 0; c < 3; ++c) {
+                    double halo = cfg.w_h * exp_sum(r, halo_lambdas, halo_per_ch[c]);
+                    psf[c][idx] = core + halo + bloom;
+                }
             }
         }
-    }
+    });
+    for (int c = 0; c < 3; ++c)
+        for (size_t i = 0; i < psf[c].size(); ++i) psf_sum[c] += psf[c][i];
     for (int c = 0; c < 3; ++c)
         for (size_t i = 0; i < psf[c].size(); ++i) psf[c][i] /= psf_sum[c];
+    clk.note("psf_build", clk.lap());
 
     // Reflect-pad the image (numpy mode='reflect': mirror WITHOUT edge repeat),
     // convolve each channel directly in double precision, slice back to the
@@ -995,8 +1036,13 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     // convolution reads it, and each channel completes before the next reuses
     // the plane) -> deterministic parallel chunks, byte-identical for any
     // worker count.
-    std::vector<double> padded(static_cast<size_t>(pw) * ph);
-    for (int c = 0; c < 3; ++c) {
+    // LAZY. On the GPU route this plane is never allocated at all: the shader
+    // reads `raw` through its own copy of the reflect map above. At a 12.5 MP
+    // export with ks ~ 2300 that is a 275 MB allocation avoided, plus the
+    // float64 writes to fill it, per channel.
+    std::vector<double> padded;
+    auto build_padded = [&](int c) {
+        if (padded.empty()) padded.resize(static_cast<size_t>(pw) * ph);
         parallel_for_weighted(0, ph, pw, [&](int lo, int hi) {
             for (int yy = lo; yy < hi; ++yy) {
                 int sy = reflect(yy - radius, h);
@@ -1007,6 +1053,10 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
                 }
             }
         });
+        clk.note("pad_build", clk.lap());
+    };
+
+    for (int c = 0; c < 3; ++c) {
         const std::vector<double>& kern = psf[c];
         // mode='same' convolution: out[y,x] = sum_{i,j} padded[y+i, x+j]
         // * flip(kern)[i,j], centred. For a symmetric centred kernel the centre
@@ -1049,20 +1099,20 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
             }
             if (allow_gpu_fft) {
                 gpu::FftConvolveRequest gr;
-                gr.padded = padded.data();
-                gr.pw = pw;
-                gr.ph = ph;
-                gr.kern = kern.data();
-                gr.ks = ks;
+                gr.src_rgb = raw;
                 gr.width = w;
                 gr.height = h;
+                gr.channel = c;
+                gr.kern = kern.data();
+                gr.ks = ks;
                 gr.out_stride = 3;
                 gr.out_offset = c;
                 gpu::FftConvolveDiagnostics gd{};
                 const bool gpu_ok = gpu::fft_convolve(gr, blurred.data(), &gd);
                 note_gpu_fft(c, gd);
-                if (gpu_ok) continue;
+                if (gpu_ok) { clk.note("convolve_gpu", clk.lap()); continue; }
             }
+            build_padded(c);
             int cap = 0;
             const memory::MemoryReservation scratch =
                 reserve_fft_scratch(w, h, ks, &cap);
@@ -1080,10 +1130,12 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
                 // invariant bug, not a recoverable request for the direct path.
                 throw std::logic_error("diffusion FFT rejected valid geometry");
             }
+            clk.note("convolve_cpu", clk.lap());
             continue;
         }
         // Each output row is an independent O(w*ks^2) accumulation over the
         // read-only padded plane.
+        build_padded(c);
         parallel_for_weighted(0, h, w, [&](int lo, int hi) {
             for (int y = lo; y < hi; ++y) {
                 for (int x = 0; x < w; ++x) {

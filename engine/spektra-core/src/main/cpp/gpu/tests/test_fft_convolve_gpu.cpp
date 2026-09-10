@@ -18,9 +18,15 @@
 //   2. AGAINST kernels/fft_convolve.h's f64 path, single tile and multi tile.
 //      This is the operator the engine actually runs, and multi-tile is where
 //      overlap-save bookkeeping lives.
-//   3. INTERLEAVED output addressing, because the engine convolves one channel
-//      of an interleaved RGB plane at a time and a stride bug writes a perfect
-//      result into the wrong channel.
+//   3. INTERLEAVED addressing on BOTH sides: the engine convolves one channel
+//      of an interleaved RGB image at a time, so a stride bug reads or writes a
+//      perfect result from or into the wrong channel. The three channels here
+//      carry DIFFERENT images for exactly that reason.
+//   3b. THE REFLECT PADDING, which is now the shader's job rather than the
+//      caller's. The GPU is handed the unpadded image; the CPU reference is
+//      handed a plane padded by the host's own reflect rule. If the shader's
+//      fold disagrees anywhere -- including at the corners, where both axes
+//      reflect -- the two answers differ at the border.
 //   4. REFUSALS, byte-for-byte: on any refusal the caller's buffer must be
 //      untouched, because the caller then runs the CPU path over the same
 //      memory and a half-written output would silently blend two answers.
@@ -71,23 +77,57 @@ std::vector<double> make_psf(int ks, double lambda_px) {
 // Bright speculars on a gradient: what a diffusion filter is bought for, and
 // an image whose convolution is NOT translation-invariant to the eye, so a
 // half-pixel misplacement shows up as error rather than as a plausible picture.
-std::vector<double> make_padded(int pw, int ph) {
-    std::vector<double> p(static_cast<size_t>(pw) * ph);
-    for (int y = 0; y < ph; ++y)
-        for (int x = 0; x < pw; ++x) {
-            const double t = static_cast<double>(x) / (pw > 1 ? pw - 1 : 1);
-            const double u = static_cast<double>(y) / (ph > 1 ? ph - 1 : 1);
-            p[static_cast<size_t>(y) * pw + x] = 0.02 + 0.08 * t + 0.05 * u;
+// Interleaved RGB, and the three channels differ so a channel mix-up shows.
+std::vector<double> make_image(int w, int h) {
+    std::vector<double> p(static_cast<size_t>(w) * h * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const double t = static_cast<double>(x) / (w > 1 ? w - 1 : 1);
+            const double u = static_cast<double>(y) / (h > 1 ? h - 1 : 1);
+            const size_t o = (static_cast<size_t>(y) * w + x) * 3;
+            p[o + 0] = 0.02 + 0.08 * t + 0.05 * u;
+            p[o + 1] = 0.30 + 0.40 * u - 0.10 * t;
+            p[o + 2] = 0.70 - 0.50 * t * u;
         }
-    const int pts[][2] = {{1, 3}, {2, 2}, {3, 4}, {5, 5}, {7, 2}};
+    // Speculars pushed hard against the edges, because that is where the
+    // reflect fold decides the answer.
+    const int pts[][2] = {{0, 0}, {1, 3}, {2, 2}, {3, 4}, {5, 5}, {7, 2}, {7, 7}};
     for (const auto& q : pts) {
-        const int cx = pw * q[0] / 8, cy = ph * q[1] / 8;
+        const int cx = (w - 1) * q[0] / 7, cy = (h - 1) * q[1] / 7;
         for (int dy = -1; dy <= 1; ++dy)
             for (int dx = -1; dx <= 1; ++dx) {
                 const int x = cx + dx, y = cy + dy;
-                if (x < 0 || y < 0 || x >= pw || y >= ph) continue;
-                p[static_cast<size_t>(y) * pw + x] = 40.0;
+                if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                for (int c = 0; c < 3; ++c)
+                    p[(static_cast<size_t>(y) * w + x) * 3 + c] = 40.0 + 5.0 * c;
             }
+    }
+    return p;
+}
+
+// numpy mode='reflect', the same map model/diffusion.cpp builds its padded
+// plane with. The GPU reference must be padded by THIS, not by the shader's
+// version of it, or the check compares the shader against itself.
+int reflect_host(int p, int n) {
+    if (n == 1) return 0;
+    const int period = 2 * (n - 1);
+    int m = p % period;
+    if (m < 0) m += period;
+    return m < n ? m : period - m;
+}
+
+std::vector<double> pad_channel(const std::vector<double>& img, int w, int h,
+                                int ks, int channel) {
+    const int radius = (ks - 1) / 2;
+    const int pw = w + ks - 1, ph = h + ks - 1;
+    std::vector<double> p(static_cast<size_t>(pw) * ph);
+    for (int yy = 0; yy < ph; ++yy) {
+        const int sy = reflect_host(yy - radius, h);
+        for (int xx = 0; xx < pw; ++xx) {
+            const int sx = reflect_host(xx - radius, w);
+            p[static_cast<size_t>(yy) * pw + xx] =
+                img[(static_cast<size_t>(sy) * w + sx) * 3 + channel];
+        }
     }
     return p;
 }
@@ -131,26 +171,27 @@ std::vector<double> direct(const std::vector<double>& padded, int pw,
     return out;
 }
 
-spk::gpu::FftConvolveRequest make_request(const std::vector<double>& padded,
+spk::gpu::FftConvolveRequest make_request(const std::vector<double>& img,
                                           const std::vector<double>& kern,
                                           int w, int h, int ks, int max_transform) {
     spk::gpu::FftConvolveRequest r;
-    r.padded = padded.data();
-    r.pw = w + ks - 1;
-    r.ph = h + ks - 1;
-    r.kern = kern.data();
-    r.ks = ks;
+    r.src_rgb = img.data();
     r.width = w;
     r.height = h;
+    r.channel = 0;
+    r.kern = kern.data();
+    r.ks = ks;
     r.max_transform = max_transform;
     return r;
 }
 
 // One case: build the scene, run the GPU pass, compare against `ref`.
 void run_case(const char* label, int w, int h, int ks, double lambda,
-              int max_transform, int out_stride, int out_offset, bool against_direct) {
+              int max_transform, int out_stride, int out_offset, bool against_direct,
+              int channel = 0) {
     const int pw = w + ks - 1, ph = h + ks - 1;
-    const std::vector<double> pad64 = make_padded(pw, ph);
+    const std::vector<double> img = make_image(w, h);
+    const std::vector<double> pad64 = pad_channel(img, w, h, ks, channel);
     const std::vector<double> k64 = make_psf(ks, lambda);
 
     std::vector<double> ref;
@@ -168,7 +209,8 @@ void run_case(const char* label, int w, int h, int ks, double lambda,
     // A sentinel in every slot the pass must not touch, so a stride bug shows as
     // a surviving sentinel rather than as a plausible number.
     std::vector<double> got(static_cast<size_t>(w) * h * out_stride, -12345.0);
-    spk::gpu::FftConvolveRequest r = make_request(pad64, k64, w, h, ks, max_transform);
+    spk::gpu::FftConvolveRequest r = make_request(img, k64, w, h, ks, max_transform);
+    r.channel = channel;
     r.out_stride = out_stride;
     r.out_offset = out_offset;
     spk::gpu::FftConvolveDiagnostics d{};
@@ -200,7 +242,7 @@ void run_case(const char* label, int w, int h, int ks, double lambda,
 
 void run_refusals() {
     const int w = 32, h = 24, ks = 7;
-    const std::vector<double> pad = make_padded(w + ks - 1, h + ks - 1);
+    const std::vector<double> pad = make_image(w, h);
     const std::vector<double> kern = make_psf(ks, 2.0);
     const std::vector<double> pristine(static_cast<size_t>(w) * h, -777.0);
 
@@ -209,11 +251,11 @@ void run_refusals() {
         void (*mutate)(spk::gpu::FftConvolveRequest&);
     };
     const Case cases[] = {
-        {"null padded", [](spk::gpu::FftConvolveRequest& r) { r.padded = nullptr; }},
+        {"null source", [](spk::gpu::FftConvolveRequest& r) { r.src_rgb = nullptr; }},
         {"null kernel", [](spk::gpu::FftConvolveRequest& r) { r.kern = nullptr; }},
         {"even kernel", [](spk::gpu::FftConvolveRequest& r) { r.ks += 1; }},
-        {"pw mismatch", [](spk::gpu::FftConvolveRequest& r) { r.pw += 1; }},
-        {"ph mismatch", [](spk::gpu::FftConvolveRequest& r) { r.ph -= 1; }},
+        {"channel out of range", [](spk::gpu::FftConvolveRequest& r) { r.channel = 3; }},
+        {"negative channel", [](spk::gpu::FftConvolveRequest& r) { r.channel = -1; }},
         {"empty frame", [](spk::gpu::FftConvolveRequest& r) { r.width = 0; }},
         {"offset >= stride", [](spk::gpu::FftConvolveRequest& r) {
              r.out_stride = 2; r.out_offset = 2; }},
@@ -237,11 +279,9 @@ void run_refusals() {
     // rather than failing, and this is the check that turns that into a denial.
     {
         const int big_ks = 2 * spk::gpu::kFftGpuMaxTransform + 1;
-        std::vector<double> bigpad(static_cast<size_t>(w + big_ks - 1) *
-                                   (h + big_ks - 1), 0.0);
         std::vector<double> bigkern(static_cast<size_t>(big_ks) * big_ks, 0.0);
         std::vector<double> out = pristine;
-        spk::gpu::FftConvolveRequest r = make_request(bigpad, bigkern, w, h, big_ks,
+        spk::gpu::FftConvolveRequest r = make_request(pad, bigkern, w, h, big_ks,
                                                       spk::gpu::kFftGpuMaxTransform);
         spk::gpu::FftConvolveDiagnostics d{};
         const bool ok = spk::gpu::fft_convolve(r, out.data(), &d);
@@ -320,9 +360,11 @@ int main() {
              spk::gpu::kFftGpuMaxTransform, 1, 0, false);
     run_case("vs cpu f64 200x120 ks=31 (6 tiles)", 200, 120, 31, 6.0, 128, 1, 0, false);
 
-    // 3. Interleaved addressing: the middle channel of an RGB plane.
-    run_case("interleaved stride 3 offset 1", 96, 72, 11, 3.0,
-             spk::gpu::kFftGpuMaxTransform, 3, 1, false);
+    // 3. Interleaved addressing on both sides: read channel 2 of the source,
+    //    write component 1 of the destination. Deliberately mismatched, so a
+    //    pass that quietly used one index for both would fail.
+    run_case("interleaved: read ch2, write component 1", 96, 72, 11, 3.0,
+             spk::gpu::kFftGpuMaxTransform, 3, 1, false, /*channel=*/2);
 
     run_refusals();
     run_wiring();

@@ -413,15 +413,21 @@ constexpr int kFftGpuMaxTransform = 4096;
 // the padded plane -- 176 MB per channel at a 12.5 MP Black Pro-Mist export --
 // for no numerical gain, since the device rounds to f32 either way.
 struct FftConvolveRequest {
-    // The reflect-padded plane, ph = height + ks - 1 rows by pw = width + ks - 1
-    // columns, row-major with stride pw. Same layout kernels/fft_convolve.h takes.
-    const double* padded = nullptr;
-    int pw = 0;
-    int ph = 0;
-    const double* kern = nullptr;   // ks x ks row-major; ks odd and >= 1
-    int ks = 0;
+    // The UNPADDED source image, width*height*3 interleaved. The reflect
+    // padding happens in the shader.
+    //
+    // kernels/fft_convolve.h takes a pre-built (h+ks-1) x (w+ks-1) float64
+    // padded plane, and building one is not cheap at export scale: ks reaches
+    // ~2300 at 12.5 MP, so that plane is a 275 MB allocation, written once per
+    // channel and then converted to f32 on upload, to carry an image whose
+    // unpadded f32 plane is 50 MB. Reading the source through the same reflect
+    // map costs one integer fold per texel and removes the allocation entirely.
+    const double* src_rgb = nullptr;
     int width = 0;
     int height = 0;
+    int channel = 0;                // which interleaved component to convolve
+    const double* kern = nullptr;   // ks x ks row-major; ks odd and >= 1
+    int ks = 0;
     // Output addressing, matching the CPU entry point: the component at (x, y)
     // is written to out[(y * width + x) * out_stride + out_offset], so an
     // interleaved RGB plane is filled one channel per call.
@@ -437,6 +443,12 @@ struct FftConvolveDiagnostics {
     int transform_size = 0;      // n actually used
     uint32_t tiles = 0;          // overlap-save tiles, one submission each
     uint32_t dispatches = 0;
+    // True when the ping-pong scratch ended up in HOST_VISIBLE memory anyway.
+    // Not an error -- a unified-memory device may have no GPU-private type --
+    // but it is the difference between the transform running at device
+    // bandwidth and running at host-coherent bandwidth, so it is reported
+    // rather than assumed.
+    bool scratch_host_visible = false;
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;
