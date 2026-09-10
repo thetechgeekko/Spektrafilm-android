@@ -855,11 +855,9 @@ void scan(const Profile& film, const ScanningParams& params,
     // the existing goldens stay bit-exact.
     if (params.lens_blur > 0.0) {
         double sg[3] = {params.lens_blur, params.lens_blur, params.lens_blur};
-        if (!(params.allow_gpu &&
-              gpu::gaussian_blur_rgb(lin_rgb, width, height, sg))) {
-            gpu_debug_note("scanner lens blur", params.allow_gpu ? "pass refused" : "latch off");
-            gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
-        }
+        // CPU. The GPU route is measured slower IN AN EXPORT -- see the note on
+        // the unsharp blur below.
+        gaussian_blur_per_channel_d(lin_rgb, width, height, 3, sg);
     }
 
     // Scanner unsharp mask (spatial branch): rgb += amount * (rgb - G(sigma)*rgb),
@@ -873,11 +871,24 @@ void scan(const Profile& film, const ScanningParams& params,
                         params.unsharp_sigma};
         // Only the BLUR TERM moves; the mix below stays on the CPU because it is
         // a cheap per-element map over a buffer that has to come back anyway.
-        if (!(params.allow_gpu &&
-              gpu::gaussian_blur_rgb(blur.data(), width, height, sg))) {
-            gpu_debug_note("unsharp blur", params.allow_gpu ? "pass refused" : "latch off");
-            gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
-        }
+        // CPU, on measurement. gpu::gaussian_blur_rgb wins in ISOLATION at this
+        // sigma (1.46x at 1080p on a standalone probe) and LOSES inside a real
+        // export: scan_spatial, which at these settings is this blur plus its
+        // mix, measured 54.0 ms on the CPU route against 67.3 ms with the GPU
+        // blur wired in, at 1440x1440 (tools/stage_split/build_push_run_device.sh).
+        //
+        // The overhead is the route, not the kernel. Every call allocates a
+        // whole-frame f64 staging vector, converts f64 -> f32 up, runs the
+        // mixture pass, converts back down and copies -- for a radius-2 FIR whose
+        // arithmetic is trivial. The isolated probe pays that once against a cold
+        // CPU; the export pays it against a CPU cache that already holds the
+        // plane.
+        //
+        // gpu::gaussian_blur_rgb and its gate stay: they are correct, and they are
+        // what a dedicated small-FIR shader (no mixture machinery, no f64 round
+        // trip) would be measured against. Wiring this back on needs that shader
+        // first, and a number.
+        gaussian_blur_per_channel_d(blur.data(), width, height, 3, sg);
         const double amt = params.unsharp_amount;
         // Per-element map with disjoint writes -> deterministic chunks, the same
         // argument the encode below already relies on. It was serial over
