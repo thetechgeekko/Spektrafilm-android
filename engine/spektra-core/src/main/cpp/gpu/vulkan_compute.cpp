@@ -85,6 +85,7 @@ bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool gaussian_blur_rgb(double*, int, int, const double*) { return false; }
+bool gaussian_blur_rgb_f32(float*, int, int, const double*) { return false; }
 bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
     if (d) { *d = GlareDiagnostics{}; d->reason = "vulkan-disabled"; }
     return false;
@@ -3404,7 +3405,7 @@ void write_halation_sets(Ctx& c, Ctx::HalationKernel& k) {
 }
 
 bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* out,
-                             HalationScatterDiagnostics& d) {
+                             HalationScatterDiagnostics& d, float* out_f32 = nullptr) {
     d.attempted = true;
     if (!c.ok) { d.reason = "no-device"; return false; }
     if (r.width <= 0 || r.height <= 0 || !(r.pixel_size_um > 0.0)) {
@@ -3420,7 +3421,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     // diffusion, and every gaussian_blur_rgb caller).
     const bool resident = c.frame.open && c.frame.width == r.width &&
                           c.frame.height == r.height;
-    if (!resident && (!r.raw_rgb || !out || out == r.raw_rgb)) {
+    const bool src_is_f32 = r.raw_rgb_f32 != nullptr;
+    if (r.raw_rgb && r.raw_rgb_f32) { d.reason = "bad-request"; return false; }
+    if (!resident && ((!r.raw_rgb && !r.raw_rgb_f32) ||
+                      (!out && !out_f32) ||
+                      (r.raw_rgb && out == r.raw_rgb))) {
         d.reason = "bad-request";
         return false;
     }
@@ -3790,10 +3795,15 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
             const uint32_t rows = std::min(bandRows, H - y0);
             const size_t n = static_cast<size_t>(rows) * W * 3u;
             float* dst = static_cast<float*>(k.staging.mapped);
-            const double* src = r.raw_rgb + static_cast<size_t>(y0) * W * 3u;
-            parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) dst[i] = static_cast<float>(src[i]);
-            });
+            if (src_is_f32) {
+                std::memcpy(dst, r.raw_rgb_f32 + static_cast<size_t>(y0) * W * 3u,
+                            n * sizeof(float));
+            } else {
+                const double* src = r.raw_rgb + static_cast<size_t>(y0) * W * 3u;
+                parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) dst[i] = static_cast<float>(src[i]);
+                });
+            }
             if (!begin()) { d.reason = "dispatch-failed"; return false; }
             barrier(VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_WRITE_BIT,
                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
@@ -3854,11 +3864,16 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
                     VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_READ_BIT);
             if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
             const float* srcf = static_cast<const float*>(k.staging.mapped);
-            double* dst = out + static_cast<size_t>(y0) * W * 3u;
             const size_t n = static_cast<size_t>(rows) * W * 3u;
-            parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(srcf[i]);
-            });
+            if (out_f32) {
+                std::memcpy(out_f32 + static_cast<size_t>(y0) * W * 3u, srcf,
+                            n * sizeof(float));
+            } else {
+                double* dst = out + static_cast<size_t>(y0) * W * 3u;
+                parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(srcf[i]);
+                });
+            }
         }
         d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     }
@@ -3904,55 +3919,122 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
 
 // Per-channel Gaussian blur, expressed on the halation kernel's mixture mode.
 // See the header for why this needs no shader of its own.
-bool gaussian_blur_rgb(double* rgb, int width, int height,
-                       const double sigma_px[3]) {
-    if (!rgb || !sigma_px || width <= 0 || height <= 0) return false;
+namespace {
+
+// Shared by both blur entry points: everything except which plane type it moves.
+//
+// IIR-CLASS SIGMAS GO BACK TO THE CPU, on measurement rather than taste. Above
+// sigma 3 the CPU switches to Young-van Vliet, which is O(1) in sigma; this pass
+// pays whole-frame residency and a transpose whatever the sigma is. On device
+// (Adreno 840, tools/gpu_probe/probe_spatial_main.cpp):
+//
+//   sigma 0.70 (FIR)  1080p  50.7 -> 34.7 ms  1.46x   12.5MP 285.1 -> 179.8 ms  1.59x
+//   sigma 3.50 (IIR)  1080p  46.5 -> 51.2 ms  0.91x   12.5MP 161.4 -> 261.5 ms  0.62x
+//
+// So the GPU lost outright at 12.5 MP for a wide blur, and the CPU IIR was even
+// faster there than its own FIR at sigma 0.7. The threshold is the same
+// kSmallSigmaMax the CPU dispatches on, which is not a coincidence: it is
+// exactly where the CPU stops paying for radius.
+//
+// THAT MEASUREMENT PREDATES THE WORK BUFFERS BECOMING GPU-PRIVATE. It was taken
+// while halation's four whole-frame scratch buffers came from the first
+// DEVICE_LOCAL memory type, which on a unified-memory phone is normally
+// HOST_VISIBLE|HOST_COHERENT -- so the pass was paying host-coherent bandwidth
+// for every sweep, which is exactly what a wide IIR blur is made of.
+// SPK_GPU_BLUR_IIR=1 lifts the gate so the two can be compared in one binary
+// rather than argued about.
+//
+// ONE COMPONENT PER DISTINCT SIGMA. The mixture carries one sigma per component
+// and a weight per component per channel, so equal sigmas collapse to a single
+// blur while unequal ones become three disjoint ones -- channel c takes
+// component c with weight 1 and the others with weight 0.
+bool build_blur_request(int width, int height, const double sigma_px[3],
+                        double sigma_out[3], double weight_out[9], int* ncomp_out) {
+    if (!sigma_px || width <= 0 || height <= 0) return false;
     for (int c = 0; c < 3; ++c)
         if (!std::isfinite(sigma_px[c]) || sigma_px[c] <= 0.0) return false;
-
-    // IIR-CLASS SIGMAS GO BACK TO THE CPU, on measurement rather than taste.
-    // Above sigma 3 the CPU switches to Young-van Vliet, which is O(1) in sigma;
-    // this pass pays whole-frame residency and a transpose whatever the sigma is.
-    // On device (Adreno 840, tools/gpu_probe/probe_spatial_main.cpp):
-    //
-    //   sigma 0.70 (FIR)  1080p  50.7 -> 34.7 ms  1.46x     12.5MP 285.1 -> 179.8 ms  1.59x
-    //   sigma 3.50 (IIR)  1080p  46.5 -> 51.2 ms  0.91x     12.5MP 161.4 -> 261.5 ms  0.62x
-    //
-    // So the GPU loses outright at 12.5 MP for a wide blur, and the CPU IIR is
-    // even faster there than its own FIR at sigma 0.7. The threshold is the same
-    // kSmallSigmaMax the CPU dispatches on, which is not a coincidence: it is
-    // exactly where the CPU stops paying for radius.
-    //
-    // THAT MEASUREMENT PREDATES THE WORK BUFFERS BECOMING GPU-PRIVATE. It was
-    // taken while halation's four whole-frame scratch buffers were allocated
-    // from the first DEVICE_LOCAL memory type, which on a unified-memory phone
-    // is normally HOST_VISIBLE|HOST_COHERENT -- so the pass was paying
-    // host-coherent bandwidth for every sweep, which is exactly the cost a wide
-    // IIR blur is made of. SPK_GPU_BLUR_IIR=1 lifts the gate so the two can be
-    // compared again in one binary rather than argued about.
     double iir_gate = 3.0;
     if (const char* v = std::getenv("SPK_GPU_BLUR_IIR"))
         if (v[0] == '1') iir_gate = std::numeric_limits<double>::infinity();
     for (int c = 0; c < 3; ++c)
         if (sigma_px[c] >= iir_gate) return false;
-
-    // One component per DISTINCT sigma. The mixture carries one sigma per
-    // component and a weight per component per channel, so equal sigmas collapse
-    // to a single blur while unequal ones become three disjoint ones -- channel c
-    // takes component c with weight 1 and the others with weight 0.
     const bool uniform = (sigma_px[0] == sigma_px[1]) && (sigma_px[1] == sigma_px[2]);
-    const int ncomp = uniform ? 1 : 3;
-    double sigma[3];
-    double weight[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    for (int i = 0; i < 9; ++i) weight_out[i] = 0.0;
     if (uniform) {
-        sigma[0] = sigma_px[0];
-        weight[0] = weight[1] = weight[2] = 1.0;
+        sigma_out[0] = sigma_px[0];
+        weight_out[0] = weight_out[1] = weight_out[2] = 1.0;
+        *ncomp_out = 1;
     } else {
         for (int c = 0; c < 3; ++c) {
-            sigma[c] = sigma_px[c];
-            weight[c * 3 + c] = 1.0;
+            sigma_out[c] = sigma_px[c];
+            weight_out[c * 3 + c] = 1.0;
         }
+        *ncomp_out = 3;
     }
+    return true;
+}
+
+}  // namespace
+
+bool gaussian_blur_rgb_f32(float* rgb, int width, int height,
+                           const double sigma_px[3]) {
+    if (!rgb) return false;
+    double sigma[3] = {0.0, 0.0, 0.0};
+    double weight[9];
+    int ncomp = 0;
+    if (!build_blur_request(width, height, sigma_px, sigma, weight, &ncomp))
+        return false;
+
+    HalationScatterRequest request{};
+    request.raw_rgb_f32 = rgb;
+    request.width = width;
+    request.height = height;
+    request.pixel_size_um = 1.0;
+    request.scatter_spatial_scale = 1.0;
+    request.scatter_amount = 1.0;
+    request.mixture_sigma_px = sigma;
+    request.mixture_weight = weight;
+    request.mixture_count = ncomp;
+    request.halation_amount = 0.0;
+    request.halation_n_bounces = 0;
+
+    // No f64 scratch at all: the pass reads the caller's float plane and writes
+    // a float plane back. That is the whole point of this entry point -- the
+    // f64 one allocates a whole-frame double buffer here (300 MB at 12.5 MP)
+    // purely to hold a result it immediately converts.
+    std::vector<float> out;
+    try {
+        out.resize(static_cast<size_t>(width) * height * 3u);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    HalationScatterDiagnostics diagnostics{};
+    bool ok = false;
+    try {
+        std::lock_guard<std::mutex> lk(gpu_mutex());
+        Ctx& c = ctx();
+        ok = halation_scatter_locked(c, request, nullptr, diagnostics, out.data());
+        if (!ok && (std::strcmp(diagnostics.reason, "pipeline-failed") == 0 ||
+                    std::strcmp(diagnostics.reason, "allocation-failed") == 0 ||
+                    std::strcmp(diagnostics.reason, "dispatch-failed") == 0)) {
+            c.destroyHalation();
+        }
+    } catch (...) {
+        return false;
+    }
+    if (!ok || !diagnostics.engaged) return false;
+    std::memcpy(rgb, out.data(), out.size() * sizeof(float));
+    return true;
+}
+
+bool gaussian_blur_rgb(double* rgb, int width, int height,
+                       const double sigma_px[3]) {
+    if (!rgb) return false;
+    double sigma[3] = {0.0, 0.0, 0.0};
+    double weight[9];
+    int ncomp = 0;
+    if (!build_blur_request(width, height, sigma_px, sigma, weight, &ncomp))
+        return false;
 
     HalationScatterRequest request{};
     request.raw_rgb = rgb;

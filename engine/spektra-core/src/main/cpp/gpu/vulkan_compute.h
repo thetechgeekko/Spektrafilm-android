@@ -207,6 +207,11 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
 bool gaussian_blur_rgb(double* rgb, int width, int height,
                        const double sigma_px[3]);
 
+// The same blur over a float32 plane, in place. Same refusals, same latch
+// discipline; it exists so an f32 caller need not round-trip through f64.
+bool gaussian_blur_rgb_f32(float* rgb, int width, int height,
+                           const double sigma_px[3]);
+
 // Viewing-glare field on the GPU (#215; shader gpu/glare.comp).
 //
 // model/glare.cpp::compute_random_glare_amount in one dispatch: the per-pixel
@@ -583,7 +588,12 @@ bool fft_convolve(const FftConvolveRequest& request, double* out,
 // CPU does. Fast GPU output: tolerance-bounded against the f64 CPU pass,
 // deterministic on one device, never identity evidence.
 struct HalationScatterRequest {
+    // Exactly one of these is the source. The f32 form exists because not every
+    // caller holds f64: the grain stage's final blur operates on the float
+    // density plane, and converting it to f64 purely to hand it to a pass that
+    // immediately converts back would cost more than the blur.
     const double* raw_rgb = nullptr;  // interleaved RGB, width*height*3 doubles
+    const float* raw_rgb_f32 = nullptr;
     int width = 0;
     int height = 0;
     double pixel_size_um = 0.0;

@@ -423,6 +423,47 @@ int main() {
     check(spk::gpu::halation_scatter(r, rebuilt.data(), nullptr) && bytes_eq(gpu, rebuilt),
           "after a refusal the kernel reproduces the same bytes");
 
+    // THE f32 BLUR ENTRY (#223). Same pass, same sigmas, a float plane instead of
+    // a double one.
+    //
+    // It exists for the grain stage's final blur, which holds an f32 density
+    // plane: converting 37.5M elements to f64 and back, to hand them to a pass
+    // that immediately converts to f32 itself, costs more than the blur does.
+    // So the check is that the two entry points agree -- the f32 one must be the
+    // same filter, not a differently-rounded one, and any gap between them would
+    // be the conversion round trip showing up as a numerical difference.
+    {
+        const double sg[3] = {0.7, 0.7, 0.7};
+        std::vector<double> f64_plane = raw;
+        std::vector<float> f32_plane(raw.size());
+        for (size_t i = 0; i < raw.size(); ++i) f32_plane[i] = static_cast<float>(raw[i]);
+
+        const bool ok64 = spk::gpu::gaussian_blur_rgb(f64_plane.data(), w, h, sg);
+        const bool ok32 = spk::gpu::gaussian_blur_rgb_f32(f32_plane.data(), w, h, sg);
+        check(ok64 && ok32, "both blur entry points engaged");
+        if (ok64 && ok32) {
+            double worst = 0.0, peak = 0.0;
+            for (size_t i = 0; i < raw.size(); ++i) {
+                worst = std::max(worst, std::fabs(f64_plane[i] - f32_plane[i]));
+                peak = std::max(peak, std::fabs(f64_plane[i]));
+            }
+            std::printf("  f32 blur entry: worst |f32 - f64| = %.3e  peak %.4g\n",
+                        worst, peak);
+            // The f64 entry converts its result to double at the end; the f32
+            // one does not. Both compute in f32 on the device, so they agree to
+            // the conversion and no further.
+            check(worst <= 1e-5 * std::max(peak, 1.0),
+                  "the f32 blur entry is the same filter as the f64 one");
+            // And it must have DONE something -- an entry point that quietly
+            // returned its input would pass the comparison above only if the
+            // f64 one did too, but not if it actually blurred.
+            bool moved = false;
+            for (size_t i = 0; i < raw.size(); ++i)
+                if (static_cast<double>(f32_plane[i]) != raw[i]) { moved = true; break; }
+            check(moved, "the f32 blur altered the plane");
+        }
+    }
+
     // FRAME RESIDENCY (#220). The same pass, reading and writing the resident
     // plane instead of the caller's f64 buffers.
     //

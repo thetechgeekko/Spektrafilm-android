@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <array>
 #include <vector>
@@ -190,6 +191,22 @@ void add_micro_structure(float* inout, int npix, int width, int height,
     }
 }
 
+// The grain stage's final per-channel Gaussian blur, offered to the GPU.
+//
+// It operates on the FLOAT density plane, which is why gpu::gaussian_blur_rgb's
+// f64 signature could not carry it: converting a 37.5M-element plane to f64 and
+// back, to hand it to a pass that immediately converts it to f32 itself, costs
+// more than the blur. gaussian_blur_rgb_f32 exists for exactly this caller.
+//
+// Behind the same SPK_GPU_BLUR knob as the other two blurs, so every blur
+// decision in the engine flips together rather than one at a time.
+static bool try_gpu_grain_blur(float* out, int width, int height, double sigma) {
+    const char* gv = std::getenv("SPK_GPU_BLUR");
+    if (!gv || gv[0] != '1') return false;
+    const double sg[3] = {sigma, sigma, sigma};
+    return gpu::gaussian_blur_rgb_f32(out, width, height, sg);
+}
+
 void apply_grain_to_density(const float* density_cmy, int npix, int width,
                             int height, double pixel_size_um,
                             const GrainParams& grain, float* out) {
@@ -252,7 +269,8 @@ void apply_grain_to_density(const float* density_cmy, int npix, int width,
 
     // Final per-channel Gaussian blur (sigma in pixels). Python threshold: > 0.4.
     if (grain.blur > 0.4) {
-        gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
+        if (!try_gpu_grain_blur(out, width, height, grain.blur))
+            gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
     }
 }
 
@@ -448,7 +466,8 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // (grain.py: `if grain_blur>0`), unlike the non-sublayer path's > 0.4.
     if (grain.blur > 0.0) {
         ScopedGrainPhase _p(GrainPhase::Final);
-        gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
+        if (!try_gpu_grain_blur(out, width, height, grain.blur))
+            gaussian_blur(out, width, height, 3, static_cast<float>(grain.blur));
     }
 }
 
