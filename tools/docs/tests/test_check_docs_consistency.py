@@ -159,6 +159,79 @@ class DocsConsistencyTest(unittest.TestCase):
         self.assertEqual(len(errors), 2)
         self.assertTrue(all("link target" in error for error in errors))
 
+    def test_heading_slug_matches_github_for_markup_and_punctuation(self) -> None:
+        self.assertEqual(checker._heading_slug("Module layout"), "module-layout")
+        self.assertEqual(checker._heading_slug("A note on accuracy"), "a-note-on-accuracy")
+        self.assertEqual(
+            checker._heading_slug("Engine architecture (C++, `engine/src/`)"),
+            "engine-architecture-c-enginesrc",
+        )
+        self.assertEqual(checker._heading_slug("**Bold** and _em_"), "bold-and-em")
+        self.assertEqual(checker._heading_slug("[linked](x.md) title"), "linked-title")
+
+    def test_anchors_collects_headings_duplicates_and_explicit_ids(self) -> None:
+        text = (
+            "# Top\n"
+            "## Repeat\n"
+            "## Repeat\n"
+            "<a id=\"explicit\"></a>\n"
+            "```\n"
+            "## Fenced heading\n"
+            "```\n"
+        )
+        anchors = checker._anchors(text)
+        self.assertIn("top", anchors)
+        self.assertIn("repeat", anchors)
+        self.assertIn("repeat-1", anchors)      # GitHub's duplicate suffix
+        self.assertIn("explicit", anchors)
+        self.assertNotIn("fenced-heading", anchors)  # fenced code is not a heading
+
+    def test_same_document_fragment_must_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "page.md"
+            text = "# Real Heading\n[ok](#real-heading) [bad](#no-such-heading)\n"
+            page.write_text(text, encoding="utf-8")
+            with mock.patch.object(checker, "ROOT", root):
+                errors = checker._check_local_links(page, text)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("#no-such-heading", errors[0])
+
+    def test_cross_document_fragment_must_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "other.md").write_text("# Known Section\n", encoding="utf-8")
+            page = root / "page.md"
+            text = "[ok](other.md#known-section) [bad](other.md#gone)\n"
+            page.write_text(text, encoding="utf-8")
+            with mock.patch.object(checker, "ROOT", root):
+                errors = checker._check_local_links(page, text)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("#gone", errors[0])
+        self.assertIn("other.md", errors[0])
+
+    def test_fragment_on_a_missing_file_reports_the_path_not_the_anchor(self) -> None:
+        """One error, not two -- a dead path must not also claim a dead anchor."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "page.md"
+            text = "[bad](absent.md#whatever)\n"
+            page.write_text(text, encoding="utf-8")
+            with mock.patch.object(checker, "ROOT", root):
+                errors = checker._check_local_links(page, text)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("missing local link", errors[0])
+
+    def test_percent_encoded_fragment_resolves(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = root / "page.md"
+            text = "# Real Heading\n[ok](#real%2Dheading)\n"
+            page.write_text(text, encoding="utf-8")
+            with mock.patch.object(checker, "ROOT", root):
+                errors = checker._check_local_links(page, text)
+        self.assertEqual(errors, [])
+
     def test_preset_set_comparison_detects_missing_extra_and_duplicates(self) -> None:
         errors = checker._preset_set_errors(["a", "a", "b"], ["a", "c", "c"])
         joined = "\n".join(errors)

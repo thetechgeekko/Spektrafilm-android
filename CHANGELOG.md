@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### The grain stage was never sampler-bound (#148, #180)
+
+- The grain stage now reports where its time goes — sampler, particle blur, prep,
+  accumulate, micro-structure, final and layers, accumulated across every channel and
+  sublayer of a render. It is observability; nothing gates on it.
+- That measurement overturned the premise the work was planned on. A host profile had put
+  94.6 % of the stage in the per-pixel Poisson/Binomial sampler. On the device the sampler
+  is 29 %, and 53-55 % was `interp_density_cmy_layers` — 112 M interpolations running on a
+  single core, in a file no performance sweep on this branch had opened. Six lines of
+  `spk::parallel_for` over disjoint writes.
+- Measured on SM-S948W at HEAVY 12.5 MP with Fast GPU on both arms, 4 paired captures
+  behind a thermal gate: simulate **7546 +/- 283 ms to 5975 +/- 169 ms, -20.8 %**, faster
+  in 16/16 format pairs, total export -18.7 %. Grain 3846 +/- 49 to 2228 +/- 77 ms; the
+  layers phase 2101 +/- 36 to 481 +/- 26 ms (4.4x). The engine sample digest is identical
+  between the two arms in every format, so the change is byte-identical on device.
+- The same decomposition holds across scenes: layers is 54-55 % of the stage and the fix is
+  4.4-4.5x on the print, scan and print+halation+DIR cells alike.
+- Five of the six serial loops parallelised in the same batch are worth nothing — the
+  37.5 M-element preprocess conversion, the auto-exposure gain, the grain density-min
+  subtract, the micro-structure multiply and the glare tail are each inside their own
+  noise. Only the layers loop moves.
+- A cheaper grain and viewing-glare sampler now runs on the Fast GPU export route under
+  owner decision #180, gated statistically rather than by sample identity. It is worth
+  2.8 %. Strict Exact is untouched.
+- `tools/baseline/wait_cool.sh` gates an A/B on the device's live HAL temperature instead
+  of sleeping. The first run of this change, behind a fixed 45 s sleep on a saturated
+  phone, reported -12.7 % with a +/-1077 ms spread; the tell was the sampler phase, which
+  is byte-identical code in both arms, reading 1463 ms against 2542 ms.
+
+### The grain sampler's remaining cost is at the CLEAR end of the film (#180)
+
+- `tests/bench_grain_density.cpp` (a benchmark, not a gate) sweeps the sampler across
+  density. There is a step, not a slope: density 0.042 costs 251 ms against 124 ms at
+  0.048, and it lands exactly where `fast_binomial_one` switches from CDF inversion to the
+  normal approximation at `var = n*p*(1-p) > 10`. The inversion branch evaluates
+  `std::pow(1-p, n)` once per pixel.
+- So the adversarial density regime is near-clear film, not dense film, and the cost there
+  is a transcendental call rather than the RNG. The dense end escapes because rising p
+  shrinks `saturation`, which grows the Poisson mean, which lifts `var` back over 10 from
+  the other side.
+- The #180 sampler is therefore worth least exactly where the sampler costs most:
+  1.11-1.14x below the step against 1.45-1.54x above it.
+
+### The GPU-export gate now separates the shader band from the noise realisation (#180)
+
+- `test_gpu_host` asserted that a GPU export is within 1e-4 of the CPU export. Once
+  `gpu_export` also selected the cheaper sampler that failed on all 8 route/kernel cases at
+  8.6e-4 to 1.0e-2, and `engine-native` was red. It was the gate measuring the approved
+  noise realisation, not a shader regression: with the stochastic stages off the same cases
+  measure 6.6e-07 to 2.9e-06.
+- The 1e-4 numeric band is now taken with grain and glare off, where it still covers every
+  GPU kernel on every route; the stochastic configuration is gated on same-device
+  determinism instead. Two assertions were added rather than removed — the band now also
+  requires that the GPU actually engaged, so it cannot pass vacuously, and the no-GPU
+  fallback law moved to the deterministic pair.
+- `test_glare_sampler` gained an autocorrelation gate: both generators are checked at the
+  horizontal neighbour (lags 1-4) and the vertical one, measuring |r| <= 0.004 against a
+  0.02 bound, with a blurred field as a positive control at +0.93. Matching the mean and
+  variance is not enough to accept a cheaper generator.
+- Parity is 43 cases at both flag legs.
+
+### Fast GPU export now discloses what it changes
+
+- The Settings note claimed the result "is checked against the CPU engine on this device
+  and falls back to CPU automatically if it ever drifts". Since #180 that is not true of
+  grain and viewing glare, which are re-drawn from a different generator and are not
+  checked against CPU at all — so the app was shipping an inaccurate claim, not merely an
+  undisclosed change. It now says which stages are checked, that grain and glare will not
+  match the default engine, that repeat exports on one device stay identical, and that an
+  exactly-matching export means leaving the toggle off.
+- The `gpuExport` KDoc carried the same gap, including that the sampler swap happens with
+  or without a usable GPU, because the cheaper sampler is a CPU-side win too.
+
 ### The Fast GPU export route: halation and coupler diffusion on the device (#206)
 
 - The in-emulsion scatter and back-reflection halation pass now runs on the GPU, adapted
@@ -53,8 +126,9 @@
 
 - Added `CONTRIBUTING.md`, `SECURITY.md`, issue templates, a pull request template and
   `CODEOWNERS`, none of which existed.
-- README: corrected a stale claim that CI enforces 39 parity cases (it is 42, at two flag
-  legs) and documented the two render routes and their differing contracts.
+- README: corrected a stale claim that CI enforces 39 parity cases (42 at the time, 43
+  now, at two flag legs) and documented the two render routes and their differing
+  contracts.
 
 ### Exact RAW decode handoff and release profiling (#158)
 
@@ -728,5 +802,5 @@ on Android. Dedicated to the [pixls.us](https://pixls.us) community.
 - On-device RAW/DNG import (LibRaw module scaffolded).
 - Non-destructive recipe/preset editing; richer editing UI.
 
-**APK:** see the [GitHub Releases](../../releases) page (min Android 7.0). *(Historical `dist/`
+**APK:** see the [GitHub Releases](https://github.com/thetechgeekko/Spektrafilm-android/releases) page (min Android 7.0). *(Historical `dist/`
 APKs were removed from the repo — they were stale, 16 KB-page-misaligned and debug-signed.)*

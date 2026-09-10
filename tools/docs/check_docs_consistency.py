@@ -16,6 +16,13 @@ ROOT = Path(__file__).resolve().parents[2]
 CURRENT_DOCS = (
     ROOT / "README.md",
     ROOT / "CLAUDE.md",
+    # Root-level docs a contributor lands on first. These were added later and
+    # were never link-checked, so a dead relative link in CONTRIBUTING.md would
+    # have shipped silently (#185).
+    ROOT / "CONTRIBUTING.md",
+    ROOT / "SECURITY.md",
+    ROOT / "CHANGELOG.md",
+    ROOT / "NOTICE.md",
     ROOT / "docs" / "EXECUTION_INDEX.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "PRODUCTION_READINESS_PLAN.md",
@@ -153,15 +160,86 @@ def _exact_local_path_error(base: Path, portable_path: str) -> str | None:
     return None
 
 
-def _check_local_links(path: Path, text: str) -> list[str]:
+def _heading_slug(title: str) -> str:
+    """GitHub's heading slug: strip inline markup, lowercase, spaces to hyphens.
+
+    Deliberately conservative -- it keeps letters, digits, hyphens, underscores
+    and any non-ASCII (so emoji-bearing headings still resolve), and drops the
+    rest. A slug this function gets wrong produces a false failure, so anything
+    it cannot model is handled by _explicit_anchors below instead.
+    """
+    text = re.sub(r"`([^`]*)`", r"\1", title)                 # code spans
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)    # links / images
+    text = re.sub(r"[*_~]+", "", text)                        # emphasis
+    text = text.strip().lower()
+    out = []
+    for char in text:
+        if char.isalnum() or char in "-_" or ord(char) > 127:
+            out.append(char)
+        elif char.isspace():
+            out.append("-")
+    return "".join(out)
+
+
+def _anchors(text: str) -> set[str]:
+    """Every fragment a link in this repo may target within one document."""
+    body = _without_fenced_code(text)
+    found: set[str] = set()
+    seen: dict[str, int] = {}
+    for line in body.splitlines():
+        match = re.match(r"\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$", line)
+        if not match:
+            continue
+        slug = _heading_slug(match.group(2))
+        if not slug:
+            continue
+        count = seen.get(slug, 0)
+        seen[slug] = count + 1
+        found.add(slug if count == 0 else f"{slug}-{count}")
+    # Explicit HTML anchors, which headings cannot express.
+    for match in re.finditer(r"<a\s[^>]*\b(?:id|name)=[\"']([^\"']+)[\"']", body):
+        found.add(match.group(1))
+    return found
+
+
+def _check_anchor(path: Path, target_path: Path, fragment: str,
+                  cache: dict[Path, set[str] | None]) -> str | None:
+    """None if the fragment resolves, else the error text."""
+    if target_path not in cache:
+        try:
+            cache[target_path] = _anchors(
+                target_path.read_text(encoding="utf-8")
+            )
+        except OSError:
+            cache[target_path] = None
+    anchors = cache[target_path]
+    if anchors is None:          # unreadable: the path check already reported it
+        return None
+    decoded = unquote(fragment)
+    if decoded in anchors or _heading_slug(decoded) in anchors:
+        return None
+    where = "this file" if target_path == path else target_path.name
+    return f"link fragment #{fragment} has no matching heading in {where}"
+
+
+def _check_local_links(path: Path, text: str,
+                       anchor_cache: dict[Path, set[str] | None] | None = None
+                       ) -> list[str]:
     errors: list[str] = []
+    if anchor_cache is None:
+        anchor_cache = {}
     for raw_target in _markdown_link_targets(text):
         stripped = raw_target.strip()
         if stripped.startswith("<") and ">" in stripped:
             target = stripped[1 : stripped.index(">")]
         else:
             target = stripped.split(maxsplit=1)[0]
-        if not target or target.startswith("#"):
+        if not target:
+            continue
+        if target.startswith("#"):
+            anchor_error = _check_anchor(path, path, target[1:], anchor_cache)
+            if anchor_error:
+                errors.append(f"{path.relative_to(ROOT)}: {anchor_error}")
             continue
         target = _unescape_markdown_destination(target)
         parsed = urlsplit(target)
@@ -217,6 +295,14 @@ def _check_local_links(path: Path, text: str) -> list[str]:
         local_error = _exact_local_path_error(path.parent, portable_path)
         if local_error:
             errors.append(f"{path.relative_to(ROOT)}: {local_error}: {target}")
+            continue
+        # The path resolves; if the link also names a section, that section has
+        # to exist. A heading that gets renamed is the most common way a
+        # cross-reference goes stale without any link going dead (#185).
+        if parsed.fragment and resolved.suffix.lower() == ".md":
+            anchor_error = _check_anchor(path, resolved, parsed.fragment, anchor_cache)
+            if anchor_error:
+                errors.append(f"{path.relative_to(ROOT)}: {anchor_error}: {target}")
     return errors
 
 
@@ -405,13 +491,14 @@ def main() -> int:
         )
     )
 
+    anchor_cache: dict[Path, set[str] | None] = {}
     for path in CURRENT_DOCS:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
             errors.append(f"{path.relative_to(ROOT)}: {exc}")
             continue
-        errors.extend(_check_local_links(path, text))
+        errors.extend(_check_local_links(path, text, anchor_cache))
         for fragment in required_fragments.get(path, ()):
             if fragment not in text:
                 errors.append(f"{path.relative_to(ROOT)}: missing required text {fragment!r}")
