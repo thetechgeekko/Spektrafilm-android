@@ -29,6 +29,8 @@
 #ifndef SPK_MODEL_DIFFUSION_H
 #define SPK_MODEL_DIFFUSION_H
 
+#include <vector>
+
 namespace spk {
 
 // Halation parameters, mirroring the digested
@@ -136,6 +138,61 @@ void diffusion_reset_fft_fallbacks();
 void apply_diffusion_filter_um(double* raw, int w, int h,
                                const DiffusionFilterParams& params,
                                double pixel_size_um);
+
+// ---------------------------------------------------------------------------
+// Separable Gaussian-mixture approximation of the diffusion PSF (#213).
+//
+// The exact PSF above is a sum of 2D isotropic EXPONENTIALS,
+// sum_k w_k exp(-r/l_k) / (2 pi l_k^2), which is not separable, so
+// apply_diffusion_filter_um convolves it with an FFT. That is the single largest
+// stage of a real export (13559 ms of 25319 on a 12.5 MP frame) and it is the one
+// stage with no GPU implementation anywhere in the repo.
+//
+// A sum of GAUSSIANS is separable, and a separable blur is what a GPU can do
+// cheaply -- and at a cost that stops growing with the radius once the wide
+// components are run at a reduced resolution. So each exponential term is replaced
+// by `terms` Gaussians and the whole PSF becomes one weighted set of separable
+// blurs. The decomposition technique is adapted from chaert-s/spektrafilm-ofx
+// (`makeDiffusionComponents`, `shaders/vulkan/SpektraDiffusion.comp`) at
+// 86476afc5b077de77e2278e3658d1ba9309892a1, GPL-3.0-only; see
+// docs/research/spektrafilm-ofx-port.md. Every PARAMETER here comes from this
+// engine's own family configuration, not from OFX's -- only the fit does.
+//
+// THIS IS AN APPROXIMATION AND IT IS NOT THE EXPORT PATH. Fitting an exponential
+// with Gaussians is worst exactly at r = 0, where the exponential has a cusp and
+// every Gaussian is flat, and that cusp is the visible core of the bloom. Call
+// diffusion_mixture_psf_error() to get the number for a given configuration rather
+// than assuming a bound; the export keeps the FFT.
+struct DiffusionGaussian {
+    double sigma_px = 0.0;    // in PIXELS, already through spatial_scale/pixel_size
+    double weight[3] = {0.0, 0.0, 0.0};  // per-channel, carries the halo warmth tint
+};
+
+// Build the mixture for `params`. Mirrors apply_diffusion_filter_um's own setup
+// exactly: same resolve_family_cfg, same strength_to_scatter, same group expansion,
+// same halo warmth redistribution, same lambda -> pixel conversion, and the same
+// truncation radius, so the only difference from the exact path is the exp->Gauss
+// fit itself.
+//
+// `terms` is the number of Gaussians per exponential term (>= 1). 3 reproduces the
+// upstream OFX fit; more terms cost more blur passes and reduce the cusp error.
+//
+// Returns false (and leaves the outputs untouched) when the stage is a no-op --
+// inactive, strength <= 0, spatial_scale <= 0, or a derived p_s <= 0 -- so a caller
+// can use the return value as "is there anything to do at all".
+// On success `*scatter_fraction` is p_s and `*radius_px` is the truncation radius.
+bool build_diffusion_mixture(const DiffusionFilterParams& params, double pixel_size_um,
+                             int w, int h, int terms,
+                             std::vector<DiffusionGaussian>* out,
+                             double* scatter_fraction, int* radius_px);
+
+// Measure the mixture against the exact PSF on the SAME truncated, sum-normalised
+// grid apply_diffusion_filter_um builds, so the number describes the fit and not a
+// normalisation mismatch. Writes the per-channel worst absolute and RMS difference
+// of the two normalised kernels. Returns false when the stage is a no-op.
+bool diffusion_mixture_psf_error(const DiffusionFilterParams& params,
+                                 double pixel_size_um, int w, int h, int terms,
+                                 double* max_abs, double* rms);
 
 }  // namespace spk
 

@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
+#include <map>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -500,6 +502,371 @@ unsigned long long diffusion_fft_fallbacks() {
 
 void diffusion_reset_fft_fallbacks() {
     g_fft_fallbacks.store(0, std::memory_order_relaxed);
+}
+
+namespace {
+
+// exp(-r/lambda) / (2 pi lambda^2), the engine's radial exponential term, approximated
+// by `terms` zero-mean 2D Gaussians
+//     sum_i a_i / (2 pi (s_i lambda)^2) exp(-r^2 / (2 (s_i lambda)^2)).
+// Both sides integrate to 1 over the plane, so the a_i sum to 1, and the whole problem
+// depends only on the ratio r/lambda -- it is scale-free. That is why the fit is solved
+// ONCE for lambda = 1 and reused for every term, every family and every frame.
+//
+// The weights are SOLVED, not tabulated. An earlier revision of this file carried
+// hand-written 5- and 7-term tables described as "solved offline"; they were not, and
+// tests/bench_diffusion_mixture.cpp caught it immediately -- they scored WORSE than the
+// 3-term fit (3.4e-03 -> 6.5e-03 -> 8.6e-03 max_abs), which a real least-squares fit
+// cannot do, because adding basis functions cannot increase the residual. Solving it
+// here removes the opportunity to be wrong about it.
+//
+// The sigmas are fixed on a log-spaced grid and only the weights are solved, which makes
+// it a LINEAR least squares in the a_i: minimise the L2 error over the PLANE, so the
+// area element r dr is the quadrature weight. Negative weights are then removed and the
+// system re-solved on the surviving set (a small active-set NNLS), because a negative
+// component would let the kernel go negative near r = 0 and a PSF must not.
+struct ExpGaussFit { double w, s; };
+
+// The upstream OFX fit (`kExpGaussianFit`, SpektraVulkanRenderer.cpp at 86476af),
+// kept verbatim so the solver can be checked against a known-good reference.
+const ExpGaussFit kFitOfx3[3] = {
+    {0.1633, 0.5360}, {0.6496, 1.5236}, {0.1870, 2.7684},
+};
+
+// Solve one N-term fit. Deterministic, allocation-light and called once per distinct N.
+std::vector<ExpGaussFit> solve_exp_gauss_fit(int terms) {
+    const int n = terms < 1 ? 1 : (terms > 12 ? 12 : terms);
+    // Log-spaced sigmas over the range the exponential actually occupies. The lower end
+    // has to be small enough to have something to put under the r = 0 cusp; the upper
+    // end covers the tail out to ~8 lambda, past which exp(-r) is below 3e-4.
+    std::vector<double> sig(static_cast<size_t>(n));
+    const double lo = 0.10, hi = 6.0;
+    for (int i = 0; i < n; ++i) {
+        const double t = (n == 1) ? 0.0 : static_cast<double>(i) / (n - 1);
+        sig[static_cast<size_t>(i)] = lo * std::pow(hi / lo, t);
+    }
+
+    // Quadrature over r in [0, 24] lambda. Fine enough that the r = 0 region, where the
+    // cusp lives and the area weight is smallest, is still resolved.
+    const int kSamples = 24000;
+    const double rmax = 24.0, dr = rmax / kSamples;
+
+    auto gauss = [](double r, double s) {
+        return std::exp(-r * r / (2.0 * s * s)) / (2.0 * M_PI * s * s);
+    };
+    auto target = [](double r) { return std::exp(-r) / (2.0 * M_PI); };
+
+    std::vector<bool> active(static_cast<size_t>(n), true);
+    std::vector<double> a(static_cast<size_t>(n), 0.0);
+
+    for (int pass = 0; pass < n; ++pass) {
+        std::vector<int> idx;
+        for (int i = 0; i < n; ++i)
+            if (active[static_cast<size_t>(i)]) idx.push_back(i);
+        const int m = static_cast<int>(idx.size());
+        if (m == 0) break;
+
+        // Normal equations with the r dr area weight.
+        std::vector<double> A(static_cast<size_t>(m) * m, 0.0), b(static_cast<size_t>(m), 0.0);
+        for (int q = 0; q <= kSamples; ++q) {
+            const double r = q * dr;
+            const double wq = r * dr * ((q == 0 || q == kSamples) ? 0.5 : 1.0);
+            if (wq == 0.0) continue;
+            const double f = target(r);
+            for (int u = 0; u < m; ++u) {
+                const double gu = gauss(r, sig[static_cast<size_t>(idx[u])]);
+                b[static_cast<size_t>(u)] += wq * gu * f;
+                for (int v = u; v < m; ++v) {
+                    const double gv = gauss(r, sig[static_cast<size_t>(idx[v])]);
+                    A[static_cast<size_t>(u) * m + v] += wq * gu * gv;
+                }
+            }
+        }
+        for (int u = 0; u < m; ++u)
+            for (int v = 0; v < u; ++v)
+                A[static_cast<size_t>(u) * m + v] = A[static_cast<size_t>(v) * m + u];
+
+        // Gaussian elimination with partial pivoting, plus a small Tikhonov term: the
+        // Gaussian basis is badly conditioned once the sigmas crowd together.
+        for (int u = 0; u < m; ++u) A[static_cast<size_t>(u) * m + u] *= (1.0 + 1e-12);
+        std::vector<double> M(A), x(b);
+        bool singular = false;
+        for (int col = 0; col < m && !singular; ++col) {
+            int piv = col;
+            for (int r2 = col + 1; r2 < m; ++r2)
+                if (std::fabs(M[static_cast<size_t>(r2) * m + col]) >
+                    std::fabs(M[static_cast<size_t>(piv) * m + col]))
+                    piv = r2;
+            if (std::fabs(M[static_cast<size_t>(piv) * m + col]) < 1e-300) { singular = true; break; }
+            if (piv != col) {
+                for (int c2 = 0; c2 < m; ++c2)
+                    std::swap(M[static_cast<size_t>(col) * m + c2], M[static_cast<size_t>(piv) * m + c2]);
+                std::swap(x[static_cast<size_t>(col)], x[static_cast<size_t>(piv)]);
+            }
+            const double d = M[static_cast<size_t>(col) * m + col];
+            for (int r2 = col + 1; r2 < m; ++r2) {
+                const double f2 = M[static_cast<size_t>(r2) * m + col] / d;
+                if (f2 == 0.0) continue;
+                for (int c2 = col; c2 < m; ++c2)
+                    M[static_cast<size_t>(r2) * m + c2] -= f2 * M[static_cast<size_t>(col) * m + c2];
+                x[static_cast<size_t>(r2)] -= f2 * x[static_cast<size_t>(col)];
+            }
+        }
+        if (singular) break;
+        for (int r2 = m - 1; r2 >= 0; --r2) {
+            double acc = x[static_cast<size_t>(r2)];
+            for (int c2 = r2 + 1; c2 < m; ++c2)
+                acc -= M[static_cast<size_t>(r2) * m + c2] * x[static_cast<size_t>(c2)];
+            x[static_cast<size_t>(r2)] = acc / M[static_cast<size_t>(r2) * m + r2];
+        }
+
+        // Drop the most negative weight and re-solve; a PSF may not go negative.
+        int worst = -1;
+        double worst_v = 0.0;
+        for (int u = 0; u < m; ++u)
+            if (x[static_cast<size_t>(u)] < worst_v) { worst_v = x[static_cast<size_t>(u)]; worst = u; }
+        std::fill(a.begin(), a.end(), 0.0);
+        for (int u = 0; u < m; ++u) a[static_cast<size_t>(idx[u])] = x[static_cast<size_t>(u)];
+        if (worst < 0) break;
+        active[static_cast<size_t>(idx[worst])] = false;
+        a[static_cast<size_t>(idx[worst])] = 0.0;
+    }
+
+    // Both sides integrate to 1, so pin the total rather than letting quadrature drift.
+    double sum = 0.0;
+    for (double v : a) sum += v;
+    std::vector<ExpGaussFit> out;
+    for (int i = 0; i < n; ++i) {
+        const double wi = (sum > 0.0) ? a[static_cast<size_t>(i)] / sum : 0.0;
+        if (wi > 0.0) out.push_back({wi, sig[static_cast<size_t>(i)]});
+    }
+    if (out.empty()) out.push_back({1.0, 1.0});
+    return out;
+}
+
+// Cached per N. `terms == 3` returns the upstream OFX table so the default path is the
+// verbatim port; every other N is solved.
+const std::vector<ExpGaussFit>& exp_gauss_fit(int terms) {
+    static std::mutex m;
+    static std::map<int, std::vector<ExpGaussFit>> cache;
+    std::lock_guard<std::mutex> lock(m);
+    auto it = cache.find(terms);
+    if (it != cache.end()) return it->second;
+    std::vector<ExpGaussFit> v;
+    if (terms == 3) v.assign(kFitOfx3, kFitOfx3 + 3);
+    else v = solve_exp_gauss_fit(terms);
+    return cache.emplace(terms, std::move(v)).first->second;
+}
+
+// The truncation radius apply_diffusion_filter_um uses, lifted verbatim so the mixture
+// is normalised over the same support as the exact kernel.
+int diffusion_radius_px(const FamilyCfg& cfg, const DiffusionFilterParams& params,
+                        double pixel_size_um, int w, int h) {
+    const double bloom_max_lambda_px =
+        bloom_max_lambda_um(cfg) * params.spatial_scale / pixel_size_um;
+    double rd = 8.0 * bloom_max_lambda_px;
+    if (rd < 5.0) rd = 5.0;
+    int radius = static_cast<int>(std::ceil(rd));
+    const int min_hw = (h < w ? h : w);
+    int cap = min_hw / 2 - 1;
+    if (cap < 1) cap = 1;
+    if (radius > cap) radius = cap;
+    return radius;
+}
+
+// Everything apply_diffusion_filter_um derives before it touches a pixel. Kept in one
+// place so the exact path and the mixture cannot drift apart in setup, only in the fit.
+struct DiffusionSetup {
+    FamilyCfg cfg{};
+    double p_s = 0.0;
+    int radius = 0;
+    std::vector<double> core_lambdas, core_weights;
+    std::vector<double> halo_lambdas;
+    std::vector<double> bloom_lambdas, bloom_weights;
+    std::vector<std::vector<double>> halo_per_ch;  // [3][N_halo]
+};
+
+bool diffusion_setup(const DiffusionFilterParams& params, double pixel_size_um,
+                     int w, int h, DiffusionSetup* out) {
+    if (!params.active) return false;
+    if (params.strength <= 0.0 || params.spatial_scale <= 0.0) return false;
+    if (w <= 0 || h <= 0 || pixel_size_um <= 0.0) return false;
+
+    out->cfg = resolve_family_cfg(params.family, params);
+    out->p_s = strength_to_scatter(params.strength, out->cfg);
+    if (out->p_s <= 0.0) return false;
+
+    const double spatial_scale =
+        params.spatial_scale > 1e-6 ? params.spatial_scale : 1e-6;
+    out->radius = diffusion_radius_px(out->cfg, params, pixel_size_um, w, h);
+
+    const double effective_warmth = out->cfg.halo_warmth_base + params.halo_warmth;
+    std::vector<double> halo_weights;
+    expand_group(out->cfg.core, /*is_bloom=*/false, &out->core_lambdas, &out->core_weights);
+    expand_group(out->cfg.halo, /*is_bloom=*/false, &out->halo_lambdas, &halo_weights);
+    expand_group(out->cfg.bloom, /*is_bloom=*/true, &out->bloom_lambdas, &out->bloom_weights);
+    halo_channel_weights(halo_weights, effective_warmth, &out->halo_per_ch);
+
+    auto to_px = [&](std::vector<double>& v) {
+        for (double& x : v) x = x * spatial_scale / pixel_size_um;
+    };
+    to_px(out->core_lambdas);
+    to_px(out->halo_lambdas);
+    to_px(out->bloom_lambdas);
+    return true;
+}
+
+// The exact per-channel PSF on the (ks x ks) grid, sum-normalised per channel --
+// a verbatim restatement of the block inside apply_diffusion_filter_um.
+void exact_psf(const DiffusionSetup& S, int ks,
+               std::vector<std::vector<double>>* psf) {
+    auto exp_sum = [](double r, const std::vector<double>& lambdas_px,
+                      const std::vector<double>& weights) {
+        double total = 0.0;
+        for (size_t k = 0; k < lambdas_px.size(); ++k) {
+            const double lk = lambdas_px[k] > 1e-6 ? lambdas_px[k] : 1e-6;
+            total += weights[k] * std::exp(-r / lk) / (2.0 * M_PI * lk * lk);
+        }
+        return total;
+    };
+    const int cy = ks / 2, cx = ks / 2;
+    psf->assign(3, std::vector<double>(static_cast<size_t>(ks) * ks, 0.0));
+    double psf_sum[3] = {0.0, 0.0, 0.0};
+    for (int yy = 0; yy < ks; ++yy) {
+        for (int xx = 0; xx < ks; ++xx) {
+            const double dx = static_cast<double>(xx - cx);
+            const double dy = static_cast<double>(yy - cy);
+            const double r = std::sqrt(dx * dx + dy * dy);
+            const double core = S.cfg.w_c * exp_sum(r, S.core_lambdas, S.core_weights);
+            const double bloom = S.cfg.w_b * exp_sum(r, S.bloom_lambdas, S.bloom_weights);
+            const size_t idx = static_cast<size_t>(yy) * ks + xx;
+            for (int c = 0; c < 3; ++c) {
+                const double halo =
+                    S.cfg.w_h * exp_sum(r, S.halo_lambdas, S.halo_per_ch[c]);
+                const double v = core + halo + bloom;
+                (*psf)[c][idx] = v;
+                psf_sum[c] += v;
+            }
+        }
+    }
+    for (int c = 0; c < 3; ++c)
+        for (size_t i = 0; i < (*psf)[c].size(); ++i) (*psf)[c][i] /= psf_sum[c];
+}
+
+}  // namespace
+
+bool build_diffusion_mixture(const DiffusionFilterParams& params, double pixel_size_um,
+                             int w, int h, int terms,
+                             std::vector<DiffusionGaussian>* out,
+                             double* scatter_fraction, int* radius_px) {
+    if (!out) return false;
+    DiffusionSetup S;
+    if (!diffusion_setup(params, pixel_size_um, w, h, &S)) return false;
+
+    const std::vector<ExpGaussFit>& fit = exp_gauss_fit(terms);
+    const int nfit = static_cast<int>(fit.size());
+
+    std::vector<DiffusionGaussian> comps;
+    // One exponential term -> nfit Gaussians. The group weight and (for the halo)
+    // the per-channel warmth redistribution ride on the component weight, so the
+    // shader multiplies a plain per-channel scalar and derives nothing.
+    auto emit = [&](const std::vector<double>& lambdas, const double* chan_weights[3],
+                    double group_weight) {
+        for (size_t k = 0; k < lambdas.size(); ++k) {
+            const double lk = lambdas[k] > 1e-6 ? lambdas[k] : 1e-6;
+            for (int i = 0; i < nfit; ++i) {
+                DiffusionGaussian g;
+                g.sigma_px = lk * fit[i].s;
+                if (g.sigma_px < 1e-6) g.sigma_px = 1e-6;
+                bool any = false;
+                for (int c = 0; c < 3; ++c) {
+                    g.weight[c] = group_weight * chan_weights[c][k] * fit[i].w;
+                    if (g.weight[c] != 0.0) any = true;
+                }
+                if (any) comps.push_back(g);
+            }
+        }
+    };
+
+    // core and bloom are channel-independent; the halo carries the warmth tint.
+    const double* core_w[3] = {S.core_weights.data(), S.core_weights.data(),
+                               S.core_weights.data()};
+    const double* bloom_w[3] = {S.bloom_weights.data(), S.bloom_weights.data(),
+                                S.bloom_weights.data()};
+    const double* halo_w[3] = {S.halo_per_ch[0].data(), S.halo_per_ch[1].data(),
+                               S.halo_per_ch[2].data()};
+    emit(S.core_lambdas, core_w, S.cfg.w_c);
+    emit(S.halo_lambdas, halo_w, S.cfg.w_h);
+    emit(S.bloom_lambdas, bloom_w, S.cfg.w_b);
+
+    // The exact kernel is sum-normalised over the truncated grid, so normalise the
+    // mixture the same way -- otherwise the comparison measures a missing tail rather
+    // than the fit, and the render loses energy.
+    double total[3] = {0.0, 0.0, 0.0};
+    for (const DiffusionGaussian& g : comps)
+        for (int c = 0; c < 3; ++c) total[c] += g.weight[c];
+    for (DiffusionGaussian& g : comps)
+        for (int c = 0; c < 3; ++c)
+            if (total[c] > 0.0) g.weight[c] /= total[c];
+
+    *out = std::move(comps);
+    if (scatter_fraction) *scatter_fraction = S.p_s;
+    if (radius_px) *radius_px = S.radius;
+    return true;
+}
+
+bool diffusion_mixture_psf_error(const DiffusionFilterParams& params,
+                                 double pixel_size_um, int w, int h, int terms,
+                                 double* max_abs, double* rms) {
+    DiffusionSetup S;
+    if (!diffusion_setup(params, pixel_size_um, w, h, &S)) return false;
+
+    std::vector<DiffusionGaussian> comps;
+    if (!build_diffusion_mixture(params, pixel_size_um, w, h, terms, &comps,
+                                 nullptr, nullptr))
+        return false;
+
+    const int ks = 2 * S.radius + 1;
+    std::vector<std::vector<double>> exact;
+    exact_psf(S, ks, &exact);
+
+    // Sample the mixture on the same grid, then sum-normalise it there too, so both
+    // kernels are unit-sum over identical support and the difference is the fit.
+    const int cy = ks / 2, cx = ks / 2;
+    std::vector<std::vector<double>> mix(
+        3, std::vector<double>(static_cast<size_t>(ks) * ks, 0.0));
+    double mix_sum[3] = {0.0, 0.0, 0.0};
+    for (int yy = 0; yy < ks; ++yy) {
+        for (int xx = 0; xx < ks; ++xx) {
+            const double dx = static_cast<double>(xx - cx);
+            const double dy = static_cast<double>(yy - cy);
+            const double r2 = dx * dx + dy * dy;
+            const size_t idx = static_cast<size_t>(yy) * ks + xx;
+            for (const DiffusionGaussian& g : comps) {
+                const double s2 = g.sigma_px * g.sigma_px;
+                const double e = std::exp(-r2 / (2.0 * s2)) / (2.0 * M_PI * s2);
+                for (int c = 0; c < 3; ++c) mix[c][idx] += g.weight[c] * e;
+            }
+            for (int c = 0; c < 3; ++c) mix_sum[c] += mix[c][idx];
+        }
+    }
+    for (int c = 0; c < 3; ++c)
+        if (mix_sum[c] > 0.0)
+            for (size_t i = 0; i < mix[c].size(); ++i) mix[c][i] /= mix_sum[c];
+
+    double worst = 0.0, sq = 0.0;
+    size_t n = 0;
+    for (int c = 0; c < 3; ++c) {
+        for (size_t i = 0; i < mix[c].size(); ++i) {
+            const double d = std::fabs(mix[c][i] - exact[c][i]);
+            if (d > worst) worst = d;
+            sq += d * d;
+            ++n;
+        }
+    }
+    if (max_abs) *max_abs = worst;
+    if (rms) *rms = n ? std::sqrt(sq / static_cast<double>(n)) : 0.0;
+    return true;
 }
 
 void apply_diffusion_filter_um(double* raw, int w, int h,
