@@ -3348,4 +3348,241 @@ section corrects.
 on, and the diagnostic that disproved it (`pipeline_creates`, `buffer_allocations`,
 `interstage_host_bytes`) was already in the struct. Re-measure before you rebuild.
 
+## 32. The GPU diffusion FFT was losing on configuration, not capability (#227)
+
+A real 12.5 MP ULTRA_HDR export on the S26 Ultra (Adreno 840), read out of logcat:
+
+    [export id=3] camera_diffusion=7626.5 ... fft=n8192/ks3059/convs3/clamped0   CPU route
+    [export id=7] camera_diffusion=8685.0 ... fft=n0/ks0/convs0/clamped0         GPU route
+
+**The GPU route was SLOWER**, with `fft_fallbacks=0`. It ran and lost.
+
+### Reading the `fft=` token, because it is a trap
+
+`stage_timing_note_fft_choice` is called ONLY from `reserve_fft_scratch`, which only the
+**CPU** transform reaches. So `convs` counts CPU convolutions, and `convs0` means *every
+channel went to the GPU* -- not that no FFT ran. A third export shows the mixed case,
+`fft=n4096/ks3059/convs1/clamped1`: one channel fell back to the CPU **and got clamped to
+4096 because the GPU scratch had eaten the budget**, which is why that run (9812.8 ms) was
+worse than the all-GPU one.
+
+### What the CPU was doing that the GPU was not
+
+| | CPU | GPU (before) |
+|---|---|---|
+| transform | R2C, N x (N/2+1) | full complex, `n*n` |
+| size | 8192 -> **1 tile** | capped 4096 -> **12 tiles** |
+| kernel spectrum | n/a | rebuilt per channel per render |
+
+At ks = 3059 on 4080x3060, n = 8192 leaves a 5134 px overlap-save block (one tile); n = 4096
+leaves 1038 (4 x 3 = twelve). Section 27's own table had already measured that geometry --
+4096: 5652 ms against 8192: 3956 ms -- on the CPU.
+
+### Channel pairing: 1.40x, measured
+
+The image is real, so half of a full-complex transform is redundant. Two real channels ride
+one complex transform as `z = c1 + i*c2`; Hermitian symmetry separates both spectra, each is
+multiplied by its own (real) kernel, recombined, and one inverse transform returns channel 1
+in the real part and channel 2 in the imaginary part (`OP_MUL2` in `gpu/fft_convolve.comp`).
+Three channels cost two transform pairs instead of three: 75 transforms -> 51.
+
+Interleaved and cooled, `SPK_FFT_PAIR=0/1` in ONE binary at 4080 px:
+
+| | pair ON | pair OFF |
+|---|---|---|
+| run 1 | 2591.8 ms | 3430.4 ms |
+| run 2 | 2957.1 ms | 4349.3 ms |
+| mean | **2774.5** | **3889.9** |
+
+**1.40x**, against a 1.47x ceiling. Per-call GPU time agrees independently: 424.8 ms for
+ch0+ch1+ch2 paired against 618.8 ms unpaired = 1.46x.
+
+Engagement is ASSERTED, not inferred -- `FftConvolveDiagnostics::paired`, printed by
+`SPK_GPU_DEBUG=1`, because a device that cannot afford the second kernel spectrum refuses and
+is served by the single-channel path, which looks identical from outside:
+
+    PAIR=1: ch0 paired=1  ch1 paired=1  ch2 paired=0
+    PAIR=0: ch0 paired=0  ch1 paired=0  ch2 paired=0
+
+Whole-frame correctness on the real driver is unchanged by it: **214 of 6,220,800 components
+off by one display code**, against 215 before.
+
+### The rectangular transform: the cost model said 1.9x and the phone disagreed
+
+A square transform is tied to the worse axis. 8192 x 4096 keeps a 5134 x 1038 block -- three
+tiles instead of twelve -- for twice the cells per tile, which the model
+`tiles * cells * log2(cells)` scores at 1.9x better, and a pure memory-traffic model scores
+about the same.
+
+The first cooled pair through `tools/stage_split` looked like a 25% REGRESSION: wide
+3134.9 ms against square 2511.0 ms.
+
+**It was not a regression. It was not even a comparison.** `SPK_GPU_DEBUG=1` on the same two
+settings prints what each actually chose:
+
+    SPK_FFT_ELEMS=33554432  ->  n=4096 tiles=4
+    SPK_FFT_ELEMS=16777216  ->  n=4096 tiles=4
+
+Identical. At that tool's geometry the kernel is far smaller than the export's ks = 3059, the
+square genuinely wins the cost model, and the chooser picked it under BOTH caps. The "A/B"
+compared a configuration against itself.
+
+Which makes the two numbers a clean measurement of something else worth having: **21.6% drift
+between byte-identical runs** (3134.9 then 2577.7 for the same setting). Section 28's ~30%
+warning is not folklore.
+
+Two lessons, both of which nearly cost a wrong conclusion:
+
+- **A knob that is respected is not the same as a knob that changed anything.** The chooser is
+  free to pick the same shape under two different caps, and did.
+- **`gpu_submits` cannot see this.** `stage_timing_note_gpu_submissions` is called only from the
+  halation and scan paths, never from the FFT, so identical counts there prove nothing either
+  way. That gap is now closed: `spk_stage_timings` emits
+  `gpu_fft=calls/tiles/n/paired/hostvis`, so two transform shapes are distinguishable in any
+  timing line, not only under a debug env var.
+
+`tools/gpu_probe/probe_fft_shape_main.cpp` drives `gpu::fft_convolve` directly at a chosen
+geometry, forces each shape by capping cells, prints the shape it got, and **declares the
+comparison VOID rather than reporting a ratio** when both caps land on the same rectangle.
+
+### And then the real comparison, which the rectangle lost -- ON THE CODE AS IT THEN WAS
+
+Same probe, the export's own geometry, device-local scratch confirmed by `hostvis=0`:
+
+    wide    n=8192  tiles=3    3239.5 ms   then 3125.3
+    square  n=4096  tiles=12   2844.1 ms   then 2845.7
+
+The square repeats to **0.06%**, so the 0.91x was the effect and not the drift. Half the cells
+transformed, ~10% slower. That looked like proof that a transform costs more than its arithmetic
+says once it gets big, and calibrating the cost model to it seemed like the honest response.
+
+**It was not.** Fitting `tiles * cells^2` reproduced the top end and wrecked the bottom, driving
+the chooser to tiny transforms with enormous tile counts where dispatch overhead dominates: a
+96x72 ks=11 case went from 20 tiles / 348 dispatches to 192 tiles / **2502**, 28.5 ms -> 183.0
+ms, **6.4x worse**. Two data points cannot carry a two-parameter model, and a formula that is
+right at one end and catastrophic at the other is worse than one honestly wrong in a bounded
+way. The model went back to the work model with the cap as the guard.
+
+Then the transpose got fixed (next section), and the shape verdict INVERTED:
+
+    wide    n=8192  tiles=3    1015.0 ms   1025.2
+    square  n=4096  tiles=12   1270.9 ms   1253.2      -> wide is 1.23x
+
+Three tiles instead of twelve, exactly as the work model had said. The whole apparent
+superlinearity was the transpose -- the one pass whose locality collapses as the array grows,
+and which was then costing as much as twelve butterfly passes. `kFftGpuMaxElements` is 32 Mi
+again and the rectangle is the default at this geometry.
+
+**The lesson is not "the model was right all along."** It is that a shape verdict is only as
+good as the inner loop it was measured on, and that fixing a pass which looks unrelated to the
+question can invert the answer. Re-measure shape choices after any change to the transform's
+inner loop. (The corollary already recorded in section 19's neighbourhood -- contamination
+invalidates a number rather than inverting it -- is about not ASSUMING the inverse. Here it was
+measured.)
+
+### The transpose was half the transform, and existing data already said so
+
+No new measurement was needed to find this one. `emit_fft2` runs `stages + transpose`, so a
+radix-4 2-D pass costs `12B + T` and a radix-2 pass `24B + T` for per-pass cost B and transpose
+cost T. Section 27's radix A/B measured radix 2 at 1.5x radix 4 (twice: 1.58x, 1.49x). Solve it:
+
+    (24B + T) / (12B + T) = 1.5   ->   6B = 0.5T   ->   T = 12B
+
+**The transpose cost what all twelve butterfly passes cost together.** It moves the same bytes
+as any other pass, so the entire difference was the access pattern: `dst[x * rows + y]` puts
+consecutive lanes `rows` apart, so every lane touches its own cache line, twice over (the write
+side scattered, and nothing coalesced on the read).
+
+Staging a 16 x 16 tile through shared memory makes both ends consecutive. Measured at the export
+geometry, interleaved, `SPK_FFT_TRANSPOSE` in one binary:
+
+| | run 1 | run 2 |
+|---|---|---|
+| tiled | 1658.4 ms | 1660.0 ms |
+| naive | 2936.6 ms | 2946.6 ms |
+
+**1.77x**, repeating to 0.1%. The prediction from `T = 12B` was 24B -> 13B = 1.85x, so the model
+and the stopwatch agree to within 4%.
+
+16 x 16 and not 32 x 32 deliberately: shared memory is reserved per workgroup for the WHOLE
+shader, not per branch, so a larger tile would tax the twelve butterfly passes -- which are
+memory-bound and want occupancy -- to speed up the one pass that uses it. 16 x 17 vec2 is
+2176 bytes against this device's 32768; a 32 x 33 tile would be 8448 for coalescing that is
+already full at 16 lanes x 8 bytes.
+
+### Radix 16, by the same argument, and the register pressure it costs
+
+With T down to ~1.6B the stages ARE the transform, so the radix-2 -> radix-4 argument applies
+once more: `log16(4096) = 3` passes per axis against `log4`'s 6, predicting 13.6B -> 7.6B, 1.79x.
+
+    radix 16  1254.1 ms   1274.4
+    radix 4   1674.1 ms   1659.8      -> 1.32x
+
+**1.32x, not the predicted 1.79x**, and the shortfall is the thing worth recording: sixteen
+values live per thread is real register pressure, and whatever the compiler spills is exactly
+the global traffic a higher radix exists to remove. The 16-point DFT is written as a 4x4
+Cooley-Tukey holding ONE array of sixteen plus four temporaries, writing outputs straight to
+memory rather than into a second array -- 48 vec2 live would have spilled outright. It is still
+the right trade here, but the pass-count model is an upper bound, not a promise, and the next
+radix up would almost certainly give it all back.
+
+Cumulative on the transform, from where this section started: **2936.6 ms -> 1254.1 ms, 2.34x**,
+from two changes that moved no bytes differently -- the same data, accessed and scheduled better.
+
+### Where the export ended up
+
+Whole-route, 4080 px, cooled, all four stage_split cases:
+
+| case | CPU route | GPU route | |
+|---|---|---|---|
+| defaults | 12674.8 ms | 3420.3 ms | 3.71x |
+| + effects | 11779.6 ms | 3010.3 ms | 3.91x |
+| + lens blur | 13855.4 ms | 3925.2 ms | 3.53x |
+| ALL ON | 23113.8 ms | 5820.6 ms | **3.97x** |
+
+For scale: the same route measured **1.07x** against the CPU on a real 12.5 MP export at the
+top of this section, and the diffusion transform alone went 2936.6 ms -> 1015.0 ms (2.89x).
+Nothing in that came from moving fewer bytes -- it is the same operator on the same data, with
+the access patterns and pass counts fixed.
+
+Whole-frame correctness through all of it: **215 components of 6,220,800 off by one display
+code, none further** (214 before these changes; the extra one is f32 reassociation, well inside
+the band).
+
+### The profile flattened, and a hot-device reading nearly sent the next round the wrong way
+
+Diffusion was 66% of a real export. Cooled, ALL ON, 4080 px, it is ~20% and nothing dominates:
+
+    camera_diffusion 1345.2   scan 1038.8   dir_couplers 945.7   halation 875.5
+    scan_spatial 747.4   print_expose 735.6   grain 592.2   lens_blur 300.0
+
+An intermediate reading said "grain is now the largest stage" and it was wrong twice: the run was
+thermally degraded after an hour of benchmarking, AND the app's export had fallen back to the CPU
+grain sampler (`samp2426`) where the cooled harness engages the GPU one. Cooled and engaged,
+grain is SEVENTH. **Do not rank stages from a hot run.**
+
+That fallback was invisible until this session added the readout. `grain_sampler=fast` names the
+RNG the CPU *would* use, not whether the GPU ran, so a silent refusal and a success printed
+identically -- the same hole the FFT had. `gpu_grain=engaged/none/gpu33.1` with `samp0` now says
+it plainly, and says the sampler is only 33 ms of a 402-592 ms stage: grain's time is in `fin`
+and `layers`, not in sampling. Why the app's export refuses while the harness does not is a real
+open question, and the token will name the refusal path the next time one happens.
+
+The consequence for planning: R2C and the shared-memory transform now buy ~20% of a stage that is
+no longer special. Start the next round from a fresh cooled profile, not from this section.
+
+### What is still open
+
+- **Hermitian R2C storage** -- the only route to a single 8192 x 8192 tile, since it halves
+  the spectra (805 MB fits where 1611 MB did not). It SUPERSEDES pairing rather than stacking
+  with it: pairing makes `z` complex, so its spectrum is genuinely full size.
+- **A tiled transpose**, if the counter says the transpose is what costs.
+- **Shared-memory / four-step transforms.** `maxComputeSharedMemorySize` is 32768 on this
+  part, exactly 4096 complex f32 -- one row fits with nothing left for occupancy, so the
+  practical shape is Bailey's four-step with small sub-transforms in registers/subgroups.
+  The device reports `subgroup_size_control`, `shader_subgroup_rotate`, ballot and vote.
+- **Tile-based rendering cannot help this stage**, though `VK_QCOM_tile_shading` and
+  `VK_QCOM_tile_memory_heap` are both present: a 2-D FFT is globally dependent and a tile
+  apron is a fixed margin. It would help the pointwise chain, which is ~2-3 s of ~15 s.
+
 *Film modeling powered by spektrafilm (GPLv3).*
