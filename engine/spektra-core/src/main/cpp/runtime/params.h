@@ -84,13 +84,25 @@ struct FilmingParams {
     // It shipped for one commit riding `allow_gpu_halation`, which is wrong. That
     // flag means "this render accepts a tolerance-bounded GPU implementation of the
     // same arithmetic" -- true of the halation pass, measured at ~2.1e-7 against the
-    // CPU. The diffusion route is not that. Its PSF is a Gaussian MIXTURE fitted to
-    // an exponential, the fit is worst at the r = 0 cusp, and the cusp is the bright
-    // core of the bloom. On device (tools/gpu_probe/probe_diffusion_main.cpp,
-    // Adreno 840, bright speculars on a dim field) it measured 18-37% RELATIVE error
-    // on the rendered image for 1.6-1.8x -- and refused outright at 12.5 MP, where a
-    // single ~2 s submission trips the GPU watchdog. A user with the GPU toggle on
-    // would have got a visibly different bloom with nothing announcing it.
+    // CPU. The diffusion route is not that: its PSF is a Gaussian MIXTURE fitted to
+    // an exponential. On device (tools/gpu_probe/probe_diffusion_main.cpp, Adreno
+    // 840, bright speculars on a dim field) it measured 18-37% RELATIVE error on the
+    // rendered image for 1.6-1.8x -- and refused outright at 12.5 MP, where a single
+    // ~2 s submission trips the GPU watchdog. A user with the GPU toggle on would
+    // have got a visibly different bloom with nothing announcing it.
+    //
+    // WHERE THAT ERROR COMES FROM -- measured, because the obvious reading is wrong
+    // and this comment asserted it for a while. It is NOT the exp->Gauss fit and it
+    // is NOT too few components. tests/bench_diffusion_mixture.cpp now splits the
+    // two halves on the same scene: from 3 to 12 Gaussians per term the FIT
+    // converges (max_rel 6.8e-2 -> 4.7e-3, 14x) while the APPLIED route does not
+    // move (2.3e-1 -> 2.1e-1). The residual is the blur PRIMITIVE. kernels/gaussian.h
+    // sends every sigma >= kSmallSigmaMax to Young-van Vliet, YvV approximates an
+    // impulse response, and a specular highlight is nearly an impulse: ONE such blur
+    // is 2-6% rel_rms and up to 13% of peak on that content, against <= 7e-3 rel_rms
+    // on a smooth field -- and the mixture stacks 27-99 of them. So the lever for
+    // this route is the primitive (FIR at these sigmas, or a better recursive
+    // filter), not the fit; an attempt that only adds components is already answered.
     //
     // Kept wired rather than deleted because the pass, the fit and the probe are the
     // evidence for the next attempt; see docs/research/spektrafilm-ofx-port.md.
