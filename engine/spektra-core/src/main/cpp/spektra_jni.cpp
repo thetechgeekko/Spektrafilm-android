@@ -290,8 +290,12 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
     if (spk_stage_timings(timings, sizeof(timings)) > 0) {
         const bool diffusion_ran =
             std::strstr(timings, "camera_diffusion") != nullptr;
-        char fallback[160] = {0};
+        char fallback[288] = {0};
         if (diffusion_ran) {
+            // `fft=` counts CPU convolutions only, so convs0 means "every channel
+            // went to the GPU", not "no FFT ran". The matching `gpu_fft=` token is
+            // emitted by spk_stage_timings itself, so every consumer gets it and
+            // not just this log line.
             std::snprintf(fallback, sizeof(fallback),
                           " fft_fallbacks=%llu fft=n%d/ks%d/convs%llu/clamped%llu",
                           snapshot.fft_fallbacks, snapshot.fft_min_n,

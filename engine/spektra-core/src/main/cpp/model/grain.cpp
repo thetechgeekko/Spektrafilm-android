@@ -299,19 +299,31 @@ bool gpu_grain_accumulate(const float* density_cmy_layers, int npix, int width,
                           const double dmax_lay[3][3], const double n_ppp[3][3],
                           double pixel_size_um, const GrainParams& grain,
                           float* out) {
-    if (!grain.allow_gpu_sampler || !gpu::available()) return false;
+    // Every exit below reports itself. The route is enabled on the export latch
+    // now, which is the condition the note further down said to wait for.
+    auto refuse = [](const char* why) {
+        stage_timing_note_gpu_grain(/*attempted=*/true, /*engaged=*/false, why, 0.0);
+        return false;
+    };
+    if (!grain.allow_gpu_sampler) {
+        // Not attempted at all: the latch is off, so there is nothing to report
+        // and a "fallback" line would be noise on every CPU render.
+        return false;
+    }
+    if (!gpu::available()) return refuse("gpu-unavailable");
 
     // add_micro_structure runs on the ACCUMULATED grain, so if it is active the
     // GPU route would have to reproduce it before the tail; it does not, and
     // skipping it would silently drop a stage rather than approximate one.
     const double micro_sigma = grain.micro_structure[1] * 0.001 / pixel_size_um;
-    if (micro_sigma > 0.05) return false;
+    if (micro_sigma > 0.05) return refuse("micro-structure-active");
 
     std::array<gpu::GrainCell, 9> cells{};
     int k = 0;
     for (int sl = 0; sl < 3; ++sl) {
         for (int c = 0; c < 3; ++c) {
-            if (!(n_ppp[sl][c] > 0.0) || !(dmax_lay[sl][c] > 0.0)) return false;
+            if (!(n_ppp[sl][c] > 0.0) || !(dmax_lay[sl][c] > 0.0))
+                return refuse("degenerate-cell");
             const double od = dmax_lay[sl][c] / n_ppp[sl][c];
             gpu::GrainCell& cell = cells[static_cast<size_t>(k)];
             // grain.py: fast_gaussian_filter(grain, blur_particle*sqrt(od_particle)).
@@ -342,13 +354,15 @@ bool gpu_grain_accumulate(const float* density_cmy_layers, int npix, int width,
     request.npix = static_cast<uint32_t>(npix);
     request.seed_offset = static_cast<uint32_t>(grain.seed_offset);
 
-    // No stage_timer channel yet, deliberately: the route is off by default and
-    // has no device measurement, so there is nothing for a production readout to
-    // report. out_of_branch is read directly by gpu/tests/test_grain_gpu.cpp and
-    // by the probe. Wire a channel when the route is enabled, not before.
+    // The channel this used to say to wire "when the route is enabled": it is.
+    // out_of_branch stays a test-only readout (gpu/tests/test_grain_gpu.cpp and
+    // the probe); what a production line needs is engaged-or-not and why.
     gpu::GrainSampleDiagnostics diagnostics{};
     const bool ok = gpu::grain_sample(request, out, &diagnostics);
-    return ok && diagnostics.engaged;
+    const bool engaged = ok && diagnostics.engaged;
+    stage_timing_note_gpu_grain(/*attempted=*/true, engaged, diagnostics.reason,
+                                diagnostics.gpu_ms);
+    return engaged;
 }
 
 }  // namespace

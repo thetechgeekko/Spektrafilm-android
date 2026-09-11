@@ -207,6 +207,27 @@ struct StageTimingSnapshot {
     // what else is resident. None of that was observable: the only FFT signal
     // was a count of direct-loop fallbacks, which stays 0 in exactly the case
     // that hurts. Observability only, nothing gates on it.
+    // THE GPU SIDE OF THE SAME STAGE. The counters below describe the CPU
+    // transform only -- `stage_timing_note_fft_choice` is called from
+    // reserve_fft_scratch, which the GPU path never reaches -- so a render whose
+    // channels all went to the GPU reports fft=n0/convs0 and looks, to anyone
+    // reading the line, exactly like a render that did no FFT at all. That cost
+    // a misread once, and an A/B of two GPU transform shapes was unreadable
+    // because nothing in the timing line could tell them apart.
+    // The GPU grain sampler (#214). Grain is the largest stage of a real export
+    // now that diffusion has come down, and NOTHING in a timing line could say
+    // whether this route engaged: `grain_sampler=fast` reports which RNG the CPU
+    // would use, not whether the GPU ran, so a silent refusal and a success read
+    // identically. Same hole the FFT had.
+    bool gpu_grain_attempted = false;
+    bool gpu_grain_engaged = false;
+    const char* gpu_grain_reason = "";   // process-lifetime literal
+    double gpu_grain_gpu_ms = 0.0;
+    uint32_t gpu_fft_calls = 0;          // fft_convolve calls that ENGAGED
+    uint32_t gpu_fft_tiles = 0;          // overlap-save tiles, summed
+    int gpu_fft_n = 0;                   // largest transform axis used
+    uint32_t gpu_fft_paired = 0;         // of those calls, how many ran pair mode
+    uint32_t gpu_fft_host_visible = 0;   // ...and how many got host-visible scratch
     unsigned long long fft_convolutions = 0;   // convolutions that took the FFT
     unsigned long long fft_clamped = 0;        // ...of which the budget shrank
     int fft_min_n = 0;                         // smallest transform actually used
@@ -283,6 +304,32 @@ inline void stage_timing_note_fft_choice(int n, int unclamped_n, int ks) {
     if (n > 0 && unclamped_n > 0 && n < unclamped_n) ++c.fft_clamped;
     if (n > 0 && (c.fft_min_n == 0 || n < c.fft_min_n)) c.fft_min_n = n;
     if (ks > c.fft_max_ks) c.fft_max_ks = ks;
+}
+
+// Engaged GPU convolutions. `tiles` and `n` are what make two transform SHAPES
+// distinguishable in a log line; `host_visible` is reported rather than assumed
+// because "device-local" is a request and the fall-through is silent.
+inline void stage_timing_note_gpu_fft(bool engaged, uint32_t tiles, int n,
+                                      bool paired, bool host_visible) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0 || !engaged) return;
+    StageTimingSnapshot& c = state.current;
+    ++c.gpu_fft_calls;
+    c.gpu_fft_tiles += tiles;
+    if (n > c.gpu_fft_n) c.gpu_fft_n = n;
+    if (paired) ++c.gpu_fft_paired;
+    if (host_visible) ++c.gpu_fft_host_visible;
+}
+
+inline void stage_timing_note_gpu_grain(bool attempted, bool engaged,
+                                        const char* reason, double gpu_ms) {
+    StageTimingThreadState& state = stage_timing_state();
+    if (state.depth <= 0) return;
+    StageTimingSnapshot& c = state.current;
+    c.gpu_grain_attempted = attempted;
+    c.gpu_grain_engaged = engaged;
+    c.gpu_grain_reason = reason ? reason : "";
+    c.gpu_grain_gpu_ms = gpu_ms;
 }
 
 inline void stage_timing_note_fft_fallback() {
@@ -567,6 +614,27 @@ inline int stage_timings_format(char* buf, int cap) {
                               notes[i]->reason, notes[i]->bands,
                               notes[i]->upload_ms, notes[i]->gpu_ms,
                               notes[i]->readback_ms);
+        if (n > 0) off += n;
+    }
+    if (snapshot.gpu_grain_attempted && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgpu_grain=%s/%s/gpu%.1f", off ? " " : "",
+                              snapshot.gpu_grain_engaged ? "engaged" : "fallback",
+                              snapshot.gpu_grain_reason && snapshot.gpu_grain_reason[0]
+                                  ? snapshot.gpu_grain_reason : "none",
+                              snapshot.gpu_grain_gpu_ms);
+        if (n > 0) off += n;
+    }
+    // The GPU diffusion convolution (#227). `fft=` elsewhere counts CPU
+    // convolutions only, so a fully-GPU render reports convs0 and reads like a
+    // render that did no FFT. Tiles and n are also what make two transform
+    // SHAPES distinguishable; without them an A/B of the two is unreadable.
+    if (snapshot.gpu_fft_calls && off < cap - 1) {
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
+                              "%sgpu_fft=calls%u/tiles%u/n%d/paired%u/hostvis%u",
+                              off ? " " : "", snapshot.gpu_fft_calls,
+                              snapshot.gpu_fft_tiles, snapshot.gpu_fft_n,
+                              snapshot.gpu_fft_paired, snapshot.gpu_fft_host_visible);
         if (n > 0) off += n;
     }
     if (snapshot.gpu_scan.calls && off < cap - 1) {
