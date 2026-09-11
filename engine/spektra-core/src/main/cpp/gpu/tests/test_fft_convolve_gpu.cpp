@@ -36,6 +36,7 @@
 // differ by construction. The bar is the engine's parity band scaled by the
 // scene peak -- max_abs <= 1e-4 * peak, rms <= 1e-5 * peak -- which is the same
 // unit tools/gpu_probe/probe_f32_fft_main.cpp reported 0.000 display codes at.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -240,6 +241,153 @@ void run_case(const char* label, int w, int h, int ks, double lambda,
     if (out_stride > 1) check(sentinels_ok, "other components untouched");
 }
 
+
+// PAIR MODE (#227): two channels on one complex transform. The two channels get
+// DIFFERENT source components AND DIFFERENT kernels on purpose -- a pass that
+// reused one kernel for both, or read one component twice, or swapped the two
+// outputs, would still produce plausible numbers and pass a test built on one
+// kernel and one channel. Each half is compared against the same CPU f64
+// operator the single-channel cases use.
+void run_pair_case(const char* label, int w, int h, int ks, int max_transform,
+                   int ch1, int ch2, int off1, int off2, int out_stride) {
+    const int pw = w + ks - 1, ph = h + ks - 1;
+    const std::vector<double> img = make_image(w, h);
+    const std::vector<double> k1 = make_psf(ks, 2.0);
+    const std::vector<double> k2 = make_psf(ks, 5.0);   // deliberately different
+
+    auto cpu_ref = [&](int channel, const std::vector<double>& kern,
+                       std::vector<double>* out) {
+        const std::vector<double> pad = pad_channel(img, w, h, ks, channel);
+        out->assign(static_cast<size_t>(w) * h, 0.0);
+        return spk::fft_convolve_same<double>(pad.data(), pw, ph, kern.data(), ks, w, h,
+                                              out->data(), 1, 0, max_transform);
+    };
+    std::vector<double> ref1, ref2;
+    if (!cpu_ref(ch1, k1, &ref1) || !cpu_ref(ch2, k2, &ref2)) {
+        check(false, "cpu reference refused (pair)");
+        return;
+    }
+
+    std::vector<double> got(static_cast<size_t>(w) * h * out_stride, -12345.0);
+    spk::gpu::FftConvolveRequest r = make_request(img, k1, w, h, ks, max_transform);
+    r.channel = ch1;
+    r.out_stride = out_stride;
+    r.out_offset = off1;
+    r.channel2 = ch2;
+    r.kern2 = k2.data();
+    r.out_offset2 = off2;
+    spk::gpu::FftConvolveDiagnostics d{};
+    if (!spk::gpu::fft_convolve(r, got.data(), &d)) {
+        std::printf("[FAIL] %s: refused (%s)\n", label, d.reason);
+        ++g_failures;
+        return;
+    }
+    if (d.engaged) g_engaged = true;
+
+    const Error e1 = compare(ref1, got, out_stride, off1);
+    const Error e2 = compare(ref2, got, out_stride, off2);
+    std::printf("  %s: n=%d tiles=%u dispatches=%u  ch%d max_abs %.3e  ch%d max_abs %.3e"
+                "  gpu %.1f ms\n",
+                label, d.transform_size, d.tiles, d.dispatches, ch1, e1.max_abs,
+                ch2, e2.max_abs, d.gpu_ms);
+    check(e1.max_abs <= 1e-4 * e1.peak && e1.rms <= 1e-5 * e1.peak, label);
+    check(e2.max_abs <= 1e-4 * e2.peak && e2.rms <= 1e-5 * e2.peak, "pair: second channel");
+
+    // The two halves must not be the same picture: if they were, a pass that
+    // ignored kern2 and wrote channel 1 twice would satisfy both checks above
+    // only because the reference was built the same wrong way. It is not -- the
+    // references come from different kernels -- but assert the separation
+    // directly so the intent survives an edit to the references.
+    double spread = 0.0;
+    for (size_t i = 0; i < ref1.size(); ++i)
+        spread = std::max(spread, std::fabs(ref1[i] - ref2[i]));
+    check(spread > 1e-3 * e1.peak, "pair: the two references actually differ");
+
+    if (out_stride > 2) {
+        bool sentinels_ok = true;
+        for (int slot = 0; slot < out_stride; ++slot) {
+            if (slot == off1 || slot == off2) continue;
+            for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
+                if (got[i * out_stride + slot] != -12345.0) { sentinels_ok = false; break; }
+        }
+        check(sentinels_ok, "pair: other components untouched");
+    }
+}
+
+
+// THE ELEMENT-BUDGET LADDER (#227). The transform is rectangular now, so the
+// per-axis cap no longer bounds the allocation on its own and the caller walks
+// `max_elements` DOWN when a device refuses. That ladder is the difference
+// between a memory-tight phone getting a smaller GPU transform and getting no GPU
+// transform at all, and nothing else exercises it: every case above runs at the
+// default budget, where the chooser picks whatever it likes.
+//
+// A constrained budget must still produce the RIGHT ANSWER, not merely a
+// different shape -- a chooser that returned a rectangle whose overlap-save block
+// did not tile the image would produce a plausible, wrong picture. So each budget
+// is compared against the same CPU f64 reference, and the tile count is printed
+// so a budget that silently changed nothing is visible rather than assumed.
+void run_budget_ladder(const char* label, int w, int h, int ks, int max_transform) {
+    const int pw = w + ks - 1, ph = h + ks - 1;
+    const std::vector<double> img = make_image(w, h);
+    const std::vector<double> pad64 = pad_channel(img, w, h, ks, 0);
+    const std::vector<double> k64 = make_psf(ks, 3.0);
+
+    std::vector<double> ref(static_cast<size_t>(w) * h, 0.0);
+    if (!spk::fft_convolve_same<double>(pad64.data(), pw, ph, k64.data(), ks, w, h,
+                                        ref.data(), 1, 0, max_transform)) {
+        check(false, "cpu reference refused (budget ladder)");
+        return;
+    }
+
+    // Widest rectangle the axis cap allows, then successive halvings. The last
+    // one is deliberately tight enough that only a near-square fits.
+    const uint64_t widest = static_cast<uint64_t>(max_transform) * max_transform;
+    uint32_t seen_tiles[4] = {0, 0, 0, 0};
+    int idx = 0;
+    bool any = false;
+    for (uint64_t budget : {widest, widest / 2, widest / 4, widest / 8}) {
+        std::vector<double> got(static_cast<size_t>(w) * h, -12345.0);
+        spk::gpu::FftConvolveRequest r =
+            make_request(img, k64, w, h, ks, max_transform);
+        r.max_elements = budget;
+        spk::gpu::FftConvolveDiagnostics d{};
+        if (!spk::gpu::fft_convolve(r, got.data(), &d)) {
+            // A budget too small for ANY admissible rectangle must refuse
+            // cleanly and leave the buffer alone, not write a partial answer.
+            bool untouched = true;
+            for (double v : got) if (v != -12345.0) { untouched = false; break; }
+            std::printf("  %s budget=%llu: refused (%s) untouched=%d\n", label,
+                        static_cast<unsigned long long>(budget), d.reason,
+                        untouched ? 1 : 0);
+            check(untouched, "budget refusal leaves the output untouched");
+            ++idx;
+            continue;
+        }
+        if (d.engaged) g_engaged = true;
+        any = true;
+        seen_tiles[idx] = d.tiles;
+        const Error e = compare(ref, got, 1, 0);
+        std::printf("  %s budget=%llu: n=%d tiles=%u  max_abs %.3e (bar %.3e)\n",
+                    label, static_cast<unsigned long long>(budget), d.transform_size,
+                    d.tiles, e.max_abs, 1e-4 * e.peak);
+        check(e.max_abs <= 1e-4 * e.peak && e.rms <= 1e-5 * e.peak,
+              "constrained budget still matches the CPU operator");
+        ++idx;
+    }
+    check(any, "at least one budget on the ladder ran");
+
+    // A tighter budget can never buy FEWER tiles. If it did, the cost model and
+    // the allocation bound disagree, which is how a "fallback" silently becomes
+    // the faster path and the default becomes dead code.
+    bool monotone = true;
+    for (int i = 1; i < 4; ++i)
+        if (seen_tiles[i] != 0 && seen_tiles[i - 1] != 0 &&
+            seen_tiles[i] < seen_tiles[i - 1])
+            monotone = false;
+    check(monotone, "a tighter element budget never lowers the tile count");
+}
+
 void run_refusals() {
     const int w = 32, h = 24, ks = 7;
     const std::vector<double> pad = make_image(w, h);
@@ -363,6 +511,16 @@ int main() {
     // 3. Interleaved addressing on both sides: read channel 2 of the source,
     //    write component 1 of the destination. Deliberately mismatched, so a
     //    pass that quietly used one index for both would fail.
+    // 3. Pair mode, single tile and multi tile, against the same CPU operator.
+    run_pair_case("pair 96x72 ks=11", 96, 72, 11, 256, 0, 1, 0, 1, 3);
+    run_pair_case("pair 200x120 ks=31 (6 tiles)", 200, 120, 31, 128, 0, 1, 0, 1, 3);
+    // Crossed addressing: the channel order and the output order disagree, so a
+    // pass that quietly assumes out_offset == channel is caught.
+    run_pair_case("pair crossed: ch2,ch0 -> comp0,comp2", 96, 72, 11, 256, 2, 0, 0, 2, 3);
+
+    // 4. The element-budget ladder the rectangular transform introduced.
+    run_budget_ladder("budget 200x120 ks=31", 200, 120, 31, 128);
+
     run_case("interleaved: read ch2, write component 1", 96, 72, 11, 3.0,
              spk::gpu::kFftGpuMaxTransform, 3, 1, false, /*channel=*/2);
 

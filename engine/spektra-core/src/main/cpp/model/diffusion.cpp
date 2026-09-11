@@ -914,14 +914,24 @@ static void note_gpu_boost(const gpu::FilmingStageDiagnostics& d) {
                  d.readback_ms);
 }
 
-static void note_gpu_fft(int channel, const gpu::FftConvolveDiagnostics& d) {
+// `count` is false for the SECOND channel of a pair, because both channels are
+// reported from the one diagnostics struct of the one call that served them --
+// counting it twice would double the tile total and make pair mode look like it
+// did more work, not less.
+static void note_gpu_fft(int channel, const gpu::FftConvolveDiagnostics& d,
+                         bool count = true) {
+    if (count) {
+        stage_timing_note_gpu_fft(d.engaged, d.tiles, d.transform_size, d.paired,
+                                  d.scratch_host_visible);
+    }
     const char* dbg = std::getenv("SPK_GPU_DEBUG");
     if (!dbg || dbg[0] != '1') return;
     std::fprintf(stderr,
-                 "[gpu-debug] diffusion_fft ch%d engaged=%d reason=%s n=%d "
+                 "[gpu-debug] diffusion_fft ch%d engaged=%d paired=%d reason=%s n=%d "
                  "tiles=%u dispatches=%u host_visible_scratch=%d "
                  "up=%.1f gpu=%.1f down=%.1f\n",
-                 channel, d.engaged ? 1 : 0, d.reason && *d.reason ? d.reason : "-",
+                 channel, d.engaged ? 1 : 0, d.paired ? 1 : 0,
+                 d.reason && *d.reason ? d.reason : "-",
                  d.transform_size, d.tiles, d.dispatches,
                  d.scratch_host_visible ? 1 : 0, d.upload_ms, d.gpu_ms,
                  d.readback_ms);
@@ -1072,7 +1082,87 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
         clk.note("pad_build", clk.lap());
     };
 
+    // The GPU tuning knob, read ONCE. It used to be read per channel, which was
+    // harmless only while every channel took the same decision independently;
+    // pair mode decides for two channels at a time and so has to settle it here.
+    // Same convention as SPK_DIFFUSION_FFT above, and it exists for the same
+    // reason: the ONLY honest way to size this route is to interleave GPU and CPU
+    // runs of the SAME binary on a cooled device, because two separately-built
+    // binaries drift by ~30% between captures -- more than the effect measured.
+    {
+        char gpu_knob[92] = {0};
+        if (const char* gv = tuning_knob("SPK_DIFFUSION_GPU", "debug.spektra.diffgpu",
+                                         gpu_knob, sizeof(gpu_knob))) {
+            if (gv[0] == '0') allow_gpu_fft = false;
+            if (gv[0] == '1') allow_gpu_fft = true;
+        }
+    }
+
+    // PAIR MODE (#227): channels 0 and 1 ride ONE complex transform. A tile costs
+    // a forward plus an inverse transform, and the tiles dominate the pass, so
+    // halving the transform COUNT for two of the three channels is worth ~1.4x --
+    // measured on device, interleaved in one binary. Channel 2 follows the
+    // ordinary single-channel path below.
+    //
+    // Fail-closed like every other GPU branch here: on refusal nothing is written.
+    // A device that cannot afford the second kernel spectrum refuses HERE and is
+    // still served by the single-channel GPU route below, not by the CPU one.
+    //
+    // SPK_FFT_PAIR=0 forces the per-channel path in the SAME binary. Pair mode
+    // costs a second kernel spectrum on the device, so whether it wins at export
+    // scale is a memory question as much as an arithmetic one, and the only honest
+    // way to answer that is to interleave both routes on one cooled device -- two
+    // separately-built binaries drift ~30% between captures, which is larger than
+    // the effect. Same reason SPK_FFT_RADIX exists.
+    bool allow_pair = true;
+    if (const char* pv = std::getenv("SPK_FFT_PAIR")) allow_pair = pv[0] != '0';
+
+    // The element budgets to try, largest first. Walking DOWN on refusal is the
+    // point: a device that cannot afford the wide rectangle can almost always
+    // afford the square one, and a square GPU transform beats the CPU fallback.
+    // Same shape as reserve_fft_scratch's ceiling walk on the CPU side.
+    uint64_t elem_budgets[2] = {gpu::kFftGpuMaxElements,
+                                gpu::kFftGpuMaxElements / 2};
+    // SPK_FFT_ELEMS caps the cell budget in the SAME binary, so the wide
+    // rectangle and the old square can be interleaved on one cooled device.
+    // Setting it to 16777216 reproduces the 4096 x 4096 square exactly.
+    if (const char* ev = std::getenv("SPK_FFT_ELEMS")) {
+        const unsigned long long v = std::strtoull(ev, nullptr, 10);
+        if (v >= 65536ull) {
+            elem_budgets[0] = v;
+            elem_budgets[1] = v / 2;
+        }
+    }
+
+    bool gpu_done[3] = {false, false, false};
+    if (allow_gpu_fft && allow_pair && use_fft(w, h, ks)) {
+        gpu::FftConvolveRequest gr;
+        gr.src_rgb = raw;
+        gr.width = w;
+        gr.height = h;
+        gr.channel = 0;
+        gr.kern = psf[0].data();
+        gr.ks = ks;
+        gr.out_stride = 3;
+        gr.out_offset = 0;
+        gr.channel2 = 1;
+        gr.kern2 = psf[1].data();
+        gr.out_offset2 = 1;
+        gpu::FftConvolveDiagnostics gd{};
+        for (uint64_t budget : elem_budgets) {
+            gr.max_elements = budget;
+            if (gpu::fft_convolve(gr, blurred.data(), &gd)) {
+                gpu_done[0] = gpu_done[1] = true;
+                clk.note("convolve_gpu", clk.lap());
+                break;
+            }
+        }
+        note_gpu_fft(0, gd);
+        note_gpu_fft(1, gd, /*count=*/false);
+    }
+
     for (int c = 0; c < 3; ++c) {
+        if (gpu_done[c]) continue;
         const std::vector<double>& kern = psf[c];
         // mode='same' convolution: out[y,x] = sum_{i,j} padded[y+i, x+j]
         // * flip(kern)[i,j], centred. For a symmetric centred kernel the centre
@@ -1101,18 +1191,7 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
             // memory-tight device into a bad_alloc and there is no reason to pay
             // it for a transform that is not going to run here. On refusal
             // nothing is written and the CPU transform runs over the same memory.
-            // Same tuning-knob convention as SPK_DIFFUSION_FFT above, and it
-            // exists for the same reason: the ONLY honest way to size this route
-            // is to interleave GPU and CPU runs of the SAME binary on a cooled
-            // device. Two separately-built binaries drift by ~30% between
-            // captures, which is larger than the effect being measured.
-            char gpu_knob[92] = {0};
-            if (const char* gv = tuning_knob("SPK_DIFFUSION_GPU",
-                                             "debug.spektra.diffgpu",
-                                             gpu_knob, sizeof(gpu_knob))) {
-                if (gv[0] == '0') allow_gpu_fft = false;
-                if (gv[0] == '1') allow_gpu_fft = true;
-            }
+            // The knob that governs this is read once, before the loop.
             if (allow_gpu_fft) {
                 gpu::FftConvolveRequest gr;
                 gr.src_rgb = raw;
@@ -1124,7 +1203,11 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
                 gr.out_stride = 3;
                 gr.out_offset = c;
                 gpu::FftConvolveDiagnostics gd{};
-                const bool gpu_ok = gpu::fft_convolve(gr, blurred.data(), &gd);
+                bool gpu_ok = false;
+                for (uint64_t budget : elem_budgets) {
+                    gr.max_elements = budget;
+                    if (gpu::fft_convolve(gr, blurred.data(), &gd)) { gpu_ok = true; break; }
+                }
                 note_gpu_fft(c, gd);
                 if (gpu_ok) { clk.note("convolve_gpu", clk.lap()); continue; }
             }

@@ -2778,22 +2778,38 @@ bool highlight_boost(double* rgb, int width, int height, double boost_ev,
 
 // --- f32 FFT convolution (#216) ---------------------------------------------
 //
-// The host owns every decision, as everywhere else here: the transform size
-// comes from the CPU path's own cost model (kernels/fft_convolve.h's
-// fft_convolve_transform_size, so the two paths tile identically), the twiddle
-// table is generated in f64 and uploaded as f32, and the tile geometry is
-// resolved before a command buffer exists. The shader owns no parameter.
+// The host owns every decision, as everywhere else here: the twiddle table is
+// generated in f64 and uploaded as f32, and the transform shape and tile
+// geometry are resolved before a command buffer exists. The shader owns no
+// parameter.
 //
-// ONE SUBMISSION PER TILE, not one per convolution. A 4096 transform is 52
-// dispatches over 16.7M elements each; batching a whole multi-tile convolution
-// into one command buffer is the shape that trips the ~2 s GPU watchdog. A tile
-// is the natural unit anyway -- it is what the CPU path loops over.
+// THE TWO PATHS NO LONGER TILE IDENTICALLY, and this comment used to say they
+// did. The transform size came from the CPU path's own selector
+// (kernels/fft_convolve.h's fft_convolve_transform_size) until #227 made the
+// GPU transform RECTANGULAR; choose_fft_rect below ranks independent powers of
+// two per axis under a cell budget the CPU model has no concept of, and at the
+// export's ks it deliberately picks 8192 x 4096 (three tiles) where the square
+// selector picks 4096 (twelve). `fft_convolve_transform_size` is not called
+// from this file any more. If you are chasing a GPU/CPU difference, the shape
+// chooser is a place the two genuinely diverge -- by design, on the Fast GPU
+// contract, not by accident.
+//
+// ONE SUBMISSION PER TILE, not one per convolution. A 4096 x 4096 tile is 17
+// dispatches over 16.7M elements each (pack, 7 forward, multiply, 7 inverse,
+// unpack -- each 2-D transform being 3 radix-16 stages per axis plus one
+// transpose); batching a whole multi-tile convolution into one command buffer
+// is the shape that trips the ~2 s GPU watchdog. A tile is the natural unit
+// anyway -- it is what the CPU path loops over.
 namespace {
 
 // std430 push constant; must match fft_convolve.comp's Push block exactly.
 struct FftPush {
     uint32_t op;
-    uint32_t n;
+    uint32_t nx;
+    uint32_t ny;
+    uint32_t len;
+    uint32_t rows;
+    uint32_t twn;
     uint32_t stage;
     uint32_t sign_neg;
     uint32_t src_is_a;
@@ -2814,9 +2830,71 @@ struct FftPush {
     uint32_t out_stride;
     uint32_t out_offset;
     uint32_t kern_offset;
+    uint32_t src2_base;
+    uint32_t out2_offset;
+    uint32_t kern_offset2;
     float scale;
 };
-static_assert(sizeof(FftPush) == 92, "push block must match fft_convolve.comp");
+// 120 after pair mode (#227) added src2_base / out2_offset / kern_offset2 and
+// the rectangular transform replaced `n` with nx / ny / len / rows / twn.
+// Vulkan guarantees maxPushConstantsSize >= 128, so this still fits everywhere
+// (the Adreno 840 this was measured on reports 256).
+static_assert(sizeof(FftPush) == 120, "push block must match fft_convolve.comp");
+static_assert(sizeof(FftPush) <= 128, "push block exceeds the guaranteed minimum");
+
+// Pick the transform rectangle. Overlap-save keeps a (nx-ks+1) x (ny-ks+1) block
+// per tile, so a SQUARE transform is tied to the worse axis: at ks = 3059 on a
+// 4080x3060 frame, 4096^2 keeps a 1038 px block and needs 4 x 3 = twelve tiles.
+// 8192 x 4096 doubles the elements per tile but keeps 5134 x 1038 -- one tile
+// across, three down -- for 1.9x less total work.
+//
+// Cost is the transform's own work, tiles * elements * log2(elements). It is a
+// RANKING, not a prediction of milliseconds, and ties go to the smaller
+// allocation because memory is what actually refuses on a phone.
+//
+// THIS MODEL WAS ACCUSED OF BEING WRONG AT THE TOP END AND IT WAS NOT. With the
+// naive transpose the wide 8192 x 4096 rectangle measured ~10% slower than the
+// 4096 square even though it transforms half the cells, which looked like proof
+// that cost grows superlinearly with transform size. Calibrating the exponent to
+// that point (tiles * cells^2) fit the top end and WRECKED the bottom -- it drove
+// the chooser to tiny transforms with enormous tile counts where dispatch
+// overhead dominates: a 96x72 ks=11 case went from 20 tiles / 348 dispatches to
+// 192 tiles / 2502, 28.5 ms -> 183.0 ms, 6.4x worse.
+//
+// The real cause was the TRANSPOSE, whose locality collapses as the array grows
+// and which was costing ~12 butterfly passes. Tiled, the comparison inverts --
+// wide 1015.0 ms against square 1270.9, 1.23x -- and the work model is right at
+// both ends after all.
+//
+// Two things worth keeping from that: a single counter-example is not enough to
+// re-fit a model (two points cannot carry two parameters), and a shape verdict is
+// only as good as the inner loop it was taken on. See docs/research/perf-lab.md
+// section 32.
+struct FftRect { int nx = 0, ny = 0, tiles = 0; };
+FftRect choose_fft_rect(int w, int h, int ks, int max_axis, uint64_t max_elements) {
+    FftRect best;
+    double best_cost = 0.0;
+    for (int nx = 1; nx <= max_axis; nx *= 2) {
+        if (nx < ks + 1) continue;
+        const int bx = nx - ks + 1;
+        for (int ny = 1; ny <= max_axis; ny *= 2) {
+            if (ny < ks + 1) continue;
+            const uint64_t elems = static_cast<uint64_t>(nx) * ny;
+            if (elems > max_elements) continue;
+            const int by = ny - ks + 1;
+            const int tx = (w + bx - 1) / bx;
+            const int ty = (h + by - 1) / by;
+            const double e = static_cast<double>(elems);
+            const double cost = static_cast<double>(tx) * ty * e * std::log2(e);
+            if (best.nx == 0 || cost < best_cost ||
+                (cost == best_cost && elems < static_cast<uint64_t>(best.nx) * best.ny)) {
+                best_cost = cost;
+                best = FftRect{nx, ny, tx * ty};
+            }
+        }
+    }
+    return best;
+}
 
 constexpr uint32_t kFftOpPack = 0u;
 constexpr uint32_t kFftOpStage = 1u;
@@ -2825,6 +2903,11 @@ constexpr uint32_t kFftOpMul = 3u;
 constexpr uint32_t kFftOpUnpack = 4u;
 constexpr uint32_t kFftOpStage4 = 5u;
 constexpr uint32_t kFftOpPackKernel = 6u;
+constexpr uint32_t kFftOpPack2 = 7u;
+constexpr uint32_t kFftOpMul2 = 8u;
+constexpr uint32_t kFftOpUnpack2 = 9u;
+constexpr uint32_t kFftOpTransposeTiled = 10u;
+constexpr uint32_t kFftOpStage16 = 11u;
 
 }  // namespace
 
@@ -2847,22 +2930,40 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
     if (r.channel < 0 || r.channel > 2) return give_up("bad-channel");
     if (r.out_stride < 1 || r.out_offset < 0 || r.out_offset >= r.out_stride)
         return give_up("bad-out-addressing");
+    // Pair mode is all-or-nothing: a half-specified second channel is a caller
+    // bug that would otherwise convolve the wrong plane into the wrong slot.
+    const bool pair = r.channel2 >= 0;
+    if (pair) {
+        if (r.channel2 > 2 || r.channel2 == r.channel) return give_up("bad-channel2");
+        if (!r.kern2) return give_up("null-kern2");
+        if (r.out_offset2 < 0 || r.out_offset2 >= r.out_stride)
+            return give_up("bad-out-addressing2");
+    }
 
     const int w = r.width, h = r.height, ks = r.ks;
     const int radius = (ks - 1) / 2;
     const int pw = w + ks - 1, ph = h + ks - 1;
     int cap = r.max_transform;
     if (cap > kFftGpuMaxTransform) cap = kFftGpuMaxTransform;
-    const int n = fft_convolve_transform_size(w, h, ks, cap);
-    d.transform_size = n;
-    // fft_convolve_transform_size raises its own cap to keep B = n - ks + 1
-    // positive, so a kernel wider than kFftGpuMaxTransform comes back ABOVE the
-    // ceiling rather than as a failure. That is the scratch refusal.
-    if (n <= 0 || (n & (n - 1)) != 0 || n < ks + 1) return give_up("transform-invalid");
-    if (n > kFftGpuMaxTransform) return give_up("transform-too-large");
+    // `max_elements` is the memory lever and `cap` the per-axis one. The caller
+    // walks max_elements DOWN on refusal, exactly as model/diffusion.cpp's
+    // reserve_fft_scratch walks the CPU ceiling down, so a memory-tight device
+    // gets a smaller rectangle rather than no GPU route at all.
+    const FftRect rect = choose_fft_rect(w, h, ks, cap, r.max_elements);
+    if (rect.nx <= 0) return give_up("transform-too-large");
+    const int tnx = rect.nx, tny = rect.ny;
+    // Reported as the LARGER axis: the field is an int and existing callers read
+    // it as "how big a transform did this run", which the wider axis answers.
+    d.transform_size = tnx > tny ? tnx : tny;
 
-    const uint32_t un = static_cast<uint32_t>(n);
-    const int block = n - ks + 1;
+    const uint32_t utnx = static_cast<uint32_t>(tnx);
+    const uint32_t utny = static_cast<uint32_t>(tny);
+    // One twiddle table serves both axes: a length-L transform wants
+    // exp(-2*pi*i*k/(2L)), whose index into a twn-sized table is k*twn/(2L) --
+    // the length cancels. So the table is built once at the larger extent.
+    const uint32_t twn = utnx > utny ? utnx : utny;
+    const int block_x = tnx - ks + 1;
+    const int block_y = tny - ks + 1;
 
     std::lock_guard<std::mutex> lk(gpu_mutex());
     Ctx& c = ctx();
@@ -2872,20 +2973,32 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
 
     // Buffer roles: in = complex A, out = complex B, dyeB = twiddles + kernel
     // spectrum, cmfB = the real plane (padded input, then the output window).
-    const uint64_t complexCount = static_cast<uint64_t>(n) * n;
+    const uint64_t complexCount = static_cast<uint64_t>(tnx) * tny;
     const VkDeviceSize complexBytes = complexCount * 8;             // vec2 f32
     // A FULL turn of twiddles, not a half one: a radix-4 group needs
     // W^(3*k*step), whose index reaches 3n/4. n extra vec2 is 32 KB at n = 4096.
-    const uint32_t kernOffset = un;                                 // in vec2 units
-    const VkDeviceSize twBytes = (static_cast<uint64_t>(kernOffset) + complexCount) * 8;
+    const uint32_t kernOffset = twn;                                // in vec2 units
+    // Pair mode holds BOTH kernel spectra live at once, because the split-and-
+    // recombine reads them in the same pass. That is the whole memory cost of
+    // the mode; if the device will not give it, ensureResidentBuf fails and the
+    // caller drops to two single-channel calls.
+    const uint64_t kernSpectra = pair ? 2u : 1u;
+    const uint32_t kernOffset2 =
+        pair ? static_cast<uint32_t>(kernOffset + complexCount) : 0u;
+    const VkDeviceSize twBytes =
+        (static_cast<uint64_t>(kernOffset) + kernSpectra * complexCount) * 8;
     // The real plane buffer: the source plane, the output window, and a staging
     // slot for this channel's kernel. No padded plane -- that is the point.
     const uint64_t srcCount = static_cast<uint64_t>(w) * h;
     const uint64_t outCount = srcCount;
     const uint64_t kernCount = static_cast<uint64_t>(ks) * ks;
-    const uint64_t outBase = srcCount;
-    const uint64_t kernBase = srcCount + outCount;
-    const VkDeviceSize realBytes = (srcCount + outCount + kernCount) * sizeof(float);
+    const uint64_t planes = pair ? 2u : 1u;
+    const uint64_t src2Base = srcCount;                  // pair mode only
+    const uint64_t outBase = planes * srcCount;
+    const uint64_t out2Base = outBase + outCount;        // pair mode only
+    const uint64_t kernBase = outBase + planes * outCount;
+    const VkDeviceSize realBytes =
+        (planes * srcCount + planes * outCount + kernCount) * sizeof(float);
     if (complexBytes > limits.maxStorageBufferRange ||
         twBytes > limits.maxStorageBufferRange ||
         realBytes > limits.maxStorageBufferRange)
@@ -2960,8 +3073,9 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         const auto t_up = std::chrono::steady_clock::now();
         {
             float* tw = static_cast<float*>(s.dyeB.mapped);   // staging
-            const double step = -6.283185307179586476925286766559 / static_cast<double>(n);
-            for (uint32_t k = 0; k < un; ++k) {
+            const double step =
+                -6.283185307179586476925286766559 / static_cast<double>(twn);
+            for (uint32_t k = 0; k < twn; ++k) {
                 const double a = step * static_cast<double>(k);
                 tw[k * 2 + 0] = static_cast<float>(std::cos(a));
                 tw[k * 2 + 1] = static_cast<float>(std::sin(a));
@@ -2976,10 +3090,17 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         {
             const double* src = r.src_rgb;
             const int ch = r.channel;
+            const int ch2 = r.channel2;
+            const bool two = pair;
             parallel_for(0, static_cast<int>(srcCount), [&](int lo, int hi) {
                 for (int i = lo; i < hi; ++i) {
                     const double v = src[static_cast<size_t>(i) * 3 + ch];
                     real[i] = std::isfinite(v) ? static_cast<float>(v) : 0.0f;
+                    if (two) {
+                        const double v2 = src[static_cast<size_t>(i) * 3 + ch2];
+                        real[src2Base + i] =
+                            std::isfinite(v2) ? static_cast<float>(v2) : 0.0f;
+                    }
                 }
             });
             for (size_t i = 0; i < kernCount; ++i)
@@ -3031,16 +3152,44 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         // it, this makes the two comparable in ONE binary on a cooled device --
         // the only comparison this phone's ~30% between-capture drift does not
         // swamp.
+        // SPK_FFT_TRANSPOSE=0 restores the naive scatter in the SAME binary, so
+        // the two can be interleaved on one cooled device. The transpose is ~half
+        // the 2-D transform (see the derivation in fft_convolve.comp), which makes
+        // it the one pass most worth an A/B.
+        bool tiled_transpose = true;
+        if (const char* tv = std::getenv("SPK_FFT_TRANSPOSE")) tiled_transpose = tv[0] != '0';
+        // SPK_FFT_RADIX16=0 drops back to radix 4 in the SAME binary. Sixteen
+        // values live per thread is real register pressure, and a spill would
+        // hand back exactly the global traffic the radix exists to remove, so
+        // this one is measured rather than assumed.
+        bool radix16 = true;
+        if (const char* r16 = std::getenv("SPK_FFT_RADIX16")) radix16 = r16[0] != '0';
         bool use_radix4 = true;
         if (const char* rv = std::getenv("SPK_FFT_RADIX"))
             if (rv[0] == '2') use_radix4 = false;
 
+        // Forward runs x then y and leaves the spectrum TRANSPOSED ([kx][ky]);
+        // the inverse runs y then x and transposes it back, so the two cancel and
+        // no third transpose is needed. That is why the inverse's axis order is
+        // the reverse of the forward's rather than the same.
         auto emit_fft2 = [&](VkCommandBuffer cmd, FftPush& p, bool inverse) {
             p.sign_neg = inverse ? 0u : 1u;
+            const uint32_t first_len = inverse ? utny : utnx;
+            const uint32_t second_len = inverse ? utnx : utny;
             for (int pass = 0; pass < 2; ++pass) {
-                for (uint32_t L = 1u; L < un;) {
+                const uint32_t len = pass == 0 ? first_len : second_len;
+                p.len = len;
+                p.rows = static_cast<uint32_t>(complexCount / len);
+                for (uint32_t L = 1u; L < len;) {
                     p.stage = L;
-                    if (use_radix4 && (un / L) % 4u == 0u) {
+                    // Take the highest radix the remaining transform divides by:
+                    // every stage moves the whole plane, so the pass COUNT is the
+                    // cost and a bigger radix is strictly fewer passes for the
+                    // same butterflies. 16 -> 4 -> 2 as the remainder runs out.
+                    if (radix16 && (len / L) % 16u == 0u) {
+                        emit(cmd, p, kFftOpStage16, complexCount / 16);
+                        L *= 16u;
+                    } else if (use_radix4 && (len / L) % 4u == 0u) {
                         emit(cmd, p, kFftOpStage4, complexCount / 4);
                         L *= 4u;
                     } else {
@@ -3050,7 +3199,20 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
                     p.src_is_a ^= 1u;
                 }
                 if (pass == 0) {
-                    emit(cmd, p, kFftOpTranspose, complexCount);
+                    // Transposes the rows x len array the pass just produced.
+                    //
+                    // The tiled variant wants ONE WORKGROUP PER 16x16 TILE, not
+                    // one thread per cell, so the thread count it is dispatched
+                    // with is a group count in disguise: the planner turns
+                    // tiles*WG threads into exactly `tiles` groups, and the
+                    // shader rebuilds the linear group index from groups_x.
+                    if (tiled_transpose) {
+                        const uint64_t tx = (p.len + 15u) / 16u;
+                        const uint64_t ty = (p.rows + 15u) / 16u;
+                        emit(cmd, p, kFftOpTransposeTiled, tx * ty * 64u);
+                    } else {
+                        emit(cmd, p, kFftOpTranspose, complexCount);
+                    }
                     p.src_is_a ^= 1u;
                 }
             }
@@ -3092,40 +3254,59 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         // radius (see the derivation in kernels/fft_convolve.cpp). It is
         // transformed by the same code as the tiles, so it lands in the same
         // transposed layout the pointwise multiply expects.
-        {
+        // One submission per kernel, landing its spectrum at `destVec2`. Pair
+        // mode runs this twice; the kernel STAGING slot is reused between the
+        // two because `run` waits on its fence, so the host write that follows
+        // it cannot race the pass that read it.
+        auto transform_kernel = [&](uint32_t destVec2, bool first) {
             FftPush p{};
-            p.n = un;
+            p.nx = utnx;
+            p.ny = utny;
+            p.twn = twn;
             p.ks = static_cast<uint32_t>(ks);
             p.kern_base = static_cast<uint32_t>(kernBase);
             p.kern_offset = kernOffset;
             p.src_is_a = 1u;
-            gpu_ok = run([&](VkCommandBuffer cmd) {
-                // The twiddles go device-side first: they are read by every
-                // butterfly pass, so leaving them in host-coherent memory would
-                // reintroduce exactly the cost the resident buffers remove.
-                VkBufferCopy twCopy{0, 0, twStageBytes};
-                vkCmdCopyBuffer(cmd, s.dyeB.buf, c.fftWork[2].buf, 1, &twCopy);
-                barrier(cmd, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            return run([&](VkCommandBuffer cmd) {
+                if (first) {
+                    // The twiddles go device-side first: they are read by every
+                    // butterfly pass, so leaving them in host-coherent memory
+                    // would reintroduce exactly the cost the resident buffers
+                    // remove.
+                    VkBufferCopy twCopy{0, 0, twStageBytes};
+                    vkCmdCopyBuffer(cmd, s.dyeB.buf, c.fftWork[2].buf, 1, &twCopy);
+                    barrier(cmd, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                }
                 emit(cmd, p, kFftOpPackKernel, complexCount);  // always writes A
                 emit_fft2(cmd, p, /*inverse=*/false);
                 barrier(cmd, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-                VkBufferCopy region{0, static_cast<VkDeviceSize>(kernOffset) * 8, complexBytes};
+                VkBufferCopy region{0, static_cast<VkDeviceSize>(destVec2) * 8, complexBytes};
                 vkCmdCopyBuffer(cmd, p.src_is_a ? c.fftWork[0].buf : c.fftWork[1].buf,
                                 c.fftWork[2].buf, 1, &region);
             });
+        };
+
+        gpu_ok = transform_kernel(kernOffset, /*first=*/true);
+        if (gpu_ok && pair) {
+            for (size_t i = 0; i < kernCount; ++i)
+                real[kernBase + i] = static_cast<float>(r.kern2[i]);
+            gpu_ok = transform_kernel(kernOffset2, /*first=*/false);
         }
 
         // Pass 2..N: one overlap-save tile per submission.
         const float scale = static_cast<float>(
-            1.0 / (static_cast<double>(n) * static_cast<double>(n)));
-        for (int y0 = 0; gpu_ok && grid_ok && y0 < h; y0 += block) {
-            for (int x0 = 0; gpu_ok && grid_ok && x0 < w; x0 += block) {
-                const int ny = std::min(block, h - y0);
-                const int nx = std::min(block, w - x0);
+            1.0 / (static_cast<double>(tnx) * static_cast<double>(tny)));
+        for (int y0 = 0; gpu_ok && grid_ok && y0 < h; y0 += block_y) {
+            for (int x0 = 0; gpu_ok && grid_ok && x0 < w; x0 += block_x) {
+                const int ny = std::min(block_y, h - y0);
+                const int nx = std::min(block_x, w - x0);
                 FftPush p{};
-                p.n = un;
+                p.nx = utnx;
+                p.ny = utny;
+                p.twn = twn;
                 p.pad_w = static_cast<uint32_t>(pw);
                 p.pad_h = static_cast<uint32_t>(ph);
                 p.tile_x = static_cast<uint32_t>(x0);
@@ -3141,14 +3322,25 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
                 p.out_offset = static_cast<uint32_t>(
                     outBase + static_cast<uint64_t>(y0) * w + x0);
                 p.kern_offset = kernOffset;
+                p.kern_offset2 = kernOffset2;
+                p.src2_base = static_cast<uint32_t>(src2Base);
+                p.out2_offset = static_cast<uint32_t>(
+                    out2Base + static_cast<uint64_t>(y0) * w + x0);
                 p.scale = scale;
                 p.src_is_a = 1u;
                 gpu_ok = run([&](VkCommandBuffer cmd) {
-                    emit(cmd, p, kFftOpPack, complexCount);
+                    emit(cmd, p, pair ? kFftOpPack2 : kFftOpPack, complexCount);
                     emit_fft2(cmd, p, /*inverse=*/false);
-                    emit(cmd, p, kFftOpMul, complexCount);      // in place: no flip
+                    if (pair) {
+                        // OP_MUL2 reads k and -k, so it cannot run in place and
+                        // the ping-pong has to flip. OP_MUL can and does not.
+                        emit(cmd, p, kFftOpMul2, complexCount);
+                        p.src_is_a ^= 1u;
+                    } else {
+                        emit(cmd, p, kFftOpMul, complexCount);  // in place: no flip
+                    }
                     emit_fft2(cmd, p, /*inverse=*/true);
-                    emit(cmd, p, kFftOpUnpack,
+                    emit(cmd, p, pair ? kFftOpUnpack2 : kFftOpUnpack,
                          static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny));
                 });
                 ++d.tiles;
@@ -3162,16 +3354,20 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
 
         const auto t_back = std::chrono::steady_clock::now();
         {
-            const float* src = real + outBase;
-            const int stride = r.out_stride, offset = r.out_offset;
-            parallel_for(0, h, [&](int lo, int hi) {
-                for (int y = lo; y < hi; ++y) {
-                    const float* srow = src + static_cast<size_t>(y) * w;
-                    double* drow = out + static_cast<size_t>(y) * w * stride + offset;
-                    for (int x = 0; x < w; ++x)
-                        drow[static_cast<size_t>(x) * stride] = srow[x];
-                }
-            });
+            const int stride = r.out_stride;
+            auto scatter = [&](uint64_t base, int offset) {
+                const float* src = real + base;
+                parallel_for(0, h, [&](int lo, int hi) {
+                    for (int y = lo; y < hi; ++y) {
+                        const float* srow = src + static_cast<size_t>(y) * w;
+                        double* drow = out + static_cast<size_t>(y) * w * stride + offset;
+                        for (int x = 0; x < w; ++x)
+                            drow[static_cast<size_t>(x) * stride] = srow[x];
+                    }
+                });
+            };
+            scatter(outBase, r.out_offset);
+            if (pair) scatter(out2Base, r.out_offset2);
         }
         d.readback_ms = std::chrono::duration<double, std::milli>(
                             std::chrono::steady_clock::now() - t_back).count();
@@ -3184,6 +3380,7 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
         return give_up(reason);
     }
     d.engaged = true;
+    d.paired = pair;
     d.reason = "";
     if (diagnostics) *diagnostics = d;
     return true;

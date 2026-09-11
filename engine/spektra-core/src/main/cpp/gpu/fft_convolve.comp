@@ -15,13 +15,17 @@
 // -- and 0.000 8-bit display codes. The precision objection to this work was
 // retired before the work started.
 //
-// ALGORITHM: Stockham autosort, radix-2, OUT OF PLACE, in global memory.
-// Deliberately not a shared-memory FFT. Shared memory would cap the transform at
-// whatever fits (n = 4096 is 32 KB of complex f32, exactly the usual limit) and
-// would need bank-conflict tuning to beat the simple version. Global memory
-// ping-pong has no size ceiling, every stage is independently checkable against
-// kernels/fft.cpp, and the transform we need is capped at 2048 anyway because the
-// host tiles above that.
+// ALGORITHM: Stockham autosort, radix-2 and radix-4, OUT OF PLACE, in global
+// memory, over a RECTANGULAR nx x ny transform.
+//
+// Deliberately not a shared-memory FFT -- yet. Shared memory caps the transform
+// at whatever fits, and an Adreno 840 reports maxComputeSharedMemorySize = 32768,
+// which is exactly 4096 complex f32: one 4096-point row and nothing left over,
+// so it would also cost occupancy. Global-memory ping-pong has no size ceiling
+// and every stage is independently checkable against kernels/fft.cpp. The known
+// next step is the hierarchical/four-step decomposition, which keeps each
+// sub-transform small enough to live in registers or shared memory; it is not
+// done here.
 //
 // Stockham is chosen over Cooley-Tukey because it is AUTOSORT: no bit-reversal
 // permutation pass, and every stage reads and writes linearly, which is what a
@@ -67,24 +71,110 @@ layout(std430, binding = 3) buffer RealBuf { float img[]; };
 #define OP_UNPACK     4u   // scale, take the real part, write the output window
 #define OP_STAGE4     5u   // one Stockham radix-4 stage along x
 #define OP_PACK_KERNEL 6u  // ks x ks kernel at the transform ORIGIN -> complex A
+// PAIR MODE: two real channels ride ONE complex transform (#227).
+#define OP_PACK2      7u   // two real padded tiles -> one complex A (re, im)
+#define OP_MUL2       8u   // split the packed spectrum, multiply, recombine
+#define OP_UNPACK2    9u   // real part -> channel 1, imaginary part -> channel 2
+#define OP_TRANSPOSE_T 10u // the same transpose, staged through shared memory
+#define OP_STAGE16    11u  // one Stockham radix-16 stage along the row
 
-// RADIX 4 IS WHY THIS PASS IS AFFORDABLE, and the reason is bandwidth, not
-// arithmetic. Every stage reads the whole n x n plane and writes it back: at
-// n = 4096 that is 268 MB of traffic per pass, and a radix-2 transform needs
-// log2(n) = 12 of them per 1-D direction, i.e. 48 for the forward+inverse 2-D
-// pair. Measured on an Adreno 840, that put a 12.5 MP Black Pro-Mist channel at
-// ~1.55 s -- level with the CPU's f64 transform, which moves HALF the data
-// because it exploits Hermitian symmetry.
+// RADIX 16, FOR THE SAME REASON RADIX 4 BEAT RADIX 2: passes, not arithmetic.
+// Every stage reads the whole plane and writes it back, so the cost of the
+// transform is essentially the number of stages. Once the tiled transpose cut T
+// from ~12B to ~1.6B, those stages ARE the transform:
 //
-// Radix 4 does log4(n) = 6 passes for the same transform. Same butterflies, same
-// twiddles, half the trips through memory. The arithmetic per element is
-// slightly HIGHER (three complex twiddle multiplies per group of four instead of
-// one per pair); that is the right trade when the kernel is memory-bound, which
+//     radix 4  : log4(4096)  = 6 per axis, 12 + 1.6 = 13.6B
+//     radix 16 : log16(4096) = 3 per axis,  6 + 1.6 =  7.6B     -> 1.79x
+//
+// The 16-point DFT is a Cooley-Tukey 4x4: four radix-4 DFTs down the columns,
+// nine non-trivial twiddles, four more radix-4 DFTs across the rows. It is
+// written to hold ONE array of sixteen plus four temporaries and to write its
+// outputs straight to memory, because holding a separate output array as well
+// would be 48 vec2 live and spill -- and a spilled register is exactly the
+// global-memory traffic this radix exists to avoid.
+
+// THE TRANSPOSE IS HALF THE TRANSFORM, and that is derived from measurements
+// already taken rather than guessed. emit_fft2 runs `stages + transpose`, so a
+// radix-4 pass costs 12B + T and a radix-2 pass 24B + T for per-pass cost B and
+// transpose cost T. Radix 2 measured 1.5x slower than radix 4 on this device
+// (twice, 1.58x and 1.49x), so:
+//
+//     (24B + T) / (12B + T) = 1.5   ->   6B = 0.5T   ->   T = 12B
+//
+// The transpose costs what all twelve butterfly passes cost together -- ~50% of
+// the 2-D transform. It moves the same bytes as any other pass, so the whole
+// difference is the access pattern: `dst[x * rows + y]` makes consecutive lanes
+// write addresses `rows` apart, so every lane touches its own cache line.
+//
+// Staging a tile through shared memory fixes both ends: read a 16 x 16 tile with
+// consecutive lanes on consecutive addresses, then write it out transposed with
+// consecutive lanes again on consecutive addresses. The tile is 16 x 17 to skip
+// the bank conflict the square shape would cause on the strided read.
+//
+// 16 x 16 rather than 32 x 32 ON PURPOSE. Shared memory is reserved per workgroup
+// for the WHOLE shader, not per branch, so a big tile would tax the twelve
+// butterfly passes -- which are memory-bound and want occupancy -- to speed up
+// the one pass that uses it. 16 x 17 vec2 is 2176 bytes; 32 x 33 would be 8448,
+// a quarter of this device's 32 KB budget, for coalescing that is already full at
+// 16 lanes x 8 bytes = one 128-byte line.
+#define TT 16u
+#define TT_ROWS_PER_PASS 4u   // WG / TT
+shared vec2 tt_tile[16][17];
+
+// WHY PAIR MODE EXISTS. A tile costs one forward and one inverse 2-D transform,
+// and the tiles dominate the pass, so halving the transform COUNT for two of the
+// three channels is worth ~1.4x -- measured on device, interleaved in one binary.
+// (The tile count at ks = 3059 on a 12.5 MP frame was twelve when this was
+// written and is three now that the transform is rectangular, which raises the
+// kernel transform's share from ~4% to ~25% and makes caching it worth doing.)
+//
+// The image is REAL, and the transform of a real signal is Hermitian, so half of
+// what a full-complex transform computes is redundant. The classical way to spend
+// that redundancy is to put two real signals in one complex one, z = x + i*y:
+// both spectra come back out of the single transform by symmetry, and because
+// convolution is linear and both kernels are real, the two filtered results can
+// be recombined the same way and separated again after ONE inverse transform.
+// Three channels then cost two transform pairs instead of three (72 -> 48).
+//
+// This is the standard trick (Epic name it for the same bloom convolution; Nabla
+// pack two reals per transform for theirs). It is NOT the full Hermitian storage
+// win: the spectra are still nx x ny rather than nx x (ny/2+1), so pair mode buys
+// transform COUNT and costs a second kernel spectrum in memory. The rectangle
+// below attacks the tile count instead, and R2C storage -- which would halve the
+// memory and is the only route to a single 8192 x 8192 tile -- is still open.
+
+// THE PASS COUNT IS THE COST, and the reason is bandwidth, not arithmetic. Every
+// stage reads the whole nx x ny plane and writes it back: at 4096 x 4096 that is
+// 134 MB of traffic per pass. A radix-2 transform needs log2(n) = 12 passes per
+// 1-D direction, radix 4 needs 6, radix 16 needs 3 -- same butterflies, same
+// twiddles, fewer trips through memory. The arithmetic per element rises with
+// the radix; that is the right trade whenever the pass is memory-bound, which
 // this one provably is.
+//
+// Measured on an Adreno 840, each step of that ladder paid: radix 4 over radix 2
+// was 1.5x (twice), and radix 16 over radix 4 was a further 1.32x. But the
+// returns are NOT the pass ratio -- radix 16 predicted 1.79x and delivered 1.32x,
+// because sixteen values live per thread is register pressure, and a spill is
+// exactly the global traffic a higher radix exists to remove. The host walks
+// 16 -> 4 -> 2 as the remaining transform divides.
 
 layout(push_constant) uniform Push {
     uint op;
-    uint n;             // transform size, a power of two
+    // THE TRANSFORM IS RECTANGULAR (#227). It used to be one square `n`, which
+    // tied the transform to the WORSE of the two axes: overlap-save wants
+    // n >= ks + block, and at ks = 3059 on a 4080x3060 frame a square 4096
+    // leaves a 1038 px block, i.e. 4 x 3 = twelve tiles, each transforming
+    // 4096^2 to keep 1038^2. Going 8192 wide and 4096 tall costs 2x the
+    // elements per tile but leaves a 5134 px block in x -- one tile across,
+    // three down -- which is 1.9x less total work for the same shape of kernel.
+    //
+    // So the two axes carry their own sizes, and a pass carries the length of
+    // the transform it is running plus how many of them there are.
+    uint nx;            // transform width,  a power of two
+    uint ny;            // transform height, a power of two
+    uint len;           // length of the 1-D transform this pass runs
+    uint rows;          // how many of them
+    uint twn;           // size the twiddle table was built at = max(nx, ny)
     // L, the number of sub-transforms already completed, for OP_STAGE /
     // OP_STAGE4. It used to be the stage INDEX, which only works when every
     // pass has the same radix; a mixed radix-4/radix-2 sequence (needed when
@@ -114,11 +204,39 @@ layout(push_constant) uniform Push {
     uint out_stride;
     uint out_offset;
     uint kern_offset;   // where the kernel spectrum starts in TwBuf
+    // Pair mode only. src2_base / out2_offset are float offsets into RealBuf,
+    // kern_offset2 is a vec2 offset into TwBuf, all zero in single-channel mode.
+    uint src2_base;
+    uint out2_offset;
+    uint kern_offset2;
     float scale;        // 1/(n*n), host-computed
 } pc;
 
 vec2 cmul(vec2 p, vec2 q) {
     return vec2(p.x * q.x - p.y * q.y, p.x * q.y + p.y * q.x);
+}
+
+// The table holds the FORWARD turn; the inverse conjugates rather than carrying a
+// second table, exactly as the radix-2 and radix-4 stages do.
+vec2 twiddle(uint idx, bool neg) {
+    vec2 w = tw[idx];
+    if (!neg) w.y = -w.y;
+    return w;
+}
+
+// In-place 4-point DFT. W_4 = -i forward, +i inverse, so only the odd outputs
+// change sign -- the same butterfly OP_STAGE4 runs, factored out so the radix-16
+// stage cannot drift from it.
+void dft4(inout vec2 c0, inout vec2 c1, inout vec2 c2, inout vec2 c3, bool neg) {
+    vec2 t0 = c0 + c2;
+    vec2 t1 = c0 - c2;
+    vec2 t2 = c1 + c3;
+    vec2 t3 = c1 - c3;
+    vec2 j3 = neg ? vec2(t3.y, -t3.x) : vec2(-t3.y, t3.x);
+    c0 = t0 + t2;
+    c1 = t1 + j3;
+    c2 = t0 - t2;
+    c3 = t1 - j3;
 }
 
 // numpy mode='reflect': mirror without repeating the edge sample. A verbatim
@@ -139,15 +257,15 @@ uint gid() {
 
 void main() {
     uint t = gid();
-    uint n = pc.n;
+    uint cells = pc.nx * pc.ny;
 
     if (pc.op == OP_PACK) {
         // One thread per complex cell of the n x n tile. Cells past the padded
         // plane are zero -- they only ever feed outputs beyond (h, w), which the
         // unpack discards -- and cells inside it read the source through the
         // reflect map.
-        if (t >= n * n) return;
-        uint y = t / n, x = t - y * n;
+        if (t >= cells) return;
+        uint y = t / pc.nx, x = t - y * pc.nx;
         uint px = pc.tile_x + x, py = pc.tile_y + y;
         float v = 0.0;
         if (px < pc.pad_w && py < pc.pad_h) {
@@ -163,29 +281,126 @@ void main() {
         // The kernel sits at the ORIGIN of the transform, not centred: centring
         // would shift the answer by the radius (see the derivation in
         // kernels/fft_convolve.cpp).
-        if (t >= n * n) return;
-        uint y = t / n, x = t - y * n;
+        if (t >= cells) return;
+        uint y = t / pc.nx, x = t - y * pc.nx;
         float v = (x < pc.ks && y < pc.ks)
                       ? img[pc.kern_base + y * pc.ks + x] : 0.0;
         a[t] = vec2(v, 0.0);
         return;
     }
 
+    if (pc.op == OP_PACK2) {
+        // Same addressing as OP_PACK, but the two channels' samples become the
+        // real and imaginary parts of one complex cell.
+        if (t >= cells) return;
+        uint y = t / pc.nx, x = t - y * pc.nx;
+        uint px = pc.tile_x + x, py = pc.tile_y + y;
+        vec2 v = vec2(0.0, 0.0);
+        if (px < pc.pad_w && py < pc.pad_h) {
+            int sx = reflect_idx(int(px) - int(pc.radius), int(pc.src_w));
+            int sy = reflect_idx(int(py) - int(pc.radius), int(pc.src_h));
+            uint si = uint(sy) * pc.src_w + uint(sx);
+            v = vec2(img[si], img[pc.src2_base + si]);
+        }
+        a[t] = v;
+        return;
+    }
+
+    if (pc.op == OP_MUL2) {
+        // Z = FFT(x + i*y) for real x, y. Hermitian symmetry gives both spectra
+        // back from the one transform:
+        //     X(k) = (Z(k) + conj(Z(-k))) / 2
+        //     Y(k) = (Z(k) - conj(Z(-k))) / (2i)
+        // Multiply each by its own kernel spectrum, then recombine as
+        // W(k) = X(k)K1(k) + i*Y(k)K2(k). Both kernels are REAL, so both
+        // products are Hermitian, so the single inverse transform returns
+        // channel 1 in the real part and channel 2 in the imaginary part.
+        //
+        // Reads two cells (k and -k) and therefore cannot run in place; unlike
+        // OP_MUL the host must flip the ping-pong after this op.
+        if (t >= cells) return;
+        // After the forward pair of passes the layout is [kx][ky]: the second
+        // transpose is the inverse's, so the spectrum is still transposed here.
+        // Both extents are powers of two, so each mirror is a mask away, and
+        // index 0 maps to itself, which is what the symmetry requires.
+        uint kx = t / pc.ny, ky = t - kx * pc.ny;
+        uint m = ((pc.nx - kx) & (pc.nx - 1u)) * pc.ny + ((pc.ny - ky) & (pc.ny - 1u));
+        vec2 z, zm;
+        if (pc.src_is_a == 1u) { z = a[t]; zm = a[m]; }
+        else                   { z = b[t]; zm = b[m]; }
+        vec2 zmc = vec2(zm.x, -zm.y);
+        vec2 f1 = 0.5 * (z + zmc);
+        vec2 d  = 0.5 * (z - zmc);
+        vec2 f2 = vec2(d.y, -d.x);            // -i * d
+        vec2 g1 = cmul(f1, tw[pc.kern_offset + t]);
+        vec2 g2 = cmul(f2, tw[pc.kern_offset2 + t]);
+        vec2 g = g1 + vec2(-g2.y, g2.x);      // g1 + i*g2
+        if (pc.src_is_a == 1u) b[t] = g;
+        else                   a[t] = g;
+        return;
+    }
+
+    if (pc.op == OP_UNPACK2) {
+        if (t >= pc.out_w * pc.out_h) return;
+        uint y = t / pc.out_w, x = t - y * pc.out_w;
+        uint sx = pc.out_x + x, sy = pc.out_y + y;
+        vec2 v = (pc.src_is_a == 1u) ? a[sy * pc.nx + sx] : b[sy * pc.nx + sx];
+        img[pc.out_offset  + (y * pc.out_stride) + x] = v.x * pc.scale;
+        img[pc.out2_offset + (y * pc.out_stride) + x] = v.y * pc.scale;
+        return;
+    }
+
     if (pc.op == OP_TRANSPOSE) {
-        if (t >= n * n) return;
-        uint y = t / n, x = t - y * n;
-        // Read src[y][x] -> dst[x][y]. Naive, and deliberately so: a tiled
-        // transpose is a real optimisation but an unnecessary risk before the
-        // whole chain is proven correct.
-        if (pc.src_is_a == 1u) b[x * n + y] = a[t];
-        else                   a[x * n + y] = b[t];
+        // rows x len -> len x rows. Square only when nx == ny, so the two
+        // extents are carried rather than assumed.
+        if (t >= pc.rows * pc.len) return;
+        uint y = t / pc.len, x = t - y * pc.len;
+        // Read src[y][x] -> dst[x][y]. The naive version, kept as the reference
+        // the tiled one is checked against and A/B'd against on device.
+        if (pc.src_is_a == 1u) b[x * pc.rows + y] = a[t];
+        else                   a[x * pc.rows + y] = b[t];
+        return;
+    }
+
+    if (pc.op == OP_TRANSPOSE_T) {
+        // One workgroup per TT x TT tile. `groups_x` tiles across, so the group
+        // id decomposes the same way gid() decomposes the thread id.
+        uint tilesX = (pc.len + TT - 1u) / TT;
+        uint g = gl_WorkGroupID.y * pc.groups_x + gl_WorkGroupID.x;
+        uint tx = (g % tilesX) * TT;          // origin in the source's x
+        uint ty = (g / tilesX) * TT;          // origin in the source's y
+        if (tx >= pc.len || ty >= pc.rows) return;
+
+        uint lx = gl_LocalInvocationID.x & (TT - 1u);   // 0..15, the fast lane
+        uint ly = gl_LocalInvocationID.x / TT;          // 0..3 with WG = 64
+
+        // Read: lanes differ in lx, so they read consecutive source cells.
+        for (uint r = ly; r < TT; r += TT_ROWS_PER_PASS) {
+            uint sy = ty + r, sx = tx + lx;
+            vec2 v = vec2(0.0, 0.0);
+            if (sy < pc.rows && sx < pc.len)
+                v = (pc.src_is_a == 1u) ? a[sy * pc.len + sx] : b[sy * pc.len + sx];
+            tt_tile[r][lx] = v;
+        }
+        barrier();
+        // Write: lanes still differ in lx, and lx now indexes the DESTINATION's
+        // fast axis, so the writes are consecutive too. The read of the tile is
+        // the strided one, which is what the +1 padding is for.
+        for (uint r = ly; r < TT; r += TT_ROWS_PER_PASS) {
+            uint dr = tx + r, dc = ty + lx;
+            if (dr < pc.len && dc < pc.rows) {
+                vec2 v = tt_tile[lx][r];
+                if (pc.src_is_a == 1u) b[dr * pc.rows + dc] = v;
+                else                   a[dr * pc.rows + dc] = v;
+            }
+        }
         return;
     }
 
     if (pc.op == OP_MUL) {
         // The kernel spectrum is real-symmetric in general but stored full
         // complex, so this is a plain complex multiply.
-        if (t >= n * n) return;
+        if (t >= cells) return;
         vec2 k = tw[pc.kern_offset + t];
         if (pc.src_is_a == 1u) a[t] = cmul(a[t], k);
         else                   b[t] = cmul(b[t], k);
@@ -198,24 +413,87 @@ void main() {
         // The valid region of a same-size convolution starts at (ks-1) into the
         // transform; the host passes it as the tile origin already resolved.
         uint sx = pc.out_x + x, sy = pc.out_y + y;
-        vec2 v = (pc.src_is_a == 1u) ? a[sy * n + sx] : b[sy * n + sx];
+        vec2 v = (pc.src_is_a == 1u) ? a[sy * pc.nx + sx] : b[sy * pc.nx + sx];
         img[pc.out_offset + (y * pc.out_stride) + x] = v.x * pc.scale;
         return;
     }
 
+    if (pc.op == OP_STAGE16) {
+        uint sixteenth = pc.len >> 4u;
+        if (t >= sixteenth * pc.rows) return;
+        uint row = t / sixteenth;
+        uint j = t - row * sixteenth;
+        uint L = pc.stage;
+        uint k = j & (L - 1u);
+        uint base = (j - k) << 4u;
+        uint step = pc.twn / (L << 4u);     // W_len^{k} lands at k*twn/(16L)
+        uint ro = row * pc.len;
+        bool neg = (pc.sign_neg == 1u);
+
+        // Load the sixteen, applying this stage's twiddle W^{i*k} as we go. The
+        // largest index is 15*(L-1)*twn/(16L) < twn, so the full-turn table
+        // covers it without a fold.
+        vec2 v[16];
+        for (uint i = 0u; i < 16u; ++i) {
+            uint si = ro + j + i * sixteenth;
+            vec2 x = (pc.src_is_a == 1u) ? a[si] : b[si];
+            v[i] = (i == 0u || k == 0u) ? x : cmul(twiddle(i * k * step, neg), x);
+        }
+
+        // 16 = 4 x 4. First the four column DFT4s. Index p = n1 + 4*n2, so a
+        // column is {n1, n1+4, n1+8, n1+12} -- which is also where its outputs
+        // {n1 + 4*k2} go, so this is genuinely in place.
+        uint eighth = pc.twn >> 4u;         // W_16^1 = tw[twn/16]
+        for (uint n1 = 0u; n1 < 4u; ++n1) {
+            dft4(v[n1], v[n1 + 4u], v[n1 + 8u], v[n1 + 12u], neg);
+            // Then the inner twiddle W_16^{n1*k2}; k2 = 0 is unity.
+            if (n1 != 0u) {
+                v[n1 + 4u]  = cmul(twiddle(n1 * eighth, neg), v[n1 + 4u]);
+                v[n1 + 8u]  = cmul(twiddle(2u * n1 * eighth, neg), v[n1 + 8u]);
+                v[n1 + 12u] = cmul(twiddle(3u * n1 * eighth, neg), v[n1 + 12u]);
+            }
+        }
+
+        // Then the four row DFT4s, writing X[4*k1 + k2] straight out.
+        uint o = ro + base + k;
+        for (uint k2 = 0u; k2 < 4u; ++k2) {
+            vec2 d0 = v[4u * k2], d1 = v[4u * k2 + 1u];
+            vec2 d2 = v[4u * k2 + 2u], d3 = v[4u * k2 + 3u];
+            dft4(d0, d1, d2, d3, neg);
+            if (pc.src_is_a == 1u) {
+                b[o + (k2 +  0u) * L] = d0;
+                b[o + (k2 +  4u) * L] = d1;
+                b[o + (k2 +  8u) * L] = d2;
+                b[o + (k2 + 12u) * L] = d3;
+            } else {
+                a[o + (k2 +  0u) * L] = d0;
+                a[o + (k2 +  4u) * L] = d1;
+                a[o + (k2 +  8u) * L] = d2;
+                a[o + (k2 + 12u) * L] = d3;
+            }
+        }
+        return;
+    }
+
     if (pc.op == OP_STAGE4) {
-        // n/4 butterfly groups per row, n rows.
-        uint quarter = n >> 2u;
-        if (t >= quarter * n) return;
+        // len/4 butterfly groups per row, `rows` rows.
+        uint quarter = pc.len >> 2u;
+        if (t >= quarter * pc.rows) return;
         uint row = t / quarter;
         uint j = t - row * quarter;
         uint L = pc.stage;
         uint k = j & (L - 1u);
         uint base = (j - k) << 2u;
-        // The host table holds exp(-2*pi*i*m/n) for m < n, not m < n/2: a
-        // radix-4 group needs W^(3*k*step) and 3*k*step reaches past n/2.
-        uint step = n / (L << 2u);
-        uint ro = row * n;
+        // The host table holds exp(-2*pi*i*m/twn) for m < twn -- a FULL turn,
+        // not a half one, because a radix-4 group needs W^(3*k*step) whose
+        // index reaches 3*twn/4.
+        //
+        // The table is built once at twn = max(nx, ny) and serves BOTH axes: a
+        // length-`len` transform wants exp(-2*pi*i*k/(4L)), whose index into a
+        // twn-sized table is k*twn/(4L). The `len` cancels, so the same
+        // expression works for either extent.
+        uint step = pc.twn / (L << 2u);
+        uint ro = row * pc.len;
 
         vec2 x0, x1, x2, x3;
         if (pc.src_is_a == 1u) {
@@ -223,7 +501,7 @@ void main() {
             x1 = a[ro + j + quarter];
             x2 = a[ro + j + 2u * quarter];
             x3 = a[ro + j + 3u * quarter];
-        } else {
+        } else {  // NOLINT: mirrored read from the other half of the ping-pong
             x0 = b[ro + j];
             x1 = b[ro + j + quarter];
             x2 = b[ro + j + 2u * quarter];
@@ -264,8 +542,8 @@ void main() {
     // OP_STAGE: one radix-2 Stockham butterfly stage along x, for every row.
     // n/2 butterflies per row, n rows. Still needed: log2(n) is odd for half the
     // admissible transform sizes, and one radix-2 pass finishes those.
-    uint half_n = n >> 1u;
-    if (t >= half_n * n) return;
+    uint half_n = pc.len >> 1u;
+    if (t >= half_n * pc.rows) return;
     uint row = t / half_n;
     uint j = t - row * half_n;          // butterfly index within the row
 
@@ -273,12 +551,14 @@ void main() {
     uint k = j & (L - 1u);              // position inside the sub-transform
     uint base = (j - k) << 1u;          // where this pair writes
 
-    // Twiddle index: the stage's angle 2*pi*k/(2L) becomes index k * (n / (2L)).
-    uint step = n / (L << 1u);
+    // Twiddle index: the stage's angle 2*pi*k/(2L) becomes index k*twn/(2L) in
+    // the shared full-turn table -- independent of which extent is running, see
+    // the radix-4 note above.
+    uint step = pc.twn / (L << 1u);
     vec2 w = tw[k * step];
     if (pc.sign_neg == 0u) w.y = -w.y;   // inverse: conjugate
 
-    uint ro = row * n;
+    uint ro = row * pc.len;
     vec2 x0, x1;
     if (pc.src_is_a == 1u) { x0 = a[ro + j]; x1 = a[ro + j + half_n]; }
     else                   { x0 = b[ro + j]; x1 = b[ro + j + half_n]; }

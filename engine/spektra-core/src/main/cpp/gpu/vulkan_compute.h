@@ -526,7 +526,33 @@ bool highlight_boost(double* rgb, int width, int height, double boost_ev,
 // n x (n/2+1) real-to-complex; this one does not, so it refuses above
 // kFftGpuMaxTransform and the caller runs the CPU path for kernels that need a
 // larger transform.
-constexpr int kFftGpuMaxTransform = 4096;
+// Per-AXIS cap. Raised from 4096 once the transform became rectangular: the
+// binding constraint was never the axis, it was the cell count, and 8192 x 4096
+// costs the same cells as two 4096 x 4096 tiles while replacing four of them.
+constexpr int kFftGpuMaxTransform = 8192;
+
+// Cell cap: what decides whether a phone can run this at all, and which
+// rectangle gets chosen. 32 Mi cells admits 8192 x 4096 (268 MB per ping-pong
+// buffer in f32). A caller that gets refused halves this and tries again
+// (model/diffusion.cpp), so a memory-tight device degrades to a smaller
+// transform rather than to the CPU.
+//
+// THIS WAS 16 Mi FOR A WHILE, ON A MEASUREMENT THAT TURNED OUT TO BE
+// CONTAMINATED. With the NAIVE transpose the wide rectangle measured ~10%
+// slower than the square (3125.3 ms against 2844.1), which read as "a big
+// transform costs more than its arithmetic says". It did -- but the cost was
+// almost entirely the transpose, which is the one pass whose locality collapses
+// as the array grows, and which was then costing ~12 butterfly passes. With the
+// tiled transpose the same comparison inverts:
+//
+//     wide    n=8192  tiles=3    1015.0 ms   1025.2
+//     square  n=4096  tiles=12   1270.9 ms   1253.2      -> wide is 1.23x
+//
+// Three tiles instead of twelve, as the work model said all along. The lesson is
+// not "the model was right"; it is that a verdict is only as good as the code it
+// was taken on, and fixing an unrelated-looking pass can invert it. Re-measure
+// after any change to the transform's inner loop before trusting this cap.
+constexpr uint64_t kFftGpuMaxElements = 33554432ull;
 
 // Planes cross in f64, exactly as HalationScatterRequest does, and the f32
 // conversion happens inside the mapped upload. The engine's diffusion stage
@@ -555,6 +581,31 @@ struct FftConvolveRequest {
     int out_stride = 1;
     int out_offset = 0;
     int max_transform = kFftGpuMaxTransform;
+    // The memory lever, in complex cells. The transform is RECTANGULAR, so the
+    // per-axis cap above no longer bounds the allocation on its own: 8192 x 4096
+    // is twice the cells of 4096 x 4096 at the same axis cap. A caller that gets
+    // refused walks this down and tries again, which is how a memory-tight
+    // device ends up on a smaller rectangle instead of on the CPU.
+    uint64_t max_elements = kFftGpuMaxElements;
+
+    // PAIR MODE (#227). Setting `channel2 >= 0` convolves TWO channels in one
+    // call, riding them on a single complex transform as z = c1 + i*c2 and
+    // separating them again by Hermitian symmetry (see OP_MUL2 in
+    // gpu/fft_convolve.comp). Both kernels must be real, which a PSF is.
+    //
+    // A tile is one forward plus one inverse transform, and at export scale the
+    // tiles are ~96% of the pass, so this is worth ~1.5x over three separate
+    // per-channel calls: three channels become two transform pairs instead of
+    // three. It costs one extra kernel spectrum on the device (n*n vec2), so a
+    // memory-tight device refuses pair mode and the caller falls back to two
+    // single-channel calls rather than to the CPU.
+    //
+    // `channel2`, `kern2` and `out_offset2` describe the second channel exactly
+    // as `channel`, `kern` and `out_offset` describe the first. `ks` is shared:
+    // the two kernels are the same size by construction.
+    int channel2 = -1;              // < 0 = single-channel mode
+    const double* kern2 = nullptr;
+    int out_offset2 = 0;
 };
 
 struct FftConvolveDiagnostics {
@@ -570,6 +621,11 @@ struct FftConvolveDiagnostics {
     // bandwidth and running at host-coherent bandwidth, so it is reported
     // rather than assumed.
     bool scratch_host_visible = false;
+    // True when this call actually ran PAIR mode (#227). Reported rather than
+    // inferred from the request, because pair mode costs a second kernel
+    // spectrum and a device that cannot afford it refuses and is served by the
+    // single-channel path instead -- which looks identical from outside.
+    bool paired = false;
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;
