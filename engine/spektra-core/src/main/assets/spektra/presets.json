@@ -211,7 +211,7 @@
           "densityCurveGamma": 1.0,
           "grain": {
             "active": true, "sublayersActive": true, "blur": 0.52,
-            "agxParticleScale": [0.62, 0.82, 1.65], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.85
+            "agxParticleScale": [0.6, 0.8, 1.6], "uniformity": [0.98, 0.98, 0.99], "blurDyeCloudsUm": 0.85
           },
           "halation": { "active": true, "halationAmount": 0.55 },
           "dirCouplers": { "active": true, "amount": 1.0 }
@@ -280,7 +280,7 @@
             "active": true, "sublayersActive": true, "blur": 0.62,
             "agxParticleScale": [0.75, 0.95, 1.9], "uniformity": [0.97, 0.97, 0.98], "blurDyeCloudsUm": 0.95
           },
-          "halation": { "active": true, "halationAmount": 1.1, "scatterAmount": 1.0 },
+          "halation": { "active": true, "halationAmount": 0.9, "scatterAmount": 1.0 },
           "dirCouplers": { "active": true, "amount": 1.05 }
         },
         "scanner": { "unsharpMask": [0.6, 0.7] }
@@ -325,7 +325,7 @@
             "active": true, "sublayersActive": true, "blur": 0.6,
             "agxParticleScale": [0.72, 0.92, 1.85], "uniformity": [0.97, 0.97, 0.98]
           },
-          "halation": { "active": true, "halationAmount": 1.15, "scatterAmount": 1.05, "boostEv": 0.3 },
+          "halation": { "active": true, "halationAmount": 0.9, "scatterAmount": 0.9, "boostEv": 0.0 },
           "dirCouplers": { "active": true, "amount": 1.0 }
         },
         "scanner": { "unsharpMask": [0.6, 0.7] }
@@ -347,7 +347,7 @@
             "active": true, "sublayersActive": true, "blur": 0.62,
             "agxParticleScale": [0.75, 0.95, 1.9], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.2, 30]
           },
-          "halation": { "active": true, "halationAmount": 1.2, "scatterAmount": 1.1, "boostEv": 0.4 },
+          "halation": { "active": true, "halationAmount": 0.9, "scatterAmount": 1.0, "boostEv": 0.0 },
           "dirCouplers": { "active": true, "amount": 1.1, "inhibitionInterlayer": 1.1 }
         },
         "scanner": { "unsharpMask": [0.65, 0.7] }
@@ -357,7 +357,7 @@
       "id": "vision3_500t_2383_night",
       "name": "Vision3 500T — Night Cinema",
       "group": "Cinema",
-      "description": "The fast tungsten workhorse on 2383: low-light latitude with a boosted highlight halation around practicals.",
+      "description": "The fast tungsten workhorse on 2383: low-light latitude, neutral tungsten balance, and clean rem-jet-suppressed highlights around practicals.",
       "params": {
         "filmProfile": "kodak_vision3_500t",
         "printProfile": "kodak_2383",
@@ -370,8 +370,8 @@
             "agxParticleScale": [0.9, 1.1, 2.2], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.25, 30]
           },
           "halation": {
-            "active": true, "halationAmount": 1.6, "scatterAmount": 1.3,
-            "scatterCoreUm": [2.6, 2.3, 1.9], "boostEv": 1.0, "boostRange": 0.35, "protectEv": 3.5
+            "active": true, "halationAmount": 0.9, "scatterAmount": 1.1,
+            "scatterCoreUm": [2.6, 2.3, 1.9], "boostEv": 0.4, "boostRange": 0.35, "protectEv": 3.5
           },
           "dirCouplers": { "active": true, "amount": 1.05 }
         },
@@ -383,7 +383,7 @@
       "id": "portra800_push1_endura_night",
       "name": "Portra 800 +1 — Pushed Night",
       "group": "Low Light",
-      "description": "Portra 800 rated EI 1600, pushed a stop: more speed, contrast, and a coarser, livelier grain.",
+      "description": "Portra 800 rated EI 1600, pushed a stop: more contrast and a coarser, livelier grain, with thinner shadows.",
       "params": {
         "filmProfile": "kodak_portra_800_push1",
         "printProfile": "kodak_portra_endura",
@@ -425,35 +425,7 @@
         "scanner": { "unsharpMask": [0.45, 0.8] }
       }
     },
-    {
-      "id": "vision3_500t_halation_glow",
-      "name": "Vision3 500T — Halation Glow",
-      "group": "Low Light",
-      "description": "A neon-night look on 500T: halation pushed hard around highlights with a warm scatter bloom and lifted print.",
-      "params": {
-        "filmProfile": "kodak_vision3_500t",
-        "printProfile": "kodak_2383",
-        "io": { "scanFilm": false, "outputColorSpace": "SRGB" },
-        "camera": { "exposureCompensationEv": 0.0 },
-        "enlarger": { "preflashExposure": 0.04 },
-        "filmRender": {
-          "densityCurveGamma": 1.0,
-          "grain": {
-            "active": true, "sublayersActive": true, "blur": 0.75,
-            "agxParticleScale": [0.95, 1.15, 2.3], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.28, 30]
-          },
-          "halation": {
-            "active": true, "halationAmount": 2.4, "scatterAmount": 1.5,
-            "scatterCoreUm": [3.0, 2.6, 2.1], "scatterTailUm": [11.0, 10.5, 9.8],
-            "boostEv": 1.2, "boostRange": 0.45, "protectEv": 3.0, "halationBounceDecay": 0.55
-          },
-          "dirCouplers": { "active": true, "amount": 1.05 }
-        },
-        "scanner": { "unsharpMask": [0.5, 0.7] }
-      }
-    },
-
-    {
+        {
       "id": "gold200_ektacolor_goldenhour",
       "name": "Gold 200 — Golden Hour",
       "group": "Consumer",
@@ -468,7 +440,7 @@
           "densityCurveGamma": 1.0,
           "grain": {
             "active": true, "sublayersActive": true, "blur": 0.68,
-            "agxParticleScale": [0.78, 0.98, 1.95], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.22, 30]
+            "agxParticleScale": [0.96, 1.2, 2.3], "uniformity": [0.97, 0.97, 0.98], "microStructure": [0.22, 30]
           },
           "halation": { "active": true, "halationAmount": 1.0, "scatterAmount": 1.0 },
           "dirCouplers": { "active": true, "amount": 1.05, "inhibitionInterlayer": 1.05 }
@@ -502,7 +474,7 @@
       "id": "superia400_crystalarchive_cool",
       "name": "Superia X-TRA 400 — Cool Snapshot",
       "group": "Consumer",
-      "description": "Fuji's cooler consumer 400 with a fourth color layer for cleaner mixed-light tones on Crystal Archive.",
+      "description": "Fuji's cooler consumer 400, with clean mixed-light greens and blues on Crystal Archive.",
       "params": {
         "filmProfile": "fujifilm_xtra_400",
         "printProfile": "fujifilm_crystal_archive_typeii",
@@ -512,8 +484,8 @@
         "filmRender": {
           "densityCurveGamma": 1.02,
           "grain": {
-            "active": true, "sublayersActive": true, "blur": 0.74,
-            "agxParticleScale": [0.9, 1.1, 2.2], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.25, 30]
+            "active": true, "sublayersActive": true, "blur": 0.72,
+            "agxParticleScale": [0.85, 1.05, 2.1], "uniformity": [0.96, 0.96, 0.98], "microStructure": [0.25, 30]
           },
           "halation": { "active": true, "halationAmount": 1.0 },
           "dirCouplers": { "active": true, "amount": 1.0 }
@@ -523,9 +495,9 @@
     },
     {
       "id": "c200_crystalarchive_budget",
-      "name": "Fuji C200 — Everyday Budget",
+      "name": "Fujicolor C200 — Everyday Budget",
       "group": "Consumer",
-      "description": "Economical everyday negative with crisp, slightly cool color and accurate skin on Crystal Archive.",
+      "description": "The Japan-made Fujicolor C200, now discontinued: economical, crisp, slightly cool color on Crystal Archive. Not today's \"Fujifilm 200\", which is rebadged Kodak Gold 200.",
       "params": {
         "filmProfile": "fujifilm_c200",
         "printProfile": "fujifilm_crystal_archive_typeii",

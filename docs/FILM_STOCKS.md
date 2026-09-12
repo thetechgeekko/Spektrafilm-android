@@ -25,8 +25,8 @@ and a look that lives in how they are printed. These pair with the RGB print pap
 | Kodak Portra 160 | Kodak | 160 | Daylight | 2010 | Fine grain, low contrast, soft natural skin tones. |
 | Kodak Portra 400 | Kodak | 400 | Daylight | 2010 | Warm, forgiving all-rounder; the classic portrait/wedding negative. |
 | Kodak Portra 800 | Kodak | 800 | Daylight | 2010 | One of the last fast color negatives; Portra's palette into low light. |
-| Kodak Portra 800 (Push +1) | Kodak | 1600 (EI) | Daylight | 2010 | Pushed one stop for speed, with added contrast and grain. |
-| Kodak Portra 800 (Push +2) | Kodak | 3200 (EI) | Daylight | 2010 | Pushed two stops for available light; bold grain and contrast. |
+| Kodak Portra 800 (Push +1) | Kodak | 1600 (EI) | Daylight | 2010 | Pushed one stop: extended development buys contrast and grain, not true speed — shadows go thinner. |
+| Kodak Portra 800 (Push +2) | Kodak | 3200 (EI) | Daylight | 2010 | Pushed two stops for available light: bold grain and contrast, with the thinnest shadows in the set. |
 | Kodak Ektar 100 | Kodak | 100 | Daylight | 2008 | World's finest-grain color negative; vivid, saturated landscape color. |
 | Kodak Gold 200 | Kodak | 200 | Daylight | ~1988 | Nostalgic warm yellows and golds; made for sunny snapshots. |
 | Kodak UltraMax 400 | Kodak | 400 | Daylight | ~2007 | Punchy, versatile consumer 400 with vibrant color and gritty grain. |

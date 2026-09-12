@@ -357,6 +357,88 @@ def _preset_set_errors(asset_ids: list[str], documented_ids: list[str]) -> list[
     return errors
 
 
+# docs/PRESETS.md quotes concrete parameter values as `key value` in backticks. Nothing
+# compared them to the asset, so they drifted silently: a sweep found 43 stale numbers and
+# 10 wrong preset names, including a `grain.blur 0.5` documented against a shipped 1.0, and
+# four citations of `halationStrength` -- a knob presets.json's own _comment says the engine
+# bakes from the profile and IGNORES from a preset. ID matching alone could not see any of it.
+_PRESET_DOC_KEYS = {
+    "halation": ("filmRender", "halation", "halationAmount"),
+    "halationAmount": ("filmRender", "halation", "halationAmount"),
+    "scatterAmount": ("filmRender", "halation", "scatterAmount"),
+    "boostEv": ("filmRender", "halation", "boostEv"),
+    "blur": ("filmRender", "grain", "blur"),
+    "grain.blur": ("filmRender", "grain", "blur"),
+    "agxParticleScale": ("filmRender", "grain", "agxParticleScale"),
+    "densityCurveGamma": ("filmRender", "densityCurveGamma"),
+    "dirCouplers.amount": ("filmRender", "dirCouplers", "amount"),
+    "exposureCompensationEv": ("camera", "exposureCompensationEv"),
+    "scanner.unsharpMask": ("scanner", "unsharpMask"),
+}
+
+# Baked from each profile's info.use / info.antihalation tags; a preset value is discarded.
+_PRESET_IGNORED_KEYS = ("halationStrength", "halationFirstSigmaUm")
+
+
+def _preset_doc_value_errors(preset_asset: dict, doc_text: str) -> list[str]:
+    by_id = {str(p["id"]): p for p in preset_asset["presets"]}
+    errors: list[str] = []
+    sections = re.split(r"(?m)^### ", doc_text)[1:]
+    for section in sections:
+        head = re.match(r"(.+?)\s*\(`([^`]+)`\)", section)
+        if not head:
+            continue
+        title, preset_id = head.group(1).strip(), head.group(2)
+        preset = by_id.get(preset_id)
+        if preset is None:
+            continue  # _preset_set_errors already reports unknown IDs
+        if title != str(preset.get("name", "")):
+            errors.append(
+                f"docs/PRESETS.md: {preset_id}: heading {title!r} != asset name "
+                f"{preset.get('name')!r}"
+            )
+        for token in sorted(set(re.findall(r"`([^`]+)`", section))):
+            match = re.match(
+                r"^([A-Za-z][A-Za-z0-9_.]*)\s+(\[[^\]]*\]|-?[0-9.]+)$", token.strip()
+            )
+            if not match:
+                continue
+            key, raw = match.group(1), match.group(2)
+            if key in _PRESET_IGNORED_KEYS:
+                errors.append(
+                    f"docs/PRESETS.md: {preset_id}: documents `{token}`, but the engine bakes "
+                    f"{key} from the profile and ignores any preset value"
+                )
+                continue
+            path = _PRESET_DOC_KEYS.get(key)
+            if path is None:
+                continue
+            node = preset.get("params", {})
+            for part in path:
+                if not isinstance(node, dict) or part not in node:
+                    node = None
+                    break
+                node = node[part]
+            if node is None:
+                errors.append(
+                    f"docs/PRESETS.md: {preset_id}: documents `{token}`, but the asset does "
+                    f"not author {'.'.join(path)}"
+                )
+                continue
+            try:
+                documented = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(documented, list) != isinstance(node, list):
+                errors.append(f"docs/PRESETS.md: {preset_id}: `{token}` shape != asset {node!r}")
+            elif isinstance(documented, list):
+                if [round(float(x), 6) for x in documented] != [round(float(x), 6) for x in node]:
+                    errors.append(f"docs/PRESETS.md: {preset_id}: `{token}` != asset {node!r}")
+            elif abs(float(documented) - float(node)) > 1e-9:
+                errors.append(f"docs/PRESETS.md: {preset_id}: `{token}` != asset {node!r}")
+    return errors
+
+
 def _sdk_summary(min_sdk: str, target_sdk: str, compile_sdk: str) -> str:
     return f"min {min_sdk}, target {target_sdk}, compile {compile_sdk}"
 
@@ -517,6 +599,7 @@ def main() -> int:
         errors.append(f"{strings_screens.relative_to(ROOT)}: {exc}")
 
     errors.extend(_preset_set_errors(asset_preset_ids, documented_preset_ids))
+    errors.extend(_preset_doc_value_errors(preset_asset, preset_doc_text))
     errors.extend(
         _workflow_pin_errors(
             workflows,
