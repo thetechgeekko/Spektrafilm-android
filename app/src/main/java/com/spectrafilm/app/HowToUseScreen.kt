@@ -151,6 +151,9 @@ private fun HowToContent(ctx: android.content.Context) {
         GuideStep(2, stringResource(R.string.screen_howto_s3_step1))
         GuideStep(3, stringResource(R.string.screen_howto_s3_step2))
         GuideStep(4, stringResource(R.string.screen_howto_s3_step3))
+        // The press-and-hold before/after and the pill's own gestures have no affordance on
+        // screen; this guide is the only place they are written down.
+        GuideStep(5, stringResource(R.string.screen_howto_s3_step4))
         GuideBody(stringResource(R.string.screen_howto_s3_p2))
         CategoryList()
         GuideBody(stringResource(R.string.screen_howto_s3_p3))
