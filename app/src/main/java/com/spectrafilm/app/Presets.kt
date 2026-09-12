@@ -228,6 +228,17 @@ object Presets {
 
     private fun file(ctx: Context, name: String): File = File(dir(ctx), "${safeName(name)}.json")
 
+    /**
+     * The name a save under [name] will ACTUALLY use on disk. [safeName] rewrites anything
+     * outside `A-Za-z0-9_- ` to an underscore and truncates to 96 characters, so "Portra #2"
+     * becomes "Portra _2" — which the UI used to hide, reporting the typed name back to the
+     * user while storing something else.
+     */
+    fun resolveName(name: String): String = safeName(name)
+
+    /** True if a preset already exists under the name [name] resolves to. */
+    fun exists(ctx: Context, name: String): Boolean = file(ctx, name).isFile
+
     private fun safeName(name: String): String = name.trim()
         .take(96)
         .ifEmpty { "preset" }

@@ -253,7 +253,16 @@
     <string name="editor_preset_apply">Apply</string>
     <string name="editor_preset_delete">Delete</string>
     <string name="editor_preset_import_json">Import .json</string>
-    <string name="editor_preset_export_share">Export / share</string>
+    <!-- This one exports the LIVE editor state, not the selected preset. It sat under the
+         saved-preset dropdown labelled "Export / share", which read as exporting that preset. -->
+    <string name="editor_preset_export_share">Export current look</string>
+    <string name="editor_preset_export_selected">Export \'%1$s\'</string>
+    <!-- Saving over an existing preset was silent and permanent. -->
+    <string name="editor_preset_overwrite_title">Replace \'%1$s\'?</string>
+    <string name="editor_preset_overwrite_body">A preset with this name already exists. Replacing it overwrites its settings, and that cannot be undone.</string>
+    <string name="editor_preset_replace">Replace</string>
+    <!-- Shown when the typed name is not the name that will be stored. -->
+    <string name="editor_preset_name_resolved">Saved as \'%1$s\'</string>
     <string name="editor_preset_copy_settings">Copy settings</string>
     <string name="editor_preset_paste_settings">Paste settings</string>
     <string name="editor_lut_size">Size</string>

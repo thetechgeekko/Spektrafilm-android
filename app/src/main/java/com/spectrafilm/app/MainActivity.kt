@@ -2308,6 +2308,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Exports the SELECTED SAVED preset, byte-for-byte as stored. Distinct from
+        // [presetExporter] above, which serialises live editor state — that one sat under
+        // the saved-preset dropdown and looked like it exported the selection.
+        var pendingPresetExport by remember { mutableStateOf<String?>(null) }
+        val savedPresetExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            val name = pendingPresetExport
+            pendingPresetExport = null
+            if (uri != null && name != null) {
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching { Presets.exportJson(ctx, uri, Presets.read(ctx, name)) }
+                    }
+                    r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
+                        .onFailure {
+                            status = ctx.getString(
+                                R.string.editor_status_preset_export_failed_reason, it.message,
+                            )
+                        }
+                }
+            }
+        }
         val lutExporter = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("*/*")
         ) { uri ->
@@ -3604,8 +3627,20 @@ class MainActivity : ComponentActivity() {
                                                 Presets.saveJson(ctx, name, json); Presets.list(ctx)
                                             }
                                             presetList = names
-                                            status = ctx.getString(R.string.editor_status_preset_saved, name)
+                                            // Report the name on disk, not the typed one:
+                                            // safeName may have rewritten it.
+                                            val stored = Presets.resolveName(name)
+                                            selectedPreset = stored
+                                            status = ctx.getString(R.string.editor_status_preset_saved, stored)
                                         }
+                                    }
+                                },
+                                nameExists = { Presets.exists(ctx, it) },
+                                resolveName = { Presets.resolveName(it) },
+                                onExportSelected = {
+                                    if (selectedPreset.isNotBlank()) {
+                                        pendingPresetExport = selectedPreset
+                                        savedPresetExporter.launch("$selectedPreset.json")
                                     }
                                 },
                                 onApply = {
@@ -5809,10 +5844,13 @@ class MainActivity : ComponentActivity() {
         onNameChange: (String) -> Unit,
         onSelect: (String) -> Unit,
         onSave: () -> Unit,
+        nameExists: (String) -> Boolean,
+        resolveName: (String) -> String,
         onApply: () -> Unit,
         onDelete: () -> Unit,
         onImport: () -> Unit,
         onExport: () -> Unit,
+        onExportSelected: () -> Unit,
         onCopySettings: () -> Unit,
         canPasteSettings: Boolean,
         onPasteSettings: () -> Unit,
@@ -5903,9 +5941,45 @@ class MainActivity : ComponentActivity() {
             label = { Text(stringResource(R.string.editor_preset_name)) }, singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+        // The stored name is not always the typed one (safeName rewrites punctuation), and
+        // the save status used to claim otherwise. Say so before the save, not after.
+        val storedName = resolveName(name)
+        if (name.isNotBlank() && storedName != name.trim()) {
+            Text(
+                stringResource(R.string.editor_preset_name_resolved, storedName),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        var confirmOverwrite by remember { mutableStateOf<String?>(null) }
+        Button(
+            onClick = {
+                // Saving over an existing preset was silent and unrecoverable. Unlike a
+                // delete — where the user knows what they are destroying — a collision here
+                // can be news to them, so this prevents rather than offers to repair.
+                if (name.isNotBlank() && nameExists(name)) confirmOverwrite = storedName else onSave()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             ButtonIcon(SpectraIcons.Presets)
             Text(stringResource(R.string.editor_preset_save))
+        }
+        confirmOverwrite?.let { target ->
+            AlertDialog(
+                onDismissRequest = { confirmOverwrite = null },
+                title = { Text(stringResource(R.string.editor_preset_overwrite_title, target)) },
+                text = { Text(stringResource(R.string.editor_preset_overwrite_body)) },
+                confirmButton = {
+                    TextButton(onClick = { confirmOverwrite = null; onSave() }) {
+                        Text(stringResource(R.string.editor_preset_replace))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmOverwrite = null }) {
+                        Text(stringResource(R.string.editor_cancel))
+                    }
+                },
+            )
         }
         if (presets.isNotEmpty()) {
             // The dropdown fell back to the first preset for DISPLAY only, while Apply and
@@ -5913,8 +5987,13 @@ class MainActivity : ComponentActivity() {
             // fresh launch that left a named preset on screen beside two buttons that looked
             // armed and silently did nothing until you opened the dropdown and re-picked the
             // very item already showing. Adopt what is displayed as the real selection.
-            val effective = selected.ifEmpty { presets.first() }
-            LaunchedEffect(effective) { if (selected.isEmpty()) onSelect(effective) }
+            //
+            // Not just the EMPTY case: the selection is restored from the editor session, so
+            // it can also name a preset that has since been deleted. The field then showed a
+            // preset that no longer exists and every action targeted it. Fall back whenever
+            // the selection is not one of the presets actually on disk.
+            val effective = selected.takeIf { it in presets } ?: presets.first()
+            LaunchedEffect(effective) { if (selected != effective) onSelect(effective) }
             Dropdown(
                 label = stringResource(R.string.editor_preset_saved),
                 selected = effective,
@@ -5928,6 +6007,11 @@ class MainActivity : ComponentActivity() {
                     Text(stringResource(R.string.editor_preset_apply))
                 }
                 OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_preset_delete)) }
+            }
+            // Exports the selected preset itself. The "Export current look" button below
+            // serialises live editor state, which is a different thing entirely.
+            OutlinedButton(onClick = onExportSelected, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.editor_preset_export_selected, effective))
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
