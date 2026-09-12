@@ -345,7 +345,7 @@
     <string name="editor_sim_enlarger_lens_blur">Enlarger lens blur</string>
     <string name="editor_sim_enlarger_lens_blur_tooltip">Sigma of gaussian filter for the enlarger lens blur</string>
     <string name="editor_sim_print_diffusion">Print diffusion filter</string>
-    <string name="editor_sim_scan_lens_blur">Scan lens blur</string>
+    <string name="editor_sim_scan_lens_blur">Scan lens blur px</string>
     <string name="editor_sim_scan_lens_blur_tooltip">Sigma of gaussian filter in pixel for the scanner lens blur. Spatial effect — applied only when Halation is enabled (the spatial branch).</string>
     <string name="editor_sim_scan_correction_noop">Scan white/black correction has no effect in Slide mode on a negative stock — it applies only to a slide/positive film, or in print mode. Matches the spektrafilm engine.</string>
     <string name="editor_sim_scan_white_correction">Scan white correction</string>
