@@ -121,6 +121,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /** Which kind of source image is loaded. */
 internal enum class SourceKind { DEMO, PHOTO, RAW }
@@ -395,6 +396,52 @@ internal enum class Category(val label: String, @StringRes val labelRes: Int) {
 // Neutral parameter defaults (a fresh ParamsState) — source for slider
 // double-tap-to-reset targets.
 private val PARAM_DEFAULTS = ParamsState()
+
+/**
+ * The encoded section each category owns, for the "this category is doing something" dot.
+ *
+ * Only categories whose panel maps EXACTLY onto one or more top-level `Presets.encode`
+ * sections appear here. SIMULATION and PREFLASH both edit fields inside `enlarger`, so
+ * neither can be attributed from the encoding without the dot lying about the other;
+ * SOURCE, PRESETS and DISPLAY are pickers and app settings rather than parameter groups.
+ * A category that is absent simply shows no dot — a missing dot is a smaller defect than
+ * a wrong one, and this table is the thing that keeps it honest.
+ */
+internal val CATEGORY_SECTIONS: Map<Category, List<String>> = mapOf(
+    Category.INPUT to listOf("input"),
+    Category.RAW_WB to listOf("raw", "creativeWb"),
+    Category.GRAIN to listOf("grain"),
+    Category.HALATION to listOf("halation"),
+    Category.GLARE to listOf("glare"),
+    Category.COUPLERS to listOf("couplers"),
+    Category.EXPERIMENTAL to listOf("experimental"),
+    Category.TONE_CURVE to listOf("toneCurve"),
+    Category.MASKS to listOf("masks"),
+)
+
+/** Encoded neutral state, built once; the right-hand side of every dirty comparison. */
+private val DEFAULT_ENCODED: JSONObject? by lazy {
+    runCatching { Presets.encode(PARAM_DEFAULTS) }.getOrNull()
+}
+
+/**
+ * Which categories currently differ from a fresh [ParamsState].
+ *
+ * Compares the JSON each section encodes to, rather than field-by-field, so a new parameter
+ * is covered the moment it is added to `Presets.toJson` and cannot silently fall out of the
+ * dot. Encoding validates operational limits and can throw mid-edit, so a failure yields an
+ * empty set: no dots, never a crash.
+ */
+internal fun dirtyCategories(state: ParamsState): Set<Category> {
+    val defaults = DEFAULT_ENCODED ?: return emptySet()
+    val current = runCatching { Presets.encode(state) }.getOrNull() ?: return emptySet()
+    return CATEGORY_SECTIONS.entries.mapNotNullTo(mutableSetOf()) { (category, sections) ->
+        val changed = sections.any { key ->
+            current.opt(key)?.toString() != defaults.opt(key)?.toString()
+        }
+        category.takeIf { changed }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     /**
@@ -3701,8 +3748,11 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val categoryBar: @Composable () -> Unit = {
+                        // Re-encoded only when a parameter actually changes, not per frame.
+                        val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
                         CategoryBar(
                             active = activeCategory,
+                            dirty = dirty,
                             onSelect = { cat ->
                                 activeCategory = if (activeCategory == cat) null else cat
                             },
@@ -5062,6 +5112,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun CategoryBar(
         active: Category?,
+        dirty: Set<Category>,
         onSelect: (Category) -> Unit,
     ) {
         val items = remember { Category.entries.toList() }
@@ -5093,6 +5144,7 @@ class MainActivity : ComponentActivity() {
                     CategoryItem(
                         category = cat,
                         selected = cat == active,
+                        modified = cat in dirty,
                         onClick = { onSelect(cat) },
                     )
                 }
@@ -5104,6 +5156,7 @@ class MainActivity : ComponentActivity() {
     private fun CategoryItem(
         category: Category,
         selected: Boolean,
+        modified: Boolean,
         onClick: () -> Unit,
     ) {
         val accent = MaterialTheme.colorScheme.primary
@@ -5112,6 +5165,8 @@ class MainActivity : ComponentActivity() {
         // Local copy: inside `semantics {}` the receiver's `selected` property would shadow
         // the parameter.
         val isSelected = selected
+        // The dot is colour-only on screen, so it has to exist in the a11y tree too.
+        val modifiedState = stringResource(R.string.editor_category_modified)
         TextTooltip(categoryHint(category)) {
         Column(
             Modifier
@@ -5124,18 +5179,34 @@ class MainActivity : ComponentActivity() {
                 .semantics(mergeDescendants = true) {
                     role = Role.Tab
                     this.selected = isSelected
+                    if (modified) stateDescription = modifiedState
                 }
                 .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = categoryIcon(category),
-                // Decorative: the visible label text below carries the name.
-                contentDescription = null,
-                tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
-                modifier = Modifier.size(24.dp),
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = categoryIcon(category),
+                    // Decorative: the visible label text below carries the name.
+                    contentDescription = null,
+                    tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                    modifier = Modifier.size(24.dp),
+                )
+                // "This category is doing something to the photograph." The chips encoded
+                // only selection before, so the one thing a 14-entry bar most needed to
+                // say -- which groups are live -- was the one thing it never said.
+                if (modified) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 5.dp, y = (-3).dp)
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(accent),
+                    )
+                }
+            }
             Text(
                 stringResource(category.labelRes),
                 fontSize = 11.sp,

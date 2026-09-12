@@ -1,7 +1,6 @@
 package com.spectrafilm.app
 
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,13 +34,12 @@ class PreviewLeaseTest {
         val reg = registry()
         val frame = Frame()
 
-        val lease = reg.acquire(frame)
-        assertNotNull("a live frame must be leasable", lease)
+        val lease = requireNotNull(reg.acquire(frame)) { "a live frame must be leasable" }
 
         reg.retire(frame)
         assertFalse("retire must not recycle while a reader holds the frame", frame.retired)
 
-        lease!!.close()
+        lease.close()
         assertTrue("the last close must complete the deferred retire", frame.retired)
     }
 
@@ -50,8 +48,8 @@ class PreviewLeaseTest {
         val reg = registry()
         val frame = Frame()
 
-        val a = reg.acquire(frame)!!
-        val b = reg.acquire(frame)!!
+        val a = requireNotNull(reg.acquire(frame))
+        val b = requireNotNull(reg.acquire(frame))
         reg.retire(frame)
 
         a.close()
@@ -75,8 +73,8 @@ class PreviewLeaseTest {
         val reg = registry()
         val frame = Frame()
 
-        val a = reg.acquire(frame)!!
-        val b = reg.acquire(frame)!!
+        val a = requireNotNull(reg.acquire(frame))
+        val b = requireNotNull(reg.acquire(frame))
         a.close()
         // A double close that decremented twice would retire the frame while `b` still reads it.
         a.close()

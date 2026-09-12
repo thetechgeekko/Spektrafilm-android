@@ -3,6 +3,9 @@
 <resources>
 
     <!-- Adjustment categories (bottom bar / panel titles) -->
+    <!-- Announced for a category chip whose parameters differ from the neutral defaults;
+         the on-screen marker is a colour dot, which TalkBack cannot see. -->
+    <string name="editor_category_modified">Modified</string>
     <string name="editor_category_source">Source</string>
     <string name="editor_category_presets">Presets</string>
     <string name="editor_category_simulation">Simulation</string>

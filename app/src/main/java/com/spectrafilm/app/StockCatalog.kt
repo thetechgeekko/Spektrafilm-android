@@ -33,8 +33,31 @@ data class StockGroup(val id: String, val title: String, val order: Int)
 /** True when this entry is a colour-reversal (slide) film — the "view as positive" stocks. */
 fun StockEntry.isReversal(): Boolean = groupId == StockCatalog.GROUP_COLOR_REVERSAL
 
-/** An option shown in a profile dropdown: an id plus its display label and group. */
-data class ProfileOption(val id: String, val label: String, val groupTitle: String)
+/**
+ * "ISO 400 · Tungsten" — whichever of the two the catalog actually has, joined only when both
+ * are present. Print papers carry neither and get a blank line rather than a stray separator.
+ */
+fun StockEntry.specLine(): String =
+    listOfNotNull(iso?.let { "ISO $it" }, balance?.takeIf { it.isNotBlank() })
+        .joinToString(" · ")
+
+/**
+ * An option shown in a profile dropdown.
+ *
+ * [spec] and [summary] carry the catalog detail that [StockCatalog.optionsFor] used to throw
+ * away: `catalog.json` populates iso/balance/summary for all 28 stocks, and the picker collapsed
+ * every entry to a bare name. Choosing a film is the single most product-defining act in this
+ * app; it should not be a text menu with the descriptions deleted.
+ */
+data class ProfileOption(
+    val id: String,
+    val label: String,
+    val groupTitle: String,
+    /** Short spec line, e.g. "ISO 400 · Tungsten". Blank when the catalog has neither. */
+    val spec: String = "",
+    /** One-sentence character note from the catalog. Blank for uncatalogued ids. */
+    val summary: String = "",
+)
 
 object StockCatalog {
 
@@ -129,6 +152,8 @@ object StockCatalog {
                 id = id,
                 label = e?.displayName ?: id,
                 groupTitle = e?.let { groupTitle(ctx, it.groupId) } ?: "Other",
+                spec = e?.specLine().orEmpty(),
+                summary = e?.summary.orEmpty(),
             )
         }
     }

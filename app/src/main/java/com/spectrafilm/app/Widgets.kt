@@ -681,7 +681,14 @@ fun <T> Dropdown(
 }
 
 /** One selectable option in a grouped dropdown: a stable id plus its display label. */
-data class DropdownOption(val id: String, val label: String)
+data class DropdownOption(
+    val id: String,
+    val label: String,
+    /** Optional spec line rendered under [label] (e.g. "ISO 400 · Tungsten"). */
+    val spec: String = "",
+    /** Optional one-sentence character note rendered under [spec]. */
+    val summary: String = "",
+)
 
 /** A titled group of [DropdownOption]s (e.g. a stock category) for a grouped dropdown. */
 data class DropdownGroup(val title: String, val options: List<DropdownOption>)
@@ -689,7 +696,10 @@ data class DropdownGroup(val title: String, val options: List<DropdownOption>)
 /** Convert StockCatalog [ProfileOption]s into ordered [DropdownGroup]s, preserving order. */
 fun List<ProfileOption>.toGroups(): List<DropdownGroup> {
     val byGroup = LinkedHashMap<String, MutableList<DropdownOption>>()
-    for (o in this) byGroup.getOrPut(o.groupTitle) { mutableListOf() }.add(DropdownOption(o.id, o.label))
+    for (o in this) {
+        byGroup.getOrPut(o.groupTitle) { mutableListOf() }
+            .add(DropdownOption(o.id, o.label, o.spec, o.summary))
+    }
     return byGroup.map { (title, opts) -> DropdownGroup(title, opts) }
 }
 
@@ -738,8 +748,31 @@ fun GroupedDropdown(
                     )
                 }
                 group.options.forEach { opt ->
+                    val detail = opt.spec.takeIf { it.isNotBlank() }
+                    val note = opt.summary.takeIf { it.isNotBlank() }
                     DropdownMenuItem(
-                        text = { Text(opt.label) },
+                        text = {
+                            // Merged so TalkBack reads "Kodak Portra 400, ISO 400, Daylight,
+                            // <character note>" as one item rather than three fragments.
+                            Column(Modifier.semantics(mergeDescendants = true) {}) {
+                                Text(opt.label)
+                                if (detail != null) {
+                                    Text(
+                                        detail,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                if (note != null) {
+                                    Text(
+                                        note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 1.dp),
+                                    )
+                                }
+                            }
+                        },
                         onClick = { onSelect(opt.id); expanded = false },
                     )
                 }
