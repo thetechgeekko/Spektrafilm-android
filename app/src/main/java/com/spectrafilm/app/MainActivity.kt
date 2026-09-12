@@ -517,6 +517,22 @@ internal fun dirtyCategories(state: ParamsState): Set<Category> {
  * every dirty comparison in the app; handing a live reference to a decoder is a mutation
  * hazard that would corrupt every later comparison at once, for no saving.
  */
+/**
+ * The look a built-in preset should be overlaid onto.
+ *
+ * Built-ins are sparse: each authors only the fields it means to set, so applying two in a
+ * row compounds them (`camera.diffusionFilter` is authored by exactly one of the 27, so
+ * nothing else can switch it back off). The editor therefore rewinds to the look a browsing
+ * run STARTED from before overlaying the next preset.
+ *
+ * A run continues only while [now] still equals what the last apply produced ([lastOutput]).
+ * Anything else — a hand edit, a reset, a new photo — makes the current look the new
+ * baseline, so manual work is never silently discarded. Returning [now] when the run is not
+ * continuing is what makes the caller's rewind a no-op in that case.
+ */
+internal fun presetRunBaseline(now: String?, lastOutput: String?, runBaseline: String?): String? =
+    if (now != null && now == lastOutput) (runBaseline ?: now) else now
+
 internal fun categoryDefaults(category: Category): JSONObject? {
     val defaults = DEFAULT_ENCODED ?: return null
     val sections = CATEGORY_SECTIONS[category] ?: return null
@@ -1395,10 +1411,28 @@ class MainActivity : ComponentActivity() {
         // silently erase a deliberate Copy action; no pixels or source metadata are included.
         var settingsClipboard by remember { mutableStateOf(restoredPreset?.clipboardJson) }
 
+        // Built-in presets are SPARSE overlays: each authors only the fields it means to
+        // set and deliberately leaves everything else alone, so tapping one after another
+        // COMPOUNDS them. camera.diffusionFilter is authored by exactly one of the 27, which
+        // means "Neutral — Clean Baseline" (whose own description promises grain, halation,
+        // couplers and glare off) would silently keep a previously applied Black Pro-Mist
+        // filter and its spectral blur.
+        //
+        // So remember the look a browsing run STARTED from and apply each built-in onto that
+        // rather than onto the compounded result. There is no list of clear-sites to keep in
+        // sync: a run ends by itself the moment the live state stops matching what the last
+        // apply produced, which covers source changes, resets, pastes and any hand edit in
+        // one condition. (A hand-maintained effect-key list in this file has drifted before.)
+        var presetBaselineJson by remember { mutableStateOf<String?>(null) }
+        var lastBuiltInOutput by remember { mutableStateOf<String?>(null) }
+
         // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
         // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
-        fun applyWithAmount(apply: () -> Unit) {
-            val base = runCatching { Presets.toJsonString(state) }.getOrNull()
+        // [baseOverride] pins the amount slider's 0% end to a caller-chosen look — the
+        // built-in path needs it because it restores a baseline INSIDE [apply], so the live
+        // state just before the call is the wrong anchor.
+        fun applyWithAmount(baseOverride: String? = null, apply: () -> Unit) {
+            val base = baseOverride ?: runCatching { Presets.toJsonString(state) }.getOrNull()
             apply()
             val full = runCatching { Presets.toJsonString(state) }.getOrNull()
             if (base != null && full != null) {
@@ -3592,7 +3626,23 @@ class MainActivity : ComponentActivity() {
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
                                 onApplyBuiltIn = { p ->
-                                    applyWithAmount { BuiltInPresets.apply(p, state) }
+                                    val now = runCatching { Presets.toJsonString(state) }.getOrNull()
+                                    val baseline =
+                                        presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson)
+                                    presetBaselineJson = baseline
+                                    applyWithAmount(baseline) {
+                                        // Rewind before overlaying, so a sparse preset cannot
+                                        // inherit the previous one's fields. When the run is not
+                                        // continuing the baseline IS [now], so this is a no-op —
+                                        // one source of truth, in presetRunBaseline.
+                                        if (baseline != null && baseline != now) {
+                                            runCatching {
+                                                Presets.decode(org.json.JSONObject(baseline), state)
+                                            }
+                                        }
+                                        BuiltInPresets.apply(p, state)
+                                    }
+                                    lastBuiltInOutput = runCatching { Presets.toJsonString(state) }.getOrNull()
                                     status = ctx.getString(R.string.editor_status_applied_builtin, p.name); previewTick++
                                 },
                                 amount = presetAmount,
