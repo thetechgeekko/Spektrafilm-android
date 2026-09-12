@@ -25,7 +25,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -140,7 +143,16 @@ private fun StockBrowserSheet(
         }
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+            // The last card has to clear the system navigation, and that is 24dp of gesture
+            // handle on this device but 48dp of button bar on another -- a fixed 32dp happens
+            // to look fine here and puts the final stock under the nav bar in three-button
+            // mode. Take it from the inset. Over-padding the bottom of a scrolling list is
+            // invisible; under-padding it hides a row you cannot scroll to.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            ),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(rows) { row ->
