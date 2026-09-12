@@ -134,8 +134,8 @@
 
     <!-- Editor coach marks -->
     <string name="tool_coach_title">Quick tips</string>
-    <string name="tool_coach_category_title">Tap a category</string>
-    <string name="tool_coach_category_body">Pick a section in the bottom bar to reveal its sliders.</string>
+    <string name="tool_coach_category_title">Pick a stage</string>
+    <string name="tool_coach_category_body">Look, Film, Print, Scan, Finish — the stages your photo goes through. Tap one to open its controls.</string>
     <string name="tool_coach_compare_title">Before / after</string>
     <string name="tool_coach_compare_body">Toggle the compare split to judge an edit against the original.</string>
     <string name="tool_coach_inspect_title" formatted="false">Inspect at 100%</string>

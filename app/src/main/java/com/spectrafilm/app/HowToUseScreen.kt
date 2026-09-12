@@ -14,6 +14,7 @@
  */
 package com.spectrafilm.app
 
+import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -138,9 +139,11 @@ private fun HowToContent(ctx: android.content.Context) {
         title = stringResource(R.string.screen_howto_s3_title),
     ) {
         GuideBody(stringResource(R.string.screen_howto_s3_p1))
-        GuideStep(1, stringResource(R.string.screen_howto_s3_step1))
-        GuideStep(2, stringResource(R.string.screen_howto_s3_step2))
-        GuideStep(3, stringResource(R.string.screen_howto_s3_step3))
+        GuideStep(1, stringResource(R.string.screen_howto_s3_step0))
+        GuideBody(stringResource(R.string.screen_howto_s3_step0b))
+        GuideStep(2, stringResource(R.string.screen_howto_s3_step1))
+        GuideStep(3, stringResource(R.string.screen_howto_s3_step2))
+        GuideStep(4, stringResource(R.string.screen_howto_s3_step3))
         GuideBody(stringResource(R.string.screen_howto_s3_p2))
         CategoryList()
         GuideBody(stringResource(R.string.screen_howto_s3_p3))
@@ -250,27 +253,64 @@ private fun HowToContent(ctx: android.content.Context) {
 // Category list helper (inline in section 3)
 // ---------------------------------------------------------------------------
 
-/** (category name, one-line description) string-resource pairs, in category-bar order. */
-private val CATEGORY_ROWS: List<Pair<Int, Int>> = listOf(
-    R.string.screen_howto_cat_source to R.string.screen_howto_cat_source_desc,
-    R.string.screen_howto_cat_presets to R.string.screen_howto_cat_presets_desc,
-    R.string.screen_howto_cat_simulation to R.string.screen_howto_cat_simulation_desc,
-    R.string.screen_howto_cat_input to R.string.screen_howto_cat_input_desc,
-    R.string.screen_howto_cat_raw_wb to R.string.screen_howto_cat_raw_wb_desc,
-    R.string.screen_howto_cat_grain to R.string.screen_howto_cat_grain_desc,
-    R.string.screen_howto_cat_halation to R.string.screen_howto_cat_halation_desc,
-    R.string.screen_howto_cat_glare to R.string.screen_howto_cat_glare_desc,
-    R.string.screen_howto_cat_couplers to R.string.screen_howto_cat_couplers_desc,
-    R.string.screen_howto_cat_preflash to R.string.screen_howto_cat_preflash_desc,
-    R.string.screen_howto_cat_experimental to R.string.screen_howto_cat_experimental_desc,
-    R.string.screen_howto_cat_display to R.string.screen_howto_cat_display_desc,
-    R.string.screen_howto_cat_settings to R.string.screen_howto_cat_settings_desc,
-)
+/**
+ * One-line description per [Category], for the stage-grouped list in section 3.
+ *
+ * This used to be a hand-maintained list of 13 (name, description) pairs "in category-bar
+ * order". It had drifted: it omitted Tone Curve and Masks entirely, so two of the app's
+ * fourteen groups were undocumented, and it carried a Settings row that is not a category
+ * at all -- which is where the screen's claim of "13 categories" came from.
+ *
+ * An exhaustive `when` over the enum means a new category cannot be added without the
+ * compiler demanding a description here.
+ */
+@StringRes
+private fun categoryHowtoName(c: Category): Int = when (c) {
+    Category.SOURCE -> R.string.screen_howto_cat_source
+    Category.PRESETS -> R.string.screen_howto_cat_presets
+    Category.SIMULATION -> R.string.screen_howto_cat_simulation
+    Category.INPUT -> R.string.screen_howto_cat_input
+    Category.RAW_WB -> R.string.screen_howto_cat_raw_wb
+    Category.GRAIN -> R.string.screen_howto_cat_grain
+    Category.HALATION -> R.string.screen_howto_cat_halation
+    Category.GLARE -> R.string.screen_howto_cat_glare
+    Category.COUPLERS -> R.string.screen_howto_cat_couplers
+    Category.PREFLASH -> R.string.screen_howto_cat_preflash
+    Category.EXPERIMENTAL -> R.string.screen_howto_cat_experimental
+    Category.TONE_CURVE -> R.string.screen_howto_cat_tone_curve
+    Category.MASKS -> R.string.screen_howto_cat_masks
+    Category.DISPLAY -> R.string.screen_howto_cat_display
+}
 
+@StringRes
+private fun categoryHowtoDesc(c: Category): Int = when (c) {
+    Category.SOURCE -> R.string.screen_howto_cat_source_desc
+    Category.PRESETS -> R.string.screen_howto_cat_presets_desc
+    Category.SIMULATION -> R.string.screen_howto_cat_simulation_desc
+    Category.INPUT -> R.string.screen_howto_cat_input_desc
+    Category.RAW_WB -> R.string.screen_howto_cat_raw_wb_desc
+    Category.GRAIN -> R.string.screen_howto_cat_grain_desc
+    Category.HALATION -> R.string.screen_howto_cat_halation_desc
+    Category.GLARE -> R.string.screen_howto_cat_glare_desc
+    Category.COUPLERS -> R.string.screen_howto_cat_couplers_desc
+    Category.PREFLASH -> R.string.screen_howto_cat_preflash_desc
+    Category.EXPERIMENTAL -> R.string.screen_howto_cat_experimental_desc
+    Category.TONE_CURVE -> R.string.screen_howto_cat_tone_curve_desc
+    Category.MASKS -> R.string.screen_howto_cat_masks_desc
+    Category.DISPLAY -> R.string.screen_howto_cat_display_desc
+}
 @Composable
 private fun CategoryList() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        CATEGORY_ROWS.forEach { (nameRes, descriptionRes) ->
+        Stage.entries.forEach { stage ->
+        Text(
+            stringResource(stage.labelRes),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+        )
+        categoriesOf(stage).map { categoryHowtoName(it) to categoryHowtoDesc(it) }
+            .forEach { (nameRes, descriptionRes) ->
             Row(
                 // Badge + description read as one item.
                 modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
@@ -295,6 +335,7 @@ private fun CategoryList() {
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
+        }
         }
     }
 }
