@@ -6051,7 +6051,9 @@ class MainActivity : ComponentActivity() {
                 simTab, { simTab = it })
             when (simTab) {
                 0 -> {
-                    GroupedDropdown(
+                    // A browser rather than a menu: 28 stocks, each with an ISO, a colour
+                    // balance and a character note that a dropdown row cannot show well.
+                    StockPickerField(
                         label = stringResource(R.string.editor_sim_film_profile),
                         selectedId = s.filmProfile,
                         groups = filmGroups,
@@ -6083,7 +6085,7 @@ class MainActivity : ComponentActivity() {
                     DiffusionGroup(stringResource(R.string.editor_sim_camera_diffusion), s.cameraDiffusionState)
                 }
                 1 -> {
-                    GroupedDropdown(
+                    StockPickerField(
                         label = stringResource(R.string.editor_sim_print_profile),
                         selectedId = s.printProfile,
                         groups = printGroups,

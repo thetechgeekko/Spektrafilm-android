@@ -3,6 +3,9 @@
 <resources>
 
     <!-- Adjustment categories (bottom bar / panel titles) -->
+    <!-- Film / paper stock browser. -->
+    <string name="stock_browser_change">Change</string>
+    <string name="stock_browser_selected">Selected</string>
     <!-- The five darkroom stages that form the editor's top level. -->
     <string name="editor_stage_look">Look</string>
     <string name="editor_stage_look_hint">Start from a film stock, a paper and a preset</string>
