@@ -9,6 +9,41 @@ Authored and directed by **Akshay** —
 [Instagram @akshay.pool](https://www.instagram.com/akshay.pool/) ·
 [YouTube @Akshayishere](https://www.youtube.com/@Akshayishere/videos).
 
+## Required attribution (GPLv3 section 7(b) additional term)
+
+This project is distributed under the GNU General Public License v3.0. As permitted by
+**GPLv3 section 7(b)** — *"requiring preservation of specified reasonable legal notices or
+author attributions in that material or in the Appropriate Legal Notices displayed by works
+containing it"* — the following attribution is a required notice.
+
+**If you convey this software, or any work based on it, you must preserve this attribution and
+display it in your Appropriate Legal Notices** (an about screen, a credits screen, a licences
+screen, a store listing's description, or the documentation — somewhere a user can actually
+find it):
+
+> **Spektrafilm for Android** by **Akshay Sharma** —
+> https://github.com/thetechgeekko/Spektrafilm-android
+>
+> Film modeling powered by **spektrafilm** (Andrea Volpato) —
+> https://github.com/andreavolpato/spektrafilm
+
+Where the medium allows a hyperlink, both URLs must be clickable. Where it does not, the URLs
+must appear as text. This applies to every form of conveyance, including a Google Play or other
+app-store listing of a derivative work.
+
+**Both lines are required, and the second is not optional courtesy**: the film-simulation engine
+here is a port of Andrea Volpato's spektrafilm, whose own attribution request this project has
+always honoured. Crediting the Android port while dropping the upstream engine would misrepresent
+the work — and removing either notice removes your licence to convey the software at all
+(GPLv3 section 8).
+
+This term adds **no restriction beyond attribution**. It does not limit commercial use,
+modification, or redistribution, and it is deliberately confined to what section 7(b) permits so
+that this project stays GPL-compatible and can still be combined with other GPLv3 software. If
+you receive this work with this term attached and prefer not to carry it, section 7 lets you
+remove *additional* terms from material you convey — but the GPLv3 obligations themselves, and
+the upstream spektrafilm attribution required by the engine's own licence, remain.
+
 ## Film modeling powered by spektrafilm
 
 The film-simulation engine in this project is a port of **spektrafilm** by Andrea Volpato.

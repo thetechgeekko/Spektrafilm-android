@@ -212,6 +212,45 @@ private fun AboutContent() {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+
+    // The GPLv3 section 7(b) attribution term (see NOTICE.md) is only binding if
+    // the notice is actually reachable, so it is shown here rather than living
+    // only in a file nobody opens. The notice block itself is selectable so it
+    // can be copied verbatim into a derivative's own credits screen.
+    Text(
+        stringResource(R.string.screen_about_reuse_heading),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .padding(top = 12.dp)
+            .semantics { heading() },
+    )
+    Text(
+        stringResource(R.string.screen_about_reuse_body),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    SelectionContainer {
+        Column {
+            Text(
+                stringResource(R.string.screen_about_reuse_notice_app),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                stringResource(R.string.screen_about_reuse_notice_engine),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+    Text(
+        stringResource(R.string.screen_about_reuse_both),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp),
+    )
     Button(
         onClick = { showOpenSourceNotices = true },
         modifier = Modifier.fillMaxWidth(),

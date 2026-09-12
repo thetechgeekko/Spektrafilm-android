@@ -44,6 +44,11 @@
     <string name="screen_link_youtube" translatable="false">YouTube</string>
     <string name="screen_about_license_heading">License &amp; source</string>
     <string name="screen_about_license_body">App code is free software released under GPL-3.0-only.</string>
+    <string name="screen_about_reuse_heading">Using this code</string>
+    <string name="screen_about_reuse_body">You may reuse this code, including commercially, under GPL-3.0-only — your work is then GPLv3 too and you must offer its source. One notice must be preserved and shown to your users (a required attribution under GPLv3 section 7(b)):</string>
+    <string name="screen_about_reuse_notice_app" translatable="false">Spektrafilm for Android by Akshay Sharma — https://github.com/thetechgeekko/Spektrafilm-android</string>
+    <string name="screen_about_reuse_notice_engine" translatable="false">Film modeling powered by spektrafilm (Andrea Volpato) — https://github.com/andreavolpato/spektrafilm</string>
+    <string name="screen_about_reuse_both">Both lines are required. The film-simulation engine is a port of spektrafilm by Andrea Volpato, so crediting this port alone would misrepresent whose work you are shipping.</string>
     <string name="screen_about_libraw_route_note">%1$s Both original license texts are bundled for offline review.</string>
     <string name="screen_about_open_source_notices">Open-source notices</string>
     <string name="screen_link_releases">Releases</string>

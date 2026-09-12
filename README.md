@@ -203,3 +203,26 @@ If the app brings you something, say hi and share your renders.
 
 GPL-3.0 — see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md). Because this is a derivative of the
 GPLv3 spektrafilm engine, the whole app is GPLv3. Please keep it open.
+
+### Using this code in your own app
+
+You are welcome to — that is what the licence is for, including commercially. Two obligations
+come with it.
+
+**1. GPLv3.** A work based on this one is GPLv3 too, and you must offer your users the
+corresponding source. Shipping it inside a closed-source app is not permitted.
+
+**2. Attribution (a required notice under [GPLv3 §7(b)](NOTICE.md)).** Display this in your
+about / credits / licences screen, or your store listing, with both links clickable where the
+medium allows:
+
+> **Spektrafilm for Android** by **Akshay Sharma** —
+> <https://github.com/thetechgeekko/Spektrafilm-android>
+>
+> Film modeling powered by **spektrafilm** (Andrea Volpato) —
+> <https://github.com/andreavolpato/spektrafilm>
+
+Both lines, please. The film-simulation engine is a port of Andrea Volpato's spektrafilm, so
+crediting this port while dropping the upstream engine would misrepresent whose work you are
+shipping. The full term, and exactly what it does and does not require, is in
+[`NOTICE.md`](NOTICE.md).
