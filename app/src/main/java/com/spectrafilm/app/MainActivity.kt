@@ -3630,11 +3630,41 @@ class MainActivity : ComponentActivity() {
                                     if (selectedPreset.isNotBlank()) {
                                         val name = selectedPreset
                                         scope.launch {
+                                            // Read the preset BEFORE deleting it. This was a single
+                                            // tap with no confirmation and nothing to undo; holding
+                                            // the JSON is what lets Undo put it back byte-for-byte
+                                            // (— read and saveJson round-trip through the same
+                                            // parsePersistentJson normalisation).
+                                            val backup = withContext(Dispatchers.IO) {
+                                                runCatching { Presets.read(ctx, name) }.getOrNull()
+                                            }
                                             val names = withContext(Dispatchers.IO) {
                                                 Presets.delete(ctx, name); Presets.list(ctx)
                                             }
                                             presetList = names
                                             status = ctx.getString(R.string.editor_status_preset_deleted, name); selectedPreset = ""
+                                            if (backup != null) {
+                                                offerSnackbarSuggestion(
+                                                    scope,
+                                                    snackbarHost,
+                                                    ctx.getString(R.string.editor_snack_preset_deleted, name),
+                                                    ctx.getString(R.string.editor_action_undo),
+                                                ) {
+                                                    scope.launch {
+                                                        val restored = withContext(Dispatchers.IO) {
+                                                            runCatching { Presets.saveJson(ctx, name, backup) }
+                                                            Presets.list(ctx)
+                                                        }
+                                                        presetList = restored
+                                                        if (name in restored) {
+                                                            selectedPreset = name
+                                                            status = ctx.getString(
+                                                                R.string.editor_status_preset_restored, name,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 },
@@ -5971,13 +6001,40 @@ class MainActivity : ComponentActivity() {
         )
 
         if (hasRecipe) {
+            // The one editor action with no way back: onResetEdits clears the undo history
+            // along with the edits, so a mis-tap here cannot be walked back the way every
+            // other destructive thing in this screen can. Hence a dialog rather than the
+            // Undo snackbar used for preset deletion.
+            var confirmReset by remember { mutableStateOf(false) }
             Text(
                 stringResource(R.string.editor_source_autosaved),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(onClick = onResetEdits, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { confirmReset = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(stringResource(R.string.editor_source_reset_edits))
+            }
+            if (confirmReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmReset = false },
+                    title = { Text(stringResource(R.string.editor_reset_edits_confirm_title)) },
+                    text = { Text(stringResource(R.string.editor_reset_edits_confirm_body)) },
+                    confirmButton = {
+                        TextButton(
+                            onClick = { confirmReset = false; onResetEdits() },
+                        ) {
+                            Text(stringResource(R.string.editor_source_reset_edits))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmReset = false }) {
+                            Text(stringResource(R.string.editor_cancel))
+                        }
+                    },
+                )
             }
         }
         Text(

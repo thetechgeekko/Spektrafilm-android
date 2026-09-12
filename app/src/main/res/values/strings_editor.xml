@@ -123,6 +123,9 @@
     <string name="editor_status_preset_applied">applied \'%1$s\'</string>
     <string name="editor_status_preset_apply_failed_reason">apply failed: %1$s</string>
     <string name="editor_status_preset_deleted">deleted \'%1$s\'</string>
+    <!-- Deleting a saved preset was one tap and permanent. It now offers Undo. -->
+    <string name="editor_snack_preset_deleted">Deleted preset \'%1$s\'</string>
+    <string name="editor_status_preset_restored">restored \'%1$s\'</string>
     <string name="editor_status_settings_copied">settings copied</string>
     <string name="editor_status_copy_failed">copy failed</string>
     <string name="editor_status_settings_pasted">settings pasted</string>
@@ -211,6 +214,11 @@
     <string name="editor_toggle_chrome">Hide or show the editor controls</string>
     <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->
     <string name="editor_reset_category">Reset %1$s</string>
+    <!-- Reset all edits clears the undo history along with the edits, so it is the one
+         action in the editor with no way back. It asks first. -->
+    <string name="editor_reset_edits_confirm_title">Reset all edits?</string>
+    <string name="editor_reset_edits_confirm_body">Every setting goes back to its default and the saved recipe for this photo is cleared. This cannot be undone.</string>
+    <string name="editor_cancel">Cancel</string>
     <string name="editor_close_panel">Close panel</string>
 
     <!-- Category bar tooltips -->
