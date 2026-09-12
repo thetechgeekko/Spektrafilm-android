@@ -5884,9 +5884,16 @@ class MainActivity : ComponentActivity() {
             Text(stringResource(R.string.editor_preset_save))
         }
         if (presets.isNotEmpty()) {
+            // The dropdown fell back to the first preset for DISPLAY only, while Apply and
+            // Delete gate on the selection itself (— `selectedPreset.isNotBlank()`). On a
+            // fresh launch that left a named preset on screen beside two buttons that looked
+            // armed and silently did nothing until you opened the dropdown and re-picked the
+            // very item already showing. Adopt what is displayed as the real selection.
+            val effective = selected.ifEmpty { presets.first() }
+            LaunchedEffect(effective) { if (selected.isEmpty()) onSelect(effective) }
             Dropdown(
                 label = stringResource(R.string.editor_preset_saved),
-                selected = selected.ifEmpty { presets.first() },
+                selected = effective,
                 options = presets,
                 display = { it },
                 onSelect = onSelect,
