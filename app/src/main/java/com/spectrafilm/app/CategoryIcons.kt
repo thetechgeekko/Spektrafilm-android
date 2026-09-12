@@ -41,6 +41,7 @@
  *   SpectraIcons.Rotate         – ¾-arc with arrowhead (90° clockwise rotate)
  *   SpectraIcons.Back           – chevron pointing left (navigate up)
  *   SpectraIcons.Eyedropper     – 45° pipette with collar (sample a neutral)
+ *   SpectraIcons.Loupe          – circle + handle (100% magnifier)
  */
 
 package com.spectrafilm.app
@@ -565,6 +566,25 @@ object SpectraIcons {
             )
             // Collar across the barrel, perpendicular to the axis.
             strokePath("M 6.76 14.28 L 9.72 17.24")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Loupe — circle (r=6 at 10,10) with a handle leaving it at 45 degrees.
+    // The handle starts exactly on the circumference (10 + 6*cos45 = 14.24) so
+    // the join is clean at every size.
+    // -----------------------------------------------------------------------
+    val Loupe: ImageVector by lazy {
+        icon("Loupe") {
+            strokePath(
+                "M 16 10" +
+                " C 16 13.31 13.31 16 10 16" +
+                " C 6.69 16 4 13.31 4 10" +
+                " C 4 6.69 6.69 4 10 4" +
+                " C 13.31 4 16 6.69 16 10" +
+                " Z"
+            )
+            strokePath("M 14.24 14.24 L 20 20")
         }
     }
 

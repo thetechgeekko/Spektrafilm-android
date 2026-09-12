@@ -203,6 +203,12 @@
     <string name="editor_panel_title">%1$s panel</string>
     <string name="editor_close_panel_named">Close %1$s panel</string>
     <string name="editor_close">Close</string>
+    <!-- The 100% magnifier, which until now had no button and could only be reached by
+         tapping the photo — a gesture the guide never documented. -->
+    <string name="editor_magnifier">100% magnifier</string>
+    <string name="editor_magnifier_tooltip">Inspect grain at 100%</string>
+    <!-- Single tap on the photo now hides the editor chrome (Lightroom's own gesture). -->
+    <string name="editor_toggle_chrome">Hide or show the editor controls</string>
     <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->
     <string name="editor_reset_category">Reset %1$s</string>
     <string name="editor_close_panel">Close panel</string>

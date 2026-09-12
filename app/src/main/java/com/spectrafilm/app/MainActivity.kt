@@ -1285,6 +1285,12 @@ class MainActivity : ComponentActivity() {
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
+        // Lightroom's single tap on the photo: everything but the picture gets out of the way.
+        // Deliberately NOT animated. Hiding the top bar and the rail changes the preview's
+        // height, and the preview is a weight(1f) sibling — animating that would remeasure it
+        // every frame, which is the churn documented on PanelOverlay. A one-shot layout change
+        // is a different thing and is what this is.
+        var chromeHidden by remember { mutableStateOf(false) }
         var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
         var magnifierRendering by remember { mutableStateOf(false) }
         var magnifierStatus by remember { mutableStateOf("") }
@@ -3390,6 +3396,9 @@ class MainActivity : ComponentActivity() {
         // --- back handling on the root editor ---
         // 0) crop overlay open -> close it; 1) panel open -> close panel;
         // 2) else double-back-to-exit with one-time hint.
+        // Above every other rung: with the chrome hidden there is no visible control at
+        // all, so Back has to mean "give me the app back" before it means anything else.
+        BackHandler(enabled = chromeHidden) { chromeHidden = false }
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
         BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
         BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
@@ -3438,7 +3447,7 @@ class MainActivity : ComponentActivity() {
                     .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
             ) {
                 // --- TOP BAR ---
-                EditorTopBar(
+                if (!chromeHidden) EditorTopBar(
                     canExport = engine != null && sourceRenderAllowed && !previewBusy && !exportInFlight,
                     exporting = exportInFlight,
                     canUndo = editHistory.canUndo,
@@ -3846,7 +3855,12 @@ class MainActivity : ComponentActivity() {
                             onToggleHistogram = { showHistogram = !showHistogram },
                             onRotate = { rotation = rotation.next() },
                             onEditCrop = { cropOverlayOpen = true },
-                            onPointPicked = { nx, ny -> openMagnifier(nx, ny) },
+                            // Single tap on the photo = show/hide the chrome. The point is
+                            // ignored: this is a toggle, not a pick. The magnifier that used to
+                            // own this gesture now has the button below, which is the affordance
+                            // the in-app guide already claimed existed.
+                            onPointPicked = { _, _ -> chromeHidden = !chromeHidden },
+                            onOpenMagnifier = { openMagnifier(0.5f, 0.5f) },
                             renderKey = previewTick,
                             roiOverlay = roiOverlay,
                             onRoiSettled = { renderRoi(it) },
@@ -3896,7 +3910,7 @@ class MainActivity : ComponentActivity() {
                                         .heightIn(min = 220.dp),
                                 ) { previewRegion() }
                                 // --- CATEGORY BAR (under the preview column) ---
-                                categoryBar()
+                                if (!chromeHidden) categoryBar()
                             }
                             // --- ADJUSTMENT PANEL (docked side column) ---
                             // A Row sibling, deliberately not animated: the preview keeps its
@@ -3930,7 +3944,7 @@ class MainActivity : ComponentActivity() {
                                 // forced GPU preview off) and jolted the CPU preview too; a
                                 // constant-height preview fixes both and unblocks GPU.
                                 PanelOverlay(
-                                    visible = activeCategory != null,
+                                    visible = activeCategory != null && !chromeHidden,
                                     dimming = interacting,
                                 ) {
                                     AdjustmentPanel(
@@ -3963,7 +3977,7 @@ class MainActivity : ComponentActivity() {
                             }
 
                             // --- BOTTOM CATEGORY BAR ---
-                            categoryBar()
+                            if (!chromeHidden) categoryBar()
                         }
                     }
                 }
@@ -4784,6 +4798,7 @@ class MainActivity : ComponentActivity() {
         onRotate: () -> Unit,
         onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
+        onOpenMagnifier: () -> Unit,
         renderKey: Int,
         roiOverlay: RoiOverlay?,
         onRoiSettled: (RoiRect) -> Unit,
@@ -4802,7 +4817,15 @@ class MainActivity : ComponentActivity() {
         }
         val previewActions = if (preview != null && !compareMode) {
             listOf(
+                // The magnifier moved off the tap and onto its own button, so this action
+                // calls the button's handler rather than the (now unrelated) tap callback.
                 CustomAccessibilityAction(stringResource(R.string.editor_preview_action_magnifier)) {
+                    onOpenMagnifier()
+                    true
+                },
+                // The tap gesture's own equivalent: hiding the chrome is worth reaching
+                // without a gesture, since the gesture has nothing on screen to announce it.
+                CustomAccessibilityAction(stringResource(R.string.editor_toggle_chrome)) {
                     onPointPicked(0.5f, 0.5f)
                     true
                 },
@@ -4914,6 +4937,14 @@ class MainActivity : ComponentActivity() {
                     CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
                         Icon(
                             SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
+                            tint = Color.White,
+                        )
+                    }
+                }
+                TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
+                    CircleScrimButton(onClick = onOpenMagnifier) {
+                        Icon(
+                            SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
                             tint = Color.White,
                         )
                     }
