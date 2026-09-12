@@ -231,7 +231,7 @@ fun ToneCurveEditor(
     val view = LocalView.current
     val gridColor = Color.White.copy(alpha = 0.13f)
     val identityColor = Color.White.copy(alpha = 0.22f)
-    val canvasBg = Color(0xFF101014)
+    val canvasBg = SpektraBrand.canvasCurve
     val latestPoints by rememberUpdatedState(points)
     val latestOnChange by rememberUpdatedState(onChange)
     var dragIndex by remember { mutableIntStateOf(-1) }

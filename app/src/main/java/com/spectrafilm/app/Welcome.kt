@@ -67,13 +67,7 @@ import kotlinx.coroutines.launch
 
 /** The spectral palette used across the onboarding backdrop and accents. */
 private val SPECTRUM = listOf(
-    Color(0xFF7B2FF7), // violet
-    Color(0xFF2F6BFF), // blue
-    Color(0xFF14C7C7), // cyan
-    Color(0xFF34C759), // green
-    Color(0xFFFFCC00), // yellow
-    Color(0xFFFF8A00), // orange
-    Color(0xFFFF3B30), // red
+    *SpektraBrand.spectrum.toTypedArray(),
 )
 
 private data class OnboardPage(
@@ -143,9 +137,9 @@ fun WelcomeFlow(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF0A0A12),
+                        SpektraBrand.canvasOnboarding,
                         SPECTRUM[(shift * SPECTRUM.size).toInt() % SPECTRUM.size].copy(alpha = 0.30f),
-                        Color(0xFF0A0A12),
+                        SpektraBrand.canvasOnboarding,
                     ),
                     start = Offset(0f, shift * 1200f),
                     end = Offset(1200f, (1f - shift) * 1200f),

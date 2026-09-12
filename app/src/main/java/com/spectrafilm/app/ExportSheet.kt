@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -58,6 +59,13 @@ fun ExportSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // The app runs edge-to-edge, and `adjustResize` alone does not lift Compose
+                // content above the keyboard: without this the IME covers the file-name field
+                // -- the one control in the app a user must type into to name an export.
+                // Order matters: imePadding has to come BEFORE verticalScroll, or the scroll
+                // viewport is sized without the inset and the field stays underneath.
+                // ModalBottomSheet already handles the navigation-bar inset itself.
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
