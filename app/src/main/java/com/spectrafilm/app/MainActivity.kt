@@ -5190,8 +5190,8 @@ class MainActivity : ComponentActivity() {
                             .fillMaxWidth()
                             .padding(top = 4.dp)
                             .selectableGroup(),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                     ) {
                         itemsIndexed(subItems) { _, cat ->
                             SubCategoryChip(
@@ -5304,14 +5304,19 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * A group chip on the second row: text only, and deliberately so.
+     * A group chip on the second row: a round icon button.
      *
-     * The first attempt reused [CategoryItem], whose 72dp stacked icon-over-label cell is
-     * sized for a rail that is the ONLY navigation. Six of those is 432dp, which still
-     * overflowed a 360dp screen -- the thing this redesign existed to stop -- and cost ~62dp
-     * of canvas for a second time. Inside a stage the icon is redundant (the stage chip below
-     * already carries it) and the label is what distinguishes the groups, so dropping the icon
-     * fits all six of FILM's groups in roughly 335dp and gives the photograph ~26dp back.
+     * Two earlier cuts were wrong about width. Reusing [CategoryItem] put six 72dp stacked
+     * icon-over-label cells in the row -- 432dp against a 360dp screen, still overflowing,
+     * the exact fault this redesign existed to remove. Text-only pills were shorter but only
+     * fixed it vertically: "Simulation" is a wide word and the sixth chip still started past
+     * the edge. Six icon buttons is roughly 250dp, so the row finally fits outright on the
+     * narrowest phone, with no scrolling at all.
+     *
+     * The name is not lost, only moved: the wrapping [TextTooltip] carries the category hint
+     * on long-press, and `contentDescription` carries the label itself, so TalkBack still
+     * announces "Grain" rather than an unnamed button. That matters here precisely because
+     * the glyph alone is doing the identifying.
      */
     @Composable
     private fun SubCategoryChip(
@@ -5324,39 +5329,41 @@ class MainActivity : ComponentActivity() {
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
         val isSelected = selected
+        val label = stringResource(category.labelRes)
         val modifiedState = stringResource(R.string.editor_category_modified)
         TextTooltip(categoryHint(category)) {
-            Row(
+            Box(
                 Modifier
-                    .scale(if (pressed) 0.94f else 1f)
-                    .clip(RoundedCornerShape(50))
+                    .scale(if (pressed) 0.92f else 1f)
+                    .size(40.dp)
+                    .clip(CircleShape)
                     .background(
-                        if (selected) accent.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f),
+                        if (selected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.07f),
                     )
                     .clickableNoRipple(interaction, onClick)
                     .semantics(mergeDescendants = true) {
                         role = Role.Tab
                         this.selected = isSelected
+                        // The glyph is the only visible identifier, so the name lives here.
+                        contentDescription = label
                         if (modified) stateDescription = modifiedState
-                    }
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    },
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    stringResource(category.labelRes),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (selected) accent else Color.White.copy(alpha = 0.82f),
+                Icon(
+                    imageVector = categoryIcon(category),
+                    contentDescription = null,
+                    tint = if (selected) accent else Color.White.copy(alpha = 0.82f),
+                    modifier = Modifier.size(20.dp),
                 )
-                // The dot rides after the label here rather than over an icon there is none of.
                 if (modified) {
                     Box(
                         Modifier
-                            .size(5.dp)
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-4).dp, y = 4.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
-                            .background(if (selected) accent else accent.copy(alpha = 0.85f)),
+                            .background(accent),
                     )
                 }
             }
