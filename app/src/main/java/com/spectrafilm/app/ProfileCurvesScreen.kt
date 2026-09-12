@@ -173,7 +173,9 @@ fun ProfileCurvesScreen(
                 )
             },
             navigationIcon = {
-                TextButton(onClick = onBack) { Text(stringResource(R.string.screen_back)) }
+                IconButton(onClick = onBack) {
+                    Icon(SpectraIcons.Back, contentDescription = stringResource(R.string.screen_back))
+                }
             },
         )
 

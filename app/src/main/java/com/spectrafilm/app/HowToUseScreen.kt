@@ -37,6 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -92,7 +93,9 @@ fun HowToUseScreen(onBack: (() -> Unit)?) {
                         )
                     },
                     navigationIcon = {
-                        TextButton(onClick = onBack) { Text(stringResource(R.string.screen_back)) }
+                        IconButton(onClick = onBack) {
+                            Icon(SpectraIcons.Back, contentDescription = stringResource(R.string.screen_back))
+                        }
                     },
                 )
             }
