@@ -165,7 +165,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 
 ## Conventions / gotchas
 
-- Current version: `versionCode 11` / `versionName 0.9.0`, `minSdk 24`, `targetSdk 36`,
+- Current version: `versionCode 12` / `versionName 0.10.0`, `minSdk 24`, `targetSdk 36`,
   `compileSdk 37` (`:app` only — material3 `1.5.0-alpha28` and the Compose 1.13 alphas it
   pulls require compiling against android-37; every other module stays on 36). targetSdk is
   the Play-policy surface and is unchanged.

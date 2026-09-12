@@ -24,8 +24,8 @@ are available only through the protected `release-signing` Environment. **APKs
 are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
-Current in-tree version: **v0.9.0 / versionCode 11** (`minSdk 24`, `targetSdk`/`compileSdk 36`);
-latest released tag is **v0.9.0** (tagged 2026-08-26).
+Current in-tree version: **v0.10.0 / versionCode 12** (`minSdk 24`, `targetSdk` 36 /
+`compileSdk` 37 on `:app`); latest released tag is **v0.9.0** (tagged 2026-08-26).
 
 [Make production signing and exact release-candidate verification fail closed](https://github.com/thetechgeekko/Spektrafilm-android/issues/168)
 produced a local test candidate validated on 2026-08-30 on an API 36
@@ -157,7 +157,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
 - [ ] Confirm a repository ruleset covers `refs/tags/v*` and forbids tag updates
   and deletion. Workflow SHA rechecks detect movement while a run is active;
   the ruleset keeps the published tag immutable afterward.
-- [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `11` / `"0.9.0"`).
+- [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `12` / `"0.10.0"`).
 - [ ] Update `CHANGELOG.md` for the new version.
 - [ ] Note: the release build now runs **R8** (`isMinifyEnabled = true`, `app/build.gradle.kts:64`).
   This is **Stage 1 — shrink only, `-dontobfuscate`** (`app/proguard-rules.pro:2`), with explicit
@@ -306,7 +306,7 @@ it cannot be assumed to have repository Administration read permission.
 - `.github/workflows/ci.yml` (standing gates, including LibRaw and 16 KB
   `zipalign -P 16` plus `readelf -lW` checks).
 - `app/build.gradle.kts:12-22` (optional local release keystore; absent means
-  unsigned), `:39-40` (versionCode 11 / 0.9.0), and the release build type (R8,
+  unsigned), `:39-40` (versionCode 12 / 0.10.0), and the release build type (R8,
   full native symbols, and optional
   real release signing; never a debug-key fallback).
 - `app/proguard-rules.pro` (R8 Stage-1 keep-rules: JNI boundary classes + enum persistence,

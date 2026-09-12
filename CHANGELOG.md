@@ -1,5 +1,76 @@
 # Changelog
 
+## v0.10.0 (versionCode 12) — 2026-09-12 — the GPU is how the app renders, accurate presets, a fixed canvas 🎞️⚡
+
+**Minor, not patch: the default render route changed for every user.**
+
+### The GPU route is the app (#213–#227)
+
+- The three GPU toggles are gone from Settings and the GPU route is now how every render and
+  every export happens. It is still gated per device by the same on-device self-check it always
+  had, and still falls back to the CPU engine automatically — "GPU" means "GPU where this device
+  proves it agrees with the CPU", not "GPU unconditionally".
+- **Two consequences, both deliberate.** Grain and viewing glare are drawn with the faster
+  generator, so the speckle pattern differs from the CPU engine (same amount and character;
+  repeat exports on one device stay identical). A default export is therefore no longer
+  byte-identical to the CPU path — it stays inside the Fast GPU tolerance, and the strict exact
+  contract now belongs to the CPU engine rather than to what ships by default.
+- The diffusion transform is **2.89× faster**: channel pairing (1.40×), a tiled transpose
+  (1.77×), radix-16 (1.32×) and a rectangular transform (1.23×), measured cooled and interleaved
+  in one binary. Whole-route at 4080 px: defaults 12674.8 → 3420.3 ms, everything on
+  23113.8 → 5820.6 ms (**3.97×**).
+- The GL preview *surface* is a separate thing and stays off: defaulting it on would ship a
+  documented frame hang and a hidden export button.
+
+### Presets corrected against manufacturer datasheets
+
+- `halationAmount` is a multiplier on a per-stock strength baked from each profile's
+  `antihalation` tag — not the halation itself. Every VISION3/Verita stock is tagged `strong`
+  because it carries rem-jet, yet the cine presets held the largest multipliers in the file.
+  All five now sit at 0.9, with the deliberate Portra push/creative looks as the only values
+  above 1.0.
+- Gold 200 shipped **finer** than Portra 400 while Kodak's own Print Grain Index puts it ~7
+  units (nearly 2 JND) grainier at the same 4.4× magnification. Corrected, along with Provia
+  100F (RMS 8, equal to Velvia 100 and E100) and the two Superia presets, which described one
+  emulsion with two different grain structures.
+- **Removed `vision3_500t_halation_glow`.** It advertised a CineStill-style neon glow, but 5219
+  carries rem-jet: even a 2.4× multiplier reaches 0.036 red where a genuinely rem-jet-removed
+  stock gets 0.30 — an order of magnitude short of the look it promised. A real CineStill 800T
+  needs its own profile, not a multiplier on Kodak's.
+- Portra 800 +1 no longer claims "more speed": the three Portra 800 profiles share identical
+  spectral sensitivity, and the push variants move the speed point ~0.2 log H the other way.
+  "Fuji C200" is now "Fujicolor C200" — today's "Fujifilm 200" is rebadged Kodak Gold 200.
+
+### The canvas
+
+- **Fixed a crash class.** Preview frames were recycled the moment a new render landed while the
+  Compose draw pass held no lease on them. All six readers now lease for as long as they are
+  composed.
+- Pinch no longer recomposes the viewer on the main thread while the engine holds every core.
+- Double-tap goes to **true 1:1** instead of a hardcoded 2×, which landed on a different real
+  magnification for every image and screen.
+- The 100 % magnifier is finally 1:1. It promised "no upscale" in its own source comment and was
+  upscaling ~1.9–2.5×, blurring the grain it exists to show.
+- The export button had been drawing the Presets icon — the same glyph as a chip visible beside
+  it — on the one irreversible action in the bar.
+
+### Finding things
+
+- Category chips now carry a dot when that group differs from the neutral defaults, so a
+  fourteen-entry row finally says which groups are doing something.
+- The film/print picker shows the ISO, balance and character note that `catalog.json` has always
+  carried for all 28 stocks and that the picker used to discard.
+
+### Fixed
+
+- **#219** — the editor no longer loses the loaded photo when you open Settings and come back.
+  The fix (commit 31584df) has been on main since #139 and was in no tagged release; this is it.
+
+### Attribution
+
+- Reusing this code now requires preserving the attribution notice, under GPLv3 §7(b): this app
+  by Akshay Sharma, and the spektrafilm engine by Andrea Volpato, each with a link.
+
 ## Unreleased
 
 ### The diffusion filter: -40 % on the stage that dominates a real export (#148, #204)

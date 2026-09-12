@@ -12,7 +12,7 @@ body:
     attributes:
       label: App version
       description: Settings shows the version and versionCode. Say if it is a CI build.
-      placeholder: "0.9.0 (versionCode 11), from Releases"
+      placeholder: "0.10.0 (versionCode 12), from Releases"
     validations:
       required: true
   - type: input
