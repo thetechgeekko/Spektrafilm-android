@@ -393,6 +393,47 @@ internal enum class Category(val label: String, @StringRes val labelRes: Int) {
     DISPLAY("Display", R.string.editor_category_display),
 }
 
+/**
+ * The darkroom the engine actually simulates, as the editor's top level.
+ *
+ * Fourteen [Category] chips in one scrolling row mixed three incompatible kinds of thing --
+ * modes (SOURCE, PRESETS), tools (MASKS, DISPLAY) and parameter groups -- and named several
+ * of them after engine internals (COUPLERS, PREFLASH, GLARE) rather than anything a
+ * photographer says out loud. Worse, the correct taxonomy was already in the file, one level
+ * too deep: SIMULATION contains a Film / Print / Scanner / Output sub-tab row.
+ *
+ * These five are `runtime/stages/` -- filming -> printing -> scanning -- plus the look you
+ * start from and the grade you end with. Every stage is nameable; none is a chemical.
+ *
+ * PRINT and SCAN each hold a single group today, and that is honest rather than tidy: the
+ * print and scan parameters live inside SIMULATION's own sub-tabs, and prising them out is a
+ * separate change to that section's internals. A stage holding one group opens it directly,
+ * so the thinness costs no extra tap.
+ */
+internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
+    LOOK(R.string.editor_stage_look, R.string.editor_stage_look_hint),
+    FILM(R.string.editor_stage_film, R.string.editor_stage_film_hint),
+    PRINT(R.string.editor_stage_print, R.string.editor_stage_print_hint),
+    SCAN(R.string.editor_stage_scan, R.string.editor_stage_scan_hint),
+    FINISH(R.string.editor_stage_finish, R.string.editor_stage_finish_hint),
+}
+
+/** Which stage each existing category belongs to. Every Category must appear exactly once. */
+internal val Category.stage: Stage
+    get() = when (this) {
+        Category.SOURCE, Category.PRESETS -> Stage.LOOK
+        Category.SIMULATION, Category.INPUT, Category.RAW_WB,
+        Category.GRAIN, Category.HALATION, Category.COUPLERS -> Stage.FILM
+        Category.PREFLASH -> Stage.PRINT
+        Category.GLARE -> Stage.SCAN
+        Category.TONE_CURVE, Category.MASKS, Category.DISPLAY,
+        Category.EXPERIMENTAL -> Stage.FINISH
+    }
+
+/** The categories in a stage, in enum order. */
+internal fun categoriesOf(stage: Stage): List<Category> =
+    Category.entries.filter { it.stage == stage }
+
 // Neutral parameter defaults (a fresh ParamsState) — source for slider
 // double-tap-to-reset targets.
 private val PARAM_DEFAULTS = ParamsState()
@@ -5108,48 +5149,167 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Horizontally scrollable category bar with a sliding pill indicator. */
+    /**
+     * The editor parameter navigation: five darkroom stages, with the selected stage's
+     * groups on a second row above them.
+     *
+     * This replaced a single scrolling LazyRow of all fourteen [Category] chips. At 72dp a
+     * chip that row ran past 1000dp against a 360dp screen, so most of the app's controls
+     * were reachable only by scrolling a bar that gave no sign of how much lay off-screen,
+     * ordered by the enum rather than by the photographic process. Five fixed chips fit any
+     * phone without scrolling, and the second row is never longer than six.
+     *
+     * The stage is DERIVED from the active category rather than held as separate state, so
+     * the two rows cannot disagree and closing the panel closes the stage.
+     */
     @Composable
     private fun CategoryBar(
         active: Category?,
         dirty: Set<Category>,
         onSelect: (Category) -> Unit,
     ) {
-        val items = remember { Category.entries.toList() }
-        val listState = rememberLazyListState()
-        val scope = rememberCoroutineScope()
-
-        // ease the tapped/active category toward center
-        LaunchedEffect(active) {
-            val idx = active?.let { items.indexOf(it) } ?: return@LaunchedEffect
-            scope.launch { listState.animateScrollToItem(idx.coerceAtLeast(0)) }
-        }
+        val activeStage = active?.stage
+        val subItems = remember(activeStage) { activeStage?.let { categoriesOf(it) }.orEmpty() }
 
         Surface(
             color = SpectraIcons.nearBlackCanvas,
             tonalElevation = 0.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            LazyRow(
-                state = listState,
-                modifier = Modifier
+            Column(
+                Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(vertical = 6.dp)
-                    .selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp),
+                    .navigationBarsPadding(),
             ) {
-                itemsIndexed(items) { _, cat ->
-                    CategoryItem(
-                        category = cat,
-                        selected = cat == active,
-                        modified = cat in dirty,
-                        onClick = { onSelect(cat) },
+                // Second row: the groups inside the open stage. A stage holding a single
+                // group shows no row at all -- there is nothing to choose, and a one-item
+                // row would read as a dead control.
+                if (subItems.size > 1) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) {
+                        itemsIndexed(subItems) { _, cat ->
+                            CategoryItem(
+                                category = cat,
+                                selected = cat == active,
+                                modified = cat in dirty,
+                                onClick = { onSelect(cat) },
+                            )
+                        }
+                    }
+                    HorizontalDivider(
+                        color = Color.White.copy(alpha = 0.10f),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp, horizontal = 4.dp)
+                        .selectableGroup(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    Stage.entries.forEach { stage ->
+                        val members = categoriesOf(stage)
+                        StageItem(
+                            stage = stage,
+                            selected = stage == activeStage,
+                            // A stage is "doing something" when any group inside it is.
+                            modified = members.any { it in dirty },
+                            onClick = {
+                                if (stage == activeStage) {
+                                    // Tapping the open stage closes the panel, exactly as
+                                    // tapping the active category chip always did.
+                                    active?.let(onSelect)
+                                } else {
+                                    members.firstOrNull()?.let(onSelect)
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /** One of the five stage chips on the bottom row. */
+    @Composable
+    private fun StageItem(
+        stage: Stage,
+        selected: Boolean,
+        modified: Boolean,
+        onClick: () -> Unit,
+    ) {
+        val accent = MaterialTheme.colorScheme.primary
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val isSelected = selected
+        val modifiedState = stringResource(R.string.editor_category_modified)
+        TextTooltip(stringResource(stage.hintRes)) {
+            Column(
+                Modifier
+                    .widthIn(min = 64.dp)
+                    .scale(if (pressed) 0.92f else 1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (selected) accent.copy(alpha = 0.18f) else Color.Transparent)
+                    .clickableNoRipple(interaction, onClick)
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Tab
+                        this.selected = isSelected
+                        if (modified) stateDescription = modifiedState
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = stageIcon(stage),
+                        contentDescription = null,
+                        tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                    if (modified) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 5.dp, y = (-3).dp)
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(accent),
+                        )
+                    }
+                }
+                Text(
+                    stringResource(stage.labelRes),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                )
+                Box(
+                    Modifier
+                        .size(width = if (selected) 20.dp else 0.dp, height = 3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (selected) accent else Color.Transparent),
+                )
+            }
+        }
+    }
+
+    /** Stage icons, reusing the vector that best represents each stage's contents. */
+    private fun stageIcon(stage: Stage) = when (stage) {
+        Stage.LOOK -> SpectraIcons.Presets
+        Stage.FILM -> SpectraIcons.Simulation
+        Stage.PRINT -> SpectraIcons.Preflash
+        Stage.SCAN -> SpectraIcons.Glare
+        Stage.FINISH -> SpectraIcons.ToneCurve
     }
 
     @Composable
