@@ -399,18 +399,29 @@ fun EnhancedSlider(
             // every slider; reset is offered only when a [default] is supplied and the value
             // isn't already there. Both give a tick of haptic feedback. The double-tap has no
             // TalkBack equivalent, so the reset is also exposed as a custom accessibility action.
-            val resetDefault = default?.takeIf { it != value }
+            // Marking a changed parameter is what makes the double-tap reset discoverable:
+            // the marker appears exactly when the reset exists, so the two are one affordance.
+            val modified = isModifiedFromDefault(value, default, range, step)
+            val resetDefault = default?.takeIf { modified }
             val reset: (() -> Unit)? = resetDefault?.let { dv ->
                 {
                     onValueChange(snap(dv, range, step))
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
-            val pillDescription = stringResource(R.string.widget_value_pill_description, label, formatted)
+            val pillDescription = stringResource(
+                if (modified) {
+                    R.string.widget_value_pill_description_modified
+                } else {
+                    R.string.widget_value_pill_description
+                },
+                label, formatted,
+            )
             val enterLabel = stringResource(R.string.widget_value_pill_enter_exact, label)
             val resetLabel = stringResource(R.string.widget_value_pill_reset_default, label)
             ValuePill(
                 formatted,
+                modified = modified,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     // Sideways drag = fine adjust. Declared before the click handling so the
@@ -495,17 +506,42 @@ fun EnhancedSlider(
     }
 }
 
+/**
+ * The value readout beside a slider's label.
+ *
+ * [modified] marks a parameter sitting away from its neutral default. The rail already shows
+ * which CATEGORY holds edits, but inside a twenty-slider panel like Couplers or Grain there
+ * was nothing at the parameter tier — "which of these have I touched" was unanswerable
+ * without knowing every neutral by heart.
+ *
+ * The marker is a fill swap plus a hairline border, NOT a size or padding change: the pill
+ * sits in a Row with the label, and a pill that changed width when a value left its default
+ * would shift the label on every edit.
+ */
 @Composable
-private fun ValuePill(text: String, modifier: Modifier = Modifier) {
+private fun ValuePill(text: String, modifier: Modifier = Modifier, modified: Boolean = false) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = if (modified) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        border = if (modified) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
     ) {
         Text(
             text,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = if (modified) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            },
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
@@ -884,6 +920,28 @@ fun GatedBlock(
  * TalkBack users are not served by a drag; numeric entry is already the exact path for
  * them, and it stays.
  */
+/**
+ * Is this parameter away from its neutral default?
+ *
+ * Compared through [snap], not with a bare `!=`. Every interactive write path already snaps,
+ * so a value the user set round-trips exactly — but a value DECODED from a preset or a
+ * restored session does not have to, and a default that lands one ULP away would leave a
+ * parameter marked as changed forever with no way to clear it. Snapping both sides puts the
+ * comparison on the grid the control actually works in.
+ *
+ * A parameter with no declared default is never marked: absence of a neutral is not evidence
+ * of neutrality.
+ */
+internal fun isModifiedFromDefault(
+    value: Float,
+    default: Float?,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+): Boolean {
+    if (default == null) return false
+    return snap(default, range, step) != snap(value, range, step)
+}
+
 @Composable
 private fun Modifier.fineDragValue(
     value: Float,
@@ -896,13 +954,25 @@ private fun Modifier.fineDragValue(
     val span = range.endInclusive - range.start
     // Accumulate in value space so sub-step drags are not lost to repeated rounding.
     val pending = remember { mutableFloatStateOf(0f) }
+    // Where the drag started, so a CANCELLED drag can be put back.
+    val origin = remember { mutableFloatStateOf(0f) }
     val latest = rememberUpdatedState(value)
     return this.pointerInput(range, step, density) {
         if (span <= 0f) return@pointerInput
         detectHorizontalDragGestures(
-            onDragStart = { pending.floatValue = latest.value },
+            onDragStart = {
+                pending.floatValue = latest.value
+                origin.floatValue = latest.value
+            },
             onDragEnd = { onSettled() },
-            onDragCancel = { onSettled() },
+            // A cancel means something else took the gesture — most often the panel's own
+            // vertical scroll claiming a diagonal drag. The value has already been moved by
+            // every frame up to that point, so committing it silently sets a parameter the
+            // user was not adjusting. Put it back.
+            onDragCancel = {
+                onValueChange(snap(origin.floatValue, range, step))
+                onSettled()
+            },
         ) { change, dragAmount ->
             change.consume()
             val trackPx = with(density) { FINE_DRAG_REFERENCE_TRACK.toPx() }

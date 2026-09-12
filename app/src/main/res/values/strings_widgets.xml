@@ -20,6 +20,8 @@
 
     <!-- EnhancedSlider value pill (tap = type a value, double-tap = reset) -->
     <string name="widget_value_pill_description">%1$s value %2$s</string>
+    <!-- Same readout, for a parameter sitting away from its neutral default. -->
+    <string name="widget_value_pill_description_modified">%1$s value %2$s, changed</string>
     <string name="widget_value_pill_enter_exact">Enter exact value for %1$s</string>
     <string name="widget_value_pill_reset_default">Reset %1$s to default</string>
 
