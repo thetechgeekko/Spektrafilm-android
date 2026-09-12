@@ -50,8 +50,16 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      * hang plus a hidden export button. Being reimplemented on a resize-friendly surface
      * (TextureView) before it can be safe to default on. Enable here to try it meanwhile.
      */
+    //
+    // NOT part of "the app runs on the GPU". This switches the preview SURFACE
+    // (LutGpuPreview's GLSurfaceView), not any compute: the spectral engine's
+    // GPU route is gpuEngine / gpuExportEngine above. It stays OFF and its
+    // toggle was removed with theirs, because defaulting it on would ship the
+    // documented frame hang AND the hidden export button below -- which would
+    // reach users as "I cannot export", the very report this release is meant
+    // to answer. Restore the toggle when the TextureView rewrite lands.
     var gpuPreview: Boolean
-        get() = prefs.getBoolean(KEY_GPU_PREVIEW, false)
+        get() = false
         set(v) { prefs.edit().putBoolean(KEY_GPU_PREVIEW, v).apply() }
 
     /**
@@ -113,8 +121,14 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      * on-device self-check with automatic CPU fallback. Default OFF until the
      * on-device validation round (#147 session) signs it off.
      */
+    //
+    // NOW ON FOR EVERY RENDER, and the user-facing toggle is gone. The route is
+    // gated by the same on-device self-check it always was and still falls back
+    // to the CPU engine automatically, so "GPU" means "GPU where this device
+    // proves it agrees with the CPU", not "GPU unconditionally". The pref key is
+    // kept and read so an existing install that had it OFF is not stuck there.
     var gpuEngine: Boolean
-        get() = prefs.getBoolean(KEY_GPU_ENGINE, false)
+        get() = true
         set(v) { prefs.edit().putBoolean(KEY_GPU_ENGINE, v).apply() }
 
     /**
@@ -125,8 +139,19 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      * and automatic fallback. Default OFF; a plain export is byte-identical to
      * the CPU path. Independent of [gpuEngine] (the preview toggle).
      */
+    //
+    // NOW ON FOR EVERY EXPORT, and the user-facing toggle is gone. TWO THINGS
+    // THIS CHANGES FOR EVERY USER, both deliberate:
+    //   - Grain and viewing glare are re-drawn with the faster generator (#180),
+    //     so the speckle pattern differs from the CPU engine. Same amount and
+    //     character; repeat exports on one device stay identical.
+    //   - A default export is therefore no longer byte-identical to the CPU
+    //     path. It stays inside the Fast GPU tolerance, and every colour stage
+    //     is self-checked against the CPU engine on the device with automatic
+    //     fallback, but the strict exact contract now belongs to the CPU engine
+    //     alone rather than to what ships by default.
     var gpuExportEngine: Boolean
-        get() = prefs.getBoolean(KEY_GPU_EXPORT, false)
+        get() = true
         set(v) { prefs.edit().putBoolean(KEY_GPU_EXPORT, v).apply() }
 
     /**

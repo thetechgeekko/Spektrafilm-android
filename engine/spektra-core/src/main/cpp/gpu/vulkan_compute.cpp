@@ -1878,18 +1878,30 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
     if (inBytes > limits.maxStorageBufferRange || outBytes > limits.maxStorageBufferRange)
         return give_up("buffer-too-large");
 
+    // Every early exit here used to land on the single reason "dispatch-failed",
+    // which is exactly what a real 12.5 MP export reported -- with gpu_ms = 0.0,
+    // i.e. it never reached a dispatch at all. A reason that cannot separate "the
+    // driver rejected my command buffer" from "I could not allocate 449 MB" sends
+    // the reader to the wrong half of the file. They are separate now.
     bool ok = false;
+    const char* why = "dispatch-failed";
     do {
         if (!s.pipelineReady &&
-            !build_scan_pipeline(c, s, kGrainSpv, sizeof(kGrainSpv)))
+            !build_scan_pipeline(c, s, kGrainSpv, sizeof(kGrainSpv))) {
+            why = "pipeline-failed";
             break;
+        }
 
         const bool hadIn = s.in.cap >= inBytes && s.in.buf;
         const bool hadOut = s.out.cap >= outBytes && s.out.buf;
+        // The input alone is npix * ncells * 4 -- 449 MB at 12.5 MP with nine
+        // cells, asked for next to the diffusion transform's own scratch.
+        why = "allocation-failed";
         if (!c.ensureBuf(s.in, inBytes)) break;
         if (!c.ensureBuf(s.out, outBytes)) break;
         if (!c.ensureBuf(s.dyeB, cellBytes)) break;      // per-cell constants
         if (!c.ensureBuf(s.cmfB, counterBytes)) break;   // out-of-branch counter
+        why = "dispatch-failed";
         if (!hadIn || !hadOut) {
             VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
             VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
@@ -1985,7 +1997,7 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
 
     if (!ok) {
         c.destroyScan();
-        return give_up("dispatch-failed");
+        return give_up(why);
     }
     d.engaged = true;
     d.reason = "";

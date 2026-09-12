@@ -86,9 +86,6 @@ fun SettingsScreen(
     var format by remember { mutableStateOf(settings.exportFormat) }
     var quality by remember { mutableIntStateOf(settings.exportQuality) }
     var keepGps by remember { mutableStateOf(settings.exportKeepGps) }
-    var gpuPreview by remember { mutableStateOf(settings.gpuPreview) }
-    var gpuEngine by remember { mutableStateOf(settings.gpuEngine) }
-    var gpuExport by remember { mutableStateOf(settings.gpuExportEngine) }
 
     val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
     // Label only: each link button keeps its own click action (null action merges).
@@ -205,27 +202,10 @@ fun SettingsScreen(
             )
         }
 
-        // --- Experimental ---
-        SettingsCard(stringResource(R.string.screen_settings_experimental)) {
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_gpu_preview),
-                note = stringResource(R.string.screen_settings_gpu_preview_note),
-                checked = gpuPreview,
-                onCheckedChange = { gpuPreview = it; settings.gpuPreview = it },
-            )
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_gpu_engine),
-                note = stringResource(R.string.screen_settings_gpu_engine_note),
-                checked = gpuEngine,
-                onCheckedChange = { gpuEngine = it; settings.gpuEngine = it },
-            )
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_gpu_export),
-                note = stringResource(R.string.screen_settings_gpu_export_note),
-                checked = gpuExport,
-                onCheckedChange = { gpuExport = it; settings.gpuExportEngine = it },
-            )
-        }
+        // The three GPU toggles that stood here are gone: the engine's GPU route
+        // is now how the app renders, gated per device by its own self-check with
+        // automatic CPU fallback, so there is nothing left for a user to choose.
+        // The card went with them rather than standing empty.
 
         // --- Updates & diagnostics ---
         SettingsCard(stringResource(R.string.screen_settings_updates_heading)) {
