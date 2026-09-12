@@ -504,6 +504,34 @@ internal fun dirtyCategories(state: ParamsState): Set<Category> {
     }
 }
 
+/**
+ * The neutral value of just one category, as a partial recipe.
+ *
+ * [Presets.applyJson] reads each section behind its own `optJSONObject(...)?.let { }`, so an
+ * object carrying only this category's sections provably cannot touch any other parameter.
+ * That is what makes a per-category reset safe to build out of the same defaults the dirty
+ * dot already compares against, rather than a hand-written list of fields to clear — which
+ * is where a forgotten field would silently survive the reset.
+ *
+ * The section values are deep-copied. [DEFAULT_ENCODED] is a lazily-built singleton shared by
+ * every dirty comparison in the app; handing a live reference to a decoder is a mutation
+ * hazard that would corrupt every later comparison at once, for no saving.
+ */
+internal fun categoryDefaults(category: Category): JSONObject? {
+    val defaults = DEFAULT_ENCODED ?: return null
+    val sections = CATEGORY_SECTIONS[category] ?: return null
+    val out = JSONObject()
+    for (key in sections) {
+        when (val v = defaults.opt(key)) {
+            null -> return null
+            is JSONObject -> out.put(key, JSONObject(v.toString()))
+            is org.json.JSONArray -> out.put(key, org.json.JSONArray(v.toString()))
+            else -> out.put(key, v)
+        }
+    }
+    return out
+}
+
 class MainActivity : ComponentActivity() {
     /**
      * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
@@ -3813,9 +3841,25 @@ class MainActivity : ComponentActivity() {
                             onRoiCleared = { clearRoi() },
                         )
                     }
+                    // Re-encoded only when a parameter actually changes, not per frame.
+                    // Hoisted out of the categoryBar lambda below because the panels need it too:
+                    // the per-category reset is offered only for a category that actually holds
+                    // edits, which is the same question the rail's dot asks.
+                    val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
+                    val resetActiveCategory: (() -> Unit)? =
+                        activeCategory?.takeIf { it in dirty }?.let { target ->
+                            {
+                                // A partial recipe carrying only this category's sections.
+                                // Presets.applyJson reads each section behind its own
+                                // optJSONObject, so nothing outside them can move.
+                                categoryDefaults(target)?.let { defaults ->
+                                    runCatching { Presets.decode(defaults, state) }
+                                    previewTick++
+                                }
+                                Unit
+                            }
+                        }
                     val categoryBar: @Composable () -> Unit = {
-                        // Re-encoded only when a parameter actually changes, not per frame.
-                        val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
                         CategoryBar(
                             active = activeCategory,
                             dirty = dirty,
@@ -3851,6 +3895,7 @@ class MainActivity : ComponentActivity() {
                                 SidePanel(
                                     category = sideCategory,
                                     onDismiss = { activeCategory = null },
+                                    onResetCategory = resetActiveCategory,
                                     content = panelContent,
                                 )
                             }
@@ -3880,6 +3925,7 @@ class MainActivity : ComponentActivity() {
                                         modifier = Modifier.onSizeChanged { panelHeightPx = it.height },
                                         category = activeCategory,
                                         onDismiss = { activeCategory = null },
+                                        onResetCategory = resetActiveCategory,
                                         content = panelContent,
                                     )
                                 }
@@ -5157,6 +5203,11 @@ class MainActivity : ComponentActivity() {
         category: Category?,
         onDismiss: () -> Unit,
         modifier: Modifier = Modifier,
+        // Non-null only when this category actually holds edits. The editor had a reset for one
+        // slider (double-tap its pill) and a reset for everything, and nothing in between — so
+        // backing out of one exploratory panel meant remembering and reversing a dozen sliders
+        // by hand.
+        onResetCategory: (() -> Unit)? = null,
         content: @Composable ColumnScope.() -> Unit,
     ) {
         val maxH = (localConfigurationHeightDp() * 0.38f).dp
@@ -5220,8 +5271,20 @@ class MainActivity : ComponentActivity() {
                         .padding(horizontal = 16.dp)
                         .padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    content = content,
-                )
+                ) {
+                    // Deliberately here and not in the drag-handle header above: that header is
+                    // one merged semantics node carrying its own "close panel" click action, and
+                    // a nested button inside it would be unreachable to TalkBack.
+                    if (onResetCategory != null) {
+                        TextButton(
+                            onClick = onResetCategory,
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            Text(stringResource(R.string.editor_reset_category, title))
+                        }
+                    }
+                    content()
+                }
             }
         }
     }
@@ -5235,6 +5298,7 @@ class MainActivity : ComponentActivity() {
     private fun SidePanel(
         category: Category,
         onDismiss: () -> Unit,
+        onResetCategory: (() -> Unit)? = null,
         content: @Composable ColumnScope.() -> Unit,
     ) {
         val title = stringResource(category.labelRes)
@@ -5278,8 +5342,17 @@ class MainActivity : ComponentActivity() {
                         .padding(horizontal = 16.dp)
                         .padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    content = content,
-                )
+                ) {
+                    if (onResetCategory != null) {
+                        TextButton(
+                            onClick = onResetCategory,
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            Text(stringResource(R.string.editor_reset_category, title))
+                        }
+                    }
+                    content()
+                }
             }
         }
     }

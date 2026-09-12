@@ -203,6 +203,8 @@
     <string name="editor_panel_title">%1$s panel</string>
     <string name="editor_close_panel_named">Close %1$s panel</string>
     <string name="editor_close">Close</string>
+    <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->
+    <string name="editor_reset_category">Reset %1$s</string>
     <string name="editor_close_panel">Close panel</string>
 
     <!-- Category bar tooltips -->
