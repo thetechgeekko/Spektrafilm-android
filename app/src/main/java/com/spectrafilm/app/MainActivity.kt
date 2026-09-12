@@ -5806,7 +5806,10 @@ class MainActivity : ComponentActivity() {
             label = { Text(stringResource(R.string.editor_preset_name)) }, singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.editor_preset_save)) }
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+            ButtonIcon(SpectraIcons.Presets)
+            Text(stringResource(R.string.editor_preset_save))
+        }
         if (presets.isNotEmpty()) {
             Dropdown(
                 label = stringResource(R.string.editor_preset_saved),
@@ -5816,7 +5819,10 @@ class MainActivity : ComponentActivity() {
                 onSelect = onSelect,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onApply, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_preset_apply)) }
+                Button(onClick = onApply, modifier = Modifier.weight(1f)) {
+                    ButtonIcon(SpectraIcons.Confirm)
+                    Text(stringResource(R.string.editor_preset_apply))
+                }
                 OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_preset_delete)) }
             }
         }
@@ -5899,8 +5905,14 @@ class MainActivity : ComponentActivity() {
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onPickPhoto, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_source_pick_photo)) }
-            Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_source_open_raw)) }
+            Button(onClick = onPickPhoto, modifier = Modifier.weight(1f)) {
+                ButtonIcon(SpectraIcons.OpenPhoto)
+                Text(stringResource(R.string.editor_source_pick_photo))
+            }
+            Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) {
+                ButtonIcon(SpectraIcons.ImportRaw)
+                Text(stringResource(R.string.editor_source_open_raw))
+            }
         }
         OutlinedButton(onClick = onUseDemo, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.editor_source_use_demo)) }
 
@@ -6004,6 +6016,21 @@ class MainActivity : ComponentActivity() {
     // Parameter sections (spektrafilm GUI order/grouping) — preserved verbatim
     // ---------------------------------------------------------------------------
 
+    /**
+     * The leading glyph on a text button.
+     *
+     * 18.dp and an 8.dp gap are Material's own figures for an icon inside a Button
+     * (ButtonDefaults.IconSize / IconSpacing), so these rows keep the same rhythm as every
+     * other button in the app. contentDescription is null throughout: the label is right
+     * there and already carries the meaning, so announcing the glyph as well would make
+     * TalkBack say everything twice.
+     */
+    @Composable
+    private fun ButtonIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+    }
+
     @Composable
     private fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
         var expanded by remember { mutableStateOf(true) }
@@ -6078,7 +6105,10 @@ class MainActivity : ComponentActivity() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onEditCrop, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_input_edit_crop)) }
+                Button(onClick = onEditCrop, modifier = Modifier.weight(1f)) {
+                    ButtonIcon(SpectraIcons.Crop)
+                    Text(stringResource(R.string.editor_input_edit_crop))
+                }
                 if (s.crop) {
                     OutlinedButton(
                         onClick = {
