@@ -90,6 +90,10 @@ import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 
 /** Zoom limits for [ZoomableImage]. */
 private const val MIN_ZOOM = 1f
@@ -215,8 +219,15 @@ fun ZoomableImage(
     LaunchedEffect(renderKey) { overlayStale = true }
     LaunchedEffect(roiOverlay) { overlayStale = false }
 
-    val image = remember(bitmap) { bitmap.asImageBitmap() }
+    val image = rememberLeasedImage(bitmap) ?: return
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+    // scale/offset are read in the draw phase by graphicsLayer {}. These three reads are
+    // genuinely composition-phase (a string, two visibility gates), so derive them: the
+    // percentage changes once per integer and the gates once per crossing, instead of on
+    // every pointer sample.
+    val zoomPercent by remember { derivedStateOf { (scale * 100f).roundToInt() } }
+    val zoomedIn by remember { derivedStateOf { scale > 1.01f } }
+    val zoomState = stringResource(R.string.tool_viewer_zoom_state, zoomPercent)
 
     // Drive the sharp ROI render off the zoom/pan transform (and re-fire on a param edit via
     // renderKey). Debounced so we render on settle, not every gesture frame; the instantly
@@ -261,6 +272,7 @@ fun ZoomableImage(
         modifier = modifier
             .clipToBounds()
             .onSizeChanged { viewSize = it }
+            .semantics { stateDescription = zoomState }
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val oldScale = scale
@@ -277,11 +289,23 @@ fun ZoomableImage(
             .pointerInput(onPointPicked) {
                 detectTapGestures(
                     onDoubleTap = { tap ->
-                        if (scale > 1.01f) {
+                        if (zoomedIn) {
                             scale = 1f
                             offset = Offset.Zero
                         } else {
-                            val target = 2f
+                            // One bitmap pixel per view pixel: the fitted content is
+                            // fitRect-wide on screen, so 1:1 is bitmap.width / fittedWidth.
+                            // Falls back to 2x only if the view has not measured yet.
+                            val fitted = if (viewSize.width > 0) {
+                                fitRect(viewSize, aspect)[2]
+                            } else {
+                                0f
+                            }
+                            val target = if (fitted > 0f) {
+                                (bitmap.width / fitted).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                            } else {
+                                2f
+                            }
                             val c = Offset(viewSize.width / 2f, viewSize.height / 2f)
                             scale = target
                             offset = clampOffset((c - tap) * target, target)
@@ -296,7 +320,6 @@ fun ZoomableImage(
             },
         contentAlignment = Alignment.Center,
     ) {
-        val zoomState = stringResource(R.string.tool_viewer_zoom_state, (scale * 100f).roundToInt())
         Image(
             bitmap = image,
             contentDescription = stringResource(R.string.tool_viewer_preview_desc),
@@ -304,21 +327,20 @@ fun ZoomableImage(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspect)
-                .semantics { stateDescription = zoomState }
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
-                    translationY = offset.y,
-                ),
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
         )
 
         // Sharp ROI overlay: project the cached crop's normalized rect through the SAME
         // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
         // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
         val ov = roiOverlay
-        if (ov != null && !overlayStale && scale > 1.01f && viewSize.width > 0) {
-            val roiImage = remember(ov.bitmap) { ov.bitmap.asImageBitmap() }
+        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0) {
+            val roiImage = rememberLeasedImage(ov.bitmap) ?: return@Box
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(
                     ov.cxN - ov.wN / 2f, ov.cyN - ov.hN / 2f, viewSize, scale, offset, aspect,
@@ -529,8 +551,8 @@ fun CompareSlider(
     var split by remember { mutableFloatStateOf(0.5f) }
     var width by remember { mutableIntStateOf(0) }
     val aspect = after.width.toFloat() / after.height.toFloat()
-    val beforeImg = remember(before) { before.asImageBitmap() }
-    val afterImg = remember(after) { after.asImageBitmap() }
+    val beforeImg = rememberLeasedImage(before) ?: return
+    val afterImg = rememberLeasedImage(after) ?: return
     // Drag/tap-only wipe: one merged node describing the comparison, its split as state, and
     // three custom actions so a screen reader can move the wipe without a gesture.
     val compareDesc = stringResource(R.string.tool_viewer_compare_desc)
@@ -736,6 +758,26 @@ internal fun retirePreviewBitmap(bitmap: Bitmap) {
     previewBitmapReadLeases.retire(bitmap)
 }
 
+/** Take a read lease on a preview frame; null once it is retired. */
+internal fun acquirePreviewLease(bitmap: Bitmap): RetirableReadLeaseRegistry.Lease<Bitmap>? =
+    previewBitmapReadLeases.acquire(bitmap)
+
+/**
+ * An [ImageBitmap] view of [bitmap] that holds a read lease for as long as it is composed.
+ *
+ * `retirePreviewBitmap` defers the physical recycle until the last lease closes, so this is what
+ * keeps the draw pass from reading recycled pixel storage when a render settles mid-frame.
+ * Returns null if the frame was already retired, in which case there is nothing to draw.
+ */
+@Composable
+internal fun rememberLeasedImage(bitmap: Bitmap): ImageBitmap? {
+    val leased = remember(bitmap) {
+        acquirePreviewLease(bitmap)?.let { lease -> lease to bitmap.asImageBitmap() }
+    }
+    DisposableEffect(leased) { onDispose { leased?.first?.close() } }
+    return leased?.second
+}
+
 /** Bitmap-independent immutable sample set; safe to bin after its Bitmap is retired. */
 internal class HistogramSamples internal constructor(pixels: IntArray) {
     internal val pixels: IntArray = pixels.copyOf()
@@ -848,9 +890,17 @@ fun MagnifierOverlay(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
+            // True 1:1: a crop of N device pixels must occupy N device pixels, so the dp
+            // size is N / density. Capped at 360.dp so it still fits a phone; below the cap
+            // the inspector finally shows native pixels instead of a bilinear upscale.
+            val density = LocalDensity.current
+            val magnifierSide = with(density) {
+                val cropPx = crop?.width ?: MAGNIFIER_CROP_PX
+                cropPx.toDp().coerceAtMost(360.dp)
+            }
             Box(
                 Modifier
-                    .size(320.dp)
+                    .size(magnifierSide)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF050505)),
                 contentAlignment = Alignment.Center,

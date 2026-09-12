@@ -348,6 +348,21 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Export — a frame with an arrow leaving it. Distinct from Presets, which the
+    // export button used to draw: the same ImageVector as a chip that is on screen
+    // at the same moment, so the one irreversible action in the bar was unreadable.
+    val Export: ImageVector by lazy {
+        icon("Export") {
+            // Tray: three sides of a frame, open at the top where the arrow exits.
+            strokePath("M 5 14 L 5 19 L 19 19 L 19 14")
+            // Shaft
+            strokePath("M 12 15 L 12 4")
+            // Head
+            strokePath("M 8 8 L 12 4 L 16 8")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // SourceImage — photo / picture source
     // Picture-frame rectangle containing a simple landscape: horizon line,
     // triangle mountain, and a small circle sun in the top-right corner.

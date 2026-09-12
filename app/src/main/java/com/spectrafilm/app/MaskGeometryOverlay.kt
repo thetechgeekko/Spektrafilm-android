@@ -73,7 +73,7 @@ fun MaskGeometryOverlay(
     onCancel: () -> Unit,
 ) {
     val imageAspect = bitmap.width.toFloat().coerceAtLeast(1f) / bitmap.height.toFloat().coerceAtLeast(1f)
-    val image: ImageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+    val image: ImageBitmap = rememberLeasedImage(bitmap) ?: return
 
     // The geometry being edited: the first component's shape (defaulting to a centered radial).
     var shape by remember {

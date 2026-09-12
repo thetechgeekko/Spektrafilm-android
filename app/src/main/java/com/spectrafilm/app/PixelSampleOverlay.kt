@@ -69,7 +69,7 @@ fun PixelSampleOverlay(
     hint: String = stringResource(R.string.tool_sample_hint_color),
 ) {
     val imageAspect = bitmap.width.toFloat().coerceAtLeast(1f) / bitmap.height.toFloat().coerceAtLeast(1f)
-    val image: ImageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+    val image: ImageBitmap = rememberLeasedImage(bitmap) ?: return
 
     var point by remember { mutableStateOf<Offset?>(null) }     // normalized 0..1 sample location
     var sampled by remember { mutableStateOf<Triple<Float, Float, Float>?>(null) }

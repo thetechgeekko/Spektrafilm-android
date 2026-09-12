@@ -4547,7 +4547,7 @@ class MainActivity : ComponentActivity() {
                             )
                         } else {
                             Icon(
-                                SpectraIcons.Presets, contentDescription = stringResource(R.string.editor_action_export),
+                                SpectraIcons.Export, contentDescription = stringResource(R.string.editor_action_export),
                                 tint = if (canExport) Color.White else Color.White.copy(alpha = 0.4f),
                             )
                         }

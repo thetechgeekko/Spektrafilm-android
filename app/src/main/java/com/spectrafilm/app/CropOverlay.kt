@@ -110,7 +110,7 @@ fun CropOverlay(
     val maxDim = max(imgW, imgH)
     val imageAspect = imgW / imgH
 
-    val image: ImageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+    val image: ImageBitmap = rememberLeasedImage(bitmap) ?: return
 
     // The crop rectangle in NORMALIZED IMAGE COORDS: left/top/right/bottom in 0..1
     // of (W, H). Seed from the incoming recipe crop, or default to the full frame.
