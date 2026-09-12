@@ -5194,7 +5194,7 @@ class MainActivity : ComponentActivity() {
                         contentPadding = PaddingValues(horizontal = 8.dp),
                     ) {
                         itemsIndexed(subItems) { _, cat ->
-                            CategoryItem(
+                            SubCategoryChip(
                                 category = cat,
                                 selected = cat == active,
                                 modified = cat in dirty,
@@ -5299,6 +5299,66 @@ class MainActivity : ComponentActivity() {
                         .clip(RoundedCornerShape(2.dp))
                         .background(if (selected) accent else Color.Transparent),
                 )
+            }
+        }
+    }
+
+    /**
+     * A group chip on the second row: text only, and deliberately so.
+     *
+     * The first attempt reused [CategoryItem], whose 72dp stacked icon-over-label cell is
+     * sized for a rail that is the ONLY navigation. Six of those is 432dp, which still
+     * overflowed a 360dp screen -- the thing this redesign existed to stop -- and cost ~62dp
+     * of canvas for a second time. Inside a stage the icon is redundant (the stage chip below
+     * already carries it) and the label is what distinguishes the groups, so dropping the icon
+     * fits all six of FILM's groups in roughly 335dp and gives the photograph ~26dp back.
+     */
+    @Composable
+    private fun SubCategoryChip(
+        category: Category,
+        selected: Boolean,
+        modified: Boolean,
+        onClick: () -> Unit,
+    ) {
+        val accent = MaterialTheme.colorScheme.primary
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val isSelected = selected
+        val modifiedState = stringResource(R.string.editor_category_modified)
+        TextTooltip(categoryHint(category)) {
+            Row(
+                Modifier
+                    .scale(if (pressed) 0.94f else 1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (selected) accent.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f),
+                    )
+                    .clickableNoRipple(interaction, onClick)
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Tab
+                        this.selected = isSelected
+                        if (modified) stateDescription = modifiedState
+                    }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    stringResource(category.labelRes),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (selected) accent else Color.White.copy(alpha = 0.82f),
+                )
+                // The dot rides after the label here rather than over an icon there is none of.
+                if (modified) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) accent else accent.copy(alpha = 0.85f)),
+                    )
+                }
             }
         }
     }
