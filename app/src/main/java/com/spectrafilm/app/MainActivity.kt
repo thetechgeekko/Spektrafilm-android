@@ -4798,6 +4798,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     initialScale = gpuZoomInitial,
                     onPointPicked = onPointPicked,
+                    // Press and hold the photo for the unedited frame. The bitmap already
+                    // exists for the latched CompareSlider above, so the gesture costs no
+                    // extra render.
+                    //
+                    // PreviewRegion.onPointPicked is NOT nullable -- it is always the
+                    // magnifier opener -- so there is no sampler to yield to here, and a
+                    // long press is otherwise unused on this surface. The colour/WB sampler
+                    // lives behind sampleOverlayOpen, which replaces the preview outright.
+                    peek = before,
                     // Lightroom-style zoom: render the visible region at native resolution
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
                     renderKey = renderKey,

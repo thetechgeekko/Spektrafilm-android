@@ -195,6 +195,15 @@ fun ZoomableImage(
     bitmap: Bitmap,
     modifier: Modifier = Modifier,
     onPointPicked: ((Float, Float) -> Unit)? = null,
+    // The UNEDITED render of the same frame. Press and hold the photo to see it, release to
+    // come back — Lightroom's before/after, with no button. Null disables the gesture.
+    //
+    // It is swapped only into the drawn Image, never into [bitmap]: bitmap is what the 1:1
+    // double-tap and the ROI settle do their arithmetic on, and re-keying those on a
+    // momentary peek would fire a full native ROI render of the BEFORE frame every time a
+    // finger rested on the photo. Sharing the Image's graphicsLayer also means the peek
+    // inherits the live zoom and pan for free.
+    peek: Bitmap? = null,
     // Lightroom-style zoom: when zoomed past fit, [onRoiSettled] fires (debounced) with the
     // visible region so the caller can render that crop at native resolution and pass it back
     // as [roiOverlay]; [onRoiCleared] fires when zoom returns to fit. [renderKey] (e.g. the
@@ -219,7 +228,13 @@ fun ZoomableImage(
     LaunchedEffect(renderKey) { overlayStale = true }
     LaunchedEffect(roiOverlay) { overlayStale = false }
 
+    // True only while a finger is held down past the long-press threshold.
+    var peeking by remember { mutableStateOf(false) }
     val image = rememberLeasedImage(bitmap) ?: return
+    // Leased exactly like the main preview: the before bitmap is a live render owned by the
+    // editor and is retired on the next settle, so drawing it without a lease is a
+    // use-after-recycle waiting for a slow finger.
+    val peekImage = peek?.let { rememberLeasedImage(it) }
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
     // scale/offset are read in the draw phase by graphicsLayer {}. These three reads are
     // genuinely composition-phase (a string, two visibility gates), so derive them: the
@@ -286,8 +301,15 @@ fun ZoomableImage(
                     offset = clampOffset(newOffset, newScale)
                 }
             }
-            .pointerInput(onPointPicked) {
+            .pointerInput(onPointPicked, peekImage != null) {
                 detectTapGestures(
+                    // Press-and-hold shows the unedited frame; any release or cancel ends it.
+                    // Both live in this ONE detector so they cannot fight the double-tap zoom.
+                    onPress = {
+                        tryAwaitRelease()
+                        peeking = false
+                    },
+                    onLongPress = { if (peekImage != null) peeking = true },
                     onDoubleTap = { tap ->
                         if (zoomedIn) {
                             scale = 1f
@@ -321,8 +343,12 @@ fun ZoomableImage(
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            bitmap = image,
-            contentDescription = stringResource(R.string.tool_viewer_preview_desc),
+            bitmap = if (peeking && peekImage != null) peekImage else image,
+            contentDescription = if (peeking) {
+                stringResource(R.string.tool_viewer_original_desc)
+            } else {
+                stringResource(R.string.tool_viewer_preview_desc)
+            },
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
@@ -339,7 +365,9 @@ fun ZoomableImage(
         // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
         // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
         val ov = roiOverlay
-        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0) {
+        // Suppressed while peeking: the cached ROI crop is a render of the EDITED frame, so
+        // leaving it up would paint the edit back over the middle of the before image.
+        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0 && !peeking) {
             val roiImage = rememberLeasedImage(ov.bitmap) ?: return@Box
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(

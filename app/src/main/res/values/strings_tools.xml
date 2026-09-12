@@ -174,7 +174,9 @@
     <string name="tool_sample_swatch_desc">Sampled color: red %1$d, green %2$d, blue %3$d</string>
 
     <!-- Preview viewer -->
-    <string name="tool_viewer_preview_desc" formatted="false">Preview of the current photo. Tap to inspect at 100%, pinch or double-tap to zoom, drag to pan.</string>
+    <string name="tool_viewer_preview_desc" formatted="false">Preview of the current photo. Tap to inspect at 100%, pinch or double-tap to zoom, drag to pan. Press and hold to see the original.</string>
+    <!-- Spoken while the press-and-hold before/after peek is showing. -->
+    <string name="tool_viewer_original_desc">Original photo, before any edits. Release to return to the edited version.</string>
     <string name="tool_viewer_zoom_state">Zoom %1$d%%</string>
     <string name="tool_viewer_zoom_percent">%1$d%%</string>
     <string name="tool_viewer_zoom_in">Zoom in</string>
