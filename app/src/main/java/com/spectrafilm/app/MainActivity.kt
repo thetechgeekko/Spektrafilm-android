@@ -3347,8 +3347,8 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
         BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
         BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && activeCategory == null) {
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && !exportMaskVisible && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && !exportMaskVisible && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -5756,6 +5756,13 @@ class MainActivity : ComponentActivity() {
         onShare: (() -> Unit)? = null,
         onCancel: () -> Unit,
     ) {
+        // This overlay swallows every pointer event, so Back is the only system gesture that
+        // can reach anything while it is up. Without a handler of its own it fell through to
+        // the root double-back-to-exit -- so the escape from a finished export was "press Back
+        // twice and quit the app", and a stray Back during a render could take the whole
+        // session down mid-export. Always enabled: dismisses when done, inert while rendering,
+        // because Cancel is a deliberate press and not a reflex.
+        BackHandler(enabled = true) { if (done) onDismiss() }
         Box(
             Modifier
                 .fillMaxSize()
@@ -5795,7 +5802,7 @@ class MainActivity : ComponentActivity() {
                         color = Color.White.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Button(onClick = onDismiss) { Text(stringResource(R.string.editor_export_view_result)) }
+                    Button(onClick = onDismiss) { Text(stringResource(R.string.editor_export_done)) }
                     if (onShare != null) {
                         Button(onClick = onShare) { Text(stringResource(R.string.editor_export_share)) }
                     }

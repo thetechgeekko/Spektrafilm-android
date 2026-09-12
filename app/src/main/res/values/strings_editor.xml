@@ -256,7 +256,7 @@
     <string name="editor_export_cancel">Cancel export</string>
     <string name="editor_export_rendering">Rendering at full resolution…</string>
     <string name="editor_export_saved">Saved to gallery</string>
-    <string name="editor_export_view_result">View result</string>
+    <string name="editor_export_done">Done</string>
     <string name="editor_export_share">Share</string>
 
     <!-- Input section -->
