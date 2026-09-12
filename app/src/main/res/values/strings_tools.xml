@@ -191,6 +191,10 @@
     <string name="tool_viewer_before_tag">BEFORE</string>
     <string name="tool_viewer_after_tag">AFTER</string>
     <string name="tool_viewer_histogram_desc">Histogram of the preview</string>
+    <!-- Spoken instead of the above when the frame is pinned at an end of the scale. -->
+    <string name="tool_viewer_histogram_desc_clipped_high">Histogram of the preview. Highlights are clipped.</string>
+    <string name="tool_viewer_histogram_desc_clipped_low">Histogram of the preview. Shadows are clipped.</string>
+    <string name="tool_viewer_histogram_desc_clipped_both">Histogram of the preview. Highlights and shadows are clipped.</string>
     <string name="tool_viewer_magnifier_title" formatted="false">100% crop</string>
     <string name="tool_viewer_magnifier_image_desc">Full-resolution crop of the photo</string>
     <string name="tool_viewer_magnifier_rendering">Rendering full-resolution crop…</string>

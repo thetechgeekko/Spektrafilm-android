@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -684,7 +685,14 @@ fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
         }
     }
     val h = hist ?: return
-    val histogramDesc = stringResource(R.string.tool_viewer_histogram_desc)
+    val clipHigh = remember(h) { h.highlightsClipped() }
+    val clipLow = remember(h) { h.shadowsClipped() }
+    val histogramDesc = when {
+        clipHigh && clipLow -> stringResource(R.string.tool_viewer_histogram_desc_clipped_both)
+        clipHigh -> stringResource(R.string.tool_viewer_histogram_desc_clipped_high)
+        clipLow -> stringResource(R.string.tool_viewer_histogram_desc_clipped_low)
+        else -> stringResource(R.string.tool_viewer_histogram_desc)
+    }
     Box(
         modifier = modifier
             .fillMaxWidth(0.6f)
@@ -693,7 +701,7 @@ fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
             .background(Color.Black.copy(alpha = 0.42f))
             .semantics { contentDescription = histogramDesc },
     ) {
-        Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawHistogram(h) }
+        Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawHistogram(h, clipLow, clipHigh) }
     }
 }
 
@@ -705,6 +713,30 @@ class Histogram(
     val luma: IntArray,
     val peak: Int,
 )
+
+/**
+ * How much of the frame has to sit pinned at an end of the scale before it is called clipped.
+ *
+ * A photograph of a street lamp at night has a handful of genuinely blown pixels and is not a
+ * clipped photograph; a marker that lit for those would light on almost every frame and mean
+ * nothing. A thousandth of the frame is the point where it is worth knowing about.
+ */
+private const val CLIP_FRACTION = 0.001f
+
+/** Is any channel pinned at the top of the scale across more than [CLIP_FRACTION] of the frame? */
+internal fun Histogram.highlightsClipped(): Boolean = clipped(255)
+
+/** ...and at the bottom. */
+internal fun Histogram.shadowsClipped(): Boolean = clipped(0)
+
+private fun Histogram.clipped(bin: Int): Boolean {
+    // luma is a full-frame channel, so its bin total is the sampled pixel count.
+    var total = 0L
+    for (v in luma) total += v
+    if (total <= 0L) return false
+    val worst = maxOf(r[bin], g[bin], b[bin])
+    return worst.toFloat() / total.toFloat() > CLIP_FRACTION
+}
 
 /**
  * Small identity-keyed read-lease registry. The owner may retire a value immediately; physical
@@ -865,7 +897,13 @@ internal fun computeHistogram(samples: HistogramSamples): Histogram {
     return Histogram(r, g, b, l, peak)
 }
 
-private fun DrawScope.drawHistogram(hist: Histogram) {
+/**
+ * [clipLow] / [clipHigh] light the corner wedges. They are computed from the SAME bins this
+ * draws, so the marker is exactly as current as the histogram under it — during a drag both
+ * describe the draft render, and both sharpen together on the settle pass. It cannot disagree
+ * with the shape it sits on, which is the only consistency that matters here.
+ */
+private fun DrawScope.drawHistogram(hist: Histogram, clipLow: Boolean, clipHigh: Boolean) {
     val w = size.width
     val h = size.height
     val binW = w / 256f
@@ -885,6 +923,26 @@ private fun DrawScope.drawHistogram(hist: Histogram) {
     drawChannel(hist.r, Color(0x88FF4040))
     drawChannel(hist.g, Color(0x8840FF40))
     drawChannel(hist.b, Color(0x884070FF))
+
+    // Corner wedges, in the padding OUTSIDE the plot, so they cannot be mistaken for data.
+    // Blown highlights are the ones that cost you a print, so that corner is the loud one.
+    val wedge = h * 0.30f
+    if (clipLow) {
+        drawPath(
+            Path().apply {
+                moveTo(0f, 0f); lineTo(wedge, 0f); lineTo(0f, wedge); close()
+            },
+            Color(0xCC6FA8FF),
+        )
+    }
+    if (clipHigh) {
+        drawPath(
+            Path().apply {
+                moveTo(w, 0f); lineTo(w - wedge, 0f); lineTo(w, wedge); close()
+            },
+            Color(0xFFFF5A4D),
+        )
+    }
 }
 
 /**
