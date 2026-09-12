@@ -113,6 +113,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalDensity
 
 /**
  * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]
@@ -402,6 +405,19 @@ fun EnhancedSlider(
                 formatted,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
+                    // Sideways drag = fine adjust. Declared before the click handling so the
+                    // drag detector sees the pointer first; it waits for touch slop, so a tap
+                    // (type a value) and a double-tap (reset) still reach combinedClickable.
+                    .fineDragValue(
+                        value = value,
+                        range = range,
+                        step = step,
+                        onValueChange = { onValueChange(it); interaction.onChange() },
+                        onSettled = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            interaction.onFinished()
+                        },
+                    )
                     .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -832,6 +848,79 @@ fun GatedBlock(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) { content() }
     }
+}
+
+/**
+ * Drag the value pill sideways to adjust at a tenth of the slider's sensitivity.
+ *
+ * A slider track is roughly 320dp wide and spans the whole range, so one finger resolves
+ * about 1/300 of that range at best -- a fingertip cannot be placed more precisely than the
+ * 48dp target Material specifies exists for it. Several parameters here need finer than
+ * that, and the only existing answer was to tap the pill and type a number, which is exact
+ * but breaks the loop of watching the photograph while you adjust.
+ *
+ * This maps a full 320dp drag to a TENTH of the range, so ~32dp of travel is 1% of the
+ * parameter -- fine enough to nudge, coarse enough to stay usable. It is deliberately on
+ * the PILL rather than the track: the track keeps its familiar absolute behaviour, and the
+ * drag detector waits for touch slop, so tap-to-type and double-tap-to-reset still work.
+ *
+ * TalkBack users are not served by a drag; numeric entry is already the exact path for
+ * them, and it stays.
+ */
+@Composable
+private fun Modifier.fineDragValue(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    onValueChange: (Float) -> Unit,
+    onSettled: () -> Unit,
+): Modifier {
+    val density = LocalDensity.current
+    val span = range.endInclusive - range.start
+    // Accumulate in value space so sub-step drags are not lost to repeated rounding.
+    val pending = remember { mutableFloatStateOf(0f) }
+    val latest = rememberUpdatedState(value)
+    return this.pointerInput(range, step, density) {
+        if (span <= 0f) return@pointerInput
+        detectHorizontalDragGestures(
+            onDragStart = { pending.floatValue = latest.value },
+            onDragEnd = { onSettled() },
+            onDragCancel = { onSettled() },
+        ) { change, dragAmount ->
+            change.consume()
+            val trackPx = with(density) { FINE_DRAG_REFERENCE_TRACK.toPx() }
+            pending.floatValue = fineDragAdvance(
+                pending.floatValue, dragAmount, span, trackPx, range,
+            )
+            onValueChange(snap(pending.floatValue, range, step))
+        }
+    }
+}
+
+/** The track width the fine-drag sensitivity is defined against; see [fineDragAdvance]. */
+internal val FINE_DRAG_REFERENCE_TRACK = 320.dp
+
+/** Divisor on slider sensitivity for a fine drag: a full track travel moves a tenth. */
+internal const val FINE_DRAG_DIVISOR = 10f
+
+/**
+ * Advance an accumulated fine-drag value by [dragPx] of horizontal travel.
+ *
+ * Pure so the sensitivity contract can be asserted without a device: dragging one reference
+ * track width ([FINE_DRAG_REFERENCE_TRACK]) moves the value by span / [FINE_DRAG_DIVISOR].
+ * Accumulating in value space (rather than re-deriving from the snapped result each frame)
+ * is what stops sub-step drags being rounded away to nothing on every event.
+ */
+internal fun fineDragAdvance(
+    current: Float,
+    dragPx: Float,
+    span: Float,
+    trackPx: Float,
+    range: ClosedFloatingPointRange<Float>,
+): Float {
+    if (span <= 0f || trackPx <= 0f) return current.coerceIn(range.start, range.endInclusive)
+    val perPx = span / FINE_DRAG_DIVISOR / trackPx
+    return (current + dragPx * perPx).coerceIn(range.start, range.endInclusive)
 }
 
 private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float): Float {
