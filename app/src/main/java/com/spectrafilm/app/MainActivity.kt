@@ -122,6 +122,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 
 /** Which kind of source image is loaded. */
 internal enum class SourceKind { DEMO, PHOTO, RAW }
@@ -417,6 +421,21 @@ internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: 
     SCAN(R.string.editor_stage_scan, R.string.editor_stage_scan_hint),
     FINISH(R.string.editor_stage_finish, R.string.editor_stage_finish_hint),
 }
+
+/**
+ * Motion specs for the editor rail.
+ *
+ * All three drive PAINT or a width inside a chip -- never the rail's own height. The preview
+ * is a `weight(1f)` sibling of the rail, so an animated rail height re-measures the preview
+ * on every frame of the animation, which is the churn that forced the GPU preview surface off
+ * and jolted the CPU preview (documented on PanelOverlay). Colour and a 20dp indicator cost
+ * the renderer nothing.
+ *
+ * Springs rather than tweens, to match the panel's existing entrance vocabulary.
+ */
+private val RAIL_PRESS = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
+private val RAIL_PAINT = tween<Color>(durationMillis = 180)
+private val RAIL_PILL = spring<Dp>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
 
 /** Which stage each existing category belongs to. Every Category must appear exactly once. */
 internal val Category.stage: Stage
@@ -5251,13 +5270,25 @@ class MainActivity : ComponentActivity() {
         val pressed by interaction.collectIsPressedAsState()
         val isSelected = selected
         val modifiedState = stringResource(R.string.editor_category_modified)
+        // Motion here is deliberately confined to paint and to a width INSIDE the chip.
+        // Nothing animates the rail's height: the preview is a weight(1f) sibling, and an
+        // animated rail height would re-measure it every frame -- the churn that forced the
+        // GPU preview off and jolted the CPU one (see PanelOverlay's note).
+        val press by animateFloatAsState(if (pressed) 0.92f else 1f, RAIL_PRESS, label = "stagePress")
+        val tint by animateColorAsState(
+            if (selected) accent else Color.White.copy(alpha = 0.78f), RAIL_PAINT, label = "stageTint",
+        )
+        val fill by animateColorAsState(
+            if (selected) accent.copy(alpha = 0.18f) else Color.Transparent, RAIL_PAINT, label = "stageFill",
+        )
+        val pill by animateDpAsState(if (selected) 20.dp else 0.dp, RAIL_PILL, label = "stagePill")
         TextTooltip(stringResource(stage.hintRes)) {
             Column(
                 Modifier
                     .widthIn(min = 64.dp)
-                    .scale(if (pressed) 0.92f else 1f)
+                    .scale(press)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (selected) accent.copy(alpha = 0.18f) else Color.Transparent)
+                    .background(fill)
                     .clickableNoRipple(interaction, onClick)
                     .semantics(mergeDescendants = true) {
                         role = Role.Tab
@@ -5272,7 +5303,7 @@ class MainActivity : ComponentActivity() {
                     Icon(
                         imageVector = stageIcon(stage),
                         contentDescription = null,
-                        tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                        tint = tint,
                         modifier = Modifier.size(24.dp),
                     )
                     if (modified) {
@@ -5291,13 +5322,15 @@ class MainActivity : ComponentActivity() {
                     fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                    color = tint,
                 )
+                // The indicator grows from the centre rather than appearing, so moving
+                // between stages reads as one mark travelling along the rail.
                 Box(
                     Modifier
-                        .size(width = if (selected) 20.dp else 0.dp, height = 3.dp)
+                        .size(width = pill, height = 3.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(if (selected) accent else Color.Transparent),
+                        .background(accent),
                 )
             }
         }
@@ -5331,15 +5364,21 @@ class MainActivity : ComponentActivity() {
         val isSelected = selected
         val label = stringResource(category.labelRes)
         val modifiedState = stringResource(R.string.editor_category_modified)
+        val press by animateFloatAsState(if (pressed) 0.92f else 1f, RAIL_PRESS, label = "groupPress")
+        val tint by animateColorAsState(
+            if (selected) accent else Color.White.copy(alpha = 0.82f), RAIL_PAINT, label = "groupTint",
+        )
+        val fill by animateColorAsState(
+            if (selected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.07f),
+            RAIL_PAINT, label = "groupFill",
+        )
         TextTooltip(categoryHint(category)) {
             Box(
                 Modifier
-                    .scale(if (pressed) 0.92f else 1f)
+                    .scale(press)
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (selected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.07f),
-                    )
+                    .background(fill)
                     .clickableNoRipple(interaction, onClick)
                     .semantics(mergeDescendants = true) {
                         role = Role.Tab
@@ -5353,7 +5392,7 @@ class MainActivity : ComponentActivity() {
                 Icon(
                     imageVector = categoryIcon(category),
                     contentDescription = null,
-                    tint = if (selected) accent else Color.White.copy(alpha = 0.82f),
+                    tint = tint,
                     modifier = Modifier.size(20.dp),
                 )
                 if (modified) {
