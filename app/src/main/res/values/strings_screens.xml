@@ -122,10 +122,10 @@
     <string name="screen_howto_s3_step0b">Settings holds export defaults, colour management and the app\'s diagnostics.</string>
     <string name="screen_howto_s4_title">Choosing a look</string>
     <string name="screen_howto_s4_p1">Start here to find the right film character for your photo:</string>
-    <string name="screen_howto_s4_step1">Open the Simulation category. Choose a film stock from the Film picker — 28 profiles are available, grouped as color negative, slide, motion-picture, and print film. Each profile shows the film\'s ISO, color balance, and era.</string>
+    <string name="screen_howto_s4_step1" formatted="false">Open the Film stage and pick a film stock from the Film picker — %1$d profiles are available, grouped as color negative, slide, motion-picture and print film. Each entry shows the stock\'s ISO, colour balance and a one-line note on its character.</string>
     <string name="screen_howto_s4_step2">If you want a printed look (negative→enlarger→paper), also select a print paper in the Print picker within Simulation. Leave it at its default for a direct scan-of-the-negative result.</string>
     <string name="screen_howto_s4_step3">Adjust the exposure slider to brighten or darken the simulated exposure. Alternatively, tap Auto to let the app meter the scene for you. Auto-exposure meters to a mid-grey target and offers 7 metering patterns (center-weighted, matrix, spot, and more) in a pop-up list.</string>
-    <string name="screen_howto_s4_step4">For a fast starting point, open the Presets category. 20 built-in, researched film-to-print looks are available. Tap a preset to load its full parameter set, then fine-tune from there.</string>
+    <string name="screen_howto_s4_step4" formatted="false">For a fast starting point, open the Look stage and choose a preset. %1$d built-in, researched film-to-print looks are available. Tap one to load its full parameter set, then fine-tune from there.</string>
     <string name="screen_howto_s5_title">Key tools</string>
     <string name="screen_howto_s5_p1">Several tools are available directly in the editor:</string>
     <string name="screen_howto_s5_step1">90° rotate — the rotate button (top bar) rotates your photo 90° clockwise. The rotation applies to the preview, the export, and the grain magnifier.</string>

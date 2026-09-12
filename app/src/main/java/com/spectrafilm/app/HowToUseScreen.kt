@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.remember
 
 /**
  * Full-screen "How to use this app" guide.
@@ -109,6 +110,12 @@ fun HowToUseScreen(onBack: () -> Unit) {
 
 @Composable
 private fun HowToContent(ctx: android.content.Context) {
+    // Counted from the shipped assets rather than written into the prose. The guide used to
+    // claim "20 built-in" presets; there were 28 at the time, and 27 now. A number a human
+    // has to remember to update is a number that is wrong.
+    val presetCount = remember(ctx) { runCatching { BuiltInPresets.load(ctx).size }.getOrDefault(0) }
+    val stockCount = remember(ctx) { runCatching { StockCatalog.stocks(ctx).size }.getOrDefault(0) }
+
 
     // --- 1. What Spektrafilm is ---
     GuideSection(
@@ -155,10 +162,10 @@ private fun HowToContent(ctx: android.content.Context) {
         title = stringResource(R.string.screen_howto_s4_title),
     ) {
         GuideBody(stringResource(R.string.screen_howto_s4_p1))
-        GuideStep(1, stringResource(R.string.screen_howto_s4_step1))
+        GuideStep(1, stringResource(R.string.screen_howto_s4_step1, stockCount))
         GuideStep(2, stringResource(R.string.screen_howto_s4_step2))
         GuideStep(3, stringResource(R.string.screen_howto_s4_step3))
-        GuideStep(4, stringResource(R.string.screen_howto_s4_step4))
+        GuideStep(4, stringResource(R.string.screen_howto_s4_step4, presetCount))
     }
 
     // --- 5. Key tools ---
