@@ -304,7 +304,7 @@ private suspend fun decodeSourceRequest(
 }
 
 /** Top-level navigation destinations. */
-internal enum class Screen { EDITOR, SETTINGS, ABOUT, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS }
+internal enum class Screen { EDITOR, SETTINGS, ABOUT, HOWTO, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS }
 
 private data class EditorStartupRead(
     val session: EditorSessionReadResult,
@@ -937,7 +937,14 @@ class MainActivity : ComponentActivity() {
                         DiagnosticsScreen()
                     }
                     Screen.ABOUT -> NavScaffold(stringResource(R.string.editor_action_about), onBack = { navigateTo(Screen.EDITOR) }) {
-                        AboutScreen()
+                        AboutScreen(onOpenHowTo = { navigateTo(Screen.HOWTO) })
+                    }
+                    Screen.HOWTO -> NavScaffold(
+                        stringResource(R.string.screen_howto_title),
+                        onBack = { navigateTo(Screen.ABOUT) },
+                    ) {
+                        // Header supplied by the scaffold above, so the guide draws none.
+                        HowToUseScreen(onBack = null)
                     }
                     Screen.CURVES_FILM -> ProfileCurvesScreen(
                         profileId = curvesFilmId,
@@ -984,7 +991,12 @@ class MainActivity : ComponentActivity() {
                 TopAppBar(
                     title = { Text(title, modifier = Modifier.semantics { heading() }) },
                     navigationIcon = {
-                        TextButton(onClick = onBack) { Text(stringResource(R.string.editor_nav_back)) }
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                SpectraIcons.Back,
+                                contentDescription = stringResource(R.string.editor_nav_back),
+                            )
+                        }
                     },
                 )
                 Box(Modifier.weight(1f)) { content() }
@@ -6067,6 +6079,7 @@ class MainActivity : ComponentActivity() {
                 tooltip = stringResource(R.string.editor_input_creative_tint_tooltip),
                 default = 0f)
             OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                ButtonIcon(SpectraIcons.Eyedropper)
                 Text(stringResource(R.string.editor_wb_eyedropper))
             }
             Divider()
@@ -6144,6 +6157,7 @@ class MainActivity : ComponentActivity() {
             // always — the eyedropper is the most prominent control so it's findable. The native RAW
             // camera WB (Kelvin/tint, re-decodes the file) is appended only for RAW/DNG sources.
             OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
+                ButtonIcon(SpectraIcons.Eyedropper)
                 Text(stringResource(R.string.editor_wb_eyedropper))
             }
             Text(

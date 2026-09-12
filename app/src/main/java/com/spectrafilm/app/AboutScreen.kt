@@ -79,9 +79,10 @@ private val bundledLegalDocuments = listOf(
 
 /** Full-screen About, used when reached from the top-bar / Settings. */
 @Composable
-fun AboutScreen() {
-    // Show the How-To guide over this screen when the user taps the button.
-    // Local state: no MainActivity or NavController dependency.
+fun AboutScreen(onOpenHowTo: (() -> Unit)? = null) {
+    // The guide is a real destination when the host offers one ([onOpenHowTo]); rendering it
+    // over this screen instead stacked its header on top of the host's, so you read the guide
+    // under a bar that said "About". The inline path stays for hosts with no navigation.
     var showHowTo by remember { mutableStateOf(false) }
 
     if (showHowTo) {
@@ -98,7 +99,7 @@ fun AboutScreen() {
     ) {
         // Prominent "How to use this app" entry point at the top of About.
         Button(
-            onClick = { showHowTo = true },
+            onClick = { if (onOpenHowTo != null) onOpenHowTo() else showHowTo = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.screen_how_to_use_app))

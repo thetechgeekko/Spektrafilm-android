@@ -39,6 +39,8 @@
  *   SpectraIcons.Settings       – 8-tooth gear: outer toothed ring + inner hub circle
  *   SpectraIcons.Help           – circle containing "?" (help / about)
  *   SpectraIcons.Rotate         – ¾-arc with arrowhead (90° clockwise rotate)
+ *   SpectraIcons.Back           – chevron pointing left (navigate up)
+ *   SpectraIcons.Eyedropper     – 45° pipette with collar (sample a neutral)
  */
 
 package com.spectrafilm.app
@@ -533,6 +535,39 @@ object SpectraIcons {
     // arrowhead at the open (left) end — the classic "step backward" glyph,
     // drawn in the same hand-stroked line-art style as Rotate.
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Back — plain chevron pointing left (navigate up / previous screen).
+    // -----------------------------------------------------------------------
+    val Back: ImageVector by lazy {
+        icon("Back") {
+            strokePath("M 15 4 L 7 12 L 15 20")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Eyedropper — pipette on the 45 degree diagonal, tip at lower-left.
+    //
+    // Constructed on the axis from the tip (4,20) to the bulb, with a body half
+    // width of 2.1 and a semicircular bulb cap — so the two long edges stay
+    // exactly parallel and the cap is a true half circle rather than a guess.
+    // The collar across the barrel is what stops it reading as a pen.
+    // -----------------------------------------------------------------------
+    val Eyedropper: ImageVector by lazy {
+        icon("Eyedropper") {
+            strokePath(
+                "M 4 20" +
+                " L 5.35 15.69" +               // tip -> lower body edge
+                " L 14.54 6.5" +                // up the far edge to the bulb
+                " C 15.36 5.68 16.68 5.68 17.5 6.5" +   // bulb cap, first quarter
+                " C 18.32 7.32 18.32 8.64 17.5 9.46" +  // bulb cap, second quarter
+                " L 8.31 18.65" +               // back down the near edge
+                " Z"
+            )
+            // Collar across the barrel, perpendicular to the axis.
+            strokePath("M 6.76 14.28 L 9.72 17.24")
+        }
+    }
+
     val Undo: ImageVector by lazy {
         icon("Undo") {
             // Arc: starts low-left, curves up over the top, down to the right

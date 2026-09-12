@@ -63,12 +63,13 @@ import androidx.compose.runtime.remember
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HowToUseScreen(onBack: () -> Unit) {
+fun HowToUseScreen(onBack: (() -> Unit)?) {
     val ctx = LocalContext.current
 
     // System back dismisses the guide (mirrors the top-bar Back button) instead of
     // falling through to the host — which could pop the whole app from onboarding.
-    BackHandler { onBack() }
+    // With no onBack the host owns navigation, so the host owns Back too.
+    if (onBack != null) BackHandler { onBack() }
 
     Surface(
         color = MaterialTheme.colorScheme.background,
@@ -79,17 +80,22 @@ fun HowToUseScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars),
         ) {
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(R.string.screen_howto_title),
-                        modifier = Modifier.semantics { heading() },
-                    )
-                },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text(stringResource(R.string.screen_back)) }
-                },
-            )
+            // Only when this screen is its own host. Rendered inside a NavScaffold it would
+            // be the SECOND "Back + title" bar on screen, with the outer one still naming the
+            // screen you came from.
+            if (onBack != null) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            stringResource(R.string.screen_howto_title),
+                            modifier = Modifier.semantics { heading() },
+                        )
+                    },
+                    navigationIcon = {
+                        TextButton(onClick = onBack) { Text(stringResource(R.string.screen_back)) }
+                    },
+                )
+            }
             Column(
                 Modifier
                     .weight(1f)
