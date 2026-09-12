@@ -5829,12 +5829,36 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
             }
             val all = remember(builtInGroups) { builtInGroups.values.flatten() }
+            // GroupedDropdown has always rendered a spec line and a summary under each row
+            // (it is what the film/paper pickers use); this panel passed neither, so 27
+            // curated looks arrived as 27 bare names. Filling them in costs one map and
+            // turns the list into something you can actually choose from.
+            val ctx = LocalContext.current
+            val positiveLabel = stringResource(R.string.editor_preset_scan_positive)
+            val builtInDropdownGroups = remember(builtInGroups, positiveLabel) {
+                builtInGroups.map { (g, ps) ->
+                    DropdownGroup(
+                        g,
+                        ps.map { p ->
+                            DropdownOption(
+                                id = p.id,
+                                label = p.name,
+                                spec = BuiltInPresets.specLine(
+                                    filmName = StockCatalog.displayName(ctx, p.filmProfile),
+                                    printName = StockCatalog.displayName(ctx, p.printProfile),
+                                    scanFilm = p.scanFilm,
+                                    positiveLabel = positiveLabel,
+                                ),
+                                summary = p.description,
+                            )
+                        },
+                    )
+                }
+            }
             GroupedDropdown(
                 label = stringResource(R.string.editor_preset_builtin_label),
                 selectedId = selectedBuiltIn,
-                groups = builtInGroups.map { (g, ps) ->
-                    DropdownGroup(g, ps.map { DropdownOption(it.id, it.name) })
-                },
+                groups = builtInDropdownGroups,
                 onSelect = { selectedBuiltIn = it },
             )
             val current = all.firstOrNull { it.id == selectedBuiltIn }

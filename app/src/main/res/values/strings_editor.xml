@@ -247,6 +247,9 @@
     <string name="editor_preset_name">Preset name</string>
     <string name="editor_preset_save">Save current as preset</string>
     <string name="editor_preset_saved">Saved presets</string>
+    <!-- Shown instead of a paper name on the four reversal presets that scan the film
+         directly: there is no print stage, so naming a paper would be a lie. -->
+    <string name="editor_preset_scan_positive">scanned as positive</string>
     <string name="editor_preset_apply">Apply</string>
     <string name="editor_preset_delete">Delete</string>
     <string name="editor_preset_import_json">Import .json</string>
