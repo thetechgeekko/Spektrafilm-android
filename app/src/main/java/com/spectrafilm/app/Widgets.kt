@@ -117,15 +117,23 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalDensity
 
+/** What a slider is currently reading, for the floating readout over the preview. */
+data class SliderReadout(val label: String, val value: String)
+
 /**
  * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]
  * fires on each drag frame, [onFinished] on release. The editor uses this to render a fast live
  * DRAFT only while a slider is actively dragged, then the crisp full pass on release — so a discrete
  * edit (switch/dropdown) skips the draft and goes straight to the crisp render. Provided via
  * [LocalSliderInteraction]; the default is a no-op so a slider still works with no provider.
+ *
+ * [onChange] also carries the value being set. The editor fades the panel almost away during a
+ * drag so the photograph underneath is visible — which is only usable if the number moves
+ * somewhere you can still see it, so it floats over the preview instead. Every slider in the app
+ * funnels through EnhancedSlider, so reporting it there covers all of them.
  */
 class SliderInteraction(
-    val onChange: () -> Unit = {},
+    val onChange: (SliderReadout?) -> Unit = {},
     val onFinished: () -> Unit = {},
 )
 
@@ -412,7 +420,10 @@ fun EnhancedSlider(
                         value = value,
                         range = range,
                         step = step,
-                        onValueChange = { onValueChange(it); interaction.onChange() },
+                        onValueChange = {
+                            onValueChange(it)
+                            interaction.onChange(SliderReadout(label, formatValue(it, decimals)))
+                        },
                         onSettled = {
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             interaction.onFinished()
@@ -441,7 +452,13 @@ fun EnhancedSlider(
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = { onValueChange(snap(it, range, step)); interaction.onChange() },
+            onValueChange = {
+                // Report the SNAPPED value, not the raw track position: the readout has to say
+                // what the engine will actually receive.
+                val snapped = snap(it, range, step)
+                onValueChange(snapped)
+                interaction.onChange(SliderReadout(label, formatValue(snapped, decimals)))
+            },
             onValueChangeFinished = {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 interaction.onFinished()

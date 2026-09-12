@@ -125,6 +125,7 @@ import org.json.JSONObject
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
 
 /** Which kind of source image is loaded. */
@@ -1168,10 +1169,15 @@ class MainActivity : ComponentActivity() {
         // continuous-draft cost is bounded to actual drags. Remembered so its identity is stable
         // across recompositions; provided to sliders via LocalSliderInteraction below.
         val interacting = remember { mutableStateOf(false) }
+        // What the moving slider currently reads. Held as State and handed to the readout by
+        // REFERENCE, never by value: a drag writes this every frame, and reading `.value` here
+        // in EditorScreen would recompose this entire 6600-line composable at 60 Hz while the
+        // engine is already running a draft render on the same cores.
+        val sliderReadout = remember { mutableStateOf<SliderReadout?>(null) }
         val sliderInteraction = remember {
             SliderInteraction(
-                onChange = { interacting.value = true },
-                onFinished = { interacting.value = false },
+                onChange = { readout -> interacting.value = true; sliderReadout.value = readout },
+                onFinished = { interacting.value = false; sliderReadout.value = null },
             )
         }
 
@@ -3866,7 +3872,10 @@ class MainActivity : ComponentActivity() {
                                 // every frame. That per-frame resize churned the GLSurfaceView (it
                                 // forced GPU preview off) and jolted the CPU preview too; a
                                 // constant-height preview fixes both and unblocks GPU.
-                                PanelOverlay(visible = activeCategory != null) {
+                                PanelOverlay(
+                                    visible = activeCategory != null,
+                                    dimming = interacting,
+                                ) {
                                     AdjustmentPanel(
                                         modifier = Modifier.onSizeChanged { panelHeightPx = it.height },
                                         category = activeCategory,
@@ -3874,6 +3883,25 @@ class MainActivity : ComponentActivity() {
                                         content = panelContent,
                                     )
                                 }
+
+                                // --- FLOATING VALUE READOUT ---
+                                // Drawn after the panel so it sits above the faded one.
+                                //
+                                // Top-END, not top-centre. The top of the preview is already
+                                // spoken for: StatusPill is TopStart but runs wide enough to
+                                // reach the middle ("Rendered in 162 ms" did, on device), and
+                                // PreviewHistogramOverlay is TopCenter outright. The right
+                                // corner is the only part of that band nothing else claims.
+                                //
+                                // The wrapper is fillMaxWidth so the pill's text changing width
+                                // as digits come and go cannot propagate a remeasure outwards to
+                                // the preview it is sitting on.
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.TopCenter),
+                                    contentAlignment = Alignment.TopEnd,
+                                ) { SliderReadoutPill(sliderReadout) }
                             }
 
                             // --- BOTTOM CATEGORY BAR ---
@@ -5014,6 +5042,64 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * How far the panel fades while a slider is moving, and how long each direction takes.
+     *
+     * Asymmetric on purpose. Getting out of the way has to feel like a consequence of your
+     * finger, so it is fast; coming back is not urgent and a snap back to full opacity reads as
+     * a flicker, so it is slower. 0.20 leaves the controls faintly legible — enough to see that
+     * the track is still under your thumb — without the panel competing with the photograph.
+     */
+    private val PANEL_DIM_ALPHA = 0.20f
+    private val PANEL_DIM_OUT_SPEC = tween<Float>(durationMillis = 110)
+    private val PANEL_DIM_IN_SPEC = tween<Float>(durationMillis = 240)
+
+    /**
+     * The value of the slider under your finger, floating over the photograph.
+     *
+     * This exists because of the fade: with the panel at 0.20 you can no longer read its value
+     * pill, and an adjustment you cannot put a number on is a worse tool, not a better-looking
+     * one. So the number moves to where you are already looking.
+     *
+     * [readout] is read HERE and nowhere else. A drag writes it on every frame, so this small
+     * composable is the entire recomposition cost of the feature.
+     */
+    @Composable
+    private fun SliderReadoutPill(readout: State<SliderReadout?>) {
+        val r = readout.value ?: return
+        Surface(
+            color = Color.Black.copy(alpha = 0.62f),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .padding(top = 6.dp, end = 6.dp)
+                // A long parameter name must not grow the pill back across the status pill;
+                // the number is the part that has to stay readable, so the name ellipsizes.
+                .widthIn(max = 220.dp)
+                // Decorative: TalkBack already announces the slider's own value, and a live
+                // region here would read every intermediate frame of the drag aloud.
+                .clearAndSetSemantics { },
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    r.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    r.value,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+
+    /**
      * The adjustment panel as a floating bottom overlay inside the preview Box. Extracting it into a
      * BoxScope extension (a) lets it use Modifier.align to pin to the preview's bottom and (b) breaks
      * the enclosing Column's receiver chain, so AnimatedVisibility resolves to the top-level overload
@@ -5021,10 +5107,31 @@ class MainActivity : ComponentActivity() {
      * sheet rising over the now constant-height preview, so opening a panel no longer resizes it.
      */
     @Composable
-    private fun BoxScope.PanelOverlay(visible: Boolean, content: @Composable () -> Unit) {
+    private fun BoxScope.PanelOverlay(
+        visible: Boolean,
+        dimming: State<Boolean>,
+        content: @Composable () -> Unit,
+    ) {
+        // Lightroom's tool tray gets out of the way while you drag, and the reason is that the
+        // panel covers the bottom third of the photograph — exactly the part you are trying to
+        // judge. It fades to a ghost on the first movement and returns on release.
+        //
+        // `dimming` arrives as State and is read HERE rather than at the call site, so the flip
+        // recomposes this small composable instead of the editor around it. The animated alpha
+        // is then read inside the graphicsLayer LAMBDA, which runs in the draw phase, so no
+        // frame of the fade re-measures anything. That matters: the preview is a weight(1f)
+        // sibling, and a per-frame remeasure of it is what forced the GPU preview off once
+        // already (the note under the call site).
+        val alpha = animateFloatAsState(
+            targetValue = if (dimming.value) PANEL_DIM_ALPHA else 1f,
+            animationSpec = if (dimming.value) PANEL_DIM_OUT_SPEC else PANEL_DIM_IN_SPEC,
+            label = "panelDim",
+        )
         AnimatedVisibility(
             visible = visible,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .graphicsLayer { this.alpha = alpha.value },
             enter = expandVertically(animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
                 stiffness = Spring.StiffnessLow,
