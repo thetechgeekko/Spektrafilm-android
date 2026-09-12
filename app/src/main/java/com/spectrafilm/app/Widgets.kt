@@ -59,6 +59,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -241,9 +242,13 @@ fun SectionCard(
 }
 
 /**
- * A small circular "?" affordance for a [SectionCard] header. Drawn with a glyph rather than a
- * material-icons dependency (matching [Chevron]); a long-press tooltip + semantics label name the
- * section so it is discoverable and accessible. [onClick] opens the section's [HelpSheet].
+ * A small "?" affordance for a [SectionCard] header, drawn with [SpectraIcons.Help]; a long-press
+ * tooltip + semantics label name the section so it is discoverable and accessible. [onClick] opens
+ * the section's [HelpSheet].
+ *
+ * The vector already contains its own circle, so this draws no border of its own — it used to
+ * draw a `border` ring around a typographic "?", which meant the ring's weight came from a
+ * BorderStroke and the glyph's from the type scale, and neither matched the icon set.
  */
 @Composable
 private fun HelpBadge(title: String, onClick: () -> Unit) {
@@ -256,16 +261,15 @@ private fun HelpBadge(title: String, onClick: () -> Unit) {
                 .minimumInteractiveComponentSize()
                 .size(26.dp)
                 .clip(CircleShape)
-                .border(BorderStroke(1.dp, accent.copy(alpha = 0.55f)), CircleShape)
                 .clickable(onClickLabel = showHelpLabel, role = Role.Button, onClick = onClick)
                 .semantics { contentDescription = description },
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "?",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = accent,
+            Icon(
+                SpectraIcons.Help,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(22.dp),
             )
         }
     }
@@ -318,6 +322,10 @@ fun HelpSheet(help: ParamHelp, onDismiss: () -> Unit) {
  */
 @Composable
 fun AdvancedToggle(advanced: Boolean, onToggle: (Boolean) -> Unit) {
+    // The same chevron, and the same rotation, as SectionCard's own disclosure — this is the
+    // second kind of "there is more below" control in the editor and it read as a plain
+    // sentence, with nothing to say it opened anything.
+    val rotation by animateFloatAsState(if (advanced) 180f else 0f, label = "advancedChevron")
     TextButton(
         onClick = { onToggle(!advanced) },
         modifier = Modifier.fillMaxWidth(),
@@ -327,6 +335,8 @@ fun AdvancedToggle(advanced: Boolean, onToggle: (Boolean) -> Unit) {
                 if (advanced) R.string.widget_advanced_hide else R.string.widget_advanced_show,
             ),
         )
+        Spacer(Modifier.width(6.dp))
+        Chevron(modifier = Modifier.rotate(rotation).size(18.dp))
     }
 }
 
@@ -1509,27 +1519,16 @@ private fun MeteringMethodRow(
             modifier = Modifier.weight(1f),
         )
         if (isSelected) {
-            // Checkmark drawn via Canvas — no material-icons dependency.
-            val checkColor = primaryColor
-            Canvas(modifier = Modifier.size(20.dp)) {
-                val w = size.width
-                val h = size.height
-                val stroke = w * 0.10f
-                drawLine(
-                    color = checkColor,
-                    start = Offset(w * 0.18f, h * 0.52f),
-                    end = Offset(w * 0.42f, h * 0.76f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = checkColor,
-                    start = Offset(w * 0.42f, h * 0.76f),
-                    end = Offset(w * 0.82f, h * 0.28f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
-                )
-            }
+            // Was a second checkmark hand-drawn on a Canvas at stroke = 0.10 * width, next to
+            // SpectraIcons.Confirm at the icon set's own weight — two different ticks in one
+            // app. The Canvas existed to avoid a material-icons dependency, which the app's
+            // own vector already avoids.
+            Icon(
+                SpectraIcons.Confirm,
+                contentDescription = null,
+                tint = primaryColor,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
