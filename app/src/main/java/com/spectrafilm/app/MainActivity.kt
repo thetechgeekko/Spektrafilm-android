@@ -3727,7 +3727,7 @@ class MainActivity : ComponentActivity() {
                                             val blended = PresetAmount.blend(
                                                 org.json.JSONObject(base), org.json.JSONObject(full), a,
                                             )
-                                            Presets.decode(blended, state)
+                                            Presets.decodeLook(blended, state)
                                         }.onFailure { Diag.w("preset amount blend failed: ${it.message}") }
                                         previewTick++
                                     }
@@ -3776,7 +3776,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             if (text == null) { status = ctx.getString(R.string.editor_status_preset_apply_failed); return@launch }
                                             runCatching {
-                                                applyWithAmount { Presets.decode(org.json.JSONObject(text), state) }
+                                                applyWithAmount { Presets.decodeLook(org.json.JSONObject(text), state) }
                                             }
                                                 .onSuccess { status = ctx.getString(R.string.editor_status_preset_applied, name); previewTick++ }
                                                 .onFailure { status = ctx.getString(R.string.editor_status_preset_apply_failed_reason, it.message) }
