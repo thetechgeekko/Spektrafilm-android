@@ -181,6 +181,40 @@ private fun decodeIdentityOf(request: SourceDecodeRequest): String = with(reques
         "balance=$balanceToFilmStock;film=$filmProfile"
 }
 
+
+/**
+ * Whether a refused RAW decode should be retried through the bounded platform decoder
+ * instead of failing the open outright.
+ *
+ * The qualified LibRaw route deliberately refuses inputs it cannot carry EXACTLY: a float
+ * DNG, a lossy or JPEG-XL codec it will not quantize behind your back, and metadata whose
+ * precision it cannot model {EM} which includes a well-formed DNG whose RATIONAL BlackLevel is
+ * fractional (6406/100 = 64.06 is real and shipping), because the precision descriptor
+ * carries integer black levels and parity is the prime directive here. Refusing the ROUTE is
+ * right. Refusing the PHOTO is not: decodeViaPlatform does not use the LibRaw route at all,
+ * so the reason the route stood down does not apply to it. PRECISION_METADATA therefore lands
+ * here alongside the codecs that already did.
+ *
+ * Before this, that status had no fallback and no message either: the exception unwound
+ * through the single-flight into the editor's shared scope and the preview simply never
+ * arrived. See SingleFlight for the other half of that failure.
+ *
+ * Note the FILE_UNSUPPORTED arm tests a ".dng" suffix, which a SAF document URI
+ * ("content://.../document/image%3A220439") does not have {EM} it is left as-is here rather
+ * than widened blind, but it means that arm rarely fires for picked files.
+ */
+internal fun rawFallbackSupported(status: DecodeStatus, lastPathSegment: String?): Boolean =
+    when (status) {
+        DecodeStatus.DEFLATE_DNG,
+        DecodeStatus.LOSSY_JPEG_DNG,
+        DecodeStatus.JPEGXL_DNG,
+        DecodeStatus.PRECISION_METADATA,
+        -> true
+        DecodeStatus.FILE_UNSUPPORTED ->
+            lastPathSegment?.endsWith(".dng", ignoreCase = true) == true
+        else -> false
+    }
+
 private suspend fun decodeSourceRequest(
     request: SourceDecodeRequest,
     maxEdge: Int,
@@ -221,15 +255,7 @@ private suspend fun decodeSourceRequest(
                     it.initCause(failure)
                 }
             }
-            val fallbackSupported = when (failure.status) {
-                DecodeStatus.DEFLATE_DNG,
-                DecodeStatus.LOSSY_JPEG_DNG,
-                DecodeStatus.JPEGXL_DNG,
-                -> true
-                DecodeStatus.FILE_UNSUPPORTED ->
-                    uri?.lastPathSegment?.endsWith(".dng", ignoreCase = true) == true
-                else -> false
-            }
+            val fallbackSupported = rawFallbackSupported(failure.status, uri?.lastPathSegment)
             if (!fallbackSupported) throw failure
             usedPlatformFallback = true
             applyExifBaseline = true
