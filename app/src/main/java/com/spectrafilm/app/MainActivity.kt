@@ -2760,7 +2760,14 @@ class MainActivity : ComponentActivity() {
         // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
         // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
         // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
-        LaunchedEffect(previewTick, sourceRenderAllowed) {
+        // `engine` is a KEY, not just a guard. It is assigned asynchronously once the native
+        // engine finishes loading, which can land AFTER this effect first composes — and the
+        // `engine ?: return` below then retires the effect for good, because nothing re-runs it
+        // until previewTick or sourceRenderAllowed changes. Today the recipe restore's
+        // previewTick++ rescues that by accident; the key makes it deliberate.
+        // Honest scope: this was written while chasing a cold-start hang and did NOT fix it.
+        // It closes a real race that is simply not the one observed there.
+        LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
                 if (!sourceRenderAllowed) return@LaunchedEffect
                 val publicationTicket = publicationGate.begin(
                     previewRevision,
@@ -2875,7 +2882,9 @@ class MainActivity : ComponentActivity() {
         // change, after a debounce so it lands once the user pauses. The live DRAFT effect above
         // keeps the image moving during the edit (Lightroom's loupe), so this pass goes straight
         // to the full-resolution result instead of a separate coarse pass.
-        LaunchedEffect(previewTick, sourceRenderAllowed) {
+        // Keyed on engine for the same reason as the draft effect above: without it a cold
+        // start that composes before the native engine is ready never renders at all.
+        LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
             if (!sourceRenderAllowed) return@LaunchedEffect
             val e = engine ?: return@LaunchedEffect
             val previewProbeLabel = Ticket139EditorProbe.sourceProbeLabel(sourceUri?.toString())
@@ -2891,181 +2900,200 @@ class MainActivity : ComponentActivity() {
             previewBusy = true
             renderErr = null
             status = ctx.getString(R.string.editor_status_rendering_preview)
-            val renderStart = System.currentTimeMillis()
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Key built on MAIN (reads Compose state); the same snapshot renders below,
-            // so the key and the render can never disagree.
-            val cacheKey = gradeCacheKey(fullEdge)
-            val cacheStoreTicket = gradeCache.beginStore(cacheKey)
-            val cached = gradeCache.lookup(cacheKey)
-            val prevBefore = beforePreview
-            var renderId = 0L
-            var completionProbeHandled = false
-            val result = try {
-                runCatching {
-                    withOwnedContext(
-                        context = Dispatchers.Default,
-                        dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
-                            if (!submission.second.isRecycled) submission.second.recycle()
-                            if (submission.third && !submission.first.isRecycled) {
-                                submission.first.recycle()
-                            }
-                        },
-                    ) {
-                        if (cached != null && prevBefore != null) {
-                            // Grade-only edit (identical engine inputs): re-grade the retained
-                            // pristine engine result — ZERO native work. The ungraded `before`
-                            // is unchanged by construction.
-                            var after: Bitmap? = null
-                            var transferred = false
-                            try {
-                                val rendered = cached.withScratch { scratch ->
-                                    gradeBufferToBitmap(scratch, cached.width,
-                                        cached.height, cached.colorSpace, state.savingCctfEncoding,
-                                        state.saturation, state.vibrance, state.gamutCompress,
-                                        state.localAdjustments)
+            // Every reset below used to be a plain statement. Cancellation skips every
+            // statement after the suspension point it unwinds from, so a render cancelled
+            // mid-flight left decoding/previewBusy set and the status pinned to
+            // "rendering preview…" — with no work running, all engine threads idle,
+            // and nothing to restart the effect (its keys are previewTick and
+            // sourceRenderAllowed). The editor sat there permanently. Observed on a
+            // 4080x3060 DNG after a speculative export pre-render exhausted the memory
+            // budget. A finally runs on cancellation, which is the whole point.
+            var settled = false
+            try {
+                val renderStart = System.currentTimeMillis()
+                val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+                // Key built on MAIN (reads Compose state); the same snapshot renders below,
+                // so the key and the render can never disagree.
+                val cacheKey = gradeCacheKey(fullEdge)
+                val cacheStoreTicket = gradeCache.beginStore(cacheKey)
+                val cached = gradeCache.lookup(cacheKey)
+                val prevBefore = beforePreview
+                var renderId = 0L
+                var completionProbeHandled = false
+                val result = try {
+                    runCatching {
+                        withOwnedContext(
+                            context = Dispatchers.Default,
+                            dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
+                                if (!submission.second.isRecycled) submission.second.recycle()
+                                if (submission.third && !submission.first.isRecycled) {
+                                    submission.first.recycle()
                                 }
-                                after = rendered
-                                val submission = Triple(prevBefore, rendered, false)
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) after?.let { if (!it.isRecycled) it.recycle() }
-                            }
-                        } else {
-                            decoding = true
-                        // The live DRAFT effect above already paints a fast low-res proxy during the
-                        // edit, so this settle pass goes straight to the crisp full render (no separate
-                        // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
-                        // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
-                        // look-param edits reuse it.
-                            var before: Bitmap? = null
-                            var after: Bitmap? = null
-                            var transferred = false
-                            var completionProbeHeld = false
-                            try {
-                                val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
-                                    decoding = false
-                                    val ownedBefore = linearToDisplayBitmap(lease.image)
-                                    before = ownedBefore
-                                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
-                                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
-                                    // Render with cacheKey.engineParams — the exact snapshot the key hashed.
-                                    val ownedAfter = runCancellableNative(
-                                        onLateResult = { late ->
-                                            late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                            late.close()
-                                        },
-                                    ) { cancellation ->
-                                        e.simulatePreview(
-                                            lease.image,
-                                            cacheKey.engineParams,
-                                            cancellation = cancellation,
-                                        )
-                                    }.use { res ->
-                                        renderId = res.renderId
-                                        // Retain the PRISTINE engine output BEFORE the grade mutates it.
-                                        res.acquireDataLease().use { resultLease ->
-                                            val cacheOutcome = storeGradeCacheBestEffort {
-                                                gradeCache.store(
-                                                    cacheStoreTicket,
-                                                    cacheKey,
-                                                    resultLease.data,
-                                                    res.width,
-                                                    res.height,
-                                                    res.colorSpace,
-                                                )
-                                            }
-                                            if (cacheOutcome == GradeCacheStoreOutcome.CAPACITY_DENIED) {
-                                                Diag.w("grade cache skipped: memory admission denied")
-                                            }
-                                        }
-                                        val rendered = simResultToBitmapGraded(
-                                            res,
-                                            state.savingCctfEncoding,
-                                            state.saturation,
-                                            state.vibrance,
-                                            state.gamutCompress,
-                                            state.localAdjustments,
-                                        ).also { bitmap -> after = bitmap }
-                                        // The test seam is exactly the completed native settle's
-                                        // production completion-before-publication boundary. The
-                                        // SimResult and decoded-source lease remain owned here.
-                                        completionProbeHeld = Ticket139EditorProbe
-                                            .awaitCompletedPreviewBeforePublication(previewProbeLabel)
-                                        rendered
+                            },
+                        ) {
+                            if (cached != null && prevBefore != null) {
+                                // Grade-only edit (identical engine inputs): re-grade the retained
+                                // pristine engine result — ZERO native work. The ungraded `before`
+                                // is unchanged by construction.
+                                var after: Bitmap? = null
+                                var transferred = false
+                                try {
+                                    val rendered = cached.withScratch { scratch ->
+                                        gradeBufferToBitmap(scratch, cached.width,
+                                            cached.height, cached.colorSpace, state.savingCctfEncoding,
+                                            state.saturation, state.vibrance, state.gamutCompress,
+                                            state.localAdjustments)
                                     }
-                                    Triple(ownedBefore, ownedAfter, true)
+                                    after = rendered
+                                    val submission = Triple(prevBefore, rendered, false)
+                                    transferred = true
+                                    submission
+                                } finally {
+                                    if (!transferred) after?.let { if (!it.isRecycled) it.recycle() }
                                 }
-                                if (completionProbeHeld) {
-                                    // B cancels this LaunchedEffect while A is held. Complete the
-                                    // actual gate decision and full resource cleanup synchronously
-                                    // here, before withOwnedContext's prompt-cancellation return can
-                                    // discard the owned Triple. This branch is test-armed only.
-                                    val claimed = publicationGate.tryClaim(publicationTicket)
-                                    Ticket139EditorProbe.publishPreviewDecision(
-                                        previewProbeLabel,
-                                        claimed,
-                                    )
-                                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                                    val (probeBefore, probeAfter, ownsProbeBefore) = submission
-                                    if (!probeAfter.isRecycled) probeAfter.recycle()
-                                    if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
-                                    completionProbeHandled = true
-                                    Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                                }
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) {
-                                    after?.let { if (!it.isRecycled) it.recycle() }
-                                    before?.let { if (!it.isRecycled) it.recycle() }
+                            } else {
+                                decoding = true
+                            // The live DRAFT effect above already paints a fast low-res proxy during the
+                            // edit, so this settle pass goes straight to the crisp full render (no separate
+                            // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
+                            // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
+                            // look-param edits reuse it.
+                                var before: Bitmap? = null
+                                var after: Bitmap? = null
+                                var transferred = false
+                                var completionProbeHeld = false
+                                try {
+                                    val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
+                                        decoding = false
+                                        val ownedBefore = linearToDisplayBitmap(lease.image)
+                                        before = ownedBefore
+                                        // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
+                                        // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
+                                        // Render with cacheKey.engineParams — the exact snapshot the key hashed.
+                                        val ownedAfter = runCancellableNative(
+                                            onLateResult = { late ->
+                                                late.reportOutcome(AppRenderOutcome.SUPERSEDED)
+                                                late.close()
+                                            },
+                                        ) { cancellation ->
+                                            e.simulatePreview(
+                                                lease.image,
+                                                cacheKey.engineParams,
+                                                cancellation = cancellation,
+                                            )
+                                        }.use { res ->
+                                            renderId = res.renderId
+                                            // Retain the PRISTINE engine output BEFORE the grade mutates it.
+                                            res.acquireDataLease().use { resultLease ->
+                                                val cacheOutcome = storeGradeCacheBestEffort {
+                                                    gradeCache.store(
+                                                        cacheStoreTicket,
+                                                        cacheKey,
+                                                        resultLease.data,
+                                                        res.width,
+                                                        res.height,
+                                                        res.colorSpace,
+                                                    )
+                                                }
+                                                if (cacheOutcome == GradeCacheStoreOutcome.CAPACITY_DENIED) {
+                                                    Diag.w("grade cache skipped: memory admission denied")
+                                                }
+                                            }
+                                            val rendered = simResultToBitmapGraded(
+                                                res,
+                                                state.savingCctfEncoding,
+                                                state.saturation,
+                                                state.vibrance,
+                                                state.gamutCompress,
+                                                state.localAdjustments,
+                                            ).also { bitmap -> after = bitmap }
+                                            // The test seam is exactly the completed native settle's
+                                            // production completion-before-publication boundary. The
+                                            // SimResult and decoded-source lease remain owned here.
+                                            completionProbeHeld = Ticket139EditorProbe
+                                                .awaitCompletedPreviewBeforePublication(previewProbeLabel)
+                                            rendered
+                                        }
+                                        Triple(ownedBefore, ownedAfter, true)
+                                    }
+                                    if (completionProbeHeld) {
+                                        // B cancels this LaunchedEffect while A is held. Complete the
+                                        // actual gate decision and full resource cleanup synchronously
+                                        // here, before withOwnedContext's prompt-cancellation return can
+                                        // discard the owned Triple. This branch is test-armed only.
+                                        val claimed = publicationGate.tryClaim(publicationTicket)
+                                        Ticket139EditorProbe.publishPreviewDecision(
+                                            previewProbeLabel,
+                                            claimed,
+                                        )
+                                        SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
+                                        val (probeBefore, probeAfter, ownsProbeBefore) = submission
+                                        if (!probeAfter.isRecycled) probeAfter.recycle()
+                                        if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
+                                        completionProbeHandled = true
+                                        Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+                                    }
+                                    transferred = true
+                                    submission
+                                } finally {
+                                    if (!transferred) {
+                                        after?.let { if (!it.isRecycled) it.recycle() }
+                                        before?.let { if (!it.isRecycled) it.recycle() }
+                                    }
                                 }
                             }
                         }
                     }
+                } finally {
+                    cached?.close()
                 }
+                decoding = false
+                if (completionProbeHandled) return@LaunchedEffect
+                val publicationClaimed = publicationGate.tryClaim(publicationTicket)
+                Ticket139EditorProbe.publishPreviewDecision(
+                    previewProbeLabel,
+                    publicationClaimed && isActive,
+                )
+                if (!isActive || !publicationClaimed) {
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
+                    result.getOrNull()?.let { (before, after, ownsBefore) ->
+                        if (!after.isRecycled) after.recycle()
+                        if (ownsBefore && !before.isRecycled) before.recycle()
+                    }
+                    Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+                    return@LaunchedEffect
+                }
+                result.onSuccess { (before, after, _) ->
+                    beforePreview = before; preview = after
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
+                    Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
+                    lastRenderMs = System.currentTimeMillis() - renderStart
+                    Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
+                    renderErr = null
+                    status = ctx.getString(R.string.editor_status_preview_ready)
+                }.onFailure {
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
+                    Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
+                    if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
+                        retireSourceResources()
+                        sourceAuthorizationRequired = true
+                        renderErr = ctx.getString(R.string.editor_render_error_auth_required)
+                        status = ctx.getString(R.string.editor_status_source_expired)
+                    } else {
+                        renderErr = it.message?.take(60)
+                        status = ctx.getString(R.string.editor_status_preview_error, it.message)
+                    }
+                }
+                previewBusy = false
+                settled = true
             } finally {
-                cached?.close()
+                decoding = false
+                previewBusy = false
+                // Not settled means cancelled, not finished. When a NEWER render caused the
+                // cancellation it overwrites this within a frame; when nothing did, this is
+                // the difference between a recoverable editor and a dead one.
+                if (!settled) status = ctx.getString(R.string.editor_status_preview_interrupted)
             }
-            decoding = false
-            if (completionProbeHandled) return@LaunchedEffect
-            val publicationClaimed = publicationGate.tryClaim(publicationTicket)
-            Ticket139EditorProbe.publishPreviewDecision(
-                previewProbeLabel,
-                publicationClaimed && isActive,
-            )
-            if (!isActive || !publicationClaimed) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                result.getOrNull()?.let { (before, after, ownsBefore) ->
-                    if (!after.isRecycled) after.recycle()
-                    if (ownsBefore && !before.isRecycled) before.recycle()
-                }
-                Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                return@LaunchedEffect
-            }
-            result.onSuccess { (before, after, _) ->
-                beforePreview = before; preview = after
-                SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
-                lastRenderMs = System.currentTimeMillis() - renderStart
-                Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
-                renderErr = null
-                status = ctx.getString(R.string.editor_status_preview_ready)
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
-                if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
-                    retireSourceResources()
-                    sourceAuthorizationRequired = true
-                    renderErr = ctx.getString(R.string.editor_render_error_auth_required)
-                    status = ctx.getString(R.string.editor_status_source_expired)
-                } else {
-                    renderErr = it.message?.take(60)
-                    status = ctx.getString(R.string.editor_status_preview_error, it.message)
-                }
-            }
-            previewBusy = false
         }
 
         // GPU LUT preview feed (experimental, default OFF): after the CPU preview settles,
@@ -3198,6 +3226,9 @@ class MainActivity : ComponentActivity() {
         // that avoids adding a fourth hand-maintained key list to the three this file already
         // warns about, and Compose's own cancellation is the latest-wins rule for free.
         var prerenderDigest by remember(sourceUri) { mutableStateOf<Pair<String, Long>?>(null) }
+        // Stood down after a speculative render ran the source out of memory. Keyed on
+        // sourceUri like the digest, so a different photo gets a fresh chance.
+        var prerenderOutOfMemory by remember(sourceUri) { mutableStateOf(false) }
         LaunchedEffect(
             previewTick, sourceRenderAllowed, sourceUri, exportOptions,
             state.outputColorSpace, state.savingCctfEncoding,
@@ -3208,6 +3239,7 @@ class MainActivity : ComponentActivity() {
             val activeEngine = engine ?: return@LaunchedEffect
             val activeUri = sourceUri ?: return@LaunchedEffect
             if (!sourceRenderAllowed || exportInFlight) return@LaunchedEffect
+            if (prerenderOutOfMemory) return@LaunchedEffect
             delay(RenderPayloads.IDLE_DEBOUNCE_MS)
             if (previewBusy || exportInFlight) return@LaunchedEffect
             val app = ctx.applicationContext
@@ -3273,6 +3305,17 @@ class MainActivity : ComponentActivity() {
             }.onFailure { failure ->
                 if (failure is CancellationException) throw failure
                 Diag.w("pre-render skipped: $failure")
+                // This is SPECULATIVE work for an export the user has not asked for, and it
+                // decodes at EXPORT_MAX_EDGE_PX. On the 4080x3060 DNG that exposed this it cost
+                // a full decode plus most of an export — 13 s and ~650 MB — before failing, while
+                // the preview the user was actually waiting for got nothing. The budget will not
+                // have grown by the next previewTick, so retrying only repeats the damage.
+                // shouldPrerender's own guards do not catch this: they read the SYSTEM low-memory
+                // flag, not this process's own budget, which is what refused the allocation.
+                if (generateSequence(failure) { it.cause }.take(8).any { it is OutOfMemoryError }) {
+                    prerenderOutOfMemory = true
+                    Diag.w("pre-render stood down for this source after OOM")
+                }
             }
         }
 

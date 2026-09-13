@@ -140,6 +140,9 @@
     <string name="editor_magnifier_done">%1$d×%2$dpx · 1:1 full-res render</string>
     <string name="editor_magnifier_failed">crop render failed: %1$s</string>
     <string name="editor_status_rendering_preview">rendering preview…</string>
+    <!-- A render that was cancelled rather than finished. Without this the editor kept
+         claiming it was rendering while every engine thread sat idle. -->
+    <string name="editor_status_preview_interrupted">preview interrupted — change any setting to retry</string>
     <string name="editor_status_preview_ready">preview ready</string>
     <string name="editor_render_error_auth_required">source authorization required</string>
     <string name="editor_status_source_expired">source access expired or file moved · choose it again</string>
