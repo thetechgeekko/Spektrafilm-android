@@ -21,31 +21,30 @@ class RawFallbackRoutingTest {
         // The real file: a well-formed uncompressed DNG 1.4 whose RATIONAL BlackLevel is
         // 6406/100 = 64.06. The native preflight refuses it above open_buffer(); before this
         // there was no second route, so the editor drew nothing and said nothing.
-        assertTrue(rawFallbackSupported(DecodeStatus.PRECISION_METADATA, "image:220439"))
+        assertTrue(rawFallbackSupported(DecodeStatus.PRECISION_METADATA))
     }
 
     @Test
     fun theCodecsThatAlreadyFellBackStillDo() {
-        assertTrue(rawFallbackSupported(DecodeStatus.DEFLATE_DNG, null))
-        assertTrue(rawFallbackSupported(DecodeStatus.LOSSY_JPEG_DNG, null))
-        assertTrue(rawFallbackSupported(DecodeStatus.JPEGXL_DNG, null))
+        assertTrue(rawFallbackSupported(DecodeStatus.DEFLATE_DNG))
+        assertTrue(rawFallbackSupported(DecodeStatus.LOSSY_JPEG_DNG))
+        assertTrue(rawFallbackSupported(DecodeStatus.JPEGXL_DNG))
     }
 
     @Test
     fun genuineDecodeFailuresStillFailRatherThanRetryingForever() {
         // These are data errors, not "this route cannot represent the input". Sending them
         // to the platform decoder would just burn a second full decode to fail again.
-        assertFalse(rawFallbackSupported(DecodeStatus.UNPACK, "x.dng"))
-        assertFalse(rawFallbackSupported(DecodeStatus.NO_MEMORY, "x.dng"))
-        assertFalse(rawFallbackSupported(DecodeStatus.CANCELLED, "x.dng"))
+        assertFalse(rawFallbackSupported(DecodeStatus.UNPACK))
+        assertFalse(rawFallbackSupported(DecodeStatus.NO_MEMORY))
+        assertFalse(rawFallbackSupported(DecodeStatus.CANCELLED))
     }
 
     @Test
-    fun fileUnsupportedStillNeedsADngSuffix() {
-        assertTrue(rawFallbackSupported(DecodeStatus.FILE_UNSUPPORTED, "shot.DNG"))
-        assertFalse(rawFallbackSupported(DecodeStatus.FILE_UNSUPPORTED, "shot.cr2"))
-        // Documents the known limit: a SAF document id carries no suffix, so this arm
-        // rarely fires for a picked file. Left as-is rather than widened blind.
-        assertFalse(rawFallbackSupported(DecodeStatus.FILE_UNSUPPORTED, "image:220439"))
+    fun fileUnsupportedFallsBackForTheUrisThisAppActuallyGets() {
+        // This arm used to require the path to end in ".dng". A SAF document id is
+        // "image:220439" and has no suffix, so the guard never fired for a picked file and
+        // a DNG LibRaw merely fails to recognise lost its second route entirely.
+        assertTrue(rawFallbackSupported(DecodeStatus.FILE_UNSUPPORTED))
     }
 }
