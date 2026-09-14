@@ -16,34 +16,28 @@ Dedicated to the [pixls.us](https://pixls.us) community.*
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/editor.jpg" width="200" alt="Editor"></td>
-    <td><img src="docs/screenshots/presets.jpg" width="200" alt="Presets"></td>
-    <td><img src="docs/screenshots/masks.jpg" width="200" alt="Masks"></td>
+    <td><img src="docs/screenshots/film.jpg" width="200" alt="Film stock selection"></td>
+    <td><img src="docs/screenshots/presets.jpg" width="200" alt="Built-in looks"></td>
     <td><img src="docs/screenshots/tone-curve.jpg" width="200" alt="Tone curve"></td>
+    <td><img src="docs/screenshots/scan.jpg" width="200" alt="Scanner stage"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Editor</sub></td>
-    <td align="center"><sub>Presets</sub></td>
-    <td align="center"><sub>Local masks</sub></td>
+    <td align="center"><sub>Film stock</sub></td>
+    <td align="center"><sub>Built-in looks</sub></td>
     <td align="center"><sub>Tone curve</sub></td>
+    <td align="center"><sub>Scanner stage</sub></td>
   </tr>
 </table>
 
 </div>
 
-> [!IMPORTANT]
-> **Development status:** the current tree has active post-v0.9.0 implementation work and remains
-> under a production-release hold. Public positioning relative to the owner's Latent camera project
-> is an unresolved human decision in
-> [Make README and project status truthful for the next release](https://github.com/thetechgeekko/Spektrafilm-android/issues/144).
+> [!NOTE]
+> **Related project — Latent.** Latent is a computational engine built around the manipulation of
+> RAW images. Spektrafilm for Android is the editor: you bring it a photo or a RAW file and it runs
+> the spectral film simulation over it. The two are developed by the same author and share the same
+> interest in getting RAW data right, but this app stands on its own and is maintained here.
+>
 > Live engineering work and known gates are in the [execution index](docs/EXECUTION_INDEX.md).
-
-<details>
-<summary>Earlier owner status note (retained verbatim pending that decision)</summary>
-
-Hello fellow geeks this app was a concept to do Spectral simulation BUT getting it perfect took a long time even after using Claude Max plan and running multiple agents to complete the app. So basically its a AI slop (And i am sorry for that). Even after getting good results from the app i was not satisfied. As i wanted a app which actually takes raw and processes it at extreme super fast speed just like taking a HDR+ photo in GCAM. As soon as i exported one photo from this app i was confident that i could do better and relentlessly worked on a different app which can take straight film emulated high images with a swipe to change presets, and have a one another way of taking the picture the HDR way not like Google's exposure fusion which gives pop effect to a photo. Researching day and night , but no luck . First i tried taking raw capture straight from sensor just like how motioncam does, yes, it is very hard until you read AOSP and everything was laid out there but you have to add your own tricks like using multiple workers to process the raw stream, package the raw buffer, merge bracketed buffer, get depth map , do film emulation and export the image as jpeg. I also tried taking raw frames+pcm audio+gyro data and convert it with film emulation Its still under WIP as there are so many bugs and i do not want to use AI for this as this is one of the projects that I wanted to do since 2016. So, therefore from this moment this app will be superseded by "Latent" a Film emulation Camera app. If i had any free time i will update the app and make it faster if someone needs it.
-
-</details>
 
 ---
 
@@ -113,17 +107,21 @@ x86_64.
 
 ## Two render routes
 
-| | Strict Exact (default) | Fast GPU (opt-in, experimental) |
+| | Fast GPU (what the app runs) | Strict Exact CPU (the reference) |
 |---|---|---|
-| Runs on | CPU, f64 | Vulkan compute, f32 |
-| Contract | bit-exact against the oracle within tolerance | tolerance-bounded against that CPU route |
-| Determinism | byte-identical across worker counts | same-device deterministic |
-| On failure | — | fails closed to the CPU route |
-| Used as parity evidence | yes | never |
+| Runs on | Vulkan compute, f32 | CPU, f64 |
+| Contract | tolerance-bounded against the CPU route | bit-exact against the oracle within tolerance |
+| Determinism | same-device deterministic | byte-identical across worker counts |
+| On failure | falls back to the CPU route | — |
+| Used as parity evidence | never | yes |
 
-The GPU route is opt-in and exists to make exports faster, not to redefine what correct means. Every
-GPU pass is gated against the f64 CPU stage before it ships, and refuses the request rather than
-returning an image it cannot bound.
+**Since v0.10.0 the GPU route is how the app renders and exports.** The three GPU toggles that used
+to sit in Settings are gone: the route is gated per device by its own self-check against the CPU
+engine, with automatic fallback where they disagree, so there is nothing left for a user to choose.
+A default export is therefore tolerance-bounded, not byte-identical to the CPU path.
+
+Strict Exact CPU remains the parity-bearing reference — it is what the 44 gated cases measure, and
+what "correct" means here. It is not currently selectable from the app.
 
 ## How it was made
 
