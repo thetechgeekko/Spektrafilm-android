@@ -1,8 +1,8 @@
 # lib:libraw
 
-<!-- libraw-license-route: UNRESOLVED -->
+<!-- libraw-license-route: LGPL-2.1-only -->
 
-LibRaw Android distribution route: UNRESOLVED.
+LibRaw Android distribution route: LGPL-2.1-only.
 
 On-device camera **RAW / DNG** decoding for Spektrafilm for Android, producing a
 **linear, scene-referred float32 RGB** buffer with the same processing settings
@@ -350,9 +350,9 @@ or out-of-range `[1000,12000] K` / `[0.2,1.8]` settings before decode or colour 
 ## License
 
 Spektrafilm for Android is **GPLv3**. LibRaw is offered under LGPL-2.1-only or
-CDDL-1.0. The distribution route for this static integration is `UNRESOLVED`;
-including both upstream texts records provenance and does not elect a route.
-Release requires a human-reviewed route plus the verified source/relink, notice,
+CDDL-1.0. The distribution route for this static integration is **LGPL-2.1-only**;
+both upstream texts remain included for provenance.
+Release requires that recorded route plus the verified source/relink, notice,
 and SBOM package. `compliance/license-decision.json` also keeps the human owner,
 rationale, approval reference, and local-patch contribution authorization
 fail-closed; changing only `license-route.txt` cannot pass release audit. See

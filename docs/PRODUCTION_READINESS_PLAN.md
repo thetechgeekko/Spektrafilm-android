@@ -233,11 +233,12 @@ mapping. The security ticket owns the reachability proof.
 
 Owner: [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166)
 
-The current CMake builds LibRaw as a static library inside the native RAW module. That route is
-recorded in `docs/LICENSING.md` as an unresolved release blocker. A maintainer or counsel must
-select the dual-license route. Then update exact
-notices, license texts, source/relink materials as applicable, About/licenses UI, SBOM and release
-artifact together. Also remove unsupported blanket compatibility claims.
+The current CMake builds LibRaw as a static library inside the native RAW module. The dual-license
+election is recorded in `docs/LICENSING.md` and
+`lib/libraw/compliance/license-decision.json` as **LGPL-2.1-only** (2026-09-14). Notices,
+license texts, source/relink materials, About/licenses UI, SBOM and the release
+artifact are updated together and cross-checked by `libraw_bundle.py audit-route`.
+Blanket compatibility claims stay out of those documents.
 
 ### 1.3 Bound every parser and JNI boundary
 

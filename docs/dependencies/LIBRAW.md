@@ -252,9 +252,9 @@ qualification. If any of those are unavailable, keep the release gate closed.
 
 ## Codec and license boundaries
 
-<!-- libraw-license-route: UNRESOLVED -->
+<!-- libraw-license-route: LGPL-2.1-only -->
 
-LibRaw Android distribution route: UNRESOLVED.
+LibRaw Android distribution route: LGPL-2.1-only.
 
 Native precision-parity support in this build includes uncompressed RAW/DNG and
 internal lossless-JPEG/LJ92. Floating-point DEFLATE
@@ -304,18 +304,19 @@ three or four sample planes, and its public black/white lists have that same
 length. CFA keeps four LibRaw level slots so the second-green plane is preserved.
 
 LibRaw offers a choice of LGPL-2.1-only or CDDL-1.0. The distribution route for
-this static integration remains `UNRESOLVED`; including both upstream license
-texts records provenance and does not elect a route. The deterministic
-source/relink bundle, notices, and SBOM are technical evidence, not legal
-approval. Do not close the gate from this record; see [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166).
+this static integration is **LGPL-2.1-only**; both upstream license texts remain
+included for provenance. The deterministic source/relink bundle, notices, and
+SBOM are technical evidence, not legal advice. The election itself lives in
+`lib/libraw/compliance/license-decision.json`; see [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166).
 
 `tools/compliance/libraw_bundle.py` authenticates an explicitly supplied official
 archive against the resolver's size and SHA-256 pins, applies all ordered patches,
 checks the final 100-file aggregate, and writes a deterministic source/relink ZIP.
 The ZIP contains canonical SPDX 2.3 JSON at `sbom.spdx.json`; `--sbom-output`
 writes a byte-identical release sidecar. Ordinary `verify` accepts the committed
-`UNRESOLVED` marker for CI auditing. Release uses `verify --require-resolved`,
-which fails closed unless the human-reviewed, release-eligible route is recorded.
+route marker for CI auditing. Release uses `verify --require-resolved`, which
+fails closed unless the human-reviewed, release-eligible route (LGPL-2.1-only)
+is recorded.
 The Android CI job also extracts that ZIP and uses its standalone project with
 NDK 27 to rebuild x86_64 `libsfraw.so`, then checks its SONAME, JNI and
 recipient-marker exports, and 16 KiB `PT_LOAD` alignment. That automated result

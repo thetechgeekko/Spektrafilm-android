@@ -109,7 +109,7 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
 6. Verifies the app GPL/NOTICE plus the three pinned LibRaw legal files in that
    candidate, then creates a canonical stored source/relink ZIP and SPDX sidecar
    from the authenticated archive and exact checked-out source. It verifies with
-   `--require-resolved`. An `UNRESOLVED`/unsupported route, source or patch drift,
+   `--require-resolved`. An unelected or unsupported route, source or patch drift,
    missing APK notices, a malformed SBOM, or a checksum
    mismatch fails before publication. A green tool result is technical evidence,
    not legal approval.
@@ -200,9 +200,9 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   SDK, endpoint, permission, backup path, or update/download behavior as a release block
   until code, UI disclosure, tests, and both documents agree.
 - [ ] Confirm `lib/libraw/compliance/license-route.txt` records the exact
-  human-reviewed SPDX route. `UNRESOLVED` is the intentional repository default
-  while the linked LibRaw legal-distribution ticket is open and is a hard release failure. Including both
-  upstream texts does not select a route.
+  human-reviewed SPDX route, currently **LGPL-2.1-only**. Any other value, including
+  the repository's pre-election sentinel, is a hard release failure. Including both
+  upstream texts is provenance and is not itself an election.
 - [ ] Recheck LibRaw OSS-Fuzz mirrors [#840](https://github.com/LibRaw/LibRaw/issues/840)
   and [#843](https://github.com/LibRaw/LibRaw/issues/843). If either discloses
   memory corruption reachable through an enabled codec, keep the release on hold

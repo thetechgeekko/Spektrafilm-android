@@ -1,15 +1,15 @@
 # Licensing
 
-<!-- libraw-license-route: UNRESOLVED -->
+<!-- libraw-license-route: LGPL-2.1-only -->
 
-LibRaw Android distribution route: UNRESOLVED.
+LibRaw Android distribution route: LGPL-2.1-only.
 
-> **Open release blocker (2026-08-29):** LibRaw is statically compiled into the
-> native RAW module. Do not use this document, the compliance bundle, or a green
-> automated verifier as legal approval until
-> [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166)
-> closes and this file, `NOTICE.md`, the in-app notices, SBOM, selected-route
-> marker, and release bundle are reviewed and updated together.
+> **Route elected (2026-09-14):** LibRaw is statically compiled into the native
+> RAW module and is distributed under **LGPL-2.1-only**. The election, its
+> rationale, the approving human owner, and the local-patch contribution
+> authorization are recorded in `lib/libraw/compliance/license-decision.json`; see
+> [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166).
+> A green automated verifier is technical evidence, not legal advice.
 
 ## Summary
 
@@ -21,7 +21,7 @@ grant of the GPL "or any later version" option has been identified.
 | spektrafilm (engine we port) | **GPL-3.0** | Defines the floor: any derivative must be GPLv3. |
 | spektrafilm OFX selective Vulkan adaptations | **GPL-3.0-only** | Directly compatible with this GPL-3.0-only application; preserve provenance and mark modifications. |
 | ImageToolbox (originally planned host; never vendored — row kept in case its code is ever incorporated) | **Apache-2.0** | Apache-2.0 → GPLv3 is **one-way compatible**; Apache code may be incorporated into a GPLv3 work. |
-| LibRaw (RAW decode) | Offered under a choice of **LGPL-2.1-only** or **CDDL-1.0** | Route is `UNRESOLVED`; including both texts is provenance, not election. CDDL-1.0 is not generally treated as GPL-compatible. Static-distribution obligations require human review. |
+| LibRaw (RAW decode) | Offered under a choice of **LGPL-2.1-only** or **CDDL-1.0**; **LGPL-2.1-only** elected | LGPL-2.1 section 3 permits the combination with GPLv3. CDDL-1.0 is not generally treated as GPL-compatible and was therefore declined. Section 6 relink materials, corresponding source, notices and SBOM ship with each release. |
 
 Result: **GPLv3** is the only license that satisfies all constraints. `LICENSE` is the GPLv3
 text; `NOTICE.md` carries attributions.
@@ -51,16 +51,15 @@ validated shaders and parity corpus remain the numeric authority.
 
 ## LibRaw
 
-LibRaw is currently compiled as a static native library and included in the RAW JNI module. The
-project has not yet resolved which dual-license route and static-distribution materials it will use;
-`lib/libraw/compliance/license-route.txt` therefore remains `UNRESOLVED`, and
-the release workflow must reject that state. CI may construct and verify the
-route-neutral bundle so packaging regressions are caught before the decision.
-The bundle includes both upstream license texts for provenance; this does not
-select either route or establish compatibility. The paired canonical
-`license-decision.json` keeps the owner, decision date, rationale, HTTPS approval
-reference, and local-patch contribution authorization null/false until a human
-rights holder records them; release-mode audit rejects a marker-only change.
+LibRaw is compiled as a static native library and included in the RAW JNI module. The project
+distributes it under **LGPL-2.1-only**, recorded in
+`lib/libraw/compliance/license-route.txt`; the release workflow rejects any other
+value. CI constructs and verifies the source/relink bundle so packaging
+regressions are caught independently of the election. The bundle includes both
+upstream license texts for provenance. The paired canonical
+`license-decision.json` carries the owner, decision date, rationale, HTTPS approval
+reference, and local-patch contribution authorization, all of which release-mode
+audit requires; a marker-only change still fails.
 `spdx-created-at.txt` is the checked-in SPDX document creation time and must be
 canonical UTC, not future-dated, and no earlier than the decision's `recorded_at`.
 If we later enable the Adobe **DNG SDK**
