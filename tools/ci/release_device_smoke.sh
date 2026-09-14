@@ -5,6 +5,23 @@ set -euo pipefail
 
 mkdir -p build/device-smoke
 adb logcat -c
+
+# On any failure, retain the whole device log and process/memory state. The
+# instrumentation stream alone cannot explain a provider-side death: release run
+# 34841467586 attempt 2 failed with "MediaStore pending-row discovery returned no
+# cursor" (ContentResolver.query returns null only when the provider's binder is
+# gone) after the same query had succeeded earlier in the same process, and no
+# logcat had been kept to say why MediaProvider went away.
+retain_failure_evidence() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    adb logcat -d -v threadtime > build/device-smoke/failure-logcat.txt 2>/dev/null || true
+    adb shell dumpsys meminfo > build/device-smoke/failure-meminfo.txt 2>/dev/null || true
+    adb shell dumpsys activity processes > build/device-smoke/failure-processes.txt 2>/dev/null || true
+  fi
+}
+trap retain_failure_evidence EXIT
+
 adb install --no-streaming -r signed/app-release.apk
 adb install --no-streaming -r signed/app-release-gate-androidTest.apk
 adb install --no-streaming -r candidate/engine-boundary-debug-androidTest.apk

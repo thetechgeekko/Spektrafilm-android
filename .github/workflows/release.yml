@@ -1004,6 +1004,10 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_6
+          # The profile default (2 GB guest) lost MediaProvider mid-run on
+          # 34841467586/2 while the exact candidate held the engine and its LUT
+          # caches; the runner has 16 GB, so give the guest room for both.
+          ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           # One line on purpose: the action runs each script line in its own
