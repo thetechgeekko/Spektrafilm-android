@@ -562,10 +562,14 @@ def main() -> int:
         return 1
 
     required_fragments = {
+        # "Earlier owner status note" was pinned here so the owner's personal
+        # status note could not be dropped while the Latent positioning question
+        # in #144 was open. The owner decided it on 2026-09-14 -- Latent is
+        # described as a computational engine for RAW image manipulation, and the
+        # note was removed at their instruction -- so the pin is retired with it.
         ROOT / "README.md": (
             "docs/EXECUTION_INDEX.md",
             "oracle tolerance",
-            "Earlier owner status note",
         ),
         ROOT / "CLAUDE.md": ("docs/EXECUTION_INDEX.md", f"{parity_count} tests"),
         ROOT / "docs" / "EXECUTION_INDEX.md": (
