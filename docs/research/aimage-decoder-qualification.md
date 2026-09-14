@@ -1,6 +1,13 @@
 # API 30+ `AImageDecoder` qualification (#198)
 
-Status: **isolated experiment; not adopted; production routing is absent and OFF**.
+Status: **isolated experiment; not adopted; the module has been removed**.
+
+> **Module deleted 2026-09-14.** `:lib:aimage-decoder` was never adopted:
+> nothing depended on it, no CI job built or tested it, and `CLAUDE.md`'s list of
+> modules actually built already omitted it. Its stray `gradle.lockfile` broke
+> the release pipeline's exact lock-inventory check, which only became reachable
+> once the earlier release gates were fixed. The code is preserved in git
+> history; this document remains as the record of why it was rejected.
 
 This document is the execution contract for deciding whether the NDK
 `AImageDecoder` can replace part of the current Java decode paths: two-pass

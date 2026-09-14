@@ -1,6 +1,0 @@
-SFAIMAGE_1 {
-    global:
-        JNI_OnLoad;
-    local:
-        *;
-};
