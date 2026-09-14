@@ -1023,10 +1023,28 @@ jobs:
           # MediaProvider; the runner has 16 GB.
           ram-size: 4096M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          # `-feature -Vulkan`: the guest's Vulkan device is host SwiftShader
+          # behind gfxstream, and the app's default render route is Vulkan
+          # compute. On 34882197355 the emulator process itself vanished 54 s
+          # into the release instrumentation (attempt 2; attempt 1 passed the
+          # identical step), with nothing in its own output. Without Vulkan the
+          # app's device self-check falls back to the CPU route, which is the
+          # only route this emulator can validate; the GPU route is gated under
+          # lavapipe in ci.yml and on real hardware by the device gate.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -feature -Vulkan
           # One line on purpose: the action runs each script line in its own
           # `sh -c`, so the body lives in a file (see the script header).
           script: bash tools/ci/release_device_smoke.sh
+
+      # The emulator keeps its own crash data on the host; a silent QEMU death
+      # leaves nothing in the guest evidence above.
+      - name: Retain emulator host-side crash data
+        if: failure()
+        run: |
+          mkdir -p build/device-smoke/emulator-host
+          cp -r /tmp/android-runner build/device-smoke/emulator-host/ 2>/dev/null || true
+          cp "$HOME"/.android/avd/test.avd/*.log build/device-smoke/emulator-host/ 2>/dev/null || true
+          ls -laR build/device-smoke/emulator-host || true
       - name: Retain exact-candidate device evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
