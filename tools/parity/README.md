@@ -5,7 +5,7 @@ Android. Its job is to prove the C++ engine port (`engine/spektra-core`,
 `libspektra.so`) matches the Python `spektrafilm` engine **stage by stage**, not
 just on the final image.
 
-The strategy is the one in `docs/PORTING_PLAN.md` → "Numerical parity strategy":
+The strategy:
 run the Python engine on fixed inputs/params, dump each intermediate buffer to a
 portable binary (`.spkvec`), and assert the C++ port reproduces each stage within
 tolerance. The upstream `DebugParams` taps already expose exactly the
@@ -182,7 +182,7 @@ goldens for unchanged inputs are byte-stable and `git diff`-able. Goldens are ti
 
 This is the seed of the on-host/CI parity gate: CI builds `spkvec_compare`, runs
 the engine driver, and runs the comparator over the case matrix in `cases.md`. The
-port order follows the stage table in `PORTING_PLAN.md`; each stage is "done" when
+case matrix is in `cases.md`; each stage is "done" when
 its golden vector matches.
 
 ## Tolerances

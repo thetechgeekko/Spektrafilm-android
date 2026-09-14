@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before opening: `docs/EXECUTION_INDEX.md` lists what is already planned, and
-        `docs/ROADMAP.md` what is already committed to. This project is a parity-first
+        Before opening: `docs/EXECUTION_INDEX.md` explains where live status lives (the
+        Wayfinder maps in GitHub Issues); check the open issues first. This project is a parity-first
         port, so anything that changes the rendered image has to answer to the oracle.
   - type: textarea
     id: problem

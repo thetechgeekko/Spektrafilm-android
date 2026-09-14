@@ -24,10 +24,9 @@ The configured native ABIs are `arm64-v8a`, `armeabi-v7a`, and `x86_64`. Current
 min SDK 24 and target/compile SDK 36. Android policy/toolchain migrations remain live tickets and
 must not be documented as already shipped.
 
-`feature/film-emulation/` is retained source but absent from `settings.gradle.kts`; it is not an
-alternate production implementation. The old proposed ImageToolbox integration is preserved as
-historical decision input in [DECISION.md](DECISION.md) and
-[maps/IMAGETOOLBOX_MAP.md](maps/IMAGETOOLBOX_MAP.md).
+`feature/film-emulation/` was a never-compiled pseudo-module and was deleted by #184; its history
+survives in git and in [DECISION.md](DECISION.md). The old proposed ImageToolbox integration is
+preserved as historical decision input in [DECISION.md](DECISION.md).
 
 ## End-to-end data flow
 

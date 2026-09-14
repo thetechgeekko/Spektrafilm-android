@@ -162,8 +162,8 @@ Flagged / re-verify before stating as authoritative:
 - **Upsampling PDFs (Jakob/Hanika, Mallett/Yuksel) were read at abstract level only** — full PDFs
   not loaded.
 - **Exact engine constants** (e.g. neutral CC defaults Y≈55 / M≈65 / C=0, grain params like
-  `agx_particle_area_um2≈0.2`, halation bounce counts) came from local porting docs
-  (`docs/maps/`, `SPEKTRAFILM_MAP.md`-style notes), **not from live profile JSON**. Re-check
+  `agx_particle_area_um2≈0.2`, halation bounce counts) came from early porting notes
+  (since removed from the tree), **not from live profile JSON**. Re-check
   against the actual `engine/spektra-core/src/main/assets/spektra/profiles/*.json` before quoting
   any number as authoritative.
 - **spektrafilm ↔ agx-emulsion name** canonicality: unverified.

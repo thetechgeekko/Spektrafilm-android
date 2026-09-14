@@ -20,7 +20,7 @@ ends with a parity-safe port mapping cross-referenced to `docs/USER_DRIVEN_SOLUT
 
 ## Architecture (from this build's native libs)
 
-Confirms + extends `docs/RESEARCH_LIGHTROOM_STACK.md`. The arm64 split ships a modular Adobe native
+Supersedes the earlier 11.3.3 stack comparison (removed from the tree 2026-09-14). The arm64 split ships a modular Adobe native
 stack:
 
 | Lib | Size | Role |

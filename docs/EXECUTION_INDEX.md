@@ -23,10 +23,9 @@ When two documents disagree, use this order:
    [JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md),
    [TRANSACTIONAL_STORAGE.md](TRANSACTIONAL_STORAGE.md), [RAW_DNG.md](RAW_DNG.md), and
    [MASK_JSON_SCHEMA.md](MASK_JSON_SCHEMA.md).
-5. `docs/research/**`, [AUDIT.md](AUDIT.md), [ROADMAP.md](ROADMAP.md),
-   [PERF_ROADMAP.md](PERF_ROADMAP.md), [EXPORT_FASTPATH.md](EXPORT_FASTPATH.md), and
-   [HANDOFF.md](../HANDOFF.md) retain findings and history. They do not own current issue state or
-   execution order.
+5. `docs/research/**`, [AUDIT.md](AUDIT.md), [PERF_ROADMAP.md](PERF_ROADMAP.md), and
+   [EXPORT_FASTPATH.md](EXPORT_FASTPATH.md) retain findings and history. They do not own current
+   issue state or execution order.
 
 Build files, workflows, and tests outrank prose for facts about the current tree. If prose and code
 disagree, fix the prose or open a ticket; do not silently reinterpret the implementation.

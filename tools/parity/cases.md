@@ -1,7 +1,6 @@
 # Parity case matrix
 
-The initial set of golden-vector parity cases that gate **M3** (pipeline port) and
-**M4** (params/profiles) in `docs/PORTING_PLAN.md`. Each case fixes a film/print
+The initial set of golden-vector parity cases for the engine port. Each case fixes a film/print
 profile pair plus deterministic toggles; for each case we capture a set of *taps*
 (intermediate buffers) as `.spkvec` goldens. A stage of the C++ port is "done" when
 its tap matches the Python golden within tolerance (see `README.md`).
@@ -45,7 +44,7 @@ Rationale:
   K75P-to-output-white CAT; the upstream oracle generated both fixtures, so a
   silent D50 fallback exceeds the normal parity band.
 - `scan_portra` flips `io.scan_film` to gate the negative-scan route, which skips
-  the print stage entirely (`PORTING_PLAN.md` Stage 3 `scanning.py`).
+  the print stage entirely (upstream `scanning.py`).
 - `print_ektar` uses a different film/paper pair to catch regressions that are
   coupled to profile data (density curves, dye spectra) rather than the math.
 - `scan_portra_spatial` / `scan_portra_crop` exercise the spatial branch and the

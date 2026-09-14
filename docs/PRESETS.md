@@ -269,7 +269,9 @@ bloom, visible grain, and a wide-gamut print-oriented finish.
 Lightroom-default-style **starting point**: the full negative→print positive path with the
 emulsion's personality dialled out, so you can build a look on top of a neutral base instead of
 fighting an existing one. Derived from a reverse-engineering study of Lightroom's default render
-(Adobe Color DCP + medium-contrast baseline) — see `docs/RESEARCH_LIGHTROOM_RENDER.md`.
+(Adobe Color DCP + medium-contrast baseline): on the test DNG the film default measured meanL 0.269
+against 0.229 for an Adobe-Color-like neutral render, warmer and glowier, and this preset removes that
+bias. The study itself was removed from the tree on 2026-09-14; git history keeps it.
 Tuning: `io.scanFilm false` (print path) with **grain, halation, glare, and DIR couplers all
 OFF**, `densityCurveGamma 1.0`, `autoExposure true`, and `exposureCompensationEv -0.2` to sit
 slightly darker and track Adobe Color's neutral medium-contrast baseline. Use it as a base, then

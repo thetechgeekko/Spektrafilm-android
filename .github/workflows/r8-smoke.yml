@@ -11,7 +11,7 @@
 # Production signing remains exclusive to release.yml's protected Environment.
 #
 # Added with explicit owner authorization on issue #129 (workflow edits are
-# otherwise out of bounds for agents per HANDOFF.md).
+# otherwise out of bounds for agents).
 name: R8 smoke APK
 
 on:
