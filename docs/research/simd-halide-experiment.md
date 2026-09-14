@@ -2,8 +2,8 @@
 
 > **Historical/negative experiment.** Broad Halide integration and a whole-engine Highway rewrite
 > are not active execution routes. The measurements remain useful per-kernel evidence; references to
-> a 38-case gate describe the experiment's then-current branch, while the current authority uses 39
-> cases at both flag legs. See [../BIT_IDENTICAL_EXPORT_ROADMAP.md](../BIT_IDENTICAL_EXPORT_ROADMAP.md).
+> a 38-case gate describe the experiment's then-current branch; the live count is in
+> `.github/workflows/ci.yml` (44 at both flag legs when this note was last edited). See [../BIT_IDENTICAL_EXPORT_ROADMAP.md](../BIT_IDENTICAL_EXPORT_ROADMAP.md).
 
 *Branch `claude/perf-halide-highway` — an owner-commissioned experiment ("implement both,
 we'll test at home"), NOT a merge candidate on its own. Everything here is opt-in and the
@@ -67,7 +67,8 @@ runtime**, read once, so the phone can be measured without a rebuild.
 
 ## Halide — the diffusion PSF convolution
 
-`tools/halide/gen_diffusion_conv.py` reproduces the engine's convolution verbatim in shape
+`tools/halide/gen_diffusion_conv.py` (removed 2026-09-14 with the rest of `tools/halide/`; source in
+git history) reproduced the engine's convolution verbatim in shape
 (`out[y][x] = Σᵢⱼ padded[y+i][x+j] · kern[ks-1-i][ks-1-j]`, float64, flipped-kernel indexing),
 leaving the reflect-padding in C++ so the generator owns exactly the O(w·h·ks²) inner loop.
 AOT-compiles for `host` **and `arm-64-android`** (verified: the emitted object is a real AArch64
@@ -163,8 +164,8 @@ direct analogues of our own FIR/IIR Gaussian kernels (schedules to copy rather t
 
 ## What this predicts, and what to measure at home
 
-`bash tools/simd_bench/build_push_run.sh` (owner's laptop; needs the NDK + an attached device)
-cross-compiles both experiments for arm64, pushes them, and prints the same tables **from the
+`bash tools/simd_bench/build_push_run.sh` (removed 2026-09-14; source in git history) cross-compiled
+both experiments for arm64, pushed them, and printed the same tables **from the
 phone** — including the `SPK_SIMD=0` A/B and the serial/parallel Halide framings.
 
 Read the result against the per-stage timings that now land in logcat (#146/#152):
@@ -244,8 +245,16 @@ last commit June 2017, forked from Halide 2017/05/03, over eight years stale.
 - Default build unchanged: `SPK_ENABLE_HIGHWAY=OFF` → `gaussian_hwy.cpp` compiles to three
   inert stubs, `hwy_fir::available()` is false, the scalar branch runs. The **38-gate parity
   suite is the gate** and is green on this tree.
-- Halide is not wired into the engine at all — it lives in `tools/halide/` as a generator plus
-  an A/B bench. Wiring it would be a separate, opt-in decision once the device numbers justify
-  it.
+- Halide was never wired into the engine. Its generators and A/B benches (`tools/halide/`) were
+  removed on 2026-09-14 after both A/Bs concluded; the sources are in git history.
+
+**Addendum (2026-09-10, commit 1efc44c): the f32 Halide-Vulkan grain A/B (#217).** Halide computed
+the same model as the hand-written `gpu/grain.comp` (1024x1024, three channels: dmean 8.6e-06 /
+1.3e-05 / 3.3e-06, sd ratio 1.0008 / 1.0022 / 0.9999 — same distribution, different realisation)
+and was slower at every size that ran: 0.36x at 512x512, 0.65x at 1024x1024, 0.77x at 1440x1440,
+0.63–0.76x at 1920x1088 (shader 6.66–6.89 ms against 8.96–10.90 ms). It aborted on 1080p: the
+height must be a multiple of the 16-row GPU tile (1920x1088 ran; 1920x1080 and 1936x1080 exited
+134), and it failed by abort() rather than an error code. The maintainability case for Halide was
+therefore not paid for, and the generator went with the rest of `tools/halide/`.
 
 *Film modeling powered by spektrafilm (GPLv3).*

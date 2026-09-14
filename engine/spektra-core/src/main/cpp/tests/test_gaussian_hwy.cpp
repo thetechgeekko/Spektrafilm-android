@@ -10,7 +10,7 @@
  * a tolerance.
  *
  * Also reports throughput for both paths so the same binary answers "is it worth it"
- * on the owner's device (tools/simd_bench pushes this pattern to the phone).
+ * on the owner's device.
  *
  * Build (host, Highway ON):
  *   g++ -std=c++17 -O2 -pthread -DSPK_ENABLE_HIGHWAY -I. -I<highway_src> \

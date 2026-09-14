@@ -2701,6 +2701,9 @@ structure reworked and is not a bench question either.
 
 ## 21b. The PNG16 encode: where its second actually goes (#175)
 
+> The probe sources this section used (`tools/perf_lab/par_deflate_probe.c`,
+> `png_filter_probe.c`) were removed on 2026-09-14; git history keeps them.
+
 The export baseline puts PNG16 encode at 1705 ms clean and 4316 ms on HEAVY at
 12.5 MP, and attributes the difference to grain being incompressible. That is
 right, but it hid a larger fact: **almost all of that time is one serial call to

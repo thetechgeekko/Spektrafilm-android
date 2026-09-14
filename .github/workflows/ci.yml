@@ -746,7 +746,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Parity harness: the standalone .spkvec comparator builds and its byte-format
-  # self-test passes. This is the gate that engine ports (M3/M4) run against.
+  # self-test passes. The stage gate is engine-parity above; this job only keeps
+  # spkvec_io.h byte-compatible with spkvec.py.
   # ---------------------------------------------------------------------------
   parity:
     name: Parity comparator (CMake + ctest)
@@ -786,6 +787,9 @@ jobs:
             tools/parity/gen_goldens.py \
             tools/parity/raw_wb_cat_research.py \
             tools/parity/spkvec.py \
+            tools/parity/rawpy_decode_digest.py \
+            tools/parity/gen_viewing_illuminant_visuals.py \
+            tools/parity/tests/test_oracle_provenance.py \
             tools/docs/check_docs_consistency.py \
             tools/docs/tests/test_check_docs_consistency.py \
             tools/wayfinder/frontier.py \
@@ -809,6 +813,9 @@ jobs:
 
       - name: Test LibRaw compliance bundle tooling
         run: python -m unittest discover -s tools/compliance/tests -p 'test_*.py'
+
+      - name: Test the golden-vector provenance gate (offline)
+        run: python -m unittest discover -s tools/parity/tests -p 'test_*.py'
 
       - name: Lock and generate RAW white-balance CAT02 fixture
         run: >-

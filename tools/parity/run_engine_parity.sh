@@ -9,7 +9,7 @@
 # Usage:  tools/parity/run_engine_parity.sh [build_dir]
 # Env:    JOBS=<n>   parallel compile jobs (default: CPU count)
 #
-# NOTE: a plain run reproduces the workflow's -O2 leg only. CI runs the same 40
+# NOTE: a plain run reproduces the workflow's -O2 leg only. CI runs the same 44
 # tests TWICE, the second at the flags the engine actually ships with. To
 # reproduce that leg locally (measured green, and 20% larger codegen, so it is a
 # genuinely different binary rather than a no-op):

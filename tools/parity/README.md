@@ -158,12 +158,12 @@ goldens for unchanged inputs are byte-stable and `git diff`-able. Goldens are ti
    ./build/spkvec_compare --selftest      # checks spkvec_io.h == spkvec.py byte format
    ```
 
-2. Drive the C++ engine to produce each tap. The engine exposes
-   `spk_simulate_tap(engine, in, params, tap_name, out)` with `tap_name` ∈
-   `"film_log_raw" | "film_density_cmy" | "print_density_cmy"`, and `spk_simulate`
-   for the final RGB. A small host driver (to be added alongside the engine build)
-   feeds the **same** synthetic image and params, then writes each `out` buffer to
-   a `.spkvec` using `spkvec_io.h` (`spkvec::write(path, shape, data, count)`).
+2. Run the engine gate. `tools/parity/run_engine_parity.sh <outdir>` compiles every
+   `engine/spektra-core/src/main/cpp/tests/test_*.cpp` that CI's `engine-parity` job runs (44
+   cases) against the full engine source set and runs each with the same argv as CI; prefix
+   `SPK_PARITY_EXTRA_FLAGS="-O3 -ffast-math -fno-finite-math-only"` for the shipping-flags leg.
+   The stage tests read the goldens through `spkvec_io.h` and compare in-process; the comparator
+   below is for ad-hoc comparisons of `.spkvec` files.
 
 3. Compare each tap against its golden within the case tolerance:
 
@@ -180,10 +180,11 @@ goldens for unchanged inputs are byte-stable and `git diff`-able. Goldens are ti
    pixels that diverged. The default tolerances match those written into each
    `manifest.json`.
 
-This is the seed of the on-host/CI parity gate: CI builds `spkvec_compare`, runs
-the engine driver, and runs the comparator over the case matrix in `cases.md`. The
-case matrix is in `cases.md`; each stage is "done" when
-its golden vector matches.
+The CI split: the `parity` job builds `spkvec_compare` with CMake and runs its `--selftest`
+(keeping `spkvec_io.h` byte-compatible with `spkvec.py`); the `engine-parity` job is the stage
+gate, two legs (`-O2` and the shipping flags) over the 44 cases, driven by
+`run_engine_parity.sh`. The case matrix is in `cases.md`; a stage is "done" when its golden
+vector matches.
 
 ## Tolerances
 

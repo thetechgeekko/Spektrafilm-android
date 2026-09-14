@@ -134,7 +134,9 @@ results and derived output digests are recorded.
 The changed buffers are not silently labelled “bit-identical.” Current stable
 rawpy `0.27.0` uses LibRaw `0.22.1`; direct uint16 postprocess comparisons also
 produce different digests for both DNGs and the Fuji sample under 0.22.1 versus
-0.22.2. The security-upgraded 0.22.2 serial output is the Android candidate
+0.22.2 (desktop half: `tools/parity/rawpy_decode_digest.py`, which needs a real rawpy 0.27
+environment rather than `tools/parity/setup_env.sh`; Android half:
+`lib/libraw/src/test/cpp/libraw_processed_probe.cpp`). The security-upgraded 0.22.2 serial output is the Android candidate
 baseline. [Pin the latest Spektrafilm upstream and generate a parity manifest](https://github.com/thetechgeekko/Spektrafilm-android/issues/189)
 must pin the desktop rawpy/LibRaw build to the same reviewed decoder or explicitly
 approve and version the deviation before global parity can be claimed.

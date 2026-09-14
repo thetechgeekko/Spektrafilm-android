@@ -257,7 +257,8 @@ stage. Nothing here substitutes for measuring that.
 it a product decision. A product decision still needs a number, and this one is
 answerable on a laptop: **band-limit our own profiles and render the same fixture.**
 
-`tools/spectral_bands/` does it with **no engine change, no device, no GPU**. The
+`tools/spectral_bands/` (removed after the decision, 2026-09-14; reproducible from commit 2b5ac31)
+did it with **no engine change, no device, no GPU**. The
 film/paper spectral arrays are partitioned into blocks of N samples, each block replaced
 by its band value (averaged on the *linear* physical quantity — sensitivity, not log
 sensitivity; transmittance, not density) and replicated back across the block. The tree
