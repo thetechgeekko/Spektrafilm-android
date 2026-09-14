@@ -1,6 +1,6 @@
 # Spektrafilm execution index
 
-Status: **canonical navigation and execution protocol**. Last reconciled 2026-09-01.
+Status: **canonical navigation and execution protocol**. Last reconciled 2026-09-14.
 
 This page answers one question: *where is the current truth?* It deliberately does not copy the
 open-work queue. GitHub's native issue state, dependencies, labels, and assignees are the live
@@ -75,7 +75,7 @@ executable source for direct review:
 | Android build tools | `36.0.0` | app Gradle + CI/release workflows |
 | RAW decoder | authenticated, patched LibRaw `0.22.2`; X3F disabled pending qualification | `LibRawVendor.cmake` + domain record |
 | Engine gate | 44 cases at O2 and shipping `-O3 -ffast-math -fno-finite-math-only` | `.github/workflows/ci.yml` |
-| Public release | `v0.9.0`; current tree remains under release hold | release checklist + live production map |
+| Public release | `v0.10.0` (tagged 2026-09-14); the production-grade release gate is #138 | release checklist + live production map |
 
 Target/compile SDK 36 is current-tree truth (raised under #171 for Android 16 behavior and the Google Play API-36 policy; both channels ship the same target), not release approval. The owner has selected a free
 GitHub release followed by a paid Google Play supporter channel that unlocks nothing. API-36 and
@@ -94,7 +94,9 @@ candidate is not production-signing evidence.
   cross-ABI, CPU/GPU, and whole-container byte identity are not implied.
 - **Fast GPU** is a separate, capability-gated Vulkan route: oracle-equivalent and same-device
   deterministic with CPU fallback. It must never be described as Strict Exact CPU or universal
-  byte identity.
+  byte identity. Since v0.10.0 (#213–#227) it is the route the app renders and exports with,
+  gated per device by the on-device self-check; Strict Exact CPU is the reference and automatic
+  fallback and is not user-selectable.
 - The Android/native boundary uses linear float32 buffers. The strict CPU implementation retains
   its adopted mixed-precision arithmetic, including float64 where required; a whole-pipeline f16 or
   f32 rewrite would be a new numeric contract. Vulkan uses float32. Float16 is an optional measured

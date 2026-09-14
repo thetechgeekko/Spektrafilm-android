@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Repository cleanup (2026-09-14)
+
+- Removed fifteen superseded planning and research documents, the derivable device evidence, the
+  concluded `tools/` experiments, the never-wired LiteRT stub, three dev-box-only host tests, the
+  reference filter CSVs the engine never loads, and 159 of the 165 bundled ICC profiles (the app
+  opens six). Git history is the archive; `docs/DECISION.md` lists every deleted document. The APK
+  loses ~400 KB of assets.
+- The seven Settings strings for the GPU toggles removed in v0.10.0 are gone; `.gitignore` now
+  covers the editor and tool caches that kept showing up untracked.
+- Every current document states the v0.10.0 facts: the Fast GPU route is the default render and
+  export, the LibRaw distribution route is LGPL-2.1-only, the parity gate is 44 cases at both flag
+  legs, 27 presets ship.
+- CI `python-lint` now runs `tools/parity/tests` (the golden-vector provenance gate, never run by
+  any job before).
+
 ## v0.10.0 (versionCode 12) — 2026-09-12 — the GPU is how the app renders, accurate presets, a fixed canvas 🎞️⚡
 
 **Minor, not patch: the default render route changed for every user.**
@@ -71,7 +88,11 @@
 - Reusing this code now requires preserving the attribution notice, under GPLv3 §7(b): this app
   by Akshay Sharma, and the spektrafilm engine by Andrea Volpato, each with a link.
 
-## Unreleased
+- **Jzazbz and CAM16-UCS output gamut compression** (#201, `9ff0cac`): default-OFF opt-ins gated by
+  `test_gamut_out_jzazbz` / `test_gamut_out_cam16ucs`, completing the perceptual output set begun
+  in v0.9.0.
+
+## Also in v0.10.0 (landed 2026-08-27 → 2026-09-09; recorded as "Unreleased" at the time)
 
 ### The diffusion filter: -40 % on the stage that dominates a real export (#148, #204)
 
@@ -246,7 +267,7 @@
 
 - Added `CONTRIBUTING.md`, `SECURITY.md`, issue templates, a pull request template and
   `CODEOWNERS`, none of which existed.
-- README: corrected a stale claim that CI enforces 39 parity cases (42 at the time, 43
+- README: corrected a stale claim that CI enforces 39 parity cases (42 at the time, 44
   now, at two flag legs) and documented the two render routes and their differing
   contracts.
 
@@ -277,9 +298,10 @@
   0.032 ms (MotionCam). Core decode remained page-fault-sensitive, so this is a
   peak-memory/JNI handoff improvement, not a demosaic or 1-2 second export claim.
 - Measured shipping builds add no LibRaw workers: OpenMP is off for all ABIs and
-  the final ELF has no OpenMP dependency/symbol. NDK `AImageDecoder` remains a
+  the final ELF has no OpenMP dependency/symbol. NDK `AImageDecoder` was a
   separately qualified API-30+ non-RAW/fallback experiment, never a silent
-  replacement for scene-linear LibRaw or an archival-exact entry point.
+  replacement for scene-linear LibRaw or an archival-exact entry point (rejected by
+  #198; the module was removed in #240).
 
 ### Transactional storage and versioned documents (#170)
 
@@ -563,7 +585,7 @@ explicitly listed below.
   ordinal. Default-OFF is strict byte-identical; the active path is bit-exact to the oracle
   (`27bd085`). New gate `test_gamut_out_oklch`. First slice of the perceptual output-gamut work
   (P2 #6); the second slice, **Oklrab** (Oklch indexed by Ottosson's rebased lightness Lr), landed
-  in PR #112 with gate `test_gamut_out_oklrab`; `jzazbz`/`cam16ucs` remain reserved slots (unported).
+  in PR #112 with gate `test_gamut_out_oklrab`; `jzazbz`/`cam16ucs` followed in v0.10.0 (#201).
 - **Highlight boost trio** (`boost_ev`/`boost_range`/`protect_ev`) ported into `expose`
   (pre-clip highlight reconstruction; gate `test_highlight_boost_e2e`).
 - **Print density-curve morph (s023), opt-in / default-OFF.** First feature from the upstream-sync

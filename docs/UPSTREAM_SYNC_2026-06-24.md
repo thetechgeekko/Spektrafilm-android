@@ -1,18 +1,13 @@
 # Spektrafilm Upstream Sync Plan — 2026-06-24
 
-> **Historical upstream snapshot.** Strategy A was executed, but this file does not prove parity
-> with latest upstream and its 38-gate references predate the current 39-case matrix. Current
-> upstream coverage is owned by the generated [UPSTREAM_PARITY.md](UPSTREAM_PARITY.md)
-> (manifest: `tools/upstream/parity_manifest.json`, pin: `tools/upstream/upstream_pin.json`). Oklrab subsequently landed; the older “still open” list
-> below is preserved only as the dated plan's input.
->
-> **STATUS 2026-07-02: Strategy A executed.** Shipped opt-in/default-OFF: output aces_rgc GC
-> (`gamut_out_aces`), the Oklch perceptual output GC (`gamut_out_oklch`, PR #111 — P2 #6 slice 1),
-> input xy locus bake (`gamut_in_xy`), print-curve morph (`print_curves_morph`), plus the
-> np_interp fix (`np_interp` gate). Still open: the remaining perceptual output-GC algos
-> (oklrab/jzazbz/cam16ucs = P2 #6 slices 2-4, reserved enum slots `kOklrab=4`/`kJzazbz=5`/`kCam16ucs=6`);
-> Strategy-B rebaseline tracked as roadmap #20-27 (trigger unfired as of 2026-07-01). Parity gate
-> is now 38 tests.
+> **Historical upstream snapshot (2026-06-24).** Strategy A was executed in full: output
+> `aces_rgc` / `oklch` / `oklrab` / `jzazbz` / `cam16ucs` gamut compression, the input xy locus
+> bake, the print-curve morph and the `np_interp` fix all shipped default-OFF with their own gates
+> (the last two algorithms in #201). Current upstream coverage is owned by the generated
+> [UPSTREAM_PARITY.md](UPSTREAM_PARITY.md) (manifest: `tools/upstream/parity_manifest.json`, pin:
+> `tools/upstream/upstream_pin.json`); the live gate count is in `.github/workflows/ci.yml`. The
+> shipped §4 recipes and the §7 next-step were removed on 2026-09-14; §4 (grain refit), §5, §6 and
+> Part B stay because the parity manifest cites them as evidence.
 
 > Provenance: produced by two analysis workflows over the upstream repo at
 > `/home/user/spektrafilm`. Port baseline = oracle `c1d0e44` (the SHA the Android
@@ -110,70 +105,6 @@ Ordered by value/effort (best ratio first). Each keeps the default path byte-ide
 
 **Golden recipe.** No `.spkvec` feature golden (RNG mismatch). Gate = the two statistical JSON refs (per-channel mean-preservation `|dmean|<1e-3` + noise-std `±15%`). To regen: checkout `3bb2c2d`; patch the two gen scripts' attribute reads to `particle_*`; from repo root run `PYTHONPATH=/home/user/spektrafilm/src:/tmp/spkstubs python3 engine/spektra-core/src/main/cpp/tests/gen_grain_ref.py` (and the `_sublayer_` variant) — each does `sf.init_params("kodak_portra_400","kodak_portra_endura") → digest_params → reads d.film_render.grain`, auto-picking the refit defaults, operating on the committed no-grain `goldens/scan_portra/film_density_cmy.spkvec`. Re-run `test_grain` + `test_grain_sublayer` locally. **Bump defaults and regenerate the two JSONs together** or the host stat tests drift. Defensible to SKIP entirely (purely aesthetic).
 
-### Output gamut compression — `aces_rgc` only (M–L effort, low-but-clear value)
-
-**What it is.** Upstream `scanning._density_to_rgb` calls `compress_rgb(rgb, output_gamut_compress, output_color_space=...)` on **linear** output RGB before CCTF, and the trailing `np.clip(rgb,0,1)` is deleted. The `aces_rgc` algorithm is a pure per-channel Reinhard knee on achromatic distance `d=(max−c)/max` — **no color-science library, no perceptual space, no C_max table** (~30–40 lines, gauntlet-validated bit-identical to OCIO `ACES_GamutComp13`). This is the cheap subset; defer the four perceptual algos (`oklch`/`oklrab`/`jzazbz`/`cam16ucs`).
-
-**Why it is safe.** Add an enum param whose default sentinel = `LEGACY_CLIP` (the existing `scanning.cpp:361-363` hard clip, unchanged). Do **NOT** adopt upstream's `cam16ucs` default. When `LEGACY_CLIP` → run the existing clip byte-for-byte; when `aces_rgc` → compress on `lin_rgb` between the XYZ→RGB matrix `parallel_for` (ends ~line 311) and `lens_blur` (line 319), and skip the now-redundant clip. The OFF path keeps the clip (it does NOT mirror `3bb2c2d`-off, which has no clip — it must match `c1d0e44`). `aces_rgc` is purely per-pixel ⇒ `test_parallel` thread-invariance is preserved.
-
-**Files to change.**
-- `runtime/stages/scanning.h` (add `enum OutputGamutCompress { LEGACY_CLIP, OFF, ACES_RGC }` + field, mirroring `use_lut`/`bw_xyz_correction`).
-- `runtime/stages/scanning.cpp` (per-pixel `aces_rgc` pass on `lin_rgb` ~line 311→319; gate the `[0,1]` clip at 362-363; add `reinhard_knee` helper in the anon namespace).
-- `spektra.h` (add enum + knee params to `spk_params` ~line 217-222).
-- `spektra.cpp` (set in BOTH `ScanningParams` sites — scan_film ~779-790 and print ~1128-1162; default `LEGACY_CLIP` in `spk_default_params` ~1355).
-- `spektra_jni.cpp` (read the enum in the `---io---` block ~405-417 via the `enum_ordinal_*` pattern).
-- `SpektraParams.kt` (`enum class OutputGamutCompress { LEGACY_CLIP, OFF, ACES_RGC }` near `ColorSpace` line 13; `val outputGamutCompress = LEGACY_CLIP` on `IoParams` ~139-150).
-- `tests/gen_output_spaces_ref.py` (add aces_rgc dump → `tests/scan_portra_ref_aces_rgc.spkvec`) + new `tests/test_gamut_compress_e2e.cpp` (modeled on `test_output_spaces.cpp`).
-- `.github/workflows/ci.yml` (add `build_run` for the new test in `engine-parity` + a `SPK_NUM_THREADS` 1-vs-8 check).
-
-**New params + defaults.** `output_gamut_compress.algorithm` (default `LEGACY_CLIP`; selectable `OFF`, `ACES_RGC`); `knee=(threshold,limit,power)=(0.0,1.0,6.0)`. (`aces_rgc` has no lightness axis.)
-
-**Golden recipe.** Stage-local, modeled on `gen_output_spaces_ref.py`. Reuse the committed `goldens/scan_portra/film_density_cmy.spkvec` (a `c1d0e44` tap → input stays bit-exact). Reproduce `_density_to_rgb` (density_cmy → `compute_density_spectral` → `density_to_light(D50)` → XYZ integral → `colour.XYZ_to_RGB(sRGB, apply_cctf_encoding=False, illuminant=D50_xy)`), apply `compress_rgb_aces_rgc(rgb, 0.0,1.0,6.0)` on linear RGB (import from a `3bb2c2d` checkout, or reimplement the ~10-line knee SHA-independently), apply CCTF, do **not** clip. Write `tests/scan_portra_ref_aces_rgc.spkvec` (tol `max_abs≤1e-4`, `rms≤1e-5`). Test asserts (1) feature-ON == new golden, (2) feature-OFF == existing `c1d0e44` scan_portra golden. **Reinhard knee math:** `s=limit−threshold; for d>threshold: x=(d−threshold)/s, y=x/(1+x^power)^(1/power), out=threshold+s*y; else identity`. **aces_rgc:** `ach=max(R,G,B); if ach≤1e-12 unchanged; else per channel d=(ach−c)/ach, d'=knee(d), c'=ach*(1−d')` (ach unmodified).
-
-### Print density-curve morph (L effort, medium value)
-
-**What it is.** Upstream `printing.develop` now calls `develop_print_morph(log_raw, log_exposure, density_curves_MODEL, density_curves_morph, profile_type)` — it evaluates the parametric NormCDF `density_curves_model` (`CMY = Σ A_i·Φ(signed((logE−μ_i)/σ_i))`), optionally applies the s023 coupled-gamma morph (7 creative controls), then PCHIP-interpolates at hardcoded `gamma_factor=1.0`. Defaults `active=False`.
-
-**Why it is safe.** Do NOT adopt upstream's wiring (it made the morph mandatory — the analytic model-eval replaces the stored-table interp even at `active=False`, measured 0.0033 max_abs / 33× tol, and deletes the print `density_curve_gamma` knob). Keep the existing `print_develop` (stored-table `interpolate_exposure_to_density` + per-channel `density_curve_gamma`) as the byte-exact default. Add a third opt-in branch behind `use_print_curves_morph` (default false): when ON, build the morphed `(N,3)` table from the profile's `density_curves_model` (already bundled in the JSON assets — needs parsing only), then feed it into the existing `interpolate_exposure_to_density` at `gamma_factor=1.0`. The Android assets carry the `c1d0e44`-fit model (byte-identical to `c1d0e44`, ≠ `3bb2c2d` refit), so no profile refit and no baseline move.
-
-**Files to change.**
-- `profiles/profile.h` + `profiles/profile.cpp` (parse `data.density_curves_model.{model_type,centers,amplitudes,sigmas}`, shape `(3,n_layers)` — currently ignored).
-- `model/morph_curves.{h,cpp}` (NEW: speed-sort layers by ascending center → fast/mid/slow; `σ'=max(σ/g,0.05)`, `μ'=μ/g`, A fixed; `g=gamma_factor·gamma_{rgb}·gamma_{fast|slow}` — **mid AND slow both use `gamma_factor_slow`**, fast uses `gamma_factor_fast`; normal CDF via `0.5*erfc(−z/√2)`; Gumbel-matched CDF `_GUMBEL_LOCATION=−ln(ln2)`, `_GUMBEL_WIDTH=0.5·ln2·√(2π)`; `developer_exhaustion` D(0) re-anchor via deterministic bisection matching `scipy.brentq` xtol=1e-10, 12-iteration bracket-doubling, behind a `>0` guard).
-- `runtime/stages/printing.cpp` + `printing.h` (add the `active=True` branch; default path untouched; pass profile type for `signed_z`).
-- `runtime/params.h` / `params.cpp` (add `PrintCurvesMorphParams` into `PrintingParams`, `active=false` no-op).
-- `spektra.h` (8 morph fields near `print_density_curve_gamma:215`), `spektra.cpp` (defaults ~1351; pass into print build ~913-917 / call site ~1121), `spektra_jni.cpp` (read off `PrintRenderingParams` ~391-402).
-- `SpektraParams.kt` (`PrintCurvesMorphParams` data class; keep `densityCurveGamma`), `ParamsState.kt` (UI group).
-- `tests/test_print_curves_morph_e2e.cpp` (NEW) + `tools/parity/goldens/print_portra_morph/` + `gen_goldens.py` + `ci.yml`.
-
-**New params + defaults.** `density_curves_morph.active=False`; `gamma_factor`, `gamma_factor_fast/slow/red/green/blue = 1.0` (>0); `developer_exhaustion=0.0` (range [0,1]). `SIGMA_FLOOR=0.05`.
-
-**Golden recipe.** Non-identity feature golden from `3bb2c2d` math fed the **bundled `c1d0e44` model values** (NOT the `ad5c8d2`-refit profiles). Recipe: cherry-pick `a7f0f9a`+`8a6d8dd` onto `c1d0e44` (or monkeypatch `develop_print_morph` into the `c1d0e44` env) so `morph_curves` runs on `c1d0e44` profiles; call `apply_print_curves_morph(log_exposure, model, PrintCurvesMorphParams(active=True, gamma_factor=1.1, gamma_factor_red=0.95, gamma_factor_fast=1.05, developer_exhaustion=0.4), profile_type)`, pass the morphed `(N,3)` table through `interpolate_exposure_to_density` at fixed `log_raw`, dump `print_density_cmy` to `goldens/print_portra_morph/*.spkvec`. CI test asserts (A) morph-OFF == committed `c1d0e44` `print_portra` golden, (B) morph-ON == new `print_portra_morph` golden. Pin this golden under a documented **second oracle SHA** in `setup_env.sh`.
-
-### Input gamut compression (filming side): CAT02→CAT16 + xy-clip removal + locus bake (L effort, medium value)
-
-**What it is.** Upstream `_rgb_to_tc_b` flips the chromatic-adaptation transform CAT02→CAT16 (unconditional), drops `xy=np.clip(xy,0,1)`, and `compute_hanatos2025_tc_lut` gains a `gamut_compress` arg that bakes a radial Reinhard-knee compression toward the CIE-1931 spectral locus into the per-film 128×128×3 `tc_lut` at build time (`remap_tc_lut_for_compression`). Upstream ships `InputGamutCompressSpec(active=True, algorithm='xy', knee=(0,1,6))` on the default Hanatos2025 path.
-
-**Why it is safe.** Gate **all three** (CAT16 matrix, xy-clip removal, locus bake) behind a single default-false flag. Default keeps `prophoto_rgb_to_tc_b` CAT02 + `clip01` (`filming.cpp:47-58`) and `build_filming_tc_lut` with no trailing remap → `c1d0e44` byte-identical. Critical enabler: the `ad5c8d2` refit changed only `density_curves*`; `log_sensitivity`/`wavelengths`/window/surface params (the only `build_filming_tc_lut`/`expose` inputs) are byte-identical `c1d0e44`↔`3bb2c2d`, so a **`film_log_raw` tap** isolates the gamut feature cleanly against the bundled `c1d0e44` profile. A `film_density_cmy`/`final_rgb` tap would be contaminated by the refit and must NOT be used.
-
-**Files to change.**
-- `runtime/stages/filming.cpp` (gate CAT16 matrix + drop `clip01` in `prophoto_rgb_to_tc_b` L47-58; add `compress_xy_radial` + `reinhard_knee` + `ray_polygon_distance` + scipy `map_coordinates(order=1, mode='nearest')`-equivalent bilinear; baked CIE-1931 380–700@5nm locus polygon as a static const = indices 0-64 of `kCieCmf1931`; append `remap_tc_lut_for_compression` at end of `build_filming_tc_lut` ~L387). `quad2tri`/`tri2quad` already exist (`spectral_upsampling.cpp:81-94`).
-- `filming.h`, `kernels/spectral_upsampling.cpp/.h` (CAT16 matrix constant; declare helpers).
-- `runtime/params.h` (`FilmingParams.input_gamut_compress {active=false, algorithm, knee[3]={0,1,6}}`).
-- `spektra.h` (`input_gamut_compress_active` + `knee[3]` ~L225); `spektra.cpp` (fold into `engine_tc_lut` cache key L328-352 + print-route fnv1a64 digest L415-422; thread into expose sites L733/L863); `spektra_jni.cpp` (~L419-436); `SpektraParams.kt` (`SettingsParams` ~L152).
-- `tests/test_gamut_compress_input_e2e.cpp` (NEW, `film_log_raw`-only + active=false==default assert); `tools/parity/goldens/gamut_compress_input/`; `gen_goldens.py`; `ci.yml`.
-
-**New params + defaults.** `input_gamut_compress.active=false` (upstream true); `algorithm='xy'` (port `xy` only — `oklch` needs an OkLab C_max(L,h) table, reject); `knee=(0.0,1.0,6.0)`.
-
-**Golden recipe.** First repo golden pinned to a non-`c1d0e44` oracle (feature absent at `c1d0e44`, first appears at `30a32a8`). Checkout `3bb2c2d`; `source setup_env.sh` (SHA-mismatch warning expected). Add a `gamut_compress_input` case (`kodak_portra_400`, `scan_portra_input_rgb.f64`, spatial+stochastic OFF, `rgb_to_raw_method='hanatos2025'`, `input_gamut_compress=InputGamutCompressSpec(active=True,'xy',(0,1,6))` — CAT16 + clip removal come for free at `3bb2c2d`). Capture **`film_log_raw` ONLY** (before `develop()`). Write `goldens/gamut_compress_input/film_log_raw.spkvec` + `manifest.json` (`oracle_sha=3bb2c2d`, tap, knee, tol). Test: (a) active=true == golden, (b) active=false == existing `c1d0e44` `film_log_raw.spkvec`. **`compress_xy_radial`:** `delta=xy−white_xy; dist=|delta|; dir=delta/max(dist,1e-12); boundary=ray_polygon_distance(white_xy,dir,locus); d_norm=dist/max(boundary,1e-12); d'=knee(d_norm); new_xy=white_xy+dir*(d'*boundary)`; at-white (`dist<1e-9`) passes through. `white_xy` = D55 (derivable from `kD55Illuminant`×CMF as `filming.cpp:368-377` already does).
-
-### Output gamut compression — perceptual algos (`cam16ucs` default / `oklch` / `oklrab` / `jzazbz`) (XL effort, medium value)
-
-**What it is.** The four perceptual chroma-reduction algos: RGB→XYZ→perceptual polar (L,C,h), look up a bisected per-output-space `C_max(L,h)` table, Reinhard-knee `C/C_max`, plus a one-sided lightness roll-off (`_compress_lightness`, `(0.7,1.0,2.2)`, black anchored at 0). `cam16ucs` is upstream's default and needs full CIECAM16 fwd+inv + a runtime-built `C_max(Jp,hp)` bisection table (L_A=64, Y_b=20, Average surround).
-
-**Why it is XL / why deferred.** Zero color-appearance infra exists in the C++ engine (grep for `cam16|oklab|oklch|jzazbz` over `cpp/` = zero hits; `color_output.h` only has baked XYZ→RGB matrices + per-space CCTF). Each perceptual algo needs a 64×720 `C_max(L,h)` table (18 bisection iters × `XYZ_to_RGB` per cell, per output space) matching the `colour` library to 1e-4 — hundreds of lines. Same gating shape as `aces_rgc` (default `LEGACY_CLIP`, OFF path keeps clip), same golden recipe but each algo gets its own `3bb2c2d` golden. **Ship `aces_rgc` first; only add `cam16ucs` if a colorist explicitly wants the smooth roll-off.** Files: a new `model/gamut_compression.{h,cpp}` (CAM16 fwd/inv, OkLab/Oklch with the `Lr` remap, optional JzAzBz, C_max bisection + bilinear lookup, `_compress_lightness`) on top of the `aces_rgc` scanning hook.
-
----
-
 ## 5. Needs-rebaseline items (Strategy B only)
 
 These cannot land parity-safely against the `c1d0e44` baseline; they require the full rebaseline.
@@ -202,23 +133,6 @@ Adopting upstream defaults rather than gating them is a (B) decision: input gamu
 - **Diffusion `sigma_um<=0` guard:** same Python None-division guard; `filming.cpp:449-456` already gates on `lens_blur_um>0 && pixel_size_um>0` — skip.
 - **`params_schema`/`params_builder`/`pipeline`/`profiles/io` (taps, `lut_mode`, license-string relicense GPLv3→CC BY-SA on profile metadata, `list_profiles()`, `clone_runtime_params`):** Python-internal restructuring; no engine relevance (note the metadata relicense for the attribution/AUDIT docs).
 - **Targeted fixes (vlog midgray `3bb2c2d`, GC black-level `6ec371b`, preview-max removal `83278a5`):** the vlog runtime hunk lives only inside the `lut_mode`/`deactivate_spatial_effects` branches (absent in the port; defaults already pinned to those values); the GC black-level fix targets `gamut_compression.py` which doesn't exist at `c1d0e44` (apply the FIXED one-sided `_compress_lightness` if/when output GC is ported, never the two-sided version); preview-max is a desktop GUI slider clamp (Android has its own independent `previewMaxSize=640`).
-
----
-
-## 7. Recommended next step
-
-**Port output gamut compression `aces_rgc` as a default-OFF opt-in** — it is the smallest fully self-contained item with clear, visible user value (no hard-clipped highlights/chroma), needs no color-appearance-model infrastructure, is trivially thread-invariant, and proves out the new "newer-oracle golden + feature-OFF==`c1d0e44`" gating pattern for everything that follows.
-
-Checklist:
-
-1. Add `enum class OutputGamutCompress { LEGACY_CLIP, OFF, ACES_RGC }` to `SpektraParams.kt` (near `ColorSpace:13`) and `val outputGamutCompress = LEGACY_CLIP` on `IoParams`.
-2. Mirror the enum + knee `(0.0,1.0,6.0)` into `spk_params` (`spektra.h` ~217-222) and marshal it in `spektra_jni.cpp` (`---io---` block, `enum_ordinal_*` helper).
-3. Add the field to `ScanningParams` (`scanning.h`); set it in both `ScanningParams` construction sites in `spektra.cpp` and default `LEGACY_CLIP` in `spk_default_params`.
-4. In `scanning.cpp`: add a `reinhard_knee` helper; insert a per-pixel `aces_rgc` pass on `lin_rgb` between the XYZ→RGB `parallel_for` (~line 311) and `lens_blur` (line 319); gate the `[0,1]` clip (lines 362-363) so the active path skips it and `LEGACY_CLIP` keeps it verbatim.
-5. Generate `tests/scan_portra_ref_aces_rgc.spkvec` from the committed `c1d0e44` `film_density_cmy` tap with `compress_rgb_aces_rgc(rgb,0.0,1.0,6.0)` (SHA-independent reimplementation of the ~10-line knee — avoids any oracle pin).
-6. Add `tests/test_gamut_compress_e2e.cpp` (modeled on `test_output_spaces.cpp`) asserting both (ON==new golden, OFF==existing `c1d0e44` scan_portra golden).
-7. Wire it into `ci.yml` `engine-parity` with a `SPK_NUM_THREADS` 1-vs-8 invariance check; confirm the full engine-parity gate (38 tests as of 2026-08-27) stays green.
-8. Run the full host parity suite; add a Compose UI control; smoke-test a release (R8-minified) build on device before shipping.
 
 ---
 

@@ -569,6 +569,7 @@ def main() -> int:
         ROOT / "README.md": (
             "docs/EXECUTION_INDEX.md",
             "oracle tolerance",
+            f"{len(asset_preset_ids)} built-in presets",
         ),
         ROOT / "CLAUDE.md": ("docs/EXECUTION_INDEX.md", f"{parity_count} tests"),
         ROOT / "docs" / "EXECUTION_INDEX.md": (

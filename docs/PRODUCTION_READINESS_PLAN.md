@@ -101,8 +101,8 @@ This is local mechanical evidence, not a production signature or a live GitHub
 publication. The real release remains fail-closed until the protected Environment
 supplies four signing secrets, `RELEASE_CERT_SHA256`, and
 `RELEASE_GITHUB_TOKEN` (Administration read + Contents write), repository
-immutable releases are enabled, the stable-tag ruleset is active, and the human
-LibRaw distribution-route decision is recorded.
+immutable releases are enabled, and the stable-tag ruleset is active. The LibRaw
+distribution route was elected LGPL-2.1-only on 2026-09-14 (§1.2).
 
 ### Exact JNI lifetime evidence — [Harden JNI lifetime, buffer bounds, cancellation, and render-close races](https://github.com/thetechgeekko/Spektrafilm-android/issues/172)
 
@@ -295,7 +295,7 @@ record the verified commit and `worktree: clean`. Ten offline provenance/publish
 tests cover that gate, including ambient exclude bypass, repo-specific ownership trust, linked
 worktrees, and late-dirty manifest invalidation.
 
-The complete 39-test host matrix passed with O2 and the shipping
+The complete 44-test host matrix passed with O2 and the shipping
 `-O3 -ffast-math -fno-finite-math-only` flags. JVM tests, Android lint, and the three-ABI debug APK
 build passed.
 On the connected SM-S948W, K75P ran first and actually engaged both Vulkan scanner and print
@@ -391,7 +391,7 @@ now has an independently approved, frozen product route for eligible pointwise f
 and scan work. It uses one upload, three resident dispatches and one readback; folds live tables;
 keeps prepared tables under full-byte keys; runs a keyed CPU-oracle capability self-test; reports
 render-local engagement; and falls back to Strict Exact CPU without publishing partial output. The
-three-ABI Android Release build and full native parity matrix 39/39 pass at both O2 and the shipping
+three-ABI Android Release build and full native parity matrix 44/44 pass at both O2 and the shipping
 `-O3 -ffast-math -fno-finite-math-only` flags. The exact frozen O2 and shipping arm64 hashes also
 pass on the connected Android 16 device with `test_gpu_host: ALL OK`: the product materialized,
 direct-gain and tone maxima are `1.66893005e-6` / `1.73598528e-6` / `9.01520252e-7` at O2 and
@@ -414,7 +414,7 @@ Owners:
 - [Validate Android 16 behavior and meet API 36 policy where distributed](https://github.com/thetechgeekko/Spektrafilm-android/issues/171)
 - [Upgrade the NDK independently and prove 16 KiB compatibility on every ABI](https://github.com/thetechgeekko/Spektrafilm-android/issues/187)
 
-Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2024.10.01, compile/target SDK 36 (raised under #171 on 2026-09-08),
+Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2026.06.01 with material3 1.5.0-alpha28, target SDK 36 with compile SDK 37 on `:app` (36 elsewhere; raised under #171 on 2026-09-08),
 build-tools 36.0.0 (the AGP 9.3 minimum; the external zipalign/apksigner gates use the same pin) and NDK r28c
 (28.2.13676358, moved from r27 under [#187](https://github.com/thetechgeekko/Spektrafilm-android/issues/187) on 2026-09-08).
 The connected flagship is already Android 16/API 36. The build-system wave below landed on 2026-09-07 under
@@ -487,7 +487,7 @@ Use the smallest sufficient rung while iterating, then every affected higher run
 10. statistically valid release-device performance and memory A/B;
 11. signed release-candidate digest/SLO run.
 
-The CI `engine-parity` job currently contains 39 `build_run` cases. The workflow is the authority;
+The CI `engine-parity` job currently contains 44 `build_run` cases. The workflow is the authority;
 scripts and prose must be updated whenever the table changes.
 
 ## External references used by this plan

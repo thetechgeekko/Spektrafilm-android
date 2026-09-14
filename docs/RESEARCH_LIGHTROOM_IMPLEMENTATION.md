@@ -33,7 +33,8 @@ stack:
 | `libpairipcore.so` | — | **Google Play "pairip" anti-tamper** — likely wraps/encrypts `base.apk` dex (expect thin jadx output; native strings are the reliable surface) |
 
 Same fundamental split as ours — **a C++ render engine under a Kotlin/Java UI** — confirming our
-architecture matches; the gaps remain scale/perf/feature infra (TBB, GPU, fp16, pyramids/tiling, ML).
+architecture matches; the gaps that remained in mid-2026 were TBB, GPU, fp16, pyramids/tiling and
+ML — the GPU one has since closed (Vulkan route, 294d3dc) and fp16 was measured out (perf-lab §5).
 
 ## API surface (fresh decompile of `libLrAndroid.so`)
 

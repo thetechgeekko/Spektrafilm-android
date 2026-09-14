@@ -48,7 +48,14 @@ __pycache__/
 .gradle-user-home/
 *.gcov
 /crash-*
-/.hermes/plans/
+/.hermes/
 
 # Ephemeral agent worktrees (Claude Code isolation)
 .claude/worktrees/
+
+# Editors and tool caches
+.vscode/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+/tools/baseline/.baseline.env

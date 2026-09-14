@@ -64,7 +64,7 @@ print film, and RGB papers — listed by friendly name and grouped by category, 
 colour balance, and era. The print path works for any film/paper pairing, not just preset
 combinations.
 
-**Start from a look, then make it yours.** 28 built-in presets cover researched film-and-print
+**Start from a look, then make it yours.** 27 built-in presets cover researched film-and-print
 combinations. You can save your own, and import or export them to share.
 
 **Tune the film pipeline.** The current pinned port exposes exposure and auto-metering (7 patterns),

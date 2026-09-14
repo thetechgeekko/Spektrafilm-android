@@ -4,8 +4,8 @@
 
 *                                   @thetechgeekko
 
-# The parity-gated engine: any change here must keep the 42-case suite green
-# at both flag legs.
+# The parity-gated engine: any change here must keep the parity suite in ci.yml
+# green at both flag legs.
 /engine/spektra-core/src/main/cpp/  @thetechgeekko
 /tools/parity/                      @thetechgeekko
 

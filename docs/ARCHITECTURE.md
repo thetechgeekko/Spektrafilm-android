@@ -21,8 +21,8 @@ module graph, and does not compile the dormant `feature/film-emulation` tree.
 ```
 
 The configured native ABIs are `arm64-v8a`, `armeabi-v7a`, and `x86_64`. Current Gradle truth is
-min SDK 24 and target/compile SDK 36. Android policy/toolchain migrations remain live tickets and
-must not be documented as already shipped.
+min SDK 24, target SDK 36 and compile SDK 37 on `:app` (36 elsewhere); the Android 16 / API 36
+qualification closed in #171.
 
 `feature/film-emulation/` was a never-compiled pseudo-module and was deleted by #184; its history
 survives in git and in [DECISION.md](DECISION.md). The old proposed ImageToolbox integration is
@@ -122,16 +122,17 @@ CPU/GPU equality, or complete container SHA identity. The authoritative levels a
 
 ### Strict Exact CPU
 
-The C++ route is the parity-bearing implementation and universal fallback. Its 39-case host matrix
-runs at O2 and the shipping `-O3 -ffast-math -fno-finite-math-only` flags. Deterministic fixed-chunk
+The C++ route is the parity-bearing implementation and universal fallback. Its host matrix (44 cases;
+`.github/workflows/ci.yml` is authoritative) runs at O2 and the shipping `-O3 -ffast-math -fno-finite-math-only` flags. Deterministic fixed-chunk
 parallelism proves worker-count invariance in covered scenarios. Spatial scratch, memory budgets,
 writer streaming, and cold latency remain explicit work rather than reasons to change arithmetic
 silently.
 
 ### Fast GPU
 
-The current eligible print route keeps pointwise filming, printing, and scan in one persistent
-Vulkan chain with one upload, three dispatches, and one readback. Full-byte table keys, explicit
+Since v0.10.0 this is the route the app renders and exports with by default (no user toggle);
+Strict Exact CPU is the reference and automatic fallback. The eligible print route keeps pointwise
+filming, printing, and scan in one persistent Vulkan chain with one upload, three dispatches, and one readback. Full-byte table keys, explicit
 NaN/bounds handling, cancellation, route counters, and a CPU comparison self-test gate exposure.
 GPU output remains private until the whole route succeeds. Unsupported devices and
 non-cancellation availability, validation, allocation, or dispatch failures take the Strict Exact

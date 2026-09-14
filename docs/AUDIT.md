@@ -53,7 +53,7 @@ Wayfinder map so they do not rot here.
   the active tree) + omits v0.9.0's gamut features and the grain-reproducibility
   disclosure. Owner's call. → [#144]
 
-## 🟡 Worth doing (tracked here)
+## 🟡 Worth doing (unticketed at the 2026-08-29 snapshot; re-verification is #226)
 
 App layer:
 - ~14 `scope.launch` sites on `lifecycleScope` keep running after the editor leaves
@@ -93,15 +93,17 @@ Engine:
   lands.
 
 Build / CI / docs:
-- `app/lint-baseline.xml` (2026-06-04): 33 entries of which 26 are dependency-staleness
+- (superseded: AGP 9.3.2 / Kotlin 2.2.10 / Compose BOM 2026.06.01 since #188, baseline
+  regenerated 2026-09-01) `app/lint-baseline.xml` (2026-06-04): 33 entries of which 26 are dependency-staleness
   and one is a baselined **correctness** check (`Instantiatable` on MainActivity);
   dependencies pinned Oct/Nov 2024 (AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.10.01);
   2 deps bypass the version catalog (the two `UseTomlInstead` entries).
-- R8 Stage-2 obfuscation + `shrinkResources` still open; no push-triggered emulator
-  smoke (manual `android-emulator` only).
+- R8 Stage-2 obfuscation + `shrinkResources` still open. (superseded: `android-emulator` now
+  runs on every push/PR.)
 - `python-lint` byte-compiles 2 of ~9 golden generators (workflow YAML — owner-gated).
 - `docs/screenshots/*.jpg` = 0.83 MB (four 1080×2180 frames, refreshed 2026-09-14) rendered at width=200;
-  `docs/PRESETS.md` has 7 undocumented presets + display-name drift on ~8;
+  (superseded: the docs checker now validates preset ids, names and values) `docs/PRESETS.md`
+  had 7 undocumented presets + display-name drift on ~8;
   v0.9.0 is a lightweight tag (checklist prescribes annotated), v0.6.x never tagged,
   old `v0.1/v0.2` local tags lost; two stale `worktree-agent-*` branches.
 
@@ -114,33 +116,3 @@ Input-color-space GatedBlock; scan B/W-correction + GPU-preview ad-hoc dimming
 thumbs only); glare-on-print stochastic → unparityable by design; `bench_stages` is
 explicitly not a gate; grain-field change vs ≤v0.8.0 disclosed in CHANGELOG (⚠).
 
-## Fixed in the 2026-08-27 audit batch (PR #137)
-
-- **#119 unblocked (agent side)**: manifest `<profileable android:shell>`, export
-  start/duration breadcrumbs, `tools/baseline/baseline_wizard.sh` + README.
-- **Parity gate 36 → 38**: the two statistical grain gates (`test_grain`,
-  `test_grain_sublayer`) — the only stage byte-goldens can't cover — verified green
-  locally and wired into `ci.yml` + `run_engine_parity.sh` (drift guard intact).
-- **JNI exception boundary**: all six allocating entry points are function-try-blocks;
-  `std::bad_alloc` → catchable `java.lang.OutOfMemoryError` instead of SIGABRT.
-- **`apply_highlight_boost` boost loop parallelized** (the map #122 missed; 1-vs-8
-  already gated by `test_highlight_boost_e2e`).
-- **Engine comment truth pass**: `kernels/parallel.h` (users + grain scheme),
-  `spektra.cpp` tc_lut key/growth, `spektra.h` (M0 fossils, gamut ordinals 3/4 shipped,
-  `disable_buffer_memos` direct-f32 role), `gamut_compression.h` kOff reality,
-  `params.h` sublayer wiring, filming/autoexposure f32 notes, CMake test-list → pointer
-  to the authoritative ci.yml, dangling `CAMERA_PLAN.md` ref.
-- **App fixes**: recipe auto-save/draft-render/preset-blend/uri-permission failures now
-  logged (were silent); `HowToUseScreen` BackHandler (back no longer exits the app from
-  the guide); export temp files deleted on all paths (try/finally); LUT `.cube` write
-  moved off the main thread; empty custom export size now means full resolution (+ unit
-  test); 11 stale comments corrected (mask pipeline reality, gainmap in-place truth,
-  clipboard scope, garbled fragments); dead code deleted (`HistogramCard` + policy
-  comment re-anchored, `TooltipIconButton`, old `Recipes.save`, `UpdateInfo.apkUrl`,
-  `StockCatalog.isPrintKind`, `BuiltInPresets.byId`, `PRINT_ILLUMINANTS`).
-- **Docs**: 12-file correction batch — gate-count cluster (now 38), stray tool-call XML
-  removed from RELEASE_CHECKLIST, workflows README rewritten from its M0 stub,
-  false LiteRT claims fixed, broken preset id, research docs de-orphaned, version drift
-  (v0.8.0 → v0.9.0 refs), CLAUDE.md CI section (r8-smoke, lint, 16 KB gate).
-
-*Film modeling powered by spektrafilm (GPLv3).*

@@ -81,8 +81,8 @@ Color-matching functions, illuminants, chromatic adaptation, and color-space tra
 ## Android architecture reference: Image Toolbox
 
 The Android app design is informed by **Image Toolbox** by T8RIN (Malik Mukhametzyanov) — its
-modular Compose/Hilt architecture guided this project, and it remains the intended richer host
-for future versions.
+modular Compose architecture informed this project's early design; the standalone `:app` is the
+shipping host.
 
 - Upstream: https://github.com/T8RIN/ImageToolbox
 - License: Apache License 2.0 (one-way compatible with GPLv3)

@@ -39,7 +39,7 @@ to protect them.
 splits for real. **[measured]** after the fix: 8 threads → **8 chunks**, results still correct.
 Unset in production, so the shipping path and every golden are byte-identical to before.
 
-> **Run the current 39-case `engine-parity` suite before merging.** The workflow is the authority;
+> **Run the current `engine-parity` suite (44 cases; ci.yml is authoritative) before merging.** The workflow is the authority;
 > do not trust a prose count if its `build_run` table changes. The toolchain and assets to run it
 > were not available where this change was written; the default-inert argument is sound but the
 > suite is the authority.
@@ -122,7 +122,9 @@ what makes a 12 MP export survive on a 4 GB device at all (measured peak-RSS slo
   for export.
 - **GPU for the export render**: the only path to 10–50×, but GPU float rounding varies by
   driver and device, so "byte-identical across thread counts" degrades to "varies by handset",
-  and it cannot be validated in CI. **Preview only.**
+  and it cannot be validated in CI. **Preview only.** *Superseded 2026-09-11 (294d3dc, #149):
+  the tolerance-bounded Fast GPU route is the default export; the Strict Exact CPU route is the
+  fallback and parity reference — see BIT_IDENTICAL_EXPORT_ROADMAP.md.*
 - **fp16 intermediates on export**: breaks the working-precision invariant outright.
 - **Lowering the `exp10` polynomial degree**: genuinely computing less to go faster — the one
   thing the mandate forbids.
@@ -135,7 +137,7 @@ what makes a 12 MP export survive on a 4 GB device at all (measured peak-RSS slo
 
 Every change must pass before it lands:
 
-1. The full current 39-case `engine-parity` suite green at both flag legs.
+1. The full current `engine-parity` suite (44 cases) green at both flag legs.
 2. `test_parallel` green **with real multi-chunk execution** (Phase 0).
 3. An **export-digest** check: SHA-256 of the exported container payload over a fixed matrix of
    scene × format × params, so "quality unchanged" is a property of the shipped file rather than

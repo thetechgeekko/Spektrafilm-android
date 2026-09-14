@@ -43,8 +43,9 @@ Those shaders were built from this engine's current profile/parameter folds and 
 connected-device M2 oracle-tolerance and repeat-determinism probes. No OFX shader math is copied
 in the first slice. OFX contributes the resident-DAG orchestration pattern: one input upload, a
 shared device-resident pointwise chain with explicit compute barriers, cached static f32 tables,
-and one final readback. The existing Strict Exact CPU route remains unchanged and authoritative;
-Fast GPU is opt-in, device-self-tested, tolerance-bounded, and fails closed to CPU.
+and one final readback. The CPU engine remains the parity-bearing Strict Exact route and the automatic fallback;
+since 294d3dc the Fast GPU route is what the app renders and exports with by default (no user
+toggle), device-self-tested, tolerance-bounded, and fails closed to CPU.
 
 ## Phase A implementation checkpoint (2026-08-31)
 
@@ -84,7 +85,7 @@ Current frozen-slice evidence:
 - pinned NDK r27 regeneration is reproducible and all three modules pass Vulkan 1.1 `spirv-val`;
 - arm64 O2 and shipping-flag warning builds pass; a fresh post-change Android
   `externalNativeBuildRelease` also passes for arm64-v8a, armeabi-v7a and x86_64;
-- the full native engine parity suite passes 39/39 at O2 and 39/39 with the shipping
+- the full native engine parity suite passed 39/39 at O2 and 39/39 with the shipping (the suite has since grown to 44)
   `-O3 -ffast-math -fno-finite-math-only` flags;
 - current shaders pass both O2 and shipping-flag WSL/lavapipe runtime gates, including an
   asymmetric combined f64 oracle (`max_abs` about `1.8e-7`), changed-key/table re-upload,

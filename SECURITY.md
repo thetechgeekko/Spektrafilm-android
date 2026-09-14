@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 0.9.x | Yes — current development line |
-| < 0.9 | No |
+| 0.10.x | Yes — current development line |
+| < 0.10 | No |
 
 Only builds published on the [Releases](https://github.com/thetechgeekko/Spektrafilm-android/releases)
 page are supported. CI artifacts are development evidence, not production-signed releases, and are
