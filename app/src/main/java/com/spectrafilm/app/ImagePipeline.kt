@@ -399,7 +399,15 @@ fun readExifOrientation(ctx: Context, uri: Uri): ExifOrientation {
     }.getOrDefault(ExifOrientation.NONE)
 }
 
-/** Decode [uri] with inSampleSize so the longest edge is at most [maxEdge]. */
+/**
+ * Decode [uri] with inSampleSize so the longest edge is at most [maxEdge].
+ *
+ * The subsample factor lands at or ABOVE the target and the exact downscale below finishes
+ * the job — see [platformSampleSize]. This used to run its own loop that stopped at the first
+ * factor UNDER the target, which threw away up to half the requested resolution and left the
+ * downscale nothing to do. [decodeViaPlatform] was fixed at the time; this path, which serves
+ * the primary photo import, was not, so both now share the one helper.
+ */
 private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Bitmap {
     val resolver = ctx.contentResolver
     // First pass: read bounds only.
@@ -407,11 +415,8 @@ private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX)
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     val longest = max(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
 
-    var sample = 1
-    while (longest / sample > maxEdge) sample *= 2
-
     val opts = BitmapFactory.Options().apply {
-        inSampleSize = sample
+        inSampleSize = platformSampleSize(longest, maxEdge)
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
     val decoded = resolver.openInputStream(uri)?.use {
