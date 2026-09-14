@@ -129,7 +129,7 @@ results and derived output digests are recorded.
 | Local sample | Shape | 0.21.4 repeatability | 0.22.2 serial repeatability | Reviewed old/new change |
 |---|---:|---|---|---|
 | MotionCam DNG | `2736x3648x3` float32 | 2/2 `4f363d4a…` | 3/3 `1f83e610…` | Same shape; 144,869 values changed (`0.4838%`), mean absolute delta among changes `1.106e-5`, maximum `0.048809`, no non-finite values. |
-| Latent DNG | `3060x4080x3` float32 | 2/2 `0991b189…` | 3/3 `f1c23a56…` | Same shape; 687 values changed (`0.001834%`), mean absolute delta among changes `1.079e-5`, maximum `0.0020843`, no non-finite values. |
+| Second DNG sample | `3060x4080x3` float32 | 2/2 `0991b189…` | 3/3 `f1c23a56…` | Same shape; 687 values changed (`0.001834%`), mean absolute delta among changes `1.079e-5`, maximum `0.0020843`, no non-finite values. |
 
 The changed buffers are not silently labelled “bit-identical.” Current stable
 rawpy `0.27.0` uses LibRaw `0.22.1`; direct uint16 postprocess comparisons also

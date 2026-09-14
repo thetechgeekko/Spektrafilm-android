@@ -114,9 +114,8 @@ candidate is not production-signing evidence.
   licensing, memory, APK-size, and numeric gates in the performance plan. Reuse proven techniques
   where they win; do not replace the app architecture by name.
 - [#199](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) owns the final spectral
-  documentation product: an HonKit-style GitHub Pages portal for Spektrafilm Android and explicitly
-  allowlisted public LATENT material, plus an offline Android viewer and one canonical user-facing
-  License & Attribution document. LATENT stays private-by-default and is never bulk-published.
+  documentation product: an HonKit-style GitHub Pages portal for Spektrafilm Android, plus an
+  offline Android viewer and one canonical user-facing License & Attribution document.
 - [#200](https://github.com/thetechgeekko/Spektrafilm-android/issues/200) is the post-GitHub-release
   distribution tail. The paid Play listing is a supporter contribution, not a feature entitlement.
 
