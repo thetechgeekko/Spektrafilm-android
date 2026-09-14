@@ -11,13 +11,15 @@ adb logcat -c
 # 34841467586 attempt 2 failed with "MediaStore pending-row discovery returned no
 # cursor" (ContentResolver.query returns null only when the provider's binder is
 # gone) after the same query had succeeded earlier in the same process, and no
-# logcat had been kept to say why MediaProvider went away.
+# logcat had been kept to say why MediaProvider went away. Every call is bounded:
+# a wedged guest answers nothing, and 34859171425/1 sat 26 minutes in this trap
+# before the job cap killed it.
 retain_failure_evidence() {
   local status=$?
   if [ "$status" -ne 0 ]; then
-    adb logcat -d -v threadtime > build/device-smoke/failure-logcat.txt 2>/dev/null || true
-    adb shell dumpsys meminfo > build/device-smoke/failure-meminfo.txt 2>/dev/null || true
-    adb shell dumpsys activity processes > build/device-smoke/failure-processes.txt 2>/dev/null || true
+    timeout 120 adb logcat -d -v threadtime > build/device-smoke/failure-logcat.txt 2>/dev/null || true
+    timeout 60 adb shell dumpsys meminfo > build/device-smoke/failure-meminfo.txt 2>/dev/null || true
+    timeout 60 adb shell dumpsys activity processes > build/device-smoke/failure-processes.txt 2>/dev/null || true
   fi
 }
 trap retain_failure_evidence EXIT
