@@ -559,7 +559,7 @@ from the generation itself.
 
 ### The probe was built. The hypothesis is WRONG — recorded, not buried.
 
-`tools/perf_lab/mt_probe.cpp`. It proves byte-identity first and only then reports a
+`tools/perf_lab/mt_probe.cpp` (removed 2026-09-14; source in git history). It proves byte-identity first and only then reports a
 number, because the f64 lever on this branch was removed precisely for having done
 that in the other order.
 
@@ -1978,7 +1978,7 @@ pixels gave 1.15x the time**, which no per-pixel stage can do. The rule this add
 Owner raised the Lightroom precedent: Adobe uses Halide, and **pipeline fusion** is one of
 the reasons — instead of writing a full-resolution temporary after every adjustment, Halide
 computes several stages together on small tiles. Our engine does write those temporaries.
-`tools/halide_fusion/` asks what that would buy us. Synthetic pipeline shaped like filming's
+A spike (`tools/halide_fusion/`, removed 2026-09-14; source in git history) asked what that would buy us. Synthetic pipeline shaped like filming's
 O(n) run, not our real stages; best of 5, shared host.
 
 ### 21.1 Fusion is spectacular on the wrong shape
@@ -2570,7 +2570,7 @@ CAT/tint, ACES-to-ProPhoto conversion, and JNI handoff/publication. The device p
 now selects buffer or fd input, reports decode and output-write wall time separately,
 and emits one payload per repetition for SHA-256 comparison.
 
-### 25.1 Matched native A/B and why there is no inflated speed claim
+### 26.1 Matched native A/B and why there is no inflated speed claim
 
 Three-run medians for the full 3060x4080 Samsung source were:
 
@@ -2585,7 +2585,7 @@ moves page faults from allocation into the first sample writes. It is **not** a 
 LibRaw throughput win. The stable result is the deleted *second* JNI allocation/copy and
 the corresponding full-frame peak-memory reduction.
 
-### 25.2 Matched minified release/R8 APK evidence
+### 26.2 Matched minified release/R8 APK evidence
 
 The final release target and separate release AndroidTest APK were built with R8 and
 `lintVitalRelease` enabled. For the baseline arm, only `lib/arm64-v8a/libsfraw.so` was
@@ -2620,7 +2620,7 @@ memory, and a removed 25-35 ms JNI copy on these inputs—not a faster demosaic 
 1-2 second whole-export result. The final APK also passed the complete release-candidate
 instrumentation smoke, including injected write failures and native-result recreation/lifetime.
 
-### 25.3 Shipping thread and oversubscription verdict
+### 26.3 Shipping thread and oversubscription verdict
 
 All three release ABI CMake caches record `SFRAW_ENABLE_OPENMP=OFF`; arm64 compile commands
 contain `-O3 -DNDEBUG` and no `-fopenmp`. ELF inspection of the final `libsfraw.so` found no
@@ -2635,7 +2635,7 @@ An OpenMP experiment would require a shared bounded budget and a fresh exact cor
 the current patched release is not eligible because the compressed-Fuji output changed across
 runs.
 
-### 25.4 `AImageDecoder` is a separately qualified non-RAW route
+### 26.4 `AImageDecoder` is a separately qualified non-RAW route
 
 NDK `AImageDecoder` (API 30+) can decode supported platform formats into caller-provided
 memory, but it publishes platform RGBA/dataspace output—not LibRaw's scene-linear ACES to
@@ -2672,16 +2672,15 @@ whose dominant engine/effect work is measured elsewhere in this dossier.
 
 ## Running it
 
-```bash
-bash tools/perf_lab/build_push_run.sh   # laptop + attached device
-```
-
-Three sections: the f32 Highway A/B (with a cross-process checksum equality check;
-the f64 tier this once ran was removed in `87c60af` — see §1),
-an affinity sweep over `SPK_BIG_CORE_RATIO`, and the three parity-affecting levers.
-Host-side, the same binaries build with the compile lines in each file's header.
+The lab harness (`tools/perf_lab/build_push_run.sh`, `perf_lab.cpp`, `mt_probe.cpp`, the PNG
+probes) was removed on 2026-09-14 after §1, §3–§5, §15.2 and §21 closed the questions it measured;
+the sources are in git history at the commit before the removal. Only
+`tools/perf_lab/fft_conv_device_bench.cpp` and its build script remain (§27).
 
 ## What this branch deliberately does NOT contain
+
+> Historical branch scope (2026-08-29). The #148 filming/printing shaders and the export
+> foreground service have since landed; kept as written.
 
 Cold start (#152) — app-architecture work a bench cannot answer.
 
@@ -2700,7 +2699,7 @@ now gated and tunable (§8–9), but the native model — the engine itself prod
 a coarse result and refining it, reusing work across levels — needs the memo
 structure reworked and is not a bench question either.
 
-## 21. The PNG16 encode: where its second actually goes (#175)
+## 21b. The PNG16 encode: where its second actually goes (#175)
 
 The export baseline puts PNG16 encode at 1705 ms clean and 4316 ms on HEAVY at
 12.5 MP, and attributes the difference to grain being incompressible. That is
@@ -2864,7 +2863,9 @@ Five runs is `gate_runs`, so this capture -- unlike the five in 21.6 -- ran the
 60 s protocol idle and the per-sample thermal wait. Every sample encoded
 (`cache_bypassed: true`, 0 cache hits). **`thermal_status` was 0 on all 40
 samples** and the thermal wait never had to fire, which is the cool device 21.6
-did not have. Capture: `docs/device/ticket175/capture-gated-encode.json`.
+did not have. Capture: `docs/device/ticket175/capture-gated-encode.json`. (The five n=1 smoke
+captures of 21.6 and the TIFF capture of 21.8 were removed from `docs/device/ticket175` on
+2026-09-14; git history keeps them.)
 
 | cell | format | encode min/p50/max ms | #119 p50 | speedup | bytes |
 |---|---|---|---:|---:|---:|
@@ -2913,7 +2914,7 @@ exist at all -- a direct ByteBuffer is a managed byte[] on Android, and 100 MP
 does not fit the ART heap. The writer now quantises straight into the strip.
 
 Same protocol as 21.7 (`gate_runs` = 5, cache bypassed, thermal 0 throughout),
-BASE only, on the build that contains the change:
+BASE only, on APK `6b9f193663d0fe88…` (HEAD `da8147a`), the build that contains the change:
 
 | format | encode min/p50/max ms | previous p50 | change |
 |---|---|---:|---:|
@@ -2954,8 +2955,12 @@ rejected -- the model could only ever be compared against itself. So
 caller-named size, and `tools/perf_lab/fft_conv_device_bench.cpp` times every
 candidate on the phone at the shipping release flags.
 
-One channel, best of 2, SM-S948W, thermal status 0. Full table and method:
-`docs/device/ticket160/README.md`.
+One channel, best of 2, SM-S948W, API 36, plugged in, thermal status 0. Built by
+`tools/perf_lab/build_fft_conv_device_bench.sh` at the shipping flags, then
+`adb push build/perf-lab/fft_conv_bench /data/local/tmp/` and
+`adb shell /data/local/tmp/fft_conv_bench --reps 2 640:480:273 1536:1152:651 4080:3060:1725`.
+The 1536 px row uses the 4:3 frame the app renders (20 tiles), not the square 1536x1536 case in
+`fft_convolve.cpp` (25 tiles at N=1024); that alone moves the model's pick from 1024 to 2048.
 
 | case | ks | N | tiles | device ms | desktop ms |
 |---|---:|---:|---:|---:|---:|

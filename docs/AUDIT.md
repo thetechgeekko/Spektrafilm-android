@@ -100,8 +100,7 @@ Build / CI / docs:
 - R8 Stage-2 obfuscation + `shrinkResources` still open; no push-triggered emulator
   smoke (manual `android-emulator` only).
 - `python-lint` byte-compiles 2 of ~9 golden generators (workflow YAML — owner-gated).
-- `docs/screenshots/*.jpg` = 3.1 MB rendered at width=200 (~90% reducible);
-  `HANDOFF.md` regrows between manual compressions (136 KB once; watch it);
+- `docs/screenshots/*.jpg` = 0.83 MB (four 1080×2180 frames, refreshed 2026-09-14) rendered at width=200;
   `docs/PRESETS.md` has 7 undocumented presets + display-name drift on ~8;
   v0.9.0 is a lightweight tag (checklist prescribes annotated), v0.6.x never tagged,
   old `v0.1/v0.2` local tags lost; two stale `worktree-agent-*` branches.
