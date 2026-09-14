@@ -31,6 +31,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action's default package list is `tools platform-tools`; the
+          # legacy `tools` package vanished from Google's repository on
+          # 2026-09-14 (~20:25 UTC) and `sdkmanager tools` now exits 1.
+          packages: platform-tools
 
       - name: Install NDK + CMake + build-tools
         # Same pins as ci.yml: NDK r28c for 16 KB-aligned native LOAD segments,
