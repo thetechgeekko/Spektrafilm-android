@@ -25,7 +25,7 @@ endif()
 # EVERY SOURCE MUST BE LISTED HERE BY HAND. The host parity build compiles with a
 # glob (`kernels/*.cpp model/*.cpp ...` — see the build line in CLAUDE.md), so a new
 # .cpp picked up there is NOT picked up here. A file missing from this list therefore
-# passes the whole 39-gate parity suite locally and fails only in the Android
+# passes the whole host parity suite locally and fails only in the Android
 # `ninja ... spektra` step, which is a slow and confusing way to find out. That is
 # exactly how kernels/fft.cpp and kernels/fft_convolve.cpp broke CI on 551c57f.
 add_library(spektra SHARED
@@ -75,7 +75,6 @@ add_library(spektra SHARED
         runtime/stages/crop_resize.cpp       # crop + cubic resize geometry stage (M7)
         runtime/stages/autoexposure.cpp      # center-weighted metering -> EV gain (M7)
         gpu/vulkan_compute.cpp               # OPT-IN Vulkan compute fast-path (stub unless SPK_ENABLE_VULKAN)
-        ml/segmentation.cpp                  # OPT-IN LiteRT subject/sky masking (stub unless SPK_ENABLE_LITERT)
 )
 
 target_include_directories(spektra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -93,12 +92,13 @@ find_package(Threads REQUIRED)
 
 target_link_libraries(spektra ${log-lib} ${android-lib} ${jnigraphics-lib} Threads::Threads)
 
-# OPT-IN GPU (Vulkan compute) fast-path — docs/PERF_ROADMAP.md #1. OFF by default:
-# the default library is byte-identical (gpu/vulkan_compute.cpp compiles to a stub that
-# reports unavailable). When -DSPK_ENABLE_VULKAN=ON, the real compute path is compiled
-# and libvulkan is linked. Preview-only / non-bit-exact by design (GPU float != oracle),
-# so the export + parity-gated path never call it.
-option(SPK_ENABLE_VULKAN "Build the Vulkan compute GPU fast-path (preview-only)" OFF)
+# Vulkan compute route (Fast GPU). OFF here so the host parity suite compiles the stub in
+# gpu/vulkan_compute.cpp (gpu::available() is false and every GPU branch is dead, so a 44/44
+# parity run is no evidence for gpu/). build.gradle.kts passes -DSPK_ENABLE_VULKAN=ON for every
+# Android build: since 294d3dc the Fast GPU route is what the app renders and exports with by
+# default, tolerance-bounded against the CPU engine, gated per device by an on-device self-check
+# with automatic Strict Exact CPU fallback. Its gates are tests/test_gpu_host.cpp and gpu/tests/.
+option(SPK_ENABLE_VULKAN "Build the Vulkan compute GPU route (stub when OFF)" OFF)
 if(SPK_ENABLE_VULKAN)
     find_library(vulkan-lib vulkan)
     target_compile_definitions(spektra PRIVATE SPK_ENABLE_VULKAN=1)
@@ -205,24 +205,10 @@ if(SPK_USE_TBB)
     target_link_libraries(spektra TBB::tbb)
 endif()
 
-# OPT-IN LiteRT (TFLite) ML masking (default OFF). When ON, ml/segmentation.cpp runs a
-# bundled segmentation model via libtensorflowlite_c (subject/sky masks — a feature,
-# not part of the bit-exact render path). Default builds compile the stub and link
-# nothing extra; enabling additionally requires vendoring the model + runtime.
-option(SPK_ENABLE_LITERT "Build the LiteRT ML segmentation path" OFF)
-if(SPK_ENABLE_LITERT)
-    find_library(tflite-lib tensorflowlite_c)
-    target_compile_definitions(spektra PRIVATE SPK_ENABLE_LITERT=1)
-    target_link_libraries(spektra ${tflite-lib})
-endif()
-
 # 16 KB page support (Android 15): force every PT_LOAD segment to a 16 KB-aligned
 # p_align so the lib mmaps on devices with a 16 KB page size. NDK r27+ does this by
 # default, but pin it explicitly so the alignment holds on any NDK the build picks up.
 target_link_options(spektra PRIVATE "-Wl,-z,max-page-size=16384")
-
-# M2: link LibRaw here (or keep it in lib:libraw and pass decoded buffers in).
-# target_link_libraries(spektra raw)
 
 # --- Host parity tests (NOT part of libspektra.so) ---------------------------
 # The authoritative gate list lives in .github/workflows/ci.yml (`engine-parity`,

@@ -41,8 +41,8 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
     /**
      * GPU LUT preview (default OFF — opt-in). When on, the FIT view renders the current
      * look instantly by GPU-sampling the engine's baked 3D LUT instead of a ~1s CPU render
-     * per edit. EXPORT is always the exact CPU engine — GPU is preview-only, never the
-     * parity path.
+     * per edit. This loupe is a separate approximation from the Vulkan engine route (how the
+     * app renders and exports since 294d3dc); it never affects export.
      *
      * DEFAULT OFF: the current GLSurfaceView-based surface churns (continuous buffer
      * re-allocation / dropped frames) when the editor's preview area resizes during panel
@@ -113,43 +113,36 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
     }
 
     /**
-     * GPU ENGINE preview (Vulkan, GPU M1 #146) — distinct from [gpuPreview] (the
-     * GLES LUT loupe overlay above): the film simulation itself runs its scan
-     * stage on the GPU for interactive previews (~2e-6 from the CPU chain,
-     * tighter than the preview's 3D LUT at ~5e-5 — see PR #145). Preview-only:
-     * export always renders on the exact CPU engine. Guarded by a one-time
-     * on-device self-check with automatic CPU fallback. Default OFF until the
-     * on-device validation round (#147 session) signs it off.
+     * GPU ENGINE (Vulkan, GPU M1 #146) — distinct from [gpuPreview] (the GLES LUT
+     * loupe overlay above): the film simulation itself runs on the GPU for
+     * interactive previews (~2e-6 from the CPU chain, tighter than the preview's
+     * 3D LUT at ~5e-5 — see PR #145). ON for every render since 294d3dc and the
+     * user-facing toggle is gone. The route is gated by a one-time on-device
+     * self-check and falls back to the CPU engine automatically, so "GPU" means
+     * "GPU where this device proves it agrees with the CPU", not "GPU
+     * unconditionally". The pref key is kept and written so an existing install
+     * that had it OFF is not stuck there; the getter ignores it.
      */
-    //
-    // NOW ON FOR EVERY RENDER, and the user-facing toggle is gone. The route is
-    // gated by the same on-device self-check it always was and still falls back
-    // to the CPU engine automatically, so "GPU" means "GPU where this device
-    // proves it agrees with the CPU", not "GPU unconditionally". The pref key is
-    // kept and read so an existing install that had it OFF is not stuck there.
     var gpuEngine: Boolean
         get() = true
         set(v) { prefs.edit().putBoolean(KEY_GPU_ENGINE, v).apply() }
 
     /**
-     * EXPERIMENTAL GPU export (Vulkan, #154 — GPU M4 seed / #149 option B):
-     * the film simulation's scan stage runs on the GPU for FULL-RESOLUTION
-     * exports, not just previews. "Oracle-verified on your device" — the same
-     * on-device self-check gates it, and the CPU engine stays the ground truth
-     * and automatic fallback. Default OFF; a plain export is byte-identical to
-     * the CPU path. Independent of [gpuEngine] (the preview toggle).
+     * GPU export (Vulkan, #154 / #149): the film simulation runs on the GPU for
+     * FULL-RESOLUTION exports. ON for every export since 294d3dc and the
+     * user-facing toggle is gone; the same on-device self-check gates it and the
+     * CPU engine stays the ground truth and automatic fallback. Two things this
+     * changes for every user, both deliberate:
+     *   - Grain and viewing glare are re-drawn with the faster generator (#180),
+     *     so the speckle pattern differs from the CPU engine. Same amount and
+     *     character; repeat exports on one device stay identical.
+     *   - A default export is therefore no longer byte-identical to the CPU
+     *     path. It stays inside the Fast GPU tolerance, and every colour stage
+     *     is self-checked against the CPU engine on the device with automatic
+     *     fallback, but the strict exact contract belongs to the CPU engine
+     *     alone rather than to what ships by default.
+     * The pref key is kept and written; the getter ignores it.
      */
-    //
-    // NOW ON FOR EVERY EXPORT, and the user-facing toggle is gone. TWO THINGS
-    // THIS CHANGES FOR EVERY USER, both deliberate:
-    //   - Grain and viewing glare are re-drawn with the faster generator (#180),
-    //     so the speckle pattern differs from the CPU engine. Same amount and
-    //     character; repeat exports on one device stay identical.
-    //   - A default export is therefore no longer byte-identical to the CPU
-    //     path. It stays inside the Fast GPU tolerance, and every colour stage
-    //     is self-checked against the CPU engine on the device with automatic
-    //     fallback, but the strict exact contract now belongs to the CPU engine
-    //     alone rather than to what ships by default.
     var gpuExportEngine: Boolean
         get() = true
         set(v) { prefs.edit().putBoolean(KEY_GPU_EXPORT, v).apply() }

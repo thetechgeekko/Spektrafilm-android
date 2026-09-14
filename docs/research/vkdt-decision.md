@@ -322,7 +322,8 @@ a waypoint to something coarser.
    vkdt as the architecture guide. We would be giving up measurable print-route accuracy
    for a speedup that does not apply to the largest stage. There is no reason to pay it.
 
-The experiment is committed and re-runnable: `bash tools/spectral_bands/run_band_probe.sh`.
+The experiment was committed as `tools/spectral_bands/` (removed 2026-09-14) and is re-runnable
+from commit 2b5ac31.
 
 ## 10. The RAW decoder: what vkdt uses, and why swapping ours would not help
 

@@ -35,7 +35,7 @@
   "assets": {
     "path": "engine/spektra-core/src/main/assets/spektra",
     "provenance": "Bundled from the oracle c1d0e44 tree (profiles/LUTs) plus Android-authored ICC/preset assets; the tree digest below is what CI verifies offline.",
-    "files": 216,
-    "tree_sha256": "fd4cbdf648a7d38df24a5714b76d196722909f8e85befe2dde01a9f148f2a424"
+    "files": 41,
+    "tree_sha256": "d44c4a92d122494f849412eb79e711fc6ac2a096ff19b00872da0e8812fd068f"
   }
 }

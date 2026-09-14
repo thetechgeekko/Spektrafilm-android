@@ -22,10 +22,11 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
-                // GPU preview fast-path (GPU M1, #146): compile the Vulkan host
-                // into the Android library. Runtime-gated (Settings toggle,
-                // default OFF + device self-check + CPU fallback); the host
-                // parity-test builds stay stub (flag defaults OFF in CMake).
+                // Vulkan compute route (GPU M1 #146; the default render and export
+                // route since 294d3dc): compiled into every Android build, gated per
+                // device by the on-device self-check with automatic CPU fallback and
+                // no user toggle. The host parity-test builds stay stub (flag OFF in
+                // CMake).
                 arguments += "-DSPK_ENABLE_VULKAN=ON"
             }
         }

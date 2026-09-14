@@ -9,15 +9,14 @@ On-device camera **RAW / DNG** decoding for Spektrafilm for Android, producing a
 as Spektrafilm's desktop `rawpy` path. Exact decoder-version parity is tracked
 explicitly; it is not inferred from matching option names.
 
-> **Status: security-upgraded, qualification in progress.** The native decoder,
+> **Status: shipped (v0.10.0); LGPL-2.1-only distribution route elected 2026-09-14.** The native decoder,
 > JNI bridge, and Kotlin facade are in place. The build fetches the official
 > LibRaw 0.22.2 archive by SHA-256, applies a hashed local hardening series, and
 > fails closed if any source/version/patch check fails. RAW/DNG decode is live;
 > final ABI/device qualification is rerun whenever the patch aggregate changes.
-> `build.gradle.kts` mirrors
-> `engine:spektra-core` (plain AGP `com.android.library` + `kotlin.android` +
-> `externalNativeBuild` CMake), so the module configures and builds standalone the
-> moment it is added to `settings.gradle.kts`.
+> `build.gradle.kts` mirrors `engine:spektra-core` (AGP `com.android.library` with built-in
+> Kotlin + `externalNativeBuild` CMake); the module is included from `settings.gradle.kts` and
+> consumed by `:app`.
 
 ## What it does
 
@@ -261,7 +260,7 @@ those two exact instrumentation markers is a failed gate.
 The current decoder is deliberately fail-closed before unpack: encoded input is
 limited to 64 MiB, LibRaw's raw store to 128 MiB, and declared/ActiveArea/
 DefaultScale geometry to 12 MiPixels on 64-bit or 8 MiPixels on 32-bit. Files
-above that geometry require the seekable/tiled design tracked by ticket #173;
+above that geometry would need a seekable/tiled design, which no ticket tracks today;
 `halfSize` does not bypass this gate because some layouts ignore the request.
 
 `RawDecoder.Settings` exposes a `halfSize: Boolean` flag (default `false`):
@@ -345,7 +344,7 @@ or out-of-range `[1000,12000] K` / `[0.2,1.8]` settings before decode or colour 
    float32 working boundary are separate contracts.
 2. **Non-shipping reference.** `RawCoilDecoder.Factory` exists in this library but is not registered
    by the standalone app. The never-built ImageToolbox host path and dormant
-   `feature:film-emulation` module are not production integration points.
+   `feature:film-emulation` module (deleted by #184) were never production integration points.
 
 ## License
 

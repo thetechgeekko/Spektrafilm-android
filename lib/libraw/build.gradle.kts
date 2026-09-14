@@ -70,18 +70,17 @@ kotlin {
 dependencies {
     // The decoded result is a self-contained float32 ByteBuffer + width/height/
     // colorSpace (see RawDecoder.LinearResult); the engine's LinearImage is
-    // constructed by the caller (feature:film-emulation), so this module needs no
+    // constructed by the caller (:app), so this module needs no
     // compile dependency on engine:spektra-core. The project lead can add
     //   implementation(projects.engine.spektraCore)
     // if a future change makes lib:libraw construct LinearImage directly.
 
     // RawCoilDecoder.kt (the secondary "full-res RAW in the gallery" integration
     // point) is written against Coil 3's Decoder API. It is declared compileOnly so
-    // this module compiles standalone without bundling Coil; the host app
-    // (ImageToolbox) already provides coil3 at runtime when it registers
-    // RawCoilDecoder.Factory(). Coil is not in the version catalog, so the
-    // coordinate is pinned literally here; swap for libs.coil.core once the host
-    // adds it to gradle/libs.versions.toml.
+    // this module compiles standalone without bundling Coil. No module in this repo
+    // consumes it today (:app decodes through RawDecoder directly; the ImageToolbox
+    // host it was written for was never adopted). Coil is not in the version
+    // catalog, so the coordinate is pinned literally here.
     compileOnly("io.coil-kt.coil3:coil-core:3.0.4")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     testImplementation(libs.junit)
