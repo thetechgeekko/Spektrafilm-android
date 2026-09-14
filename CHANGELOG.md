@@ -16,6 +16,8 @@
   legs, 27 presets ship.
 - CI `python-lint` now runs `tools/parity/tests` (the golden-vector provenance gate, never run by
   any job before).
+- The vendored copies of the mattpocock agent skills and the `brutalist-re` skill left
+  `.claude/skills/`; the two project skills stay and now state the v0.10.0 facts.
 
 ## v0.10.0 (versionCode 12) — 2026-09-12 — the GPU is how the app renders, accurate presets, a fixed canvas 🎞️⚡
 

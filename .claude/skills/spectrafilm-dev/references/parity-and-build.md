@@ -1,6 +1,8 @@
 # Parity, build, and the native contract
 
-Source: repo doctrine (CLAUDE.md, HANDOFF.md, docs/AUDIT.md, `.github/workflows/ci.yml`).
+Source: repo doctrine (CLAUDE.md, `.github/workflows/ci.yml`). CLAUDE.md is authoritative for
+toolchain pins, CI jobs, build commands and release facts; those sections were removed from this
+file on 2026-09-14 because they had drifted.
 This is the operational reference for keeping the engine parity-correct and buildable.
 
 ## 1. The parity gate (the real definition of "done")
@@ -28,7 +30,7 @@ The prime directive: **bit-exact parity with the upstream spektrafilm Python ora
 - `tools/parity/` is a standalone `.spkvec` golden-vector comparator with its own CMake +
   ctest self-test (CI `parity` job).
 
-### Measured parity (from README.md 113-126 — cite, do not invent)
+### Measured parity (from README.md — cite, do not invent)
 - Hanatos upsampling: `max_abs ~ 1.1e-7`
 - Filming: `1.2e-7 / 2.4e-7`
 - Printing: `2.4e-7 / 5.6e-7`
@@ -116,53 +118,11 @@ prove byte-identical output.
   edits 153-162 ms vs 402 cold; warm scan 144-159 vs 243; S4 cold scan 243 -> 211 ms.
 - Scenario-5-style repeat medians are **STEADY-STATE**: only rep 1 pays a memo MISS.
 
-## 3. CI jobs (`.github/workflows/ci.yml`)
+## 3–5. Toolchain, CI jobs, build commands, native modules
 
-- **`engine-native`** — host C++ build of `libspektra`.
-- **`engine-parity`** — the 34-test stage gate (run on push/PR; see ci.yml for the list).
-- **`parity`** — `.spkvec` comparator self-test (`tools/parity/` CMake + ctest).
-- **`python-lint`**.
-- **`android`** — `:app:testDebugUnitTest` + full assemble for all ABIs.
-- **`android-emulator`** — manual dispatch only.
-- `release.yml` — builds a signed APK from keystore secrets on a `v*` tag push and creates the
-  GitHub Release.
-
-## 4. Build toolchain pins (do not deviate)
-
-- **NDK r28c only: `28.2.13676358`.** 16 KB page-aligned `LOAD` segments are the default (r27 introduced them)
-  segments; required by Android 15+. Wrong NDK -> `dlopen` failure on 16 KB devices.
-- **CMake 3.22.1**, **build-tools 36.0.0** (AGP 9.3 minimum; has `zipalign -P 16`), **JDK 21** (temurin).
-  `sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"`.
-- **Engine Release C++ flags:** `-O3 -ffast-math -fno-finite-math-only`
-  (`engine/spektra-core/src/main/cpp/CMakeLists.txt:12`). Host-parity tests use `-O2` (above).
-- **`-fno-finite-math-only` is NON-NEGOTIABLE.** Scanning's `density_to_light` (`10^-density`)
-  relies on NaN propagation to match the oracle's profile-null handling (profile null = NaN,
-  must collapse to 0). Stripping it makes NaN handling undefined and **breaks parity silently**.
-- 16 KB page alignment is CI-gated: every `arm64-v8a`/`x86_64` `.so` must have `0x4000` `LOAD`
-  alignment (`readelf -lW`), and `build-tools/36.0.0/zipalign -c -P 16 4 <apk>` must pass.
-
-### Build commands
-
-```bash
-ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
-  ./gradlew :app:assembleDebug          # builds libspektra/libsfraw/libsftiff/libsfpng for 3 ABIs
-./gradlew :app:testDebugUnitTest        # only automated Kotlin test layer
-./gradlew :app:lint                     # abortOnError=true; baseline app/lint-baseline.xml
-```
-
-ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`. `minSdk 24`, `targetSdk`/`compileSdk 34`.
-
-## 5. Native modules (`settings.gradle.kts`)
-
-- **`:engine:spektra-core`** -> `libspektra.so`; package `com.spectrafilm.engine`. Bundles
-  film/paper profiles, spectral LUTs, ICC under `src/main/assets/spektra/`.
-- **`:lib:libraw`** -> `libsfraw.so` (LibRaw -> linear ACES RGB for RAW/DNG).
-- **`:lib:tiffwriter`** -> `libsftiff.so`, **`:lib:pngwriter`** -> `libsfpng.so` (16-bit export).
-- **`:app`** -> `com.spectrafilm.app`, the application; all UI lives here.
-
-Ignore `feature/film-emulation/` and the aspirational `core/`/feature layout in
-`docs/ARCHITECTURE.md` — that doc is the *target* design; `feature:film-emulation` is not in
-`settings.gradle.kts` and is not compiled. The real app is the standalone `:app` module.
+See CLAUDE.md (authoritative) and `.github/workflows/README.md`. The copies that lived here had
+drifted (SDK 34, versionCode 10, a debug-key fallback, a manual-only emulator job) and were removed
+on 2026-09-14.
 
 ## 6. JNI marshalling contract
 
@@ -172,17 +132,17 @@ Ignore `feature/film-emulation/` and the aspirational `core/`/feature layout in
 - Buffers are owned by the engine and freed with `spk_image_free`.
 - **Full-res export uses off-heap native memory:** `malloc` + `NewDirectByteBuffer` (true
   native memory), **not** `ByteBuffer.allocateDirect` (256 MB ART limit). Wrapped
-  `AutoCloseable`. (`ImagePipeline.kt:126-148`, HANDOFF.md 153-162)
+  `AutoCloseable`. (`ImagePipeline.kt`)
 - Per the JNI design note, field/method IDs are cached on first use (`spektra_jni.cpp:11`).
 
 ## 7. Engine lifecycle & thread safety
 
 - The engine is **immutable and thread-safe**: `SpektraEngine` holds a shared `spk_engine`
-  handle that never mutates (HANDOFF.md 26).
+  handle that never mutates.
 - **Process-scoped singleton `EngineHolder`** (Kotlin `object`): one instance across config
   changes, avoids leaks. `close()` is idempotent.
 - **Config-change crash fix:** native engine leaked on rotation -> use-after-free; the fix was
-  a process-scoped `EngineHolder` + `rememberSaveable` (HANDOFF.md 23-25). Do not regress this
+  a process-scoped `EngineHolder` + `rememberSaveable`. Do not regress this
   by tying engine lifetime to an Activity/Composable.
 - Preview vs scan share one code path: preview downscales to `preview_max_size` (default
   640 px); scan is full-res. Decode + simulate run off the main thread.
@@ -227,26 +187,3 @@ param:
   and gets a key-completeness test case — `test_simulate_e2e`'s per-param check FAILS if you
   forget. Run it after adding any param.
 
-## 8. Open AUDIT items / gotchas (docs/AUDIT.md)
-
-- **Formerly-inert spektral params** (hanatos window/surface, `spectral_gaussian_blur`, camera
-  UV/IR, preflash, print EV comp, scanner B/W corrections) are now **WIRED end-to-end**, each
-  gated by its own `*_e2e` parity test with goldens pinned to oracle `c1d0e44`. Remaining
-  disclosure-only items: MALLETT2019 (GatedBlock, implement-vs-remove decision open) and
-  DIR-gamma sliders (film-baked, disclosed).
-- **Memory tiling for large RAW is NOT implemented.** An OOM-retry ladder + half-size decode +
-  off-heap alloc mitigate ~12-50 MP; pathological DNGs are still unbounded. (AUDIT.md 21-23)
-- **GPU preview is not bit-reproducible.** GPU float varies by vendor; the parity engine is CPU
-  C++ only. `LutGpuPreview.kt` is default OFF with no on-device validation. Never route
-  `simulate`/export through GPU. (HANDOFF.md 51-58, AUDIT.md 42-46)
-- Release `isMinifyEnabled = true` (R8 shrink, `-dontobfuscate` + JNI/enum keep-rules; the R8
-  path is NOT CI-exercised — smoke-test a release build on a device before tagging).
-
-## 9. Version & release
-
-- `versionCode 10` / `versionName 0.8.0`.
-- Commit with `-c commit.gpgsign=false` (signing server rejects signing here).
-- Release signing: `keystore.properties` (`storeFile`/`storePassword`/`keyAlias`/`keyPassword`)
-  in repo root; absent -> falls back to debug signing. Never commit a real keystore or an APK.
-- **GPLv3 attribution "Film modeling powered by spektrafilm" must remain in the built app**
-  (CLAUDE.md 126, NOTICE.md, README.md). The whole app is a GPLv3 derivative.

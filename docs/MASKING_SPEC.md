@@ -9,7 +9,7 @@
 > [schema/spektrafilm-mask-v1.schema.json](schema/spektrafilm-mask-v1.schema.json).
 
 Synthesis of a 3-agent reverse-engineering sweep over our own decompile of the current Lightroom
-Android build (`docs/lightroom-re/` — `cr_*`/`ICB*` symbols), ExifTool's verbatim `crs` masking
+Android build (`cr_*`/`ICB*` symbol dumps, since removed from the tree), ExifTool's verbatim `crs` masking
 schema, and Adobe public docs, cross-checked against our current `app/.../masks/` code. The goal:
 mirror Lightroom's **proven** on-disk masking data model **1:1 for free XMP interop**, while keeping
 every pixel op a **parity-safe Tier-2** pass on the engine OUTPUT (`simResultToBitmap` / `SimResult.data`

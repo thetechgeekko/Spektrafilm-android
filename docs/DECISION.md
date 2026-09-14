@@ -202,3 +202,7 @@ plan whose every item had shipped, or a study nothing referenced.
   RGBA_8888 output could enter the engine, P3 / 16-bit / HLG / PQ inputs failed closed, the HDR
   headroom oracle was blocked, and the API 30/34 cells never ran. The import cost was the app's
   own conversion loop, not the decoder, so the module was rejected.
+- `.claude/skills/` vendored copies of mattpocock/skills (25 skill directories, commit 76ef4b5) and
+  `brutalist-re` — installed per-user from their upstreams, and the two copies had diverged; the
+  repo keeps only the two project skills (`spectrafilm-dev`, `spectrafilm-solutions`) and their
+  configuration in `docs/agents/`.
