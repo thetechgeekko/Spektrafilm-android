@@ -30,6 +30,12 @@ OUT="${1:-${TMPDIR:-/tmp}/spk-parity}"
 JOBS="${JOBS:-$( (nproc 2>/dev/null || sysctl -n hw.ncpu) )}"
 
 mkdir -p "$OUT"
+# Resolve to an absolute path BEFORE the cd below. A relative build_dir (as
+# release.yml passes) would otherwise be created here, under the caller's cwd,
+# and then re-resolved against $CPP after the cd -- so every compile's -o and
+# its .build log would land in a directory that does not exist. The default is
+# absolute, which is why a plain local run never hit this.
+OUT="$(cd "$OUT" && pwd)"
 cd "$CPP"
 SRC=(spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp)
 DEF=(-DSPK_TEST_DIR="\"$CPP/tests\"")
