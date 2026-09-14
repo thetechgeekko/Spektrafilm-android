@@ -38,9 +38,9 @@ ML — the GPU one has since closed (Vulkan route, 294d3dc) and fp16 was measure
 
 ## API surface (fresh decompile of `libLrAndroid.so`)
 
-- **1,038 `ICB*`** JNI bridge methods (the full current UI→engine API) — full list:
-  `docs/lightroom-re/icb-methods-full.txt`; grouped by feature: `docs/lightroom-re/icb-by-feature.md`.
-- **16,841 `cr_*`** engine symbols; feature-relevant subset: `docs/lightroom-re/cr-symbols-curated.txt`.
+- **1,038 `ICB*`** JNI bridge methods (the full current UI→engine API).
+- **16,841 `cr_*`** engine symbols.
+- (The raw symbol dumps were removed from the tree on 2026-09-14; git history keeps them.)
 - 60,107 exported dynsyms total (not stripped).
 
 **Current features beyond our prior (11.3.3) catalog — newly confirmed:**
@@ -248,7 +248,7 @@ the algorithm sections give the *how*; the solutions doc gives our *parity-safe 
 
 ## Changelog
 - 2026-06-08 — Fresh RE of the current build (APKMirror 2026-05-14): native-stack architecture +
-  1,038 ICB / 16,841 cr_ surface catalogued (`docs/lightroom-re/`); new features identified (AI Lens
+  1,038 ICB / 16,841 cr_ surface catalogued (dumps since removed; git history); new features identified (AI Lens
   Blur, PDR/Generative Remove, adaptive/scene presets, HDR edit).
 - 2026-06-08 — All six algorithm sections (§A masking, §B WB/color, §C tone/grading, §D render/perf,
   §E heal/geometry/lens/NR, §F presets/export/ML) synthesized from authoritative sources + cross-mapped

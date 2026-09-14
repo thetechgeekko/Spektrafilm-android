@@ -247,7 +247,8 @@ does exposure-only. **The per-pixel math + fold are already correct and parity-f
    (Dark-Channel-Prior) remains — a separate algorithm.
 
 ## Sources
-In-repo decompile `docs/lightroom-re/{cr-symbols-curated.txt, icb-by-feature.md, icb-signatures.txt,
-icb-methods-full.txt, tiparamsholder-natives.txt}`; `docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md` §A/§C/§D/§F;
+Our own decompile of the 2026-05-14 Lightroom Android build (the symbol dumps were removed from the
+tree on 2026-09-14; git history before that commit holds them); the 16 `cr_*` names this document
+relies on are quoted inline above. `docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md` §A/§C/§D/§F;
 ExifTool XMP-crs tag table; Adobe ACR/Lightroom masking + radial/range-mask help. Matting patents
 US10068361/US9786078; Dehaze US20160196637A1. Reconstructed curves [RECON] are tunables, not Adobe-exact.
