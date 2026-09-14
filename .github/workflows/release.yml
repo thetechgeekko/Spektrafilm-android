@@ -1024,6 +1024,18 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # Emulator 37.1.11.0 refuses the runner's preinstalled adb ("Unable to
+      # connect to adb daemon on port: 5037", then a "device offline" loop).
+      # ci.yml's emulator job has carried this step since that bit it; the
+      # release smoke logged the same ERROR on 34882197355/2 and 34895327402
+      # right before QEMU vanished mid-instrumentation. Match platform-tools to
+      # the emulator the action installs and warm the daemon first.
+      - name: Update platform-tools and warm the adb server
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" > /dev/null
+          "$ANDROID_HOME/platform-tools/adb" start-server
+          "$ANDROID_HOME/platform-tools/adb" version
+
       - name: Run exact signed candidate instrumentation and API smoke
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
@@ -1056,6 +1068,11 @@ jobs:
           mkdir -p build/device-smoke/emulator-host
           cp -r /tmp/android-runner build/device-smoke/emulator-host/ 2>/dev/null || true
           cp "$HOME"/.android/avd/test.avd/*.log build/device-smoke/emulator-host/ 2>/dev/null || true
+          # A QEMU process that exits with no minidump (34895327402: crashpad db
+          # empty, netsim "last device disconnected") is either a host OOM kill
+          # or a clean guest power-off; only the host kernel log can tell.
+          sudo dmesg -T > build/device-smoke/emulator-host/dmesg.txt 2>&1 || true
+          free -m > build/device-smoke/emulator-host/free.txt 2>&1 || true
           ls -laR build/device-smoke/emulator-host || true
       - name: Retain exact-candidate device evidence
         if: always()
