@@ -31,6 +31,12 @@ data class BuiltInPreset(
     val group: String,
     val description: String,
     val params: JSONObject,
+    /** Film this preset switches to. Every shipped preset authors one. */
+    val filmProfile: String = "",
+    /** Print paper. Meaningless when [scanFilm] — the print stage never runs. */
+    val printProfile: String = "",
+    /** `io.scanFilm`: scan the negative directly, skipping the print stage entirely. */
+    val scanFilm: Boolean = false,
 )
 
 object BuiltInPresets {
@@ -44,6 +50,26 @@ object BuiltInPresets {
      * should invoke this from a background dispatcher. Returns an empty list if the asset
      * is missing or malformed rather than throwing.
      */
+    /**
+     * The one-line consequence of applying a preset: the film it switches you to and the
+     * paper it prints on.
+     *
+     * A reversal preset with `io.scanFilm` scans the negative directly and never runs the
+     * print stage, so naming its paper would be a lie — four of the shipped presets are in
+     * this case. Say what actually happens instead.
+     */
+    internal fun specLine(
+        filmName: String,
+        printName: String,
+        scanFilm: Boolean,
+        positiveLabel: String,
+    ): String = when {
+        filmName.isBlank() -> ""
+        scanFilm -> "$filmName · $positiveLabel"
+        printName.isBlank() -> filmName
+        else -> "$filmName · $printName"
+    }
+
     fun load(ctx: Context): List<BuiltInPreset> {
         cache?.let { return it }
         val parsed = runCatching {
@@ -52,13 +78,21 @@ object BuiltInPresets {
             buildList {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
+                    val params = o.optJSONObject("params") ?: JSONObject()
                     add(
                         BuiltInPreset(
                             id = o.optString("id"),
                             name = o.optString("name", o.optString("id")),
                             group = o.optString("group", "Presets"),
                             description = o.optString("description", ""),
-                            params = o.optJSONObject("params") ?: JSONObject(),
+                            params = params,
+                            // Lifted out of the authored tree so the picker can show what a
+                            // preset will DO before you commit to it, without every caller
+                            // re-walking the nested params.
+                            filmProfile = params.optString("filmProfile", ""),
+                            printProfile = params.optString("printProfile", ""),
+                            scanFilm = params.optJSONObject("io")?.optBoolean("scanFilm", false)
+                                ?: false,
                         ),
                     )
                 }

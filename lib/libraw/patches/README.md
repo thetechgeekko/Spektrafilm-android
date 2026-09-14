@@ -1,8 +1,8 @@
 # LibRaw 0.22.2 patch manifest
 
-<!-- libraw-license-route: UNRESOLVED -->
+<!-- libraw-license-route: LGPL-2.1-only -->
 
-LibRaw Android distribution route: UNRESOLVED.
+LibRaw Android distribution route: LGPL-2.1-only.
 
 The Android and host builds apply this ordered series to the official
 `LibRaw-0.22.2.tar.gz` release. `cmake/LibRawVendor.cmake` verifies every patch
@@ -139,11 +139,11 @@ The 0.22.2 baseline already includes the CR2Slice column bound from
 CVE-2026-21413 / TALOS-2026-2331 (stable fix `75ed2c12a35b765b3b6ad695cc1f044f19efe644`).
 The resolver verifies that guard and deliberately carries no duplicate patch.
 
-LibRaw is offered under LGPL-2.1-only or CDDL-1.0. The repository has not selected
-a distribution route for the static integration. The `UNRESOLVED` marker is a
-release-blocking state; including both upstream texts is provenance only. Local
-patches, corresponding source, relink recipe, notices, and SBOM are assembled by
-the route-neutral compliance tooling, but a green verifier is not legal approval.
-The canonical decision record deliberately leaves patch-contribution license and
-rights confirmation unset until an authorized human records both with an HTTPS
-approval reference. Ticket #166 owns that decision and the release gate.
+LibRaw is offered under LGPL-2.1-only or CDDL-1.0. The repository distributes the
+static integration under **LGPL-2.1-only**, and **the local patches in this
+directory are licensed under that same route**; both upstream texts are included
+for provenance. Local patches, corresponding source, relink recipe, notices, and
+SBOM are assembled by the compliance tooling, but a green verifier is technical
+evidence, not legal advice. The canonical decision record carries the
+patch-contribution license and the rights confirmation recorded by an authorized
+human, with an HTTPS approval reference. Ticket #166 owns that decision.

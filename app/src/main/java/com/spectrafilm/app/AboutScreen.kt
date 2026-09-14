@@ -51,9 +51,9 @@ import androidx.compose.ui.window.DialogProperties
 
 internal const val PROJECT_GPL_ASSET = "legal/spektrafilm/LICENSE.GPL-3.0"
 internal const val PROJECT_NOTICE_ASSET = "legal/spektrafilm/NOTICE.md"
-internal const val LIBRAW_DISTRIBUTION_ROUTE = "UNRESOLVED"
+internal const val LIBRAW_DISTRIBUTION_ROUTE = "LGPL-2.1-only"
 internal const val LIBRAW_ROUTE_STATUS =
-    "LibRaw Android distribution route: UNRESOLVED."
+    "LibRaw Android distribution route: LGPL-2.1-only."
 private const val LIBRAW_COPYRIGHT_ASSET = "third_party/libraw/COPYRIGHT"
 private const val LIBRAW_LGPL_ASSET = "third_party/libraw/LICENSE.LGPL"
 private const val LIBRAW_CDDL_ASSET = "third_party/libraw/LICENSE.CDDL"
@@ -61,8 +61,8 @@ private const val LIBRAW_CDDL_ASSET = "third_party/libraw/LICENSE.CDDL"
 internal const val LIBRAW_LICENSE_STATUS =
     "LibRaw 0.22.2 is offered upstream under a choice of the GNU Lesser General Public " +
         "License version 2.1 or the Common Development and Distribution License version 1.0. " +
-        "Spektrafilm Android's release route has not been selected. Bundling both upstream " +
-        "license texts records provenance and does not elect either route."
+        "Spektrafilm Android distributes it under the GNU Lesser General Public License " +
+        "version 2.1 only. Both upstream license texts are bundled for provenance."
 
 private data class LegalDocument(
     @StringRes val titleRes: Int,

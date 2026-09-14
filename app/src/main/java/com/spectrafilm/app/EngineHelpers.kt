@@ -492,18 +492,35 @@ internal suspend fun <T : Any> withOwnedContext(
 internal class SingleFlight<T> {
     private val lock = Any()
     private var key: Any? = null
-    private var inflight: Deferred<T>? = null
+    private var inflight: Deferred<Result<T>>? = null
 
     suspend fun run(key: Any, scope: CoroutineScope, block: suspend () -> T): T {
-        var superseded: Deferred<T>? = null
-        var created: Deferred<T>? = null
+        var superseded: Deferred<Result<T>>? = null
+        var created: Deferred<Result<T>>? = null
         val deferred = synchronized(lock) {
             val cur = inflight
             if (this.key == key && cur != null && cur.isActive) {
                 cur
             } else {
                 if (cur?.isActive == true) superseded = cur
-                scope.async { block() }.also {
+                // The result is captured so a FAILURE reaches the AWAITERS and nothing else.
+                // `scope` is the editor's rememberCoroutineScope, whose Job is a plain Job,
+                // not a SupervisorJob: an exception thrown out of async propagates into that
+                // shared Job and cancels every other coroutine it owns. A RAW file the
+                // decoder legitimately refuses therefore took down the whole editor scope,
+                // and because the awaiting effect was cancelled rather than resumed with the
+                // error, nothing was ever reported — the preview just never arrived.
+                // Cancellation is deliberately NOT captured: a superseded flight must stay
+                // cancelled so its waiters observe cancellation rather than a failure.
+                scope.async {
+                    try {
+                        Result.success(block())
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        Result.failure(failure)
+                    }
+                }.also {
                     this.key = key
                     inflight = it
                     created = it
@@ -529,7 +546,7 @@ internal class SingleFlight<T> {
         // rejected by DecodedSourceCache.publish and the result is closed there.
         superseded?.cancel(CancellationException("single-flight request superseded"))
         return try {
-            deferred.await()
+            deferred.await().getOrThrow()
         } finally {
             // A completed Deferred retains its coroutine closure and captured request graph. Drop
             // both it and the key promptly; same-key waiters already hold their own local reference.

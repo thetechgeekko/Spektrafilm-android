@@ -13,6 +13,7 @@
 package com.spectrafilm.app
 
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -123,5 +124,67 @@ class BuiltInPresetsAssetTest {
                 )
             }
         }
+    }
+    // ---------------------------------------------------------------------------
+    // The picker's spec line. GroupedDropdown renders spec + summary under every row;
+    // PresetPanel now fills them, so these guard the data the rows depend on.
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun everyPresetCarriesTheMetadataTheRowsShow() {
+        val arr = presetsArray()
+        for (i in 0 until arr.length()) {
+            val p = arr.getJSONObject(i)
+            val id = p.optString("id")
+            val params = p.getJSONObject("params")
+            assertTrue("$id has no filmProfile", params.optString("filmProfile").isNotBlank())
+            assertTrue("$id has no printProfile", params.optString("printProfile").isNotBlank())
+            assertTrue("$id has no description", p.optString("description").isNotBlank())
+        }
+    }
+
+    @Test
+    fun onlyReversalPresetsScanTheFilmDirectly() {
+        // The spec line hides the paper for exactly these. If a preset starts or stops
+        // scanning as a positive, the row would silently name a paper that never runs.
+        val arr = presetsArray()
+        val scanning = buildList {
+            for (i in 0 until arr.length()) {
+                val p = arr.getJSONObject(i)
+                if (p.getJSONObject("params").optJSONObject("io")?.optBoolean("scanFilm") == true) {
+                    add(p.optString("id"))
+                }
+            }
+        }
+        assertEquals(4, scanning.size)
+        for (id in scanning) {
+            val group = (0 until arr.length())
+                .map { arr.getJSONObject(it) }
+                .first { it.optString("id") == id }
+                .optString("group")
+            assertEquals("$id scans as positive but is not in the Slide group", "Slide", group)
+        }
+    }
+
+    @Test
+    fun specLine_namesFilmAndPaper() {
+        assertEquals(
+            "Kodak Portra 160 · Kodak Portra Endura",
+            BuiltInPresets.specLine("Kodak Portra 160", "Kodak Portra Endura", false, "positive"),
+        )
+    }
+
+    @Test
+    fun specLine_hidesThePaperWhenThePrintStageNeverRuns() {
+        assertEquals(
+            "Velvia 100 · scanned as positive",
+            BuiltInPresets.specLine("Velvia 100", "Kodak Portra Endura", true, "scanned as positive"),
+        )
+    }
+
+    @Test
+    fun specLine_degradesRatherThanShowingAStraySeparator() {
+        assertEquals("Velvia 100", BuiltInPresets.specLine("Velvia 100", "", false, "positive"))
+        assertEquals("", BuiltInPresets.specLine("", "Some Paper", false, "positive"))
     }
 }

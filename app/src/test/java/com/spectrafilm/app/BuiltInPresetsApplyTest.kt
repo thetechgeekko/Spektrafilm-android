@@ -58,6 +58,88 @@ class BuiltInPresetsApplyTest {
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Built-ins are SPARSE overlays, so applying two in a row compounds them. The editor
+    // rewinds to the look the browsing run started from before overlaying the next one;
+    // these pin both halves of that -- the hazard, and the fix.
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun applyingTwoBuiltInsInARowCompoundsThem() {
+        val dreamy = loadPreset("portra400_promist_dreamy")
+        val neutral = loadPreset("neutral_adobe_like")
+
+        // camera.diffusionFilter is authored by exactly ONE of the 27 presets, so nothing
+        // else can turn it back off.
+        assertEquals(
+            "only Dreamy Pro-Mist should author camera.diffusionFilter",
+            false,
+            neutral.params.optJSONObject("camera")?.has("diffusionFilter") ?: false,
+        )
+
+        val state = ParamsState()
+        BuiltInPresets.apply(dreamy, state)
+        assertEquals("Dreamy Pro-Mist must switch the filter on", true, state.cameraDiffusionState.active)
+
+        BuiltInPresets.apply(neutral, state)
+        assertEquals(
+            "a sparse preset cannot clear a field it does not author -- this is the hazard " +
+                "the editor's baseline rewind exists to work around",
+            true,
+            state.cameraDiffusionState.active,
+        )
+    }
+
+    @Test
+    fun rewindingToTheBaselineYieldsTheSecondPresetAlone() {
+        val dreamy = loadPreset("portra400_promist_dreamy")
+        val neutral = loadPreset("neutral_adobe_like")
+
+        // The look the browsing run started from.
+        val baseline = Presets.toJsonString(ParamsState())
+
+        val browsed = ParamsState()
+        BuiltInPresets.apply(dreamy, browsed)
+        // What the editor does before overlaying the next built-in.
+        Presets.decode(JSONObject(baseline), browsed)
+        BuiltInPresets.apply(neutral, browsed)
+
+        assertEquals(
+            "Clean Baseline promises glare and couplers off; the Pro-Mist filter must be gone",
+            false,
+            browsed.cameraDiffusionState.active,
+        )
+
+        // Stronger than the flag: browsing to a preset must land on exactly the same look as
+        // choosing it first, field for field.
+        val direct = ParamsState()
+        BuiltInPresets.apply(neutral, direct)
+        assertEquals(
+            "browsing to a preset must equal applying it from the same baseline",
+            Presets.toJsonString(direct),
+            Presets.toJsonString(browsed),
+        )
+    }
+
+    @Test
+    fun theRewindPreservesPhotoSpecificWorkTheLookDoesNotOwn() {
+        // The baseline is a full encode of live state, so crop and the other per-photo
+        // fields ride through the rewind. No built-in authors them.
+        val neutral = loadPreset("neutral_adobe_like")
+        val start = ParamsState().apply {
+            crop = true
+            cameraLensBlurUm = 12.345f
+        }
+        val baseline = Presets.toJsonString(start)
+
+        val state = ParamsState()
+        Presets.decode(JSONObject(baseline), state)
+        BuiltInPresets.apply(neutral, state)
+
+        assertEquals("crop was lost across the rewind", true, state.crop)
+        assertEquals("lens blur was lost across the rewind", 12.345f, state.cameraLensBlurUm)
+    }
+
     private fun loadPreset(id: String): BuiltInPreset {
         val arr = JSONObject(repoFile(
             "engine/spektra-core/src/main/assets/spektra/presets.json",

@@ -303,6 +303,31 @@ fun bitmapToLinearProPhoto(
  * import quality only. Downscaled to [maxEdge]; EXIF orientation is applied by the
  * caller (loadSource) just like any other source.
  */
+
+/**
+ * Subsample factor to ask the platform decoder for when targeting [maxEdge].
+ *
+ * The decoder only subsamples by integer (in practice power-of-two) factors, so the factor
+ * alone cannot land on an arbitrary [maxEdge]; decodeViaPlatform pairs it with an exact
+ * downscale afterwards. The factor's job is therefore to land at or ABOVE the target and let
+ * the downscale finish, because anything below the target is resolution the downscale can no
+ * longer recover.
+ *
+ * This used to stop at the first factor that was UNDER the target, which threw away up to
+ * half the requested resolution: a 4080px DNG previewed at 640 was sampled 1/8 to 510px and
+ * the exact downscale below then had nothing left to do, so every fallback preview shipped
+ * softer than it was asked for. 1/4 gives 1020px, which downscales exactly onto 640.
+ *
+ * The intermediate bitmap is ARGB_8888 and is downscaled immediately, so the factor is still
+ * the LARGEST one that clears the target — it never overshoots into a needless allocation.
+ */
+internal fun platformSampleSize(longest: Int, maxEdge: Int): Int {
+    if (longest <= 0 || maxEdge <= 0) return 1
+    var sample = 1
+    while (longest / (sample * 2) >= maxEdge) sample *= 2
+    return sample
+}
+
 fun decodeViaPlatform(
     ctx: Context,
     uri: Uri,
@@ -316,8 +341,7 @@ fun decodeViaPlatform(
             // honour maxEdge with an integer sample size.
             decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
             val longest = max(info.size.width, info.size.height).coerceAtLeast(1)
-            var sample = 1
-            while (longest / sample > maxEdge) sample *= 2
+            val sample = platformSampleSize(longest, maxEdge)
             if (sample > 1) decoder.setTargetSampleSize(sample)
         }
     } else {
@@ -375,7 +399,15 @@ fun readExifOrientation(ctx: Context, uri: Uri): ExifOrientation {
     }.getOrDefault(ExifOrientation.NONE)
 }
 
-/** Decode [uri] with inSampleSize so the longest edge is at most [maxEdge]. */
+/**
+ * Decode [uri] with inSampleSize so the longest edge is at most [maxEdge].
+ *
+ * The subsample factor lands at or ABOVE the target and the exact downscale below finishes
+ * the job — see [platformSampleSize]. This used to run its own loop that stopped at the first
+ * factor UNDER the target, which threw away up to half the requested resolution and left the
+ * downscale nothing to do. [decodeViaPlatform] was fixed at the time; this path, which serves
+ * the primary photo import, was not, so both now share the one helper.
+ */
 private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX): Bitmap {
     val resolver = ctx.contentResolver
     // First pass: read bounds only.
@@ -383,11 +415,8 @@ private fun decodeDownscaled(ctx: Context, uri: Uri, maxEdge: Int = MAX_EDGE_PX)
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     val longest = max(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
 
-    var sample = 1
-    while (longest / sample > maxEdge) sample *= 2
-
     val opts = BitmapFactory.Options().apply {
-        inSampleSize = sample
+        inSampleSize = platformSampleSize(longest, maxEdge)
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
     val decoded = resolver.openInputStream(uri)?.use {

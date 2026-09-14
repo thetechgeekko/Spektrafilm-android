@@ -9,9 +9,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -133,6 +135,29 @@ class SingleFlightTest {
             }
 
             assertTrue(flight.isIdle())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun aFailedFlightReachesItsWaitersWithoutKillingTheSharedScope() = runBlocking {
+        // Every other test here builds the scope with a SupervisorJob, which is exactly why
+        // none of them saw this. The real caller is the editor's rememberCoroutineScope(),
+        // whose Job is a PLAIN Job: an exception thrown out of scope.async propagates into
+        // that shared Job and cancels everything it owns. A RAW file the decoder legitimately
+        // refuses therefore cancelled the awaiting preview effect instead of resuming it with
+        // the error, so the editor reported nothing at all and simply never drew a preview.
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val flight = SingleFlight<Int>()
+            val failed = runCatching { flight.run("k", scope) { error("decode refused") } }
+
+            assertTrue("the failure must reach the waiter", failed.isFailure)
+            assertEquals("decode refused", failed.exceptionOrNull()?.message)
+            assertTrue("one refused decode must not cancel the shared scope", scope.isActive)
+            // ...and the scope must still be usable for the next source.
+            assertEquals(5, flight.run("k2", scope) { 5 })
         } finally {
             scope.cancel()
         }

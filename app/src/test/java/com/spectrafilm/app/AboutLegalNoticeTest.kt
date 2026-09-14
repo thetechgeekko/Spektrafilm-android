@@ -10,15 +10,19 @@ import org.junit.Test
 
 class AboutLegalNoticeTest {
     @Test
-    fun libRawDisclosureKeepsDistributionRouteUnresolved() {
-        assertEquals("UNRESOLVED", LIBRAW_DISTRIBUTION_ROUTE)
+    fun libRawDisclosureRecordsElectedDistributionRoute() {
+        assertEquals("LGPL-2.1-only", LIBRAW_DISTRIBUTION_ROUTE)
         assertEquals(
-            "LibRaw Android distribution route: UNRESOLVED.",
+            "LibRaw Android distribution route: LGPL-2.1-only.",
             LIBRAW_ROUTE_STATUS,
         )
         assertTrue(LIBRAW_LICENSE_STATUS.contains("offered upstream under a choice"))
-        assertTrue(LIBRAW_LICENSE_STATUS.contains("release route has not been selected"))
-        assertTrue(LIBRAW_LICENSE_STATUS.contains("does not elect either route"))
+        assertTrue(
+            LIBRAW_LICENSE_STATUS.contains(
+                "distributes it under the GNU Lesser General Public License version 2.1 only",
+            ),
+        )
+        assertTrue(LIBRAW_LICENSE_STATUS.contains("bundled for provenance"))
         assertFalse(LIBRAW_LICENSE_STATUS.contains("GPLv3-compatible"))
     }
 

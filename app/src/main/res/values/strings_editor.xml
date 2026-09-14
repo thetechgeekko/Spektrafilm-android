@@ -123,6 +123,9 @@
     <string name="editor_status_preset_applied">applied \'%1$s\'</string>
     <string name="editor_status_preset_apply_failed_reason">apply failed: %1$s</string>
     <string name="editor_status_preset_deleted">deleted \'%1$s\'</string>
+    <!-- Deleting a saved preset was one tap and permanent. It now offers Undo. -->
+    <string name="editor_snack_preset_deleted">Deleted preset \'%1$s\'</string>
+    <string name="editor_status_preset_restored">restored \'%1$s\'</string>
     <string name="editor_status_settings_copied">settings copied</string>
     <string name="editor_status_copy_failed">copy failed</string>
     <string name="editor_status_settings_pasted">settings pasted</string>
@@ -137,6 +140,9 @@
     <string name="editor_magnifier_done">%1$d×%2$dpx · 1:1 full-res render</string>
     <string name="editor_magnifier_failed">crop render failed: %1$s</string>
     <string name="editor_status_rendering_preview">rendering preview…</string>
+    <!-- A render that was cancelled rather than finished. Without this the editor kept
+         claiming it was rendering while every engine thread sat idle. -->
+    <string name="editor_status_preview_interrupted">preview interrupted — change any setting to retry</string>
     <string name="editor_status_preview_ready">preview ready</string>
     <string name="editor_render_error_auth_required">source authorization required</string>
     <string name="editor_status_source_expired">source access expired or file moved · choose it again</string>
@@ -211,6 +217,11 @@
     <string name="editor_toggle_chrome">Hide or show the editor controls</string>
     <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->
     <string name="editor_reset_category">Reset %1$s</string>
+    <!-- Reset all edits clears the undo history along with the edits, so it is the one
+         action in the editor with no way back. It asks first. -->
+    <string name="editor_reset_edits_confirm_title">Reset all edits?</string>
+    <string name="editor_reset_edits_confirm_body">Every setting goes back to its default and the saved recipe for this photo is cleared. This cannot be undone.</string>
+    <string name="editor_cancel">Cancel</string>
     <string name="editor_close_panel">Close panel</string>
 
     <!-- Category bar tooltips -->
@@ -239,10 +250,22 @@
     <string name="editor_preset_name">Preset name</string>
     <string name="editor_preset_save">Save current as preset</string>
     <string name="editor_preset_saved">Saved presets</string>
+    <!-- Shown instead of a paper name on the four reversal presets that scan the film
+         directly: there is no print stage, so naming a paper would be a lie. -->
+    <string name="editor_preset_scan_positive">scanned as positive</string>
     <string name="editor_preset_apply">Apply</string>
     <string name="editor_preset_delete">Delete</string>
     <string name="editor_preset_import_json">Import .json</string>
-    <string name="editor_preset_export_share">Export / share</string>
+    <!-- This one exports the LIVE editor state, not the selected preset. It sat under the
+         saved-preset dropdown labelled "Export / share", which read as exporting that preset. -->
+    <string name="editor_preset_export_share">Export current look</string>
+    <string name="editor_preset_export_selected">Export \'%1$s\'</string>
+    <!-- Saving over an existing preset was silent and permanent. -->
+    <string name="editor_preset_overwrite_title">Replace \'%1$s\'?</string>
+    <string name="editor_preset_overwrite_body">A preset with this name already exists. Replacing it overwrites its settings, and that cannot be undone.</string>
+    <string name="editor_preset_replace">Replace</string>
+    <!-- Shown when the typed name is not the name that will be stored. -->
+    <string name="editor_preset_name_resolved">Saved as \'%1$s\'</string>
     <string name="editor_preset_copy_settings">Copy settings</string>
     <string name="editor_preset_paste_settings">Paste settings</string>
     <string name="editor_lut_size">Size</string>

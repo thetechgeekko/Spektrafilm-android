@@ -166,6 +166,33 @@ object Presets {
 
     internal fun decode(o: JSONObject, into: ParamsState) = fromJson(o, into)
 
+    /**
+     * Apply a preset's LOOK to [into], leaving the photo's own framing alone.
+     *
+     * A user preset is a complete document encode — that is what stops it compounding the way
+     * the sparse built-ins do. But a complete encode also carries input.crop/cropCenter/cropSize
+     * and the masks block, and those belong to ONE photo: a crop saved off a landscape
+     * re-frames the portrait you apply it to, and mask coordinates are normalized, so they
+     * land somewhere unrelated. Applying a look should never move the frame.
+     *
+     * Implemented by dropping those keys rather than by restoring them afterwards, because
+     * every field in [fromJson] already defaults to the live value when its key is absent —
+     * so absence IS preserve, with no second list of fields to keep in sync.
+     *
+     * [decode] itself is deliberately unchanged: undo/redo and session restore go through it
+     * and must bring framing back exactly.
+     */
+    internal fun decodeLook(o: JSONObject, into: ParamsState) {
+        val look = JSONObject(o.toString())
+        look.remove("masks")
+        look.optJSONObject("input")?.apply {
+            remove("crop")
+            remove("cropCenter")
+            remove("cropSize")
+        }
+        fromJson(look, into)
+    }
+
     /** Strict import boundary: bounded caller reads this, rejects future/foreign schemas, then commits. */
     internal fun parseImportJson(text: String): JSONObject {
         val root = AtomicJsonStore.parseObject(text)
@@ -227,6 +254,17 @@ object Presets {
     }
 
     private fun file(ctx: Context, name: String): File = File(dir(ctx), "${safeName(name)}.json")
+
+    /**
+     * The name a save under [name] will ACTUALLY use on disk. [safeName] rewrites anything
+     * outside `A-Za-z0-9_- ` to an underscore and truncates to 96 characters, so "Portra #2"
+     * becomes "Portra _2" — which the UI used to hide, reporting the typed name back to the
+     * user while storing something else.
+     */
+    fun resolveName(name: String): String = safeName(name)
+
+    /** True if a preset already exists under the name [name] resolves to. */
+    fun exists(ctx: Context, name: String): Boolean = file(ctx, name).isFile
 
     private fun safeName(name: String): String = name.trim()
         .take(96)

@@ -181,6 +181,43 @@ private fun decodeIdentityOf(request: SourceDecodeRequest): String = with(reques
         "balance=$balanceToFilmStock;film=$filmProfile"
 }
 
+
+/**
+ * Whether a refused RAW decode should be retried through the bounded platform decoder
+ * instead of failing the open outright.
+ *
+ * The qualified LibRaw route deliberately refuses inputs it cannot carry EXACTLY: a float
+ * DNG, a lossy or JPEG-XL codec it will not quantize behind your back, and metadata whose
+ * precision it cannot model — which includes a well-formed DNG whose RATIONAL BlackLevel is
+ * fractional (6406/100 = 64.06 is real and shipping), because the precision descriptor
+ * carries integer black levels and parity is the prime directive here. Refusing the ROUTE is
+ * right. Refusing the PHOTO is not: decodeViaPlatform does not use the LibRaw route at all,
+ * so the reason the route stood down does not apply to it. PRECISION_METADATA therefore lands
+ * here alongside the codecs that already did.
+ *
+ * Before this, that status had no fallback and no message either: the exception unwound
+ * through the single-flight into the editor's shared scope and the preview simply never
+ * arrived. See SingleFlight for the other half of that failure.
+ *
+ * FILE_UNSUPPORTED used to be gated on the path ending in ".dng". That proxy never fired for
+ * the URIs this app actually gets: a SAF document id is "image%3A220439", with no suffix at
+ * all, so the arm was dead for every picked file and a DNG that LibRaw merely fails to
+ * recognise lost its second route. The guard is deleted rather than replaced with another
+ * proxy: we only reach here from the RAW branch, so the user has already said this is a RAW
+ * file, and the cost of being wrong is one bounded platform decode on a path that has
+ * already failed.
+ */
+internal fun rawFallbackSupported(status: DecodeStatus): Boolean =
+    when (status) {
+        DecodeStatus.DEFLATE_DNG,
+        DecodeStatus.LOSSY_JPEG_DNG,
+        DecodeStatus.JPEGXL_DNG,
+        DecodeStatus.PRECISION_METADATA,
+        DecodeStatus.FILE_UNSUPPORTED,
+        -> true
+        else -> false
+    }
+
 private suspend fun decodeSourceRequest(
     request: SourceDecodeRequest,
     maxEdge: Int,
@@ -221,15 +258,7 @@ private suspend fun decodeSourceRequest(
                     it.initCause(failure)
                 }
             }
-            val fallbackSupported = when (failure.status) {
-                DecodeStatus.DEFLATE_DNG,
-                DecodeStatus.LOSSY_JPEG_DNG,
-                DecodeStatus.JPEGXL_DNG,
-                -> true
-                DecodeStatus.FILE_UNSUPPORTED ->
-                    uri?.lastPathSegment?.endsWith(".dng", ignoreCase = true) == true
-                else -> false
-            }
+            val fallbackSupported = rawFallbackSupported(failure.status)
             if (!fallbackSupported) throw failure
             usedPlatformFallback = true
             applyExifBaseline = true
@@ -517,6 +546,22 @@ internal fun dirtyCategories(state: ParamsState): Set<Category> {
  * every dirty comparison in the app; handing a live reference to a decoder is a mutation
  * hazard that would corrupt every later comparison at once, for no saving.
  */
+/**
+ * The look a built-in preset should be overlaid onto.
+ *
+ * Built-ins are sparse: each authors only the fields it means to set, so applying two in a
+ * row compounds them (`camera.diffusionFilter` is authored by exactly one of the 27, so
+ * nothing else can switch it back off). The editor therefore rewinds to the look a browsing
+ * run STARTED from before overlaying the next preset.
+ *
+ * A run continues only while [now] still equals what the last apply produced ([lastOutput]).
+ * Anything else — a hand edit, a reset, a new photo — makes the current look the new
+ * baseline, so manual work is never silently discarded. Returning [now] when the run is not
+ * continuing is what makes the caller's rewind a no-op in that case.
+ */
+internal fun presetRunBaseline(now: String?, lastOutput: String?, runBaseline: String?): String? =
+    if (now != null && now == lastOutput) (runBaseline ?: now) else now
+
 internal fun categoryDefaults(category: Category): JSONObject? {
     val defaults = DEFAULT_ENCODED ?: return null
     val sections = CATEGORY_SECTIONS[category] ?: return null
@@ -1395,10 +1440,28 @@ class MainActivity : ComponentActivity() {
         // silently erase a deliberate Copy action; no pixels or source metadata are included.
         var settingsClipboard by remember { mutableStateOf(restoredPreset?.clipboardJson) }
 
+        // Built-in presets are SPARSE overlays: each authors only the fields it means to
+        // set and deliberately leaves everything else alone, so tapping one after another
+        // COMPOUNDS them. camera.diffusionFilter is authored by exactly one of the 27, which
+        // means "Neutral — Clean Baseline" (whose own description promises grain, halation,
+        // couplers and glare off) would silently keep a previously applied Black Pro-Mist
+        // filter and its spectral blur.
+        //
+        // So remember the look a browsing run STARTED from and apply each built-in onto that
+        // rather than onto the compounded result. There is no list of clear-sites to keep in
+        // sync: a run ends by itself the moment the live state stops matching what the last
+        // apply produced, which covers source changes, resets, pastes and any hand edit in
+        // one condition. (A hand-maintained effect-key list in this file has drifted before.)
+        var presetBaselineJson by remember { mutableStateOf<String?>(null) }
+        var lastBuiltInOutput by remember { mutableStateOf<String?>(null) }
+
         // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
         // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
-        fun applyWithAmount(apply: () -> Unit) {
-            val base = runCatching { Presets.toJsonString(state) }.getOrNull()
+        // [baseOverride] pins the amount slider's 0% end to a caller-chosen look — the
+        // built-in path needs it because it restores a baseline INSIDE [apply], so the live
+        // state just before the call is the wrong anchor.
+        fun applyWithAmount(baseOverride: String? = null, apply: () -> Unit) {
+            val base = baseOverride ?: runCatching { Presets.toJsonString(state) }.getOrNull()
             apply()
             val full = runCatching { Presets.toJsonString(state) }.getOrNull()
             if (base != null && full != null) {
@@ -2308,6 +2371,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Exports the SELECTED SAVED preset, byte-for-byte as stored. Distinct from
+        // [presetExporter] above, which serialises live editor state — that one sat under
+        // the saved-preset dropdown and looked like it exported the selection.
+        var pendingPresetExport by remember { mutableStateOf<String?>(null) }
+        val savedPresetExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            val name = pendingPresetExport
+            pendingPresetExport = null
+            if (uri != null && name != null) {
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching { Presets.exportJson(ctx, uri, Presets.read(ctx, name)) }
+                    }
+                    r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
+                        .onFailure {
+                            status = ctx.getString(
+                                R.string.editor_status_preset_export_failed_reason, it.message,
+                            )
+                        }
+                }
+            }
+        }
         val lutExporter = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("*/*")
         ) { uri ->
@@ -2703,7 +2789,14 @@ class MainActivity : ComponentActivity() {
         // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
         // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
         // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
-        LaunchedEffect(previewTick, sourceRenderAllowed) {
+        // `engine` is a KEY, not just a guard. It is assigned asynchronously once the native
+        // engine finishes loading, which can land AFTER this effect first composes — and the
+        // `engine ?: return` below then retires the effect for good, because nothing re-runs it
+        // until previewTick or sourceRenderAllowed changes. Today the recipe restore's
+        // previewTick++ rescues that by accident; the key makes it deliberate.
+        // Honest scope: this was written while chasing a cold-start hang and did NOT fix it.
+        // It closes a real race that is simply not the one observed there.
+        LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
                 if (!sourceRenderAllowed) return@LaunchedEffect
                 val publicationTicket = publicationGate.begin(
                     previewRevision,
@@ -2818,7 +2911,9 @@ class MainActivity : ComponentActivity() {
         // change, after a debounce so it lands once the user pauses. The live DRAFT effect above
         // keeps the image moving during the edit (Lightroom's loupe), so this pass goes straight
         // to the full-resolution result instead of a separate coarse pass.
-        LaunchedEffect(previewTick, sourceRenderAllowed) {
+        // Keyed on engine for the same reason as the draft effect above: without it a cold
+        // start that composes before the native engine is ready never renders at all.
+        LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
             if (!sourceRenderAllowed) return@LaunchedEffect
             val e = engine ?: return@LaunchedEffect
             val previewProbeLabel = Ticket139EditorProbe.sourceProbeLabel(sourceUri?.toString())
@@ -2834,181 +2929,200 @@ class MainActivity : ComponentActivity() {
             previewBusy = true
             renderErr = null
             status = ctx.getString(R.string.editor_status_rendering_preview)
-            val renderStart = System.currentTimeMillis()
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Key built on MAIN (reads Compose state); the same snapshot renders below,
-            // so the key and the render can never disagree.
-            val cacheKey = gradeCacheKey(fullEdge)
-            val cacheStoreTicket = gradeCache.beginStore(cacheKey)
-            val cached = gradeCache.lookup(cacheKey)
-            val prevBefore = beforePreview
-            var renderId = 0L
-            var completionProbeHandled = false
-            val result = try {
-                runCatching {
-                    withOwnedContext(
-                        context = Dispatchers.Default,
-                        dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
-                            if (!submission.second.isRecycled) submission.second.recycle()
-                            if (submission.third && !submission.first.isRecycled) {
-                                submission.first.recycle()
-                            }
-                        },
-                    ) {
-                        if (cached != null && prevBefore != null) {
-                            // Grade-only edit (identical engine inputs): re-grade the retained
-                            // pristine engine result — ZERO native work. The ungraded `before`
-                            // is unchanged by construction.
-                            var after: Bitmap? = null
-                            var transferred = false
-                            try {
-                                val rendered = cached.withScratch { scratch ->
-                                    gradeBufferToBitmap(scratch, cached.width,
-                                        cached.height, cached.colorSpace, state.savingCctfEncoding,
-                                        state.saturation, state.vibrance, state.gamutCompress,
-                                        state.localAdjustments)
+            // Every reset below used to be a plain statement. Cancellation skips every
+            // statement after the suspension point it unwinds from, so a render cancelled
+            // mid-flight left decoding/previewBusy set and the status pinned to
+            // "rendering preview…" — with no work running, all engine threads idle,
+            // and nothing to restart the effect (its keys are previewTick and
+            // sourceRenderAllowed). The editor sat there permanently. Observed on a
+            // 4080x3060 DNG after a speculative export pre-render exhausted the memory
+            // budget. A finally runs on cancellation, which is the whole point.
+            var settled = false
+            try {
+                val renderStart = System.currentTimeMillis()
+                val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+                // Key built on MAIN (reads Compose state); the same snapshot renders below,
+                // so the key and the render can never disagree.
+                val cacheKey = gradeCacheKey(fullEdge)
+                val cacheStoreTicket = gradeCache.beginStore(cacheKey)
+                val cached = gradeCache.lookup(cacheKey)
+                val prevBefore = beforePreview
+                var renderId = 0L
+                var completionProbeHandled = false
+                val result = try {
+                    runCatching {
+                        withOwnedContext(
+                            context = Dispatchers.Default,
+                            dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
+                                if (!submission.second.isRecycled) submission.second.recycle()
+                                if (submission.third && !submission.first.isRecycled) {
+                                    submission.first.recycle()
                                 }
-                                after = rendered
-                                val submission = Triple(prevBefore, rendered, false)
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) after?.let { if (!it.isRecycled) it.recycle() }
-                            }
-                        } else {
-                            decoding = true
-                        // The live DRAFT effect above already paints a fast low-res proxy during the
-                        // edit, so this settle pass goes straight to the crisp full render (no separate
-                        // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
-                        // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
-                        // look-param edits reuse it.
-                            var before: Bitmap? = null
-                            var after: Bitmap? = null
-                            var transferred = false
-                            var completionProbeHeld = false
-                            try {
-                                val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
-                                    decoding = false
-                                    val ownedBefore = linearToDisplayBitmap(lease.image)
-                                    before = ownedBefore
-                                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
-                                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
-                                    // Render with cacheKey.engineParams — the exact snapshot the key hashed.
-                                    val ownedAfter = runCancellableNative(
-                                        onLateResult = { late ->
-                                            late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                            late.close()
-                                        },
-                                    ) { cancellation ->
-                                        e.simulatePreview(
-                                            lease.image,
-                                            cacheKey.engineParams,
-                                            cancellation = cancellation,
-                                        )
-                                    }.use { res ->
-                                        renderId = res.renderId
-                                        // Retain the PRISTINE engine output BEFORE the grade mutates it.
-                                        res.acquireDataLease().use { resultLease ->
-                                            val cacheOutcome = storeGradeCacheBestEffort {
-                                                gradeCache.store(
-                                                    cacheStoreTicket,
-                                                    cacheKey,
-                                                    resultLease.data,
-                                                    res.width,
-                                                    res.height,
-                                                    res.colorSpace,
-                                                )
-                                            }
-                                            if (cacheOutcome == GradeCacheStoreOutcome.CAPACITY_DENIED) {
-                                                Diag.w("grade cache skipped: memory admission denied")
-                                            }
-                                        }
-                                        val rendered = simResultToBitmapGraded(
-                                            res,
-                                            state.savingCctfEncoding,
-                                            state.saturation,
-                                            state.vibrance,
-                                            state.gamutCompress,
-                                            state.localAdjustments,
-                                        ).also { bitmap -> after = bitmap }
-                                        // The test seam is exactly the completed native settle's
-                                        // production completion-before-publication boundary. The
-                                        // SimResult and decoded-source lease remain owned here.
-                                        completionProbeHeld = Ticket139EditorProbe
-                                            .awaitCompletedPreviewBeforePublication(previewProbeLabel)
-                                        rendered
+                            },
+                        ) {
+                            if (cached != null && prevBefore != null) {
+                                // Grade-only edit (identical engine inputs): re-grade the retained
+                                // pristine engine result — ZERO native work. The ungraded `before`
+                                // is unchanged by construction.
+                                var after: Bitmap? = null
+                                var transferred = false
+                                try {
+                                    val rendered = cached.withScratch { scratch ->
+                                        gradeBufferToBitmap(scratch, cached.width,
+                                            cached.height, cached.colorSpace, state.savingCctfEncoding,
+                                            state.saturation, state.vibrance, state.gamutCompress,
+                                            state.localAdjustments)
                                     }
-                                    Triple(ownedBefore, ownedAfter, true)
+                                    after = rendered
+                                    val submission = Triple(prevBefore, rendered, false)
+                                    transferred = true
+                                    submission
+                                } finally {
+                                    if (!transferred) after?.let { if (!it.isRecycled) it.recycle() }
                                 }
-                                if (completionProbeHeld) {
-                                    // B cancels this LaunchedEffect while A is held. Complete the
-                                    // actual gate decision and full resource cleanup synchronously
-                                    // here, before withOwnedContext's prompt-cancellation return can
-                                    // discard the owned Triple. This branch is test-armed only.
-                                    val claimed = publicationGate.tryClaim(publicationTicket)
-                                    Ticket139EditorProbe.publishPreviewDecision(
-                                        previewProbeLabel,
-                                        claimed,
-                                    )
-                                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                                    val (probeBefore, probeAfter, ownsProbeBefore) = submission
-                                    if (!probeAfter.isRecycled) probeAfter.recycle()
-                                    if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
-                                    completionProbeHandled = true
-                                    Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                                }
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) {
-                                    after?.let { if (!it.isRecycled) it.recycle() }
-                                    before?.let { if (!it.isRecycled) it.recycle() }
+                            } else {
+                                decoding = true
+                            // The live DRAFT effect above already paints a fast low-res proxy during the
+                            // edit, so this settle pass goes straight to the crisp full render (no separate
+                            // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
+                            // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
+                            // look-param edits reuse it.
+                                var before: Bitmap? = null
+                                var after: Bitmap? = null
+                                var transferred = false
+                                var completionProbeHeld = false
+                                try {
+                                    val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
+                                        decoding = false
+                                        val ownedBefore = linearToDisplayBitmap(lease.image)
+                                        before = ownedBefore
+                                        // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
+                                        // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
+                                        // Render with cacheKey.engineParams — the exact snapshot the key hashed.
+                                        val ownedAfter = runCancellableNative(
+                                            onLateResult = { late ->
+                                                late.reportOutcome(AppRenderOutcome.SUPERSEDED)
+                                                late.close()
+                                            },
+                                        ) { cancellation ->
+                                            e.simulatePreview(
+                                                lease.image,
+                                                cacheKey.engineParams,
+                                                cancellation = cancellation,
+                                            )
+                                        }.use { res ->
+                                            renderId = res.renderId
+                                            // Retain the PRISTINE engine output BEFORE the grade mutates it.
+                                            res.acquireDataLease().use { resultLease ->
+                                                val cacheOutcome = storeGradeCacheBestEffort {
+                                                    gradeCache.store(
+                                                        cacheStoreTicket,
+                                                        cacheKey,
+                                                        resultLease.data,
+                                                        res.width,
+                                                        res.height,
+                                                        res.colorSpace,
+                                                    )
+                                                }
+                                                if (cacheOutcome == GradeCacheStoreOutcome.CAPACITY_DENIED) {
+                                                    Diag.w("grade cache skipped: memory admission denied")
+                                                }
+                                            }
+                                            val rendered = simResultToBitmapGraded(
+                                                res,
+                                                state.savingCctfEncoding,
+                                                state.saturation,
+                                                state.vibrance,
+                                                state.gamutCompress,
+                                                state.localAdjustments,
+                                            ).also { bitmap -> after = bitmap }
+                                            // The test seam is exactly the completed native settle's
+                                            // production completion-before-publication boundary. The
+                                            // SimResult and decoded-source lease remain owned here.
+                                            completionProbeHeld = Ticket139EditorProbe
+                                                .awaitCompletedPreviewBeforePublication(previewProbeLabel)
+                                            rendered
+                                        }
+                                        Triple(ownedBefore, ownedAfter, true)
+                                    }
+                                    if (completionProbeHeld) {
+                                        // B cancels this LaunchedEffect while A is held. Complete the
+                                        // actual gate decision and full resource cleanup synchronously
+                                        // here, before withOwnedContext's prompt-cancellation return can
+                                        // discard the owned Triple. This branch is test-armed only.
+                                        val claimed = publicationGate.tryClaim(publicationTicket)
+                                        Ticket139EditorProbe.publishPreviewDecision(
+                                            previewProbeLabel,
+                                            claimed,
+                                        )
+                                        SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
+                                        val (probeBefore, probeAfter, ownsProbeBefore) = submission
+                                        if (!probeAfter.isRecycled) probeAfter.recycle()
+                                        if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
+                                        completionProbeHandled = true
+                                        Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+                                    }
+                                    transferred = true
+                                    submission
+                                } finally {
+                                    if (!transferred) {
+                                        after?.let { if (!it.isRecycled) it.recycle() }
+                                        before?.let { if (!it.isRecycled) it.recycle() }
+                                    }
                                 }
                             }
                         }
                     }
+                } finally {
+                    cached?.close()
                 }
+                decoding = false
+                if (completionProbeHandled) return@LaunchedEffect
+                val publicationClaimed = publicationGate.tryClaim(publicationTicket)
+                Ticket139EditorProbe.publishPreviewDecision(
+                    previewProbeLabel,
+                    publicationClaimed && isActive,
+                )
+                if (!isActive || !publicationClaimed) {
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
+                    result.getOrNull()?.let { (before, after, ownsBefore) ->
+                        if (!after.isRecycled) after.recycle()
+                        if (ownsBefore && !before.isRecycled) before.recycle()
+                    }
+                    Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+                    return@LaunchedEffect
+                }
+                result.onSuccess { (before, after, _) ->
+                    beforePreview = before; preview = after
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
+                    Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
+                    lastRenderMs = System.currentTimeMillis() - renderStart
+                    Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
+                    renderErr = null
+                    status = ctx.getString(R.string.editor_status_preview_ready)
+                }.onFailure {
+                    SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
+                    Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
+                    if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
+                        retireSourceResources()
+                        sourceAuthorizationRequired = true
+                        renderErr = ctx.getString(R.string.editor_render_error_auth_required)
+                        status = ctx.getString(R.string.editor_status_source_expired)
+                    } else {
+                        renderErr = it.message?.take(60)
+                        status = ctx.getString(R.string.editor_status_preview_error, it.message)
+                    }
+                }
+                previewBusy = false
+                settled = true
             } finally {
-                cached?.close()
+                decoding = false
+                previewBusy = false
+                // Not settled means cancelled, not finished. When a NEWER render caused the
+                // cancellation it overwrites this within a frame; when nothing did, this is
+                // the difference between a recoverable editor and a dead one.
+                if (!settled) status = ctx.getString(R.string.editor_status_preview_interrupted)
             }
-            decoding = false
-            if (completionProbeHandled) return@LaunchedEffect
-            val publicationClaimed = publicationGate.tryClaim(publicationTicket)
-            Ticket139EditorProbe.publishPreviewDecision(
-                previewProbeLabel,
-                publicationClaimed && isActive,
-            )
-            if (!isActive || !publicationClaimed) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                result.getOrNull()?.let { (before, after, ownsBefore) ->
-                    if (!after.isRecycled) after.recycle()
-                    if (ownsBefore && !before.isRecycled) before.recycle()
-                }
-                Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                return@LaunchedEffect
-            }
-            result.onSuccess { (before, after, _) ->
-                beforePreview = before; preview = after
-                SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
-                lastRenderMs = System.currentTimeMillis() - renderStart
-                Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
-                renderErr = null
-                status = ctx.getString(R.string.editor_status_preview_ready)
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
-                if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
-                    retireSourceResources()
-                    sourceAuthorizationRequired = true
-                    renderErr = ctx.getString(R.string.editor_render_error_auth_required)
-                    status = ctx.getString(R.string.editor_status_source_expired)
-                } else {
-                    renderErr = it.message?.take(60)
-                    status = ctx.getString(R.string.editor_status_preview_error, it.message)
-                }
-            }
-            previewBusy = false
         }
 
         // GPU LUT preview feed (experimental, default OFF): after the CPU preview settles,
@@ -3141,6 +3255,9 @@ class MainActivity : ComponentActivity() {
         // that avoids adding a fourth hand-maintained key list to the three this file already
         // warns about, and Compose's own cancellation is the latest-wins rule for free.
         var prerenderDigest by remember(sourceUri) { mutableStateOf<Pair<String, Long>?>(null) }
+        // Stood down after a speculative render ran the source out of memory. Keyed on
+        // sourceUri like the digest, so a different photo gets a fresh chance.
+        var prerenderOutOfMemory by remember(sourceUri) { mutableStateOf(false) }
         LaunchedEffect(
             previewTick, sourceRenderAllowed, sourceUri, exportOptions,
             state.outputColorSpace, state.savingCctfEncoding,
@@ -3151,6 +3268,7 @@ class MainActivity : ComponentActivity() {
             val activeEngine = engine ?: return@LaunchedEffect
             val activeUri = sourceUri ?: return@LaunchedEffect
             if (!sourceRenderAllowed || exportInFlight) return@LaunchedEffect
+            if (prerenderOutOfMemory) return@LaunchedEffect
             delay(RenderPayloads.IDLE_DEBOUNCE_MS)
             if (previewBusy || exportInFlight) return@LaunchedEffect
             val app = ctx.applicationContext
@@ -3216,6 +3334,17 @@ class MainActivity : ComponentActivity() {
             }.onFailure { failure ->
                 if (failure is CancellationException) throw failure
                 Diag.w("pre-render skipped: $failure")
+                // This is SPECULATIVE work for an export the user has not asked for, and it
+                // decodes at EXPORT_MAX_EDGE_PX. On the 4080x3060 DNG that exposed this it cost
+                // a full decode plus most of an export — 13 s and ~650 MB — before failing, while
+                // the preview the user was actually waiting for got nothing. The budget will not
+                // have grown by the next previewTick, so retrying only repeats the damage.
+                // shouldPrerender's own guards do not catch this: they read the SYSTEM low-memory
+                // flag, not this process's own budget, which is what refused the allocation.
+                if (generateSequence(failure) { it.cause }.take(8).any { it is OutOfMemoryError }) {
+                    prerenderOutOfMemory = true
+                    Diag.w("pre-render stood down for this source after OOM")
+                }
             }
         }
 
@@ -3569,7 +3698,23 @@ class MainActivity : ComponentActivity() {
                             Category.PRESETS -> PresetPanel(
                                 builtInGroups = builtInGroups,
                                 onApplyBuiltIn = { p ->
-                                    applyWithAmount { BuiltInPresets.apply(p, state) }
+                                    val now = runCatching { Presets.toJsonString(state) }.getOrNull()
+                                    val baseline =
+                                        presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson)
+                                    presetBaselineJson = baseline
+                                    applyWithAmount(baseline) {
+                                        // Rewind before overlaying, so a sparse preset cannot
+                                        // inherit the previous one's fields. When the run is not
+                                        // continuing the baseline IS [now], so this is a no-op —
+                                        // one source of truth, in presetRunBaseline.
+                                        if (baseline != null && baseline != now) {
+                                            runCatching {
+                                                Presets.decode(org.json.JSONObject(baseline), state)
+                                            }
+                                        }
+                                        BuiltInPresets.apply(p, state)
+                                    }
+                                    lastBuiltInOutput = runCatching { Presets.toJsonString(state) }.getOrNull()
                                     status = ctx.getString(R.string.editor_status_applied_builtin, p.name); previewTick++
                                 },
                                 amount = presetAmount,
@@ -3582,7 +3727,7 @@ class MainActivity : ComponentActivity() {
                                             val blended = PresetAmount.blend(
                                                 org.json.JSONObject(base), org.json.JSONObject(full), a,
                                             )
-                                            Presets.decode(blended, state)
+                                            Presets.decodeLook(blended, state)
                                         }.onFailure { Diag.w("preset amount blend failed: ${it.message}") }
                                         previewTick++
                                     }
@@ -3604,8 +3749,20 @@ class MainActivity : ComponentActivity() {
                                                 Presets.saveJson(ctx, name, json); Presets.list(ctx)
                                             }
                                             presetList = names
-                                            status = ctx.getString(R.string.editor_status_preset_saved, name)
+                                            // Report the name on disk, not the typed one:
+                                            // safeName may have rewritten it.
+                                            val stored = Presets.resolveName(name)
+                                            selectedPreset = stored
+                                            status = ctx.getString(R.string.editor_status_preset_saved, stored)
                                         }
+                                    }
+                                },
+                                nameExists = { Presets.exists(ctx, it) },
+                                resolveName = { Presets.resolveName(it) },
+                                onExportSelected = {
+                                    if (selectedPreset.isNotBlank()) {
+                                        pendingPresetExport = selectedPreset
+                                        savedPresetExporter.launch("$selectedPreset.json")
                                     }
                                 },
                                 onApply = {
@@ -3619,7 +3776,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             if (text == null) { status = ctx.getString(R.string.editor_status_preset_apply_failed); return@launch }
                                             runCatching {
-                                                applyWithAmount { Presets.decode(org.json.JSONObject(text), state) }
+                                                applyWithAmount { Presets.decodeLook(org.json.JSONObject(text), state) }
                                             }
                                                 .onSuccess { status = ctx.getString(R.string.editor_status_preset_applied, name); previewTick++ }
                                                 .onFailure { status = ctx.getString(R.string.editor_status_preset_apply_failed_reason, it.message) }
@@ -3630,11 +3787,41 @@ class MainActivity : ComponentActivity() {
                                     if (selectedPreset.isNotBlank()) {
                                         val name = selectedPreset
                                         scope.launch {
+                                            // Read the preset BEFORE deleting it. This was a single
+                                            // tap with no confirmation and nothing to undo; holding
+                                            // the JSON is what lets Undo put it back byte-for-byte
+                                            // (— read and saveJson round-trip through the same
+                                            // parsePersistentJson normalisation).
+                                            val backup = withContext(Dispatchers.IO) {
+                                                runCatching { Presets.read(ctx, name) }.getOrNull()
+                                            }
                                             val names = withContext(Dispatchers.IO) {
                                                 Presets.delete(ctx, name); Presets.list(ctx)
                                             }
                                             presetList = names
                                             status = ctx.getString(R.string.editor_status_preset_deleted, name); selectedPreset = ""
+                                            if (backup != null) {
+                                                offerSnackbarSuggestion(
+                                                    scope,
+                                                    snackbarHost,
+                                                    ctx.getString(R.string.editor_snack_preset_deleted, name),
+                                                    ctx.getString(R.string.editor_action_undo),
+                                                ) {
+                                                    scope.launch {
+                                                        val restored = withContext(Dispatchers.IO) {
+                                                            runCatching { Presets.saveJson(ctx, name, backup) }
+                                                            Presets.list(ctx)
+                                                        }
+                                                        presetList = restored
+                                                        if (name in restored) {
+                                                            selectedPreset = name
+                                                            status = ctx.getString(
+                                                                R.string.editor_status_preset_restored, name,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 },
@@ -5779,10 +5966,13 @@ class MainActivity : ComponentActivity() {
         onNameChange: (String) -> Unit,
         onSelect: (String) -> Unit,
         onSave: () -> Unit,
+        nameExists: (String) -> Boolean,
+        resolveName: (String) -> String,
         onApply: () -> Unit,
         onDelete: () -> Unit,
         onImport: () -> Unit,
         onExport: () -> Unit,
+        onExportSelected: () -> Unit,
         onCopySettings: () -> Unit,
         canPasteSettings: Boolean,
         onPasteSettings: () -> Unit,
@@ -5799,12 +5989,36 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
             }
             val all = remember(builtInGroups) { builtInGroups.values.flatten() }
+            // GroupedDropdown has always rendered a spec line and a summary under each row
+            // (it is what the film/paper pickers use); this panel passed neither, so 27
+            // curated looks arrived as 27 bare names. Filling them in costs one map and
+            // turns the list into something you can actually choose from.
+            val ctx = LocalContext.current
+            val positiveLabel = stringResource(R.string.editor_preset_scan_positive)
+            val builtInDropdownGroups = remember(builtInGroups, positiveLabel) {
+                builtInGroups.map { (g, ps) ->
+                    DropdownGroup(
+                        g,
+                        ps.map { p ->
+                            DropdownOption(
+                                id = p.id,
+                                label = p.name,
+                                spec = BuiltInPresets.specLine(
+                                    filmName = StockCatalog.displayName(ctx, p.filmProfile),
+                                    printName = StockCatalog.displayName(ctx, p.printProfile),
+                                    scanFilm = p.scanFilm,
+                                    positiveLabel = positiveLabel,
+                                ),
+                                summary = p.description,
+                            )
+                        },
+                    )
+                }
+            }
             GroupedDropdown(
                 label = stringResource(R.string.editor_preset_builtin_label),
                 selectedId = selectedBuiltIn,
-                groups = builtInGroups.map { (g, ps) ->
-                    DropdownGroup(g, ps.map { DropdownOption(it.id, it.name) })
-                },
+                groups = builtInDropdownGroups,
                 onSelect = { selectedBuiltIn = it },
             )
             val current = all.firstOrNull { it.id == selectedBuiltIn }
@@ -5849,14 +6063,62 @@ class MainActivity : ComponentActivity() {
             label = { Text(stringResource(R.string.editor_preset_name)) }, singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+        // The stored name is not always the typed one (safeName rewrites punctuation), and
+        // the save status used to claim otherwise. Say so before the save, not after.
+        val storedName = resolveName(name)
+        if (name.isNotBlank() && storedName != name.trim()) {
+            Text(
+                stringResource(R.string.editor_preset_name_resolved, storedName),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        var confirmOverwrite by remember { mutableStateOf<String?>(null) }
+        Button(
+            onClick = {
+                // Saving over an existing preset was silent and unrecoverable. Unlike a
+                // delete — where the user knows what they are destroying — a collision here
+                // can be news to them, so this prevents rather than offers to repair.
+                if (name.isNotBlank() && nameExists(name)) confirmOverwrite = storedName else onSave()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             ButtonIcon(SpectraIcons.Presets)
             Text(stringResource(R.string.editor_preset_save))
         }
+        confirmOverwrite?.let { target ->
+            AlertDialog(
+                onDismissRequest = { confirmOverwrite = null },
+                title = { Text(stringResource(R.string.editor_preset_overwrite_title, target)) },
+                text = { Text(stringResource(R.string.editor_preset_overwrite_body)) },
+                confirmButton = {
+                    TextButton(onClick = { confirmOverwrite = null; onSave() }) {
+                        Text(stringResource(R.string.editor_preset_replace))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmOverwrite = null }) {
+                        Text(stringResource(R.string.editor_cancel))
+                    }
+                },
+            )
+        }
         if (presets.isNotEmpty()) {
+            // The dropdown fell back to the first preset for DISPLAY only, while Apply and
+            // Delete gate on the selection itself (— `selectedPreset.isNotBlank()`). On a
+            // fresh launch that left a named preset on screen beside two buttons that looked
+            // armed and silently did nothing until you opened the dropdown and re-picked the
+            // very item already showing. Adopt what is displayed as the real selection.
+            //
+            // Not just the EMPTY case: the selection is restored from the editor session, so
+            // it can also name a preset that has since been deleted. The field then showed a
+            // preset that no longer exists and every action targeted it. Fall back whenever
+            // the selection is not one of the presets actually on disk.
+            val effective = selected.takeIf { it in presets } ?: presets.first()
+            LaunchedEffect(effective) { if (selected != effective) onSelect(effective) }
             Dropdown(
                 label = stringResource(R.string.editor_preset_saved),
-                selected = selected.ifEmpty { presets.first() },
+                selected = effective,
                 options = presets,
                 display = { it },
                 onSelect = onSelect,
@@ -5867,6 +6129,11 @@ class MainActivity : ComponentActivity() {
                     Text(stringResource(R.string.editor_preset_apply))
                 }
                 OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.editor_preset_delete)) }
+            }
+            // Exports the selected preset itself. The "Export current look" button below
+            // serialises live editor state, which is a different thing entirely.
+            OutlinedButton(onClick = onExportSelected, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.editor_preset_export_selected, effective))
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -5971,13 +6238,40 @@ class MainActivity : ComponentActivity() {
         )
 
         if (hasRecipe) {
+            // The one editor action with no way back: onResetEdits clears the undo history
+            // along with the edits, so a mis-tap here cannot be walked back the way every
+            // other destructive thing in this screen can. Hence a dialog rather than the
+            // Undo snackbar used for preset deletion.
+            var confirmReset by remember { mutableStateOf(false) }
             Text(
                 stringResource(R.string.editor_source_autosaved),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(onClick = onResetEdits, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { confirmReset = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(stringResource(R.string.editor_source_reset_edits))
+            }
+            if (confirmReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmReset = false },
+                    title = { Text(stringResource(R.string.editor_reset_edits_confirm_title)) },
+                    text = { Text(stringResource(R.string.editor_reset_edits_confirm_body)) },
+                    confirmButton = {
+                        TextButton(
+                            onClick = { confirmReset = false; onResetEdits() },
+                        ) {
+                            Text(stringResource(R.string.editor_source_reset_edits))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmReset = false }) {
+                            Text(stringResource(R.string.editor_cancel))
+                        }
+                    },
+                )
             }
         }
         Text(

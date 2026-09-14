@@ -1,14 +1,14 @@
 {
-  "approval_reference": null,
-  "decision_date": null,
-  "decision_owner": null,
+  "approval_reference": "https://github.com/thetechgeekko/Spektrafilm-android/issues/166",
+  "decision_date": "2026-09-14",
+  "decision_owner": "Akshay Sharma",
   "patch_contributions": {
-    "authorization_reference": null,
-    "license": null,
-    "rights_confirmed": false
+    "authorization_reference": "https://github.com/thetechgeekko/Spektrafilm-android/issues/165",
+    "license": "LGPL-2.1-only",
+    "rights_confirmed": true
   },
-  "rationale": null,
-  "recorded_at": "2026-08-30T00:00:00Z",
-  "route": "UNRESOLVED",
+  "rationale": "LGPL-2.1-only is the sole route this project's release audit accepts for LibRaw statically combined with the GPL-3.0-only application; CDDL-1.0 is not generally treated as GPL-compatible for that combination. LGPL-2.1 section 3 permits the combination with GPLv3, and the section 6 relink materials, corresponding source, notices and SBOM are built and verified by the release workflow. Local patch contributions under lib/libraw/patches are licensed under the same route.",
+  "recorded_at": "2026-09-14T02:53:50Z",
+  "route": "LGPL-2.1-only",
   "schema": "spektrafilm.libraw-license-decision/v1"
 }

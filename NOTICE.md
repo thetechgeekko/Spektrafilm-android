@@ -89,21 +89,21 @@ for future versions.
 
 ## RAW decoding: LibRaw
 
-<!-- libraw-license-route: UNRESOLVED -->
+<!-- libraw-license-route: LGPL-2.1-only -->
 
-LibRaw Android distribution route: UNRESOLVED.
+LibRaw Android distribution route: LGPL-2.1-only.
 
 Full-resolution RAW/DNG decoding uses **LibRaw**.
 
 - Upstream: https://www.libraw.org / https://github.com/LibRaw/LibRaw
-- License: LibRaw is offered under a choice of LGPL-2.1-only or CDDL-1.0. No
-  distribution route has been selected for this application's static integration;
-  including both upstream license texts records provenance and does not elect a
-  route. CDDL-1.0 is not generally treated as GPL-compatible. Release remains
-  blocked on the human review and reproducible source/relink package described in
-  `docs/LICENSING.md`. The route marker cannot be changed alone: the canonical
-  decision record must also identify the human approval and confirm rights to
-  license the local patch contributions under the selected route.
+- License: LibRaw is offered under a choice of LGPL-2.1-only or CDDL-1.0. This
+  application's static integration is distributed under **LGPL-2.1-only**; both
+  upstream license texts remain included for provenance. CDDL-1.0 is not
+  generally treated as GPL-compatible and was declined. The reproducible
+  source/relink package described in `docs/LICENSING.md` ships with each release.
+  The route marker cannot be changed alone: the canonical decision record also
+  identifies the human approval and confirms rights to license the local patch
+  contributions under the elected route.
 
 ## Film & paper profiles
 
