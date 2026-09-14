@@ -859,6 +859,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list is `tools platform-tools`; the
+          # legacy `tools` package vanished from Google's repository on
+          # 2026-09-14 (~20:25 UTC) and `sdkmanager tools` now exits 1.
+          packages: platform-tools
 
       - name: Install NDK + CMake + build-tools
         # NDK r28c: 16 KB-aligned native LOAD segments by default (Android 15 16 KB pages);
@@ -1057,6 +1062,11 @@ jobs:
       # the large NDK download was an unnecessary failure/disk surface.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list is `tools platform-tools`; the
+          # legacy `tools` package vanished from Google's repository on
+          # 2026-09-14 (~20:25 UTC) and `sdkmanager tools` now exits 1.
+          packages: platform-tools
 
       # Emulator 37.1.11.0 (2026-09) refuses the runner's preinstalled adb:
       # "Unable to connect to adb daemon on port: 5037" followed by a "device

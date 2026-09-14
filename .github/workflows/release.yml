@@ -269,6 +269,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action's default package list is `tools platform-tools`; the
+          # legacy `tools` package vanished from Google's repository on
+          # 2026-09-14 (~20:25 UTC) and `sdkmanager tools` now exits 1. Every
+          # component this job needs is installed explicitly below.
+          packages: platform-tools
 
       - name: Install NDK + CMake + pinned build-tools
         run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0"
@@ -640,6 +646,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action's default package list is `tools platform-tools`; the
+          # legacy `tools` package vanished from Google's repository on
+          # 2026-09-14 (~20:25 UTC) and `sdkmanager tools` now exits 1. Every
+          # component this job needs is installed explicitly below.
+          packages: platform-tools
 
       - name: Install pinned signing build-tools only
         run: sdkmanager "build-tools;36.0.0"
