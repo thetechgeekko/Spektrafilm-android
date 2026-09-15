@@ -135,6 +135,25 @@ fun linearToDisplayBitmap(img: LinearImage): Bitmap {
 }
 
 /**
+ * The BEFORE frame of the compare viewer and the press-and-hold peek: the decoded source cut to
+ * the pixel box the engine's crop stage renders, so before and after show one frame. Rotation is
+ * already in [src] (a decode-time input). Without the cut, the whole uncropped source was drawn
+ * into the cropped after frame's aspect box, letterboxed and at the wrong size (#254).
+ */
+fun beforeFrameBitmap(src: LinearImage, params: com.spectrafilm.engine.SpektraParams): Bitmap {
+    val io = params.io
+    if (!io.crop) return linearToDisplayBitmap(src)
+    val box = engineCropBox(src.width, src.height, io.cropCenter, io.cropSize)
+    if (box.width < 1 || box.height < 1) return linearToDisplayBitmap(src)
+    val cropped = cropLinearImageBox(src, box)
+    return try {
+        linearToDisplayBitmap(cropped)
+    } finally {
+        cropped.close()
+    }
+}
+
+/**
  * Decode [uri] to a display-sRGB Bitmap, downscale so the longest edge is
  * <= [MAX_EDGE_PX], then convert to a scene-linear ProPhoto-RGB float [LinearImage].
  *
