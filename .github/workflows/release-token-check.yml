@@ -1,0 +1,57 @@
+# Manual preflight for the RELEASE_GITHUB_TOKEN environment secret.
+#
+# release.yml only touches this token in its last job, ~50 minutes in, and
+# 34882197355/1 got that far before "POST /releases returned HTTP 403:
+# Resource not accessible by personal access token". This runs the same three
+# calls tools/release/github_release.py depends on, in under a minute, against
+# a draft that is deleted again (drafts create no tag and are not immutable):
+#   GET  /immutable-releases   -> Administration (read)
+#   POST /releases (draft)     -> Contents (write) + Workflows (write), because
+#                                 the target commit modifies .github/workflows
+#   DELETE /releases/{id}      -> Contents (write)
+# Dispatch it after rotating the token and before pushing a v* tag.
+name: Release token check
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  token-check:
+    name: Exercise RELEASE_GITHUB_TOKEN
+    runs-on: ubuntu-latest
+    environment: release-signing
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TARGET_SHA: ${{ github.sha }}
+    steps:
+      - name: Token present
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::RELEASE_GITHUB_TOKEN is empty in environment release-signing"
+            exit 1
+          fi
+          gh api user -q '"token identity: \(.login)"'
+
+      - name: Administration read (immutable-releases)
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/immutable-releases" | tee immutable.json
+          grep -q '"enabled":true' immutable.json \
+            || { echo "::error::immutable releases are not enabled"; exit 1; }
+
+      - name: Contents + Workflows write (create and delete a draft)
+        run: |
+          set -euo pipefail
+          id="$(gh api -X POST "repos/$GH_REPO/releases" \
+            -f tag_name="token-check-${{ github.run_id }}" \
+            -f target_commitish="$TARGET_SHA" \
+            -f name="token check ${{ github.run_id }}" \
+            -F draft=true -q .id)"
+          echo "draft release id: $id"
+          gh api -X DELETE "repos/$GH_REPO/releases/$id"
+          echo "RELEASE_GITHUB_TOKEN: PASS (Administration read, Contents write, Workflows write)"
