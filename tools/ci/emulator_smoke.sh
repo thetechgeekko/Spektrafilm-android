@@ -5,8 +5,12 @@
 # multi-line `if` blocks never survive from one line to the next.
 set -euo pipefail
 
-# bash on stdin so the same script is portable across both workflows.
-bash -euo pipefail -s <<'EMULATOR_SCRIPT'
+# The body used to be fed to `bash -s` through a heredoc. `adb shell` forwards
+# its stdin to the device, so the first `adb shell am instrument` swallowed the
+# rest of the script: every run ended 4 s after the engine gate with exit 0,
+# never launched MainActivity, never took the screenshot, and the artifact
+# held one file (PR #248 run 34918974302). The script is executed from this
+# file by both workflows, so it simply runs top-level now.
 mkdir -p emulator-artifacts
 
 APK=$(ls apk/*.apk | head -1)
@@ -88,5 +92,4 @@ else
 fi
 
 echo "--- Smoke test complete ---"
-EMULATOR_SCRIPT
 
