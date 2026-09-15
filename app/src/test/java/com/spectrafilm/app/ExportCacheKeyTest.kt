@@ -56,9 +56,10 @@ class ExportCacheKeyTest {
         descriptor: OutputDescriptor = descriptor(),
         longEdge: Int? = null,
         jpegQuality: Int = 95,
+        keepGps: Boolean = false,
         contractVersion: String = contract,
     ) = ExportCacheKey.compute(
-        source, params, grade, descriptor, longEdge, jpegQuality, contractVersion,
+        source, params, grade, descriptor, longEdge, jpegQuality, keepGps, contractVersion,
     )
 
     @Test
@@ -100,6 +101,14 @@ class ExportCacheKeyTest {
         assertNotEquals("format", base, key(descriptor = descriptor(ExportFormat.PNG16)))
         assertNotEquals("long edge", base, key(longEdge = 2048))
         assertNotEquals("jpeg quality", base, key(jpegQuality = 80))
+    }
+
+    @Test
+    fun `the EXIF GPS policy participates`() {
+        // #225: keepGps changes the container bytes (GPS tags copied or not) and nothing else in
+        // the key saw it, so an export with GPS turned off could republish the cached file that
+        // still carried the coordinates.
+        assertNotEquals("keepGps", key(), key(keepGps = true))
     }
 
     @Test

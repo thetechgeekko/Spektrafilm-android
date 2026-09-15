@@ -20,6 +20,9 @@
  *   * the full OutputDescriptor. Its own toString prints only 5 of its 16 fields, so the fields
  *     are enumerated here; equals/hashCode cover all 16 but a 32-bit hash is not a safe key.
  *   * the output geometry and JPEG quality, which live outside the descriptor.
+ *   * the EXIF GPS policy (Settings > keep GPS). It decides which source tags reach the container
+ *     and nothing else in the key saw it, so an export with GPS turned off could republish the
+ *     cached file that still carried the coordinates (#225).
  *   * a contract version covering the app build. Profiles, spectral LUTs and ICC assets ship
  *     inside the APK and cannot change without it, so one version string covers all of them
  *     along with the engine binary and the numeric contract.
@@ -68,6 +71,7 @@ internal object ExportCacheKey {
         descriptor: OutputDescriptor,
         targetLongEdge: Int?,
         jpegQuality: Int,
+        keepGps: Boolean,
         contractVersion: String,
     ): String {
         val text = buildString {
@@ -112,6 +116,7 @@ internal object ExportCacheKey {
 
             line("geometry.longEdge", targetLongEdge?.toString() ?: "full")
             line("encoder.jpegQuality", jpegQuality)
+            line("exif.keepGps", keepGps)
         }
         return sha256Hex(text.toByteArray(Charsets.UTF_8))
     }
@@ -159,8 +164,8 @@ internal object ExportCacheKey {
     internal fun sha256Hex(bytes: ByteArray): String =
         ExportCache.hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
-    /** Bumped if the layout of the key material itself changes. */
-    private const val SCHEMA = "spk.export_cache_key.v1"
+    /** Bumped if the layout of the key material itself changes. v2: exif.keepGps joined (#225). */
+    private const val SCHEMA = "spk.export_cache_key.v2"
 
     /**
      * Bumped when the engine's numeric output changes for unchanged parameters — a new engine
