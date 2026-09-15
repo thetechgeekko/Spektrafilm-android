@@ -33,12 +33,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material3.FilterChip
@@ -226,6 +231,13 @@ fun CropOverlay(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    // #255: keep the rectangle's side edges, and so all four corners, out of the
+                    // system back-gesture zones. With only the 12 dp padding below, a full-frame
+                    // rect's left/right edges sat 12 dp from the screen edge on a gesture-navigation
+                    // phone, inside the 24+ dp back zone: a side or corner drag was taken by the
+                    // system as Back, which the editor's BackHandler turned into "cancel crop".
+                    // Reproduced on an S26 Ultra; zero-width on three-button navigation.
+                    .windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
                     .padding(12.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -243,9 +255,12 @@ fun CropOverlay(
                             )
                         }
                         .pointerInput(aspect, canvasSize) {
+                            // 24 dp either side of an edge = a 48 dp grab band (the Material touch
+                            // target). It was 48 px, 18 dp on a 420 dpi phone, so corners took aim.
+                            val tol = 24.dp.toPx()
                             detectDragGestures(
                                 onDragStart = { pos ->
-                                    handleRef.value = pickHandle(rect, pos, canvasSize)
+                                    handleRef.value = pickHandle(rect, pos, canvasSize, tol)
                                 },
                                 onDragEnd = { handleRef.value = Handle.NONE },
                                 onDragCancel = { handleRef.value = Handle.NONE },
@@ -309,14 +324,13 @@ private fun resolveAspect(a: CropAspect, imageAspect: Float): Float? = when (a) 
     else -> a.ratio
 }
 
-/** Hit-test which handle a press at [pos] (pixels in [canvas]) grabbed. */
-private fun pickHandle(rect: Rect, pos: Offset, canvas: IntSize): Handle {
+/** Hit-test which handle a press at [pos] (pixels in [canvas]) grabbed, within [tol] px of an edge. */
+private fun pickHandle(rect: Rect, pos: Offset, canvas: IntSize, tol: Float): Handle {
     if (canvas.width == 0 || canvas.height == 0) return Handle.MOVE
     val w = canvas.width.toFloat()
     val h = canvas.height.toFloat()
     val lx = rect.left * w; val rx = rect.right * w
     val ty = rect.top * h; val by = rect.bottom * h
-    val tol = 48f
     fun near(a: Float, b: Float) = kotlin.math.abs(a - b) <= tol
     val nl = near(pos.x, lx); val nr = near(pos.x, rx)
     val nt = near(pos.y, ty); val nb = near(pos.y, by)

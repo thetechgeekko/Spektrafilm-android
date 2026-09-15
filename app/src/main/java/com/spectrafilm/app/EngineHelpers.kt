@@ -380,8 +380,7 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
  */
 fun cropLinearImageRect(
     src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int,
-): LinearImage = src.acquireDataLease().use { sourceLease ->
-    val sourceData = sourceLease.data
+): LinearImage {
     val w = src.width
     val h = src.height
     val cw = cropW.coerceIn(1, w)
@@ -390,6 +389,61 @@ fun cropLinearImageRect(
     val cyPx = (ny.coerceIn(0f, 1f) * h).toInt()
     val x0 = (cxPx - cw / 2).coerceIn(0, w - cw)
     val y0 = (cyPx - ch / 2).coerceIn(0, h - ch)
+    return cropLinearImageBox(src, CropBox(x0, y0, cw, ch))
+}
+
+/** A pixel box inside a [LinearImage]: top-left corner and extent. */
+data class CropBox(val x0: Int, val y0: Int, val width: Int, val height: Int)
+
+/**
+ * The pixel box the engine's crop stage cuts out of a [w]×[h] input for `io.crop`
+ * (runtime/stages/crop_resize.cpp::crop_image, a transcription of upstream
+ * utils/crop_resize.py). Reproduced here so the compare viewer's and the press-and-hold peek's
+ * BEFORE frame can be cut to the same pixels the engine renders (#254). `center` is (x, y) as
+ * fractions of (W, H); `size` is (x, y) as fractions of the LONG side; NumPy's round is
+ * half-to-even, which is Math.rint; a box larger than the image degenerates the way a NumPy
+ * negative-start slice does rather than clamping to the whole axis.
+ */
+fun engineCropBox(w: Int, h: Int, center: Pair<Float, Float>, size: Pair<Float, Float>): CropBox {
+    val maxDim = kotlin.math.max(w, h).toDouble()
+    val cy = Math.rint(h * center.second.toDouble())
+    val cx = Math.rint(w * center.first.toDouble())
+    val sh = Math.rint(maxDim * size.second.toDouble()).toLong()
+    val sw = Math.rint(maxDim * size.first.toDouble()).toLong()
+    var y0 = Math.rint(cy - sh / 2.0).toLong()
+    var x0 = Math.rint(cx - sw / 2.0).toLong()
+    if (y0 < 0) y0 = 0
+    if (x0 < 0) x0 = 0
+    if (y0 + sh > h) y0 = h - sh
+    if (x0 + sw > w) x0 = w - sw
+    val (ry, rh) = numpySlice(y0, sh, h.toLong())
+    val (rx, rw) = numpySlice(x0, sw, w.toLong())
+    return CropBox(rx.toInt(), ry.toInt(), rw, rh)
+}
+
+/** `array[start : start + sz]` with NumPy's negative-index semantics: offset and extent. */
+private fun numpySlice(startIn: Long, sz: Long, dim: Long): Pair<Long, Int> {
+    var start = startIn
+    var stop = start + sz
+    if (start < 0) start += dim
+    if (stop < 0) stop += dim
+    start = start.coerceIn(0, dim)
+    stop = stop.coerceIn(0, dim)
+    return start to (if (stop > start) (stop - start).toInt() else 0)
+}
+
+/** Cut [box] out of [src] pixel-for-pixel (no resampling); the box must lie inside the image. */
+fun cropLinearImageBox(src: LinearImage, box: CropBox): LinearImage = src.acquireDataLease().use { sourceLease ->
+    val sourceData = sourceLease.data
+    val w = src.width
+    val h = src.height
+    val x0 = box.x0
+    val y0 = box.y0
+    val cw = box.width
+    val ch = box.height
+    require(cw >= 1 && ch >= 1 && x0 >= 0 && y0 >= 0 && x0 + cw <= w && y0 + ch <= h) {
+        "crop box $box lies outside the ${w}x$h image"
+    }
 
     val requiredSourceBytes = checkedRgbFloatBytes(w, h)
     val logicalSource = sourceData.duplicate().order(ByteOrder.nativeOrder())

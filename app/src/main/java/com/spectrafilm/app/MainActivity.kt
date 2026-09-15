@@ -2994,7 +2994,8 @@ class MainActivity : ComponentActivity() {
                                 try {
                                     val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
                                         decoding = false
-                                        val ownedBefore = linearToDisplayBitmap(lease.image)
+                                        // Cut to the engine's crop box so compare/peek register (#254).
+                                        val ownedBefore = beforeFrameBitmap(lease.image, cacheKey.engineParams)
                                         before = ownedBefore
                                         // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
                                         // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
