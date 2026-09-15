@@ -1,7 +1,7 @@
 # Maintainer Release Checklist
 
-> **Release state (2026-09-14):** v0.10.0 is tagged and its release run is the first to reach the
-> signing Environment. The remaining production blockers (#138 and its open children) and ordered
+> **Release state (2026-09-15):** v0.10.0 is published as an immutable GitHub release (run
+> 34929790265, tag at `d7f9fcf`, 14 verified assets). The remaining production blockers (#138 and its open children) and ordered
 > implementation plan live in [EXECUTION_INDEX.md](EXECUTION_INDEX.md),
 > [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md), and the
 > [Wayfinder map: production-ready Spektrafilm + 1–2 s exact export](https://github.com/thetechgeekko/Spektrafilm-android/issues/164).
@@ -26,7 +26,7 @@ are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
 Current in-tree version: **v0.10.0 / versionCode 12** (`minSdk 24`, `targetSdk` 36 /
-`compileSdk` 37 on `:app`); latest tag is **v0.10.0** (tagged 2026-09-14).
+`compileSdk` 37 on `:app`); latest tag is **v0.10.0** (published 2026-09-15).
 
 [Make production signing and exact release-candidate verification fail closed](https://github.com/thetechgeekko/Spektrafilm-android/issues/168)
 produced a local test candidate validated on 2026-08-30 on an API 36
