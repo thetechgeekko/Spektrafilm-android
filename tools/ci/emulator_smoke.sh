@@ -47,6 +47,17 @@ adb shell am start -W \
 echo "--- Waiting 8 s for the app to fully initialise ---"
 sleep 8
 
+# The release smoke recreates MainActivity (two activities rendering at once),
+# and the legacy swiftshader_indirect renderer segfaulted its host RenderThreads
+# exactly there (release run 34913971651, host dmesg) while this single-launch
+# smoke stayed green. MainActivity declares no configChanges, so a uiMode flip
+# recreates it the same way; a dead emulator fails the adb calls below.
+echo "--- Forcing an Activity recreate via a night-mode toggle ---"
+adb shell cmd uimode night yes
+sleep 4
+adb shell cmd uimode night no
+sleep 4
+
 echo "--- Capturing screenshot ---"
 adb exec-out screencap -p > emulator-artifacts/screenshot.png || true
 

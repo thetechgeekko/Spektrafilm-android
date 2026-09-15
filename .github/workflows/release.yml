@@ -1047,15 +1047,21 @@ jobs:
           # MediaProvider; the runner has 16 GB.
           ram-size: 4096M
           disable-animations: true
-          # `-feature -Vulkan`: the guest's Vulkan device is host SwiftShader
-          # behind gfxstream, and the app's default render route is Vulkan
-          # compute. On 34882197355 the emulator process itself vanished 54 s
-          # into the release instrumentation (attempt 2; attempt 1 passed the
-          # identical step), with nothing in its own output. Without Vulkan the
-          # app's device self-check falls back to the CPU route, which is the
-          # only route this emulator can validate; the GPU route is gated under
-          # lavapipe in ci.yml and on real hardware by the device gate.
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -feature -Vulkan
+          # `-gpu swangle` (ANGLE over SwiftShader Vulkan), NOT the action's
+          # default `swiftshader_indirect`: that legacy GLES backend ("OpenGL ES
+          # 3.0 SwiftShader 4.0.0.1", deprecated since emulator 36.4.9) killed
+          # the emulator on 34882197355/2, 34895327402 and 34913971651, ~10 s
+          # after the engine gate, with nothing in the guest and no minidump.
+          # Host dmesg from 34913971651 (retained since #246) finally showed
+          # two `RenderThread` segfaults at the SAME instruction — a race in the
+          # host renderer, provoked by the release instrumentation's
+          # `activity.recreate()` (two activities rendering at once). ci.yml's
+          # smoke launches one activity, which is why it never reproduced.
+          # `-feature -Vulkan`: keep the guest's Vulkan device off so the app's
+          # self-check takes the CPU route, the only route this emulator can
+          # validate; the GPU route is gated under lavapipe in ci.yml and on
+          # real hardware by the device gate.
+          emulator-options: -no-window -gpu swangle -noaudio -no-boot-anim -no-snapshot -camera-back none -feature -Vulkan
           # One line on purpose: the action runs each script line in its own
           # `sh -c`, so the body lives in a file (see the script header).
           script: bash tools/ci/release_device_smoke.sh
