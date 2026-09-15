@@ -468,7 +468,7 @@ evidence; keep unrelated runtime changes out of the toolchain migration.
 1. [Prove the approved 1–2 s exact-export SLO on the release candidate](https://github.com/thetechgeekko/Spektrafilm-android/issues/186) runs the immutable signed artifact and attaches raw evidence.
 2. [Synchronize audit, performance, release, licensing, and project-status documentation](https://github.com/thetechgeekko/Spektrafilm-android/issues/185) reconciles every version, gate, feature and guarantee.
 3. [Publish one spectral documentation system for Spektrafilm Android](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) deploys the reviewed GitHub Pages portal and offline app viewer from classified, provenance-bound content.
-4. [Ship the next security- and correctness-gated release](https://github.com/thetechgeekko/Spektrafilm-android/issues/138) publishes the immutable free GitHub release only after all native blockers are closed.
+4. [Ship the next security- and correctness-gated release](https://github.com/thetechgeekko/Spektrafilm-android/issues/138) published the immutable free GitHub release v0.10.0 on 2026-09-15 (run 34929790265, tag at d7f9fcf); closed.
 5. [Publish a functionally identical paid Google Play supporter edition](https://github.com/thetechgeekko/Spektrafilm-android/issues/200) promotes the same logical release after the GitHub release, portal, and API-36 distribution gates. It is the final owner-approved external action and unlocks nothing.
 
 ## Verification ladder for every implementation ticket
