@@ -53,5 +53,24 @@ jobs:
             -f name="token check ${{ github.run_id }}" \
             -F draft=true -q .id)"
           echo "draft release id: $id"
+          # tools/release/github_release.py re-discovers the draft it just
+          # created through GET /releases (drafts are listed only for tokens
+          # with push access). Run 34919864173 created the draft, read it back
+          # by id, then found no entry for its tag in the listing and aborted
+          # with "created release cannot be found by its exact tag". Prove the
+          # listing here, immediately and after a short wait.
+          tag="token-check-${{ github.run_id }}"
+          for attempt in 1 2 3; do
+            n="$(gh api "repos/$GH_REPO/releases?per_page=30" \
+              -q "[.[] | select(.tag_name == \"$tag\")] | length")"
+            echo "listing attempt $attempt: $n release(s) carry tag $tag"
+            [ "$n" = "1" ] && break
+            sleep 5
+          done
+          gh api "repos/$GH_REPO/releases/$id" -q '"by id: \(.id) draft=\(.draft) tag=\(.tag_name)"'
           gh api -X DELETE "repos/$GH_REPO/releases/$id"
-          echo "RELEASE_GITHUB_TOKEN: PASS (Administration read, Contents write, Workflows write)"
+          if [ "$n" != "1" ]; then
+            echo "::error::GET /releases never listed the draft this token created; github_release.py cannot publish with it"
+            exit 1
+          fi
+          echo "RELEASE_GITHUB_TOKEN: PASS (Administration read, Contents write, Workflows write, draft listing)"
