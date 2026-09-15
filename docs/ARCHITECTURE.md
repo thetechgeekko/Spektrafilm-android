@@ -138,9 +138,12 @@ GPU output remains private until the whole route succeeds. Unsupported devices a
 non-cancellation availability, validation, allocation, or dispatch failures take the Strict Exact
 CPU route; cancellation terminates the render and must not restart work on CPU.
 
-This is not yet a full resident graph. Grain, halation, diffusion, Pro-Mist and other
-spatial/stochastic work remain outside the qualified slice, and no functional device pass proves a
-1–2 second SLO.
+This is not yet a full resident graph: cross-pass frame residency is declared in
+`vulkan_compute.h` (`frame_open`/`frame_close`) but unwired outside the tests (#212). Halation/scatter,
+the diffusion FFT convolution, the pointwise filming halves and DIR-coupler diffusion ride the same
+Fast GPU latch as the scan (`spektra.cpp`); the grain and glare samplers ride the export-only
+`fast_sampler` latch because they are a different RNG realisation of the same distribution (#180).
+No functional device pass proves a 1–2 second SLO (#186).
 
 ## Ownership, threading and cancellation
 
