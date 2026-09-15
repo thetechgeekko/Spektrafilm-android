@@ -84,7 +84,7 @@ per video frame, on any hardware we can buy.**
 ### The answer is already in the tree
 
 `spk_bake_cube_lut` bakes the current look to a 33³ `.cube`; `LutGpuPreview.kt` samples one
-on the GPU; `test_bake_lut` gates it inside the 38-test parity suite. That is the correct
+on the GPU; `test_bake_lut` gates it inside the parity suite (38 tests at the time of writing; 44 today). That is the correct
 video architecture and it already exists and is verified:
 
 - **Stills** → the full spectral engine (parity-gated, exact).
@@ -312,9 +312,10 @@ calculator graph — `kernels/parallel`'s thread-count invariance is a gate), FF
 
 ### The cost nobody costed
 
-The `engine-parity` job calls `build_run` **38 times**, and each call recompiles the
-whole engine with a single `g++` over a glob — 78 source files, 16,908 lines, 38 times
-per run, no shared object cache. **Any file a new toolchain adds is paid for 38 times.**
+The `engine-parity` job calls `build_run` **38 times** at the time of writing (44 today), and each
+call recompiles the whole engine with a single `g++` over a glob — 78 source files, 16,908 lines,
+once per case per run, no shared object cache. **Any file a new toolchain adds is paid for once per
+case.**
 A *codegen* toolchain is worse than linear: its generator must run before that `g++`
 line, which today has no build system at all. Adding one AOT layer means converting the
 parity job from "g++ a glob" into a real build graph — and that job is this project's

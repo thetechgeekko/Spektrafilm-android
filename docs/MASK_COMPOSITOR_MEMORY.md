@@ -5,8 +5,8 @@
 The mask compositor's bounded-memory implementation and exact-valid-input oracle are host-verified.
 The production route no longer retains full-frame alpha, luma, or blur scratch planes; it preserves
 the legacy float32 result exactly and admits all managed scratch through `JvmMemoryReservation` at
-`MemoryBudgetStage.SPATIAL`. Current-source release-device requalification remains pending after the
-live-cancellation and evidence-provenance changes described below.
+`MemoryBudgetStage.SPATIAL`. The closing release-device qualification (2026-09-01, below) predates
+v0.10.0 and the default Fast GPU route; any later claim needs a fresh run.
 
 This does **not** close the product's 1-2 second export-performance target. In the historical phone run,
 four stacked masks with all current spatial controls took about 15.5 seconds at 12.5 MP and 62 seconds
@@ -115,7 +115,18 @@ does not call the streamed implementation for expected values. Zero-tolerance co
 - radial-feather zero, sub-minimum/minimum, maximum/over-maximum, infinity, and NaN cases across row
   boundaries (non-finite coverage fails closed rather than poisoning RGB).
 
-## Historical release-device evidence (current-source re-run required)
+## Release-device evidence (historical)
+
+**Closing qualification, 2026-09-01 (issue #141).** SM-S948W / API 36, release target
+`9617d541…`, instrumentation `424d5dd8…`, four masks, two repeats per cell, `status=COMPLETE`:
+12.5 MP (4096x3052) 20.6 / 21.2 s, PSS delta 208 MB, scratch reserved 58,496,748 B; 50 MP
+(8192x6104) 80.7 / 77.6 s, PSS delta 823 MB, scratch reserved 232,888,044 B; identical output
+digests on both repeats of each cell; forced denial PASS with zero scratch allocations. Its source
+commit (`34f8ab3`) was rebased away and most of its hashed inputs have changed since, so it is
+evidence of that tree, not a qualification of this one. The raw text files were removed from
+`docs/evidence/` on 2026-09-14 (git history keeps them).
+
+### Earlier run
 
 The following earlier run used a minified release target plus a separately minified instrumentation
 APK. Both were 16 KiB aligned, debug-signed with the same repository test key, installed, pulled back
@@ -144,12 +155,16 @@ memory cells: zero scratch allocations, one denied reservation, zero releases, u
 `80dab22a2bbe88fd1076dc35aff3253b9e52736203b9bd5ea5af27a9535ce825`.
 
 For a new run, `tools/ticket141_mask_memory.ps1` writes APK/pulled-artifact evidence under the selected
-`build/evidence` directory and durable text under `docs/evidence/ticket141/current/`. The durable set
+`build/evidence` directory and durable text under `docs/evidence/ticket141/current/` (the script
+recreates that directory; commit it only together with the source tree it qualifies). The durable set
 includes Git commit/tree provenance, hashes of every listed ticket/source/test/build input, exact APK
 hashes, source status, denial/memory outputs, and thermal/battery snapshots. It is authoritative only
 when `qualification_status.txt` says `status=COMPLETE`; the script re-hashes source inputs and checks
-that `HEAD` did not change after both memory cells. See
-[`evidence/ticket141/README.md`](evidence/ticket141/README.md).
+that `HEAD` did not change after both memory cells. `status=INCOMPLETE`, a missing file, or a
+source/artifact digest mismatch makes the run non-authoritative, and a historical run cannot qualify
+a later source tree merely because its device and dimensions are the same. The 12.5 MP and 50 MP
+cells qualify bounded-memory behavior and deterministic repeat output only; they do not establish the
+separate 1–2 second export objective.
 
 Neither the historical results nor a future memory qualification closes the 1–2 second performance
 objective; that requires a separate accelerated-pipeline benchmark and acceptance gate.

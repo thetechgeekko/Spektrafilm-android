@@ -58,9 +58,10 @@ export. (These are things desktop users still ask spektrafilm for — we're ahea
 
 ## §1 — White balance & creative color  ✅ synthesized
 
-**Keystone finding (verified):** the engine's input working space is **fixed linear ProPhoto** — the
-JNI `inCs` argument is *discarded* (`spektra_jni.cpp`), and `filming` upsamples with a hardcoded
-ProPhoto→XYZ matrix. So the input-colorspace dropdown is cosmetic, and — critically — **any linear-RGB
+**Keystone (still true):** the engine's input working space is **linear ProPhoto** and `filming`
+upsamples with a ProPhoto→XYZ matrix. (The 2026-06 observation that the JNI discarded `inCs` was
+fixed in PR #105: the buffer tag is validated and RAW is converted ACES2065-1 → ProPhoto before
+the engine.) Critically — **any linear-RGB
 transform applied to the input buffer before `simulate()` is outside the parity surface** (the goldens
 feed fixed buffers straight into C++; they never exercise a pre-multiply). That makes creative WB a
 provably parity-safe **Tier 1** op.
@@ -285,13 +286,13 @@ labels; Snapseed on-device segmentation.
 
 > **Superseded policy snapshot.** The preview-only/CPU-export rule, 38-case count, implementation
 > ordering, and “stays CPU by design” statement below describe the 2026-08-27 proposal. Current
-> policy has 39 cases at both flag legs and separates Strict Exact CPU from device-qualified Fast
+> policy has 44 cases at both flag legs and separates Strict Exact CPU from device-qualified Fast
 > GPU preview/export. Use [BIT_IDENTICAL_EXPORT_ROADMAP.md](BIT_IDENTICAL_EXPORT_ROADMAP.md); retain
 > this section only as user-research history.
 
-**Hotspot:** the per-pixel 81-band expose integrals in `filming`+`printing` (and `scan`). **Policy:
-approximate proxy / exact export** — GPU/approximation is preview-only; export always runs the exact
-CPU path, so the engine-parity gate (38 tests as of 2026-08-27) is never touched. Levers ranked by speed-per-effort:
+**Hotspot:** the per-pixel 81-band expose integrals in `filming`+`printing` (and `scan`). **Policy at the time:
+approximate proxy / exact export** (superseded: since v0.10.0 the Fast GPU route is the default
+export, and the CPU oracle route stays parity-gated). Levers ranked by speed-per-effort:
 
 | Lever | What | Tier/where | Speedup | Effort | Parity |
 |---|---|---|---|---|---|
@@ -306,8 +307,7 @@ CPU path, so the engine-parity gate (38 tests as of 2026-08-27) is never touched
 
 **Recommended order:** **E, B, D, C** first (all safe, no device needed; D+C are exact/parity-free
 CPU wins) → **infra fix + A** (the architectural win; needs a physical Adreno to validate fp32 `exp10`
-precision + dispatch latency) → **F, G**. Honest note: 12 MP **export** stays CPU (~10–20 s) by design —
-present it as a backgrounded progress op, never a live preview. vkdt's ~27 ms full-res GPU is the proof
+precision + dispatch latency) → **F, G**. (Historical note: at the time a 12 MP export stayed on the CPU, ~10–20 s.) vkdt's ~27 ms full-res GPU is the proof
 the fused-compute path (A) is the real ceiling.
 **Refs:** vkdt GLSL film-sim modules; Qualcomm Adreno Vulkan compute / `shaderFloat16`; existing
 `docs/PERF_ROADMAP.md`.
@@ -377,57 +377,3 @@ needed) → persistent-Vulkan + fused GPU compute (needs an Adreno) → pyramid 
 **Engine-gated (defer, needs oracle goldens):** true-B&W silver path (§6 d) and the cyan-crosstalk
 cure (§2 P3) — coordinate with upstream; everything else above is parity-safe.
 
-## Changelog
-- 2026-06-08 — §6b **High-bit-depth TIFF exports SHIPPED (PR #102)** — a true **32-bit IEEE-float TIFF**
-  writer (`:lib:tiffwriter`, host-tested) feeds two new export formats: **`TIFF32F`** (B3 — the engine's
-  float output written verbatim, no quantise/clamp) and **`SCENE_LINEAR_TIFF`** (B1 — the decoded
-  scene-linear input before the engine, untagged 32f float; the honest "linear DNG to finish elsewhere"
-  answer). Not the parity engine. Deferred: EXR (needs a new encoder); the LUT input-CS picker stays
-  engine-gated.
-- 2026-06-08 — §6a/§6b **Export sheet (Lightroom-style) SHIPPED (PR #102)** — tapping Export now opens a
-  format-aware `ExportSheet` (RE'd from lrmobile: format → format-specific options → dimensions → colour
-  → naming → metadata) instead of using the global Settings defaults. Format (+JPEG/UltraHDR quality),
-  **Size** (Full/4096/2048/1024/custom long edge — a post-render downscale, never enlarging; 16-bit pins
-  to full-res), Color space + CCTF, optional file name, include-GPS. Pure core (`ExportOptions.kt`) is
-  JVM-tested (`ExportOptionsTest`). Tier 0/2, parity untouched. **Deferred:** LUT input-CS (engine-gated),
-  AVIF (§6c, new .so), output sharpening/watermark (out of scope); **next:** 32-bit-float / scene-linear
-  TIFF (§6b, `:lib:tiffwriter`).
-- 2026-06-08 — §6e **Slide-mode UX SHIPPED (PR #102)** — picking a colour-reversal (slide) film offers a
-  "Slide mode" snackbar that views it as a positive (flips `scanFilm`); relabel `Scan film` →
-  `Slide mode (skip print)`. Reversal detection is a pure predicate (`StockEntry.isReversal()`),
-  grounded against `catalog.json` (`StockCatalogTest`). Tier 0, parity untouched.
-- 2026-06-08 — §6a **finding:** input/output LUT colour-space pickers are only *half* UI-only — OUTPUT
-  flows through `params.io.outputColorSpace` and the size + `.cube/.clf` picker shipped in #99, but the
-  LUT **INPUT domain is hardcoded to linear ProPhoto in native** (`spektra.cpp` `kProPhotoRGB`), so an
-  input-CS picker is **engine-gated (Tier 3)**. Clean UI-only remainder: surface output CS in the export
-  dialog + interop help text.
-- 2026-06-08 — §6h **Onboarding SHIPPED (PR #101, three slices)** — Tier 0, relabel/UI-state only, the
-  engine receives identical params so parity is untouched (`:app:testDebugUnitTest` 160/160):
-  1. **Plain-language help sheets** (`ParamHelp.kt` + `HelpSheet`/`SectionCard` in `Widgets.kt`): a "?"
-     badge on each opaque section (grain/halation/couplers/film+print gamma/preflash/glare) opens a
-     bottom sheet explaining the control in photographer's terms. `ParamHelp` is pure data,
-     JVM-unit-tested (`ParamHelpTest`).
-  2. **Basic/Advanced disclosure** (`AdvancedToggle`): Grain/Halation/Couplers show a short Basic set
-     by default; "Show advanced options" reveals the full physical control set. Hidden controls keep
-     their state.
-  3. **"Use its defaults" snackbar** on profile switch: resets the per-stock character
-     (grain/halation/couplers/gamma) to neutral via `ParamsState.resetStockCharacter()` while keeping
-     creative/global edits; JVM-tested (`ParamsStateResetTest`). **Optional leftovers:** extend
-     help/Basic-Advanced to Simulation/Input/Display; persist the Basic/Advanced preference.
-- 2026-06-08 — §2 P1 **ACES gamut compression SHIPPED (v1, post-clip softener)** (`GamutCompress.kt`):
-  an amount slider that pulls the most-saturated colors toward neutral, softening the cyan/edge fringe;
-  default 0 = byte-identical. The pre-clip cure (P3) stays deferred (engine-gated).
-- 2026-06-08 — §3.3 **Couplers relabel SHIPPED** — plain labels + redirect to Saturation/Vibrance.
-  **§3 (tone/color) complete:** Contrast + Saturation/Vibrance + couplers relabel all shipped.
-- 2026-06-08 — §3.2 **Saturation/Vibrance SHIPPED** (`ColorGrade.kt`): post-engine Oklab chroma grade
-  on the output buffer, gray-neutral for all output spaces. §3 now: only the couplers relabel (§3.3) +
-  "Film-Feel" master (§3.4) remain.
-- 2026-06-08 — §3.1 **Contrast SHIPPED** (`ContrastCurve.kt`): a discoverable, hue-neutral Contrast
-  slider driving the parity-gated master tone curve, composing under hand-drawn curves. Next in §3:
-  Saturation/Vibrance (Oklab post-op) + couplers relabel.
-- 2026-06-08 — §2 **P0 color management SHIPPED** (`ColorManagement.kt`): per-output-space display
-  tagging + wide-color window mode + ICC embed on TIFF/PNG/JPEG. Wave-0 foundation done; the broken
-  display path is fixed, so the remaining color work (Sat/Vibrance/Contrast, ACES-RGC) is now judged
-  correctly.
-- 2026-06-06 — Scaffold + `spectrafilm-solutions` skill; 6-front deep-research swarm; all six domains
-  synthesized; roadmap finalized.

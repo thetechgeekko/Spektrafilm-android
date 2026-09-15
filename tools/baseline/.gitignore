@@ -1,4 +1,0 @@
-# Per-run wizard state + raw device captures (the committed artifact is
-# docs/baseline-s26u.md).
-.baseline.env
-captures/

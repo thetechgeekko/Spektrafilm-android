@@ -66,7 +66,8 @@ These override convenience. If a change cannot satisfy them, it is not done.
    alignment and `zipalign -c -P 16 4 <apk>` must pass (CI gates both).
 8. **GPLv3 attribution "Film modeling powered by spektrafilm" must stay in the built app.**
    The whole app is a GPLv3 derivative (CLAUDE.md 126, NOTICE.md, README.md).
-9. **Commit with `-c commit.gpgsign=false`** (the signing server rejects signing here).
+9. **Try a signed commit first; fall back to `-c commit.gpgsign=false` only where signing
+   actually fails** (CLAUDE.md records both environments).
    Never commit APKs or a real `keystore.properties`.
 10. **Session continuity.** After a PR merges, recreate the working branch from `origin/main`
     (never keep committing on the pre-merge branch). After a container reset, re-verify:
@@ -85,9 +86,13 @@ These override convenience. If a change cannot satisfy them, it is not done.
     flags several items (the "Hanatos 2025" method has no located formal paper; the OFX
     whitepaper was unreadable; exact CC/grain constants came from porting docs not live
     profiles). Do not launder a flagged claim into asserted fact — keep the flag.
-15. **GPU is preview-only, never the export or parity path.** GPU float varies by vendor and
-    is not bit-reproducible; the parity engine is CPU C++ only. `LutGpuPreview.kt` is an
-    optional preview accelerator, default OFF. Never route `simulate`/export through GPU.
+15. **Two render contracts, never conflated.** The CPU engine is the parity-bearing Strict Exact
+    route and the automatic fallback. Since 294d3dc the Vulkan Fast GPU route (f32,
+    tolerance-bounded against the CPU engine, same-device deterministic, self-checked on the
+    device) is what the app renders and exports with by default; it is never parity evidence, and
+    a 44/44 parity run is never evidence for `gpu/` (the parity build compiles without Vulkan).
+    The GPU gates are `tests/test_gpu_host.cpp` and `gpu/tests/` under lavapipe, engaged=1
+    required. `LutGpuPreview.kt` is a separate opt-in GLES LUT loupe.
 
 ---
 
@@ -113,7 +118,7 @@ in spectral integrals), `gaussian`/`exponential_filter` (spatial convs), `interp
 `tonecurve`, `half`, and `parallel`.
 
 Profile/asset loaders: `profiles/profile.cpp` + `io/npy_lut.cpp`. Profiles + LUTs + ICC under
-`engine/spektra-core/src/main/assets/spektra/`. ~28 film/paper profiles, 28 built-in presets.
+`engine/spektra-core/src/main/assets/spektra/`. 28 film/paper profiles, 27 built-in presets.
 
 See `references/film-emulation.md` for the physics and `references/parity-and-build.md` for the
 full build + CI gate.
@@ -122,7 +127,7 @@ full build + CI gate.
 
 ## Lightroom-mobile editor laws
 
-The editor (~56 Kotlin files in `app/src/main/java/com/spectrafilm/app/`) is a parametric,
+The editor (~82 Kotlin files in `app/src/main/java/com/spectrafilm/app/`) is a parametric,
 non-destructive Lightroom-style stack. Hard rules:
 
 - **Parametric, never pixel-baked.** Edits are a serializable `SpektraParams` snapshot; the
@@ -160,7 +165,7 @@ See `references/lightroom-mobile.md` for the full patterns and pitfalls.
 cd engine/spektra-core/src/main/cpp
 CPP=$(pwd)
 ASSET=../assets/spektra
-SRC="spektra.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp"
+SRC="spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp"
 g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
   -DSPK_TEST_DIR="\"$CPP/tests\"" \
   tests/test_simulate_e2e.cpp $SRC -o /tmp/test_simulate_e2e
@@ -171,7 +176,7 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 line**. `SPK_NUM_THREADS` overrides `hardware_concurrency()`; the parity tests pin 1 vs 8 to
 prove byte-identical output. **`tools/parity/run_engine_parity.sh`** builds and runs the whole
 suite locally with the same argv as CI, and fails loudly if its test table drifts from the
-workflow's `build_run` count. The CI `engine-parity` job gates **36 tests** — the full
+workflow's `build_run` count. The CI `engine-parity` job gates **44 tests** at two flag legs — the full
 authoritative list + per-test argv live in `.github/workflows/ci.yml` (copy from there rather
 than guessing); the annotated list is in CLAUDE.md. Highlights beyond the core stage gates:
 `small_preview_aa`, `print_curves_morph`, `np_interp`,
@@ -195,9 +200,10 @@ ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
 
 ## Reference files
 
-- `references/parity-and-build.md` — toolchain pins, full CI gate list, host-parity compile
-  recipe + fast full-suite replay, the two-memo architecture, S4 parallelization rules, golden
-  generation discipline, benchmarking doctrine, JNI/lifecycle/threading contract, gotchas,
+- `references/parity-and-build.md` — the host-parity compile recipe + fast full-suite replay,
+  the two-memo architecture, S4 parallelization rules, golden generation discipline, benchmarking
+  doctrine, JNI/lifecycle/threading contract (toolchain pins, CI jobs, build commands and release
+  facts live in CLAUDE.md, which is authoritative),
   open AUDIT items (tiling).
 - `references/film-emulation.md` — spectral-vs-LUT, spectral upsampling lineage, the three
   stages mapped to C++ files, a glossary, and a flagged "Sourcing & uncertainty" section.

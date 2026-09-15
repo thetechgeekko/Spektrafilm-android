@@ -1,12 +1,10 @@
 # RAW / DNG editing on Android
 
-> **ℹ️ Note (integration paths updated).** The decode *science* below (rawpy == LibRaw, ACES /
-> 16-bit / linear / camera-WB settings) is correct and shipped in the **`:lib:libraw`** module
-> (`libsfraw.so`, `RawDecoder.kt`) consumed by the standalone **`:app`**. Ignore the references to
-> `feature:film-emulation` / a Coil `Decoder.Factory` / ImageToolbox's save pipeline — that host was
-> never built. Also note two things this doc predates: the **off-heap decode + half-size/OOM ladder**
-> (see `RawDecoder.kt` / `EngineHelpers.kt` and `docs/RESEARCH_BIG_FILES.md`) and the **MotionCam
-> `.mcraw`** import path (`McrawContainer.kt`, see `docs/RESEARCH_MCRAW.md`).
+> **ℹ️ Note.** The decode *science* below (rawpy == LibRaw, ACES / 16-bit / linear / camera-WB
+> settings) is correct and shipped in the **`:lib:libraw`** module (`libsfraw.so`, `RawDecoder.kt`)
+> consumed by the standalone **`:app`**. Two things this doc predates: the **off-heap decode +
+> half-size/OOM ladder** (see "Large files" at the end) and the **MotionCam `.mcraw`** import path
+> (`McrawContainer.kt`, see `docs/RESEARCH_MCRAW.md`).
 
 Goal: open camera RAW (incl. **DNG**) on device and feed the engine a **linear,
 scene-referred RGB** buffer using Spektrafilm's desktop `rawpy` settings. Matching
@@ -229,10 +227,6 @@ decode arbitrary RAW into RGB. Android's NDK `ImageDecoder` can decode some DNGs
 embedded preview / limited paths and gives no control over demosaic, gamma, or output
 primaries. Neither reproduces Spektrafilm's controlled scene-referred linear path.
 
-(ImageToolbox already ships a `NefDecoder` that extracts the embedded **JPEG preview** from
-Nikon NEF — useful for fast thumbnails, but it is *not* sensor data. We keep it for previews
-and add LibRaw for the real decode.)
-
 ## Building LibRaw for Android
 
 - The shared resolver pins the official LibRaw `0.22.2` archive and SHA-256,
@@ -281,5 +275,28 @@ and add LibRaw for the real decode.)
 
 The standalone app exports JPEG/PNG8, PNG16, TIFF16, TIFF32F, scene-linear TIFF32F, and a
 separately gated Ultra HDR container through its own `ImagePipeline` plus native PNG/TIFF writers.
-Output color space/transfer/depth/format is being unified under the live OutputDescriptor contract.
+Output color space/transfer/depth/format is defined by the live OutputDescriptor contract.
 Source EXIF carry-through currently applies to JPEG; do not infer all-format metadata parity.
+
+## Large files: proxy decode and off-heap buffers
+
+The app separates an interactive cap (`MAX_EDGE_PX`, 2048 px, in `ImagePipeline.kt`) from an
+export cap (`EXPORT_MAX_EDGE_PX`, 16384 px). Four mechanisms make 50-200 MB RAWs load and export
+without exhausting the ~256 MB managed heap:
+
+1. **Decode from the file descriptor**, never through a full-file `byte[]`.
+2. **Half-size decode for interactive targets.** Any target at or below
+   `HALF_DECODE_EDGE_THRESHOLD` (4096 px, `EngineHelpers.kt`) asks LibRaw for a half-size decode
+   (each Bayer 2x2 averaged into one pixel: a quarter of the pixels and of the native float buffer),
+   then box-downsamples to `maxEdge`. Export-scale targets decode at full resolution.
+3. **A graceful OOM ladder.** If a full-resolution export decode fails, the retry first switches to
+   a half-size decode, then shrinks the output cap, then surfaces a catchable error instead of
+   crashing.
+4. **Export-scale pixels live off the managed heap.** `ByteBuffer.allocateDirect` is backed by a
+   non-movable `byte[]` on the ART heap, so the RAW decode result (`raw_decoder_jni.cpp`) and the
+   engine output (`spektra_jni.cpp`) are allocated with `malloc` + `NewDirectByteBuffer` and freed
+   explicitly through `LinearImage` / `SimResult` (`AutoCloseable`). Preview-scale buffers stay
+   managed so the preview cache lifecycle is unchanged.
+
+The original study behind this (Lightroom's `libLrAndroid.so` evidence, `RESEARCH_BIG_FILES.md`)
+was removed from the tree on 2026-09-14; git history keeps it.

@@ -19,7 +19,7 @@ byte-identical across thread counts — not necessarily byte-identical across CP
 ## Module layout
 
 Gradle modules actually built (`settings.gradle.kts`):
-- **`:app`** — `com.spectrafilm.app`, the application. All UI lives here (~27 Kotlin files in
+- **`:app`** — `com.spectrafilm.app`, the application. All UI lives here (~82 Kotlin files in
   `app/src/main/java/com/spectrafilm/app/`): `MainActivity`, the Lightroom-style editor
   (`Viewer`, `ParamsState`, `ImagePipeline`, `CropOverlay`, `CategoryIcons`/`SpectraIcons`),
   presets/recipes, settings, profile-curve browser, diagnostics.
@@ -33,9 +33,8 @@ Gradle modules actually built (`settings.gradle.kts`):
 `feature/film-emulation/` was a never-compiled pseudo-module (never in `settings.gradle.kts`);
 it was deleted by #184 — its history survives in git and in `docs/DECISION.md`. The
 real app is the standalone `:app` module documented in `docs/ARCHITECTURE.md`. The abandoned
-ImageToolbox-host proposal survives only as historical decision input in `docs/DECISION.md` and
-`docs/maps/IMAGETOOLBOX_MAP.md`. Start at `docs/EXECUTION_INDEX.md` for the current authority order
-and live-work protocol.
+ImageToolbox-host proposal survives only as historical decision input in `docs/DECISION.md`.
+Start at `docs/EXECUTION_INDEX.md` for the current authority order and live-work protocol.
 
 ## Engine architecture (C++, `engine/spektra-core/src/main/cpp/`)
 
@@ -71,7 +70,7 @@ the 16 KB and signing gates).
 ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
   ./gradlew :app:assembleDebug
 
-# JVM unit tests (the only automated test layer for the Kotlin code)
+# JVM unit tests (plus the androidTest instrumentation the android-emulator CI job runs)
 ./gradlew :app:testDebugUnitTest
 
 # Lint (abortOnError = true; baseline at app/lint-baseline.xml)
@@ -143,7 +142,7 @@ per-test argv is in `.github/workflows/ci.yml` — copy from there rather than g
 - Engine `CMAKE_CXX_FLAGS_RELEASE` is `-O3 -ffast-math -fno-finite-math-only`.
   **`-fno-finite-math-only` is required** — the scanning stage relies on NaN propagation through
   `density_to_light` to match spektrafilm's profile null handling. Do not strip it.
-  All 42 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
+  All 44 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
   byte-equality between the two builds — `-ffast-math` reassociates, which is exactly what
   invalidated a Highway f64 byte-identity claim proven only at `-O2` (`docs/research/perf-lab.md` §14).
 - `tools/parity/` is the standalone `.spkvec` golden-vector comparator (CMake + ctest self-test,
@@ -154,7 +153,9 @@ per-test argv is in `.github/workflows/ci.yml` — copy from there rather than g
 `engine-native` (host C++ build of libspektra), `engine-parity` (stage parity gate, two legs: `-O2` and the shipping release flags), `parity`
 (.spkvec comparator self-test), `python-lint`, `android` (`:app:testDebugUnitTest` + `:app:lint` +
 full assemble for all ABIs + the 16 KB `zipalign -P 16`/`readelf` alignment gate),
-`android-emulator` (manual dispatch only). `release.yml` builds and hash-binds an unsigned candidate
+`android-emulator` (runs after `android` on every push/PR: engine JNI-boundary instrumentation +
+MainActivity smoke on an API 35 x86_64 AVD), `native-safety-writers` and `libraw-hostile` (the
+sanitizer and fuzz legs). `release.yml` builds and hash-binds an unsigned candidate
 without secrets, reruns both parity flag legs plus release JVM/lint/R8/16 KiB gates, then a protected
 Environment downloads by exact artifact database ID, signs that exact app/instrumentation pair,
 proves installed-byte identity on API 35, and verifies immutable remote release/assets by numeric IDs
@@ -184,7 +185,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   parity suite will NOT catch it if you forget.** The host parity build compiles with a
   glob (`kernels/*.cpp model/*.cpp ...`, see the build line above); the Android build
   enumerates every source explicitly. A file missing from CMakeLists therefore passes all
-  40 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
+  44 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
   reference. Check a new source the way CI links: `g++ -std=c++17 -O2 -pthread -fPIC
   -shared -I. <CMakeLists sources, minus spektra_jni.cpp> -Wl,--no-undefined -o /tmp/x.so`.
   (Cost a red CI run on `551c57f`.)
@@ -258,8 +259,9 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 - Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
   so `Presets` JSON round-trips on the plain JVM.
 - `docs/EXECUTION_INDEX.md` defines documentation authority and the dependency-aware execution loop.
-  GitHub Wayfinder maps own live status; `HANDOFF.md` and `docs/AUDIT.md` are historical evidence,
-  not current queues. Run `python tools/docs/check_docs_consistency.py` before a documentation handoff.
+  GitHub Wayfinder maps own live status; `docs/AUDIT.md` is historical evidence, not a current
+  queue (`HANDOFF.md`, the 2026-06..08 session transcript, was deleted on 2026-09-14; git history
+  keeps it). Run `python tools/docs/check_docs_consistency.py` before a documentation handoff.
 
 ## Agent skills
 

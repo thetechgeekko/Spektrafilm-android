@@ -138,13 +138,12 @@ Both cells run on every qualification pass; identity (C0/C3) is gated on both, t
 
 ### Fast GPU (E3)
 
-The capability-gated **Fast GPU** route may become the *default* export once it passes its
-tolerance gate (approved max/RMS versus the Strict Exact CPU result, plus same-device
-repeatability) on Tier A — subject to all three conditions:
-
-1. the **Strict Exact CPU** route stays selectable;
-2. the UI names which route rendered a given file; and
-3. every C0/C3 claim, and every golden, references the **CPU** route only.
+**Since v0.10.0 (#213–#227, 2026-09-11) the Fast GPU route is the default render and export**,
+gated per device by the on-device self-check with automatic Strict Exact CPU fallback and no user
+toggle. It passed its tolerance gate (approved max/RMS versus the Strict Exact CPU result, plus
+same-device repeatability) on Tier A. Of the three conditions this section once set: every C0/C3
+claim and every golden still references the **CPU** route only (kept); Strict Exact CPU is no
+longer user-selectable and the UI does not name the route per file (dropped by owner decision).
 
 GPU output is never presented as bit-identical. Per
 [research/gpu-bit-exact.md](research/gpu-bit-exact.md), byte identity with the CPU engine is not
@@ -395,7 +394,7 @@ The keyed capability verdict exercises a 512-point 8 x 8 x 8 lattice three times
 f64 CPU stages at `max_abs <= 1e-4` and `RMS <= 1e-5`. Render-local diagnostics report route
 engagement, fallback and frame resource counters while keeping self-test state, duration and work
 separate. The frozen implementation received an independent `APPROVED` review, builds as Android
-Release for all three configured ABIs, and passes the full native parity matrix 39/39 at both O2 and
+Release for all three configured ABIs, and passes the full native parity matrix 44/44 at both O2 and
 the shipping `-O3 -ffast-math -fno-finite-math-only` flags. The exact frozen arm64 artifacts
 (`89854375...39C` at O2 and `EDDB82CE...5B1` at shipping flags) also pass the connected Android 16
 Adreno gate with `test_gpu_host: ALL OK`. O2 reports combined-pointwise `max_abs=1.00188277e-7`
@@ -460,7 +459,7 @@ Every Strict Exact CPU performance pull request/ticket must attach:
 3. alternating A/B p50/p95 and confidence interval, with thermals and peak RSS/PSS;
 4. engine/decoded/container digests required by the resolved contract;
 5. 1/2/4/8-worker repeats and concurrent preview/export evidence;
-6. the 39-case parity matrix at O2 and shipping flags;
+6. the 44-case parity matrix at O2 and shipping flags;
 7. cancellation, NaN/Inf, allocation failure and fallback behavior; and
 8. a revert condition when the real-device win is below the ticket's minimum.
 

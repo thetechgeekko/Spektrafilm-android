@@ -9,7 +9,7 @@
 > [schema/spektrafilm-mask-v1.schema.json](schema/spektrafilm-mask-v1.schema.json).
 
 Synthesis of a 3-agent reverse-engineering sweep over our own decompile of the current Lightroom
-Android build (`docs/lightroom-re/` — `cr_*`/`ICB*` symbols), ExifTool's verbatim `crs` masking
+Android build (`cr_*`/`ICB*` symbol dumps, since removed from the tree), ExifTool's verbatim `crs` masking
 schema, and Adobe public docs, cross-checked against our current `app/.../masks/` code. The goal:
 mirror Lightroom's **proven** on-disk masking data model **1:1 for free XMP interop**, while keeping
 every pixel op a **parity-safe Tier-2** pass on the engine OUTPUT (`simResultToBitmap` / `SimResult.data`
@@ -247,7 +247,8 @@ does exposure-only. **The per-pixel math + fold are already correct and parity-f
    (Dark-Channel-Prior) remains — a separate algorithm.
 
 ## Sources
-In-repo decompile `docs/lightroom-re/{cr-symbols-curated.txt, icb-by-feature.md, icb-signatures.txt,
-icb-methods-full.txt, tiparamsholder-natives.txt}`; `docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md` §A/§C/§D/§F;
+Our own decompile of the 2026-05-14 Lightroom Android build (the symbol dumps were removed from the
+tree on 2026-09-14; git history before that commit holds them); the 16 `cr_*` names this document
+relies on are quoted inline above. `docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md` §A/§C/§D/§F;
 ExifTool XMP-crs tag table; Adobe ACR/Lightroom masking + radial/range-mask help. Matting patents
 US10068361/US9786078; Dehaze US20160196637A1. Reconstructed curves [RECON] are tunables, not Adobe-exact.

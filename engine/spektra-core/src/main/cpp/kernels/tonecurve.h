@@ -11,7 +11,7 @@
  *
  * A Lightroom-style point tone curve applied to the FINAL display-referred RGB
  * (after CCTF encode + clip), reverse-engineered from Lightroom's parametric/point
- * curve (docs/IMPROVEMENT_BACKLOG.md #2). Control points are interpolated with a
+ * curve (docs/IMPROVEMENT_BACKLOG.md §B). Control points are interpolated with a
  * monotone cubic (Fritsch–Carlson PCHIP) so the curve is smooth and never
  * overshoots into non-monotonic wiggles, then baked into a dense LUT for O(1)
  * per-pixel lookup.

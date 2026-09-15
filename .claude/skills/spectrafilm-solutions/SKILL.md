@@ -33,8 +33,8 @@ guess. The ranked catalog below is distilled from ~1,150 forum posts; re-mine be
 
 The engine C++ under `engine/spektra-core/src/main/cpp/**` is **bit-exact parity-gated** against the
 spektrafilm oracle (pinned SHA `c1d0e44`) — within tol (`max_abs ≤ 1e-4`, `rms ≤ 1e-5`) **and**
-byte-identical across thread counts. Any engine edit must keep the 34-test host parity suite green
-(authoritative argv in `.github/workflows/ci.yml`; annotated list in CLAUDE.md — the count grows,
+byte-identical across thread counts. Any engine edit must keep the host parity suite green (44 tests at two flag legs;
+authoritative argv in `.github/workflows/ci.yml`; annotated list in CLAUDE.md — the count grows,
 always recount from ci.yml) and, for a new feature, ship an oracle golden plus a strict
 default-no-op plus a thread-invariance check.
 **This is non-negotiable and it is what makes the film look trustworthy** — users love the
@@ -84,9 +84,9 @@ in `docs/USER_DRIVEN_SOLUTIONS.md`.
 | 1 | **White balance is the hardest part** of using a film sim; varies by stock; no spot/gray-point; RAW-only today | hanatos: *"white balancing is something I struggle with most"* | 1 | ✅ WB wave shipped: gray-point eyedropper, film-stock balance / virtual-85 filter, auto-exposure default ON |
 | 2 | **No local / selective editing** — can't limit a change to one area; reds-vs-skin bleed; wants regional multi-stock ("Frankenstein") | ggoncalo: *"There's not a way to limit the changes to one area"* | 2 | ✅ masking v1 complete (radial/linear + luminance/color range, 13 local ops incl. spatial Clarity/Texture/Sharpness/Highlights/Shadows, draw-on-preview overlay, eyedroppers); ⚠️ remaining: brush, AI subject/sky, XMP export |
 | 3 | **Look is "too punchy"** vs scanned film; wants to mute contrast/sat; couplers opaque | nosle/okke: too contrasty; ggoncalo: couplers unclear | 0+2 | ✅ **§3 complete**: Contrast (`ContrastCurve.kt`) + Saturation/Vibrance (`ColorGrade.kt`, Oklab) + couplers relabel (plain labels + redirect) |
-| 4 | **Gamut artifacts** — hard cyan edge in sRGB, skin tones off, foliage too warm; want ACES RGC | arctic: sat *"cannot fit in sRGB gamut"*; cyan "explosion" | 2 | ✅ engine gamut compression wired end-to-end OPT-IN (output aces_rgc + oklch + oklrab, input xy locus bake; gamut_out_aces/gamut_out_oklch/gamut_out_oklrab/gamut_in_xy gates, primitive goldens at oracle 27bd085); ⚠️ NEXT: remaining perceptual algos jzazbz/cam16ucs (P2 #6) |
+| 4 | **Gamut artifacts** — hard cyan edge in sRGB, skin tones off, foliage too warm; want ACES RGC | arctic: sat *"cannot fit in sRGB gamut"*; cyan "explosion" | 2 | ✅ engine gamut compression wired end-to-end OPT-IN (output aces_rgc + oklch + oklrab, input xy locus bake; gamut_out_aces/gamut_out_oklch/gamut_out_oklrab/gamut_in_xy gates, primitive goldens at oracle 27bd085); ✅ jzazbz/cam16ucs followed in v0.10.0 (#201) |
 | 5 | **Profiles** — B&W, slide/reversal, Ektachrome/K25, fantasy paper, tungsten | datasheet campaign topic; multiple | 4 | ⚠️ 28 stocks; B&W absent; reversal via skip-print |
-| 6 | **Performance** — CPU 1–2 s/20MP, "ages" at 100MP; want GPU + fast preview + big images | vkdt GPU ~27 ms; many | preview-only | ✅ S1/S2 density memos + S3 grade cache (grade-only = zero native work) + S4 loop parallelization landed (warm print edits ~155ms vs 402 cold, warm scan ~150 vs 243 on 4-core container; S2 win scales with resolution/grain); ⚠️ GPU scaffolding still off, 100MP still slow |
+| 6 | **Performance** — CPU 1–2 s/20MP, "ages" at 100MP; want GPU + fast preview + big images | vkdt GPU ~27 ms; many | Fast GPU default | ✅ S1/S2 density memos + S3 grade cache (grade-only = zero native work) + S4 loop parallelization landed (warm print edits ~155ms vs 402 cold, warm scan ~150 vs 243 on 4-core container; S2 win scales with resolution/grain); ✅ the Vulkan Fast GPU route is the default render and export since v0.10.0 (tolerance-bounded, CPU fallback); ⚠️ 100MP still slow |
 | 7 | **Export/interop** — LUT with in/out color-space + CLF; "linear DNG to finish elsewhere"; AVIF/HEIC/JPEG-XL | ggoncalo (linear DNG); ~8 (LUTs) | 0/2/4 | ✅ export sheet (JPEG/UltraHDR quality+sizes, PNG16/TIFF16/TIFF32F/scene-linear TIFF32F) + LUT export .cube + CLF v3 w/ 17/33/65 picker; ⚠️ remaining: AVIF/HEIC, linear DNG |
 | 8 | **Opaque controls / onboarding** — couplers, grain, halation, print-gamma placement confuse users | "missing documentation"; "can't find the module" | 0 | ⚠️ partial: GatedBlock disclosures shipped (MALLETT2019, DIR-gamma film-baked, Glare print-route note, enlarger_lens_blur) + auto-exposure default ON; broader tooltips/onboarding still open; MALLETT2019 implement-vs-remove decision open |
 | 9 | **Robustness** — DNG-detection + lens-switch crashes (Xiaomi 14 Ultra); recipe deserialization breaks on upgrade | Vesnic; macOS M2 upgrade crash | 0 | ⚠️ needs hardening + migration |
@@ -114,8 +114,9 @@ Discourse has a JSON API — use it, don't scrape HTML. Category list:
 3. **Confirm parity-safety.** If it touches the engine, it's Tier 3 → it needs a golden + no-op or it
    doesn't ship. Ask: can this be Tier 1/2 instead? Usually yes.
 4. **Design → implement → test.** Kotlin: JVM unit tests + lint. Engine: the host parity suite +
-   thread-invariance. Always keep the export path bit-exact.
-5. **Update** this catalog, `docs/USER_DRIVEN_SOLUTIONS.md`, and `HANDOFF.md`.
+   thread-invariance. The CPU oracle route stays parity-gated; the default export is the GPU route.
+5. **Update** this catalog and `docs/USER_DRIVEN_SOLUTIONS.md`; live status lives in GitHub
+   Issues (the Wayfinder maps; see `docs/EXECUTION_INDEX.md`).
 
 ## Key references
 

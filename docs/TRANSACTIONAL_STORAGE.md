@@ -371,11 +371,9 @@ one leaves one tagged pending MediaStore row, production journal token, display-
 durable. Phase two requires a different PID, verifies the exact row/token survived, runs production
 recovery, and confirms both are gone. Both phases emit explicit `PASS`/`FAIL` markers.
 
-Ticket #172's 2026-08-31 API 36 SM-S948W replay ran the full minified release instrumentation twice,
-including Activity recreation and the deterministic foreground-service race. Its process-death phases
-used the same durable token `content://media/external/images/media/216358`; recovery passed after a
-real `force-stop`. The pulled app and test APKs exactly matched the locally signed candidates documented
-in [JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md). No uninstall or app-data clear was used.
+Ticket #172's 2026-08-31 API 36 SM-S948W replay (the full minified release instrumentation, twice,
+including Activity recreation, the deterministic foreground-service race and process-death recovery
+after a real `force-stop`) is recorded in [JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md).
 
 ### Offline JVM command
 

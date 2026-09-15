@@ -129,12 +129,14 @@ results and derived output digests are recorded.
 | Local sample | Shape | 0.21.4 repeatability | 0.22.2 serial repeatability | Reviewed old/new change |
 |---|---:|---|---|---|
 | MotionCam DNG | `2736x3648x3` float32 | 2/2 `4f363d4a…` | 3/3 `1f83e610…` | Same shape; 144,869 values changed (`0.4838%`), mean absolute delta among changes `1.106e-5`, maximum `0.048809`, no non-finite values. |
-| Latent DNG | `3060x4080x3` float32 | 2/2 `0991b189…` | 3/3 `f1c23a56…` | Same shape; 687 values changed (`0.001834%`), mean absolute delta among changes `1.079e-5`, maximum `0.0020843`, no non-finite values. |
+| Second DNG sample | `3060x4080x3` float32 | 2/2 `0991b189…` | 3/3 `f1c23a56…` | Same shape; 687 values changed (`0.001834%`), mean absolute delta among changes `1.079e-5`, maximum `0.0020843`, no non-finite values. |
 
 The changed buffers are not silently labelled “bit-identical.” Current stable
 rawpy `0.27.0` uses LibRaw `0.22.1`; direct uint16 postprocess comparisons also
 produce different digests for both DNGs and the Fuji sample under 0.22.1 versus
-0.22.2. The security-upgraded 0.22.2 serial output is the Android candidate
+0.22.2 (desktop half: `tools/parity/rawpy_decode_digest.py`, which needs a real rawpy 0.27
+environment rather than `tools/parity/setup_env.sh`; Android half:
+`lib/libraw/src/test/cpp/libraw_processed_probe.cpp`). The security-upgraded 0.22.2 serial output is the Android candidate
 baseline. [Pin the latest Spektrafilm upstream and generate a parity manifest](https://github.com/thetechgeekko/Spektrafilm-android/issues/189)
 must pin the desktop rawpy/LibRaw build to the same reviewed decoder or explicitly
 approve and version the deviation before global parity can be claimed.

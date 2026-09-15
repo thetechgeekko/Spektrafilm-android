@@ -66,7 +66,7 @@ its owning ticket; native dependencies decide execution order.
 | Legal distribution | A human-approved LibRaw route agrees across notices, About UI, SPDX, and source/relink materials | [Resolve LibRaw static-link compliance and publish a complete license/source bundle](https://github.com/thetechgeekko/Spektrafilm-android/issues/166) |
 | Android platform | The chosen distribution route passes Android 16/API 36 policy, build-system, NDK, and real 16 KiB-environment gates | [Validate Android 16 behavior and meet API 36 policy where distributed](https://github.com/thetechgeekko/Spektrafilm-android/issues/171); [Migrate AGP 9.3 and Gradle 9.5 to AGP built-in Kotlin](https://github.com/thetechgeekko/Spektrafilm-android/issues/188); [Upgrade the NDK independently and prove 16 KiB compatibility on every ABI](https://github.com/thetechgeekko/Spektrafilm-android/issues/187) |
 | Memory and application behavior | Approved 12.5/50 MP budgets, prompt ownership release, durable sessions/exports, and truthful UI controls | [Release full-resolution buffers promptly and enforce one global memory budget](https://github.com/thetechgeekko/Spektrafilm-android/issues/176) and the other live production-map children |
-| Documentation product | One spectral, versioned GitHub Pages and offline-app documentation system, sanitized private-repo provenance, and one canonical user-facing License & Attribution entry | [Publish one spectral documentation system for Spektrafilm Android and LATENT](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) |
+| Documentation product | One spectral, versioned GitHub Pages and offline-app documentation system, sanitized private-repo provenance, and one canonical user-facing License & Attribution entry | [Publish one spectral documentation system for Spektrafilm Android](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) |
 | Release evidence | A versioned export-digest device gate, current release/R8 baseline, approved SLO proof, synchronized docs, then one immutable release | [Create a release export-digest benchmark and instrumented device gate](https://github.com/thetechgeekko/Spektrafilm-android/issues/177); [Record the canonical release/R8 export baseline and digest matrix](https://github.com/thetechgeekko/Spektrafilm-android/issues/119); [Prove the approved 1–2 s exact-export SLO on the release candidate](https://github.com/thetechgeekko/Spektrafilm-android/issues/186); [Ship the next security- and correctness-gated release](https://github.com/thetechgeekko/Spektrafilm-android/issues/138) |
 
 Render-local timing, the patched/fuzz-gated LibRaw baseline, fail-closed signing mechanics, stock
@@ -101,8 +101,8 @@ This is local mechanical evidence, not a production signature or a live GitHub
 publication. The real release remains fail-closed until the protected Environment
 supplies four signing secrets, `RELEASE_CERT_SHA256`, and
 `RELEASE_GITHUB_TOKEN` (Administration read + Contents write), repository
-immutable releases are enabled, the stable-tag ruleset is active, and the human
-LibRaw distribution-route decision is recorded.
+immutable releases are enabled, and the stable-tag ruleset is active. The LibRaw
+distribution route was elected LGPL-2.1-only on 2026-09-14 (§1.2).
 
 ### Exact JNI lifetime evidence — [Harden JNI lifetime, buffer bounds, cancellation, and render-close races](https://github.com/thetechgeekko/Spektrafilm-android/issues/172)
 
@@ -295,7 +295,7 @@ record the verified commit and `worktree: clean`. Ten offline provenance/publish
 tests cover that gate, including ambient exclude bypass, repo-specific ownership trust, linked
 worktrees, and late-dirty manifest invalidation.
 
-The complete 39-test host matrix passed with O2 and the shipping
+The complete 44-test host matrix passed with O2 and the shipping
 `-O3 -ffast-math -fno-finite-math-only` flags. JVM tests, Android lint, and the three-ABI debug APK
 build passed.
 On the connected SM-S948W, K75P ran first and actually engaged both Vulkan scanner and print
@@ -391,7 +391,7 @@ now has an independently approved, frozen product route for eligible pointwise f
 and scan work. It uses one upload, three resident dispatches and one readback; folds live tables;
 keeps prepared tables under full-byte keys; runs a keyed CPU-oracle capability self-test; reports
 render-local engagement; and falls back to Strict Exact CPU without publishing partial output. The
-three-ABI Android Release build and full native parity matrix 39/39 pass at both O2 and the shipping
+three-ABI Android Release build and full native parity matrix 44/44 pass at both O2 and the shipping
 `-O3 -ffast-math -fno-finite-math-only` flags. The exact frozen O2 and shipping arm64 hashes also
 pass on the connected Android 16 device with `test_gpu_host: ALL OK`: the product materialized,
 direct-gain and tone maxima are `1.66893005e-6` / `1.73598528e-6` / `9.01520252e-7` at O2 and
@@ -414,7 +414,7 @@ Owners:
 - [Validate Android 16 behavior and meet API 36 policy where distributed](https://github.com/thetechgeekko/Spektrafilm-android/issues/171)
 - [Upgrade the NDK independently and prove 16 KiB compatibility on every ABI](https://github.com/thetechgeekko/Spektrafilm-android/issues/187)
 
-Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2024.10.01, compile/target SDK 36 (raised under #171 on 2026-09-08),
+Current pins are AGP 9.3.2 with built-in Kotlin 2.2.10, Gradle 9.5.1, JDK 21 (local, CI and release), Compose BOM 2026.06.01 with material3 1.5.0-alpha28, target SDK 36 with compile SDK 37 on `:app` (36 elsewhere; raised under #171 on 2026-09-08),
 build-tools 36.0.0 (the AGP 9.3 minimum; the external zipalign/apksigner gates use the same pin) and NDK r28c
 (28.2.13676358, moved from r27 under [#187](https://github.com/thetechgeekko/Spektrafilm-android/issues/187) on 2026-09-08).
 The connected flagship is already Android 16/API 36. The build-system wave below landed on 2026-09-07 under
@@ -467,7 +467,7 @@ evidence; keep unrelated runtime changes out of the toolchain migration.
 
 1. [Prove the approved 1–2 s exact-export SLO on the release candidate](https://github.com/thetechgeekko/Spektrafilm-android/issues/186) runs the immutable signed artifact and attaches raw evidence.
 2. [Synchronize audit, performance, release, licensing, and project-status documentation](https://github.com/thetechgeekko/Spektrafilm-android/issues/185) reconciles every version, gate, feature and guarantee.
-3. [Publish one spectral documentation system for Spektrafilm Android and LATENT](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) deploys the reviewed GitHub Pages portal and offline app viewer from classified, provenance-bound content.
+3. [Publish one spectral documentation system for Spektrafilm Android](https://github.com/thetechgeekko/Spektrafilm-android/issues/199) deploys the reviewed GitHub Pages portal and offline app viewer from classified, provenance-bound content.
 4. [Ship the next security- and correctness-gated release](https://github.com/thetechgeekko/Spektrafilm-android/issues/138) publishes the immutable free GitHub release only after all native blockers are closed.
 5. [Publish a functionally identical paid Google Play supporter edition](https://github.com/thetechgeekko/Spektrafilm-android/issues/200) promotes the same logical release after the GitHub release, portal, and API-36 distribution gates. It is the final owner-approved external action and unlocks nothing.
 
@@ -487,7 +487,7 @@ Use the smallest sufficient rung while iterating, then every affected higher run
 10. statistically valid release-device performance and memory A/B;
 11. signed release-candidate digest/SLO run.
 
-The CI `engine-parity` job currently contains 39 `build_run` cases. The workflow is the authority;
+The CI `engine-parity` job currently contains 44 `build_run` cases. The workflow is the authority;
 scripts and prose must be updated whenever the table changes.
 
 ## External references used by this plan

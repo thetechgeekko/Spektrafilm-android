@@ -1,12 +1,15 @@
 # Canonical release export baseline (issue #119)
 
-The current-HEAD release/R8 export baseline on Tier A hardware, measured with the #177
-harness under the owner-approved #126 contract. Evidence lives in
-[docs/device/ticket119/](device/ticket119/); this file is the reading of it.
+The v0.9.0 (versionCode 11) Strict Exact CPU-route release/R8 export baseline on Tier A hardware,
+measured with the #177 harness under the owner-approved #126 contract at commit `1c7a63e`
+(2026-09-02). Evidence lives in [docs/device/ticket119/](device/ticket119/); this file is the
+reading of it.
 
-**Status:** current. Supersedes every earlier export timing in `docs/AUDIT.md`,
-`docs/PERF_ROADMAP.md` and `HANDOFF.md` — including the historical 6.251 s and ~9.8 s
-figures, which measured different builds, different parameters and a plugged-in device.
+**Status:** historical baseline of the CPU route. It supersedes every earlier export timing in
+`docs/AUDIT.md` and `docs/PERF_ROADMAP.md` (the historical 6.251 s and ~9.8 s figures measured
+different builds, different parameters and a plugged-in device). Since v0.10.0 the default export
+route is the Fast GPU path, which has no committed device baseline yet; #186 owns the
+release-candidate SLO capture.
 
 ## Identity
 
@@ -119,9 +122,9 @@ be served from a memo. Compose layout and present cost sit outside this number.
 The approved target is p50 ≤ 2000 ms / p95 ≤ 3000 ms on the warm, cache-hit path. Two facts
 from this baseline bound it:
 
-1. **No sample can claim the SLO at all.** Nothing serves an export from a content-addressed
-   cache yet — that is #179 — so every sample here records `served_from_cache: false` and the
-   reporter refuses to read an SLO out of a full re-render. The gate's single finding says
+1. **No sample here can claim the SLO.** At this capture no cache-hit path existed (#179 shipped
+   it the next day; its gate-clean result is recorded on issue #179), so every sample records
+   `served_from_cache: false` and the reporter refuses to read an SLO out of a full re-render. The gate's single finding says
    exactly this, and it is the only finding.
 2. **Even a free engine misses the p50 target.** Decode (977 ms) plus TIFF16 encode
    (1116 ms) is **2093 ms of non-engine work**, already over the 2000 ms p50 budget with
@@ -154,6 +157,14 @@ which is precisely the defect that invalidated this baseline's first two attempt
 SPK_BENCH_DETACH=1 bash tools/baseline/run_bench.sh <the signed apk you installed> 5
 # 640 px preview settle, both routes
 bash tools/baseline/run_preview.sh <the signed apk you installed> 15
+```
+
+The committed captures re-render their reports byte-identically (the reports themselves are not
+tracked):
+
+```bash
+python tools/baseline/bench_report.py docs/device/ticket119/capture.json --markdown report.md
+python tools/baseline/preview_report.py docs/device/ticket119/preview.json --markdown preview-report.md
 ```
 
 `run_bench.sh` refuses an APK whose SHA-256 is not the installed one, refuses a debuggable

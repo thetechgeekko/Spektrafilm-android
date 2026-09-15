@@ -27,8 +27,9 @@ BYPASS_CACHE=${SPK_BENCH_BYPASS_CACHE:-0}
 # threads) | 1 (persistent pool); SPK_BENCH_CHUNKS_PER_WORKER=0 (default) | n.
 PARALLEL_POOL=${SPK_BENCH_PARALLEL_POOL:--1}
 CHUNKS_PER_WORKER=${SPK_BENCH_CHUNKS_PER_WORKER:-0}
-# #148: SPK_BENCH_GPU_EXPORT=1 measures the experimental Fast GPU export route (tolerance-
-# bounded; its digests are NOT identity evidence). Default 0 = the exact CPU route.
+# SPK_BENCH_GPU_EXPORT=1 measures the Fast GPU export route (the app's default since 294d3dc;
+# tolerance-bounded, its digests are NOT identity evidence). Default 0 = the Strict Exact CPU
+# route, which the committed baseline was captured on.
 GPU_EXPORT=${SPK_BENCH_GPU_EXPORT:-0}
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)

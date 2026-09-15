@@ -16,7 +16,7 @@ input, not coverage claims.
   Every committed golden reproduces bit-exactly here and only here; the
   first diverging child is `a9bccd6`.
 - **Reviewed upstream main:** `3bb2c2d` (tree `0aaea99`) — fix: vlog midgray exposure (2026-06-06), reviewed 2026-09-01.
-- **Bundled assets:** 216 files under `engine/spektra-core/src/main/assets/spektra`, tree digest `fd4cbdf648a7d38d…`
+- **Bundled assets:** 41 files under `engine/spektra-core/src/main/assets/spektra`, tree digest `d44c4a92d122494f…`
 - **Track-only branches:** `couplers-tuning-iterations@a273e49`, `dev@6cd00c8`, `experimental@28bf883`.
 
 ## Status vocabulary
@@ -56,7 +56,7 @@ input, not coverage claims.
 
 | Upstream item | Status | Android / evidence |
 |---|---|---|
-| All 28 film/paper profiles, spectral LUTs and neutral print filters at oracle c1d0e44 | matched | Bundled under engine/spektra-core/src/main/assets/spektra (tree digest pinned in upstream_pin.json); loaders io/npy_lut.cpp + profiles/; docs-consistency counts 28 presets |
+| All 28 film/paper profiles, spectral LUTs and neutral print filters at oracle c1d0e44 | matched | Bundled under engine/spektra-core/src/main/assets/spektra (tree digest pinned in upstream_pin.json); loaders io/npy_lut.cpp + profiles/; docs-consistency counts 27 presets |
 | Profile JSON refit of 28/29 stocks + neutral_print_filters.json (commit ad5c8d2, deltas to 0.43 ≈ 570× parity tolerance) | inapplicable | docs/UPSTREAM_SYNC_2026-06-24.md §5 — *Changes the default rendered look of every existing photo; adopting it is the deliberate Strategy-B rebaseline (docs/UPSTREAM_SYNC_2026-06-24.md §5), not a piecemeal port. The default render stays byte-pinned to oracle c1d0e44 per the owner-approved #126 contract* |
 
 ## GUI-visible behavior

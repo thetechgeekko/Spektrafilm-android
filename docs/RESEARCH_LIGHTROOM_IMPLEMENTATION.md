@@ -20,7 +20,7 @@ ends with a parity-safe port mapping cross-referenced to `docs/USER_DRIVEN_SOLUT
 
 ## Architecture (from this build's native libs)
 
-Confirms + extends `docs/RESEARCH_LIGHTROOM_STACK.md`. The arm64 split ships a modular Adobe native
+Supersedes the earlier 11.3.3 stack comparison (removed from the tree 2026-09-14). The arm64 split ships a modular Adobe native
 stack:
 
 | Lib | Size | Role |
@@ -33,13 +33,14 @@ stack:
 | `libpairipcore.so` | — | **Google Play "pairip" anti-tamper** — likely wraps/encrypts `base.apk` dex (expect thin jadx output; native strings are the reliable surface) |
 
 Same fundamental split as ours — **a C++ render engine under a Kotlin/Java UI** — confirming our
-architecture matches; the gaps remain scale/perf/feature infra (TBB, GPU, fp16, pyramids/tiling, ML).
+architecture matches; the gaps that remained in mid-2026 were TBB, GPU, fp16, pyramids/tiling and
+ML — the GPU one has since closed (Vulkan route, 294d3dc) and fp16 was measured out (perf-lab §5).
 
 ## API surface (fresh decompile of `libLrAndroid.so`)
 
-- **1,038 `ICB*`** JNI bridge methods (the full current UI→engine API) — full list:
-  `docs/lightroom-re/icb-methods-full.txt`; grouped by feature: `docs/lightroom-re/icb-by-feature.md`.
-- **16,841 `cr_*`** engine symbols; feature-relevant subset: `docs/lightroom-re/cr-symbols-curated.txt`.
+- **1,038 `ICB*`** JNI bridge methods (the full current UI→engine API).
+- **16,841 `cr_*`** engine symbols.
+- (The raw symbol dumps were removed from the tree on 2026-09-14; git history keeps them.)
 - 60,107 exported dynsyms total (not stripped).
 
 **Current features beyond our prior (11.3.3) catalog — newly confirmed:**
@@ -247,7 +248,7 @@ the algorithm sections give the *how*; the solutions doc gives our *parity-safe 
 
 ## Changelog
 - 2026-06-08 — Fresh RE of the current build (APKMirror 2026-05-14): native-stack architecture +
-  1,038 ICB / 16,841 cr_ surface catalogued (`docs/lightroom-re/`); new features identified (AI Lens
+  1,038 ICB / 16,841 cr_ surface catalogued (dumps since removed; git history); new features identified (AI Lens
   Blur, PDR/Generative Remove, adaptive/scene presets, HDR edit).
 - 2026-06-08 — All six algorithm sections (§A masking, §B WB/color, §C tone/grading, §D render/perf,
   §E heal/geometry/lens/NR, §F presets/export/ML) synthesized from authoritative sources + cross-mapped

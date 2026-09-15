@@ -257,7 +257,8 @@ stage. Nothing here substitutes for measuring that.
 it a product decision. A product decision still needs a number, and this one is
 answerable on a laptop: **band-limit our own profiles and render the same fixture.**
 
-`tools/spectral_bands/` does it with **no engine change, no device, no GPU**. The
+`tools/spectral_bands/` (removed after the decision, 2026-09-14; reproducible from commit 2b5ac31)
+did it with **no engine change, no device, no GPU**. The
 film/paper spectral arrays are partitioned into blocks of N samples, each block replaced
 by its band value (averaged on the *linear* physical quantity — sensitivity, not log
 sensitivity; transmittance, not density) and replicated back across the block. The tree
@@ -321,7 +322,8 @@ a waypoint to something coarser.
    vkdt as the architecture guide. We would be giving up measurable print-route accuracy
    for a speedup that does not apply to the largest stage. There is no reason to pay it.
 
-The experiment is committed and re-runnable: `bash tools/spectral_bands/run_band_probe.sh`.
+The experiment was committed as `tools/spectral_bands/` (removed 2026-09-14) and is re-runnable
+from commit 2b5ac31.
 
 ## 10. The RAW decoder: what vkdt uses, and why swapping ours would not help
 

@@ -64,7 +64,7 @@ kotlin {
 dependencies {
     // No compile dependencies: zlib is a system library on Android; the writer
     // takes a 16-bit RGB buffer + optional ICC bytes + output path. The caller
-    // (feature:film-emulation, a later wave) quantises the engine's display-
-    // referred float output and supplies the matching ICC profile asset.
+    // (:app's ImagePipeline) quantises the engine's display-referred float output
+    // and supplies the matching ICC profile asset.
     testImplementation(libs.junit)
 }

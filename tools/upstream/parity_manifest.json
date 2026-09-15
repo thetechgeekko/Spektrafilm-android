@@ -3,8 +3,8 @@
   "oracle_sha": "c1d0e44b962d80a51ea096d33faea346e4f3836c",
   "reviewed_sha": "3bb2c2d2801ff68b92019cf1dbcbb133d60832bc",
   "assets": {
-    "tree_sha256": "fd4cbdf648a7d38df24a5714b76d196722909f8e85befe2dde01a9f148f2a424",
-    "files": 216
+    "tree_sha256": "d44c4a92d122494f849412eb79e711fc6ac2a096ff19b00872da0e8812fd068f",
+    "files": 41
   },
   "items": [
     {
@@ -90,7 +90,7 @@
       "area": "profiles-assets",
       "upstream": "All 28 film/paper profiles, spectral LUTs and neutral print filters at oracle c1d0e44",
       "status": "matched",
-      "evidence": "Bundled under engine/spektra-core/src/main/assets/spektra (tree digest pinned in upstream_pin.json); loaders io/npy_lut.cpp + profiles/; docs-consistency counts 28 presets"
+      "evidence": "Bundled under engine/spektra-core/src/main/assets/spektra (tree digest pinned in upstream_pin.json); loaders io/npy_lut.cpp + profiles/; docs-consistency counts 27 presets"
     },
     {
       "id": "profiles-refit",

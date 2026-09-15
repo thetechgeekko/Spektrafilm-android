@@ -41,7 +41,7 @@
  *   used to say filter 0 was used throughout because "for 16-bit RGB the benefit
  *   from Paeth/Sub is marginal": measured on a real 12.5 MP export that is ~9%
  *   of the file on grainy output, and on a clean scan filter 2 took the encode
- *   from 1251 ms / 71.3 MB to 151 ms / 0.6 MB (docs/research/perf-lab.md 21).
+ *   from 1251 ms / 71.3 MB to 151 ms / 0.6 MB (docs/research/perf-lab.md 21b).
  *   Sub and Paeth were measured too and are not worth their cost here.
  *
  * iCCP chunk:
@@ -484,7 +484,7 @@ private:
 // ---- filtering + parallel deflate ------------------------------------------
 //
 // Two changes that go together, both measured on a real 12.5 MP export
-// (docs/research/perf-lab.md 21):
+// (docs/research/perf-lab.md 21b):
 //
 // FILTERING. The writer used filter 0 (None) on every row, on the belief that
 // "for 16-bit RGB the benefit from Paeth/Sub is marginal". It is not: on a clean

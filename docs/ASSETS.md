@@ -59,28 +59,34 @@ header and mmaps the payload. The `.lut` binary is parsed per spektrafilm's
 > **Note (APK size):** the runtime only loads the precomputed `irradiance_xy_tc.npy`
 > (`spk_engine_create` → `eng->spectra()`); it never reads the coefficient `.lut`. The `.lut`
 > is therefore **not bundled in the APK** — it lives in the spektrafilm source tree
-> (`spektrafilm/src/spektrafilm/data/luts/spectral_upsampling/`) and is consumed only by the
-> host `test_spectral_upsampling` gate (which validates RGB→spectrum from the raw coefficients).
-> Dropping it from `assets/` saves ~4.1 MB in the APK. (As of v0.7.0 the engine reads bundled
+> (`spektrafilm/src/spektrafilm/data/luts/spectral_upsampling/`); nothing in this repo reads it
+> (the local-only host test that once loaded it was removed on 2026-09-14). Dropping it from `assets/` saves ~4.1 MB in the APK. (As of v0.7.0 the engine reads bundled
 > assets **directly from the APK** via `AAssetManager` — there is no longer a first-run extraction
 > to `filesDir`; the extract path is kept only as a fallback.)
 
 ## Catalog & presets (loaded by the app, also under `spektra/`)
 - `catalog.json` — the 28-stock film/paper catalog (id, display name, group, ISO, era) the UI
   stock-picker reads. 1:1 with the `profiles/*.json` files. See `docs/FILM_STOCKS.md`.
-- `presets.json` — the 28 built-in look presets (film/print pairing + param tweaks). See
+- `presets.json` — the 27 built-in look presets (film/print pairing + param tweaks). See
   `docs/PRESETS.md`.
 
 ## Color filters (`filters/`)
 - `neutral_print_filters.json` — per-(film,paper) neutral Y/M/C dichroic settings (CC units),
   used when `settings.neutral_print_filters_from_database = true`. **This is the only `filters/`
   file loaded at runtime.**
-- `dichroics/`, `heat_absorbing/`, `lens_transmission/` — reference CSV source data carried over
-  from spektrafilm; **not loaded** (the engine hardcodes the equivalent constants). Provenance only.
+- The reference CSV source data spektrafilm ships (`dichroics/`, `heat_absorbing/`,
+  `lens_transmission/`) is **not bundled**: the engine bakes the equivalent constants
+  (`model/color_filters.cpp`, `runtime/params.cpp`), and the CSVs live upstream at
+  `spektrafilm/src/spektrafilm/data/filters/` (removed from this tree on 2026-09-14).
 
 ## ICC profiles (`icc/`)
-Output-color-space ICC profiles (sRGB, Adobe RGB, ProPhoto, Rec.2020, ACES variants) embedded
-on export to match spektrafilm's color management.
+The six output-color-space ICC profiles the app embeds on 16-bit TIFF/PNG export
+(`OutputDescriptor.kt`): `saucecontrol/sRGB-v4.icc` (sRGB), `saucecontrol/AdobeCompat-v4.icc`
+(Adobe RGB), `saucecontrol/ProPhoto-v4.icc` (ProPhoto), `saucecontrol/Rec2020-v4.icc`
+(Rec.2020), `ellelstone/ACES-elle-V4-g10.icc` (ACES2065-1) and `ellelstone/sRGB-elle-V4-g10.icc`
+(linear sRGB), plus the two licence files and `icc/README.md` (the attribution `NOTICE.md` links
+to). The rest of the upstream profile sets (159 files, ~400 KB) was dropped from the APK on
+2026-09-14; git history keeps them.
 
 ## Constants compiled into the engine (not assets)
 - `SPECTRAL_SHAPE`: 380–780 nm @ 5 nm → 81 samples (SpectralShape(380,780,5)).

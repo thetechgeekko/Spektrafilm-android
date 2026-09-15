@@ -36,9 +36,8 @@ of spektrafilm, the engine — and therefore the app that links it — must be G
 ## Apache-2.0 → GPLv3 direction
 
 The Apache Software Foundation and FSF agree Apache-2.0 is compatible with GPLv3 (but **not**
-GPLv2). Incorporating ImageToolbox (Apache-2.0) into this GPLv3 work is allowed; we retain
-ImageToolbox's copyright headers and `LICENSE`/`NOTICE` references in the files that originate
-from it. The combined/derived whole is offered under GPLv3.
+GPLv2), so Apache-2.0 code may be incorporated into this GPLv3 work; none is today (the
+ImageToolbox host was never vendored). The combined/derived whole is offered under GPLv3.
 
 ## spektrafilm OFX boundary
 
@@ -67,8 +66,8 @@ add-on for non-baseline DNGs, we will separately review and record its exact ter
 
 ## Practical obligations
 
-- Ship `LICENSE` (GPLv3) and `NOTICE.md` in the repo and in-app (the host already has a
-  "libraries info" screen we extend).
+- Ship `LICENSE` (GPLv3) and `NOTICE.md` in the repo and in-app (`AboutScreen.kt` renders
+  `assets/legal/spektrafilm/NOTICE.md`).
 - Publish the exact release source, patches, notices, SBOM, and reproducible
   source/relink materials required by the human-selected LibRaw route. A public
   repository alone is not recorded here as satisfying that route.

@@ -1,7 +1,7 @@
 # Decision Record — How we port Spektrafilm to Android
 
 Status: **Accepted** (M0), **superseded in part** — the ImageToolbox host was never vendored; the
-app shipped and remains standalone `:app` + `engine:spektra-core` through v0.9.0 (see the v0.1.0
+app shipped and remains standalone `:app` + `engine:spektra-core` in every release to date (see the v0.1.0
 update below). Engine-in-C++/NDK + LibRaw decisions stand. Author: project lead. Date: 2026-05-29.
 
 ## Context
@@ -75,8 +75,9 @@ stands; only the *host shell* was deferred.
 
 ## Consequences
 
-- The next milestone (M1) seeds this repo with the ImageToolbox tree (the host) and wires the
-  empty `spektra-core` and `libraw` Gradle modules — see `tools/bootstrap.md`.
+- (Not executed — see the v0.1.0 update.) The next milestone (M1) was to seed this repo with the
+  ImageToolbox tree (the host) and wire the empty `spektra-core` and `libraw` Gradle modules; the
+  M1 bootstrap plan (`tools/bootstrap.md`) was removed with the proposal on 2026-09-14.
 - The engine is ported stage-by-stage with a Python↔C++ regression harness driven by
   spektrafilm's existing `.npz` baselines (`tests/baselines/`) so we can prove numerical parity.
 - APK grows by ~17 MB of assets (profiles + LUTs) plus LibRaw `.so` per ABI.
@@ -166,3 +167,42 @@ baseline). **Caveat carried forward:** the *on-device* (NEON, 2-wide f64) speedu
 measured here — there is no ARM build/run in this environment or CI — so the magnitude on real
 hardware should still be confirmed on a device. Correctness on-device follows from the same
 IEEE-754 double ops; only the perf magnitude is unverified.
+
+## Deleted documents — git history is the archive (2026-09-14)
+
+Removed in the 2026-09-14 repository cleanup, following the #184 precedent (delete, keep the
+history, leave one pointer here). Each was either fully superseded by a current document, a dated
+plan whose every item had shipped, or a study nothing referenced.
+
+- `HANDOFF.md` — the 2026-06..08 session transcript (self-labelled "not the current queue");
+  everything still true lives in `CLAUDE.md`, `CHANGELOG.md`, `docs/EXECUTION_INDEX.md` and
+  `docs/research/perf-lab.md`.
+- `docs/CODE_REVIEW_2026-06-24.md`, `docs/PRIORITY_ROADMAP_2026-06-24.md` — the June review and
+  its 27-item execution order; every item shipped (PRs #105/#109/#111, #201) or is classified in
+  the generated `docs/UPSTREAM_PARITY.md`.
+- `docs/ENGINE_WIRING_PLAN.md` — per-parameter wiring record, complete 2026-07-02; coverage is
+  owned by `docs/UPSTREAM_PARITY.md`, the one unwireable item by issue #143.
+- `docs/PORTING_PLAN.md`, `docs/maps/SPEKTRAFILM_MAP.md` — pre-port scoping and effort
+  estimates; the port is complete and pinned to oracle `c1d0e44`.
+- `docs/ROADMAP.md` — milestone history through v0.9.0, carried per version by `CHANGELOG.md`.
+- `docs/maps/IMAGETOOLBOX_MAP.md`, `tools/bootstrap.md` — the abandoned ImageToolbox-host path
+  (never adopted; recorded above).
+- `docs/DEVICE_TEST_REPORT.md` — the v0.4.0 device pass for issue #5, superseded by every later
+  on-device validation.
+- `docs/security/TICKET_170_STORAGE_ALIGNMENT.md` — a dated review summary; the #170 contract is
+  `docs/TRANSACTIONAL_STORAGE.md`.
+- `docs/RESEARCH_LIGHTROOM_STACK.md`, `docs/RESEARCH_LIGHTROOM_RENDER.md`,
+  `docs/RESEARCH_BIG_FILES.md` — June studies whose surviving conclusions were folded into
+  `docs/RESEARCH_LIGHTROOM_IMPLEMENTATION.md`, `docs/PRESETS.md` and `docs/RAW_DNG.md`.
+- `docs/research/aimage-decoder-qualification.md` — the execution contract for the rejected
+  `:lib:aimage-decoder` experiment (module deleted by #240). Record of the decision (#198,
+  rejected): evaluated as an isolated module, never an `:app` dependency. On an API 36 SM-S948W a
+  synthetic 4080x3060 BMP export decode measured p50 661 ms against 3,699 ms on the Java route
+  (about 5.6x) but showed no peak-PSS win (247,826 KiB against 235,218 KiB); only explicit sRGB
+  RGBA_8888 output could enter the engine, P3 / 16-bit / HLG / PQ inputs failed closed, the HDR
+  headroom oracle was blocked, and the API 30/34 cells never ran. The import cost was the app's
+  own conversion loop, not the decoder, so the module was rejected.
+- `.claude/skills/` vendored copies of mattpocock/skills (25 skill directories, commit 76ef4b5) and
+  `brutalist-re` — installed per-user from their upstreams, and the two copies had diverged; the
+  repo keeps only the two project skills (`spectrafilm-dev`, `spectrafilm-solutions`) and their
+  configuration in `docs/agents/`.

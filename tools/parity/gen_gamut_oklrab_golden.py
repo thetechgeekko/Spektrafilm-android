@@ -17,7 +17,7 @@
 # (spk_color_space 0..5) over a spread of in/out-of-gamut linear-RGB pixels and several
 # knee triples, captured directly from the oracle.
 #
-# Pinned to oracle SHA 27bd085 (the gamut-primitive golden pin; see HANDOFF.md /
+# Pinned to oracle SHA 27bd085 (the gamut-primitive golden pin; see
 # tools/parity/setup_env.sh). Regenerate only after `git -C /home/user/spektrafilm
 # checkout 27bd085`, restoring the branch afterward.
 #

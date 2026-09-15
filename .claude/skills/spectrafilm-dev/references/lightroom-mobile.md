@@ -5,7 +5,7 @@ anything in `app/src/main/java/com/spectrafilm/app/**`. The editor is a parametr
 non-destructive, Lightroom-style stack over the parity-critical CPU/NDK engine. Engine and
 build rules live in `references/parity-and-build.md`.
 
-The editor (~56 Kotlin files) — key ones:
+The editor (~82 Kotlin files) — key ones:
 - `MainActivity.kt` — edge-to-edge Compose, pinned preview, 90 degree rotate, scrollable
   category bar (12 categories), `AnimatedVisibility` panel, double-back-to-exit.
 - `ParamsState.kt` — flat Compose-observable mirror of `SpektraParams`; `mutableStateOf` per
@@ -70,11 +70,11 @@ The editor (~56 Kotlin files) — key ones:
   (a few hundred ms of silence) or coalesce-to-latest before kicking a preview render.
   **FLAG:** the droidcon `debounce(300)` snippet was recovered from an excerpt (page 503'd) —
   verify before quoting it verbatim.
-- **GPU is not a drop-in for the simulate path.** JNI/native is good for low-latency CPU image
-  processing; GPU shaders win for truly real-time per-frame, but the spectral engine is NDK/CPU
-  by design (parity-critical, deterministic, thread-invariant). Bit-exact parity + NaN-propagation
-  semantics break under GPU float. `LutGpuPreview.kt` is preview-only and default OFF; never route
-  the simulate/export path through it. (RenderScript is deprecated — do not recommend it.)
+- **Two render contracts.** The CPU/NDK engine is the parity-bearing Strict Exact route and the
+  automatic fallback (deterministic, thread-invariant, NaN-propagating). Since 294d3dc the Vulkan
+  Fast GPU route (f32, tolerance-bounded, self-checked on device) is the default render and
+  export; it is never parity evidence. `LutGpuPreview.kt` is a separate opt-in GLES LUT loupe.
+  (RenderScript is deprecated — do not recommend it.)
 - **RAW/DNG via LibRaw -> linear RGB** (`:lib:libraw`, `RawDecoder.kt`): decode is part of the
   off-thread work feeding the proxy/full-res split. Half-size decode for preview; off-heap full
   size; Samsung Expert RAW DEFLATE DNG via zlib/NDK `libz`.
@@ -141,8 +141,8 @@ The editor (~56 Kotlin files) — key ones:
 - Never pass `Painter`/`ImageBitmap` as composable params (unstable -> recomposition storms).
 - Defer pan/zoom/crop state reads to the layout/draw phase via lambda modifiers / `graphicsLayer`.
 - Reuse bitmap buffers; `prepareToDraw()`; `drawWithCache`.
-- For the CPU/NDK parity-critical engine, do NOT swap in GPU shaders for the simulate path —
-  parity and NaN semantics break.
+- The parity-critical CPU engine is the reference; GPU work goes through the Vulkan route and its
+  own gates, never by swapping shaders into the CPU path.
 - Wide gamut is opt-in, memory-heavy, and needs `RGBA_F16` + ICC; reserve it for the full-screen
   preview.
 

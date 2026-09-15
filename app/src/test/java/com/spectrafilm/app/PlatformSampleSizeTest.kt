@@ -17,7 +17,7 @@ class PlatformSampleSizeTest {
 
     @Test
     fun landsAboveTheTargetSoTheExactDownscaleCanFinish() {
-        // The real case: a 4080px Latent DNG previewed at 640. Stopping at the first
+        // The real case: a 4080px DNG previewed at 640. Stopping at the first
         // factor that is UNDER the target picked 8 (510px) and the exact downscale then
         // had nothing to do, so the preview shipped 20% softer than it was asked for.
         assertEquals(4, platformSampleSize(longest = 4080, maxEdge = 640))

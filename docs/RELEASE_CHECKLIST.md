@@ -1,6 +1,7 @@
 # Maintainer Release Checklist
 
-> **Release hold (2026-08-29):** do not tag the current tree. The active blockers and ordered
+> **Release state (2026-09-14):** v0.10.0 is tagged and its release run is the first to reach the
+> signing Environment. The remaining production blockers (#138 and its open children) and ordered
 > implementation plan live in [EXECUTION_INDEX.md](EXECUTION_INDEX.md),
 > [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md), and the
 > [Wayfinder map: production-ready Spektrafilm + 1–2 s exact export](https://github.com/thetechgeekko/Spektrafilm-android/issues/164).
@@ -25,7 +26,7 @@ are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
 Current in-tree version: **v0.10.0 / versionCode 12** (`minSdk 24`, `targetSdk` 36 /
-`compileSdk` 37 on `:app`); latest released tag is **v0.9.0** (tagged 2026-08-26).
+`compileSdk` 37 on `:app`); latest tag is **v0.10.0** (tagged 2026-09-14).
 
 [Make production signing and exact release-candidate verification fail closed](https://github.com/thetechgeekko/Spektrafilm-android/issues/168)
 produced a local test candidate validated on 2026-08-30 on an API 36
@@ -51,8 +52,8 @@ permission grant and denial; an API 36 device cannot certify that branch. See
 the limits/guarantees being certified.
 
 [Harden JNI lifetime, buffer bounds, cancellation, and render-close races](https://github.com/thetechgeekko/Spektrafilm-android/issues/172)
-adds a second mandatory native-safety layer. Before accepting a candidate, require the fixed shared
-host inventory (seven ASan+UBSan and five TSan suites), the standalone engine JNI boundary runner with
+adds a second mandatory native-safety layer. Before accepting a candidate, require the shared host
+inventory enumerated by `tools/release/run_native_safety.sh`, the standalone engine JNI boundary runner with
 `ENGINE_BOUNDARY_INSTRUMENTATION: PASS` and instrumentation code `-1`, and the release-targeted app
 runner's native-result Activity-recreation marker. The release gate must also resolve the separately
 packaged AndroidTest APK's exact target classes, field types, method prototypes, facade ancestry, and
@@ -167,7 +168,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   at runtime — sanity-check that a release build still loads native libs and exports/decodes before
   publishing. The release workflow now scans the shrunk DEX and runs the exact signed
   candidate on API 35; `android-emulator` remains an advisory debug-build job. R8 Stage-2 +
-  `shrinkResources`: see `docs/AUDIT.md` §D (which owns that open item).
+  `shrinkResources` remain open (`-dontobfuscate` is still set in `app/proguard-rules.pro`; no ticket).
 - [ ] Confirm CI is green on `main`. The relevant gating jobs in `.github/workflows/ci.yml` are:
   - `engine-native` — host C++ build of libspektra.
   - `engine-parity` — the stage parity gate (deterministic goldens, thread-invariance).
@@ -207,7 +208,8 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   and [#843](https://github.com/LibRaw/LibRaw/issues/843). If either discloses
   memory corruption reachable through an enabled codec, keep the release on hold
   until the pinned dependency is patched and its hostile regression is green.
-- [ ] Commit version/changelog changes with `-c commit.gpgsign=false`.
+- [ ] Commit version/changelog changes (try a signed commit first; fall back to
+  `-c commit.gpgsign=false` only where signing actually fails, per CLAUDE.md).
 
 ---
 
