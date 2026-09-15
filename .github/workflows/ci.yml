@@ -1110,7 +1110,13 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          # `-gpu swangle`, the same renderer as release.yml. The action's
+          # default `swiftshader_indirect` (deprecated since emulator 36.4.9)
+          # segfaults its host RenderThreads when two activities render at
+          # once (release run 34913971651, host dmesg). This job only ever drew
+          # one activity, so it stayed green while the release smoke died;
+          # emulator_smoke.sh now forces a recreate to close that gap.
+          emulator-options: -no-window -gpu swangle -noaudio -no-boot-anim -no-snapshot -camera-back none
           # One line on purpose: the action runs each script line in its own
           # `sh -c`, so the body lives in a file (see the script header).
           script: bash tools/ci/emulator_smoke.sh
