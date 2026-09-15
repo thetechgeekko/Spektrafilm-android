@@ -88,3 +88,14 @@ keystore (no production secrets), runs the same 16 KB-page checks as `ci.yml`, a
 as `Spektrafilm-r8-smoke-apk`. Purpose: the CI `android` job builds debug (minify off), so a wrong
 R8 keep-rule surfaces only at runtime — download this artifact and smoke-test it on a device
 **before** tagging a release. See `docs/RELEASE_CHECKLIST.md`.
+
+## `release-token-check.yml` (added 2026-09-15)
+
+Manual `workflow_dispatch` only. Runs under the `release-signing` Environment and exercises
+`RELEASE_GITHUB_TOKEN` exactly the way `tools/release/github_release.py` does — `GET
+/immutable-releases` (Administration read), create a **draft** release against the current
+commit (Contents write + Workflows write, because the commit touches `.github/workflows/`), then
+delete it. Finishes in under a minute. Purpose: `release.yml` only reaches that token ~50 minutes
+in, and `34882197355/1` failed there with `HTTP 403: Resource not accessible by personal access
+token` after every other gate had passed. Dispatch it after rotating the token and before pushing
+a `v*` tag.
