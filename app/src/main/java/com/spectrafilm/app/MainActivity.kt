@@ -4509,6 +4509,7 @@ class MainActivity : ComponentActivity() {
                                                 outputDescriptor,
                                                 longEdge,
                                                 exportJpegQuality,
+                                                keepGps,
                                                 exportContract,
                                             )
                                         }

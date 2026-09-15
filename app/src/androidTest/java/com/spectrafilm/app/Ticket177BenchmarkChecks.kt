@@ -221,6 +221,7 @@ object Ticket177BenchmarkChecks {
                     descriptor,
                     null,
                     95,
+                    /* keepGps = */ false,
                     ExportCaches.contractVersionOf(context),
                 )
             }
