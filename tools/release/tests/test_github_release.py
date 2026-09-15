@@ -43,6 +43,10 @@ class FakeGitHubState:
         self.tag_sha_sequence = [SOURCE_SHA]
         self.create_foreign_duplicate_once = False
         self.annotated_tag = False
+        # GET /releases lags a fresh POST on real GitHub; this many listing
+        # calls omit releases created through the API in this session.
+        self.hide_created_from_listing_for = 0
+        self.created_release_ids: set[int] = set()
 
     def add_release(
         self,
@@ -174,8 +178,15 @@ class FakeGitHubHandler(http.server.BaseHTTPRequestHandler):
             return
         if path == f"{prefix}/releases":
             page = int(query.get("page", ["1"])[0])
+            hidden: set[int] = set()
+            if self.state.hide_created_from_listing_for > 0:
+                if page == 1:
+                    self.state.hide_created_from_listing_for -= 1
+                hidden = set(self.state.created_release_ids)
             values = [
-                self.state.release_json(key) for key in sorted(self.state.releases)
+                self.state.release_json(key)
+                for key in sorted(self.state.releases)
+                if key not in hidden
             ]
             start = (page - 1) * 100
             self._send_json(200, values[start : start + 100])
@@ -220,6 +231,7 @@ class FakeGitHubHandler(http.server.BaseHTTPRequestHandler):
             body = self._json_body()
             release_id = self.state.next_release_id
             self.state.next_release_id += 1
+            self.state.created_release_ids.add(release_id)
             release_body = str(body["body"])
             if body.get("generate_release_notes") is True:
                 release_body += "\n\n## What's Changed\n\n* generated notes"
@@ -383,6 +395,46 @@ class GitHubReleasePublisherTest(unittest.TestCase):
             if method == "GET" and path == f"/repos/{REPOSITORY}/git/ref/tags/{TAG}"
         ]
         self.assertGreaterEqual(len(tag_reads), 3)
+
+    def _fast_listing_retries(self, attempts: int) -> None:
+        for name, value in (
+            ("LISTING_RETRY_ATTEMPTS", attempts),
+            ("LISTING_RETRY_DELAY_SECONDS", 0.0),
+        ):
+            self.addCleanup(setattr, github_release, name, getattr(github_release, name))
+            setattr(github_release, name, value)
+
+    def test_listing_lag_after_create_is_retried_until_the_draft_appears(self) -> None:
+        # Release run 34919864173: draft created and readable by ID, absent
+        # from GET /releases for several seconds, publication aborted.
+        state = FakeGitHubState()
+        state.hide_created_from_listing_for = 2
+        self._fast_listing_retries(attempts=4)
+
+        result = self.publish(state)
+
+        self.assertEqual(github_release.PublishResult(101, "published"), result)
+        self.assertFalse(state.releases[101]["draft"])
+        self.assertEqual([], state.deleted_release_ids)
+        listings = [
+            path
+            for method, path in state.requests
+            if method == "GET" and path.startswith(f"/repos/{REPOSITORY}/releases?")
+        ]
+        self.assertGreaterEqual(len(listings), 3)
+
+    def test_listing_that_never_shows_the_created_draft_fails_and_cleans_it(self) -> None:
+        state = FakeGitHubState()
+        state.hide_created_from_listing_for = 10_000
+        self._fast_listing_retries(attempts=3)
+
+        with self.assertRaisesRegex(
+            github_release.PublishError, "cannot be found by its exact tag"
+        ):
+            self.publish(state)
+
+        self.assertEqual([101], state.deleted_release_ids)
+        self.assertNotIn(101, state.releases)
 
     def test_preexisting_exact_immutable_release_is_verified_idempotently(self) -> None:
         state = FakeGitHubState()

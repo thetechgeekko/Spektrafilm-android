@@ -19,6 +19,7 @@ import pathlib
 import re
 import secrets
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +32,12 @@ DEFAULT_UPLOAD_URL = "https://uploads.github.com"
 HTTP_TIMEOUT_SECONDS = 60
 MAX_PAGES = 1_000
 PAGE_SIZE = 100
+# GET /releases is eventually consistent. Release run 34919864173 created its
+# draft (201), read it back by ID, then found no entry for its tag in the
+# listing and aborted with "created release cannot be found by its exact tag";
+# reproduced by hand: 0 matches immediately after the POST, 1 match 10 s later.
+LISTING_RETRY_ATTEMPTS = 12
+LISTING_RETRY_DELAY_SECONDS = 5.0
 READ_CHUNK_SIZE = 1024 * 1024
 
 _TAG_PATTERN = re.compile(r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
@@ -386,6 +393,31 @@ class Publisher:
             if release.get("tag_name") == self.config.tag
         ]
 
+    def _matching_tag_releases_after_create(
+        self, release_id: int
+    ) -> list[dict[str, object]]:
+        """Re-read the listing until it reflects the draft just created.
+
+        With a known ``release_id`` the listing must contain that ID; when the
+        create response was lost (``release_id`` is 0) any entry for the tag
+        ends the wait. The last listing is returned either way, so the caller's
+        uniqueness and ownership checks still see exactly what GitHub reports.
+        """
+        matches: list[dict[str, object]] = []
+        for attempt in range(1, LISTING_RETRY_ATTEMPTS + 1):
+            matches = self._matching_tag_releases()
+            if release_id:
+                listed = any(
+                    _positive_id(match, "release list entry") == release_id
+                    for match in matches
+                )
+            else:
+                listed = bool(matches)
+            if listed or attempt == LISTING_RETRY_ATTEMPTS:
+                break
+            time.sleep(LISTING_RETRY_DELAY_SECONDS)
+        return matches
+
     def _find_unique_tag_release(self) -> dict[str, object] | None:
         matches = self._matching_tag_releases()
         if len(matches) > 1:
@@ -463,7 +495,7 @@ class Publisher:
                     create_error = exc
 
         try:
-            matches = self._matching_tag_releases()
+            matches = self._matching_tag_releases_after_create(release_id)
         except PublishError as discovery_error:
             if create_error is not None:
                 raise create_error from discovery_error
