@@ -656,8 +656,8 @@ class SourceExif(val tags: Map<String, String>) {
  */
 fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): SourceExif {
     if (sourceUri == null) return SourceExif(emptyMap())
-    return runCatching {
-        ctx.contentResolver.openInputStream(sourceUri)?.use { input ->
+    fun readFromOrThrow(uri: Uri): SourceExif {
+        ctx.contentResolver.openInputStream(uri)?.use { input ->
             val exif = ExifInterface(input)
             val map = HashMap<String, String>()
             // GPS/location is only captured when the user has opted in (default OFF);
@@ -668,7 +668,21 @@ fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): Sou
             }
             SourceExif(map)
         } ?: SourceExif(emptyMap())
-    }.getOrDefault(SourceExif(emptyMap()))
+    }
+    fun readFrom(uri: Uri): SourceExif =
+        runCatching { readFromOrThrow(uri) }.getOrDefault(SourceExif(emptyMap()))
+    if (!keepGps) return readFrom(sourceUri)
+    val preferredUri = originalMediaUriForGpsMetadata(sourceUri) ?: sourceUri
+    if (preferredUri == sourceUri) return readFrom(sourceUri)
+    return runCatching { readFromOrThrow(preferredUri) }
+        .recoverCatching { failure ->
+            if (failure is SecurityException || failure is java.io.FileNotFoundException) {
+                readFrom(sourceUri)
+            } else {
+                throw failure
+            }
+        }
+        .getOrDefault(SourceExif(emptyMap()))
 }
 
 /**

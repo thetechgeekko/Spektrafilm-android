@@ -172,6 +172,7 @@
     <string name="editor_status_cancelling_export">cancelling export</string>
     <string name="editor_status_source_access_required">source access required before export</string>
     <string name="editor_status_grant_storage">grant storage access, then tap Export again</string>
+    <string name="editor_status_grant_media_location">allow photo location access, then tap Export again</string>
     <string name="editor_status_unsupported_export">unsupported export combination</string>
     <string name="editor_status_export_running">an export is already running</string>
 
