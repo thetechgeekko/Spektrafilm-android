@@ -653,10 +653,17 @@ class SourceExif(val tags: Map<String, String>) {
 /**
  * Read all standard [EXIF_COPY_TAGS] from [sourceUri] (via the content resolver). Returns an
  * empty [SourceExif] if the URI is null, has no EXIF, or cannot be parsed — never throws.
+ *
+ * With [keepGps], a MediaStore-backed source on Android 10+ is read through its original-media
+ * form (`MediaStore.setRequireOriginal`), because MediaStore otherwise hands back a stream with
+ * the location bytes redacted and the export silently loses GPS (#261). That read needs
+ * `ACCESS_MEDIA_LOCATION`; if it fails for ANY reason — the permission is not held, or the
+ * provider rejects the query parameter — the plain read below is the fallback, so the worst case
+ * is an export without GPS, never an export without EXIF at all.
  */
 fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): SourceExif {
     if (sourceUri == null) return SourceExif(emptyMap())
-    fun readFromOrThrow(uri: Uri): SourceExif {
+    fun readFromOrThrow(uri: Uri): SourceExif =
         ctx.contentResolver.openInputStream(uri)?.use { input ->
             val exif = ExifInterface(input)
             val map = HashMap<String, String>()
@@ -668,21 +675,12 @@ fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): Sou
             }
             SourceExif(map)
         } ?: SourceExif(emptyMap())
-    }
     fun readFrom(uri: Uri): SourceExif =
         runCatching { readFromOrThrow(uri) }.getOrDefault(SourceExif(emptyMap()))
     if (!keepGps) return readFrom(sourceUri)
-    val preferredUri = originalMediaUriForGpsMetadata(sourceUri) ?: sourceUri
-    if (preferredUri == sourceUri) return readFrom(sourceUri)
-    return runCatching { readFromOrThrow(preferredUri) }
-        .recoverCatching { failure ->
-            if (failure is SecurityException || failure is java.io.FileNotFoundException) {
-                readFrom(sourceUri)
-            } else {
-                throw failure
-            }
-        }
-        .getOrDefault(SourceExif(emptyMap()))
+    val originalUri = originalMediaUriForGpsMetadata(sourceUri) ?: sourceUri
+    if (originalUri == sourceUri) return readFrom(sourceUri)
+    return runCatching { readFromOrThrow(originalUri) }.getOrElse { readFrom(sourceUri) }
 }
 
 /**

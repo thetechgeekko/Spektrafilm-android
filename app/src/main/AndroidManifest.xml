@@ -22,6 +22,10 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- API 29+: MediaStore redacts the GPS bytes from a photo's stream unless the app holds
+         this and opens the original-media form of the URI. Requested only when the user has
+         turned "Include location (GPS)" on for a MediaStore photo (#261); denial means the
+         export is written without GPS, nothing else. Ignored below API 29. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <application

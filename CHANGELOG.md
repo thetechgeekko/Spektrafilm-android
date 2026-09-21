@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Export keeps GPS from MediaStore photos when asked to (#261)
+
+- "Include location (GPS)" produced exports without GPS for photos picked from the device
+  gallery: Android 10+ redacts the location bytes from a MediaStore stream unless the app holds
+  `ACCESS_MEDIA_LOCATION` and reads the original-media form of the URI. The app now declares that
+  permission, asks for it when the export sheet opens (or the toggle is switched on) for a
+  MediaStore photo, and reads the source EXIF through `MediaStore.setRequireOriginal`. Denial is
+  not a block: the export proceeds without GPS and says so. Any failure of the original-media read
+  falls back to the plain read, so the worst case stays "no GPS", never "no EXIF". Contributed by
+  @samueljim (#262).
+
 ### Repository cleanup (2026-09-14)
 
 - Removed fifteen superseded planning and research documents, the derivable device evidence, the

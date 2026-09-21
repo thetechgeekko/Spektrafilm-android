@@ -83,6 +83,7 @@
     <string name="editor_snack_recipe_newer_version">Saved edit is from a newer app version; it was left untouched</string>
     <string name="editor_status_recipe_unavailable">saved edit unavailable; writes paused</string>
     <string name="editor_snack_recipe_unavailable">Saved edit could not be safely opened; reset it explicitly to continue saving</string>
+    <string name="editor_snack_export_without_gps">Photo location access not granted. Exporting without GPS.</string>
     <string name="editor_snack_dng_fallback">DNG imported via system decoder (display-referred)</string>
 
     <!-- Source selection -->
@@ -172,7 +173,7 @@
     <string name="editor_status_cancelling_export">cancelling export</string>
     <string name="editor_status_source_access_required">source access required before export</string>
     <string name="editor_status_grant_storage">grant storage access, then tap Export again</string>
-    <string name="editor_status_grant_media_location">allow photo location access, then tap Export again</string>
+    <string name="editor_status_media_location_denied">photo location access denied; exports will not include GPS</string>
     <string name="editor_status_unsupported_export">unsupported export combination</string>
     <string name="editor_status_export_running">an export is already running</string>
 

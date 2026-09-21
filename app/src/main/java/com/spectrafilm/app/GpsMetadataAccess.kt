@@ -34,9 +34,13 @@ internal fun requiresMediaLocationPermissionForGpsExport(sourceUri: Uri?): Boole
     return isMediaStoreBackedContentUri(sourceUri)
 }
 
-/** Upgrade [sourceUri] to its original-media form when Android's MediaStore GPS redaction applies. */
+/**
+ * Upgrade [sourceUri] to its original-media form when Android's MediaStore GPS redaction applies.
+ * The SDK check is inline rather than behind [requiresMediaLocationPermissionForGpsExport]
+ * because lint's NewApi detector cannot see through a helper, and `:app:lint` aborts on error.
+ */
 internal fun originalMediaUriForGpsMetadata(sourceUri: Uri?): Uri? {
-    if (!requiresMediaLocationPermissionForGpsExport(sourceUri)) return sourceUri
-    return runCatching { MediaStore.setRequireOriginal(requireNotNull(sourceUri)) }
-        .getOrDefault(sourceUri)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || sourceUri == null) return sourceUri
+    if (!isMediaStoreBackedContentUri(sourceUri)) return sourceUri
+    return runCatching { MediaStore.setRequireOriginal(sourceUri) }.getOrDefault(sourceUri)
 }
