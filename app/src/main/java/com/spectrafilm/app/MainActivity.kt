@@ -2102,6 +2102,13 @@ class MainActivity : ComponentActivity() {
                 ).show()
             }
         }
+        val mediaLocationPermission = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (!granted) {
+                status = ctx.getString(R.string.editor_status_grant_media_location)
+            }
+        }
 
         fun visibleSourceState() = EditorSourceState(
             uri = sourceUri?.toString(),
@@ -4352,6 +4359,19 @@ class MainActivity : ComponentActivity() {
                     runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                 }
                 if (showExportSheet &&
+                    exportKeepGps &&
+                    requiresMediaLocationPermissionForGpsExport(sourceUri) &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    ContextCompat.checkSelfPermission(
+                        ctx,
+                        android.Manifest.permission.ACCESS_MEDIA_LOCATION,
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    runCatching {
+                        mediaLocationPermission.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                    }
+                }
+                if (showExportSheet &&
                     Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
                     ContextCompat.checkSelfPermission(
                         ctx,
@@ -4394,6 +4414,22 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             status = ctx.getString(R.string.editor_status_grant_storage)
+                            return@export
+                        }
+                        if (exportKeepGps &&
+                            requiresMediaLocationPermissionForGpsExport(sourceUri) &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                            ContextCompat.checkSelfPermission(
+                                ctx,
+                                android.Manifest.permission.ACCESS_MEDIA_LOCATION,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            runCatching {
+                                mediaLocationPermission.launch(
+                                    android.Manifest.permission.ACCESS_MEDIA_LOCATION,
+                                )
+                            }
+                            status = ctx.getString(R.string.editor_status_grant_media_location)
                             return@export
                         }
                         val e = engine
