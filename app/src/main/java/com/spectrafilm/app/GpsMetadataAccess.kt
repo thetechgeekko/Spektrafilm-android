@@ -16,9 +16,17 @@ import java.util.Locale
  * of that contract, so do not force the extra permission there.
  */
 internal fun isMediaStoreBackedContentUri(sourceUri: Uri?): Boolean {
-    if (sourceUri?.scheme != ContentResolver.SCHEME_CONTENT) return false
-    val authority = sourceUri.authority?.lowercase(Locale.ROOT) ?: return false
-    return authority == MediaStore.AUTHORITY || authority.contains("providers.media")
+    return isMediaStoreBackedContentUri(
+        scheme = sourceUri?.scheme,
+        authority = sourceUri?.authority,
+    )
+}
+
+internal fun isMediaStoreBackedContentUri(scheme: String?, authority: String?): Boolean {
+    if (scheme != ContentResolver.SCHEME_CONTENT) return false
+    val normalizedAuthority = authority?.lowercase(Locale.ROOT) ?: return false
+    return normalizedAuthority == MediaStore.AUTHORITY ||
+        normalizedAuthority.contains("providers.media")
 }
 
 internal fun requiresMediaLocationPermissionForGpsExport(sourceUri: Uri?): Boolean {
