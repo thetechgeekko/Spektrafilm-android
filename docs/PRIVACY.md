@@ -101,9 +101,11 @@ browser/distribution channel remains responsible for first-install provenance.
 | `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` | Keep a user-started local image export alive while it processes/writes data; the non-exported service shows an ongoing export notification and performs no network sync |
 | `POST_NOTIFICATIONS` (API 33+) | Show the ongoing-export notification; denial does not grant another access path |
 | `WRITE_EXTERNAL_STORAGE` (`maxSdkVersion=28`) | Publish to public Pictures on Android 7-9; Android 10+ uses MediaStore without it |
+| `ACCESS_MEDIA_LOCATION` (API 29+) | Read the GPS tags of the source photo the user picked, so they can be copied into the export. Requested only when the user has turned "Include location (GPS)" on (default off) and the source is a MediaStore photo, because Android 10+ otherwise hands the app a copy with the location bytes removed. Denial means the export is written without GPS; nothing else changes. It grants no access to the device's location |
 
-Spektrafilm does **not** request location, camera, microphone, contacts, broad media read,
-`MANAGE_EXTERNAL_STORAGE`, `READ_LOGS`, `REQUEST_INSTALL_PACKAGES`, or background-location access.
+Spektrafilm does **not** request device location (`ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`,
+or background location), camera, microphone, contacts, broad media read,
+`MANAGE_EXTERNAL_STORAGE`, `READ_LOGS`, or `REQUEST_INSTALL_PACKAGES`.
 Source selection uses Android's picker/Storage Access Framework and only the URI-scoped grant returned
 by that action. Android documents import/export and local file processing under the
 [`dataSync` foreground-service type](https://developer.android.com/develop/background-work/services/fgs/service-types).

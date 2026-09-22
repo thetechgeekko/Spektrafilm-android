@@ -2080,6 +2080,32 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // ACCESS_MEDIA_LOCATION (API 29+): only asked for when "Include location (GPS)" is on
+        // and the source is a MediaStore photo, because that is the one case where Android
+        // redacts the GPS bytes from the stream (#261). Denial is not a block: the export
+        // proceeds and simply carries no GPS, exactly as it did before the permission existed.
+        val mediaLocationPermission = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (!granted) {
+                status = ctx.getString(R.string.editor_status_media_location_denied)
+            }
+        }
+        fun mediaLocationPermissionMissing(): Boolean =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                exportKeepGps &&
+                requiresMediaLocationPermissionForGpsExport(sourceUri) &&
+                ContextCompat.checkSelfPermission(
+                    ctx,
+                    android.Manifest.permission.ACCESS_MEDIA_LOCATION,
+                ) != PackageManager.PERMISSION_GRANTED
+        fun requestMediaLocationIfMissing() {
+            if (mediaLocationPermissionMissing()) {
+                runCatching {
+                    mediaLocationPermission.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                }
+            }
+        }
         // The export runs under a foreground service, and on API 33+ that service's
         // ongoing notification is silently suppressed unless POST_NOTIFICATIONS is
         // granted. The manifest has declared the permission since the service landed,
@@ -2087,9 +2113,18 @@ class MainActivity : ComponentActivity() {
         // never appeared at all. Asked in context at the first export, and never
         // blocking: the service's kill-resistance (oom_score_adj 50 vs 700) works
         // whether or not the notification can be drawn.
+        fun notificationPermissionMissing(): Boolean =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
         val notificationPermission = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission()
-        ) { /* granted or denied, the export proceeds either way */ }
+        ) {
+            // Granted or denied, the export proceeds either way. The media-location request
+            // is chained here rather than launched alongside, so the two system dialogs are
+            // never requested back-to-back on API 33+.
+            requestMediaLocationIfMissing()
+        }
         val legacyStoragePermission = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { granted ->
@@ -4344,11 +4379,7 @@ class MainActivity : ComponentActivity() {
             // dialog resolves while the user is still choosing options and nothing
             // is rendering, and it is still in context — they are about to export.
             LaunchedEffect(showExportSheet) {
-                if (showExportSheet &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED
-                ) {
+                if (showExportSheet && notificationPermissionMissing()) {
                     runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                 }
                 if (showExportSheet &&
@@ -4361,6 +4392,15 @@ class MainActivity : ComponentActivity() {
                     runCatching {
                         legacyStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     }
+                }
+            }
+
+            // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
+            // and again if "Include location (GPS)" is switched on inside the open sheet. When
+            // a notification request is about to run, its result callback asks instead.
+            LaunchedEffect(showExportSheet, exportKeepGps) {
+                if (showExportSheet && !notificationPermissionMissing()) {
+                    requestMediaLocationIfMissing()
                 }
             }
 
@@ -4395,6 +4435,19 @@ class MainActivity : ComponentActivity() {
                             }
                             status = ctx.getString(R.string.editor_status_grant_storage)
                             return@export
+                        }
+                        if (mediaLocationPermissionMissing()) {
+                            // Not a block: the file can still be written, it just cannot
+                            // carry GPS. Say so once and proceed; readSourceExif falls back
+                            // to the redacted stream. No permission dialog here either — a
+                            // system dialog over the render is the focus-loss cost the
+                            // notification comment above measured (§15.1).
+                            scope.launch {
+                                snackbarHost.currentSnackbarData?.dismiss()
+                                snackbarHost.showSnackbar(
+                                    ctx.getString(R.string.editor_snack_export_without_gps),
+                                )
+                            }
                         }
                         val e = engine
                         if (e != null) {
