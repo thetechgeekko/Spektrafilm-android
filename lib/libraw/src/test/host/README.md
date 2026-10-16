@@ -17,7 +17,12 @@ all three public stages (and the wavelet path when OpenMP is available). A
 compile-time and runtime assertion prevents a 0.21.x library from satisfying
 the test. The production-wrapper CTest also exercises the 64 MiB encoded-input,
 128 MiB raw-store, 12/8 MiPixel, ActiveArea, DefaultScale, ICC, and cumulative
-metadata guards with positive controls.
+metadata guards with positive controls. Its fd snapshot cases additionally cover
+encoded data beyond 64 MiB (the actual sensor strip is relocated past that
+offset), byte-identical RGB against buffer decode, the 512 MiB ceiling on
+64-bit, source/scratch alias rejection, truncation, cancellation before and
+during pipe input, and duplicate-fd/mapping cleanup. The 32-bit snapshot path
+retains the 64 MiB ceiling.
 
 The same CTest project runs `sfraw.raw-wb.cat02-exact-bits`. Its fixture header
 is generated in the build directory from

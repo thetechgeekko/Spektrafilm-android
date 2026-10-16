@@ -12,10 +12,16 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -41,6 +47,31 @@ std::string describe(const spectrafilm::DecodeResult& result) {
   return "status=" + std::to_string(result.status) +
          " libraw=" + std::to_string(result.librawCode) +
          " error=" + result.error;
+}
+
+int openFdCount() {
+  DIR* directory = ::opendir("/proc/self/fd");
+  if (!directory) return -1;
+  int count = 0;
+  while (::readdir(directory)) ++count;
+  ::closedir(directory);
+  return count;
+}
+
+int mappingsForInode(ino_t inode) {
+  std::ifstream maps("/proc/self/maps");
+  if (!maps) return -1;
+  int count = 0;
+  std::string line;
+  while (std::getline(maps, line)) {
+    std::istringstream fields(line);
+    std::string address, permissions, offset, device;
+    unsigned long long mappedInode = 0;
+    if (fields >> address >> permissions >> offset >> device >> mappedInode) {
+      if (mappedInode == static_cast<unsigned long long>(inode)) ++count;
+    }
+  }
+  return count;
 }
 
 }  // namespace
@@ -135,6 +166,185 @@ int main() {
             "decodeFromFd retains caller ownership after limit rejection");
     }
     std::fclose(oversizedFile);
+  }
+
+  // Relocate a valid DNG's actual sensor strip beyond 64 MiB: success requires
+  // reading past the old boundary, not merely accepting irrelevant padding.
+  {
+    const auto smallDng = sfraw::hosttest::makeValidUncompressedDng(32U, 32U);
+    const auto expected = spectrafilm::decodeFromBuffer(
+        smallDng.data(), smallDng.size(), options);
+    FILE* source = std::tmpfile();
+    FILE* scratch = std::tmpfile();
+    check(source != nullptr && scratch != nullptr && expected.ok,
+          "valid padded-DNG fixtures and baseline are available",
+          describe(expected));
+    if (source && scratch && expected.ok) {
+      const int sourceFd = ::fileno(source);
+      const int scratchFd = ::fileno(scratch);
+      auto relocated = smallDng;
+      size_t stripField = 0;
+      const unsigned entryCount = smallDng[8] | (unsigned(smallDng[9]) << 8);
+      for (unsigned i = 0; i < entryCount; ++i) {
+        const size_t entry = 10U + i * 12U;
+        if (smallDng[entry] == 0x11 && smallDng[entry + 1] == 0x01) stripField = entry + 8;
+      }
+      check(stripField != 0, "fixture has one inline StripOffsets entry");
+      uint32_t originalStrip = 0;
+      const uint32_t relocatedStrip = static_cast<uint32_t>(kEncodedInputLimit + 4096U);
+      for (unsigned byte = 0; byte < 4; ++byte) {
+        originalStrip |= uint32_t(smallDng[stripField + byte]) << (8 * byte);
+        relocated[stripField + byte] = static_cast<uint8_t>(relocatedStrip >> (8 * byte));
+      }
+      const size_t stripBytes = smallDng.size() - originalStrip;
+      const size_t paddedSize = relocatedStrip + stripBytes;
+      const bool prepared = std::fwrite(relocated.data(), 1, relocated.size(),
+                                        source) == relocated.size() &&
+          std::fflush(source) == 0 &&
+          ::ftruncate(sourceFd, static_cast<off_t>(paddedSize)) == 0 &&
+          ::pwrite(sourceFd, smallDng.data() + originalStrip, stripBytes,
+                   static_cast<off_t>(relocatedStrip)) == static_cast<ssize_t>(stripBytes) &&
+          ::lseek(sourceFd, 0, SEEK_SET) == 0;
+      check(prepared, "sparse valid DNG exceeds buffered input limit");
+      if (prepared) {
+        options.inputScratchFd = scratchFd;
+        const auto actual = spectrafilm::decodeFromFd(sourceFd, options);
+        const bool samePixels = actual.ok &&
+            actual.rgb.size() == expected.rgb.size() &&
+            std::memcmp(actual.rgb.data(), expected.rgb.data(),
+                        expected.rgb.size() * sizeof(float)) == 0;
+        check(sizeof(void*) >= 8
+                  ? samePixels && actual.width == expected.width && actual.height == expected.height
+                  : !actual.ok && actual.status == spectrafilm::SFRAW_ERR_INPUT,
+              "sensor strip beyond 64 MiB matches buffer decode exactly (or 32-bit cap)",
+              describe(actual));
+        struct stat sourceStat{}, scratchStat{};
+        check(::fstat(sourceFd, &sourceStat) == 0 &&
+                  ::fstat(scratchFd, &scratchStat) == 0 &&
+                  static_cast<size_t>(sourceStat.st_size) == paddedSize &&
+                  static_cast<size_t>(scratchStat.st_size) == (sizeof(void*) >= 8 ? paddedSize : 0U),
+              "decode retains caller descriptors and source contents");
+        options.inputScratchFd = -1;
+      }
+    }
+    if (source) std::fclose(source);
+    if (scratch) std::fclose(scratch);
+  }
+
+  {
+    FILE* source = std::tmpfile();
+    FILE* scratch = std::tmpfile();
+    check(source != nullptr && scratch != nullptr,
+          "scratch limit fixtures are available");
+    if (source && scratch) {
+      const int sourceFd = ::fileno(source);
+      const int scratchFd = ::fileno(scratch);
+      constexpr size_t kScratchLimit = sizeof(void*) >= 8
+          ? 512U * 1024U * 1024U : 64U * 1024U * 1024U;
+      const bool prepared = ::ftruncate(
+          sourceFd, static_cast<off_t>(kScratchLimit + 1U)) == 0;
+      check(prepared, "sparse source above scratch cap is available");
+      if (prepared) {
+        options.inputScratchFd = scratchFd;
+        const auto capped = spectrafilm::decodeFromFd(sourceFd, options);
+        struct stat sourceStat{}, scratchStat{};
+        check(!capped.ok && capped.status == spectrafilm::SFRAW_ERR_INPUT &&
+                  ::fstat(sourceFd, &sourceStat) == 0 &&
+                  ::fstat(scratchFd, &scratchStat) == 0 &&
+                  static_cast<size_t>(sourceStat.st_size) == kScratchLimit + 1U &&
+                  scratchStat.st_size == 0,
+              "scratch cap rejects known large file before copying or truncating source",
+              describe(capped));
+        options.inputScratchFd = sourceFd;
+        const auto sameFile = spectrafilm::decodeFromFd(sourceFd, options);
+        check(!sameFile.ok && sameFile.status == spectrafilm::SFRAW_ERR_INPUT &&
+                  ::fstat(sourceFd, &sourceStat) == 0 &&
+                  static_cast<size_t>(sourceStat.st_size) == kScratchLimit + 1U,
+              "source passed as scratch is rejected without truncation",
+              describe(sameFile));
+        options.inputScratchFd = -1;
+      }
+    }
+    if (source) std::fclose(source);
+    if (scratch) std::fclose(scratch);
+  }
+
+  {
+    FILE* source = std::tmpfile();
+    FILE* scratch = std::tmpfile();
+    if (source && scratch) {
+      const auto dng = sfraw::hosttest::makeValidUncompressedDng(32U, 32U);
+      const bool prepared = std::fwrite(dng.data(), 1, 32U, source) == 32U &&
+                            std::fflush(source) == 0 &&
+                            ::lseek(::fileno(source), 0, SEEK_SET) == 0;
+      check(prepared, "truncated DNG fixture is available");
+      if (prepared) {
+        options.inputScratchFd = ::fileno(scratch);
+        struct stat scratchStat{};
+        const bool statOk = ::fstat(::fileno(scratch), &scratchStat) == 0;
+        const int beforeFds = openFdCount();
+        const int beforeMappings = statOk ? mappingsForInode(scratchStat.st_ino) : -1;
+        const auto truncated = spectrafilm::decodeFromFd(::fileno(source), options);
+        check(!truncated.ok && ::fcntl(::fileno(source), F_GETFD) >= 0 &&
+                  ::fcntl(::fileno(scratch), F_GETFD) >= 0 &&
+                  beforeFds >= 0 && openFdCount() == beforeFds &&
+                  beforeMappings >= 0 &&
+                  mappingsForInode(scratchStat.st_ino) == beforeMappings,
+              "truncated input releases duplicate fds and mapping",
+              describe(truncated));
+        std::atomic<bool> stop{true};
+        options.cancelFlag = &stop;
+        const auto cancelledFd = spectrafilm::decodeFromFd(::fileno(source), options);
+        check(!cancelledFd.ok &&
+                  cancelledFd.status == spectrafilm::SFRAW_ERR_CANCELLED,
+              "scratch-backed fd honors cancellation", describe(cancelledFd));
+        options.cancelFlag = nullptr;
+        options.inputScratchFd = -1;
+      }
+    }
+    if (source) std::fclose(source);
+    if (scratch) std::fclose(scratch);
+  }
+
+  // Cancellation after at least one chunk reached scratch, with a nonseekable
+  // input. Closing the writer releases a pending read (the same cooperative
+  // cancellation limitation as the legacy fd reader).
+  {
+    int pipeFds[2] = {-1, -1};
+    FILE* scratch = std::tmpfile();
+    const bool ready = ::pipe(pipeFds) == 0 && scratch != nullptr;
+    check(ready, "pipe snapshot cancellation fixture is available");
+    if (ready) {
+      std::atomic<bool> cancelCopy{false};
+      options.cancelFlag = &cancelCopy;
+      options.inputScratchFd = ::fileno(scratch);
+      spectrafilm::DecodeResult cancelledCopy;
+      std::thread reader([&] { cancelledCopy = spectrafilm::decodeFromFd(pipeFds[0], options); });
+      const std::array<uint8_t, 1024> firstChunk{};
+      const bool wrote = ::write(pipeFds[1], firstChunk.data(), firstChunk.size()) ==
+                         static_cast<ssize_t>(firstChunk.size());
+      bool observedCopy = false;
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (std::chrono::steady_clock::now() < deadline) {
+        struct stat status{};
+        if (::fstat(::fileno(scratch), &status) == 0 && status.st_size > 0) {
+          observedCopy = true;
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      cancelCopy.store(true, std::memory_order_release);
+      ::close(pipeFds[1]); pipeFds[1] = -1;
+      reader.join();
+      check(wrote && observedCopy && !cancelledCopy.ok &&
+                cancelledCopy.status == spectrafilm::SFRAW_ERR_CANCELLED,
+            "in-flight nonseekable snapshot returns cancellation", describe(cancelledCopy));
+      options.cancelFlag = nullptr;
+      options.inputScratchFd = -1;
+    }
+    if (pipeFds[0] >= 0) ::close(pipeFds[0]);
+    if (pipeFds[1] >= 0) ::close(pipeFds[1]);
+    if (scratch) std::fclose(scratch);
   }
 
   const std::vector<std::uint8_t> adobeDeflate =

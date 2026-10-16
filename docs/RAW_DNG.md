@@ -281,10 +281,18 @@ Source EXIF carry-through currently applies to JPEG; do not infer all-format met
 ## Large files: proxy decode and off-heap buffers
 
 The app separates an interactive cap (`MAX_EDGE_PX`, 2048 px, in `ImagePipeline.kt`) from an
-export cap (`EXPORT_MAX_EDGE_PX`, 16384 px). Four mechanisms make 50-200 MB RAWs load and export
-without exhausting the ~256 MB managed heap:
+export cap (`EXPORT_MAX_EDGE_PX`, 16384 px). These are output targets; native admission
+still limits input geometry to 12 MiPixels on 64-bit / 8 MiPixels on 32-bit and
+LibRaw's raw store to 128 MiB. The following mechanisms reduce managed-heap pressure
+for admitted inputs:
 
 1. **Decode from the file descriptor**, never through a full-file `byte[]`.
+   The app copies encoded bytes in 64 KiB chunks to an unlinked private cache file
+   and passes a read-only mapping through the existing native preflight and LibRaw
+   path. The encoded ceiling is 512 MiB on 64-bit / 64 MiB on 32-bit. This requires
+   temporary disk space; it does not remove decoded-memory or geometry limits.
+   Buffer/stream APIs and the legacy fd overload retain their 64 MiB ceiling.
+   See [large RAW input](research/large-raw-input.md) for validation and tradeoffs.
 2. **Half-size decode for interactive targets.** Any target at or below
    `HALF_DECODE_EDGE_THRESHOLD` (4096 px, `EngineHelpers.kt`) asks LibRaw for a half-size decode
    (each Bayer 2x2 averaged into one pixel: a quarter of the pixels and of the native float buffer),

@@ -251,17 +251,24 @@ This module deliberately uses `RawDecoderBoundaryInstrumentation`, a small custo
 instrumentation runner, instead of exposing JUnit test cases. Android Gradle Plugin's
 UTP summary therefore reports `0 tests`; that count is not the acceptance marker.
 The generated `testlog/test-results.log` must contain both
-`INSTRUMENTATION_RESULT: stream=OK (8 tests)` and `INSTRUMENTATION_CODE: -1`.
+`INSTRUMENTATION_RESULT: stream=OK (11 tests)` and `INSTRUMENTATION_CODE: -1`.
 Any other stream, code, missing log, install failure, or zero-test summary without
 those two exact instrumentation markers is a failed gate.
 
 ## Half-size (proxy) decode — memory and performance option
 
-The current decoder is deliberately fail-closed before unpack: encoded input is
-limited to 64 MiB, LibRaw's raw store to 128 MiB, and declared/ActiveArea/
-DefaultScale geometry to 12 MiPixels on 64-bit or 8 MiPixels on 32-bit. Files
-above that geometry would need a seekable/tiled design, which no ticket tracks today;
-`halfSize` does not bypass this gate because some layouts ignore the request.
+The app's file-descriptor path snapshots encoded input into an unlinked private
+cache file and decodes a read-only mapping, with a 512 MiB input ceiling on
+64-bit and 64 MiB on 32-bit. The three-argument fd overload, InputStream,
+ByteArray, and ByteBuffer paths retain their 64 MiB in-memory ceiling.
+
+LibRaw's raw store remains limited to 128 MiB, and declared/ActiveArea/
+DefaultScale geometry to 12 MiPixels on 64-bit or 8 MiPixels on 32-bit.
+`halfSize` does not bypass these independent guards because some layouts ignore
+the request. A larger encoded file is not permission to decode a larger frame.
+The snapshot requires temporary disk space and adds file I/O; mapped pages can
+still contribute to memory pressure. See [large RAW input](../../docs/research/large-raw-input.md)
+for the ownership contract, limits, and validation.
 
 `RawDecoder.Settings` exposes a `halfSize: Boolean` flag (default `false`):
 

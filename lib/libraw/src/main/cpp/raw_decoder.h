@@ -85,6 +85,14 @@ struct DecodeOptions {
     // polls before and after those noninterruptible phases and throughout its own
     // fd-read, copy, adaptation, and colour-conversion loops.
     const std::atomic<bool>* cancelFlag = nullptr;
+
+    // Optional caller-owned, private, empty, unlinked temporary regular file
+    // opened O_RDWR. With a valid fd, decodeFromFd copies the source into this
+    // file (512 MiB maximum on 64-bit, 64 MiB on 32-bit), then decodes a
+    // read-only private mapping. The caller must keep it open and unchanged
+    // until decodeFromFd returns; the decoder duplicates it and never closes
+    // the caller's descriptor. -1 keeps the legacy 64 MiB buffered path.
+    int inputScratchFd = -1;
 };
 
 // Stable decode status codes. These cross to Kotlin (RawDecoder.DecodeStatus)

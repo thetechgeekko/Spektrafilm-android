@@ -356,7 +356,9 @@ private fun decodeRawFromFd(
         ?: error("Could not open RAW file")
     var decoded: LinearResult? = null
     try {
-        decoded = RawDecoder.decodeToLinear(descriptor.fd, settings, cancellation)
+        decoded = RawDecoder.decodeToLinear(
+            descriptor.fd, settings, cancellation, scratchDirectory = ctx.cacheDir,
+        )
         descriptor.close()
         return decoded
     } catch (failure: Throwable) {

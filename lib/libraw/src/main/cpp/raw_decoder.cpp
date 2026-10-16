@@ -21,6 +21,7 @@
  */
 #include "raw_decoder.h"
 #include "fd_read_all.h"
+#include "raw_input_snapshot.h"
 
 #include <algorithm>
 #include <array>
@@ -1134,9 +1135,8 @@ namespace {
 // unsuitable for an Android process. Patch 0004 separately bounds identify-time
 // metadata at compile time. Ticket #173 owns a future device-class/tiled policy.
 constexpr unsigned kMaxRawMemoryMb = 128;
-// Immediate safety ceiling for the current in-memory decoder. Ticket #173
-// replaces the fd slurp with a seekable/tiled datastream before larger future
-// RAWs can be admitted without making encoded bytes an unbounded allocation.
+// Buffer input and the legacy fd fallback remain bounded at 64 MiB. The
+// optional scratch snapshot has its own architecture-dependent encoded limit.
 constexpr size_t kMaxEncodedInputBytes = 64U * 1024U * 1024U;
 // LibRaw's raw-store budget does not include every later dcraw_process(),
 // dcraw_make_mem_image(), and float-result allocation. Bound metadata-declared
@@ -2450,6 +2450,46 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
         result.status = SFRAW_ERR_INPUT;
         result.error = "invalid file descriptor";
         return result;
+    }
+    if (options.inputScratchFd >= 0) {
+        // Declaration order matters: LibRaw may retain open_buffer pointers,
+        // so its destructor must run before the mapped snapshot is unmapped.
+        RawInputSnapshot snapshot;
+        const auto ioAt = std::chrono::steady_clock::now();
+        if (!snapshot.load(fd, options.inputScratchFd, options, &result))
+            return result;
+        const double inputIoMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - ioAt).count();
+        const uint8_t* data = snapshot.data();
+        const size_t length = snapshot.size();
+        if (!preflightLibRawOpen(data, length, &result)) return result;
+        LibRaw raw;
+        applyInputLimits(raw);
+        applyCancellationHandler(raw, options);
+        const auto openAt = std::chrono::steady_clock::now();
+#if defined(SFRAW_TESTING)
+        sfraw::test::notifyLibRawOpenAttemptForTest();
+#endif
+        const int rc = raw.open_buffer(const_cast<uint8_t*>(data), length);
+        const double openMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - openAt).count();
+        if (rc == LIBRAW_CANCELLED_BY_CALLBACK) return cancellationFailure(rc);
+        if (cancellationRequested(options)) return cancellationFailure();
+        if (rc != LIBRAW_SUCCESS) {
+            result.librawCode = rc;
+            const int codecFallback = dngsniff::classifyOpenFailure(data, length);
+            result.status = isMemoryLimitFailure(rc) ? SFRAW_ERR_NO_MEMORY
+                : (codecFallback != SFRAW_ERR_UNPACK ? codecFallback
+                : (rc == LIBRAW_FILE_UNSUPPORTED ? SFRAW_ERR_FILE_UNSUPPORTED
+                                                  : SFRAW_ERR_OPEN));
+            result.error = std::string("LibRaw open_buffer() failed: ") +
+                           libraw_strerror(rc) + " (unsupported or corrupt RAW)";
+            return result;
+        }
+        if (declaredDecodeDimensionsExceedLimit(raw, options))
+            return dimensionLimitFailure(options);
+        return finishDecode(raw, options, data, length, decodeStartedAt,
+                            inputIoMs, openMs);
     }
     LibRaw raw;
     applyInputLimits(raw);
