@@ -102,26 +102,31 @@ fun decodeRawToLinear(
     cancellation: RawDecodeCancellation? = null,
     memoryDegraded: AtomicBoolean? = null,
 ): LinearImage {
-    // Issue #7 mitigation: even with the fd decode (no full-file Java byte[]), LibRaw
-    // still expands the RAW to a float32 buffer (12 bytes/px) natively. For preview-scale
-    // targets we cut that 4x up front with a half-size decode (the proxy); for export we
-    // start full-res and only fall back to half on OOM. The retry ladder then (1) flips to
-    // a half-size decode if a full-res one OOMs, and (2) shrinks the output cap, so a
-    // borderline device still yields a usable image rather than crashing.
+    return decodeRawWithMemoryFallback(maxEdge, memoryDegraded) { edge, halfSize ->
+        decodeRawAtEdge(ctx, uri, wb, temperatureK, tint, edge, halfSize, cancellation)
+    }
+}
+
+/**
+ * Native allocation/admission failures are typed RawDecodeExceptions, not JVM
+ * OutOfMemoryErrors. Retry full decode once with half-size output; an already
+ * reduced typed failure must propagate instead of repeatedly copying the RAW.
+ * Every retry sets [memoryDegraded]: the result is then smaller than asked for.
+ */
+internal fun <T> decodeRawWithMemoryFallback(
+    maxEdge: Int,
+    memoryDegraded: AtomicBoolean? = null,
+    decode: (edge: Int, halfSize: Boolean) -> T,
+): T {
     var attemptEdge = maxEdge.coerceAtLeast(MIN_RAW_FALLBACK_EDGE)
     var halfSize = maxEdge <= HALF_DECODE_EDGE_THRESHOLD
     while (true) {
         try {
-            return decodeRawAtEdge(
-                ctx,
-                uri,
-                wb,
-                temperatureK,
-                tint,
-                attemptEdge,
-                halfSize,
-                cancellation,
-            )
+            return decode(attemptEdge, halfSize)
+        } catch (failure: RawDecodeException) {
+            if (failure.status != DecodeStatus.NO_MEMORY || halfSize) throw failure
+            memoryDegraded?.set(true)
+            halfSize = true
         } catch (oom: OutOfMemoryError) {
             // Whatever this ladder returns now is smaller than asked for; callers that
             // persist the result (#288's disk cache) must not store it as the full decode.
@@ -129,14 +134,10 @@ fun decodeRawToLinear(
             // Encourage the collector to reclaim the failed transient before retrying.
             System.gc()
             if (!halfSize) {
-                // First fallback: halve the native decode (1/4 the memory) before shrinking
-                // the output — preserves more output resolution than dropping the cap would.
                 halfSize = true
                 continue
             }
             if (attemptEdge <= MIN_RAW_FALLBACK_EDGE) {
-                // Out of headroom even at the smallest cap: surface a clear, catchable error
-                // (the caller's runCatching turns this into a user-visible status, not a crash).
                 throw RuntimeException(
                     "Not enough memory to decode this RAW file (too large for this device).", oom,
                 )

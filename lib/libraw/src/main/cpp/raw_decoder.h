@@ -58,16 +58,17 @@ struct DecodeOptions {
     //   * Decode is substantially faster (no demosaic, smaller copy).
     // Tradeoffs:
     //   * Lower quality: colour at each output pixel is a simple 2×2 average, not
-    //     a full-neighbourhood interpolation — fine for a proxy/preview, not for
-    //     export or spectral processing.
+    //     a full-neighbourhood interpolation. Reduced exports trade source detail
+    //     for bounded memory and must not be presented as full resolution.
     //   * `result.width` and `result.height` will be approximately half the values
     //     reported by LibRaw for the full-res image (LibRaw updates imgdata.sizes
     //     accordingly; `dcraw_make_mem_image` reports the post-process dimensions).
     //
-    // The current in-memory safety gate is evaluated before unpack and remains
-    // 12 MiPixels on 64-bit / 8 MiPixels on 32-bit even in half-size mode;
-    // non-Bayer layouts may ignore half_size. Ticket #173 owns tiled high-MP decode.
-    // Default false requests full-resolution output within those limits.
+    // The processed-image limit remains 8/12/24/32 MiPixels according to
+    // device RAM. On the 32 MiPixel device tier, a qualified single-plane
+    // Bayer half-size decode may admit up to 128 MiPixels of sensor geometry;
+    // its unpacked RAW store remains bounded separately. Other layouts retain
+    // the ordinary geometry limit. Default false requests full resolution.
     bool halfSize = false;
 
     // Hard cap on the output's longest edge (pixels). 0 = no cap. When > 0 and the

@@ -282,9 +282,8 @@ Source EXIF carry-through currently applies to JPEG; do not infer all-format met
 
 The app separates an interactive cap (`MAX_EDGE_PX`, 2048 px, in `ImagePipeline.kt`) from an
 export cap (`EXPORT_MAX_EDGE_PX`, 16384 px). These are output targets; native admission
-still limits input geometry to 12 MiPixels on 64-bit / 8 MiPixels on 32-bit and
-LibRaw's raw store to 128 MiB. The following mechanisms reduce managed-heap pressure
-for admitted inputs:
+uses the device-RAM tiers and qualified Bayer exception described below. The
+following mechanisms reduce managed-heap pressure for admitted inputs:
 
 1. **Decode from the file descriptor**, never through a full-file `byte[]`.
    The app copies encoded bytes in 64 KiB chunks to an unlinked private cache file
@@ -296,15 +295,40 @@ for admitted inputs:
 2. **Half-size decode for interactive targets.** Any target at or below
    `HALF_DECODE_EDGE_THRESHOLD` (4096 px, `EngineHelpers.kt`) asks LibRaw for a half-size decode
    (each Bayer 2x2 averaged into one pixel: a quarter of the pixels and of the native float buffer),
-   then box-downsamples to `maxEdge`. Export-scale targets decode at full resolution.
-3. **A graceful OOM ladder.** If a full-resolution export decode fails, the retry first switches to
-   a half-size decode, then shrinks the output cap, then surfaces a catchable error instead of
-   crashing.
+   then box-downsamples to `maxEdge`. Export-scale targets first request full resolution.
+3. **A bounded memory fallback.** Native `NO_MEMORY` failures retry a full-resolution
+   request once with half-size output. An already reduced native failure, corruption,
+   unsupported input, or cancellation propagates immediately. JVM allocation failures
+   retain the existing half-size/output-cap ladder. The export label says maximum
+   available resolution because the result can be smaller than the source.
 4. **Export-scale pixels live off the managed heap.** `ByteBuffer.allocateDirect` is backed by a
    non-movable `byte[]` on the ART heap, so the RAW decode result (`raw_decoder_jni.cpp`) and the
    engine output (`spektra_jni.cpp`) are allocated with `malloc` + `NewDirectByteBuffer` and freed
    explicitly through `LinearImage` / `SimResult` (`AutoCloseable`). Preview-scale buffers stay
    managed so the preview cache lifecycle is unchanged.
+
+Native full-resolution decode admission also checks declared, adjusted, and
+processed geometry against one pixel limit chosen at the start of each decode.
+The limit is 8 MiPixels on 32-bit devices. On 64-bit devices it is 12 MiPixels
+by default, 24 MiPixels with at least 6 GiB total and 2 GiB available RAM, or
+32 MiPixels with at least 8 GiB total and 3 GiB available RAM. Missing or
+inconsistent memory information keeps the 12 MiPixel baseline. The 32 MiPixel
+ceiling is 33,554,432 pixels; it is a budget threshold, not evidence that a
+33-megapixel camera file has passed device testing.
+
+On the 32 MiPixel tier only, a half-size request can admit a qualified three-color
+Bayer source up to 128 MiPixels (134,217,728 pixels), including margins. Padded
+half-size and aspect-adjusted output must still fit 32 MiPixels. These large
+requests receive a 320 MiB LibRaw raw-store cap instead of 128 MiB. After unpack,
+the geometry/layout that LibRaw restores for processing is checked again, including
+a single integer RAW plane. X-Trans, linear, rotated Fuji and multi-plane layouts
+do not receive this exception. Full-size 102 MP output remains rejected.
+
+Encoded-input caps remain independent: 512 MiB for the 64-bit private snapshot,
+64 MiB for 32-bit and the legacy buffer/stream/fd paths. This heuristic governs
+RAW decode admission only; it does not reserve memory or guarantee later engine
+and export allocations. See [large Bayer input](research/large-bayer-half-decode.md)
+for evidence and limitations.
 
 The original study behind this (Lightroom's `libLrAndroid.so` evidence, `RESEARCH_BIG_FILES.md`)
 was removed from the tree on 2026-09-14; git history keeps it.

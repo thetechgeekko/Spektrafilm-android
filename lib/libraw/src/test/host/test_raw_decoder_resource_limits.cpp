@@ -3,6 +3,7 @@
  * Copyright (C) 2026 Spektrafilm Android contributors. GPLv3.
  */
 #include "public_api_test_support.h"
+#include "raw_decode_budget.h"
 #include "raw_decoder.h"
 
 #include <libraw/libraw.h>
@@ -77,6 +78,68 @@ int mappingsForInode(ino_t inode) {
 }  // namespace
 
 int main() {
+  constexpr std::uint64_t kMiB = 1024ULL * 1024ULL;
+  constexpr std::uint64_t kGiB = 1024ULL * kMiB;
+  check(spectrafilm::decodePixelLimitForMemory(false, 16 * kGiB,
+                                                12 * kGiB) == 8 * kMiB,
+        "32-bit decoder keeps the 8 MiPixel ceiling");
+  check(spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
+                                                3 * kGiB) == 32 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB - 1,
+                                                     3 * kGiB) == 24 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
+                                                     3 * kGiB - 1) == 24 * kMiB,
+        "32 MiPixel tier requires both memory thresholds");
+  check(spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB,
+                                                2 * kGiB) == 24 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB - 1,
+                                                     2 * kGiB) == 12 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB,
+                                                     2 * kGiB - 1) == 12 * kMiB,
+        "24 MiPixel tier requires both memory thresholds");
+  check(spectrafilm::decodePixelLimitForMemory(true, 0, 0) == 12 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 0,
+                                                     3 * kGiB) == 12 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
+                                                     0) == 12 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB,
+                                                     6 * kGiB + 1) == 12 * kMiB,
+        "missing or inconsistent memory telemetry retains the baseline");
+  check(spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
+                                                2 * kGiB - 1) == 12 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 16 * kGiB,
+                                                     3 * kGiB - 1) == 24 * kMiB,
+        "extra total RAM cannot replace the available-RAM thresholds");
+
+  using spectrafilm::DecodeGeometry;
+  const DecodeGeometry gfx100{11648, 8736, 11648, 8736, 0, 0, 1.0};
+  const auto allowed = [](const DecodeGeometry& geometry,
+                          std::uint64_t cap, bool half, unsigned filters,
+                          unsigned colors, unsigned fuji, bool rawPlane) {
+    return spectrafilm::qualifiedLargeBayerHalfGeometry(
+        geometry, cap, half, filters, colors, fuji, rawPlane);
+  };
+  check(allowed(gfx100, 32 * kMiB, true, 0x94949494U, 3, 0, true),
+        "102 MP Bayer admits a bounded half-size decode");
+  check(!allowed(gfx100, 32 * kMiB, false, 0x94949494U, 3, 0, true) &&
+            !allowed(gfx100, 24 * kMiB, true, 0x94949494U, 3, 0, true) &&
+            !allowed(gfx100, 8 * kMiB, true, 0x94949494U, 3, 0, true),
+        "full-size and lower RAM tiers cannot use large-Bayer admission");
+  check(!allowed(gfx100, 32 * kMiB, true, 9, 3, 0, true) &&
+            !allowed(gfx100, 32 * kMiB, true, 0, 3, 0, true) &&
+            !allowed(gfx100, 32 * kMiB, true, UINT32_MAX, 3, 0, true) &&
+            !allowed(gfx100, 32 * kMiB, true, 0x94949494U, 4, 0, true) &&
+            !allowed(gfx100, 32 * kMiB, true, 0x94949494U, 3, 1, true) &&
+            !allowed(gfx100, 32 * kMiB, true, 0x94949494U, 3, 0, false),
+        "X-Trans, linear, unknown, rotated and multi-plane RAW reject expansion");
+  check(!allowed({13000, 11000, 13000, 11000, 0, 0, 1.0},
+                 32 * kMiB, true, 0x94949494U, 3, 0, true) &&
+            !allowed({12000, 10000, 12000, 10000, 0, 0, 0.5},
+                     32 * kMiB, true, 0x94949494U, 3, 0, true) &&
+            !allowed({12000, 10000, 12000, 10000, UINT64_MAX, 0, 1.0},
+                     32 * kMiB, true, 0x94949494U, 3, 0, true),
+        "source area, aspect expansion and margin overflow remain bounded");
+
   spectrafilm::DecodeOptions options;
 
   std::atomic<bool> preCancelled{true};
