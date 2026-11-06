@@ -30,7 +30,7 @@ enum class ThemeMode(val display: String) {
 class AppSettings private constructor(
     private val prefs: SharedPreferences,
     private val appContext: Context,
-) {
+) : SettingsStore {
 
     var seenOnboarding: Boolean
         get() = prefs.getBoolean(KEY_SEEN_ONBOARDING, false)
@@ -163,7 +163,7 @@ class AppSettings private constructor(
      *
      * Defaults to [DRAFT_RENDER_MAX_PX], so an untouched install renders as before.
      */
-    var draftRenderMaxPx: Int
+    override var draftRenderMaxPx: Int
         get() = prefs.getInt(KEY_DRAFT_MAX_PX, DRAFT_RENDER_MAX_PX).coerceIn(128, 512)
         set(v) { prefs.edit().putInt(KEY_DRAFT_MAX_PX, v.coerceIn(128, 512)).apply() }
 
@@ -173,7 +173,7 @@ class AppSettings private constructor(
      * draft size; an install that already set one keeps it (auto off) until the user
      * turns Auto on.
      */
-    var draftRenderAuto: Boolean
+    override var draftRenderAuto: Boolean
         get() = prefs.getBoolean(KEY_DRAFT_AUTO, !prefs.contains(KEY_DRAFT_MAX_PX))
         set(v) { prefs.edit().putBoolean(KEY_DRAFT_AUTO, v).apply() }
 
@@ -190,7 +190,7 @@ class AppSettings private constructor(
         if (after != before) Diag.i("auto draft edge $before -> $after (draft ${elapsedMs}ms at $edge)")
     }
 
-    var theme: ThemeMode
+    override var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
             .getOrDefault(ThemeMode.SYSTEM)
         set(v) { prefs.edit().putString(KEY_THEME, v.name).apply() }
@@ -200,16 +200,16 @@ class AppSettings private constructor(
      * the platform's own default behaviour; the stored value is still honoured on devices that
      * cannot do it, so toggling it on an older phone is remembered rather than silently discarded.
      */
-    var dynamicColor: Boolean
+    override var dynamicColor: Boolean
         get() = prefs.getBoolean(KEY_DYNAMIC_COLOR, true)
         set(v) { prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, v).apply() }
 
-    var defaultOutputColorSpace: ColorSpace
+    override var defaultOutputColorSpace: ColorSpace
         get() = runCatching { ColorSpace.valueOf(prefs.getString(KEY_OUTPUT_CS, ColorSpace.SRGB.name)!!) }
             .getOrDefault(ColorSpace.SRGB)
         set(v) { prefs.edit().putString(KEY_OUTPUT_CS, v.name).apply() }
 
-    var previewMaxSize: Int
+    override var previewMaxSize: Int
         get() = prefs.getInt(KEY_PREVIEW_MAX, 640)
         set(v) { prefs.edit().putInt(KEY_PREVIEW_MAX, v).apply() }
 
@@ -218,7 +218,7 @@ class AppSettings private constructor(
      * screen ([autoPreviewEdges]). Defaults ON for installs that never chose a size; an
      * install that already set one keeps it (auto off) until the user turns Auto on.
      */
-    var previewMaxSizeAuto: Boolean
+    override var previewMaxSizeAuto: Boolean
         get() = prefs.getBoolean(KEY_PREVIEW_AUTO, !prefs.contains(KEY_PREVIEW_MAX))
         set(v) { prefs.edit().putBoolean(KEY_PREVIEW_AUTO, v).apply() }
 
@@ -229,20 +229,20 @@ class AppSettings private constructor(
     fun effectivePreviewMaxSize(): Int =
         if (previewMaxSizeAuto) autoPreviewEdges().previewEdge else previewMaxSize
 
-    var defaultFilmProfile: String
+    override var defaultFilmProfile: String
         get() = prefs.getString(KEY_FILM, "") ?: ""
         set(v) { prefs.edit().putString(KEY_FILM, v).apply() }
 
-    var defaultPrintProfile: String
+    override var defaultPrintProfile: String
         get() = prefs.getString(KEY_PRINT, "") ?: ""
         set(v) { prefs.edit().putString(KEY_PRINT, v).apply() }
 
-    var exportFormat: ExportFormat
+    override var exportFormat: ExportFormat
         get() = runCatching { ExportFormat.valueOf(prefs.getString(KEY_EXPORT_FMT, ExportFormat.PNG.name)!!) }
             .getOrDefault(ExportFormat.PNG)
         set(v) { prefs.edit().putString(KEY_EXPORT_FMT, v.name).apply() }
 
-    var exportQuality: Int
+    override var exportQuality: Int
         get() = prefs.getInt(KEY_EXPORT_Q, 95).coerceIn(1, 100)
         set(v) { prefs.edit().putInt(KEY_EXPORT_Q, v.coerceIn(1, 100)).apply() }
 
@@ -252,7 +252,7 @@ class AppSettings private constructor(
      * for a shareable photo app (security review F3). All other EXIF (camera/lens/
      * exposure/date) is always copied; this toggle only governs the GPS block.
      */
-    var exportKeepGps: Boolean
+    override var exportKeepGps: Boolean
         get() = prefs.getBoolean(KEY_EXPORT_KEEP_GPS, false)
         set(v) { prefs.edit().putBoolean(KEY_EXPORT_KEEP_GPS, v).apply() }
 
