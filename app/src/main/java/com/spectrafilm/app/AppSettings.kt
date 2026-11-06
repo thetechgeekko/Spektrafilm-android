@@ -222,7 +222,7 @@ class AppSettings private constructor(
         set(v) { prefs.edit().putBoolean(KEY_PREVIEW_AUTO, v).apply() }
 
     /** The device's auto edges (cached per process). */
-    fun autoPreviewEdges(): AutoPreviewEdges = AdaptivePreview.edges(appContext)
+    internal fun autoPreviewEdges(): AutoPreviewEdges = AdaptivePreview.edges(appContext)
 
     /** Preview edge a new editor session starts with. */
     fun effectivePreviewMaxSize(): Int =
