@@ -494,6 +494,20 @@ void spk_set_parallel_chunks_per_worker(int n);
  * the caller report whether the setting actually did anything on this device. */
 int spk_big_core_count(void);
 
+/* Release the GPU context's grow-only buffers and pipelines (#269). Call after a
+ * full-resolution export so its staging memory stops counting against the
+ * process memory budget. Output-neutral: everything is rebuilt lazily on the
+ * next GPU call. Returns 1 if anything was released, 0 if there was no GPU
+ * context (or Vulkan is compiled out, or a resident frame is open). */
+int spk_gpu_release_resources(void);
+
+/* Raw CPU topology for device-capability heuristics (issue #299), independent
+ * of the pinning policy and with no side effects on rendering. Writes up to
+ * `n` values into `out`: [0] cores, [1] big cores (max freq >= 0.80 * fastest),
+ * [2] fastest core max kHz, [3] sum of all cores' max kHz. 0 = unknown.
+ * Returns the number of values written. */
+int spk_cpu_topology(long long* out, int n);
+
 /* Per-stage/per-filter wall-clock breakdown of the last COMPLETE render on the
  * CURRENT CALLER THREAD, formatted as "stage=ms other=ms ..." (non-zero stages
  * only) into `buf` (capacity `cap`); returns bytes written. Call this on the

@@ -200,6 +200,9 @@ internal object ExportWorkRuntime {
                     cause = failure,
                 )
             }
+            // Before publishing, so a follow-up export the UI starts on the terminal
+            // transition already sees the budget without this one's GPU buffers (#269).
+            releaseGpuAfterFullResRender("export")
             publishFinished(runId, sourceIdentity, outcome)
         }
         activeJob = job

@@ -27,7 +27,10 @@ enum class ThemeMode(val display: String) {
  * Persisted application settings. Construct lazily via [AppSettings.from] (which caches
  * a single instance per process). All setters write through to SharedPreferences.
  */
-class AppSettings private constructor(private val prefs: SharedPreferences) {
+class AppSettings private constructor(
+    private val prefs: SharedPreferences,
+    private val appContext: Context,
+) : SettingsStore {
 
     var seenOnboarding: Boolean
         get() = prefs.getBoolean(KEY_SEEN_ONBOARDING, false)
@@ -160,11 +163,34 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      *
      * Defaults to [DRAFT_RENDER_MAX_PX], so an untouched install renders as before.
      */
-    var draftRenderMaxPx: Int
+    override var draftRenderMaxPx: Int
         get() = prefs.getInt(KEY_DRAFT_MAX_PX, DRAFT_RENDER_MAX_PX).coerceIn(128, 512)
         set(v) { prefs.edit().putInt(KEY_DRAFT_MAX_PX, v.coerceIn(128, 512)).apply() }
 
-    var theme: ThemeMode
+    /**
+     * Auto draft size (#299): start from the device tier and let [DraftEdgeCalibrator]
+     * move it from measured draft times. Defaults ON for installs that never chose a
+     * draft size; an install that already set one keeps it (auto off) until the user
+     * turns Auto on.
+     */
+    override var draftRenderAuto: Boolean
+        get() = prefs.getBoolean(KEY_DRAFT_AUTO, !prefs.contains(KEY_DRAFT_MAX_PX))
+        set(v) { prefs.edit().putBoolean(KEY_DRAFT_AUTO, v).apply() }
+
+    /** Draft edge to render at right now: calibrated when Auto, else the manual value. */
+    fun effectiveDraftEdge(): Int =
+        if (draftRenderAuto) AdaptivePreview.calibrator(appContext).edge else draftRenderMaxPx
+
+    /** Feed a completed draft's timing to the calibrator (no-op when Auto is off). */
+    fun recordDraftTiming(edge: Int, elapsedMs: Long) {
+        Diag.i("render mode=draft edge=$edge ${elapsedMs}ms auto=$draftRenderAuto")
+        if (!draftRenderAuto) return
+        val before = AdaptivePreview.calibrator(appContext).edge
+        val after = AdaptivePreview.calibrator(appContext).record(edge, elapsedMs)
+        if (after != before) Diag.i("auto draft edge $before -> $after (draft ${elapsedMs}ms at $edge)")
+    }
+
+    override var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
             .getOrDefault(ThemeMode.SYSTEM)
         set(v) { prefs.edit().putString(KEY_THEME, v.name).apply() }
@@ -174,33 +200,49 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      * the platform's own default behaviour; the stored value is still honoured on devices that
      * cannot do it, so toggling it on an older phone is remembered rather than silently discarded.
      */
-    var dynamicColor: Boolean
+    override var dynamicColor: Boolean
         get() = prefs.getBoolean(KEY_DYNAMIC_COLOR, true)
         set(v) { prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, v).apply() }
 
-    var defaultOutputColorSpace: ColorSpace
+    override var defaultOutputColorSpace: ColorSpace
         get() = runCatching { ColorSpace.valueOf(prefs.getString(KEY_OUTPUT_CS, ColorSpace.SRGB.name)!!) }
             .getOrDefault(ColorSpace.SRGB)
         set(v) { prefs.edit().putString(KEY_OUTPUT_CS, v.name).apply() }
 
-    var previewMaxSize: Int
+    override var previewMaxSize: Int
         get() = prefs.getInt(KEY_PREVIEW_MAX, 640)
         set(v) { prefs.edit().putInt(KEY_PREVIEW_MAX, v).apply() }
 
-    var defaultFilmProfile: String
+    /**
+     * Auto preview size (#299): pick the settle-preview edge from device RAM, CPU and
+     * screen ([autoPreviewEdges]). Defaults ON for installs that never chose a size; an
+     * install that already set one keeps it (auto off) until the user turns Auto on.
+     */
+    override var previewMaxSizeAuto: Boolean
+        get() = prefs.getBoolean(KEY_PREVIEW_AUTO, !prefs.contains(KEY_PREVIEW_MAX))
+        set(v) { prefs.edit().putBoolean(KEY_PREVIEW_AUTO, v).apply() }
+
+    /** The device's auto edges (cached per process). */
+    internal fun autoPreviewEdges(): AutoPreviewEdges = AdaptivePreview.edges(appContext)
+
+    /** Preview edge a new editor session starts with. */
+    fun effectivePreviewMaxSize(): Int =
+        if (previewMaxSizeAuto) autoPreviewEdges().previewEdge else previewMaxSize
+
+    override var defaultFilmProfile: String
         get() = prefs.getString(KEY_FILM, "") ?: ""
         set(v) { prefs.edit().putString(KEY_FILM, v).apply() }
 
-    var defaultPrintProfile: String
+    override var defaultPrintProfile: String
         get() = prefs.getString(KEY_PRINT, "") ?: ""
         set(v) { prefs.edit().putString(KEY_PRINT, v).apply() }
 
-    var exportFormat: ExportFormat
+    override var exportFormat: ExportFormat
         get() = runCatching { ExportFormat.valueOf(prefs.getString(KEY_EXPORT_FMT, ExportFormat.PNG.name)!!) }
             .getOrDefault(ExportFormat.PNG)
         set(v) { prefs.edit().putString(KEY_EXPORT_FMT, v.name).apply() }
 
-    var exportQuality: Int
+    override var exportQuality: Int
         get() = prefs.getInt(KEY_EXPORT_Q, 95).coerceIn(1, 100)
         set(v) { prefs.edit().putInt(KEY_EXPORT_Q, v.coerceIn(1, 100)).apply() }
 
@@ -210,7 +252,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      * for a shareable photo app (security review F3). All other EXIF (camera/lens/
      * exposure/date) is always copied; this toggle only governs the GPS block.
      */
-    var exportKeepGps: Boolean
+    override var exportKeepGps: Boolean
         get() = prefs.getBoolean(KEY_EXPORT_KEEP_GPS, false)
         set(v) { prefs.edit().putBoolean(KEY_EXPORT_KEEP_GPS, v).apply() }
 
@@ -221,7 +263,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
      */
     fun applyDefaultsTo(state: ParamsState, availableProfiles: List<String>) {
         state.outputColorSpace = defaultOutputColorSpace
-        state.previewMaxSize = previewMaxSize
+        state.previewMaxSize = effectivePreviewMaxSize()
         state.gpuEngine = gpuEngine
         state.gpuExport = gpuExportEngine
         if (defaultFilmProfile.isNotBlank() && defaultFilmProfile in availableProfiles) {
@@ -240,6 +282,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         private const val KEY_GPU_ENGINE = "gpu_engine_preview"
         private const val KEY_GPU_EXPORT = "gpu_engine_export"
         private const val KEY_DRAFT_MAX_PX = "draft_render_max_px"
+        private const val KEY_DRAFT_AUTO = "draft_render_auto"
         // Renamed from "big_cores". The old key must never be read again — see
         // clearLegacyBigCores(). This one exists only so an A/B can still be driven
         // from a shell without a UI; it is not a product setting.
@@ -249,6 +292,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_OUTPUT_CS = "output_color_space"
         private const val KEY_PREVIEW_MAX = "preview_max_size"
+        private const val KEY_PREVIEW_AUTO = "preview_max_size_auto"
         private const val KEY_FILM = "default_film_profile"
         private const val KEY_PRINT = "default_print_profile"
         private const val KEY_EXPORT_FMT = "export_format"
@@ -261,6 +305,7 @@ class AppSettings private constructor(private val prefs: SharedPreferences) {
             instance ?: synchronized(this) {
                 instance ?: AppSettings(
                     ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+                    ctx.applicationContext,
                 ).also { instance = it }
             }
     }
