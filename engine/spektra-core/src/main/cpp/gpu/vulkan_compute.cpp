@@ -82,6 +82,7 @@ bool render_pointwise_chain(const PointwiseChainRequest&, PointwiseChainOutput*,
 }
 bool available() { return false; }
 bool release_resources() { return false; }
+bool low_priority_queue() { return false; }
 bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
@@ -157,6 +158,9 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #else
 
 #include <vulkan/vulkan.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -347,6 +351,26 @@ struct Ctx {
         bool pipelinesReady = false;
     } pointwise;
 
+    /** True when the queue was created with VK_QUEUE_GLOBAL_PRIORITY_LOW (#270). */
+    bool lowPriorityQueue = false;
+
+    /** The global-priority device extension [phys] offers (KHR preferred), or null. */
+    static const char* global_priority_extension(VkPhysicalDevice phys) {
+        uint32_t n = 0;
+        if (vkEnumerateDeviceExtensionProperties(phys, nullptr, &n, nullptr) != VK_SUCCESS || n == 0)
+            return nullptr;
+        std::vector<VkExtensionProperties> exts(n);
+        if (vkEnumerateDeviceExtensionProperties(phys, nullptr, &n, exts.data()) != VK_SUCCESS)
+            return nullptr;
+        static const char* const kNames[] = {"VK_KHR_global_priority", "VK_EXT_global_priority"};
+        for (const char* want : kNames) {
+            for (const auto& e : exts) {
+                if (std::strcmp(e.extensionName, want) == 0) return want;
+            }
+        }
+        return nullptr;
+    }
+
     bool init() {
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app.pApplicationName = "spektra";
@@ -382,7 +406,39 @@ struct Ctx {
         VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         dci.queueCreateInfoCount = 1;
         dci.pQueueCreateInfos = &qci;
-        if (vkCreateDevice(phys, &dci, nullptr, &device) != VK_SUCCESS) return false;
+
+        // #270: ask for a LOW system-wide queue priority where the driver offers
+        // it. Export compute otherwise competes on equal terms with the UI's
+        // RenderThread and the compositor; on SM-S948W a trace showed ~0.9 s of
+        // 27-99 ms frames, all blocked in queueBuffer, while the render's first
+        // GPU-heavy stage ran. Scheduling only: the same shaders, inputs and
+        // dispatch order, so results are unchanged. If the driver refuses the
+        // priority (NOT_PERMITTED, or any error), fall back to a plain device.
+        const char* prioExt = global_priority_extension(phys);
+        VkDeviceQueueGlobalPriorityCreateInfoEXT gp{
+            VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_EXT};
+        gp.globalPriority = VK_QUEUE_GLOBAL_PRIORITY_LOW_EXT;
+        lowPriorityQueue = false;
+        if (prioExt != nullptr) {
+            qci.pNext = &gp;
+            dci.enabledExtensionCount = 1;
+            dci.ppEnabledExtensionNames = &prioExt;
+            if (vkCreateDevice(phys, &dci, nullptr, &device) == VK_SUCCESS) {
+                lowPriorityQueue = true;
+            } else {
+                device = VK_NULL_HANDLE;
+                qci.pNext = nullptr;
+                dci.enabledExtensionCount = 0;
+                dci.ppEnabledExtensionNames = nullptr;
+            }
+        }
+        if (!lowPriorityQueue &&
+            vkCreateDevice(phys, &dci, nullptr, &device) != VK_SUCCESS) return false;
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "spektra", "gpu queue priority=%s (%s)",
+                            lowPriorityQueue ? "low" : "default",
+                            prioExt != nullptr ? prioExt : "no global_priority extension");
+#endif
         vkGetDeviceQueue(device, queueFamily, 0, &queue);
         ok = true;
         return true;
@@ -1458,6 +1514,12 @@ bool release_resources() {
     c->destroyHalation();
     c->destroyPointwise();
     return true;
+}
+
+bool low_priority_queue() {
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    const Ctx& c = ctx();
+    return c.ok && c.lowPriorityQueue;
 }
 
 bool cctf_encode_srgb(float* data, size_t n) {
