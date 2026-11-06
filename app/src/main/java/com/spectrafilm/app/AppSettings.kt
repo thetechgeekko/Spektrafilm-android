@@ -183,6 +183,7 @@ class AppSettings private constructor(
 
     /** Feed a completed draft's timing to the calibrator (no-op when Auto is off). */
     fun recordDraftTiming(edge: Int, elapsedMs: Long) {
+        Diag.i("render mode=draft edge=$edge ${elapsedMs}ms auto=$draftRenderAuto")
         if (!draftRenderAuto) return
         val before = AdaptivePreview.calibrator(appContext).edge
         val after = AdaptivePreview.calibrator(appContext).record(edge, elapsedMs)
