@@ -81,6 +81,9 @@ fun SettingsScreen(
     var outputCs by remember { mutableStateOf(settings.defaultOutputColorSpace) }
     var previewSize by remember { mutableIntStateOf(settings.previewMaxSize) }
     var draftSize by remember { mutableIntStateOf(settings.draftRenderMaxPx) }
+    var previewAuto by remember { mutableStateOf(settings.previewMaxSizeAuto) }
+    var draftAuto by remember { mutableStateOf(settings.draftRenderAuto) }
+    val autoEdges = remember { settings.autoPreviewEdges() }
     var film by remember { mutableStateOf(settings.defaultFilmProfile) }
     var print by remember { mutableStateOf(settings.defaultPrintProfile) }
     var format by remember { mutableStateOf(settings.exportFormat) }
@@ -144,20 +147,36 @@ fun SettingsScreen(
                 display = { it.name },
                 onSelect = { outputCs = it; settings.defaultOutputColorSpace = it },
             )
-            IntSlider(
-                label = stringResource(R.string.screen_settings_preview_max_size),
-                value = previewSize,
-                range = 128..1024,
-                onValueChange = { previewSize = it; settings.previewMaxSize = it },
-                tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
+            SettingToggleRow(
+                title = stringResource(R.string.screen_settings_preview_auto),
+                note = stringResource(R.string.screen_settings_preview_auto_note, autoEdges.previewEdge),
+                checked = previewAuto,
+                onCheckedChange = { previewAuto = it; settings.previewMaxSizeAuto = it },
             )
-            IntSlider(
-                label = stringResource(R.string.screen_settings_draft_size),
-                value = draftSize,
-                range = 128..512,
-                onValueChange = { draftSize = it; settings.draftRenderMaxPx = it },
-                tooltip = stringResource(R.string.screen_settings_draft_size_tip),
+            if (!previewAuto) {
+                IntSlider(
+                    label = stringResource(R.string.screen_settings_preview_max_size),
+                    value = previewSize,
+                    range = 128..1024,
+                    onValueChange = { previewSize = it; settings.previewMaxSize = it },
+                    tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
+                )
+            }
+            SettingToggleRow(
+                title = stringResource(R.string.screen_settings_draft_auto),
+                note = stringResource(R.string.screen_settings_draft_auto_note, autoEdges.draftEdge),
+                checked = draftAuto,
+                onCheckedChange = { draftAuto = it; settings.draftRenderAuto = it },
             )
+            if (!draftAuto) {
+                IntSlider(
+                    label = stringResource(R.string.screen_settings_draft_size),
+                    value = draftSize,
+                    range = 128..512,
+                    onValueChange = { draftSize = it; settings.draftRenderMaxPx = it },
+                    tooltip = stringResource(R.string.screen_settings_draft_size_tip),
+                )
+            }
             if (filmGroups.isNotEmpty()) {
                 GroupedDropdown(
                     label = stringResource(R.string.screen_settings_default_film),

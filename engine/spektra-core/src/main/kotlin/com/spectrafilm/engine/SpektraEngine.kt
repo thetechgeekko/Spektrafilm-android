@@ -830,6 +830,14 @@ class SpektraEngine private constructor(
          */
         @JvmStatic fun bigCoreCount(): Int = nativeBigCoreCount()
 
+        /**
+         * Raw CPU topology for device-capability heuristics (adaptive preview size,
+         * #299): `[cores, bigCores, fastestCoreMaxKHz, sumOfAllCoresMaxKHz]`, 0 where
+         * unknown. Reads sysfs only; independent of the big-core pinning experiment
+         * and with no effect on any render.
+         */
+        @JvmStatic fun cpuTopology(): LongArray = nativeCpuTopology()
+
         /** Instrumentation-only observation of the real Kotlin -> JNI marshaller. */
         @JvmStatic
         internal fun debugMarshalledParams(params: Any?): String =
@@ -840,6 +848,7 @@ class SpektraEngine private constructor(
         @JvmStatic private external fun nativeParallelPoolWorkers(): Int
         @JvmStatic private external fun nativeSetParallelChunksPerWorker(n: Int)
         @JvmStatic private external fun nativeBigCoreCount(): Int
+        @JvmStatic private external fun nativeCpuTopology(): LongArray
         @JvmStatic private external fun nativeDebugMarshalledParams(params: Any?): String
         @JvmStatic private external fun nativeConfigureMemoryBudget(limitBytes: Long)
         @JvmStatic private external fun nativeReserveJvmMemory(bytes: Long, stageCode: Int): Long

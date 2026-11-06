@@ -169,6 +169,29 @@ int parallel_big_core_count() {
     return n;
 }
 
+CpuTopology parallel_cpu_topology() {
+    CpuTopology t;
+    const unsigned hw = std::thread::hardware_concurrency();
+    t.cores = static_cast<int>(hw);
+#if defined(__linux__)
+    if (t.cores <= 0) return t;
+    std::vector<unsigned> freq(static_cast<size_t>(t.cores), 0u);
+    char path[128];
+    for (int c = 0; c < t.cores; ++c) {
+        std::snprintf(path, sizeof(path),
+                      "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
+        const unsigned f = read_uint_file(path);
+        freq[static_cast<size_t>(c)] = f;
+        t.sum_max_khz += f;
+        if (f > t.max_khz) t.max_khz = f;
+    }
+    if (t.max_khz == 0) return t;
+    const unsigned threshold = static_cast<unsigned>(0.80 * t.max_khz);
+    for (unsigned f : freq) if (f >= threshold) ++t.big_cores;
+#endif
+    return t;
+}
+
 void parallel_set_big_cores(int mode) {
     const int m = mode < 0 ? -1 : (mode != 0 ? 1 : 0);
     const int prev = g_big_cores_mode.exchange(m, std::memory_order_relaxed);
