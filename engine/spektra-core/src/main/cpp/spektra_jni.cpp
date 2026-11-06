@@ -286,7 +286,9 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
         return;
     }
     const spk::StageTimingSnapshot& snapshot = spk::stage_timing_snapshot();
-    char timings[512];
+    // 1024: a full export line (every stage + gpu_halation/gpu_dir/gpu_grain/
+    // gpu_fft/gpu_scan notes) overran 512 on SM-S948W and cut gpu_scan mid-token.
+    char timings[1024];
     if (spk_stage_timings(timings, sizeof(timings)) > 0) {
         const bool diffusion_ran =
             std::strstr(timings, "camera_diffusion") != nullptr;
@@ -307,6 +309,14 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
                             spk::render_timing_kind_name(snapshot.kind),
                             static_cast<unsigned long long>(snapshot.render_id),
                             timings, fallback);
+    }
+    // Live native heap per stage, MiB (#300). Separate line so the timings
+    // format other consumers parse is unchanged.
+    char heap[384];
+    if (spk::stage_heap_format(heap, sizeof(heap)) > 0) {
+        __android_log_print(ANDROID_LOG_INFO, "Spektra", "stage heap mb [%s id=%llu]: %s",
+                            spk::render_timing_kind_name(snapshot.kind),
+                            static_cast<unsigned long long>(snapshot.render_id), heap);
     }
     if (timing_automation_enabled()) {
         char json[2048];

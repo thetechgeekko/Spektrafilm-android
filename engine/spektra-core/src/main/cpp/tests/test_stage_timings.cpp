@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "spektra.h"
+#include "runtime/stage_timer.h"
 
 namespace {
 int g_fail = 0;
@@ -53,6 +54,22 @@ int main(int argc, char** argv) {
     check(std::strstr(tbuf, "scan=") != nullptr, "scan stage timed");
     check(std::strstr(tbuf, "filming_expose=") != nullptr, "filming_expose stage timed");
     check(std::strstr(tbuf, "print_expose=") != nullptr, "print_expose stage timed (print route)");
+#if defined(__GLIBC__)
+    // #300: per-stage live-heap line. glibc reports mallinfo2, so it must be
+    // populated here; the peak can never be below the start or any stage exit.
+    char hbuf[384];
+    const int hn = spk::stage_heap_format(hbuf, sizeof(hbuf));
+    std::printf("heap: [%s]\n", hbuf);
+    check(hn > 0 && std::strstr(hbuf, "peak=") != nullptr, "heap line is non-empty after a render");
+    check(std::strstr(hbuf, " scan=") != nullptr, "scan stage heap sampled");
+    {
+        const spk::StageTimingSnapshot& s = spk::stage_timing_snapshot();
+        bool bounded = s.heap_peak_bytes >= s.heap_start_bytes;
+        for (int i = 0; i < spk::STG_COUNT; ++i)
+            bounded = bounded && s.heap_after_bytes[i] <= s.heap_peak_bytes;
+        check(bounded, "heap peak bounds the start and every stage exit");
+    }
+#endif
     std::vector<float> r1(o1.data, o1.data + static_cast<size_t>(o1.width) * o1.height * 3);
     spk_image_free(&o1);
 
