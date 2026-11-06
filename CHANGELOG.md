@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## v0.11.0 (versionCode 13) — 2026-11-06 — sized for your phone, lighter after export, smoother while it runs
+
+**Minor, not patch: new installs now pick their preview size from the device.**
+
+### Auto preview and draft size (#299, #301)
+
+- New installs choose the settle-preview and live-draft sizes from the device's RAM, CPU
+  (an NDK sysfs probe of core count and clocks), media performance class and screen, instead
+  of a fixed 640 / 384 px. Four tiers: 512/256, 640/384, 896/448, 1024/512.
+- The draft size then follows measured draft times: two slow drafts (or one very slow) step it
+  down 64 px, three fast ones step it up, and a step-down that buys no speed is reverted and
+  becomes the floor for the session.
+- Settings has "Auto preview size" and "Auto draft size" toggles. An install that already set a
+  manual size keeps it until Auto is switched on.
+
+### GPU memory is freed after every export (#269, #302)
+
+- The GPU kernels' buffers only grew, so one full-resolution export left ~1.2 GB reserved for
+  the rest of the session. They are now released after each export and after the export
+  pre-render, and rebuilt on the next GPU call. On SM-S948W the app's memory after an export
+  went from ~2.6 GB to ~0.3 GB. The first preview after an export costs ~240 ms more.
+
+### Smoother UI during export (#270, #304)
+
+- The GPU compute queue now asks for low system priority (`VK_KHR/EXT_global_priority`) where
+  the driver allows it, so the compositor and the UI win the GPU. On SM-S948W, frames over
+  16 ms during an export went from 10 to 1. Drivers without the extension behave as before.
+
+### Settings runs on a ViewModel (#272, #303)
+
+- First Modern-Android-Development slice: one `SettingsUiState` from `SettingsViewModel`
+  instead of thirteen local mirrors, and the app theme follows the same state. Clamped values
+  (e.g. JPEG quality) now show what was actually saved.
+
+### Diagnostics (#300, #305)
+
+- One `stage heap mb` log line per render: live native heap at each stage, the groundwork for
+  tiled export. The `stage timings ms` line is no longer cut off on a full export.
+
 ### Export keeps GPS from MediaStore photos when asked to (#261)
 
 - "Include location (GPS)" produced exports without GPS for photos picked from the device
