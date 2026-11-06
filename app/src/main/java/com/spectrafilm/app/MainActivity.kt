@@ -2889,7 +2889,7 @@ class MainActivity : ComponentActivity() {
                 // image tracks the finger more closely, higher = the live frame is closer
                 // to what the settle pass will show. Defaults to DRAFT_RENDER_MAX_PX, so
                 // an untouched install renders exactly as before.
-                val draftEdge = minOf(settings.draftRenderMaxPx, fullEdge)
+                val draftEdge = minOf(settings.effectiveDraftEdge(), fullEdge)
                 if (draftEdge >= fullEdge) return@LaunchedEffect // no meaningful step-down to draft
                 val proxyRequest = cachedSourceDecodeRequest(sourceCache, fullEdge)
                 val proxyLease = sourceCache.acquire(
@@ -2910,11 +2910,19 @@ class MainActivity : ComponentActivity() {
                                     late.close()
                                 },
                             ) { cancellation ->
+                                val draftStartNs = System.nanoTime()
                                 e.simulatePreview(
                                     lease.image,
                                     state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
                                     cancellation = cancellation,
-                                )
+                                ).also {
+                                    // Only a completed native render reaches here (cancel/failure
+                                    // throws), so the calibrator never learns from a cut-short run.
+                                    settings.recordDraftTiming(
+                                        draftEdge,
+                                        (System.nanoTime() - draftStartNs) / 1_000_000L,
+                                    )
+                                }
                             }.use { res ->
                                 renderId = res.renderId
                                 simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
