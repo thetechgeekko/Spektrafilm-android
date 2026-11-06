@@ -149,7 +149,11 @@ fun SettingsScreen(
             )
             SettingToggleRow(
                 title = stringResource(R.string.screen_settings_preview_auto),
-                note = stringResource(R.string.screen_settings_preview_auto_note, autoEdges.previewEdge),
+                note = stringResource(
+                    if (previewAuto) R.string.screen_settings_preview_auto_note
+                    else R.string.screen_settings_preview_auto_off_note,
+                    autoEdges.previewEdge,
+                ),
                 checked = previewAuto,
                 onCheckedChange = { previewAuto = it; settings.previewMaxSizeAuto = it },
             )
@@ -164,7 +168,11 @@ fun SettingsScreen(
             }
             SettingToggleRow(
                 title = stringResource(R.string.screen_settings_draft_auto),
-                note = stringResource(R.string.screen_settings_draft_auto_note, autoEdges.draftEdge),
+                note = stringResource(
+                    if (draftAuto) R.string.screen_settings_draft_auto_note
+                    else R.string.screen_settings_draft_auto_off_note,
+                    autoEdges.draftEdge,
+                ),
                 checked = draftAuto,
                 onCheckedChange = { draftAuto = it; settings.draftRenderAuto = it },
             )

@@ -74,10 +74,23 @@ class AdaptivePreviewTest {
         }
     }
 
-    @Test fun calibratorStepsDownOnASlowDraft() {
+    @Test fun oneVerySlowDraftStepsDown() {
         val c = DraftEdgeCalibrator(384)
-        assertEquals(320, c.record(384, 200))
-        assertEquals(256, c.record(320, 200))
+        assertEquals(320, c.record(384, 300))
+        assertEquals(256, c.record(320, 300))
+    }
+
+    @Test fun twoConsecutiveSlowDraftsStepDown() {
+        val c = DraftEdgeCalibrator(384)
+        assertEquals(384, c.record(384, 136))
+        assertEquals(320, c.record(384, 136))
+    }
+
+    @Test fun aSingleMildlySlowOutlierIsTolerated() {
+        // Device trace (SM-S948W, debug): 94, 81, 76, then one 136 ms outlier.
+        val c = DraftEdgeCalibrator(384)
+        for (ms in longArrayOf(94, 81, 76, 136, 89)) c.record(384, ms)
+        assertEquals(384, c.edge)
     }
 
     @Test fun calibratorNeedsAStreakToStepUp() {
@@ -98,6 +111,7 @@ class AdaptivePreviewTest {
     @Test fun calibratorRespectsBounds() {
         val low = DraftEdgeCalibrator(128)
         assertEquals(128, low.record(128, 999))
+        assertEquals(128, low.record(128, 999))
         val high = DraftEdgeCalibrator(512, maxEdge = 512)
         repeat(6) { high.record(512, 1) }
         assertEquals(512, high.edge)
@@ -106,7 +120,7 @@ class AdaptivePreviewTest {
 
     @Test fun staleTimingForAnOldEdgeIsIgnored() {
         val c = DraftEdgeCalibrator(384)
-        c.record(384, 500) // -> 320
+        c.record(384, 500) // very slow -> 320
         assertEquals(320, c.record(384, 500))
     }
 }

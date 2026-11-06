@@ -101,7 +101,8 @@ private fun roundDownToStep(px: Int): Int = (px / EDGE_STEP) * EDGE_STEP
  * Runtime correction of the live-draft edge. Hardware specs mispredict under thermal
  * throttling and background load, so each successful draft reports its wall time and
  * the edge moves one 64 px step at a time:
- *   - a draft slower than [slowMs] steps down immediately (the finger is waiting);
+ *   - two consecutive drafts slower than [slowMs], or one slower than 2x [slowMs],
+ *     step down (a single mildly slow outlier — GC, a thermal blip — does not);
  *   - [fastStreak] consecutive drafts faster than [fastMs] step up (cautiously).
  * Bounded by [minEdge]..[maxEdge]; the auto preview edge caps [maxEdge] so a draft is
  * always a real step down from the settle render.
@@ -116,6 +117,7 @@ internal class DraftEdgeCalibrator(
 ) {
     private val maxEdge = maxEdge.coerceAtLeast(minEdge)
     private var fastCount = 0
+    private var slowCount = 0
 
     @Volatile var edge: Int = roundDownToStep(initialEdge).coerceIn(minEdge, this.maxEdge)
         private set
@@ -129,16 +131,24 @@ internal class DraftEdgeCalibrator(
         when {
             elapsedMs > slowMs -> {
                 fastCount = 0
-                edge = (edge - EDGE_STEP).coerceAtLeast(minEdge)
+                slowCount += 1
+                if (slowCount >= 2 || elapsedMs > 2 * slowMs) {
+                    slowCount = 0
+                    edge = (edge - EDGE_STEP).coerceAtLeast(minEdge)
+                }
             }
             elapsedMs < fastMs -> {
+                slowCount = 0
                 fastCount += 1
                 if (fastCount >= fastStreak) {
                     fastCount = 0
                     edge = (edge + EDGE_STEP).coerceAtMost(maxEdge)
                 }
             }
-            else -> fastCount = 0
+            else -> {
+                fastCount = 0
+                slowCount = 0
+            }
         }
         return edge
     }
