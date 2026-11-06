@@ -1061,6 +1061,9 @@ int main(int argc, char** argv) {
     }
     g_input = make_input(W, H);
 
+    // #270: informational (lavapipe may or may not offer global_priority); the
+    // gates below are the proof that a low-priority queue changes no output.
+    std::printf("gpu queue priority low=%d\n", spk::gpu::low_priority_queue() ? 1 : 0);
     run_pointwise_chain_contract(spk::gpu::available());
 
     // Product-seam contract for #148 Phase B. This deliberately runs before the

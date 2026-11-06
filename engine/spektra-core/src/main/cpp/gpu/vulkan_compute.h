@@ -143,6 +143,9 @@ const char* pointwise_fallback_reason_name(PointwiseFallbackReason reason) noexc
 // queue were found at runtime. When false, callers must use the CPU path.
 bool available();
 
+/** True when the compute queue runs at VK_QUEUE_GLOBAL_PRIORITY_LOW (#270). */
+bool low_priority_queue();
+
 // Apply the sRGB CCTF encode + clip to [0,1] to `data` (length `n` interleaved float
 // RGB components) on the GPU, in place. Returns false if the GPU path is unavailable
 // or any Vulkan call failed (caller then falls back to the CPU path). Never throws.
