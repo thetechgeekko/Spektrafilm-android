@@ -103,6 +103,9 @@ private fun roundDownToStep(px: Int): Int = (px / EDGE_STEP) * EDGE_STEP
  * the edge moves one 64 px step at a time:
  *   - two consecutive drafts slower than [slowMs], or one slower than 2x [slowMs],
  *     step down (a single mildly slow outlier — GC, a thermal blip — does not);
+ *   - a step-down is then judged on the next [probeSamples] drafts: unless their
+ *     median is below [keepRatio] of the slow time that triggered it, the edge goes
+ *     back up and becomes this session's floor (smaller bought no speed);
  *   - [fastStreak] consecutive drafts faster than [fastMs] step up (cautiously).
  * Bounded by [minEdge]..[maxEdge]; the auto preview edge caps [maxEdge] so a draft is
  * always a real step down from the settle render.
@@ -114,10 +117,25 @@ internal class DraftEdgeCalibrator(
     private val slowMs: Long = 120L,
     private val fastMs: Long = 50L,
     private val fastStreak: Int = 3,
+    /** Drafts to judge a step-down by before keeping or reverting it. */
+    private val probeSamples: Int = 3,
+    /** A step-down is kept only if the new edge's median is below this share of the old. */
+    private val keepRatio: Double = 0.8,
 ) {
     private val maxEdge = maxEdge.coerceAtLeast(minEdge)
     private var fastCount = 0
     private var slowCount = 0
+    private var slowSumMs = 0L
+
+    // Pending step-down under evaluation: the edge we left and its slow time.
+    private var probeFromEdge = 0
+    private var probeFromMs = 0L
+    private val probe = ArrayList<Long>(probeSamples)
+
+    // Lowest edge worth using this session. Raised when a step-down bought nothing:
+    // on-device (SM-S948W, debug) draft time was dominated by per-draft fixed cost,
+    // so 320 px drafts took as long as 512 px ones and shrinking only cost quality.
+    private var floorEdge = minEdge
 
     @Volatile var edge: Int = roundDownToStep(initialEdge).coerceIn(minEdge, this.maxEdge)
         private set
@@ -128,29 +146,52 @@ internal class DraftEdgeCalibrator(
         // A result for an edge we already moved away from says nothing about the
         // current edge; ignore it rather than double-stepping.
         if (atEdge != edge || elapsedMs < 0L) return edge
+        if (probeFromEdge != 0) {
+            probe += elapsedMs
+            if (probe.size < probeSamples) return edge
+            val median = probe.sorted()[probe.size / 2]
+            if (median >= keepRatio * probeFromMs) {
+                // Smaller draft was not meaningfully faster: go back and stop here.
+                edge = probeFromEdge
+                floorEdge = probeFromEdge
+            }
+            probeFromEdge = 0
+            probe.clear()
+            resetStreaks()
+            return edge
+        }
         when {
             elapsedMs > slowMs -> {
                 fastCount = 0
                 slowCount += 1
-                if (slowCount >= 2 || elapsedMs > 2 * slowMs) {
-                    slowCount = 0
-                    edge = (edge - EDGE_STEP).coerceAtLeast(minEdge)
+                slowSumMs += elapsedMs
+                if ((slowCount >= 2 || elapsedMs > 2 * slowMs) && edge > floorEdge) {
+                    probeFromEdge = edge
+                    probeFromMs = slowSumMs / slowCount
+                    edge = (edge - EDGE_STEP).coerceAtLeast(floorEdge)
+                    resetStreaks()
+                } else if (slowCount >= 2) {
+                    resetStreaks()
                 }
             }
             elapsedMs < fastMs -> {
                 slowCount = 0
+                slowSumMs = 0
                 fastCount += 1
                 if (fastCount >= fastStreak) {
                     fastCount = 0
                     edge = (edge + EDGE_STEP).coerceAtMost(maxEdge)
                 }
             }
-            else -> {
-                fastCount = 0
-                slowCount = 0
-            }
+            else -> resetStreaks()
         }
         return edge
+    }
+
+    private fun resetStreaks() {
+        fastCount = 0
+        slowCount = 0
+        slowSumMs = 0
     }
 }
 

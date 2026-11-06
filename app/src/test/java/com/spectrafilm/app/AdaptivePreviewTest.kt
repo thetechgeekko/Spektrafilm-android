@@ -74,10 +74,15 @@ class AdaptivePreviewTest {
         }
     }
 
+    /** Step down and confirm the step with three faster drafts at the new edge. */
+    private fun DraftEdgeCalibrator.stepDownConfirmed(from: Int, slow: Long = 300, fast: Long = 60) {
+        record(from, slow)
+        repeat(3) { record(from - 64, fast) }
+    }
+
     @Test fun oneVerySlowDraftStepsDown() {
         val c = DraftEdgeCalibrator(384)
         assertEquals(320, c.record(384, 300))
-        assertEquals(256, c.record(320, 300))
     }
 
     @Test fun twoConsecutiveSlowDraftsStepDown() {
@@ -91,6 +96,25 @@ class AdaptivePreviewTest {
         val c = DraftEdgeCalibrator(384)
         for (ms in longArrayOf(94, 81, 76, 136, 89)) c.record(384, ms)
         assertEquals(384, c.edge)
+    }
+
+    @Test fun stepDownThatGetsFasterIsKept() {
+        val c = DraftEdgeCalibrator(384)
+        c.stepDownConfirmed(384)
+        assertEquals(320, c.edge)
+        c.stepDownConfirmed(320)
+        assertEquals(256, c.edge)
+    }
+
+    @Test fun stepDownThatBuysNoSpeedIsRevertedAndBecomesTheFloor() {
+        // Device trace shape: 320 px drafts as slow as 512 px ones.
+        val c = DraftEdgeCalibrator(512)
+        c.record(512, 151); c.record(512, 146)          // -> 448 under probe
+        assertEquals(448, c.edge)
+        for (ms in longArrayOf(128, 157, 134)) c.record(448, ms)
+        assertEquals(512, c.edge)                         // no gain: back up
+        c.record(512, 150); c.record(512, 150)
+        assertEquals(512, c.edge)                         // floor holds
     }
 
     @Test fun calibratorNeedsAStreakToStepUp() {
