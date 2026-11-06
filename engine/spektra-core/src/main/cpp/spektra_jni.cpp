@@ -286,7 +286,9 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
         return;
     }
     const spk::StageTimingSnapshot& snapshot = spk::stage_timing_snapshot();
-    char timings[512];
+    // 1024: a full export line (every stage + gpu_halation/gpu_dir/gpu_grain/
+    // gpu_fft/gpu_scan notes) overran 512 on SM-S948W and cut gpu_scan mid-token.
+    char timings[1024];
     if (spk_stage_timings(timings, sizeof(timings)) > 0) {
         const bool diffusion_ran =
             std::strstr(timings, "camera_diffusion") != nullptr;
