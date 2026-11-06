@@ -143,6 +143,16 @@ const char* pointwise_fallback_reason_name(PointwiseFallbackReason reason) noexc
 // queue were found at runtime. When false, callers must use the CPU path.
 bool available();
 
+// Release every persistent GPU buffer and pipeline the context has grown (#269).
+// The kernels' staging/work buffers are grow-only for speed, so one full-res
+// export leaves them sized for that export -- measured on SM-S948W as ~1.1 GiB of
+// gpu_host still reserved in the process memory budget afterwards, leaving the
+// next CPU allocation ~380 MiB. Everything released here is rebuilt lazily on the
+// next GPU call (pipelines included), so this changes no output, only memory and
+// the first-call cost after it. No-op (returns false) when the context was never
+// created, has no device, or a resident frame is open. Thread-safe.
+bool release_resources();
+
 // Apply the sRGB CCTF encode + clip to [0,1] to `data` (length `n` interleaved float
 // RGB components) on the GPU, in place. Returns false if the GPU path is unavailable
 // or any Vulkan call failed (caller then falls back to the CPU path). Never throws.

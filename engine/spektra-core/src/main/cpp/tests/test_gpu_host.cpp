@@ -51,6 +51,7 @@
 #include "gpu/tests/pointwise_chain_oracle.h"
 #include "gpu/vulkan_compute.h"
 #include "profiles/json_min.h"
+#include "runtime/memory_budget.h"
 #include "runtime/stage_timer.h"
 #include "spektra.h"
 
@@ -270,6 +271,52 @@ void run_all(spk_engine* eng, bool gpu_present) {
         run_case(eng, pf, (std::string(route.label) + "/fused").c_str(),
                  gpu_present);
     }
+}
+
+std::uint64_t gpu_reserved_bytes() {
+    const auto snap = spk::memory::process_memory_budget().snapshot();
+    return snap.domains[static_cast<size_t>(spk::memory::MemoryDomain::GpuHost)].current_bytes +
+           snap.domains[static_cast<size_t>(spk::memory::MemoryDomain::GpuDevice)].current_bytes;
+}
+
+// #269: spk_gpu_release_resources frees every grow-only GPU buffer the context
+// holds (returning the budget's gpu_host/gpu_device to 0) and is output-neutral:
+// the next GPU render rebuilds lazily and matches the pre-release render byte
+// for byte. Without a GPU it must be a harmless no-op that reports 0.
+void run_release_resources_contract(spk_engine* eng, bool gpu_present) {
+    spk_params p;
+    p.film_profile = "kodak_portra_400";
+    p.print_profile = "kodak_portra_endura";
+    spk_default_params(&p);
+    p.preview_max_size = 640;
+    p.gpu_preview = 1;
+    spk_params ex = p;
+    ex.gpu_export = 1;  // export latch: halation/grain/scan GPU routes
+
+    std::vector<float> prev_a, exp_a, prev_b, exp_b, prev_c;
+    if (!render(eng, p, true, &prev_a) || !render(eng, ex, false, &exp_a)) return;
+    const std::uint64_t held = gpu_reserved_bytes();
+    std::printf("info: gpu reserved before release=%llu bytes\n",
+                static_cast<unsigned long long>(held));
+    const int released = spk_gpu_release_resources();
+    if (!gpu_present) {
+        check(released == 0, "release_resources: no-op (0) without a GPU");
+        check(gpu_reserved_bytes() == 0, "release_resources: nothing reserved without a GPU");
+        return;
+    }
+    check(held > 0, "release_resources: GPU renders held budget memory before release");
+    check(released == 1, "release_resources: reports a release with a live GPU context");
+    check(gpu_reserved_bytes() == 0,
+          "release_resources: gpu_host + gpu_device reservations return to 0");
+    if (!render(eng, p, true, &prev_b) || !render(eng, ex, false, &exp_b)) return;
+    check(bytes_eq(prev_a, prev_b),
+          "release_resources: GPU preview after release is byte-identical");
+    check(bytes_eq(exp_a, exp_b),
+          "release_resources: GPU export after release is byte-identical");
+    check(spk_gpu_release_resources() == 1 && gpu_reserved_bytes() == 0,
+          "release_resources: repeatable");
+    if (!render(eng, p, true, &prev_c)) return;
+    check(bytes_eq(prev_a, prev_c), "release_resources: second rebuild still byte-identical");
 }
 
 double rms_error(const std::vector<float>& a, const std::vector<float>& b) {
@@ -1079,8 +1126,10 @@ int main(int argc, char** argv) {
         g_fail = 0;
         run_all(eng, /*gpu_present=*/false);
         check(spk_gpu_scan_state() == 0, "self-check never ran without a GPU");
+        run_release_resources_contract(eng, /*gpu_present=*/false);
     } else {
         check(st == 1, "self-check passed (state == 1)");
+        run_release_resources_contract(eng, /*gpu_present=*/true);
         check(spk_gpu_scan_frames() > 0,
               "frames counter engaged (spk_gpu_scan_frames > 0)");
         // PRINT-EXPOSE offload (perf lab): the print route above ran with
