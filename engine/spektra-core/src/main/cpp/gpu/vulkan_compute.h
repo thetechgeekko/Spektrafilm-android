@@ -143,6 +143,16 @@ const char* pointwise_fallback_reason_name(PointwiseFallbackReason reason) noexc
 // queue were found at runtime. When false, callers must use the CPU path.
 bool available();
 
+// Release every persistent GPU buffer and pipeline the context has grown (#269).
+// The kernels' staging/work buffers are grow-only for speed, so one full-res
+// export leaves them sized for that export -- measured on SM-S948W as ~1.1 GiB of
+// gpu_host still reserved in the process memory budget afterwards, leaving the
+// next CPU allocation ~380 MiB. Everything released here is rebuilt lazily on the
+// next GPU call (pipelines included), so this changes no output, only memory and
+// the first-call cost after it. No-op (returns false) when the context was never
+// created, has no device, or a resident frame is open. Thread-safe.
+bool release_resources();
+
 /** True when the compute queue runs at VK_QUEUE_GLOBAL_PRIORITY_LOW (#270). */
 bool low_priority_queue();
 

@@ -81,6 +81,7 @@ bool render_pointwise_chain(const PointwiseChainRequest&, PointwiseChainOutput*,
     return false;
 }
 bool available() { return false; }
+bool release_resources() { return false; }
 bool low_priority_queue() { return false; }
 bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
@@ -819,10 +820,10 @@ struct Ctx {
 // exists for mid-process FAILURE recovery, where the device is alive and the
 // calls are safe.
 std::mutex& gpu_mutex() { static std::mutex m; return m; }
+Ctx* g_ctx = nullptr;  // guarded by gpu_mutex(); see ctx()
 Ctx& ctx() {
-    static Ctx* c = nullptr;
-    if (!c) { c = new Ctx(); c->init(); }
-    return *c;
+    if (!g_ctx) { g_ctx = new Ctx(); g_ctx->init(); }
+    return *g_ctx;
 }
 
 struct ScanPush { uint32_t npix; float m[12]; };  // std430 push constant (matches both shaders)
@@ -1498,6 +1499,21 @@ bool render_pointwise_chain(const PointwiseChainRequest& request,
 bool available() {
     std::lock_guard<std::mutex> lk(gpu_mutex());
     return ctx().ok;
+}
+
+bool release_resources() {
+    std::lock_guard<std::mutex> lk(gpu_mutex());
+    // Never create a context just to tear it down.
+    Ctx* c = g_ctx;
+    if (!c || !c->ok || !c->device) return false;
+    // A caller between frame_open and frame_close owns the resident planes.
+    if (c->frame.open) return false;
+    // The same teardown the failure-recovery paths use; each resets its
+    // pipelineReady/pipelinesReady latch so the next call rebuilds lazily.
+    c->destroyScan();
+    c->destroyHalation();
+    c->destroyPointwise();
+    return true;
 }
 
 bool low_priority_queue() {

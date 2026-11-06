@@ -3266,6 +3266,19 @@ void spk_set_parallel_chunks_per_worker(int n) { spk::parallel_set_chunks_per_wo
 
 int spk_big_core_count(void) { return spk::parallel_big_core_count(); }
 
+int spk_gpu_release_resources(void) { return spk::gpu::release_resources() ? 1 : 0; }
+
+int spk_cpu_topology(long long* out, int n) {
+    if (!out || n <= 0) return 0;
+    const spk::CpuTopology t = spk::parallel_cpu_topology();
+    const long long v[4] = {
+        static_cast<long long>(t.cores), static_cast<long long>(t.big_cores),
+        static_cast<long long>(t.max_khz), static_cast<long long>(t.sum_max_khz)};
+    const int m = n < 4 ? n : 4;
+    for (int i = 0; i < m; ++i) out[i] = v[i];
+    return m;
+}
+
 int spk_stage_timings(char* buf, int cap) {
     return spk::stage_timings_format(buf, cap);
 }

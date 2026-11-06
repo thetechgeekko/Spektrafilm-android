@@ -5,10 +5,11 @@
  * App-level settings persisted via AppSettings (SharedPreferences): default output
  * color space, preview resolution, default film/print profiles, export format +
  * quality, theme, a "Show onboarding again" action, a "Report an issue" entry (and a
- * "View issues" link), and an embedded About card. Edits write straight back to the
- * passed AppSettings and mirror into local Compose state so the controls update live.
- * Only theme is re-applied immediately (via onThemeChanged); the render defaults
- * (preview size, default profiles, output space) apply on the next launch.
+ * "View issues" link), and an embedded About card. Stateless over the persisted values:
+ * it renders [SettingsUiState] and reports edits as [SettingsAction]s to
+ * [SettingsViewModel], which writes them to AppSettings. Theme and dynamic colour
+ * re-apply immediately (the activity reads them from the same state); the render
+ * defaults (preview size, default profiles, output space) apply on the next launch.
  */
 package com.spectrafilm.app
 
@@ -30,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,18 +51,16 @@ import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.ColorSpace
 
 /**
- * The Settings UI. [settings] is the live store; [onThemeChanged] lets the host re-apply
- * the theme immediately. [filmGroups]/[printGroups] are the catalog-grouped profile
- * options (may be empty before the engine is ready); [onShowOnboarding] re-launches the
- * welcome flow.
+ * The Settings UI. [state] is the saved settings; [onAction] reports an edit.
+ * [filmGroups]/[printGroups] are the catalog-grouped profile options (may be empty
+ * before the engine is ready); [onShowOnboarding] re-launches the welcome flow.
  */
 @Composable
-fun SettingsScreen(
-    settings: AppSettings,
+internal fun SettingsScreen(
+    state: SettingsUiState,
+    onAction: (SettingsAction) -> Unit,
     filmGroups: List<DropdownGroup>,
     printGroups: List<DropdownGroup>,
-    onThemeChanged: (ThemeMode) -> Unit,
-    onDynamicColorChanged: (Boolean) -> Unit,
     onShowOnboarding: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
 ) {
@@ -74,18 +72,6 @@ fun SettingsScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
-
-    // Local mirrors of the persisted values so controls update without a recomposition key.
-    var theme by remember { mutableStateOf(settings.theme) }
-    var dynamicColor by remember { mutableStateOf(settings.dynamicColor) }
-    var outputCs by remember { mutableStateOf(settings.defaultOutputColorSpace) }
-    var previewSize by remember { mutableIntStateOf(settings.previewMaxSize) }
-    var draftSize by remember { mutableIntStateOf(settings.draftRenderMaxPx) }
-    var film by remember { mutableStateOf(settings.defaultFilmProfile) }
-    var print by remember { mutableStateOf(settings.defaultPrintProfile) }
-    var format by remember { mutableStateOf(settings.exportFormat) }
-    var quality by remember { mutableIntStateOf(settings.exportQuality) }
-    var keepGps by remember { mutableStateOf(settings.exportKeepGps) }
 
     val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
     // Label only: each link button keeps its own click action (null action merges).
@@ -108,10 +94,10 @@ fun SettingsScreen(
         SettingsCard(stringResource(R.string.screen_settings_appearance)) {
             Dropdown(
                 label = stringResource(R.string.screen_settings_theme),
-                selected = theme,
+                selected = state.theme,
                 options = ThemeMode.entries.toList(),
                 display = { it.display },
-                onSelect = { theme = it; settings.theme = it; onThemeChanged(it) },
+                onSelect = { onAction(SettingsAction.SetTheme(it)) },
             )
             // Only offered where the platform can actually do it (API 31+). Showing a switch that
             // silently does nothing is worse than not showing one.
@@ -119,12 +105,8 @@ fun SettingsScreen(
                 SettingToggleRow(
                     title = stringResource(R.string.screen_settings_dynamic_color),
                     note = stringResource(R.string.screen_settings_dynamic_color_note),
-                    checked = dynamicColor,
-                    onCheckedChange = {
-                        dynamicColor = it
-                        settings.dynamicColor = it
-                        onDynamicColorChanged(it)
-                    },
+                    checked = state.dynamicColor,
+                    onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -139,39 +121,63 @@ fun SettingsScreen(
             )
             Dropdown(
                 label = stringResource(R.string.screen_settings_default_output_cs),
-                selected = outputCs,
+                selected = state.outputColorSpace,
                 options = ColorSpace.entries.toList(),
                 display = { it.name },
-                onSelect = { outputCs = it; settings.defaultOutputColorSpace = it },
+                onSelect = { onAction(SettingsAction.SetOutputColorSpace(it)) },
             )
-            IntSlider(
-                label = stringResource(R.string.screen_settings_preview_max_size),
-                value = previewSize,
-                range = 128..1024,
-                onValueChange = { previewSize = it; settings.previewMaxSize = it },
-                tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
+            SettingToggleRow(
+                title = stringResource(R.string.screen_settings_preview_auto),
+                note = stringResource(
+                    if (state.previewAuto) R.string.screen_settings_preview_auto_note
+                    else R.string.screen_settings_preview_auto_off_note,
+                    state.autoEdges.previewEdge,
+                ),
+                checked = state.previewAuto,
+                onCheckedChange = { onAction(SettingsAction.SetPreviewAuto(it)) },
             )
-            IntSlider(
-                label = stringResource(R.string.screen_settings_draft_size),
-                value = draftSize,
-                range = 128..512,
-                onValueChange = { draftSize = it; settings.draftRenderMaxPx = it },
-                tooltip = stringResource(R.string.screen_settings_draft_size_tip),
+            if (!state.previewAuto) {
+                IntSlider(
+                    label = stringResource(R.string.screen_settings_preview_max_size),
+                    value = state.previewMaxSize,
+                    range = 128..1024,
+                    onValueChange = { onAction(SettingsAction.SetPreviewMaxSize(it)) },
+                    tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
+                )
+            }
+            SettingToggleRow(
+                title = stringResource(R.string.screen_settings_draft_auto),
+                note = stringResource(
+                    if (state.draftAuto) R.string.screen_settings_draft_auto_note
+                    else R.string.screen_settings_draft_auto_off_note,
+                    state.autoEdges.draftEdge,
+                ),
+                checked = state.draftAuto,
+                onCheckedChange = { onAction(SettingsAction.SetDraftAuto(it)) },
             )
+            if (!state.draftAuto) {
+                IntSlider(
+                    label = stringResource(R.string.screen_settings_draft_size),
+                    value = state.draftMaxPx,
+                    range = 128..512,
+                    onValueChange = { onAction(SettingsAction.SetDraftMaxPx(it)) },
+                    tooltip = stringResource(R.string.screen_settings_draft_size_tip),
+                )
+            }
             if (filmGroups.isNotEmpty()) {
                 GroupedDropdown(
                     label = stringResource(R.string.screen_settings_default_film),
-                    selectedId = film.ifEmpty { filmGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
+                    selectedId = state.defaultFilm.ifEmpty { filmGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
                     groups = filmGroups,
-                    onSelect = { film = it; settings.defaultFilmProfile = it },
+                    onSelect = { onAction(SettingsAction.SetDefaultFilm(it)) },
                 )
             }
             if (printGroups.isNotEmpty()) {
                 GroupedDropdown(
                     label = stringResource(R.string.screen_settings_default_print),
-                    selectedId = print.ifEmpty { printGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
+                    selectedId = state.defaultPrint.ifEmpty { printGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
                     groups = printGroups,
-                    onSelect = { print = it; settings.defaultPrintProfile = it },
+                    onSelect = { onAction(SettingsAction.SetDefaultPrint(it)) },
                 )
             }
         }
@@ -180,24 +186,24 @@ fun SettingsScreen(
         SettingsCard(stringResource(R.string.screen_settings_export)) {
             Dropdown(
                 label = stringResource(R.string.screen_settings_export_format),
-                selected = format,
+                selected = state.exportFormat,
                 options = ExportFormat.entries.toList(),
                 display = { it.display },
-                onSelect = { format = it; settings.exportFormat = it },
+                onSelect = { onAction(SettingsAction.SetExportFormat(it)) },
             )
-            if (format == ExportFormat.JPEG || format == ExportFormat.ULTRA_HDR) {
+            if (state.showsQuality) {
                 IntSlider(
                     label = stringResource(R.string.screen_settings_jpeg_quality),
-                    value = quality,
+                    value = state.exportQuality,
                     range = 1..100,
-                    onValueChange = { quality = it; settings.exportQuality = it },
+                    onValueChange = { onAction(SettingsAction.SetExportQuality(it)) },
                 )
             }
             SettingToggleRow(
                 title = stringResource(R.string.screen_settings_keep_gps),
                 note = stringResource(R.string.screen_settings_keep_gps_note),
-                checked = keepGps,
-                onCheckedChange = { keepGps = it; settings.exportKeepGps = it },
+                checked = state.keepGps,
+                onCheckedChange = { onAction(SettingsAction.SetKeepGps(it)) },
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
