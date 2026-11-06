@@ -831,6 +831,14 @@ class SpektraEngine private constructor(
         @JvmStatic fun bigCoreCount(): Int = nativeBigCoreCount()
 
         /**
+         * Release the GPU context's grow-only buffers and pipelines (#269). Call after a
+         * full-resolution export: its staging memory otherwise stays reserved in the
+         * process memory budget (~1.1 GiB measured on SM-S948W). Output-neutral; the
+         * next GPU call rebuilds lazily. Returns true if anything was released.
+         */
+        @JvmStatic fun releaseGpuResources(): Boolean = nativeReleaseGpuResources()
+
+        /**
          * Raw CPU topology for device-capability heuristics (adaptive preview size,
          * #299): `[cores, bigCores, fastestCoreMaxKHz, sumOfAllCoresMaxKHz]`, 0 where
          * unknown. Reads sysfs only; independent of the big-core pinning experiment
@@ -848,6 +856,7 @@ class SpektraEngine private constructor(
         @JvmStatic private external fun nativeParallelPoolWorkers(): Int
         @JvmStatic private external fun nativeSetParallelChunksPerWorker(n: Int)
         @JvmStatic private external fun nativeBigCoreCount(): Int
+        @JvmStatic private external fun nativeReleaseGpuResources(): Boolean
         @JvmStatic private external fun nativeCpuTopology(): LongArray
         @JvmStatic private external fun nativeDebugMarshalledParams(params: Any?): String
         @JvmStatic private external fun nativeConfigureMemoryBudget(limitBytes: Long)
