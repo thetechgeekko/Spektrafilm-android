@@ -30,6 +30,10 @@
 #ifdef __ANDROID__
 #include <android/trace.h>
 #endif
+#if defined(__ANDROID__) || defined(__GLIBC__)
+#include <malloc.h>
+#define SPK_HAS_MALLINFO 1
+#endif
 
 namespace spk {
 
@@ -262,7 +266,34 @@ struct StageTimingSnapshot {
     // drive down when stages are made resident.
     uint32_t gpu_submissions = 0;
     double stages_ms[STG_COUNT] = {0};
+    // Live native heap (#300), sampled at every stage bracket's entry and exit
+    // on the orchestrator thread. The memory budget sees only what registers
+    // with it (GPU buffers, caches), so the CPU working set an export carries
+    // between stages was invisible, and tiling cannot be sized without it.
+    // Boundary samples miss a peak that is allocated and freed INSIDE a stage;
+    // `heap_peak_bytes` is therefore a lower bound on the true peak.
+    uint64_t heap_start_bytes = 0;               // when the render began
+    uint64_t heap_peak_bytes = 0;                // max over every sample
+    uint64_t heap_after_bytes[STG_COUNT] = {0};  // max live heap at a slot's exit
 };
+
+/** Bytes currently allocated by malloc (0 where the allocator cannot say). */
+inline uint64_t native_heap_live_bytes() noexcept {
+#if defined(SPK_HAS_MALLINFO)
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
+    // glibc serves large blocks (image buffers) by mmap and counts them in
+    // hblkhd, not uordblks; both are needed. (Main arena only: worker-thread
+    // arenas are not included, so the host figure is a lower bound.)
+    const struct mallinfo2 mi = mallinfo2();
+    return static_cast<uint64_t>(mi.uordblks) + static_cast<uint64_t>(mi.hblkhd);
+#else
+    // bionic's struct mallinfo uses size_t fields, so this does not truncate there.
+    return static_cast<uint64_t>(mallinfo().uordblks);
+#endif
+#else
+    return 0;
+#endif
+}
 
 struct StageTimingThreadState {
     StageTimingSnapshot current;
@@ -514,6 +545,8 @@ public:
             state.current.status_code = -1;
             state.failed = false;
             state.started = std::chrono::steady_clock::now();
+            state.current.heap_start_bytes = native_heap_live_bytes();
+            state.current.heap_peak_bytes = state.current.heap_start_bytes;
 #ifdef __ANDROID__
             if (ATrace_isEnabled()) {
                 std::snprintf(trace_name_, sizeof(trace_name_), "spk.render.%s#%llu",
@@ -664,6 +697,30 @@ inline int stage_timings_format(char* buf, int cap) {
         if (n > 0) off += n;
     }
     if (cap > 0) buf[off < cap ? off : cap - 1] = '\0';
+    return off;
+}
+
+// "start=412 peak=1630 filming_expose=980 ..." in MiB: the live native heap when
+// the render began, the highest sample seen, and per stage the highest live heap
+// at that stage's exit. Stages that never ran are skipped. Returns bytes written.
+inline int stage_heap_format(char* buf, int cap) {
+    if (!buf || cap <= 0) return 0;
+    const StageTimingSnapshot& s = stage_timing_snapshot();
+    buf[0] = '\0';
+    if (s.heap_peak_bytes == 0) return 0;
+    int off = std::snprintf(buf, static_cast<size_t>(cap), "start=%llu peak=%llu",
+                            static_cast<unsigned long long>(s.heap_start_bytes >> 20),
+                            static_cast<unsigned long long>(s.heap_peak_bytes >> 20));
+    if (off < 0) { buf[0] = '\0'; return 0; }
+    if (off >= cap) return cap - 1;
+    for (int i = 0; i < STG_COUNT && off < cap - 1; ++i) {
+        if (s.heap_after_bytes[i] == 0) continue;
+        int n = std::snprintf(buf + off, static_cast<size_t>(cap - off), " %s=%llu",
+                              stage_name(i),
+                              static_cast<unsigned long long>(s.heap_after_bytes[i] >> 20));
+        if (n < 0) break;
+        off += n < cap - off ? n : cap - off - 1;
+    }
     return off;
 }
 
@@ -878,6 +935,7 @@ struct ScopedStage {
                  stage_timing_state().stage_suppression_depth == 0 &&
                  s >= 0 && s < STG_COUNT),
           t0(std::chrono::steady_clock::now()) {
+        if (active) note_heap_sample(native_heap_live_bytes());
 #ifdef __ANDROID__
         if (active && ATrace_isEnabled()) {
             ATrace_beginSection(stage_name(slot));
@@ -890,10 +948,18 @@ struct ScopedStage {
         const double dt = std::chrono::duration<double, std::milli>(
                               std::chrono::steady_clock::now() - t0)
                               .count();
-        stage_timing_state().current.stages_ms[slot] += dt;
+        StageTimingSnapshot& c = stage_timing_state().current;
+        c.stages_ms[slot] += dt;
+        const uint64_t live = native_heap_live_bytes();
+        note_heap_sample(live);
+        if (live > c.heap_after_bytes[slot]) c.heap_after_bytes[slot] = live;
 #ifdef __ANDROID__
         if (trace_open) ATrace_endSection();
 #endif
+    }
+    static void note_heap_sample(uint64_t live) noexcept {
+        StageTimingSnapshot& c = stage_timing_state().current;
+        if (live > c.heap_peak_bytes) c.heap_peak_bytes = live;
     }
     ScopedStage(const ScopedStage&) = delete;
     ScopedStage& operator=(const ScopedStage&) = delete;

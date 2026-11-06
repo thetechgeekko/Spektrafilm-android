@@ -308,6 +308,14 @@ void log_completed_stage_timing(uint64_t expected_render_id) noexcept {
                             static_cast<unsigned long long>(snapshot.render_id),
                             timings, fallback);
     }
+    // Live native heap per stage, MiB (#300). Separate line so the timings
+    // format other consumers parse is unchanged.
+    char heap[384];
+    if (spk::stage_heap_format(heap, sizeof(heap)) > 0) {
+        __android_log_print(ANDROID_LOG_INFO, "Spektra", "stage heap mb [%s id=%llu]: %s",
+                            spk::render_timing_kind_name(snapshot.kind),
+                            static_cast<unsigned long long>(snapshot.render_id), heap);
+    }
     if (timing_automation_enabled()) {
         char json[2048];
         if (spk_stage_timings_json(json, sizeof(json)) > 0) {
