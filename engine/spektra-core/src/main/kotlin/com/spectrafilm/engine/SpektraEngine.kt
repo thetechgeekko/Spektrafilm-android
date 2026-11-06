@@ -830,6 +830,14 @@ class SpektraEngine private constructor(
          */
         @JvmStatic fun bigCoreCount(): Int = nativeBigCoreCount()
 
+        /**
+         * Release the GPU context's grow-only buffers and pipelines (#269). Call after a
+         * full-resolution export: its staging memory otherwise stays reserved in the
+         * process memory budget (~1.1 GiB measured on SM-S948W). Output-neutral; the
+         * next GPU call rebuilds lazily. Returns true if anything was released.
+         */
+        @JvmStatic fun releaseGpuResources(): Boolean = nativeReleaseGpuResources()
+
         /** Instrumentation-only observation of the real Kotlin -> JNI marshaller. */
         @JvmStatic
         internal fun debugMarshalledParams(params: Any?): String =
@@ -840,6 +848,7 @@ class SpektraEngine private constructor(
         @JvmStatic private external fun nativeParallelPoolWorkers(): Int
         @JvmStatic private external fun nativeSetParallelChunksPerWorker(n: Int)
         @JvmStatic private external fun nativeBigCoreCount(): Int
+        @JvmStatic private external fun nativeReleaseGpuResources(): Boolean
         @JvmStatic private external fun nativeDebugMarshalledParams(params: Any?): String
         @JvmStatic private external fun nativeConfigureMemoryBudget(limitBytes: Long)
         @JvmStatic private external fun nativeReserveJvmMemory(bytes: Long, stageCode: Int): Long

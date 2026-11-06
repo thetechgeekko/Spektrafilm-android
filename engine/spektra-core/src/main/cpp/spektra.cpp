@@ -3266,6 +3266,8 @@ void spk_set_parallel_chunks_per_worker(int n) { spk::parallel_set_chunks_per_wo
 
 int spk_big_core_count(void) { return spk::parallel_big_core_count(); }
 
+int spk_gpu_release_resources(void) { return spk::gpu::release_resources() ? 1 : 0; }
+
 int spk_stage_timings(char* buf, int cap) {
     return spk::stage_timings_format(buf, cap);
 }

@@ -1886,6 +1886,19 @@ JNI(void, nativeSetParallelChunksPerWorker)(JNIEnv* env, jclass /*clazz*/, jint 
     throw_unknown_cpp_exception(env);
 }
 
+JNI(jboolean, nativeReleaseGpuResources)(JNIEnv* env, jclass /*clazz*/) try {
+    return spk_gpu_release_resources() != 0 ? JNI_TRUE : JNI_FALSE;
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+    return JNI_FALSE;
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+    return JNI_FALSE;
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+    return JNI_FALSE;
+}
+
 JNI(jint, nativeBigCoreCount)(JNIEnv* env, jclass /*clazz*/) try {
     return static_cast<jint>(spk_big_core_count());
 } catch (const std::bad_alloc&) {

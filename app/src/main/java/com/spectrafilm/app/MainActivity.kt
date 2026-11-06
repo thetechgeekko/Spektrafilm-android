@@ -3352,6 +3352,9 @@ class MainActivity : ComponentActivity() {
                         }
                     } finally {
                         image.close()
+                        // Speculative full-res render: do not leave its GPU buffers
+                        // holding budget the real export will need (#269).
+                        releaseGpuAfterFullResRender("pre-render")
                     }
                     rendered.use {
                         val stored = store.put(key, it)
