@@ -97,6 +97,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.ColorSpace
@@ -634,19 +636,20 @@ class MainActivity : ComponentActivity() {
                 .onFailure { Diag.w("export recovery failed: ${it.message}") }
         }
         val settings = AppSettings.from(this)
+        val settingsVm = ViewModelProvider(this, SettingsViewModel.factory(settings))[SettingsViewModel::class.java]
         setContent {
-            var themeMode by remember { mutableStateOf(settings.theme) }
-            val dark = when (themeMode) {
+            // Theme follows the saved settings state, so a Settings edit re-themes at once.
+            val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
+            val dark = when (settingsUi.theme) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
-            var dynamicColor by remember { mutableStateOf(settings.dynamicColor) }
-            SpektraTheme(dark = dark, dynamicColor = dynamicColor) {
+            SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
                 AppRoot(
                     settings = settings,
-                    onThemeChanged = { themeMode = it },
-                    onDynamicColorChanged = { dynamicColor = it },
+                    settingsUi = settingsUi,
+                    onSettingsAction = settingsVm::onAction,
                 )
             }
         }
@@ -656,8 +659,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun AppRoot(
         settings: AppSettings,
-        onThemeChanged: (ThemeMode) -> Unit,
-        onDynamicColorChanged: (Boolean) -> Unit,
+        settingsUi: SettingsUiState,
+        onSettingsAction: (SettingsAction) -> Unit,
     ) {
         val ctx = LocalContext.current
         // Reads evaluated DURING composition go through LocalResources, not ctx: unlike
@@ -969,11 +972,10 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.SETTINGS -> NavScaffold(stringResource(R.string.editor_action_settings), onBack = { navigateTo(Screen.EDITOR) }) {
                         SettingsScreen(
-                            settings = settings,
+                            state = settingsUi,
+                            onAction = onSettingsAction,
                             filmGroups = settingsFilmGroups,
                             printGroups = settingsPrintGroups,
-                            onThemeChanged = onThemeChanged,
-                            onDynamicColorChanged = onDynamicColorChanged,
                             onShowOnboarding = { showOnboarding = true; navigateTo(Screen.EDITOR) },
                             onOpenDiagnostics = { navigateTo(Screen.DIAGNOSTICS) },
                         )
