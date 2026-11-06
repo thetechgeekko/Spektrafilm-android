@@ -1886,6 +1886,26 @@ JNI(void, nativeSetParallelChunksPerWorker)(JNIEnv* env, jclass /*clazz*/, jint 
     throw_unknown_cpp_exception(env);
 }
 
+JNI(jlongArray, nativeCpuTopology)(JNIEnv* env, jclass /*clazz*/) try {
+    long long vals[4] = {0, 0, 0, 0};
+    const int n = spk_cpu_topology(vals, 4);
+    jlongArray out = env->NewLongArray(n);
+    if (!out) return nullptr;  // OutOfMemoryError already pending
+    jlong buf[4];
+    for (int i = 0; i < n; ++i) buf[i] = static_cast<jlong>(vals[i]);
+    env->SetLongArrayRegion(out, 0, n, buf);
+    return out;
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+    return nullptr;
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+    return nullptr;
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+    return nullptr;
+}
+
 JNI(jint, nativeBigCoreCount)(JNIEnv* env, jclass /*clazz*/) try {
     return static_cast<jint>(spk_big_core_count());
 } catch (const std::bad_alloc&) {

@@ -84,6 +84,22 @@ void parallel_pin_to_big_cores();
 // worker-count capping.
 int parallel_big_core_count();
 
+// Raw CPU topology for device-capability heuristics (adaptive preview size,
+// issue #299). Ungated by the big-core pinning policy and side-effect free: it
+// only reads sysfs, never touches affinity or the pool, so it cannot change any
+// render output. Fields are 0 where the platform does not expose them.
+//   cores        hardware_concurrency()
+//   big_cores    cores whose cpuinfo_max_freq >= 0.80 * the fastest core's
+//   max_khz      the fastest core's cpuinfo_max_freq
+//   sum_max_khz  sum of every core's cpuinfo_max_freq (aggregate clock)
+struct CpuTopology {
+    int cores = 0;
+    int big_cores = 0;
+    unsigned max_khz = 0;
+    unsigned long long sum_max_khz = 0;
+};
+CpuTopology parallel_cpu_topology();
+
 // Programmatic override of the SPK_BIG_CORES env gate, so the app can offer this
 // as a setting: the engine is loaded into a running process that cannot setenv
 // its own pre-main environment. mode is 1 (on), 0 (off), or -1 (defer to the env
