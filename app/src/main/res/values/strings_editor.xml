@@ -625,4 +625,15 @@
     <string name="editor_snack_versions_quarantined">This photo’s versions file was damaged and was set aside.</string>
     <string name="editor_status_export_preset_saved">Saved export preset “%1$s”</string>
     <string name="editor_status_export_preset_failed">Export presets: %1$s</string>
+    <!-- Hardware keyboard shortcuts, as listed by the system shortcuts helper (Meta+/). -->
+    <string name="shortcut_group_editor">Editor</string>
+    <string name="shortcut_undo">Undo</string>
+    <string name="shortcut_redo">Redo</string>
+    <string name="shortcut_open">Open photo</string>
+    <string name="shortcut_export">Export</string>
+    <string name="shortcut_compare">Compare before and after</string>
+    <string name="shortcut_zoom_in">Zoom in</string>
+    <string name="shortcut_zoom_out">Zoom out</string>
+    <string name="shortcut_zoom_fit">Fit to screen</string>
+    <string name="shortcut_close">Close panel or tool</string>
 </resources>

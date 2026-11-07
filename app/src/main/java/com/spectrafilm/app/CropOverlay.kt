@@ -26,7 +26,6 @@
 package com.spectrafilm.app
 
 import android.graphics.Bitmap
-import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +45,6 @@ import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -63,7 +61,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -76,30 +73,48 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Aspect-ratio presets for the crop overlay. `ratio == null` means free / unconstrained. */
-private enum class CropAspect(@StringRes val labelRes: Int, val ratio: Float?) {
-    FREE(R.string.tool_crop_aspect_free, null),
-    ORIGINAL(R.string.tool_crop_aspect_original, null),  // resolved at runtime to the image aspect
-    SQUARE(R.string.tool_crop_aspect_square, 1f),
-    // Portrait ratios sit beside their landscape twins (#258: 2:3 was missing, and 4:5 /
-    // 9:16 are the common social-feed and story frames).
-    R4_5(R.string.tool_crop_aspect_4_5, 4f / 5f),
-    R4_3(R.string.tool_crop_aspect_4_3, 4f / 3f),
-    R3_4(R.string.tool_crop_aspect_3_4, 3f / 4f),
-    R3_2(R.string.tool_crop_aspect_3_2, 3f / 2f),
-    R2_3(R.string.tool_crop_aspect_2_3, 2f / 3f),
-    R16_9(R.string.tool_crop_aspect_16_9, 16f / 9f),
-    R9_16(R.string.tool_crop_aspect_9_16, 9f / 16f),
+/**
+ * Aspect-ratio presets for the crop overlay. Fixed ratios are stored long:short and turned
+ * portrait or landscape by the orientation toggle, so seven buttons cover what used to be
+ * ten chips (#258 asked for 2:3; 4:5 and 9:16 are the social-feed and story frames).
+ */
+internal enum class CropAspect(val long: Int, val short: Int) {
+    FREE(0, 0),
+    ORIGINAL(0, 0), // resolved at runtime to the image aspect
+    SQUARE(1, 1),
+    R5_4(5, 4),
+    R4_3(4, 3),
+    R3_2(3, 2),
+    R16_9(16, 9);
+
+    val isFixed: Boolean get() = long > 0
+
+    /** W:H for this preset in the given orientation; null for Free / Original. */
+    fun ratio(portrait: Boolean): Float? = when {
+        !isFixed -> null
+        portrait -> short.toFloat() / long
+        else -> long.toFloat() / short
+    }
+
+    /** "4:5" in portrait, "5:4" in landscape (digits read the same in every locale). */
+    fun label(portrait: Boolean): String =
+        if (portrait) "$short:$long" else "$long:$short"
 }
 
 /**
@@ -149,6 +164,9 @@ fun CropOverlay(
     }
 
     var aspect by remember { mutableStateOf(CropAspect.FREE) }
+    // Fixed ratios follow the photo's own orientation by default, so the common case
+    // (a 4:5 crop of a portrait photo) is one tap; the toggle flips it.
+    var portrait by remember(imgW, imgH) { mutableStateOf(imgH > imgW) }
 
     // Fixed #139 evidence is gated inside the bridge and is a no-op for normal app sessions. The
     // effect runs only after this actual overlay instance has initialized its remembered draft.
@@ -282,7 +300,7 @@ fun CropOverlay(
                             }
                         }
                         .pointerHoverIcon(PointerIcon(cropCursorType(hoverHandle)))
-                        .pointerInput(aspect, canvasSize) {
+                        .pointerInput(aspect, portrait, canvasSize) {
                             // 24 dp either side of an edge = a 48 dp grab band (the Material touch
                             // target). It was 48 px, 18 dp on a 420 dpi phone, so corners took aim.
                             val tol = 24.dp.toPx()
@@ -300,7 +318,7 @@ fun CropOverlay(
                                 val dy = drag.y / h
                                 rect = applyDrag(
                                     rect, handleRef.value, dx, dy,
-                                    lockedAspect = resolveAspect(aspect, imageAspect),
+                                    lockedAspect = resolveAspect(aspect, portrait, imageAspect),
                                     imgW = imgW, imgH = imgH,
                                 )
                             }
@@ -314,29 +332,77 @@ fun CropOverlay(
                 }
             }
 
-            // --- aspect-ratio preset chips (one exclusive choice => radio group) ---
+            // --- aspect ratio: M3 connected button group (single select) + orientation ---
             val aspectGroupDesc = stringResource(R.string.tool_crop_aspect_group)
+            val applyAspect = { a: CropAspect, p: Boolean ->
+                aspect = a
+                portrait = p
+                resolveAspect(a, p, imageAspect)?.let { locked ->
+                    rect = largestCenteredAspect(rect, locked, imgW, imgH)
+                }
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .semantics { contentDescription = aspectGroupDesc; selectableGroup() },
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                CropAspect.entries.forEach { a ->
-                    FilterChip(
-                        selected = aspect == a,
-                        onClick = {
-                            aspect = a
-                            val locked = resolveAspect(a, imageAspect)
-                            if (locked != null) {
-                                rect = largestCenteredAspect(rect, locked, imgW, imgH)
-                            }
-                        },
-                        label = { Text(stringResource(a.labelRes)) },
-                        modifier = Modifier.semantics { role = Role.RadioButton },
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState())
+                        .semantics { contentDescription = aspectGroupDesc; selectableGroup() },
+                    horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
+                ) {
+                    val entries = CropAspect.entries
+                    entries.forEachIndexed { i, a ->
+                        val label = when (a) {
+                            CropAspect.FREE -> stringResource(R.string.tool_crop_aspect_free)
+                            CropAspect.ORIGINAL -> stringResource(R.string.tool_crop_aspect_original)
+                            else -> a.label(portrait)
+                        }
+                        ConnectedToggle(
+                            label = label,
+                            selected = aspect == a,
+                            shape = connectedShape(i, entries.size),
+                            onClick = { applyAspect(a, portrait) },
+                            // The crop surface is always near-black, whatever the theme.
+                            selectedContainer = Color.White,
+                            selectedContent = Color.Black,
+                            container = Color.White.copy(alpha = 0.12f),
+                            content = Color.White,
+                        )
+                    }
+                }
+                // Orientation flips every fixed ratio (4:5 <-> 5:4). Only meaningful for a
+                // non-square fixed ratio, so it is hidden otherwise instead of sitting inert.
+                if (aspect.isFixed && aspect != CropAspect.SQUARE) {
+                    val orientationLabel = stringResource(
+                        if (portrait) R.string.tool_crop_portrait else R.string.tool_crop_landscape,
                     )
+                    val flipLabel = stringResource(R.string.tool_crop_orientation_flip)
+                    Box(
+                        Modifier
+                            .padding(start = 8.dp)
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = flipLabel,
+                            ) { applyAspect(aspect, !portrait) }
+                            .semantics { contentDescription = orientationLabel },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // A small frame drawn tall or wide: the orientation it will produce.
+                        Canvas(Modifier.size(if (portrait) 14.dp else 20.dp, if (portrait) 20.dp else 14.dp)) {
+                            drawRoundRect(
+                                color = Color.White,
+                                cornerRadius = CornerRadius(2.dp.toPx()),
+                                style = Stroke(width = 2.dp.toPx()),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -356,10 +422,10 @@ internal fun cropCursorType(handle: Handle): Int = when (handle) {
 }
 
 /** Resolve an aspect preset to a concrete ratio (Original -> image aspect; Free -> null). */
-private fun resolveAspect(a: CropAspect, imageAspect: Float): Float? = when (a) {
+private fun resolveAspect(a: CropAspect, portrait: Boolean, imageAspect: Float): Float? = when (a) {
     CropAspect.FREE -> null
     CropAspect.ORIGINAL -> imageAspect
-    else -> a.ratio
+    else -> a.ratio(portrait)
 }
 
 /** Hit-test which handle a press at [pos] (pixels in [canvas]) grabbed, within [tol] px of an edge. */

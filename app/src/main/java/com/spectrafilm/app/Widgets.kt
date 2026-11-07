@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1606,4 +1607,64 @@ internal fun SpectraLoadingIndicator(
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
     androidx.compose.material3.LoadingIndicator(modifier = modifier, color = color)
+}
+
+/** Gap between the segments of an M3 connected button group. */
+internal val CONNECTED_GAP = 2.dp
+private val CONNECTED_OUTER = 20.dp // full: half of the 40dp segment height
+private val CONNECTED_INNER = 8.dp // M3 small connected-group inner corner
+
+/**
+ * Shape of segment [index] of [count] in an M3 connected button group (the replacement for
+ * segmented buttons): full outer corners on the ends, small inner corners between segments.
+ * Lay segments out in a Row with `Arrangement.spacedBy(CONNECTED_GAP)` and give the Row
+ * `semantics { selectableGroup() }`.
+ */
+internal fun connectedShape(index: Int, count: Int): RoundedCornerShape {
+    val start = if (index == 0) CONNECTED_OUTER else CONNECTED_INNER
+    val end = if (index == count - 1) CONNECTED_OUTER else CONNECTED_INNER
+    return RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end)
+}
+
+/**
+ * One single-select segment of an M3 connected button group: 40dp tall inside a 48dp touch
+ * target, radio role. Theme colours by default (selected = primary, otherwise
+ * surfaceContainerHighest); pass explicit colours on a fixed-dark surface such as crop.
+ */
+@Composable
+internal fun ConnectedToggle(
+    label: String,
+    selected: Boolean,
+    shape: RoundedCornerShape,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selectedContainer: Color = MaterialTheme.colorScheme.primary,
+    selectedContent: Color = MaterialTheme.colorScheme.onPrimary,
+    container: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    content: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    Box(
+        modifier
+            .heightIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .widthIn(min = 48.dp)
+                .clip(shape)
+                .background(if (selected) selectedContainer else container)
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) selectedContent else content,
+                maxLines = 1,
+            )
+        }
+    }
 }
