@@ -25,10 +25,13 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import com.spectrafilm.engine.LinearImage
 import java.nio.ByteBuffer
@@ -97,9 +100,13 @@ fun GpuLutPreview(
     lut: CubeLut,
     modifier: Modifier = Modifier,
     exposureGain: Float = 1f,
+    // The surround around the photo: the theme surface, so the GPU path matches the CPU
+    // viewer (and does not flash black/light when Compare, clipping or zoom hand over).
+    background: Color = MaterialTheme.colorScheme.surface,
     onUnavailable: () -> Unit = {},
 ) {
     val cb = rememberUpdatedState(onUnavailable)
+    val backgroundArgb = background.toArgb()
     val renderer = remember { LutRenderer { cb.value() } }
     AndroidView(
         modifier = modifier,
@@ -111,6 +118,7 @@ fun GpuLutPreview(
             }
         },
         update = { view ->
+            renderer.clearArgb = backgroundArgb
             renderer.submit(proxy, lut, exposureGain)
             view.requestRender()
         },
@@ -223,6 +231,9 @@ private class LutRenderer(private val onUnavailable: () -> Unit) : GLSurfaceView
     // matches what simulate() would apply. Not a texture, so no upload needed.
     private var gain: Float = 1f
 
+    // Clear colour behind the letterboxed photo (ARGB), set from the theme on the main thread.
+    @Volatile var clearArgb: Int = 0xFF000000.toInt()
+
     // Last successfully submitted generation, kept so a recreated GL context (surface
     // destroyed/recreated, e.g. backgrounding) can re-upload instead of staying black.
     @Volatile private var lastSubmission: GpuSubmission? = null
@@ -294,7 +305,13 @@ private class LutRenderer(private val onUnavailable: () -> Unit) : GLSurfaceView
             gain = submission.exposureGain
         }
 
-        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        val c = clearArgb
+        GLES30.glClearColor(
+            ((c shr 16) and 0xFF) / 255f,
+            ((c shr 8) and 0xFF) / 255f,
+            (c and 0xFF) / 255f,
+            1f,
+        )
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!haveProxy || !haveLut || program == 0) return
 
