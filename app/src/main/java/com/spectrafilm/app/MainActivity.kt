@@ -673,6 +673,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
     }
 
+    /** Named versions of the open photo. */
+    private val versionsVm: VersionsViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[VersionsViewModel::class.java]
+    }
+
     /**
      * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
      * live editor observes delivery through onNewIntent (singleTask) as well as a cold
@@ -1560,6 +1565,7 @@ class MainActivity : ComponentActivity() {
         // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
         var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
         val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        val roiPatchTracker = remember { RoiPatchTracker() }
         val roiPublicationGate = remember { RoiRenderPublicationGate() }
         val latestRoiRenderKey by rememberUpdatedState(previewTick)
         val latestMagnifierRenderKey by rememberUpdatedState(previewTick)
@@ -2867,6 +2873,21 @@ class MainActivity : ComponentActivity() {
             if (!sourceRenderAllowed) return
             val e = engine ?: return
             if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
+            // A settle inside the patch already on screen (or already rendering) at the same edit
+            // and sharpness needs no new render: keep it rather than cancel and redo it.
+            roiPatchTracker.reuseReason(
+                roi, previewTick, roiOverlay, roiJobRef.value, ROI_RENDER_MAX_PX,
+            )?.let { reason ->
+                if (reason == RoiPatchTracker.REUSED_SHOWN) {
+                    // The view came back inside the shown patch: any render still running for
+                    // an intermediate viewport must not land over it (it would not cover this
+                    // view, and no further settle would come to fix that).
+                    roiPublicationGate.invalidate()
+                    roiJobRef.value?.cancel()
+                }
+                Diag.i("zoom roi reused $reason")
+                return
+            }
             roiJobRef.value?.cancel()
             val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
             val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
@@ -2879,15 +2900,35 @@ class MainActivity : ComponentActivity() {
                     loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
                         timing.sourceMs = timing.sinceStartMs()
                         val full = fullLease.image
-                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
-                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
-                        timing.cropW = cw
-                        timing.cropH = ch
+                        // Render a grid-snapped patch around the viewport, not the viewport
+                        // itself (RoiPatch): the margin keeps halation/blur light from just off
+                        // screen, and a later pan inside the patch reuses this render.
+                        val box = RoiPatch.box(roi, full.width, full.height)
+                        val patchRect = RoiPatch.rectOf(box, full.width, full.height)
+                        val scale = RoiPatch.neededScale(
+                            roi, full.width, full.height, ROI_RENDER_MAX_PX,
+                        )
+                        val draftScale = RoiPatch.neededScale(
+                            roi, full.width, full.height, ROI_DRAFT_MAX_PX,
+                        )
+                        val patchRecord = RoiPatchRecord(
+                            renderKey = renderSnapshot.renderKey,
+                            srcW = full.width,
+                            srcH = full.height,
+                            box = box,
+                            scale = scale,
+                        )
+                        currentCoroutineContext()[Job]?.let { job ->
+                            roiPatchTracker.inFlightJob = job
+                            roiPatchTracker.inFlight = patchRecord
+                        }
+                        timing.cropW = box.width
+                        timing.cropH = box.height
                         withOwnedContext(
                             context = dispatchers.default,
                             dispose = LinearImage::close,
                         ) {
-                            cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                            cropLinearImageBox(full, box)
                         }.use { crop ->
                             // Effective film format so the crop's pixel_size_um matches the proxy (the crop
                             // spans only cropFrac of the frame); keeps grain/halation at the right strength
@@ -2932,7 +2973,8 @@ class MainActivity : ComponentActivity() {
                             // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
                             // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
                             // so a cancel mid-flight never leaks one.
-                            val (draft, draftRenderId) = renderAt(ROI_DRAFT_MAX_PX)
+                            val (draft, draftRenderId) =
+                                renderAt(RoiPatch.renderEdge(box, draftScale))
                             timing.draftMs = timing.sinceStartMs()
                             if (
                                 isActive && roiPublicationGate.canPublish(
@@ -2940,14 +2982,18 @@ class MainActivity : ComponentActivity() {
                                     latestRoiRenderKey,
                                 )
                             ) {
-                                roiOverlay = RoiOverlay(draft, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                                roiOverlay = RoiOverlay(
+                                    draft, patchRect.cxN, patchRect.cyN, patchRect.wN, patchRect.hN,
+                                )
                                 pendingOutcomes.resolve(draftRenderId, AppRenderOutcome.CONSUMED)
                             } else {
                                 pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
                                 if (!draft.isRecycled) draft.recycle()
                                 return@runCatching null
                             }
-                            renderAt(ROI_RENDER_MAX_PX).also { timing.finalMs = timing.sinceStartMs() }
+                            renderAt(RoiPatch.renderEdge(box, scale)).also {
+                                timing.finalMs = timing.sinceStartMs()
+                            }.let { (bmp, id) -> Triple(bmp, id, patchRecord to patchRect) }
                         }
                     }
                 }
@@ -2967,8 +3013,12 @@ class MainActivity : ComponentActivity() {
                 // On success publish the sharp final; the prior overlay (the draft) is recycled by
                 // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
                 result.onSuccess { rendered ->
-                    rendered?.let { (bmp, renderId) ->
-                        roiOverlay = RoiOverlay(bmp, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                    rendered?.let { (bmp, renderId, patch) ->
+                        val (record, rect) = patch
+                        val overlay = RoiOverlay(bmp, rect.cxN, rect.cyN, rect.wN, rect.hN)
+                        roiOverlay = overlay
+                        roiPatchTracker.shownOverlay = overlay
+                        roiPatchTracker.shown = record
                         pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
                     }
                     Diag.i(timing.line("done"))
@@ -3934,7 +3984,10 @@ class MainActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    val wide = maxWidth >= 600.dp || maxWidth > maxHeight
+                    // Window size classes (M3): side pane for expanded+ windows and landscape
+                    // phones, bottom sheet for compact and medium portrait. See EditorLayout.kt.
+                    val wide = editorPaneMode(maxWidth.value, maxHeight.value) == EditorPaneMode.SIDE_PANE
+                    val sidePaneWidth = sidePaneWidthDp(maxWidth.value).dp
 
                     // The photo's EXIF capture date for the date-back imprint's default text,
                     // read off the main thread once per source.
@@ -4235,6 +4288,67 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 bakingLut = bakingLut,
+                                versionsContent = {
+                                    // Versions of THIS photo, keyed like its recipe. Bound while the
+                                    // panel is open, so opening it always shows the current list.
+                                    LaunchedEffect(recipeKey) { versionsVm.bind(recipeKey) }
+                                    DisposableEffect(Unit) {
+                                        versionsVm.onEvent = { event ->
+                                            when (event) {
+                                                is VersionEvent.Saved -> status =
+                                                    ctx.getString(R.string.editor_status_version_saved, event.version.name)
+                                                is VersionEvent.Updated -> status =
+                                                    ctx.getString(R.string.editor_status_version_updated, event.name)
+                                                is VersionEvent.Failed -> status =
+                                                    ctx.getString(R.string.editor_status_version_failed, event.reason)
+                                                is VersionEvent.Quarantined -> scope.launch {
+                                                    snackbarHost.currentSnackbarData?.dismiss()
+                                                    snackbarHost.showSnackbar(
+                                                        ctx.getString(R.string.editor_snack_versions_quarantined),
+                                                        withDismissAction = true,
+                                                    )
+                                                }
+                                                is VersionEvent.Deleted -> offerSnackbarSuggestion(
+                                                    scope,
+                                                    snackbarHost,
+                                                    ctx.getString(R.string.editor_snack_version_deleted, event.version.name),
+                                                    ctx.getString(R.string.editor_action_undo),
+                                                ) { versionsVm.restore(event.key, event.version) }
+                                            }
+                                        }
+                                        onDispose { versionsVm.onEvent = {} }
+                                    }
+                                    val versionsUi by versionsVm.uiState.collectAsStateWithLifecycle()
+                                    VersionsSection(
+                                        ui = versionsUi,
+                                        onSave = { name ->
+                                            runCatching { Presets.toJsonString(state) }
+                                                .onSuccess { versionsVm.save(name, it, rotation.degrees) }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
+                                        },
+                                        onApply = { version ->
+                                            // Exactly Paste Settings: the whole look is replaced (so the
+                                            // preset amount anchors go stale) and Undo takes it back.
+                                            runCatching { Presets.decode(org.json.JSONObject(version.paramsJson), state) }
+                                                .onSuccess {
+                                                    presetVm.onAction(PresetAction.ClearAmount)
+                                                    // Crop and masks were saved against this
+                                                    // orientation, so it comes back with them.
+                                                    rotation = SourceRotation.fromDegrees(version.rotationDegrees)
+                                                    status = ctx.getString(R.string.editor_status_version_applied, version.name)
+                                                    previewTick++
+                                                }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
+                                        },
+                                        onReplaceWithCurrent = { version ->
+                                            runCatching { Presets.toJsonString(state) }
+                                                .onSuccess { versionsVm.replaceWithCurrent(version, it, rotation.degrees) }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
+                                        },
+                                        onRename = { version, name -> versionsVm.rename(version.id, name) },
+                                        onDelete = { version -> versionsVm.delete(version.id) },
+                                    )
+                                },
                             )
                             Category.SOURCE -> SourcePanel(
                                 sourceName = sourceName,
@@ -4462,6 +4576,7 @@ class MainActivity : ComponentActivity() {
                                     category = sideCategory,
                                     onDismiss = { activeCategory = null },
                                     onResetCategory = resetActiveCategory,
+                                    width = sidePaneWidth,
                                     content = panelContent,
                                 )
                             }
@@ -4489,6 +4604,8 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     AdjustmentPanel(
                                         modifier = Modifier
+                                            // M3 bottom sheet max width; centred in wider windows.
+                                            .widthIn(max = SHEET_MAX_WIDTH_DP.dp)
                                             .onSizeChanged { panelHeightPx = it.height }
                                             .predictiveBackShrink(panelBackProgress),
                                         category = activeCategory,
