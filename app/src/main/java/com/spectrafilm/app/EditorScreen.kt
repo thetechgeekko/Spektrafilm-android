@@ -1112,9 +1112,7 @@ internal fun MainActivity.EditorScreen(
                     if (switched) rotation = SourceRotation.NONE
                     // A new photo opens Film & look: picking a stock is the next step for
                     // almost everyone, so it should not cost a tap on the category bar.
-                    // A panel the user opened themselves (other than Source, which they
-                    // used to pick the photo) is left alone.
-                    if (switched) activeCategory = filmLookCategoryAfterOpen(activeCategory)
+                    if (switched) activeCategory = CATEGORY_AFTER_NEW_PHOTO
                     status = if (ref.accessMode == SourceAccessMode.PERSISTED) {
                         readyStatus
                     } else {

@@ -9,20 +9,8 @@ import org.junit.Test
 
 class FilmLookStripTest {
     @Test
-    fun newPhotoOpensFilmAndLookWhenNoPanelIsOpen() {
-        assertEquals(Category.SIMULATION, filmLookCategoryAfterOpen(null))
-    }
-
-    @Test
-    fun newPhotoMovesFromSourceToFilmAndLook() {
-        assertEquals(Category.SIMULATION, filmLookCategoryAfterOpen(Category.SOURCE))
-    }
-
-    @Test
-    fun newPhotoLeavesAChosenPanelAlone() {
-        for (c in Category.entries.filter { it != Category.SOURCE }) {
-            assertEquals(c, filmLookCategoryAfterOpen(c))
-        }
+    fun newPhotoOpensFilmAndLook() {
+        assertEquals(Category.SIMULATION, CATEGORY_AFTER_NEW_PHOTO)
     }
 
     private val groups = listOf(
