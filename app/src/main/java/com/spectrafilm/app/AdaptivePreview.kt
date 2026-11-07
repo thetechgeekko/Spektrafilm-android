@@ -60,7 +60,7 @@ internal fun autoPreviewEdges(p: DeviceRenderProfile): AutoPreviewEdges {
         DeviceMemoryTier.COMPACT -> if (p.physicalBytes <= 0L) PreviewTier.BASELINE else PreviewTier.LOW
         DeviceMemoryTier.STANDARD -> PreviewTier.BASELINE
         DeviceMemoryTier.LARGE -> PreviewTier.HIGH
-        DeviceMemoryTier.XLARGE -> PreviewTier.MAX
+        DeviceMemoryTier.XLARGE, DeviceMemoryTier.XXLARGE -> PreviewTier.MAX
     }
     // Weak CPU: few cores, or (when the clock probe worked) little aggregate clock.
     // 12 GHz aggregate is roughly an older 8x1.5 GHz part. Estimate, not measured.

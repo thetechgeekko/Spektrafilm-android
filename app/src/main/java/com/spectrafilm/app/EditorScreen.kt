@@ -737,7 +737,14 @@ internal fun MainActivity.EditorScreen(
                     is ExportTerminalOutcome.Failure -> {
                         Diag.w(
                             "export format=${outcome.format.name} failed after " +
-                                "${outcome.elapsedMs}ms: ${outcome.cause.message}",
+                                "${outcome.elapsedMs}ms: ${outcome.cause.message}" +
+                                // #269: a memory failure report should carry the budget
+                                // state without the user having to export diagnostics.
+                                if (isMemoryExhaustion(outcome.cause)) {
+                                    " budget=${memoryBudgetSnapshotForLog()}"
+                                } else {
+                                    ""
+                                },
                         )
                         if (outcome.cause is ExportReconciliationPendingException) {
                             exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
@@ -4068,18 +4075,21 @@ internal fun MainActivity.EditorScreen(
                                         // decode is still open (SceneHighlightTap). Null otherwise.
                                         var sceneTap: SceneLuma? = null
                                         val res = restored ?: try {
-                                            runCancellableNative(
-                                                onLateResult = { late ->
-                                                    late.reportOutcome(AppRenderOutcome.CANCELLED)
-                                                    late.close()
-                                                },
-                                            ) { cancellation ->
-                                                e.simulate(
-                                                    requireNotNull(image) { "render needs a decode" },
-                                                    exportParams,
-                                                    RenderKind.EXPORT,
-                                                    cancellation,
-                                                )
+                                            // #269: one reclaim-and-retry on memory exhaustion.
+                                            retryOnceAfterMemoryReclaim("export render") {
+                                                runCancellableNative(
+                                                    onLateResult = { late ->
+                                                        late.reportOutcome(AppRenderOutcome.CANCELLED)
+                                                        late.close()
+                                                    },
+                                                ) { cancellation ->
+                                                    e.simulate(
+                                                        requireNotNull(image) { "render needs a decode" },
+                                                        exportParams,
+                                                        RenderKind.EXPORT,
+                                                        cancellation,
+                                                    )
+                                                }
                                             }.also { rendered ->
                                                 renderId = rendered.renderId
                                                 sceneTap = image?.let { source ->
