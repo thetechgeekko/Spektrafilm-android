@@ -376,7 +376,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                    int width, int height,
                                    const double* density_max_layers,
                                    double pixel_size_um, const GrainParams& grain,
-                                   float* out) {
+                                   float* out, std::vector<float>* release_layers) {
     // One choice per render, from the params: the Fast GPU export route may
     // use the cheaper generator (#180); everything else keeps mt19937.
     const StatsRng::Generator generator = grain.fast_sampler
@@ -414,17 +414,26 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                                height, dmin_layers, dmax_lay,
                                                n_ppp, pixel_size_um, grain, out);
 
-    // Accumulator per channel-interleaved pixel (CPU route only).
+    // Accumulator, ONE float64 PLANE (CPU route only). PEAK MEMORY (#300):
+    // channel c of `out` depends only on channel c's three sublayers, so each
+    // channel is summed (0.0 + sl0 + sl1 + sl2, sl ascending, as before) and
+    // narrowed to float into `out` before the next channel starts. `out` is not
+    // read in this loop -- the input is the separate layer buffer -- so writing
+    // it early changes nothing. Two float64 planes fewer, and the plane is
+    // released before micro-structure and blur.
     std::vector<double> acc;
     std::vector<float> shifted;    // one sublayer plane
     std::vector<float> layer_out;
     if (!gpu_done) {
-        acc.assign(static_cast<size_t>(npix) * 3, 0.0);
+        acc.resize(static_cast<size_t>(npix));
         shifted.resize(static_cast<size_t>(npix));
         layer_out.resize(static_cast<size_t>(npix));
     }
 
     for (int c = 0; c < 3 && !gpu_done; ++c) {
+        spk::parallel_for(0, npix, [&](int i0, int i1) {
+            for (int i = i0; i < i1; ++i) acc[i] = 0.0;
+        });
         for (int sl = 0; sl < 3; ++sl) {
             // density_cmy_layers[:,sl,c] += density_min_layers[sl,c]
             ScopedGrainPhase _prep(GrainPhase::Prep);
@@ -445,19 +454,22 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
             {
                 ScopedGrainPhase _p(GrainPhase::Accum);
                 spk::parallel_for(0, npix, [&](int i0, int i1) {
-                    for (int i = i0; i < i1; ++i)
-                        acc[static_cast<size_t>(i) * 3 + c] += layer_out[i];
+                    for (int i = i0; i < i1; ++i) acc[i] += layer_out[i];
                 });
             }
         }
-    }
-
-    if (!gpu_done) {
         ScopedGrainPhase _p(GrainPhase::Final);
-        spk::parallel_for(0, static_cast<int>(acc.size()), [&](int i0, int i1) {
-            for (int i = i0; i < i1; ++i) out[i] = static_cast<float>(acc[i]);
+        spk::parallel_for(0, npix, [&](int i0, int i1) {
+            for (int i = i0; i < i1; ++i)
+                out[static_cast<size_t>(i) * 3 + c] = static_cast<float>(acc[i]);
         });
     }
+    { std::vector<double>().swap(acc); }
+    { std::vector<float>().swap(shifted); }
+    { std::vector<float>().swap(layer_out); }
+    // The layer buffer's last reader was the loop above (or the GPU accumulate).
+    density_cmy_layers = nullptr;
+    if (release_layers) { std::vector<float>().swap(*release_layers); }
 
     // micro-structure clumping (operates on the accumulated grain, before the
     // density_min subtraction and final blur — matching grain.py order).

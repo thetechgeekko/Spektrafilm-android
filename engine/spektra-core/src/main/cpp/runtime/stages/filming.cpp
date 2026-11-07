@@ -904,7 +904,8 @@ void expose_f32_gain(const float* rgb, double gain, int width, int height,
 }
 
 void develop(const float* log_raw, int width, int height, const Profile& film,
-             const FilmingParams& params, float* density_cmy_out) {
+             const FilmingParams& params, float* density_cmy_out,
+             std::vector<float>* release_log_raw) {
     int n = film.n_density_pts;
     const int npix = width * height;
 
@@ -949,6 +950,11 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
           ndc.data(), n, params.dir_couplers, film.is_positive(),
           params.density_curve_gamma,
           params.pixel_size_um, density_cmy_out); }
+    // log_raw's last reader was the coupler step above.
+    if (release_log_raw) {
+        log_raw = nullptr;
+        std::vector<float>().swap(*release_log_raw);
+    }
 
     // Stochastic grain (AgX particle model). Identity unless grain.active (set by
     // digest_grain_params when grain_active && stochastic effects are on). The
@@ -1011,7 +1017,7 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
             }
             apply_grain_to_density_layers(layers.data(), npix, width, height,
                                           density_max_layers, params.pixel_size_um,
-                                          grain, density_cmy_out);
+                                          grain, density_cmy_out, &layers);
         } else {
             // Non-sublayer path: density_max_curves[c] = nanmax(ndc[:,c]).
             for (int c = 0; c < 3; ++c) {

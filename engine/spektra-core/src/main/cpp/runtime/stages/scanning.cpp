@@ -907,7 +907,31 @@ void scan(const Profile& film, const ScanningParams& params,
     // in the linear output space, after the lens blur and before the CAT02
     // round-trip + CCTF. (apply_gaussian_blur / apply_unsharp_mask in
     // model/diffusion.py.)
-    if (do_unsharp) {
+    if (do_unsharp && !gpu_blur_enabled(params.allow_gpu)) {
+        // PEAK MEMORY (#300), CPU route: the unsharp mask is per-channel, so it
+        // runs one channel at a time over a single float64 plane instead of a
+        // whole interleaved `blur` copy (plus the blur's own channel plane).
+        // Same blur (gaussian_blur_plane_d at unsharp_sigma, what
+        // gaussian_blur_per_channel_d runs per channel) and the same per-element
+        // expression, so every value is unchanged; it was the scan stage's
+        // share of the export peak.
+        const double amt = params.unsharp_amount;
+        std::vector<double> plane_c(static_cast<size_t>(npix));
+        double* const bp = plane_c.data();
+        for (int c = 0; c < 3; ++c) {
+            parallel_for(0, npix, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p)
+                    bp[p] = lin_rgb[static_cast<size_t>(p) * 3 + c];
+            });
+            gaussian_blur_plane_d(bp, width, height, params.unsharp_sigma);
+            parallel_for(0, npix, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p) {
+                    const size_t i = static_cast<size_t>(p) * 3 + c;
+                    lin_rgb[i] = lin_rgb[i] + amt * (lin_rgb[i] - bp[p]);
+                }
+            });
+        }
+    } else if (do_unsharp) {
         const size_t total = static_cast<size_t>(npix) * 3;
         std::vector<double> blur(lin_rgb, lin_rgb + total);
         double sg[3] = {params.unsharp_sigma, params.unsharp_sigma,

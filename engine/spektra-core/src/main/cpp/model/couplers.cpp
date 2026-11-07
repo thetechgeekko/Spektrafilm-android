@@ -468,17 +468,35 @@ void apply_density_correction_dir_couplers_spatial(
         // configurations (FIR-only, IIR-only, the SMALL_SIGMA_MAX=3 dispatch
         // boundary, tail-weight 0 and 1) across two image shapes including a
         // non-power-of-two, plus the 12.5 MP frame. All identical.
-        std::vector<double> tail(static_cast<size_t>(npix) * 3);
-        double lt[3] = {tail_px, tail_px, tail_px};
-        exponential_filter_per_channel_d(correction.data(), w, h, 3, lt, tail.data());
-        double sg[3] = {size_px, size_px, size_px};
-        gaussian_blur_per_channel_d(correction.data(), w, h, 3, sg);
-        // Element-wise blend -> deterministic parallel chunks (byte-identical).
-        // `correction` now carries the Gaussian arm, blurred in place.
-        parallel_for(0, npix * 3, [&](int lo, int hi) {
-            for (int i = lo; i < hi; ++i)
-                correction[i] = (1.0 - tail_w) * correction[i] + tail_w * tail[i];
-        });
+        //
+        // PEAK MEMORY (#300): and both filters are per-channel, so they now run
+        // one channel at a time over single planes instead of on a whole
+        // interleaved `tail` copy plus the exponential filter's own three
+        // per-channel planes. Per channel: gather correction[:, c], take the
+        // tail from it, blur it in place, blend back. Same kernels, same sigmas,
+        // same operands in the same order, so every value is unchanged; three
+        // float64 planes fewer at the DIR-coupler step.
+        if (npix > 0) {
+            const size_t plane = static_cast<size_t>(npix);
+            std::vector<double> src_c(plane), tail_c(plane), scratch_c(plane);
+            for (int c = 0; c < 3; ++c) {
+                double* src = src_c.data();
+                double* tail = tail_c.data();
+                parallel_for(0, npix, [&](int lo, int hi) {
+                    for (int p = lo; p < hi; ++p)
+                        src[p] = correction[static_cast<size_t>(p) * 3 + c];
+                });
+                exponential_filter_plane_d(src, w, h, tail_px, tail,
+                                           scratch_c.data());
+                gaussian_blur_plane_d(src, w, h, size_px);
+                parallel_for(0, npix, [&](int lo, int hi) {
+                    for (int p = lo; p < hi; ++p) {
+                        const size_t i = static_cast<size_t>(p) * 3 + c;
+                        correction[i] = (1.0 - tail_w) * src[p] + tail_w * tail[p];
+                    }
+                });
+            }
+        }
     }  // !diffused_on_gpu
 
     // ---- interpolate_exposure_to_density(log_raw - correction, dc0, le, gamma) ----

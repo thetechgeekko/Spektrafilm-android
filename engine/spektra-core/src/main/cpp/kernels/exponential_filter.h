@@ -57,6 +57,15 @@ void exponential_filter_per_channel_d(const double* img, int w, int h, int chann
                                       const double* decay, double* out,
                                       double truncate = kGaussianTruncateD);
 
+// Single-plane form of exponential_filter_per_channel_d: `src` and `out` are one
+// row-major h*w plane, `scratch` is caller-owned workspace of the same size.
+// `out` and `scratch` must not alias `src` or each other. Byte-identical to the
+// per-channel call on that channel; it exists so a caller can keep one plane
+// live at a time instead of three (#300, halation peak memory).
+void exponential_filter_plane_d(const double* src, int w, int h, double decay,
+                                double* out, double* scratch,
+                                double truncate = kGaussianTruncateD);
+
 }  // namespace spk
 
 #endif  // SPK_KERNELS_EXPONENTIAL_FILTER_H

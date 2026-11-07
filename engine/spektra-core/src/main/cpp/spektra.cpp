@@ -2301,7 +2301,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
 
         // 5) develop(): log_raw -> density_cmy (+ DIR couplers, spatial diffusion if on).
         density_cmy.resize(out_elems);
-        spk::develop(log_raw.data(), width, height, film, fparams, density_cmy.data());
+        spk::develop(log_raw.data(), width, height, film, fparams, density_cmy.data(),
+                     &log_raw);  // last read inside develop (#300)
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (use_scan_film_cache) {
             std::lock_guard<std::mutex> g(eng->film_cache_mutex);
@@ -3136,7 +3137,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
 
         film_density_cmy.resize(out_elems);
         spk::develop(film_log_raw.data(), width, height, film, fparams,
-                     film_density_cmy.data());
+                     film_density_cmy.data(),
+                     &film_log_raw);  // last read inside develop (#300)
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (use_film_cache) {
             // Store {width, height, film_density_cmy} + key under the lock, count miss.

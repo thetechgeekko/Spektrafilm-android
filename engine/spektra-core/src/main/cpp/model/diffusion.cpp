@@ -69,7 +69,6 @@ void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
     if (!params.active) return;
     if (w <= 0 || h <= 0 || pixel_size_um <= 0.0) return;
 
-    const size_t total = static_cast<size_t>(w) * h * 3;
 
     // Step 1 (highlight boost) is applied earlier in FilmingStage.expose via the
     // separate apply_highlight_boost pass (matching filming.py, which calls
@@ -88,30 +87,58 @@ void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
         w_s[c] = params.scatter_tail_weight[c];
         if (sigma_c_px[c] > 0.0 || lambda_t_px[c] > 0.0) any_scatter_sigma = true;
     }
+    // PEAK MEMORY (#300). Both steps below are per-channel operators: channel c
+    // of the result reads only channel c of `raw`. They used to run on whole
+    // interleaved copies (core + tail in step 2, halation_blur + comp in step 3),
+    // which put ten full-frame float64 planes live at once inside step 2 -- the
+    // engine's measured peak for a default export (host probe, 12 MP: 1488 MB,
+    // of which ~915 MB was this step). They now run one channel at a time over
+    // single planes, so at most five planes are live. Every element is formed by
+    // the same kernels from the same operands in the same order (the blur is
+    // gaussian_blur_plane_d at the same sigma, the tail is the planar form of the
+    // same exponential filter, accumulation is k ascending from 0.0), so the
+    // result is byte-identical; only which channel is in memory changed.
+    const int plane = w * h;
+    std::vector<double> src_c, a_c, b_c, scratch_c;
+    auto ensure_planes = [&](int count) {
+        if (count > 0 && src_c.empty()) src_c.resize(static_cast<size_t>(plane));
+        if (count > 1 && a_c.empty()) a_c.resize(static_cast<size_t>(plane));
+        if (count > 2 && b_c.empty()) b_c.resize(static_cast<size_t>(plane));
+        if (count > 3 && scratch_c.empty()) scratch_c.resize(static_cast<size_t>(plane));
+    };
+    auto gather = [&](int c) {
+        double* dst = src_c.data();
+        parallel_for(0, plane, [&](int lo, int hi) {
+            for (int p = lo; p < hi; ++p) dst[p] = raw[static_cast<size_t>(p) * 3 + c];
+        });
+    };
+
     if (s_amount > 0.0 && any_scatter_sigma) {
         // core = fast_gaussian_filter(raw, max(sigma_c, 1e-6))
-        std::vector<double> core(raw, raw + total);
-        double sc[3] = {max_eps(sigma_c_px[0]), max_eps(sigma_c_px[1]),
-                        max_eps(sigma_c_px[2])};
-        gaussian_blur_per_channel_d(core.data(), w, h, 3, sc);
         // tail = fast_exponential_filter(raw, max(lambda_t, 1e-6))
-        std::vector<double> tail(total);
-        double lt[3] = {max_eps(lambda_t_px[0]), max_eps(lambda_t_px[1]),
-                        max_eps(lambda_t_px[2])};
-        exponential_filter_per_channel_d(raw, w, h, 3, lt, tail.data());
         // scattered = (1-w_s)*core + w_s*tail ; raw = (1-s)*raw + s*scattered
-        // Per-pixel map, disjoint writes -> deterministic parallel chunks.
-        const int plane = w * h;
-        parallel_for(0, plane, [&](int lo, int hi) {
-            for (int p = lo; p < hi; ++p) {
-                for (int c = 0; c < 3; ++c) {
+        ensure_planes(4);
+        for (int c = 0; c < 3; ++c) {
+            gather(c);
+            double* core = a_c.data();
+            double* tail = b_c.data();
+            const double* src = src_c.data();
+            parallel_for(0, plane, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p) core[p] = src[p];
+            });
+            gaussian_blur_plane_d(core, w, h, max_eps(sigma_c_px[c]));
+            exponential_filter_plane_d(src, w, h, max_eps(lambda_t_px[c]), tail,
+                                       scratch_c.data());
+            // Per-pixel map, disjoint writes -> deterministic parallel chunks.
+            parallel_for(0, plane, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p) {
                     size_t idx = static_cast<size_t>(p) * 3 + c;
                     double scattered =
-                        (1.0 - w_s[c]) * core[idx] + w_s[c] * tail[idx];
+                        (1.0 - w_s[c]) * core[p] + w_s[c] * tail[p];
                     raw[idx] = (1.0 - s_amount) * raw[idx] + s_amount * scattered;
                 }
-            }
-        });
+            });
+        }
     }
 
     // Step 3: back-reflection halation.
@@ -140,34 +167,37 @@ void apply_halation_um(double* raw, int w, int h, const HalationParams& params,
         }
         for (int k = 0; k < N; ++k) decay[k] /= dsum;
 
-        std::vector<double> halation_blur(total, 0.0);
-        std::vector<double> comp(total);
-        const int ntotal = static_cast<int>(total);
-        for (int k = 1; k <= N; ++k) {
-            double sk[3];
-            for (int c = 0; c < 3; ++c)
-                sk[c] = max_eps(sigma_h_px[c] * std::sqrt(static_cast<double>(k)));
-            // Copy / axpy: per-element maps -> deterministic parallel chunks.
-            parallel_for(0, ntotal, [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) comp[i] = raw[i];
+        ensure_planes(3);
+        for (int c = 0; c < 3; ++c) {
+            gather(c);
+            const double* src = src_c.data();
+            double* acc = a_c.data();   // halation_blur, channel c
+            double* comp = b_c.data();
+            parallel_for(0, plane, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p) acc[p] = 0.0;
             });
-            gaussian_blur_per_channel_d(comp.data(), w, h, 3, sk);
-            double wk = decay[k - 1];
-            parallel_for(0, ntotal, [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) halation_blur[i] += wk * comp[i];
-            });
-        }
-        const int plane = w * h;
-        parallel_for(0, plane, [&](int lo, int hi) {
-            for (int p = lo; p < hi; ++p) {
-                for (int c = 0; c < 3; ++c) {
+            for (int k = 1; k <= N; ++k) {
+                const double sk =
+                    max_eps(sigma_h_px[c] * std::sqrt(static_cast<double>(k)));
+                // Copy / axpy: per-element maps -> deterministic parallel chunks.
+                parallel_for(0, plane, [&](int lo, int hi) {
+                    for (int p = lo; p < hi; ++p) comp[p] = src[p];
+                });
+                gaussian_blur_plane_d(comp, w, h, sk);
+                double wk = decay[k - 1];
+                parallel_for(0, plane, [&](int lo, int hi) {
+                    for (int p = lo; p < hi; ++p) acc[p] += wk * comp[p];
+                });
+            }
+            parallel_for(0, plane, [&](int lo, int hi) {
+                for (int p = lo; p < hi; ++p) {
                     size_t idx = static_cast<size_t>(p) * 3 + c;
-                    double v = raw[idx] + a_tot[c] * halation_blur[idx];
+                    double v = raw[idx] + a_tot[c] * acc[p];
                     if (params.halation_renormalize) v = v / (1.0 + a_tot[c]);
                     raw[idx] = v;
                 }
-            }
-        });
+            });
+        }
     }
 }
 
