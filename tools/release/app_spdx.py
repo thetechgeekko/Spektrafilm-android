@@ -35,6 +35,7 @@ EXPECTED_LOCKFILES = (
     "lib/libraw/gradle.lockfile",
     "lib/pngwriter/gradle.lockfile",
     "lib/tiffwriter/gradle.lockfile",
+    "macrobenchmark/gradle.lockfile",
 )
 REQUIRED_REPOSITORY_INPUTS = (
     "gradle/wrapper/gradle-wrapper.properties",

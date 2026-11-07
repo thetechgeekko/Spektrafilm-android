@@ -551,6 +551,7 @@ jobs:
               "lib/libraw/gradle.lockfile",
               "lib/pngwriter/gradle.lockfile",
               "lib/tiffwriter/gradle.lockfile",
+              "macrobenchmark/gradle.lockfile",
           )
           discovered = tuple(
               sorted(
@@ -583,6 +584,7 @@ jobs:
             lib/libraw/gradle.lockfile \
             lib/pngwriter/gradle.lockfile \
             lib/tiffwriter/gradle.lockfile \
+            macrobenchmark/gradle.lockfile \
             > build/expected-gradle-lock-inventory.txt
           cmp build/expected-gradle-lock-inventory.txt \
             build/actual-gradle-lock-inventory.txt
@@ -807,6 +809,7 @@ jobs:
             lib/libraw/gradle.lockfile \
             lib/pngwriter/gradle.lockfile \
             lib/tiffwriter/gradle.lockfile \
+            macrobenchmark/gradle.lockfile \
             > build/expected-gradle-lock-inventory.txt
           unzip -Z1 candidate/gradle-locks.zip \
             > build/actual-gradle-lock-inventory.txt

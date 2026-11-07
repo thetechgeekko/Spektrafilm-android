@@ -836,6 +836,7 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
             "lib/libraw/gradle.lockfile",
             "lib/pngwriter/gradle.lockfile",
             "lib/tiffwriter/gradle.lockfile",
+            "macrobenchmark/gradle.lockfile",
         ):
             self.assertGreaterEqual(RELEASE.count(lockfile), 2, lockfile)
         for released_suffix in (

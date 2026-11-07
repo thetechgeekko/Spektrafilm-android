@@ -100,6 +100,18 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        // Macrobenchmark / Baseline Profile target (#459), driven by :macrobenchmark.
+        // Same code as release (minified, same R8 rules, same native flags) so the numbers
+        // describe the shipping build, but signed with the committed public debug key so it
+        // installs next to nothing else and needs no secret. Never published: release.yml
+        // builds and signs only `release`. The manifest's <profileable shell="true"/> lets
+        // the benchmark trace it.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

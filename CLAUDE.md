@@ -29,6 +29,9 @@ Gradle modules actually built (`settings.gradle.kts`):
 - **`:lib:libraw`** — `libsfraw.so`, LibRaw via an ACES intermediate → linear ProPhoto RGB for RAW/DNG import.
 - **`:lib:tiffwriter`** (`libsftiff.so`) and **`:lib:pngwriter`** (`libsfpng.so`) — 16-bit
   TIFF/PNG export writers.
+- **`:macrobenchmark`** — test-only (`com.android.test`): startup/frame macrobenchmarks and the
+  Baseline Profile generator, run on a device against `:app`'s `benchmark` build type (release
+  code, public debug key). Never on CI, never in the APK; its lockfile is in the release inventory.
 
 `feature/film-emulation/` was a never-compiled pseudo-module (never in `settings.gradle.kts`);
 it was deleted by #184 — its history survives in git and in `docs/DECISION.md`. The
@@ -178,7 +181,7 @@ without secrets, reruns both parity flag legs plus release JVM/lint/R8/16 KiB ga
 Environment downloads by exact artifact database ID, signs that exact app/instrumentation pair,
 proves installed-byte identity on API 35, and verifies immutable remote release/assets by numeric IDs
 before publication. Candidate identity is bound to source/version/run ID/run attempt/artifact digest,
-all six Gradle locks, both SPDX documents, mapping, symbols, runtime classpath, and provenance.
+all seven Gradle locks, both SPDX documents, mapping, symbols, runtime classpath, and provenance.
 `r8-smoke.yml` (manual dispatch) builds the R8-minified unsigned candidate,
 explicitly signs it with the committed public debug key, and runs the 16 KB pre-tag smoke checks.
 

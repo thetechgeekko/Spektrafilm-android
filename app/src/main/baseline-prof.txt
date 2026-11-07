@@ -8,7 +8,8 @@
 #
 # Rule-based (wildcards) rather than a recorded journey: the app is small enough that
 # pre-compiling all of it costs little, and a rule cannot go stale when code moves. A recorded
-# profile from a :baselineprofile module can replace it later (#285 shares that module).
+# profile from :macrobenchmark's BaselineProfileGenerator (#459) replaces it once one has been
+# generated on a device and the startup benchmark shows it is no worse.
 #
 # Format: https://developer.android.com/topic/performance/baselineprofiles/manually-create-measure
 # H = hot, S = startup, P = post-startup. `**` matches any class or member.

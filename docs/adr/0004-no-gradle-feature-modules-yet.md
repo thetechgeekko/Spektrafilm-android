@@ -6,8 +6,8 @@
 
 ## Context
 
-`settings.gradle.kts` builds five modules: `:app`, `:engine:spektra-core`, `:lib:libraw`,
-`:lib:tiffwriter` and `:lib:pngwriter`. Everything native (the engine, LibRaw and the two
+`settings.gradle.kts` builds five shipping modules: `:app`, `:engine:spektra-core`, `:lib:libraw`,
+`:lib:tiffwriter` and `:lib:pngwriter` (plus the test-only `:macrobenchmark`, #459). Everything native (the engine, LibRaw and the two
 writers) is already its own module, and native code is what dominates a clean build.
 All Kotlin UI and data code is in `:app`: 115 files and about 37k lines in one package.
 
@@ -24,7 +24,7 @@ of overhead in the form of increased build complexity and boilerplate code."
 
 ## What a split would cost here
 
-- **Release identity.** `release.yml` hash-binds every `gradle.lockfile` (six today), both
+- **Release identity.** `release.yml` hash-binds every `gradle.lockfile` (seven since the test-only `:macrobenchmark` module, #459), both
   SPDX documents and the runtime classpath into the candidate's identity. Each new module
   adds a lockfile, which has to be listed in `release.yml`, regenerated with
   `--update-locks` and kept in sync on every dependency bump. Eight new modules would more
