@@ -19,7 +19,8 @@
  *
  *   A  = the paper's image exposure per channel (before the pre-flash)
  *   x  = mean over channels of log2(A)      0 = mid-grey through this enlarger
- *   b  = x blurred over the frame (Gaussian, sigma = scale * long edge)
+ *   b  = x smoothed over the frame (sigma = scale * long edge), edge-aware: a
+ *        guided filter guided by x, so a hard edge does not leave a halo
  *   d  = a bounded pull of b toward [-core, +core]
  *   A' = 2^d * A                             then the pre-flash is added as usual
  *
@@ -35,12 +36,13 @@ struct ContrastMaskParams {
     bool active = false;
     // Stops a print highlight (low paper exposure) kContrastMaskReach stops
     // beyond the core is pulled toward mid-grey, i.e. darkened: highlight detail.
+    // Nearer the core the pull shrinks in proportion (see contrast_mask_delta).
     double highlights = 0.0;
     // Stops a print shadow (high paper exposure) the same distance out is pulled
     // toward mid-grey, i.e. lightened: shadow detail.
     double shadows = 0.0;
     // Half-width, in stops of print exposure around mid-grey, that is left alone.
-    double core = 1.0;
+    double core = 0.25;
     // Blur sigma as a fraction of the frame's long edge.
     double scale = 0.03;
 
@@ -56,8 +58,16 @@ struct ContrastMaskParams {
 // the middle; |result| < kContrastMaskGainLimit always.
 double contrast_mask_delta(double b, const ContrastMaskParams& m);
 
-constexpr double kContrastMaskReach = 4.0;
+// The printable range of a paper is only about +/-2.5 stops of exposure around
+// mid-grey (Portra Endura: paper white at about -2.7, black at about +2.7). An
+// amount equal to the reach would flatten a base there completely, so the
+// 0..3 amount range runs from no mask to a full one; amount 1 takes about a
+// third off a large area's distance from the core, like a typical darkroom mask.
+constexpr double kContrastMaskReach = 3.0;
 constexpr double kContrastMaskGainLimit = 6.0;
+// Guided-filter regulariser, in stops^2 of print exposure: windows whose variance is
+// well above it (an edge of more than about a stop) keep their edge in the base.
+constexpr double kContrastMaskEdgeEps = 0.25;
 
 // Grid size the analysis uses for a w x h frame at `scale`.
 void contrast_mask_grid_size(int w, int h, double scale, int* gw, int* gh);

@@ -3428,7 +3428,7 @@ void spk_default_params(spk_params* p) {
     p->contrast_mask_active = 0;
     p->contrast_mask_highlights = 1.0f;
     p->contrast_mask_shadows = 0.5f;
-    p->contrast_mask_core = 1.0f;
+    p->contrast_mask_core = 0.25f;
     p->contrast_mask_scale = 0.03f;
     p->reserved_tail_pad1 = 0;
     p->enlarger_diffusion_strength = 0.5f;

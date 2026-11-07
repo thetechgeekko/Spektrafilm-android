@@ -254,7 +254,7 @@ class ParamsState {
     var contrastMaskActive by mutableStateOf(false)
     var contrastMaskHighlights by mutableFloatStateOf(1.0f)
     var contrastMaskShadows by mutableFloatStateOf(0.5f)
-    var contrastMaskCore by mutableFloatStateOf(1.0f)
+    var contrastMaskCore by mutableFloatStateOf(0.25f)
     var contrastMaskScale by mutableFloatStateOf(0.03f)
 
     // --- Tone curve (Lightroom-style, applied to final display RGB) ---

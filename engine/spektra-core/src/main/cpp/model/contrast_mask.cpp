@@ -30,18 +30,10 @@ constexpr int kGridMinLongEdge = 512;
 // log2 floor, ~6 densities under mid-grey: a numerical guard, not a signal.
 constexpr double kLog2Floor = -20.0;
 
-// RFC-023's m = 2 branch: slope 1 at the knee, asymptote h.
-inline double soft(double d, double h) { return d * h / std::sqrt(h * h + d * d); }
-
-// The branch room `h` such that, after the gain bound, a base kContrastMaskReach
-// stops beyond the knee moves by exactly `amount` stops (closed form both ways).
-double room_for(double amount) {
-    const double L = kContrastMaskGainLimit, R = kContrastMaskReach;
-    const double a = std::min(amount, L * 0.999);
-    const double delta = a * L / std::sqrt(L * L - a * a);
-    const double t = std::max(R - delta, 1e-3);
-    return R * t / std::sqrt(R * R - t * t);
-}
+// Shape of the pull: ~quadratic just past the core (no visible kink where the mask
+// starts), ~linear further out, like a darkroom mask of constant contrast.
+constexpr double kShapeKnee = 0.25;
+inline double shape(double D) { return D * D / (D + kShapeKnee); }
 
 inline double pixel_x(const double* yp, const double pf[3], double mult) {
     double s = 0.0;
@@ -88,16 +80,32 @@ void gaussian_grid(std::vector<double>& v, int w, int h, double sigma) {
 
 double contrast_mask_delta(double b, const ContrastMaskParams& m) {
     const double core = std::max(0.0, m.core);
-    double d = 0.0;
+    double amount = 0.0, D = 0.0, sign = 0.0;
     if (m.highlights > 0.0 && b < -core) {
-        const double D = -core - b;
-        d = D - soft(D, room_for(m.highlights));
+        amount = m.highlights; D = -core - b; sign = 1.0;   // more light: darker
     } else if (m.shadows > 0.0 && b > core) {
-        const double D = b - core;
-        d = soft(D, room_for(m.shadows)) - D;
+        amount = m.shadows; D = b - core; sign = -1.0;      // less light: lighter
+    } else {
+        return 0.0;
     }
-    const double L = kContrastMaskGainLimit;
-    return d * L / std::sqrt(L * L + d * d);
+    // t is the fraction of the reach the amount asks for. The pull blends a soft
+    // knee (zero slope at the core) with a straight line, weighted so that
+    //   * a base kContrastMaskReach stops past the core moves by exactly `amount`,
+    //   * the slope of the pull never exceeds 1, so the corrected exposure
+    //     b + delta stays monotone and the mask never reverses tonal order
+    //     (amount 3 flattens the reach instead of inverting it), and
+    //   * the pull never moves a base past the core (d <= D follows from the
+    //     slope bound and d(0) = 0).
+    // knee' < 1 and knee(D)/D rises with D, so with K = R / shape(R) ~= 1.08 the
+    // slope is at most t(1 - t)K + t^2 <= 1 for every t in [0, 1].
+    const double R = kContrastMaskReach;
+    const double t = std::min(amount / R, 1.0);
+    const double knee = R * shape(D) / shape(R);
+    double d = t * ((1.0 - t) * knee + t * D);
+    // Belt and braces: the closed form already keeps both bounds; a constant cap
+    // keeps the corrected exposure monotone too.
+    d = std::min(std::min(d, D), kContrastMaskGainLimit * 0.999);
+    return sign * d;
 }
 
 void contrast_mask_grid_size(int w, int h, double scale, int* gw, int* gh) {
@@ -117,8 +125,9 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
     contrast_mask_grid_size(width, height, m.scale, &gw, &gh);
     const int cells = std::max(gw, gh);
 
-    // 1. Cell means of x. Cells partition the frame, so every pixel counts once.
+    // 1. Cell means of x and x^2. Cells partition the frame, so every pixel counts once.
     std::vector<double> grid(static_cast<size_t>(gw) * gh);
+    std::vector<double> grid2(grid.size());
     parallel_for(0, gh, [&](int lo, int hi) {
         for (int cy = lo; cy < hi; ++cy) {
             const int y0 = static_cast<int>(static_cast<long long>(cy) * height / gh);
@@ -128,19 +137,42 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
                 const int x0 = static_cast<int>(static_cast<long long>(cx) * width / gw);
                 const int x1 = std::min(width, std::max(
                     static_cast<int>(static_cast<long long>(cx + 1) * width / gw), x0 + 1));
-                double acc = 0.0;
+                double acc = 0.0, acc2 = 0.0;
                 for (int py = y0; py < y1; ++py)
-                    for (int px = x0; px < x1; ++px)
-                        acc += pixel_x(y + (static_cast<size_t>(py) * width + px) * 3,
-                                       preflash, mult);
-                grid[static_cast<size_t>(cy) * gw + cx] =
-                    acc / static_cast<double>((x1 - x0) * (y1 - y0));
+                    for (int px = x0; px < x1; ++px) {
+                        const double xv = pixel_x(
+                            y + (static_cast<size_t>(py) * width + px) * 3, preflash, mult);
+                        acc += xv;
+                        acc2 += xv * xv;
+                    }
+                const double inv = 1.0 / static_cast<double>((x1 - x0) * (y1 - y0));
+                grid[static_cast<size_t>(cy) * gw + cx] = acc * inv;
+                grid2[static_cast<size_t>(cy) * gw + cx] = acc2 * inv;
             }
         }
     });
 
-    // 2. The unsharp base.
-    gaussian_grid(grid, gw, gh, std::max(0.5, m.scale * cells));
+    // 2. The base: an edge-aware (guided-filter) blur of x, guided by x itself.
+    //    Where a window holds one large area, the base is its smooth mean, exactly
+    //    the unsharp mask; where it straddles an edge much stronger than
+    //    kContrastMaskEdgeEps, the base follows the edge, so the dark side of a
+    //    skyline is lifted as much as the rest of the shadow instead of keeping a
+    //    dark band one blur radius wide (the halo of a plain Gaussian base).
+    const double sigma = std::max(0.5, m.scale * cells);
+    gaussian_grid(grid, gw, gh, sigma);
+    gaussian_grid(grid2, gw, gh, sigma);
+    std::vector<double>& coef_a = grid2;  // reuse: a, then b in `grid`
+    for (size_t i = 0; i < grid.size(); ++i) {
+        const double mean = grid[i];
+        const double var = std::max(grid2[i] - mean * mean, 0.0);
+        const double a = var / (var + kContrastMaskEdgeEps);
+        coef_a[i] = a;
+        grid[i] = mean - a * mean;  // b
+    }
+    // The coefficients are averaged over a smaller window than the statistics, so
+    // the edge-following `a` is not spread thin across the whole blur radius.
+    gaussian_grid(coef_a, gw, gh, std::max(0.5, 0.25 * sigma));
+    gaussian_grid(grid, gw, gh, std::max(0.5, 0.25 * sigma));
 
     // 3. Per pixel: bilinear base, bounded shift, gain on the image exposure
     //    only (the pre-flash is re-added unscaled).
@@ -157,14 +189,17 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
                 const int u0 = static_cast<int>(std::floor(u));
                 const int u1 = std::min(u0 + 1, gw - 1);
                 const double tu = u - u0;
-                const double* g0 = grid.data() + static_cast<size_t>(v0) * gw;
-                const double* g1 = grid.data() + static_cast<size_t>(v1) * gw;
-                const double b = (g0[u0] * (1.0 - tu) + g0[u1] * tu) * (1.0 - tv) +
-                                 (g1[u0] * (1.0 - tu) + g1[u1] * tu) * tv;
+                const size_t r0 = static_cast<size_t>(v0) * gw;
+                const size_t r1 = static_cast<size_t>(v1) * gw;
+                auto bilerp = [&](const std::vector<double>& g) {
+                    return (g[r0 + u0] * (1.0 - tu) + g[r0 + u1] * tu) * (1.0 - tv) +
+                           (g[r1 + u0] * (1.0 - tu) + g[r1 + u1] * tu) * tv;
+                };
+                double* yp = y + (static_cast<size_t>(py) * width + px) * 3;
+                const double b = bilerp(coef_a) * pixel_x(yp, preflash, mult) + bilerp(grid);
                 const double d = contrast_mask_delta(b, m);
                 if (d == 0.0) continue;  // inside the core: untouched, byte for byte
                 const double k = std::exp2(d);
-                double* yp = y + (static_cast<size_t>(py) * width + px) * 3;
                 for (int c = 0; c < 3; ++c) {
                     const double a = std::max(yp[c] - 1e-10 - preflash[c], 0.0);
                     yp[c] = std::max(k * a + preflash[c], 0.0) + 1e-10;
