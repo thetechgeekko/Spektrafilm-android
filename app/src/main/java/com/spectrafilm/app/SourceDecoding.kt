@@ -39,6 +39,10 @@ internal data class SourceDecodeRequest(
     val creativeTint: Float,
     val balanceToFilmStock: Boolean,
     val filmProfile: String,
+    /** Opt-in RAW hot-pixel correction on the Bayer mosaic (#259); ignored for non-RAW. */
+    val rawHotPixels: Boolean = false,
+    /** Opt-in RAW chroma noise reduction strength 0..100 (#259); ignored for non-RAW. */
+    val rawChromaNoise: Float = 0f,
 )
 
 internal data class SourceDecodeResult(
@@ -63,7 +67,10 @@ internal fun decodeIdentityOf(request: SourceDecodeRequest): String = with(reque
     "kind=$kind;rot=$rotation;rawWb=$rawWhiteBalance;" +
         "rawTemp=$rawTemperature;rawTint=$rawTint;" +
         "temp=$creativeTemp;tint=$creativeTint;" +
-        "balance=$balanceToFilmStock;film=$filmProfile"
+        "balance=$balanceToFilmStock;film=$filmProfile" +
+        // Appended only when on, so every identity minted before #259 is unchanged.
+        (if (rawHotPixels) ";hot=1" else "") +
+        (if (rawChromaNoise > 0f) ";cnr=${rawChromaNoise.toRawBits()}" else "")
 }
 
 /**
@@ -138,6 +145,8 @@ internal suspend fun decodeSourceRequest(
                     maxEdge,
                     cancellation,
                     rawMemoryDegraded,
+                    hotPixels = request.rawHotPixels,
+                    chromaNoise = request.rawChromaNoise,
                 )
             }
         } catch (failure: RawDecodeException) {

@@ -119,6 +119,7 @@ REQUIRED_NATIVE_FILES = (
     "fd_read_all.h",
     "native_allocation_registry.cpp",
     "native_allocation_registry.h",
+    "raw_cleanup.h",
     "raw_decode_budget.h",
     "raw_decoder.cpp",
     "raw_decoder.h",

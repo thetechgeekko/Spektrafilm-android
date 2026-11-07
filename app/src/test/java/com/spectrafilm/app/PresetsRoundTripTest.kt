@@ -56,6 +56,36 @@ class PresetsRoundTripTest {
     }
 
     @Test
+    fun roundTrip_preservesRawCleanup_andOldRecipesStayOff() {
+        val src = ParamsState().apply {
+            rawHotPixels = true
+            rawChromaNoise = 35f
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+        assertTrue(dst.rawHotPixels)
+        assertEquals(35f, dst.rawChromaNoise, 1e-4f)
+
+        // A recipe written before #259 has no clean-up keys: both stay off.
+        val old = JSONObject(Presets.toJsonString(ParamsState()))
+        old.getJSONObject("raw").apply {
+            remove("hotPixels")
+            remove("chromaNoise")
+        }
+        val fromOld = ParamsState()
+        Presets.decode(old, fromOld)
+        assertFalse(fromOld.rawHotPixels)
+        assertEquals(0f, fromOld.rawChromaNoise, 0f)
+
+        // An out-of-range strength from a hand-edited file is clamped, not trusted.
+        val wild = JSONObject(Presets.toJsonString(ParamsState()))
+        wild.getJSONObject("raw").put("chromaNoise", 900.0)
+        val clamped = ParamsState()
+        Presets.decode(wild, clamped)
+        assertEquals(100f, clamped.rawChromaNoise, 0f)
+    }
+
+    @Test
     fun roundTrip_preservesSceneLatitude_andReachesEngineParams() {
         val src = ParamsState().apply {
             sceneLatitudeActive = true

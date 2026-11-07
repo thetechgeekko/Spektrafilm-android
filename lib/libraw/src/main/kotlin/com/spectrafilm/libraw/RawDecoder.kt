@@ -247,6 +247,10 @@ object RawDecoder {
          * dimensions (some DNGs ignore LibRaw's half_size and decode full-resolution).
          */
         val maxLongEdge: Int = 0,
+        /** Replace isolated hot photosites on the Bayer mosaic before demosaic (#259). */
+        val hotPixelCorrection: Boolean = false,
+        /** Luminance-preserving chroma low-pass strength, 0..100; 0 disables (#259). */
+        val chromaNoiseReduction: Float = 0f,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -290,6 +294,7 @@ object RawDecoder {
         return nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION,
         ).toLinear()
     }
@@ -308,6 +313,7 @@ object RawDecoder {
             direct, direct.remaining(),
             settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION,
         ).toLinear()
     }
@@ -324,6 +330,7 @@ object RawDecoder {
     ): LinearResult = nativeDecodeFd(
         fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
         settings.halfSize, settings.maxLongEdge,
+        settings.hotPixelCorrection, settings.chromaNoiseReduction,
         cancellation?.tokenForDecode() ?: NO_CANCELLATION, -1,
     ).toLinear()
 
@@ -342,6 +349,7 @@ object RawDecoder {
         fun decode(scratchFd: Int) = nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION, scratchFd,
         ).toLinear()
         cancellation?.throwIfCancellationRequested()
@@ -482,17 +490,20 @@ object RawDecoder {
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long,
     ): NativeResult
 
     private external fun nativeDecodeBuffer(
         buffer: ByteBuffer, len: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long,
     ): NativeResult
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long, scratchFd: Int,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long, scratchFd: Int,
     ): NativeResult
 
     /** Release an exact token/base/capacity match from the native registry. */

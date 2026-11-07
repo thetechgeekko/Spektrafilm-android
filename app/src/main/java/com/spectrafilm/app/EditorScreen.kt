@@ -1543,6 +1543,8 @@ internal fun MainActivity.EditorScreen(
             creativeTint = state.creativeWbTint,
             balanceToFilmStock = state.balanceToFilmStock,
             filmProfile = state.filmProfile,
+            rawHotPixels = state.rawHotPixels,
+            rawChromaNoise = state.rawChromaNoise,
         )
     }
 
@@ -1572,6 +1574,8 @@ internal fun MainActivity.EditorScreen(
                 filmBalance = filmBalance,
                 rotationDegrees = decode.rotation.degrees,
                 maxEdge = maxEdge,
+                hotPixels = decode.rawHotPixels,
+                chromaNoise = decode.rawChromaNoise,
             )
             // Begin publication authority in the same main-thread turn as the snapshot. An
             // older caller cannot resume later and reorder itself ahead of a newer UI state.
@@ -2003,6 +2007,7 @@ internal fun MainActivity.EditorScreen(
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp,
                 creativeTint = state.creativeWbTint, filmBalance = filmBalance,
                 rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                hotPixels = state.rawHotPixels, chromaNoise = state.rawChromaNoise,
             ),
         )
     }
@@ -2477,6 +2482,7 @@ internal fun MainActivity.EditorScreen(
     // add a post-engine control you must add it to ALL THREE effects below.
     LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) { previewTick++ }
@@ -2596,6 +2602,7 @@ internal fun MainActivity.EditorScreen(
     LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
         recipeAccess,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
@@ -2681,6 +2688,7 @@ internal fun MainActivity.EditorScreen(
     // undid more than the user did.
     LaunchedEffect(snapshot, recipeKey, recipeReady, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {

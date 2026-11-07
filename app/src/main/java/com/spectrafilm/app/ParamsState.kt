@@ -86,6 +86,10 @@ class ParamsState {
     var rawWhiteBalance by mutableStateOf(WhiteBalance.AS_SHOT)
     var rawTemperature by mutableFloatStateOf(5500f)
     var rawTint by mutableFloatStateOf(1f)
+    // Opt-in RAW clean-up (#259), applied inside the native decode, RAW-only. Both default
+    // OFF so an existing recipe decodes to exactly the bytes it always did.
+    var rawHotPixels by mutableStateOf(false)
+    var rawChromaNoise by mutableFloatStateOf(0f)
 
     // --- Creative white balance (all sources; pre-engine Bradford CAT on the linear input). ---
     // Relative push in [-100,100]; 0 = identity. Distinct from the RAW-decode WB above (which is a

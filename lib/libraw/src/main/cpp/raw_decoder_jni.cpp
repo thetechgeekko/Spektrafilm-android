@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <new>
@@ -127,7 +128,8 @@ bool isCancelled(const CancellationLease& lease) {
 
 spectrafilm::DecodeOptions readOptions(
     jint wbMode, jdouble temperatureK, jdouble tint, jboolean halfSize,
-    jint maxLongEdge, const CancellationLease& cancellation) {
+    jint maxLongEdge, jboolean hotPixels, jfloat chromaNoise,
+    const CancellationLease& cancellation) {
     spectrafilm::DecodeOptions options;
     switch (wbMode) {
         case 0: options.whiteBalance = spectrafilm::WhiteBalanceMode::AsShot; break;
@@ -140,6 +142,10 @@ spectrafilm::DecodeOptions readOptions(
     options.tint = tint;
     options.halfSize = halfSize != JNI_FALSE;
     options.maxLongEdge = maxLongEdge > 0 ? maxLongEdge : 0;
+    options.hotPixelCorrection = hotPixels != JNI_FALSE;
+    // NaN and negatives are off; above 100 is clamped by the filter itself.
+    options.chromaNoiseReduction =
+        std::isfinite(chromaNoise) && chromaNoise > 0.0f ? chromaNoise : 0.0f;
     options.cancelFlag = cancellation.get();
     return options;
 }
@@ -615,6 +621,7 @@ JNI(jboolean, nativeReleaseCancellation)(JNIEnv*, jobject, jlong token) {
 JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject, jbyteArray bytes,
                                 jint wbMode, jdouble temperatureK, jdouble tint,
                                 jboolean halfSize, jint maxLongEdge,
+                                jboolean hotPixels, jfloat chromaNoise,
                                 jlong cancellationToken) {
     try {
         if (bytes == nullptr) {
@@ -649,7 +656,7 @@ JNI(jobject, nativeDecodeBytes)(JNIEnv* env, jobject, jbyteArray bytes,
             reinterpret_cast<const std::uint8_t*>(input.get()),
             static_cast<std::size_t>(length),
             readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge,
-                        cancellation));
+                        hotPixels, chromaNoise, cancellation));
         if (isCancelled(cancellation) && result.ok) {
             throwCancelled(env);
             return nullptr;
@@ -669,6 +676,7 @@ JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject, jobject directBuffer,
                                  jint length, jint wbMode,
                                  jdouble temperatureK, jdouble tint,
                                  jboolean halfSize, jint maxLongEdge,
+                                 jboolean hotPixels, jfloat chromaNoise,
                                  jlong cancellationToken) {
     try {
         void* address = nullptr;
@@ -684,7 +692,7 @@ JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject, jobject directBuffer,
             reinterpret_cast<const std::uint8_t*>(address),
             static_cast<std::size_t>(length),
             readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge,
-                        cancellation));
+                        hotPixels, chromaNoise, cancellation));
         if (isCancelled(cancellation) && result.ok) {
             throwCancelled(env);
             return nullptr;
@@ -703,6 +711,7 @@ JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject, jobject directBuffer,
 JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject, jint fd, jint wbMode,
                              jdouble temperatureK, jdouble tint,
                              jboolean halfSize, jint maxLongEdge,
+                             jboolean hotPixels, jfloat chromaNoise,
                              jlong cancellationToken, jint scratchFd) {
     try {
         CancellationLease cancellation =
@@ -713,7 +722,7 @@ JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject, jint fd, jint wbMode,
             return nullptr;
         }
         auto options = readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge,
-                                   cancellation);
+                                   hotPixels, chromaNoise, cancellation);
         options.inputScratchFd = scratchFd;
         spectrafilm::DecodeResult result = spectrafilm::decodeFromFd(fd, options);
         if (isCancelled(cancellation) && result.ok) {

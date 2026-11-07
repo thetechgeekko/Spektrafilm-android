@@ -212,12 +212,25 @@ target_compile_options(sfraw_dng_sniffer_test PRIVATE
                        -include "${SFRAW_RAW_DECODER_SOURCE}")
 target_link_libraries(sfraw_dng_sniffer_test PRIVATE sfraw_host_sanitizers)
 
+add_executable(sfraw_raw_cleanup_test test_raw_cleanup.cpp)
+target_include_directories(sfraw_raw_cleanup_test PRIVATE
+                           "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
+target_link_libraries(sfraw_raw_cleanup_test PRIVATE sfraw_host_sanitizers)
+
 add_executable(sfraw_fd_read_all_test test_fd_read_all.cpp)
 target_include_directories(sfraw_fd_read_all_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
 target_link_libraries(sfraw_fd_read_all_test PRIVATE sfraw_host_sanitizers)
 
 if(BUILD_TESTING)
+  add_test(NAME sfraw.raw-cleanup.contract
+           COMMAND sfraw_raw_cleanup_test)
+  set_tests_properties(
+    sfraw.raw-cleanup.contract
+    PROPERTIES
+      TIMEOUT 30
+      ENVIRONMENT
+        "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
   add_test(NAME sfraw.fd-read-all.contract
            COMMAND sfraw_fd_read_all_test)
   set_tests_properties(
