@@ -21,7 +21,12 @@ import android.os.StrictMode
  *
  * Known, explained violations (do not "fix" by silencing): the bounded settings flush in
  * MainActivity.onStop (#448 removes the wait) and first-launch asset/profile reads that
- * AppContainer performs lazily.
+ * AppContainer performs lazily. Main-thread reads still open are tracked in #492.
+ *
+ * Expected and not the app's: NonSdkApiUsedViolation for `Bitmap.mNativePtr` from
+ * SpektraEngine.nativePackDisplayToBitmap. The JNI side uses the supported NDK
+ * AndroidBitmap_* API; libjnigraphics reads the field internally and StrictMode attributes
+ * it to the calling frame.
  */
 internal object DebugStrictMode {
     fun installIfDebuggable(context: Context) {
