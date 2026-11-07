@@ -197,6 +197,8 @@
     <string name="editor_preview_none">No preview yet</string>
     <string name="editor_histogram">Histogram</string>
     <string name="editor_toggle_histogram">Toggle histogram</string>
+    <string name="editor_toggle_clipping">Toggle clipping warnings</string>
+    <string name="editor_clipping_tooltip">Clipping warnings: red where highlights blow out, blue where shadows go black. Also shown while a second finger rests on a slider.</string>
     <string name="editor_compare">Before / after compare</string>
     <string name="editor_crop_transform_tooltip">Crop &amp; transform</string>
     <string name="editor_crop_transform">Crop and transform</string>

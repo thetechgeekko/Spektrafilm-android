@@ -1423,6 +1423,9 @@ class MainActivity : ComponentActivity() {
             SliderInteraction(
                 onChange = { readout -> interacting.value = true; sliderReadout.value = readout },
                 onFinished = { interacting.value = false; sliderReadout.value = null },
+                // A second finger on the slider row peeks at clipping (the canvas button
+                // latches the same overlay without a gesture).
+                onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
             )
         }
 
@@ -4242,12 +4245,15 @@ class MainActivity : ComponentActivity() {
                             renderErr = renderErr,
                             compareMode = viewerUi.compare,
                             showHistogram = viewerUi.histogram,
+                            showClipping = viewerUi.showClipping,
+                            clipWarnings = viewerUi.clipWarnings,
                             gpuEnabled = gpuEnabled,
                             gpuProxy = gpuProxy,
                             gpuLut = gpuLut,
                             gpuGain = gpuGain,
                             onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
                             onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
+                            onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
                             onRotate = { rotation = rotation.next() },
                             onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
                             // Single tap on the photo = show/hide the chrome. The point is
@@ -5216,12 +5222,15 @@ class MainActivity : ComponentActivity() {
         renderErr: String?,
         compareMode: Boolean,
         showHistogram: Boolean,
+        showClipping: Boolean,
+        clipWarnings: Boolean,
         gpuEnabled: Boolean,
         gpuProxy: LinearImage?,
         gpuLut: CubeLut?,
         gpuGain: Float,
         onToggleCompare: () -> Unit,
         onToggleHistogram: () -> Unit,
+        onToggleClipWarnings: () -> Unit,
         onRotate: () -> Unit,
         onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
@@ -5284,8 +5293,9 @@ class MainActivity : ComponentActivity() {
             // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
             // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
             var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
+            val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
             val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-                !compareMode && !gpuBroken && !gpuZoomHandoff
+                !compareMode && !showClipping && !gpuBroken && !gpuZoomHandoff
             if (gpuActive) GpuPreviewSurface(
                 proxy = gpuProxy!!,
                 lut = gpuLut!!,
@@ -5336,6 +5346,10 @@ class MainActivity : ComponentActivity() {
                         CompareSlider(before = before, after = bmp)
                     bmp != null -> ZoomableImage(
                         bitmap = bmp,
+                        // Clipping warnings: the GPU surface steps aside while they show
+                        // (gpuActive above), as it does for compare, so the mask always has
+                        // the CPU frame it was computed from underneath it.
+                        overlay = clipMask,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = revealAlpha.value },
@@ -5400,6 +5414,14 @@ class MainActivity : ComponentActivity() {
                         CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
                             Icon(
                                 SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                    TextTooltip(stringResource(R.string.editor_clipping_tooltip)) {
+                        CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
+                            Icon(
+                                SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
                                 tint = Color.White,
                             )
                         }

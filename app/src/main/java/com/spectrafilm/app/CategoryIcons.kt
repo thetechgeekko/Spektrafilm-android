@@ -492,6 +492,20 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Clipping — a frame split on the diagonal with hatching in the upper-left
+    // half (the blown region) and an empty lower-right half: the clipping
+    // warnings toggle on the canvas row.
+    // -----------------------------------------------------------------------
+    val Clipping: ImageVector by lazy {
+        icon("Clipping") {
+            strokePath("M 3 3 L 21 3 L 21 21 L 3 21 Z")
+            strokePath("M 21 3 L 3 21")
+            strokePath("M 3 9 L 9 3")
+            strokePath("M 3 15 L 15 3")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // AspectRatio — nested rectangles (aspect-ratio preset chips)
     // -----------------------------------------------------------------------
     val AspectRatio: ImageVector by lazy {
