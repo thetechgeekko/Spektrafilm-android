@@ -585,6 +585,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, ExportViewModel.factory)[ExportViewModel::class.java]
     }
 
+    /** On-photo tool overlays and mask selection for the editor (#272). */
+    private val toolVm: EditorToolViewModel by lazy {
+        ViewModelProvider(this, EditorToolViewModel.factory)[EditorToolViewModel::class.java]
+    }
+
     /** Preset panel, amount blend and settings clipboard state for the editor (#272). */
     private val presetVm: PresetViewModel by lazy {
         ViewModelProvider(this, PresetViewModel.factory)[PresetViewModel::class.java]
@@ -1325,28 +1330,12 @@ class MainActivity : ComponentActivity() {
         val restoredOverlay = restorableEditorOverlay(
             restoredTool?.overlay ?: EditorOverlayTool.NONE,
         )
-        var cropOverlayOpen by remember {
-            mutableStateOf(restoredOverlay == EditorOverlayTool.CROP)
-        }
-        // draw-on-the-preview mask geometry editor (positions the selected mask on the photo).
-        var maskOverlayOpen by remember {
-            mutableStateOf(restoredOverlay == EditorOverlayTool.MASK_GEOMETRY)
-        }
-        var selectedMaskIndex by remember { mutableIntStateOf(restoredTool?.maskIndex ?: 0) }
-        // eyedropper: sample a color- or luminance-range mask's target by tapping the photo.
-        var sampleOverlayOpen by remember {
-            mutableStateOf(
-                restoredOverlay == EditorOverlayTool.MASK_SAMPLE_COLOR ||
-                    restoredOverlay == EditorOverlayTool.MASK_SAMPLE_LUMINANCE ||
-                    restoredOverlay == EditorOverlayTool.WHITE_BALANCE_SAMPLE,
-            )
-        }
-        var sampleLuminanceMode by remember {
-            mutableStateOf(restoredOverlay == EditorOverlayTool.MASK_SAMPLE_LUMINANCE)
-        }
-        var sampleWbMode by remember {
-            mutableStateOf(restoredOverlay == EditorOverlayTool.WHITE_BALANCE_SAMPLE)
-        }  // gray-point WB eyedropper (no mask)
+        // Crop, mask-geometry editor, eyedropper (WB gray point / mask colour / mask luminance)
+        // and the selected mask live in EditorToolViewModel (#272), seeded once per editor
+        // composition from the checkpoint. Composition reads use toolUi; effects and
+        // callbacks read toolVm.current.
+        remember { toolVm.restore(restoredOverlay, restoredTool?.maskIndex ?: 0); true }
+        val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
@@ -1493,10 +1482,7 @@ class MainActivity : ComponentActivity() {
         var defaultsJson by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(recipeReady, state.localAdjustments.size) {
             if (recipeReady) {
-                selectedMaskIndex = clampSelectedMaskIndex(
-                    selectedMaskIndex,
-                    state.localAdjustments.size,
-                )
+                toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
             }
         }
         val snackbarHost = remember { SnackbarHostState() }
@@ -1756,16 +1742,9 @@ class MainActivity : ComponentActivity() {
 
         fun captureEditorSessionDocument(): EditorSessionDocument? {
             if (!recipeReady) return null
-            val overlay = when {
-                cropOverlayOpen -> EditorOverlayTool.CROP
-                maskOverlayOpen -> EditorOverlayTool.MASK_GEOMETRY
-                sampleOverlayOpen && sampleWbMode -> EditorOverlayTool.WHITE_BALANCE_SAMPLE
-                sampleOverlayOpen && sampleLuminanceMode -> EditorOverlayTool.MASK_SAMPLE_LUMINANCE
-                sampleOverlayOpen -> EditorOverlayTool.MASK_SAMPLE_COLOR
-                else -> EditorOverlayTool.NONE
-            }
+            val overlay = toolVm.current.overlay
             val selectedMask = clampSelectedMaskIndex(
-                selectedMaskIndex,
+                toolVm.current.maskIndex,
                 state.localAdjustments.size,
             )
             // Crop/mask-geometry gesture drafts live only inside their overlay Composable. Persist
@@ -1851,11 +1830,7 @@ class MainActivity : ComponentActivity() {
             committedSnapshot = null
             restoring = true
             presetVm.onAction(PresetAction.ClearAmount)
-            cropOverlayOpen = false
-            maskOverlayOpen = false
-            sampleOverlayOpen = false
-            sampleWbMode = false
-            selectedMaskIndex = 0
+            toolVm.onAction(EditorToolAction.ResetForSourceChange)
             if (recipeReady) {
                 Recipes.resetToDefaults(state, settings, profiles)
             }
@@ -1900,10 +1875,7 @@ class MainActivity : ComponentActivity() {
                             state.printProfile = list.first()
                             migratedProfile = true
                         }
-                        selectedMaskIndex = clampSelectedMaskIndex(
-                            selectedMaskIndex,
-                            state.localAdjustments.size,
-                        )
+                        toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
                         if (migratedProfile || removedProfileReference) {
                             editHistory.clear()
                             committedSnapshot = null
@@ -2683,7 +2655,7 @@ class MainActivity : ComponentActivity() {
         fun renderRoi(roi: RoiRect) {
             if (!sourceRenderAllowed) return
             val e = engine ?: return
-            if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return
+            if (toolVm.current.anyOverlayOpen || compareMode) return
             roiJobRef.value?.cancel()
             val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
             val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
@@ -2833,7 +2805,7 @@ class MainActivity : ComponentActivity() {
                     RenderPublicationPriority.DRAFT,
                 )
                 val e = engine ?: return@LaunchedEffect
-                if (cropOverlayOpen || maskOverlayOpen || sampleOverlayOpen || compareMode) return@LaunchedEffect
+                if (toolVm.current.anyOverlayOpen || compareMode) return@LaunchedEffect
                 // Lightroom's ICBSliderTrackingBegin/End gate. `interacting` has been
                 // written by SliderInteraction since the widget shipped but was never
                 // read, so the draft pass fired on EVERY edit — including discrete ones
@@ -3513,12 +3485,7 @@ class MainActivity : ComponentActivity() {
             sourceName,
             sourceAuthorizationRequired,
             activeCategory,
-            cropOverlayOpen,
-            maskOverlayOpen,
-            selectedMaskIndex,
-            sampleOverlayOpen,
-            sampleLuminanceMode,
-            sampleWbMode,
+            toolUi,
             presetUi,
             exportUi,
         ) {
@@ -3561,11 +3528,11 @@ class MainActivity : ComponentActivity() {
         // Above every other rung: with the chrome hidden there is no visible control at
         // all, so Back has to mean "give me the app back" before it means anything else.
         BackHandler(enabled = chromeHidden) { chromeHidden = false }
-        BackHandler(enabled = cropOverlayOpen) { cropOverlayOpen = false }
-        BackHandler(enabled = maskOverlayOpen) { maskOverlayOpen = false }
-        BackHandler(enabled = sampleOverlayOpen) { sampleOverlayOpen = false; sampleWbMode = false }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && !exportMaskVisible && activeCategory != null) { activeCategory = null }
-        BackHandler(enabled = !cropOverlayOpen && !maskOverlayOpen && !sampleOverlayOpen && !exportMaskVisible && activeCategory == null) {
+        BackHandler(enabled = toolUi.cropOpen) { toolVm.onAction(EditorToolAction.CloseCrop) }
+        BackHandler(enabled = toolUi.maskGeometryOpen) { toolVm.onAction(EditorToolAction.CloseMaskGeometry) }
+        BackHandler(enabled = toolUi.sampleOpen) { toolVm.onAction(EditorToolAction.CloseSample) }
+        BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null) { activeCategory = null }
+        BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory == null) {
             if (backArmed) {
                 finish()
             } else {
@@ -3586,14 +3553,14 @@ class MainActivity : ComponentActivity() {
         // ============================ LAYOUT ============================
         // Overlay predicates, shared with the overlay branches below the chrome.
         val cropBmp = preview
-        val cropShown = cropOverlayOpen && cropBmp != null
-        val maskGeometryShown = maskOverlayOpen && cropBmp != null &&
-            selectedMaskIndex in state.localAdjustments.indices
-        val sampleMask = state.localAdjustments.getOrNull(selectedMaskIndex)?.mask
-        val sampleReady = sourceRenderAllowed && sampleOverlayOpen && cropBmp != null && (
-            sampleWbMode ||
+        val cropShown = toolUi.cropOpen && cropBmp != null
+        val maskGeometryShown = toolUi.maskGeometryOpen && cropBmp != null &&
+            toolUi.maskIndex in state.localAdjustments.indices
+        val sampleMask = state.localAdjustments.getOrNull(toolUi.maskIndex)?.mask
+        val sampleReady = sourceRenderAllowed && toolUi.sampleOpen && cropBmp != null && (
+            toolUi.sampleWb ||
                 (sampleMask != null &&
-                    (if (sampleLuminanceMode) sampleMask.luminanceRange != null else sampleMask.colorRange != null))
+                    (if (toolUi.sampleLuminance) sampleMask.luminanceRange != null else sampleMask.colorRange != null))
             )
         // #181: a full-screen tool overlay is modal. Compose overlays share the window, so the
         // chrome beneath would otherwise stay reachable by TalkBack explore-by-touch.
@@ -3650,10 +3617,10 @@ class MainActivity : ComponentActivity() {
                     val panelContent: @Composable ColumnScope.() -> Unit = {
                         CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         when (activeCategory) {
-                            Category.INPUT -> InputSection(state, onEditCrop = { cropOverlayOpen = true },
-                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
+                            Category.INPUT -> InputSection(state, onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                                onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
                             Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
-                                onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
+                                onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
                                 filmGroups = filmGroups,
@@ -3710,21 +3677,16 @@ class MainActivity : ComponentActivity() {
                             Category.TONE_CURVE -> ToneCurveSection(state, preview)
                             Category.MASKS -> MasksSection(
                                 state,
-                                selectedIndex = selectedMaskIndex,
-                                onSelectedIndexChange = { selectedMaskIndex = it },
+                                selectedIndex = toolUi.maskIndex,
+                                onSelectedIndexChange = { toolVm.onAction(EditorToolAction.SelectMask(it)) },
                                 onEditOnPhoto = { idx ->
-                                    selectedMaskIndex = idx
-                                    maskOverlayOpen = true
+                                    toolVm.onAction(EditorToolAction.EditMaskOnPhoto(idx))
                                 },
                                 onSampleColor = { idx ->
-                                    selectedMaskIndex = idx
-                                    sampleLuminanceMode = false
-                                    sampleOverlayOpen = true
+                                    toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = false))
                                 },
                                 onSampleLuminance = { idx ->
-                                    selectedMaskIndex = idx
-                                    sampleLuminanceMode = true
-                                    sampleOverlayOpen = true
+                                    toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = true))
                                 },
                             )
                             Category.DISPLAY -> DisplaySection(state)
@@ -4077,7 +4039,7 @@ class MainActivity : ComponentActivity() {
                             onToggleCompare = { compareMode = !compareMode },
                             onToggleHistogram = { showHistogram = !showHistogram },
                             onRotate = { rotation = rotation.next() },
-                            onEditCrop = { cropOverlayOpen = true },
+                            onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
                             // Single tap on the photo = show/hide the chrome. The point is
                             // ignored: this is a toggle, not a pick. The magnifier that used to
                             // own this gesture now has the button below, which is the affordance
@@ -4252,10 +4214,10 @@ class MainActivity : ComponentActivity() {
                         state.crop = crop
                         state.cropCenter = center
                         state.cropSize = size
-                        cropOverlayOpen = false
+                        toolVm.onAction(EditorToolAction.CloseCrop)
                         previewTick++
                     },
-                    onCancel = { cropOverlayOpen = false },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseCrop) },
                 )
             }
 
@@ -4263,15 +4225,16 @@ class MainActivity : ComponentActivity() {
             if (maskGeometryShown && cropBmp != null) {
                 MaskGeometryOverlay(
                     bitmap = cropBmp,
-                    mask = state.localAdjustments[selectedMaskIndex].mask,
+                    mask = state.localAdjustments[toolUi.maskIndex].mask,
                     onConfirm = { updated ->
+                        val maskIndex = toolVm.current.maskIndex
                         val list = state.localAdjustments.toMutableList()
-                        list[selectedMaskIndex] = list[selectedMaskIndex].copy(mask = updated)
+                        list[maskIndex] = list[maskIndex].copy(mask = updated)
                         state.localAdjustments = list
-                        maskOverlayOpen = false
+                        toolVm.onAction(EditorToolAction.CloseMaskGeometry)
                         previewTick++
                     },
-                    onCancel = { maskOverlayOpen = false },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseMaskGeometry) },
                 )
             }
 
@@ -4280,18 +4243,19 @@ class MainActivity : ComponentActivity() {
                 PixelSampleOverlay(
                     bitmap = requireNotNull(cropBmp),
                     title = when {
-                        sampleWbMode -> stringResource(R.string.editor_sample_title_wb)
-                        sampleLuminanceMode -> stringResource(R.string.editor_sample_title_tone)
+                        toolUi.sampleWb -> stringResource(R.string.editor_sample_title_wb)
+                        toolUi.sampleLuminance -> stringResource(R.string.editor_sample_title_tone)
                         else -> stringResource(R.string.editor_sample_title_color)
                     },
                     hint = when {
-                        sampleWbMode -> stringResource(R.string.editor_sample_hint_wb)
-                        sampleLuminanceMode -> stringResource(R.string.editor_sample_hint_tone)
+                        toolUi.sampleWb -> stringResource(R.string.editor_sample_hint_wb)
+                        toolUi.sampleLuminance -> stringResource(R.string.editor_sample_hint_tone)
                         else -> stringResource(R.string.editor_sample_hint_color)
                     },
                     onPick = { r, g, b, nx, ny ->
-                        if (sampleWbMode) {
-                            sampleOverlayOpen = false; sampleWbMode = false
+                        val tool = toolVm.current
+                        if (tool.sampleWb) {
+                            toolVm.onAction(EditorToolAction.CloseSample)
                             // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
                             // and solve the WB that neutralizes it. Off the main thread (decode + crop).
                             scope.launch {
@@ -4319,20 +4283,20 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             val list = state.localAdjustments.toMutableList()
-                            val m = list[selectedMaskIndex].mask
-                            val nm = if (sampleLuminanceMode) {
+                            val m = list[tool.maskIndex].mask
+                            val nm = if (tool.sampleLuminance) {
                                 m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
                             } else {
                                 val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
                                 m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
                             }
-                            list[selectedMaskIndex] = list[selectedMaskIndex].copy(mask = nm)
+                            list[tool.maskIndex] = list[tool.maskIndex].copy(mask = nm)
                             state.localAdjustments = list
-                            sampleOverlayOpen = false
+                            toolVm.onAction(EditorToolAction.MaskSampleApplied)
                             previewTick++
                         }
                     },
-                    onCancel = { sampleOverlayOpen = false; sampleWbMode = false },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseSample) },
                 )
             }
 
@@ -5129,7 +5093,7 @@ class MainActivity : ComponentActivity() {
                     // PreviewRegion.onPointPicked is NOT nullable -- it is always the
                     // magnifier opener -- so there is no sampler to yield to here, and a
                     // long press is otherwise unused on this surface. The colour/WB sampler
-                    // lives behind sampleOverlayOpen, which replaces the preview outright.
+                    // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
                     peek = before,
                     // Lightroom-style zoom: render the visible region at native resolution
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
