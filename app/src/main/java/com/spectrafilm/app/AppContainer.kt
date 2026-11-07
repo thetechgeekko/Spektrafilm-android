@@ -164,6 +164,7 @@ class SpektraApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DebugStrictMode.installIfDebuggable(this)
         // Start the settings read now, in the background, so it has usually finished by the
         // time the activity asks (MAD audit fix 4). Building the store does not block.
         container.settings
