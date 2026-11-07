@@ -304,23 +304,34 @@ void exponential_filter_per_channel_d(const double* img, int w, int h, int chann
             for (int p = lo; p < hi; ++p)
                 src[p] = img[static_cast<size_t>(p) * channels + c];
         });
-        parallel_for(0, plane, [&](int lo, int hi) {
-            for (int p = lo; p < hi; ++p) acc[p] = 0.0;
-        });
-        for (int k = 0; k < kExpN; ++k) {
-            parallel_for(0, plane, [&](int lo, int hi) {
-                for (int p = lo; p < hi; ++p) comp[p] = src[p];
-            });
-            gaussian_blur_plane_d(comp.data(), w, h, kExpSigmaRatio[k] * decay[c],
-                                  truncate);
-            const double a = kExpAmplitude[k];
-            parallel_for(0, plane, [&](int lo, int hi) {
-                for (int p = lo; p < hi; ++p) acc[p] += a * comp[p];
-            });
-        }
+        exponential_filter_plane_d(src.data(), w, h, decay[c], acc.data(),
+                                   comp.data(), truncate);
         parallel_for(0, plane, [&](int lo, int hi) {
             for (int p = lo; p < hi; ++p)
                 out[static_cast<size_t>(p) * channels + c] = acc[p];
+        });
+    }
+}
+
+void exponential_filter_plane_d(const double* src, int w, int h, double decay,
+                                double* out, double* scratch, double truncate) {
+    if (w <= 0 || h <= 0) return;
+    const int plane = w * h;
+    // The per-channel body of exponential_filter_per_channel_d, unchanged: zero
+    // the accumulator, then for k ascending copy src -> scratch, blur, and
+    // accumulate a_k * scratch. Same operands in the same order, so every sum
+    // is formed identically whichever entry point a caller uses.
+    parallel_for(0, plane, [&](int lo, int hi) {
+        for (int p = lo; p < hi; ++p) out[p] = 0.0;
+    });
+    for (int k = 0; k < kExpN; ++k) {
+        parallel_for(0, plane, [&](int lo, int hi) {
+            for (int p = lo; p < hi; ++p) scratch[p] = src[p];
+        });
+        gaussian_blur_plane_d(scratch, w, h, kExpSigmaRatio[k] * decay, truncate);
+        const double a = kExpAmplitude[k];
+        parallel_for(0, plane, [&](int lo, int hi) {
+            for (int p = lo; p < hi; ++p) out[p] += a * scratch[p];
         });
     }
 }
