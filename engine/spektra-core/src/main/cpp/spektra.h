@@ -369,6 +369,24 @@ typedef struct {
     const char* input_color_space;      /* only "ProPhoto RGB" is supported */
     int32_t camera_diffusion_family;    /* spk_diffusion_family */
     int32_t enlarger_diffusion_family;  /* spk_diffusion_family */
+
+    /* --- scene latitude mapping (opt-in, Android-only; NOT an oracle stage) ---
+     * model/scene_latitude.h. A smooth highlight/shadow knee in stops from the
+     * metered mid-grey, applied to the scene-linear RGB right before the film
+     * is exposed. scene_latitude_active = 0 (the default) or both rooms 0 runs
+     * nothing, so every golden stays byte-identical. Idea from SpektraLab
+     * RFC-023 (GPL-3.0-or-later); independent implementation. */
+    int32_t scene_latitude_active;          /* bool */
+    float scene_latitude_highlight_knee;    /* stops above mid-grey, default 2 */
+    float scene_latitude_highlight_room;    /* stops, 0 = side off, default 3 */
+    float scene_latitude_shadow_knee;       /* stops, default -2 */
+    float scene_latitude_shadow_room;       /* stops, 0 = side off, default 0 */
+    float scene_latitude_rolloff;           /* knee order [1,4], default 2 */
+    float scene_latitude_max_lift;          /* shadow lift bound, stops, default 4 */
+    /* Explicit padding so the struct ends on its 8-byte (LP64) alignment with no
+     * implicit tail padding: params_manifest.h asserts the last named field ends
+     * exactly at sizeof(spk_params). Always 0; never read. */
+    int32_t reserved_tail_pad0;
 } spk_params;
 
 /* Initialise `p` to the physical defaults that mirror a default-constructed

@@ -44,6 +44,10 @@ internal object OperationalParamLimits {
     val GRAIN_DENSITY_MIN = 0f..0.5f
     val GRAIN_SUBLAYERS = 1..5
     val HALATION_BOUNCES = 1..5
+    val SCENE_LATITUDE_KNEE = -8f..8f
+    val SCENE_LATITUDE_ROOM = 0f..12f
+    val SCENE_LATITUDE_ROLLOFF = 1f..4f
+    val SCENE_LATITUDE_MAX_LIFT = 0.25f..12f
 
     fun validate(state: ParamsState) {
         require(state.spectralGaussianBlur in SPECTRAL_GAUSSIAN_BLUR) {
@@ -54,6 +58,20 @@ internal object OperationalParamLimits {
         }
         require(state.filmFormatMm in FILM_FORMAT_MM) {
             "camera.filmFormatMm must be in $FILM_FORMAT_MM"
+        }
+        require(
+            state.sceneLatitudeHighlightKnee in SCENE_LATITUDE_KNEE &&
+                state.sceneLatitudeShadowKnee in SCENE_LATITUDE_KNEE
+        ) { "camera.sceneLatitude knees must be in $SCENE_LATITUDE_KNEE" }
+        require(
+            state.sceneLatitudeHighlightRoom in SCENE_LATITUDE_ROOM &&
+                state.sceneLatitudeShadowRoom in SCENE_LATITUDE_ROOM
+        ) { "camera.sceneLatitude rooms must be in $SCENE_LATITUDE_ROOM" }
+        require(state.sceneLatitudeRolloff in SCENE_LATITUDE_ROLLOFF) {
+            "camera.sceneLatitude.rolloff must be in $SCENE_LATITUDE_ROLLOFF"
+        }
+        require(state.sceneLatitudeMaxLift in SCENE_LATITUDE_MAX_LIFT) {
+            "camera.sceneLatitude.maxLift must be in $SCENE_LATITUDE_MAX_LIFT"
         }
         require(state.grainParticleAreaUm2 in GRAIN_PARTICLE_AREA_UM2) {
             "grain.particleAreaUm2 must be in $GRAIN_PARTICLE_AREA_UM2"
@@ -439,6 +457,15 @@ object Presets {
             put("filmFormatMm", s.filmFormatMm.toDouble())
             put("lensBlurUm", s.cameraLensBlurUm.toDouble())
             put("diffusion", diffJson(s.cameraDiffusionState))
+            put("sceneLatitude", JSONObject().apply {
+                put("active", s.sceneLatitudeActive)
+                put("highlightKnee", s.sceneLatitudeHighlightKnee.toDouble())
+                put("highlightRoom", s.sceneLatitudeHighlightRoom.toDouble())
+                put("shadowKnee", s.sceneLatitudeShadowKnee.toDouble())
+                put("shadowRoom", s.sceneLatitudeShadowRoom.toDouble())
+                put("rolloff", s.sceneLatitudeRolloff.toDouble())
+                put("maxLift", s.sceneLatitudeMaxLift.toDouble())
+            })
         })
 
         put("enlarger", JSONObject().apply {
@@ -651,6 +678,15 @@ object Presets {
             s.filmFormatMm = c.f("filmFormatMm", s.filmFormatMm)
             s.cameraLensBlurUm = c.f("lensBlurUm", s.cameraLensBlurUm)
             c.optJSONObject("diffusion")?.let { readDiff(it, s.cameraDiffusionState) }
+            c.optJSONObject("sceneLatitude")?.let { sl ->
+                s.sceneLatitudeActive = sl.optBoolean("active", s.sceneLatitudeActive)
+                s.sceneLatitudeHighlightKnee = sl.f("highlightKnee", s.sceneLatitudeHighlightKnee)
+                s.sceneLatitudeHighlightRoom = sl.f("highlightRoom", s.sceneLatitudeHighlightRoom)
+                s.sceneLatitudeShadowKnee = sl.f("shadowKnee", s.sceneLatitudeShadowKnee)
+                s.sceneLatitudeShadowRoom = sl.f("shadowRoom", s.sceneLatitudeShadowRoom)
+                s.sceneLatitudeRolloff = sl.f("rolloff", s.sceneLatitudeRolloff)
+                s.sceneLatitudeMaxLift = sl.f("maxLift", s.sceneLatitudeMaxLift)
+            }
         }
 
         o.optJSONObject("enlarger")?.let { e ->

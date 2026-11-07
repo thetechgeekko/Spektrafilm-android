@@ -487,7 +487,7 @@ Use the smallest sufficient rung while iterating, then every affected higher run
 10. statistically valid release-device performance and memory A/B;
 11. signed release-candidate digest/SLO run.
 
-The CI `engine-parity` job currently contains 44 `build_run` cases. The workflow is the authority;
+The CI `engine-parity` job currently contains 45 `build_run` cases. The workflow is the authority;
 scripts and prose must be updated whenever the table changes.
 
 ## External references used by this plan

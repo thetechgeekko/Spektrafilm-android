@@ -23,6 +23,7 @@
 #include "model/diffusion.h"
 #include "model/grain.h"
 #include "model/morph_curves.h"
+#include "model/scene_latitude.h"
 
 namespace spk {
 
@@ -56,6 +57,11 @@ struct FilmingParams {
     // film) stay bit-exact. The factor is computed by the caller via
     // color_reference.h::exposure_correction_factor(filming_positive=true).
     double bw_exposure_correction = 1.0;
+
+    // Opt-in scene latitude mapping (model/scene_latitude.h). Applied in expose()
+    // to the scene-linear RGB before the tc lookup; inactive by default, and an
+    // un-engaged stage is never run, so every golden stays byte-identical.
+    SceneLatitudeParams scene_latitude;
 
     // Density-curve gamma (scalar broadcast to all three channels).
     float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};

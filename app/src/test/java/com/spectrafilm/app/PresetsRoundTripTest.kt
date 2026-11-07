@@ -56,6 +56,43 @@ class PresetsRoundTripTest {
     }
 
     @Test
+    fun roundTrip_preservesSceneLatitude_andReachesEngineParams() {
+        val src = ParamsState().apply {
+            sceneLatitudeActive = true
+            sceneLatitudeHighlightKnee = 1.5f
+            sceneLatitudeHighlightRoom = 2.25f
+            sceneLatitudeShadowKnee = -2.5f
+            sceneLatitudeShadowRoom = 1.75f
+            sceneLatitudeRolloff = 3f
+            sceneLatitudeMaxLift = 5f
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+
+        val sl = dst.toParams().camera.sceneLatitude
+        assertTrue(sl.active)
+        assertEquals(1.5f, sl.highlightKnee, 1e-6f)
+        assertEquals(2.25f, sl.highlightRoom, 1e-6f)
+        assertEquals(-2.5f, sl.shadowKnee, 1e-6f)
+        assertEquals(1.75f, sl.shadowRoom, 1e-6f)
+        assertEquals(3f, sl.rolloff, 1e-6f)
+        assertEquals(5f, sl.maxLift, 1e-6f)
+    }
+
+    @Test
+    fun sceneLatitude_defaultsOff_andMatchEngineDefaults() {
+        // An old recipe without the block must stay off, and the app defaults must equal the
+        // engine's (which mirror spk_default_params) so "off" is byte-identical to before.
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":1,"camera":{}}"""), dst)
+        assertFalse(dst.sceneLatitudeActive)
+        assertEquals(
+            com.spectrafilm.engine.SceneLatitudeParams(),
+            dst.toParams().camera.sceneLatitude,
+        )
+    }
+
+    @Test
     fun decode_missingKeys_keepDefaults() {
         val dst = ParamsState()
         val defFilm = dst.filmProfile

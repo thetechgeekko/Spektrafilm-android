@@ -101,6 +101,15 @@ class EngineBoundaryInstrumentation : Instrumentation() {
                     bloomIntensity = 1.36f,
                     bloomSize = 1.37f,
                 ),
+                sceneLatitude = SceneLatitudeParams(
+                    active = true,
+                    highlightKnee = 1.75f,
+                    highlightRoom = 2.25f,
+                    shadowKnee = -1.5f,
+                    shadowRoom = 1.25f,
+                    rolloff = 2.5f,
+                    maxLift = 3.5f,
+                ),
             ),
             enlarger = EnlargerParams(
                 illuminant = "D50",
@@ -612,6 +621,15 @@ class EngineBoundaryInstrumentation : Instrumentation() {
         putStringValue("input_color_space", io.inputColorSpace)
         putI32("camera_diffusion_family", diffusionFamilyOrdinal(cameraDiffusion.filterFamily))
         putI32("enlarger_diffusion_family", diffusionFamilyOrdinal(enlargerDiffusion.filterFamily))
+        val sceneLatitude = camera.sceneLatitude
+        putBool("scene_latitude_active", sceneLatitude.active)
+        putF32("scene_latitude_highlight_knee", sceneLatitude.highlightKnee)
+        putF32("scene_latitude_highlight_room", sceneLatitude.highlightRoom)
+        putF32("scene_latitude_shadow_knee", sceneLatitude.shadowKnee)
+        putF32("scene_latitude_shadow_room", sceneLatitude.shadowRoom)
+        putF32("scene_latitude_rolloff", sceneLatitude.rolloff)
+        putF32("scene_latitude_max_lift", sceneLatitude.maxLift)
+        putI32("reserved_tail_pad0", 0)
     }
 
     private fun MutableMap<String, String>.putToneChannel(

@@ -6720,6 +6720,7 @@ class MainActivity : ComponentActivity() {
                         tooltip = stringResource(R.string.editor_sim_camera_lens_blur_tooltip),
                         default = PARAM_DEFAULTS.cameraLensBlurUm)
                     DiffusionGroup(stringResource(R.string.editor_sim_camera_diffusion), s.cameraDiffusionState)
+                    SceneLatitudeGroup(s)
                 }
                 1 -> {
                     StockPickerField(
@@ -6857,6 +6858,42 @@ class MainActivity : ComponentActivity() {
                     SwitchRow(stringResource(R.string.editor_sim_slide_mode), s.scanFilm, { s.scanFilm = it },
                         stringResource(R.string.editor_sim_slide_mode_tooltip))
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun SceneLatitudeGroup(s: ParamsState) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SwitchRow(stringResource(R.string.editor_sim_scene_latitude), s.sceneLatitudeActive,
+                { s.sceneLatitudeActive = it },
+                stringResource(R.string.editor_sim_scene_latitude_tooltip))
+            if (s.sceneLatitudeActive) {
+                EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_highlight_knee),
+                    s.sceneLatitudeHighlightKnee, 0f..6f, { s.sceneLatitudeHighlightKnee = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_scene_latitude_highlight_knee_tooltip),
+                    default = PARAM_DEFAULTS.sceneLatitudeHighlightKnee)
+                EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_highlight_room),
+                    s.sceneLatitudeHighlightRoom, 0f..8f, { s.sceneLatitudeHighlightRoom = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_scene_latitude_highlight_room_tooltip),
+                    default = PARAM_DEFAULTS.sceneLatitudeHighlightRoom)
+                EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_shadow_knee),
+                    s.sceneLatitudeShadowKnee, -6f..0f, { s.sceneLatitudeShadowKnee = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_scene_latitude_shadow_knee_tooltip),
+                    default = PARAM_DEFAULTS.sceneLatitudeShadowKnee)
+                EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_shadow_room),
+                    s.sceneLatitudeShadowRoom, 0f..8f, { s.sceneLatitudeShadowRoom = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_scene_latitude_shadow_room_tooltip),
+                    default = PARAM_DEFAULTS.sceneLatitudeShadowRoom)
+                EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_rolloff),
+                    s.sceneLatitudeRolloff, 1f..4f, { s.sceneLatitudeRolloff = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_scene_latitude_rolloff_tooltip),
+                    default = PARAM_DEFAULTS.sceneLatitudeRolloff)
             }
         }
     }

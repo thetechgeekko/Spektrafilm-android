@@ -61,6 +61,25 @@ data class CameraParams(
     val filterUv: Triple<Float, Float, Float> = Triple(0.0f, 410.0f, 8.0f),
     val filterIr: Triple<Float, Float, Float> = Triple(0.0f, 675.0f, 15.0f),
     val diffusionFilter: DiffusionFilterParams = DiffusionFilterParams(),
+    val sceneLatitude: SceneLatitudeParams = SceneLatitudeParams(),
+)
+
+/**
+ * Opt-in scene latitude mapping (native model/scene_latitude.h). A smooth knee in
+ * stops from the metered mid-grey, applied to the scene before the film is exposed:
+ * highlights above [highlightKnee] are compressed into at most [highlightRoom] more
+ * stops, shadows below [shadowKnee] into at most [shadowRoom]. A room of 0 turns that
+ * side off; `active = false` (the default) leaves every render byte-identical.
+ * Android-only (not an upstream spektrafilm stage); idea from SpektraLab RFC-023.
+ */
+data class SceneLatitudeParams(
+    val active: Boolean = false,
+    val highlightKnee: Float = 2.0f,
+    val highlightRoom: Float = 3.0f,
+    val shadowKnee: Float = -2.0f,
+    val shadowRoom: Float = 0.0f,
+    val rolloff: Float = 2.0f,
+    val maxLift: Float = 4.0f,
 )
 
 data class EnlargerParams(
