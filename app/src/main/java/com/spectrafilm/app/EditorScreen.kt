@@ -912,7 +912,6 @@ internal fun MainActivity.EditorScreen(
     val recipeEditEpoch = remember { RecipeEditEpoch() }
     LaunchedEffect(recipeKey, recipeReady) {
         runRecipeRestore(
-            this@EditorScreen,
             ctx = ctx,
             state = state,
             settings = settings,
@@ -1778,7 +1777,8 @@ internal fun MainActivity.EditorScreen(
     // It closes a real race that is simply not the one observed there.
     LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
         runDraftPreviewPass(
-            this@EditorScreen,
+            dispatchers,
+            draftSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
             ctx = ctx,
             state = state,
             sourceRenderAllowed = sourceRenderAllowed,
@@ -1803,7 +1803,7 @@ internal fun MainActivity.EditorScreen(
     // start that composes before the native engine is ready never renders at all.
     LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
         runFinalPreviewPass(
-            this@EditorScreen,
+            dispatchers,
             ctx = ctx,
             state = state,
             sourceRenderAllowed = sourceRenderAllowed,
@@ -1835,7 +1835,7 @@ internal fun MainActivity.EditorScreen(
     // adds only the LUT bake. Cancelled/replaced cleanly when previewTick advances.
     LaunchedEffect(previewTick, gpuEnabled, sourceRenderAllowed) {
         runGpuPreviewFeed(
-            this@EditorScreen,
+            dispatchers,
             state = state,
             sourceRenderAllowed = sourceRenderAllowed,
             gpuEnabled = gpuEnabled,
@@ -1935,7 +1935,6 @@ internal fun MainActivity.EditorScreen(
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
         runRecipeAutosave(
-            this@EditorScreen,
             ctx = ctx,
             state = state,
             recipeEditEpoch = recipeEditEpoch,
