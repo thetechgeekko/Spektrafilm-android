@@ -164,12 +164,17 @@ internal class RoiPatchTracker {
         val s = shown
         if (s != null && currentOverlay != null && shownOverlay === currentOverlay &&
             s.covers(roi, renderKey, maxViewportEdgePx)
-        ) return "shown"
+        ) return REUSED_SHOWN
         val f = inFlight
         val job = inFlightJob
         if (f != null && job != null && job === currentJob && job.isActive &&
             f.covers(roi, renderKey, maxViewportEdgePx)
-        ) return "in-flight"
+        ) return REUSED_IN_FLIGHT
         return null
+    }
+
+    companion object {
+        const val REUSED_SHOWN = "shown"
+        const val REUSED_IN_FLIGHT = "in-flight"
     }
 }

@@ -2831,6 +2831,13 @@ class MainActivity : ComponentActivity() {
             roiPatchTracker.reuseReason(
                 roi, previewTick, roiOverlay, roiJobRef.value, ROI_RENDER_MAX_PX,
             )?.let { reason ->
+                if (reason == RoiPatchTracker.REUSED_SHOWN) {
+                    // The view came back inside the shown patch: any render still running for
+                    // an intermediate viewport must not land over it (it would not cover this
+                    // view, and no further settle would come to fix that).
+                    roiPublicationGate.invalidate()
+                    roiJobRef.value?.cancel()
+                }
                 Diag.i("zoom roi reused $reason")
                 return
             }
