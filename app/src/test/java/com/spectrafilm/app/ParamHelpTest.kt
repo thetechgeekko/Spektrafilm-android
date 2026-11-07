@@ -47,7 +47,7 @@ class ParamHelpTest {
     private val ParamHelp.summaryText get() = text(summary)
     private val ParamHelp.bodyText get() = text(body)
 
-    /** The opaque controls §6h names (couplers/grain/halation/print-gamma) — plus preflash/glare. */
+    /** The opaque controls §6h names (couplers/grain/halation/print-gamma) — plus preflash/glare/contrast mask. */
     private val opaqueKeys = listOf(
         ParamHelpText.GRAIN,
         ParamHelpText.HALATION,
@@ -55,6 +55,7 @@ class ParamHelpTest {
         ParamHelpText.PRINT_GAMMA,
         ParamHelpText.PREFLASH,
         ParamHelpText.GLARE,
+        ParamHelpText.CONTRAST_MASK,
     )
 
     @Test
