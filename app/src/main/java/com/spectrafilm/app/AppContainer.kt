@@ -68,6 +68,9 @@ internal class AppContainer(context: Context) {
     /** Per-source recipes (#276). */
     val recipes: RecipeRepository = FileRecipeRepository(app)
 
+    /** Named versions of each photo, keyed like [recipes]. */
+    val versions: VersionRepository = FileVersionRepository(java.io.File(app.filesDir, "versions"))
+
     /**
      * The durable source reference and its URI grant (#276). The process-wide runtime that
      * orders every acquire, clear and restore; see docs/adr/0002-storage-boundaries.md for
@@ -84,6 +87,7 @@ internal class AppContainer(context: Context) {
                 SharedUpdatePrefs.create(app),
             )
         },
+        versionsViewModel = { VersionsViewModel(versions, dispatchers.io) },
     )
 }
 
@@ -94,11 +98,13 @@ internal class AppContainer(context: Context) {
 internal class AppViewModelFactory(
     private val settingsViewModel: () -> SettingsViewModel,
     private val updateViewModel: () -> UpdateViewModel,
+    private val versionsViewModel: () -> VersionsViewModel = { error("versions not provided") },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
         val vm: ViewModel = when (modelClass) {
             SettingsViewModel::class.java -> settingsViewModel()
             UpdateViewModel::class.java -> updateViewModel()
+            VersionsViewModel::class.java -> versionsViewModel()
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()
             EditorToolViewModel::class.java -> EditorToolViewModel()

@@ -667,6 +667,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
     }
 
+    /** Named versions of the open photo. */
+    private val versionsVm: VersionsViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[VersionsViewModel::class.java]
+    }
+
     /**
      * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
      * live editor observes delivery through onNewIntent (singleTask) as well as a cold
@@ -4102,6 +4107,64 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 bakingLut = bakingLut,
+                                versionsContent = {
+                                    // Versions of THIS photo, keyed like its recipe. Bound while the
+                                    // panel is open, so opening it always shows the current list.
+                                    LaunchedEffect(recipeKey) { versionsVm.bind(recipeKey) }
+                                    DisposableEffect(Unit) {
+                                        versionsVm.onEvent = { event ->
+                                            when (event) {
+                                                is VersionEvent.Saved -> status =
+                                                    ctx.getString(R.string.editor_status_version_saved, event.version.name)
+                                                is VersionEvent.Updated -> status =
+                                                    ctx.getString(R.string.editor_status_version_updated, event.name)
+                                                is VersionEvent.Failed -> status =
+                                                    ctx.getString(R.string.editor_status_version_failed, event.reason)
+                                                is VersionEvent.Quarantined -> scope.launch {
+                                                    snackbarHost.currentSnackbarData?.dismiss()
+                                                    snackbarHost.showSnackbar(
+                                                        ctx.getString(R.string.editor_snack_versions_quarantined),
+                                                        withDismissAction = true,
+                                                    )
+                                                }
+                                                is VersionEvent.Deleted -> offerSnackbarSuggestion(
+                                                    scope,
+                                                    snackbarHost,
+                                                    ctx.getString(R.string.editor_snack_version_deleted, event.version.name),
+                                                    ctx.getString(R.string.editor_action_undo),
+                                                ) { versionsVm.restore(event.version) }
+                                            }
+                                        }
+                                        onDispose { versionsVm.onEvent = {} }
+                                    }
+                                    val versionsUi by versionsVm.uiState.collectAsStateWithLifecycle()
+                                    VersionsSection(
+                                        ui = versionsUi,
+                                        onSave = { name ->
+                                            runCatching { Presets.toJsonString(state) }
+                                                .onSuccess { versionsVm.save(name, it) }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
+                                        },
+                                        onApply = { version ->
+                                            // Exactly Paste Settings: the whole look is replaced (so the
+                                            // preset amount anchors go stale) and Undo takes it back.
+                                            runCatching { Presets.decode(org.json.JSONObject(version.paramsJson), state) }
+                                                .onSuccess {
+                                                    presetVm.onAction(PresetAction.ClearAmount)
+                                                    status = ctx.getString(R.string.editor_status_version_applied, version.name)
+                                                    previewTick++
+                                                }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
+                                        },
+                                        onReplaceWithCurrent = { version ->
+                                            runCatching { Presets.toJsonString(state) }
+                                                .onSuccess { versionsVm.replaceWithCurrent(version, it) }
+                                                .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
+                                        },
+                                        onRename = { version, name -> versionsVm.rename(version.id, name) },
+                                        onDelete = { version -> versionsVm.delete(version.id) },
+                                    )
+                                },
                             )
                             Category.SOURCE -> SourcePanel(
                                 sourceName = sourceName,
