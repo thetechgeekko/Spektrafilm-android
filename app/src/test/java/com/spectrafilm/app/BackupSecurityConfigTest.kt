@@ -22,6 +22,7 @@ class BackupSecurityConfigTest {
         "sharedpref:source_access_v1.xml",
         "sharedpref:pending_media_exports_v1.xml",
         "sharedpref:secrets.xml",
+        "sharedpref:updater_state_v1.xml",
         "file:diag",
         "file:spektra",
         "file:full_res_cache",
@@ -82,13 +83,19 @@ class BackupSecurityConfigTest {
         assertTrue("android.permission.INTERNET" in permissions)
         for (forbidden in listOf(
             "android.permission.ACCESS_NETWORK_STATE",
-            "android.permission.REQUEST_INSTALL_PACKAGES",
             "android.permission.READ_LOGS",
             "android.permission.READ_MEDIA_IMAGES",
             "android.permission.MANAGE_EXTERNAL_STORAGE",
         )) {
             assertFalse("unexpected permission $forbidden", forbidden in permissions)
         }
+        // In-app update (docs/UPDATER_SECURITY.md): the permission is declared, and the
+        // installer status receiver must not be reachable by other apps.
+        assertTrue("android.permission.REQUEST_INSTALL_PACKAGES" in permissions)
+        val receivers = elements(application, "receiver")
+        val updateReceiver = receivers.single { it.getAttributeNS(android, "name") == ".UpdateInstallReceiver" }
+        assertEquals("false", updateReceiver.getAttributeNS(android, "exported"))
+        assertTrue(elements(updateReceiver, "intent-filter").isEmpty())
     }
 
     @Test
@@ -111,8 +118,16 @@ class BackupSecurityConfigTest {
         assertEquals("system", certificates.getAttribute("src"))
 
         val domains = elements(document.documentElement, "domain")
-        assertEquals(listOf("api.github.com"), domains.map { it.textContent.trim() })
-        assertEquals("false", domains.single().getAttribute("includeSubdomains"))
+        assertEquals(
+            listOf(
+                "api.github.com",
+                "github.com",
+                "objects.githubusercontent.com",
+                "release-assets.githubusercontent.com",
+            ),
+            domains.map { it.textContent.trim() },
+        )
+        domains.forEach { assertEquals("false", it.getAttribute("includeSubdomains")) }
     }
 
     private fun rules(section: Element, tag: String): Set<String> =

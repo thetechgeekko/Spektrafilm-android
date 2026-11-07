@@ -187,11 +187,16 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
 - [ ] Confirm the five protected Environment secrets, signer-fingerprint
   variable, required reviewer, immutable-releases setting, and tag ruleset are
   configured exactly as described in §4.
-- [ ] Re-run the privacy boundary suites: `AppUpdaterTest`, `DiagnosticsTest`, and
+- [ ] Re-run the privacy boundary suites: `AppUpdaterTest`, `UpdateDownloadPolicyTest`,
+  `UpdateVerifierTest`, `UpdateControllerTest`, `DiagnosticsTest`, and
   `BackupSecurityConfigTest`. Inspect the merged release manifest and require the
-  narrow backup/data-extraction rules, cleartext denial, exact updater domain,
-  `restoreAnyVersion=false`, no `REQUEST_INSTALL_PACKAGES`/`READ_LOGS`/broad media-read
-  permission, and a non-exported `dataSync` export service. See
+  narrow backup/data-extraction rules, cleartext denial, the exact updater domains,
+  `restoreAnyVersion=false`, `REQUEST_INSTALL_PACKAGES` only with the non-exported
+  `UpdateInstallReceiver` (and removed from any Play build), no `READ_LOGS`/broad media-read
+  permission, and a non-exported `dataSync` export service. The in-app updater depends on
+  the release asset being named exactly `Spektrafilm-vX.Y.Z.apk` and signed with the same
+  production key as the previous release; renaming the asset or rotating the key without a
+  proof-of-rotation lineage silently turns in-app updates into "Open release page". See
   [PRIVACY.md](PRIVACY.md) and [UPDATER_SECURITY.md](UPDATER_SECURITY.md).
 - [ ] Reconcile the store privacy policy and Data Safety form with the exact candidate.
   The present app has no automatic telemetry; standard Auto Backup/cross-platform transfer is

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -33,13 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -63,15 +59,10 @@ internal fun SettingsScreen(
     printGroups: List<DropdownGroup>,
     onShowOnboarding: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
+    updateUi: UpdateUiState = UpdateUiState(),
+    onUpdateAction: (UpdateAction) -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    // Evaluated during composition / captured by it: LocalResources recomposes on a
-    // configuration change where LocalContext.current.getString does not.
-    val res = LocalResources.current
-    val scope = rememberCoroutineScope()
-    var updateStatus by remember { mutableStateOf<String?>(null) }
-    var checking by remember { mutableStateOf(false) }
-    var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
 
     val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
     // Label only: each link button keeps its own click action (null action merges).
@@ -215,34 +206,24 @@ internal fun SettingsScreen(
 
         // --- Updates & diagnostics ---
         SettingsCard(stringResource(R.string.screen_settings_updates_heading)) {
+            val checking = updateUi.status == UpdateStatus.CHECKING
             Button(
-                onClick = {
-                    if (checking) return@Button
-                    checking = true; updateStatus = res.getString(R.string.screen_settings_checking)
-                    scope.launch {
-                        val info = AppUpdater.checkForUpdate(ctx)
-                        checking = false
-                        when {
-                            info == null ->
-                                updateStatus = res.getString(R.string.screen_settings_update_check_failed)
-                            info.isNewer -> {
-                                pendingUpdate = info
-                                updateStatus = res.getString(
-                                    R.string.screen_settings_update_available_tag, info.latestTag,
-                                )
-                            }
-                            else ->
-                                updateStatus =
-                                    res.getString(R.string.screen_settings_up_to_date, info.currentVersion)
-                        }
-                    }
-                },
+                onClick = { onUpdateAction(UpdateAction.CheckNow) },
+                enabled = !checking,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 val labelRes =
                     if (checking) R.string.screen_settings_checking
                     else R.string.screen_settings_check_updates
                 Text(stringResource(labelRes))
+            }
+            val updateStatus = when (updateUi.status) {
+                UpdateStatus.IDLE, UpdateStatus.CHECKING -> null
+                UpdateStatus.FAILED -> stringResource(R.string.screen_settings_update_check_failed)
+                UpdateStatus.UP_TO_DATE ->
+                    stringResource(R.string.screen_settings_up_to_date, updateUi.currentVersion.orEmpty())
+                UpdateStatus.AVAILABLE ->
+                    stringResource(R.string.screen_settings_update_available_tag, updateUi.latestTag.orEmpty())
             }
             updateStatus?.let {
                 Text(
@@ -251,36 +232,21 @@ internal fun SettingsScreen(
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
+            if (updateUi.status == UpdateStatus.AVAILABLE && updateUi.offer == null) {
+                TextButton(onClick = { onUpdateAction(UpdateAction.ShowOffer) }) {
+                    Text(stringResource(R.string.screen_settings_update_view))
+                }
+            }
+            SettingToggleRow(
+                title = stringResource(R.string.screen_settings_auto_update),
+                note = stringResource(R.string.screen_settings_auto_update_note),
+                checked = updateUi.autoCheck,
+                onCheckedChange = { onUpdateAction(UpdateAction.SetAutoCheck(it)) },
+                modifier = Modifier.padding(top = 8.dp),
+            )
             OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.screen_settings_diagnostics_logs))
             }
-        }
-
-        pendingUpdate?.let { info ->
-            AlertDialog(
-                onDismissRequest = { pendingUpdate = null },
-                title = { Text(stringResource(R.string.screen_settings_update_available)) },
-                text = {
-                    Text(
-                        stringResource(
-                            R.string.screen_settings_update_dialog_body, info.latestTag, info.currentVersion,
-                        ),
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = { AppUpdater.openRelease(ctx, info); pendingUpdate = null },
-                        modifier = linkSemantics,
-                    ) {
-                        Text(stringResource(R.string.screen_settings_open_release))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { pendingUpdate = null }) {
-                        Text(stringResource(R.string.screen_settings_later))
-                    }
-                },
-            )
         }
 
         // --- Help / feedback ---

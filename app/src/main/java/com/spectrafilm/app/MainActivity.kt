@@ -637,6 +637,7 @@ class MainActivity : ComponentActivity() {
         }
         val settings = AppSettings.from(this)
         val settingsVm = ViewModelProvider(this, SettingsViewModel.factory(settings))[SettingsViewModel::class.java]
+        val updateVm = ViewModelProvider(this, UpdateViewModel.factory(this))[UpdateViewModel::class.java]
         setContent {
             // Theme follows the saved settings state, so a Settings edit re-themes at once.
             val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
@@ -645,12 +646,18 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
+            val updateUi by updateVm.uiState.collectAsStateWithLifecycle()
+            // Launch-time "what's new" check: at most daily, off in Settings, never on Play.
+            LaunchedEffect(Unit) { updateVm.onAction(UpdateAction.AutoCheck) }
             SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
                 AppRoot(
                     settings = settings,
                     settingsUi = settingsUi,
                     onSettingsAction = settingsVm::onAction,
+                    updateUi = updateUi,
+                    onUpdateAction = updateVm::onAction,
                 )
+                updateUi.offer?.let { offer -> UpdateDialog(offer, updateVm::onAction) }
             }
         }
     }
@@ -661,6 +668,8 @@ class MainActivity : ComponentActivity() {
         settings: AppSettings,
         settingsUi: SettingsUiState,
         onSettingsAction: (SettingsAction) -> Unit,
+        updateUi: UpdateUiState,
+        onUpdateAction: (UpdateAction) -> Unit,
     ) {
         val ctx = LocalContext.current
         // Reads evaluated DURING composition go through LocalResources, not ctx: unlike
@@ -978,6 +987,8 @@ class MainActivity : ComponentActivity() {
                             printGroups = settingsPrintGroups,
                             onShowOnboarding = { showOnboarding = true; navigateTo(Screen.EDITOR) },
                             onOpenDiagnostics = { navigateTo(Screen.DIAGNOSTICS) },
+                            updateUi = updateUi,
+                            onUpdateAction = onUpdateAction,
                         )
                     }
                     Screen.DIAGNOSTICS -> NavScaffold(stringResource(R.string.editor_nav_diagnostics), onBack = { navigateTo(Screen.SETTINGS) }) {
