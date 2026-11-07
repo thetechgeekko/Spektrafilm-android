@@ -85,9 +85,20 @@ internal fun editorPaneMode(widthDp: Float, heightDp: Float, posture: FoldPostur
  * when that screen is too narrow for a slider row, or when there is no hinge.
  */
 internal fun sidePaneWidthDp(widthDp: Float, posture: FoldPosture, rtl: Boolean): Float {
-    if (posture !is FoldPosture.Book) return sidePaneWidthDp(widthDp)
+    if (!isBookHingeAligned(posture, widthDp, rtl)) return sidePaneWidthDp(widthDp)
+    posture as FoldPosture.Book
+    return if (rtl) posture.left else widthDp - posture.right
+}
+
+/**
+ * True when the editor splits at the hinge: book posture with the end screen wide enough for
+ * the tools. Then the photo keeps to its own screen even with no panel open, so it never
+ * straddles the fold.
+ */
+internal fun isBookHingeAligned(posture: FoldPosture, widthDp: Float, rtl: Boolean): Boolean {
+    if (posture !is FoldPosture.Book) return false
     val endScreen = if (rtl) posture.left else widthDp - posture.right
-    return if (endScreen >= PANE_MIN_DP) endScreen else sidePaneWidthDp(widthDp)
+    return endScreen >= PANE_MIN_DP
 }
 
 /**
@@ -95,11 +106,13 @@ internal fun sidePaneWidthDp(widthDp: Float, posture: FoldPosture, rtl: Boolean)
  * posture, so neither draws under it. Zero for a seamless fold, outside book posture, or when
  * [sidePaneWidthDp] fell back to the size-class width (the pane is not hinge-aligned then).
  */
-internal fun bookHingeGapDp(posture: FoldPosture, widthDp: Float, rtl: Boolean): Float {
-    if (posture !is FoldPosture.Book) return 0f
-    val endScreen = if (rtl) posture.left else widthDp - posture.right
-    return if (endScreen >= PANE_MIN_DP) (posture.right - posture.left).coerceAtLeast(0f) else 0f
-}
+internal fun bookHingeGapDp(posture: FoldPosture, widthDp: Float, rtl: Boolean): Float =
+    if (isBookHingeAligned(posture, widthDp, rtl)) {
+        posture as FoldPosture.Book
+        (posture.right - posture.left).coerceAtLeast(0f)
+    } else {
+        0f
+    }
 
 /**
  * Photo height in tabletop posture: everything above the hinge's top edge (the hinge strip

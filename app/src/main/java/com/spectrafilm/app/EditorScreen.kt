@@ -2059,6 +2059,7 @@ internal fun MainActivity.EditorScreen(
                 val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
                 val sidePaneWidth = sidePaneWidthDp(maxWidth.value, posture, rtl).dp
                 val bookHingeGap = bookHingeGapDp(posture, maxWidth.value, rtl).dp
+                val bookAligned = isBookHingeAligned(posture, maxWidth.value, rtl)
 
                 // The photo's EXIF capture date for the date-back imprint's default text,
                 // read off the main thread once per source.
@@ -2403,10 +2404,16 @@ internal fun MainActivity.EditorScreen(
                         // height, and the panel's one-shot width change never becomes the
                         // per-frame GLSurfaceView resize the narrow branch guards against.
                         val sideCategory = activeCategory
+                        // Book posture on a device with a physical gap: keep the gap empty so
+                        // neither the photo nor the tools sit under it.
+                        if (bookAligned && bookHingeGap > 0.dp) Spacer(Modifier.width(bookHingeGap))
+                        if (sideCategory == null && bookAligned) {
+                            // Panel closed in book posture: the photo still keeps to its own
+                            // screen rather than straddling the fold; the tools' screen stays
+                            // empty until a category is opened again.
+                            Spacer(Modifier.width(sidePaneWidth))
+                        }
                         if (sideCategory != null) {
-                            // Book posture on a device with a physical gap: keep the gap
-                            // empty so neither the photo nor the tools sit under it.
-                            if (bookHingeGap > 0.dp) Spacer(Modifier.width(bookHingeGap))
                             SidePanel(
                                 modifier = Modifier.predictiveBackShrink(panelBackProgress),
                                 category = sideCategory,

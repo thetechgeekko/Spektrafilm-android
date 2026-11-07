@@ -5,7 +5,9 @@
 package com.spectrafilm.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FoldPostureTest {
@@ -88,6 +90,14 @@ class FoldPostureTest {
         assertEquals(0f, bookHingeGapDp(FoldPosture.Flat, 840f, rtl = false), 0f)
         // Fallback width is not hinge-aligned, so no gap is reserved.
         assertEquals(0f, bookHingeGapDp(FoldPosture.Book(700f, 724f), 900f, rtl = false), 0f)
+    }
+
+    @Test
+    fun book_isHingeAligned_onlyWhenTheToolsScreenFits() {
+        assertTrue(isBookHingeAligned(FoldPosture.Book(420f, 420f), 840f, rtl = false))
+        assertFalse(isBookHingeAligned(FoldPosture.Book(700f, 700f), 900f, rtl = false))
+        assertTrue(isBookHingeAligned(FoldPosture.Book(700f, 700f), 900f, rtl = true))
+        assertFalse(isBookHingeAligned(FoldPosture.Flat, 900f, rtl = false))
     }
 
     @Test
