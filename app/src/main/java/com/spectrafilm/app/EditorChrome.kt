@@ -42,10 +42,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
@@ -339,9 +341,20 @@ internal fun AdjustmentPanel(
     // backing out of one exploratory panel meant remembering and reversing a dozen sliders
     // by hand.
     onResetCategory: (() -> Unit)? = null,
+    // Two heights: compact (the default, most of the photo stays in view) and tall (for the
+    // twenty-slider panels). Drag the handle up for tall, down for compact, and down again
+    // to close. Hoisted so the choice survives closing and reopening the panel.
+    tall: Boolean = false,
+    onTallChange: (Boolean) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val maxH = (localConfigurationHeightDp() * 0.38f).dp
+    val screenH = localConfigurationHeightDp()
+    val maxH by animateDpAsState(
+        (screenH * if (tall) PANEL_TALL_FRACTION else PANEL_COMPACT_FRACTION).dp,
+        label = "panelMaxHeight",
+    )
+    val expandLabel = stringResource(R.string.editor_panel_expand)
+    val collapseLabel = stringResource(R.string.editor_panel_collapse)
     val title = category?.let { stringResource(it.labelRes) } ?: ""
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
@@ -367,15 +380,34 @@ internal fun AdjustmentPanel(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp) // #181: it is a button for TalkBack; 46dp natural
-                    .pointerInput(category) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount > 18f) onDismiss()
-                        }
+                    .pointerInput(category, tall) {
+                        // Decide on release from the whole drag, not per sample: one
+                        // gesture moves exactly one step (tall -> compact -> closed).
+                        var total = 0f
+                        val threshold = PANEL_DRAG_STEP.toPx()
+                        detectVerticalDragGestures(
+                            onDragStart = { total = 0f },
+                            onDragEnd = {
+                                when {
+                                    total < -threshold -> onTallChange(true)
+                                    total > threshold && tall -> onTallChange(false)
+                                    total > threshold -> onDismiss()
+                                }
+                            },
+                        ) { _, dragAmount -> total += dragAmount }
                     }
                     .semantics(mergeDescendants = true) {
                         role = Role.Button
                         contentDescription = closeLabel
                         onClick(label = closeAction) { onDismiss(); true }
+                        // The drag has no accessible equivalent; offer the height step too.
+                        customActions = listOf(
+                            if (tall) {
+                                CustomAccessibilityAction(collapseLabel) { onTallChange(false); true }
+                            } else {
+                                CustomAccessibilityAction(expandLabel) { onTallChange(true); true }
+                            },
+                        )
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -849,3 +881,12 @@ internal fun categoryIcon(c: Category) = when (c) {
     Category.PRESETS -> SpectraIcons.Presets
     Category.SOURCE -> SpectraIcons.SourceImage
 }
+
+/** Compact adjustment-panel height, as a fraction of the screen: most of the photo stays visible. */
+private const val PANEL_COMPACT_FRACTION = 0.38f
+
+/** Tall adjustment-panel height, for the long panels (Couplers, Grain, Masks). */
+private const val PANEL_TALL_FRACTION = 0.66f
+
+/** How far the panel handle must travel before a drag counts as one height step. */
+private val PANEL_DRAG_STEP = 24.dp
