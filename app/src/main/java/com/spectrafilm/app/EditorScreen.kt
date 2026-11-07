@@ -44,7 +44,6 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
@@ -2431,13 +2430,16 @@ internal fun MainActivity.EditorScreen(
                             // (inset by the panel's height) fills the upper one. This box
                             // starts where the editor box does, so the hinge offsets apply.
                             val tabletopPanelHeight = tabletopPanelHeightDp(posture, maxHeight.value)?.dp
-                            if (tabletopPanelHeight != null) {
+                            val tabletopPhotoHeight = tabletopPhotoHeightDp(posture)?.dp
+                            if (tabletopPhotoHeight != null) {
                                 // The photo keeps the upper half whether or not a panel is
                                 // open, so closing one never lays it back across the hinge.
+                                // It ends at the hinge's TOP edge: on a device with a physical
+                                // gap, the strip between top and bottom is not display.
                                 Box(
                                     Modifier
                                         .fillMaxWidth()
-                                        .height((maxHeight - tabletopPanelHeight).coerceAtLeast(0.dp)),
+                                        .height(tabletopPhotoHeight),
                                 ) { previewRegion() }
                             } else {
                                 previewRegion()

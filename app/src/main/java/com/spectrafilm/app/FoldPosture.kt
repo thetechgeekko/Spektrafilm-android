@@ -102,6 +102,13 @@ internal fun bookHingeGapDp(posture: FoldPosture, widthDp: Float, rtl: Boolean):
 }
 
 /**
+ * Photo height in tabletop posture: everything above the hinge's top edge (the hinge strip
+ * itself, on a device with a physical gap, is not display). Null when not in tabletop.
+ */
+internal fun tabletopPhotoHeightDp(posture: FoldPosture): Float? =
+    (posture as? FoldPosture.Tabletop)?.top?.coerceAtLeast(0f)
+
+/**
  * Panel height in tabletop posture: the whole lower half, so the photo above fills the upper
  * one. Null when not in tabletop (the panel keeps its compact/tall drag heights).
  */

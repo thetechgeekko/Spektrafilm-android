@@ -59,6 +59,11 @@ class FoldPostureTest {
         assertEquals(EditorPaneMode.BOTTOM_SHEET, editorPaneMode(900f, 700f, FoldPosture.Tabletop(340f, 340f)))
         assertEquals(400f, tabletopPanelHeightDp(FoldPosture.Tabletop(300f, 300f), 700f)!!, 0f)
         assertNull(tabletopPanelHeightDp(FoldPosture.Flat, 700f))
+        // A 24dp physical gap: photo ends at its top edge, panel starts at its bottom edge.
+        val gapped = FoldPosture.Tabletop(300f, 324f)
+        assertEquals(300f, tabletopPhotoHeightDp(gapped)!!, 0f)
+        assertEquals(376f, tabletopPanelHeightDp(gapped, 700f)!!, 0f)
+        assertNull(tabletopPhotoHeightDp(FoldPosture.Flat))
     }
 
     @Test
