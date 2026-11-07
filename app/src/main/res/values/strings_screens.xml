@@ -268,4 +268,14 @@
     <string name="screen_curves_axis_log_s">log S</string>
     <string name="screen_curves_axis_log_e">log E</string>
     <string name="screen_curves_axis_density">Density</string>
+    <string name="theme_mode_system">System default</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+    <string name="export_format_png">PNG (8-bit)</string>
+    <string name="export_format_jpeg">JPEG</string>
+    <string name="export_format_ultra_hdr">Ultra HDR (JPEG)</string>
+    <string name="export_format_tiff16">16-bit TIFF</string>
+    <string name="export_format_png16">16-bit PNG</string>
+    <string name="export_format_tiff32f">32-bit float TIFF</string>
+    <string name="export_format_scene_linear_tiff">Scene-linear input (32-bit TIFF)</string>
 </resources>

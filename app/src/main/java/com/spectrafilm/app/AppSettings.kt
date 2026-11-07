@@ -15,6 +15,7 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.annotation.StringRes
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -22,11 +23,11 @@ import com.spectrafilm.engine.ColorSpace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 
-/** App theme preference. */
-enum class ThemeMode(val display: String) {
-    SYSTEM("System default"),
-    LIGHT("Light"),
-    DARK("Dark"),
+/** App theme preference. [display] is the stable English name (logs); the UI shows [labelRes]. */
+enum class ThemeMode(val display: String, @StringRes val labelRes: Int) {
+    SYSTEM("System default", R.string.theme_mode_system),
+    LIGHT("Light", R.string.theme_mode_light),
+    DARK("Dark", R.string.theme_mode_dark),
 }
 
 /**
