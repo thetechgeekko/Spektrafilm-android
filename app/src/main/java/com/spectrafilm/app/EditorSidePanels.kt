@@ -10,6 +10,8 @@ package com.spectrafilm.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -435,7 +437,12 @@ internal fun ExportMask(
             },
         contentAlignment = Alignment.Center,
     ) {
+        // Scrolls so Share and Done stay reachable in short windows (landscape, split screen,
+        // large text) under the hero and the display headline.
         Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
