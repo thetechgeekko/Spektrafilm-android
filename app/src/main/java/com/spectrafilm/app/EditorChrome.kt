@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -468,6 +469,8 @@ internal fun SidePanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     onResetCategory: (() -> Unit)? = null,
+    // M3 fixed supporting pane: 360dp expanded, 412dp large; narrower on a landscape phone.
+    width: Dp = PANE_EXPANDED_DP.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val title = stringResource(category.labelRes)
@@ -476,7 +479,7 @@ internal fun SidePanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier
-            .width(360.dp)
+            .width(width)
             .fillMaxHeight()
             .semantics { paneTitle = panelTitle },
     ) {

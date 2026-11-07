@@ -506,6 +506,17 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // MoreVert — three stacked dots (overflow menu on a list row)
+    // -----------------------------------------------------------------------
+    val MoreVert: ImageVector by lazy {
+        icon("MoreVert") {
+            fillPath("M 12 4 m -1.75 0 a 1.75 1.75 0 1 0 3.5 0 a 1.75 1.75 0 1 0 -3.5 0 Z")
+            fillPath("M 12 12 m -1.75 0 a 1.75 1.75 0 1 0 3.5 0 a 1.75 1.75 0 1 0 -3.5 0 Z")
+            fillPath("M 12 20 m -1.75 0 a 1.75 1.75 0 1 0 3.5 0 a 1.75 1.75 0 1 0 -3.5 0 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // AspectRatio — nested rectangles (aspect-ratio preset chips)
     // -----------------------------------------------------------------------
     val AspectRatio: ImageVector by lazy {

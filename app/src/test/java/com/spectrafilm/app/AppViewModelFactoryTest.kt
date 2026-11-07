@@ -30,6 +30,11 @@ class AppViewModelFactoryTest {
     private val factory = AppViewModelFactory(
         settingsViewModel = { settingsBuilt++; settingsVm },
         updateViewModel = { error("not under test") },
+        versionsViewModel = { versionsVm },
+    )
+    private val versionsVm = VersionsViewModel(
+        FileVersionRepository(java.io.File(System.getProperty("java.io.tmpdir"), "versions-factory-test")),
+        kotlinx.coroutines.Dispatchers.Unconfined,
     )
 
     private fun <T : ViewModel> create(c: Class<T>): T = factory.create(c, MutableCreationExtras())
@@ -44,6 +49,10 @@ class AppViewModelFactoryTest {
     @Test fun settingsComeFromTheInjectedBuilder() {
         assertSame(settingsVm, create(SettingsViewModel::class.java))
         assertEquals(1, settingsBuilt)
+    }
+
+    @Test fun versionsComeFromTheInjectedBuilder() {
+        assertSame(versionsVm, create(VersionsViewModel::class.java))
     }
 
     @Test(expected = IllegalArgumentException::class)
