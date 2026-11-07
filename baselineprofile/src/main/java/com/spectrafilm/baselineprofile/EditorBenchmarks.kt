@@ -53,15 +53,26 @@ class EditorBenchmarks {
     ) {
         pressHome()
         startActivityAndWait()
+        // Keep the trace open until the editor reports fully drawn, or TTFD is not reported.
+        awaitFirstPreview()
     }
 
     private fun edit(mode: CompilationMode) = rule.measureRepeated(
         packageName = TARGET_PACKAGE,
         metrics = listOf(FrameTimingMetric()),
         compilationMode = mode,
-        startupMode = StartupMode.WARM,
+        // No startup mode: the editor opened in setupBlock must still be in front when the
+        // measured block runs (a startup mode would have the library restart it first).
+        startupMode = null,
         iterations = 5,
-        setupBlock = { startEditor() },
+        // Cold-start the editor for every iteration. A warm relaunch after two journeys
+        // never showed the film preview again on the test phone, and a fresh process also
+        // gives every iteration the same JIT state, which is what the compilation-mode
+        // comparison is about.
+        setupBlock = {
+            killProcess()
+            startEditor()
+        },
     ) {
         editJourney()
     }
