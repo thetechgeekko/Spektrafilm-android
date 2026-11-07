@@ -10,7 +10,7 @@
     <string name="editor_stage_film_hint">Le négatif : exposition, balance des blancs, grain, halation</string>
     <string name="editor_stage_print">Tirage</string>
     <string name="editor_stage_print_hint">L’agrandisseur et le papier</string>
-    <string name="editor_stage_scan">Numérisation</string>
+    <string name="editor_stage_scan">Scan</string>
     <string name="editor_stage_scan_hint">Ramener le tirage dans un fichier</string>
     <string name="editor_stage_finish">Finition</string>
     <string name="editor_stage_finish_hint">L’étalonnage après la numérisation, les masques et l’affichage</string>
