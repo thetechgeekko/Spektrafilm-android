@@ -1,9 +1,5 @@
 package com.spectrafilm.app
 
-import android.content.ComponentName
-import android.content.Intent
-import android.content.IntentFilter
-import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasClickAction
@@ -16,11 +12,9 @@ import com.spectrafilm.engine.ColorSpace
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.ExternalResource
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
@@ -30,20 +24,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp")
 class ExportSheetUiTest {
-    // Registers the host ComponentActivity with Robolectric's package manager; the
-    // ui-test-manifest entry is not merged into the unit-test manifest under testImplementation.
-    @get:Rule(order = 0) val hostActivity = object : ExternalResource() {
-        override fun before() {
-            val app = RuntimeEnvironment.getApplication()
-            val host = ComponentName(app, ComponentActivity::class.java)
-            val pm = shadowOf(app.packageManager)
-            pm.addActivityIfNotPresent(host)
-            pm.addIntentFilterForActivity(
-                host,
-                IntentFilter(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_LAUNCHER) },
-            )
-        }
-    }
+    @get:Rule(order = 0) val hostActivity = ComposeHostActivityRule()
 
     @get:Rule(order = 1) val compose = createComposeRule()
 
