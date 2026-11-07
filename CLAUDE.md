@@ -182,9 +182,16 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 ## Conventions / gotchas
 
 - Current version: `versionCode 13` / `versionName 0.11.0`, `minSdk 24`, `targetSdk 36`,
-  `compileSdk 37` (`:app` only — material3 `1.5.0-alpha28` and the Compose 1.13 alphas it
-  pulls require compiling against android-37; every other module stays on 36). targetSdk is
-  the Play-policy surface and is unchanged.
+  `compileSdk 37` (`:app` only — set when material3 `1.5.0-alpha28` pulled Compose 1.13
+  alphas that required android-37; every other module stays on 36). material3 is now
+  `1.5.0-rc01` on stable Compose 1.12.0 (#292, #384); whether `:app` can drop back to 36 is
+  untested. targetSdk is the Play-policy surface and is unchanged.
+- **Bumping a dependency needs new lockfiles** (locking is STRICT) and writing them needs
+  Google Maven, which cloud sandboxes cannot reach. Label the PR `run-ci` + `write-locks`:
+  build.yml rewrites `app/gradle.lockfile` and prints the diff in the job log; commit it and
+  drop the label. `:app:dependencies` can leave entries off runtime classpaths that the real
+  build resolves (it dropped `kotlin-stdlib-common` from them on #384) -- if the build then
+  fails with "not part of the dependency lock state", add those configurations by hand.
   ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`.
 - **Commit signing is environment-dependent — test it, don't assume.** This line used to
   read "commit with `-c commit.gpgsign=false` (the signing server rejects signing here)"
