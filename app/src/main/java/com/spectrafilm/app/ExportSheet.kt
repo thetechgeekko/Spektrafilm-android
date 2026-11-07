@@ -9,11 +9,14 @@
  */
 package com.spectrafilm.app
 
+import android.graphics.Bitmap
 import androidx.annotation.StringRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -28,7 +31,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -50,6 +56,8 @@ fun ExportSheet(
     onKeepGpsChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
+    /** Current editor preview, for the film-border thumbnail. Read only, never recycled here. */
+    previewBitmap: Bitmap? = null,
 ) {
     // Dropdown's `display` is a plain (non-composable) lambda, so stringResource cannot go inside
     // it. LocalResources is the lint-approved read and, unlike LocalContext.current.getString,
@@ -147,6 +155,16 @@ fun ExportSheet(
                 }
             }
 
+            HorizontalDivider()
+
+            // --- Film border (around the photo; Bitmap formats only) ---
+            FilmBorderSection(
+                options = options,
+                onOptionsChange = onOptionsChange,
+                previewBitmap = previewBitmap,
+                display = { resources.getString(it.labelRes) },
+            )
+
             if (!isSceneLinear) {
                 HorizontalDivider()
 
@@ -203,6 +221,74 @@ fun ExportSheet(
             )
         }
     }
+}
+
+@Composable
+private fun FilmBorderSection(
+    options: ExportOptions,
+    onOptionsChange: (ExportOptions) -> Unit,
+    previewBitmap: Bitmap?,
+    display: (FilmBorder) -> String,
+) {
+    Text(
+        stringResource(R.string.tool_export_border_heading),
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.semantics { heading() },
+    )
+    if (options.format.isHighBitDepth() || options.format == ExportFormat.SCENE_LINEAR_TIFF) {
+        Text(
+            stringResource(R.string.tool_export_border_high_bit_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Dropdown(
+        label = stringResource(R.string.tool_export_border),
+        selected = options.border,
+        options = FilmBorder.entries.toList(),
+        display = display,
+        onSelect = { onOptionsChange(options.copy(border = it)) },
+    )
+    if (options.border == FilmBorder.NONE) return
+    Text(
+        stringResource(R.string.tool_export_border_note),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    // A small framed copy of the current preview, painted by the same code as the export, so
+    // what the sheet shows is what the file gets. ~1.6 MB at most; deliberately left to the GC
+    // rather than recycled on change, because the Image may still draw the old one for a frame.
+    val thumb = remember(previewBitmap, options.border) {
+        borderThumbnail(previewBitmap, options.border)
+    }
+    if (thumb != null) {
+        Image(
+            bitmap = thumb.asImageBitmap(),
+            contentDescription = stringResource(R.string.tool_export_border_preview_cd, display(options.border)),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 180.dp),
+        )
+    }
+}
+
+/** Long edge of the border thumbnail in the export sheet. */
+private const val BORDER_THUMB_EDGE = 640
+
+private fun borderThumbnail(preview: Bitmap?, border: FilmBorder): Bitmap? {
+    if (preview == null || preview.isRecycled || border == FilmBorder.NONE) return null
+    return runCatching {
+        val small = scaleBitmapToLongEdge(preview, BORDER_THUMB_EDGE)
+        try {
+            val layout = FilmBorderGeometry.layout(border, small.width, small.height)
+                ?: return@runCatching null
+            FilmBorderRenderer.render(small, layout)
+        } finally {
+            if (small !== preview) small.recycle()
+        }
+    }.getOrNull()
 }
 
 /** Localised display name for an [ExportFormat] (the enum's `display` stays as the log/diagnostic id). */

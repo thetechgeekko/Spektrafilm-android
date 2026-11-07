@@ -59,6 +59,28 @@ internal object HdrGainMap {
     }
 
     /**
+     * Extend [map] (made for the photo, `layout.image`) to cover a film border laid out by
+     * [layout] around that photo. The border is SDR paint, so it gets the neutral gain:
+     * stored 0, i.e. a ratio of ratioMin = 1 under this file's contract. The photo's map is
+     * copied unchanged at the same relative scale, so its gains stay over the same pixels.
+     */
+    fun padForBorder(map: Result, layout: BorderLayout): Result {
+        val imageWidth = layout.image.width
+        val imageHeight = layout.image.height
+        val sx = map.width.toDouble() / imageWidth
+        val sy = map.height.toDouble() / imageHeight
+        val left = (layout.image.left * sx).roundToInt()
+        val top = (layout.image.top * sy).roundToInt()
+        val outW = max(left + map.width, (layout.outWidth * sx).roundToInt())
+        val outH = max(top + map.height, (layout.outHeight * sy).roundToInt())
+        val alpha = ByteArray(outW * outH)
+        for (y in 0 until map.height) {
+            System.arraycopy(map.alpha, y * map.width, alpha, (top + y) * outW + left, map.width)
+        }
+        return Result(alpha, outW, outH, map.ratioMax, map.maxRatio, map.gainedPixels)
+    }
+
+    /**
      * Build the gain map for [rgb], interleaved display-referred float RGB of [width]x[height].
      *
      * Read through a FloatBuffer with absolute indexing rather than a float array: the export

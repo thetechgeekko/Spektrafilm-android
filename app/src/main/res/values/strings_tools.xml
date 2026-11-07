@@ -17,6 +17,16 @@
     <string name="tool_export_dimensions">Dimensions</string>
     <string name="tool_export_long_edge">Long edge (px)</string>
     <string name="tool_export_custom_clamp">Clamped to %1$d–%2$d px; the photo is never enlarged.</string>
+    <string name="tool_export_border_heading">Film border</string>
+    <string name="tool_export_border">Border</string>
+    <string name="tool_export_border_note">Added around the photo, so nothing is cropped. A size limit applies to the framed image.</string>
+    <string name="tool_export_border_high_bit_note">Borders apply to JPEG, Ultra HDR and PNG. High-bit-depth exports are the bare photo.</string>
+    <string name="tool_export_border_preview_cd">Preview of the photo with the %1$s border</string>
+    <string name="tool_export_border_none">None</string>
+    <string name="tool_export_border_print">White print</string>
+    <string name="tool_export_border_filed">Black edge</string>
+    <string name="tool_export_border_135">35 mm film strip</string>
+    <string name="tool_export_border_120">Medium format roll</string>
     <string name="tool_export_color_space">Color space</string>
     <string name="tool_export_cctf">Encode color transfer (CCTF)</string>
     <string name="tool_export_cctf_help">On for normal viewing. Off writes scene-linear values (for further grading).</string>

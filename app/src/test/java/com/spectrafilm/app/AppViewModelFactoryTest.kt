@@ -22,6 +22,7 @@ class AppViewModelFactoryTest {
         override var exportFormat = ExportFormat.PNG
         override var exportQuality = 95
         override var exportKeepGps = false
+        override var exportBorder = FilmBorder.NONE
     }
 
     private var settingsBuilt = 0

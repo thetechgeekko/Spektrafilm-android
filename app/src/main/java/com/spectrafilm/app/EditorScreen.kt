@@ -234,6 +234,7 @@ internal fun MainActivity.EditorScreen(
                 ExportSize.FULL,
                 2048,
                 "",
+                settings.exportBorder,
             ),
             keepGps = settings.exportKeepGps,
             phase = EditorExportPhase.IDLE,
@@ -3755,6 +3756,7 @@ internal fun MainActivity.EditorScreen(
                 keepGps = exportUi.keepGps,
                 onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
+                previewBitmap = preview,
                 onExport = export@{
                     val exportOptions = exportVm.current.options
                     val exportKeepGps = exportVm.current.keepGps
@@ -3809,10 +3811,12 @@ internal fun MainActivity.EditorScreen(
                         onSettingsAction(SettingsAction.SetExportFormat(exportOptions.format))
                         onSettingsAction(SettingsAction.SetExportQuality(exportOptions.jpegQuality))
                         onSettingsAction(SettingsAction.SetKeepGps(exportKeepGps))
+                        onSettingsAction(SettingsAction.SetExportBorder(exportOptions.border))
                         val fmt = outputDescriptor.format
                         val exportFmt = fmt
                         val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
                         val longEdge = exportOptions.targetLongEdge()
+                        val exportBorder = exportOptions.effectiveBorder()
                         val keepGps = exportKeepGps
                         // Wall-clock breadcrumbs for the on-device baseline capture
                         // (issue #119): logcat-visible start marker + duration on ok/fail.
@@ -3906,6 +3910,7 @@ internal fun MainActivity.EditorScreen(
                                             longEdge,
                                             exportJpegQuality,
                                             keepGps,
+                                            exportBorder,
                                             exportContract,
                                         )
                                     }
@@ -4042,7 +4047,15 @@ internal fun MainActivity.EditorScreen(
                                                 // Post-render downscale for Bitmap encoders only. Native
                                                 // high-bit writers consume the float buffer without ever
                                                 // materialising a full-resolution ARGB_8888 Bitmap.
-                                                val sized = longEdge?.let { edge ->
+                                                // With a border, the requested long edge is the
+                                                // FINISHED image's, so a 2048 px export is still
+                                                // 2048 px wide: shrink the photo to leave room.
+                                                val photoEdge = longEdge?.let { edge ->
+                                                    FilmBorderGeometry.photoLongEdgeFor(
+                                                        exportBorder, full.width, full.height, edge,
+                                                    )
+                                                }
+                                                val sized = photoEdge?.let { edge ->
                                                     scaleBitmapToLongEdge(full, edge).also { scaled ->
                                                         if (scaled !== full) {
                                                             previewCandidate = scaled
@@ -4050,6 +4063,23 @@ internal fun MainActivity.EditorScreen(
                                                         }
                                                     }
                                                 } ?: full
+                                                // Film border around the photo (output grows).
+                                                // Frame number is stable per source, so the
+                                                // cache key's source hash already covers it.
+                                                val borderLayout = FilmBorderGeometry.layout(
+                                                    exportBorder,
+                                                    sized.width,
+                                                    sized.height,
+                                                    FilmBorderGeometry.frameNumberFor(
+                                                        exportSource?.contentSha256,
+                                                    ),
+                                                )
+                                                val framed = borderLayout?.let { layout ->
+                                                    FilmBorderRenderer.render(sized, layout).also {
+                                                        previewCandidate = it
+                                                        runCatching { sized.recycle() }
+                                                    }
+                                                } ?: sized
                                                 // #140: derive the Ultra HDR gain map from the
                                                 // render itself, here, while the engine's float
                                                 // buffer is still alive — it holds the values
@@ -4058,12 +4088,14 @@ internal fun MainActivity.EditorScreen(
                                                 // this pipeline has.
                                                 if (outputDescriptor.metadata.hdrGainMap != null) {
                                                     runCatching {
-                                                        attachRenderedGainmap(res, sized, outputDescriptor)
+                                                        attachRenderedGainmap(
+                                                            res, framed, outputDescriptor, borderLayout,
+                                                        )
                                                     }.onFailure {
                                                         Diag.w("gain map failed; exporting SDR base: $it")
                                                     }
                                                 }
-                                                sized
+                                                framed
                                             } else {
                                                 // Preserve WYSIWYG grading in the writer's float source while
                                                 // avoiding the additional ~4 bytes/pixel full-res Bitmap.

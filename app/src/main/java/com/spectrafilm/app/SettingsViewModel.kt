@@ -32,6 +32,8 @@ interface SettingsStore {
     var exportFormat: ExportFormat
     var exportQuality: Int
     var exportKeepGps: Boolean
+    /** Film border the export sheet starts with (the last one used). */
+    var exportBorder: FilmBorder
 }
 
 internal data class SettingsUiState(
@@ -49,6 +51,7 @@ internal data class SettingsUiState(
     val exportFormat: ExportFormat,
     val exportQuality: Int,
     val keepGps: Boolean,
+    val exportBorder: FilmBorder,
 ) {
     /** JPEG quality only means something for the JPEG-based formats. */
     val showsQuality: Boolean
@@ -68,6 +71,7 @@ internal sealed interface SettingsAction {
     data class SetExportFormat(val value: ExportFormat) : SettingsAction
     data class SetExportQuality(val value: Int) : SettingsAction
     data class SetKeepGps(val value: Boolean) : SettingsAction
+    data class SetExportBorder(val value: FilmBorder) : SettingsAction
 }
 
 internal class SettingsViewModel(
@@ -91,6 +95,7 @@ internal class SettingsViewModel(
             is SettingsAction.SetExportFormat -> store.exportFormat = action.value
             is SettingsAction.SetExportQuality -> store.exportQuality = action.value
             is SettingsAction.SetKeepGps -> store.exportKeepGps = action.value
+            is SettingsAction.SetExportBorder -> store.exportBorder = action.value
         }
         // Re-read rather than echo the action: the store clamps (quality 1..100, draft
         // 128..512), and the UI must show what was actually saved.
@@ -111,5 +116,6 @@ internal class SettingsViewModel(
         exportFormat = store.exportFormat,
         exportQuality = store.exportQuality,
         keepGps = store.exportKeepGps,
+        exportBorder = store.exportBorder,
     )
 }

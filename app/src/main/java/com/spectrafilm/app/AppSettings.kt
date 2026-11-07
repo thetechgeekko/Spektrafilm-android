@@ -265,6 +265,10 @@ class AppSettings private constructor(
         get() = store[KEY_EXPORT_KEEP_GPS] ?: false
         set(v) { store.edit { it[KEY_EXPORT_KEEP_GPS] = v } }
 
+    override var exportBorder: FilmBorder
+        get() = FilmBorder.parse(store[KEY_EXPORT_BORDER])
+        set(v) { store.edit { it[KEY_EXPORT_BORDER] = v.name } }
+
     /** Waits briefly for queued writes to reach disk; see [SettingsDataStore.flush]. */
     fun flush(): Boolean = store.flush()
 
@@ -311,6 +315,8 @@ class AppSettings private constructor(
         private val KEY_EXPORT_FMT = stringPreferencesKey("export_format")
         private val KEY_EXPORT_Q = intPreferencesKey("export_quality")
         private val KEY_EXPORT_KEEP_GPS = booleanPreferencesKey("export_keep_gps")
+        // New in DataStore only; never lived in SharedPreferences, so not in MIGRATED_KEYS.
+        private val KEY_EXPORT_BORDER = stringPreferencesKey("export_border")
 
         /** Every key that moves from SharedPreferences to DataStore (all but big cores). */
         private val MIGRATED_KEYS: Set<String> = setOf(

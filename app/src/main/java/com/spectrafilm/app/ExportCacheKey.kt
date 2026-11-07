@@ -72,6 +72,8 @@ internal object ExportCacheKey {
         targetLongEdge: Int?,
         jpegQuality: Int,
         keepGps: Boolean,
+        /** The border actually painted ([ExportOptions.effectiveBorder]); it changes the pixels. */
+        border: FilmBorder,
         contractVersion: String,
     ): String {
         val text = buildString {
@@ -117,6 +119,7 @@ internal object ExportCacheKey {
             line("geometry.longEdge", targetLongEdge?.toString() ?: "full")
             line("encoder.jpegQuality", jpegQuality)
             line("exif.keepGps", keepGps)
+            line("border", border.name)
         }
         return sha256Hex(text.toByteArray(Charsets.UTF_8))
     }

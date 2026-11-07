@@ -29,7 +29,18 @@ data class ExportOptions(
     val size: ExportSize,
     val customLongEdge: Int,
     val customName: String,
+    /** Frame around the photo; grows the output. Bitmap formats only, see [effectiveBorder]. */
+    val border: FilmBorder = FilmBorder.NONE,
 ) {
+    /**
+     * The border this export actually gets. 16-bit and scene-linear formats write the engine's
+     * float buffer directly and are for further editing, where a painted frame is unwanted, so
+     * they always export the bare photo (the stored choice itself is left untouched, as with size).
+     */
+    fun effectiveBorder(): FilmBorder =
+        if (format.isHighBitDepth() || format == ExportFormat.SCENE_LINEAR_TIFF) FilmBorder.NONE
+        else border
+
     /**
      * Target long edge in px for a post-render downscale, or null = full resolution. 16-bit formats
      * (TIFF / PNG16) always export full-res — their save path writes the float buffer directly, so a
