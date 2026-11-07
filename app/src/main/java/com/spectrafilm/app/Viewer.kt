@@ -14,6 +14,9 @@
  *
  * No new gradle dependency: everything is built on Compose pointerInput, graphicsLayer
  * and Canvas plus the Material3 widgets already used elsewhere.
+ *
+ * CompareSlider lives in CompareSlider.kt, the histogram in Histogram.kt and the preview
+ * Bitmap read leases in PreviewLeases.kt (#273).
  */
 package com.spectrafilm.app
 
@@ -30,7 +33,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,7 +47,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -55,13 +56,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -70,17 +66,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -89,16 +82,10 @@ import kotlin.math.min
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withContext
-import java.util.IdentityHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 
 /** Zoom limits for [ZoomableImage]. */
@@ -680,388 +667,6 @@ internal fun viewportRoiNormalized(
     val hN = ny1 - ny0
     if (wN <= 0f || hN <= 0f) return null
     return RoiRect((nx0 + nx1) / 2f, (ny0 + ny1) / 2f, wN, hN)
-}
-
-/**
- * A before/after split viewer. The [after] bitmap is shown across the whole frame; the
- * [before] bitmap is clipped to the left of a draggable vertical handle, revealing the
- * input where the handle hasn't passed. Drag the handle (or anywhere in the frame) left/
- * right to wipe between the two. Both bitmaps are drawn with ContentScale.Fit so they
- * register exactly.
- */
-@Composable
-fun CompareSlider(
-    before: Bitmap,
-    after: Bitmap,
-    modifier: Modifier = Modifier,
-) {
-    var split by remember { mutableFloatStateOf(0.5f) }
-    var width by remember { mutableIntStateOf(0) }
-    val aspect = after.width.toFloat() / after.height.toFloat()
-    val beforeImg = rememberLeasedImage(before) ?: return
-    val afterImg = rememberLeasedImage(after) ?: return
-    // Drag/tap-only wipe: one merged node describing the comparison, its split as state, and
-    // three custom actions so a screen reader can move the wipe without a gesture.
-    val compareDesc = stringResource(R.string.tool_viewer_compare_desc)
-    val compareState = stringResource(R.string.tool_viewer_compare_state, (split * 100f).roundToInt())
-    val showBefore = stringResource(R.string.tool_viewer_compare_show_before)
-    val showAfter = stringResource(R.string.tool_viewer_compare_show_after)
-    val splitHalf = stringResource(R.string.tool_viewer_compare_split_half)
-
-    Box(
-        // Fit both dimensions, as ZoomableImage's Image does (see the note there).
-        modifier = modifier
-            .aspectRatio(aspect)
-            .clipToBounds()
-            .onSizeChanged { width = it.width }
-            .semantics(mergeDescendants = true) {
-                contentDescription = compareDesc
-                stateDescription = compareState
-                customActions = listOf(
-                    CustomAccessibilityAction(showBefore) { split = 1f; true },
-                    CustomAccessibilityAction(showAfter) { split = 0f; true },
-                    CustomAccessibilityAction(splitHalf) { split = 0.5f; true },
-                )
-            }
-            .pointerInput(Unit) {
-                detectTapGestures { pos ->
-                    if (width > 0) split = (pos.x / width).coerceIn(0f, 1f)
-                }
-            }
-            .pointerInput(Unit) {
-                detectTransformGestures { centroid, _, _, _ ->
-                    if (width > 0) split = (centroid.x / width).coerceIn(0f, 1f)
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        // After (full frame). Both images are described by the parent node, so no per-image cd.
-        Image(afterImg, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        // Before, clipped to the left of the split via a draw-phase rect clip.
-        Image(
-            bitmap = beforeImg,
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithContent {
-                    clipRect(right = size.width * split) { this@drawWithContent.drawContent() }
-                },
-        )
-        // Handle + labels.
-        Box(Modifier.fillMaxSize()) {
-            Canvas(Modifier.fillMaxSize()) {
-                val x = size.width * split
-                drawLine(
-                    color = SpektraBrand.onCanvas,
-                    start = Offset(x, 0f),
-                    end = Offset(x, size.height),
-                    strokeWidth = 3f,
-                )
-            }
-            CompareTag(stringResource(R.string.tool_viewer_before_tag), Alignment.TopStart)
-            CompareTag(stringResource(R.string.tool_viewer_after_tag), Alignment.TopEnd)
-        }
-    }
-}
-
-@Composable
-private fun CompareTag(text: String, alignment: Alignment) {
-    Box(Modifier.fillMaxSize()) {
-        Text(
-            text,
-            color = SpektraBrand.onCanvas,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier
-                .align(alignment)
-                .padding(6.dp)
-                .background(SpektraBrand.scrim.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-    }
-}
-
-/**
- * A compact, translucent histogram overlaid on the TOP EDGE of the live preview
- * (Lightroom-mobile style). Sampling and binning both run off-main under an explicit read lease.
- * Replacing the bitmap resets the remembered bins synchronously, and retirement defers recycle
- * until any already-running reader releases its lease.
- */
-@Composable
-fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
-    // Keying state by identity prevents the previous frame's bins from being displayed while the
-    // new frame is sampled. LaunchedEffect cancellation also rejects any late old-frame result.
-    var hist by remember(bitmap) { mutableStateOf<Histogram?>(null) }
-    val dispatchers = rememberAppDispatchers()
-    LaunchedEffect(bitmap) {
-        hist = try {
-            computeHistogram(bitmap, dispatchers.default)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            Diag.w("preview histogram unavailable: ${failure.message}")
-            null
-        }
-    }
-    val h = hist ?: return
-    val clipHigh = remember(h) { h.highlightsClipped() }
-    val clipLow = remember(h) { h.shadowsClipped() }
-    val histogramDesc = when {
-        clipHigh && clipLow -> stringResource(R.string.tool_viewer_histogram_desc_clipped_both)
-        clipHigh -> stringResource(R.string.tool_viewer_histogram_desc_clipped_high)
-        clipLow -> stringResource(R.string.tool_viewer_histogram_desc_clipped_low)
-        else -> stringResource(R.string.tool_viewer_histogram_desc)
-    }
-    Box(
-        modifier = modifier
-            .fillMaxWidth(0.6f)
-            .height(56.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(SpektraBrand.scrim.copy(alpha = 0.42f))
-            .semantics { contentDescription = histogramDesc },
-    ) {
-        Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawHistogram(h, clipLow, clipHigh) }
-    }
-}
-
-/** Per-channel 256-bin counts plus the per-channel maximum used for scaling. */
-class Histogram(
-    val r: IntArray,
-    val g: IntArray,
-    val b: IntArray,
-    val luma: IntArray,
-    val peak: Int,
-)
-
-/**
- * How much of the frame has to sit pinned at an end of the scale before it is called clipped.
- *
- * A photograph of a street lamp at night has a handful of genuinely blown pixels and is not a
- * clipped photograph; a marker that lit for those would light on almost every frame and mean
- * nothing. A thousandth of the frame is the point where it is worth knowing about.
- */
-private const val CLIP_FRACTION = 0.001f
-
-/** Is any channel pinned at the top of the scale across more than [CLIP_FRACTION] of the frame? */
-internal fun Histogram.highlightsClipped(): Boolean = clipped(255)
-
-/** ...and at the bottom. */
-internal fun Histogram.shadowsClipped(): Boolean = clipped(0)
-
-private fun Histogram.clipped(bin: Int): Boolean {
-    // luma is a full-frame channel, so its bin total is the sampled pixel count.
-    var total = 0L
-    for (v in luma) total += v
-    if (total <= 0L) return false
-    val worst = maxOf(r[bin], g[bin], b[bin])
-    return worst.toFloat() / total.toFloat() > CLIP_FRACTION
-}
-
-/**
- * Small identity-keyed read-lease registry. The owner may retire a value immediately; physical
- * release is deferred until existing readers close, and new readers are rejected after retirement.
- */
-internal class RetirableReadLeaseRegistry<T : Any>(
-    private val isPhysicallyRetired: (T) -> Boolean,
-    private val physicallyRetire: (T) -> Unit,
-    private val beforeLeaseConstruction: () -> Unit = {},
-) {
-    private data class State(var readers: Int = 0, var retired: Boolean = false)
-
-    internal class Lease<T : Any>(
-        val value: T,
-        private val release: () -> Unit,
-    ) : AutoCloseable {
-        private val closed = AtomicBoolean(false)
-
-        override fun close() {
-            if (closed.compareAndSet(false, true)) release()
-        }
-    }
-
-    private val states = IdentityHashMap<T, State>()
-
-    @Synchronized
-    fun acquire(value: T): Lease<T>? {
-        if (isPhysicallyRetired(value)) return null
-        val state = states.getOrPut(value) { State() }
-        if (state.retired) return null
-        state.readers++
-        return try {
-            beforeLeaseConstruction()
-            Lease(value) { release(value, state) }
-        } catch (failure: Throwable) {
-            state.readers--
-            if (state.readers == 0 && !state.retired) states.remove(value)
-            throw failure
-        }
-    }
-
-    @Synchronized
-    fun retire(value: T) {
-        if (isPhysicallyRetired(value)) return
-        val state = states[value]
-        if (state == null) {
-            // Retire under the same monitor as acquire. This closes the acquire/recycle window.
-            physicallyRetire(value)
-            return
-        }
-        if (state.retired) return
-        state.retired = true
-        if (state.readers == 0) retireNow(value, state)
-    }
-
-    @Synchronized
-    private fun release(value: T, expected: State) {
-        val state = states[value]
-        check(state === expected && state.readers > 0) { "read-lease registry underflow" }
-        state.readers--
-        if (state.retired && state.readers == 0) retireNow(value, state)
-    }
-
-    /** Caller holds this registry's monitor. */
-    private fun retireNow(value: T, expected: State) {
-        check(states[value] === expected)
-        physicallyRetire(value)
-        states.remove(value)
-    }
-}
-
-private val previewBitmapReadLeases = RetirableReadLeaseRegistry<Bitmap>(
-    isPhysicallyRetired = { bitmap -> bitmap.isRecycled },
-    physicallyRetire = { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() },
-)
-
-/** Retire a preview deterministically once every histogram reader has released it. */
-internal fun retirePreviewBitmap(bitmap: Bitmap) {
-    previewBitmapReadLeases.retire(bitmap)
-}
-
-/** Take a read lease on a preview frame; null once it is retired. */
-internal fun acquirePreviewLease(bitmap: Bitmap): RetirableReadLeaseRegistry.Lease<Bitmap>? =
-    previewBitmapReadLeases.acquire(bitmap)
-
-/**
- * An [ImageBitmap] view of [bitmap] that holds a read lease for as long as it is composed.
- *
- * `retirePreviewBitmap` defers the physical recycle until the last lease closes, so this is what
- * keeps the draw pass from reading recycled pixel storage when a render settles mid-frame.
- * Returns null if the frame was already retired, in which case there is nothing to draw.
- */
-@Composable
-internal fun rememberLeasedImage(bitmap: Bitmap): ImageBitmap? {
-    val leased = remember(bitmap) {
-        acquirePreviewLease(bitmap)?.let { lease -> lease to bitmap.asImageBitmap() }
-    }
-    DisposableEffect(leased) { onDispose { leased?.first?.close() } }
-    return leased?.second
-}
-
-/** Bitmap-independent immutable sample set; safe to bin after its Bitmap is retired. */
-internal class HistogramSamples internal constructor(pixels: IntArray) {
-    internal val pixels: IntArray = pixels.copyOf()
-}
-
-/** Capture stride-decimated pixels while the caller holds a preview read lease. */
-private fun sampleHistogram(bmp: Bitmap): HistogramSamples {
-    val w = bmp.width
-    val h = bmp.height
-    val total = w.toLong() * h.toLong()
-    val targetSamples = 200_000L
-    val stride = max(1, (total / targetSamples).toInt())
-    val sampledWidth = (w + stride - 1) / stride
-    val sampledHeight = (h + stride - 1) / stride
-    val samples = IntArray(sampledWidth * sampledHeight)
-    val row = IntArray(w)
-    var sampleIndex = 0
-    var sy = 0
-    while (sy < h) {
-        bmp.getPixels(row, 0, w, 0, sy, w, 1)
-        var sx = 0
-        while (sx < w) {
-            samples[sampleIndex++] = row[sx]
-            sx += stride
-        }
-        sy += stride
-    }
-    check(sampleIndex == samples.size) { "histogram sample geometry mismatch" }
-    return HistogramSamples(samples)
-}
-
-/**
- * Sample a bitmap (stride-decimated for speed) into 256-bin RGB + luma histograms. The entire
- * Bitmap access runs on the injected default dispatcher and is protected from deterministic recycle by a read
- * lease. A frame retired before the worker acquires it produces no histogram.
- */
-suspend fun computeHistogram(bmp: Bitmap, default: CoroutineDispatcher): Histogram? = withContext(default) {
-    val lease = previewBitmapReadLeases.acquire(bmp) ?: return@withContext null
-    lease.use { computeHistogram(sampleHistogram(it.value)) }
-}
-
-/** Bin a Bitmap-independent sample captured by [sampleHistogram]. */
-internal fun computeHistogram(samples: HistogramSamples): Histogram {
-    val r = IntArray(256); val g = IntArray(256); val b = IntArray(256); val l = IntArray(256)
-    for (c in samples.pixels) {
-        val rr = (c shr 16) and 0xFF
-        val gg = (c shr 8) and 0xFF
-        val bb = c and 0xFF
-        r[rr]++; g[gg]++; b[bb]++
-        val y = ((rr * 54 + gg * 183 + bb * 19) shr 8).coerceIn(0, 255)
-        l[y]++
-    }
-    var peak = 1
-    for (i in 0 until 256) {
-        peak = max(peak, max(max(r[i], g[i]), max(b[i], l[i])))
-    }
-    return Histogram(r, g, b, l, peak)
-}
-
-/**
- * [clipLow] / [clipHigh] light the corner wedges. They are computed from the SAME bins this
- * draws, so the marker is exactly as current as the histogram under it — during a drag both
- * describe the draft render, and both sharpen together on the settle pass. It cannot disagree
- * with the shape it sits on, which is the only consistency that matters here.
- */
-private fun DrawScope.drawHistogram(hist: Histogram, clipLow: Boolean, clipHigh: Boolean) {
-    val w = size.width
-    val h = size.height
-    val binW = w / 256f
-    // log scale compresses the spikes so the shape is readable.
-    val logPeak = kotlin.math.ln(1f + hist.peak.toFloat())
-    fun y(v: Int): Float = h - (kotlin.math.ln(1f + v.toFloat()) / logPeak) * h
-
-    fun drawChannel(data: IntArray, color: Color) {
-        for (i in 0 until 256) {
-            val x = i * binW
-            val top = y(data[i])
-            drawLine(color, Offset(x, h), Offset(x, top), strokeWidth = binW.coerceAtLeast(1f))
-        }
-    }
-    // luma backdrop, then additive-ish RGB on top
-    drawChannel(hist.luma, SpektraBrand.histLuma)
-    drawChannel(hist.r, SpektraBrand.histRed)
-    drawChannel(hist.g, SpektraBrand.histGreen)
-    drawChannel(hist.b, SpektraBrand.histBlue)
-
-    // Corner wedges, in the padding OUTSIDE the plot, so they cannot be mistaken for data.
-    // Blown highlights are the ones that cost you a print, so that corner is the loud one.
-    val wedge = h * 0.30f
-    if (clipLow) {
-        drawPath(
-            Path().apply {
-                moveTo(0f, 0f); lineTo(wedge, 0f); lineTo(0f, wedge); close()
-            },
-            SpektraBrand.clipShadows,
-        )
-    }
-    if (clipHigh) {
-        drawPath(
-            Path().apply {
-                moveTo(w, 0f); lineTo(w - wedge, 0f); lineTo(w, wedge); close()
-            },
-            SpektraBrand.clipHighlights,
-        )
-    }
 }
 
 /**
