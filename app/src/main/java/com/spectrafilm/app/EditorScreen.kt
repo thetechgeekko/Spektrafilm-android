@@ -1110,6 +1110,11 @@ internal fun MainActivity.EditorScreen(
                     sourceName = displayName
                     sourceAuthorizationRequired = false
                     if (switched) rotation = SourceRotation.NONE
+                    // A new photo opens Film & look: picking a stock is the next step for
+                    // almost everyone, so it should not cost a tap on the category bar.
+                    // A panel the user opened themselves (other than Source, which they
+                    // used to pick the photo) is left alone.
+                    if (switched) activeCategory = filmLookCategoryAfterOpen(activeCategory)
                     status = if (ref.accessMode == SourceAccessMode.PERSISTED) {
                         readyStatus
                     } else {
@@ -1416,7 +1421,7 @@ internal fun MainActivity.EditorScreen(
     fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
         previews = vm.previews,
         request = vm::request,
-        open = open@{
+        open = open@{ owner ->
             if (!sourceRenderAllowed || sourceUri == null) return@open
             val fullEdge = state.previewMaxSize.coerceAtLeast(256)
             val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
@@ -1448,9 +1453,10 @@ internal fun MainActivity.EditorScreen(
                         simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
                     },
                 ),
+                owner,
             )
         },
-        close = vm::close,
+        close = { owner -> vm.close(owner) },
     )
 
     suspend fun loadSourceCached(
@@ -2164,6 +2170,10 @@ internal fun MainActivity.EditorScreen(
                             onOpenPrintCurves = onOpenPrintCurves,
                             stockPreviewHost = ::stockPreviewHost,
                             checkpointEditorSession = ::checkpointEditorSession,
+                            sourceKey = sourceUri,
+                            // A slider drag runs draft renders without setting previewBusy,
+                            // so the strip also waits for the drag to end.
+                            previewBusy = previewBusy || interacting.value,
                         )
                         Category.GRAIN -> GrainSection(state)
                         Category.PREFLASH -> PreflashSection(state)

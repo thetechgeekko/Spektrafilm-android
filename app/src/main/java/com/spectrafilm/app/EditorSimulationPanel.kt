@@ -25,6 +25,8 @@ internal fun MainActivity.EditorSimulationPanel(
     printGroups: List<DropdownGroup>,
     stockPreviewHost: (vm: StockPreviewViewModel, forFilm: Boolean) -> StockPreviewHost,
     checkpointEditorSession: () -> Boolean,
+    sourceKey: Any?,
+    previewBusy: Boolean,
     onOpenFilmCurves: (id: String, name: String) -> Unit,
     onOpenPrintCurves: (id: String, name: String) -> Unit,
 ) {
@@ -41,6 +43,8 @@ internal fun MainActivity.EditorSimulationPanel(
         },
         filmGroups = filmGroups,
         printGroups = printGroups,
+        filmStripSourceKey = sourceKey,
+        filmStripPaused = previewBusy,
         onOpenFilmCurves = {
             checkpointEditorSession()
             onOpenFilmCurves(
