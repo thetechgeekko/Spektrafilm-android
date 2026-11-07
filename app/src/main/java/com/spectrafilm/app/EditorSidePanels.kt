@@ -619,7 +619,7 @@ private fun ExportSavedToolbar(
                             Text(share)
                         }
                     } else {
-                        FilledTonalIconButton(onClick = { onShare(); onDismiss() }) {
+                        FilledTonalIconButton(onClick = { onShare(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                             Icon(MaterialSymbols.IosShare, contentDescription = share)
                         }
                     }
@@ -630,12 +630,16 @@ private fun ExportSavedToolbar(
                             Text(open)
                         }
                     } else {
-                        IconButton(onClick = { onOpen(); onDismiss() }) {
+                        IconButton(onClick = { onOpen(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                             Icon(MaterialSymbols.OpenInNew, contentDescription = open)
                         }
                     }
                 }
-                IconButton(onClick = onDismiss, modifier = Modifier.testTag(EXPORT_SAVED_CLOSE_TAG)) {
+                // The toolbar lays icon buttons out at their 40dp container; pin the 48dp target.
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(EXPORT_SAVED_CLOSE_TAG),
+                ) {
                     Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.editor_export_done))
                 }
             }

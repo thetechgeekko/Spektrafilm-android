@@ -127,14 +127,14 @@ class ExportSavedMomentUiTest {
         val root = compose.onRoot().getBoundsInRoot()
         val close = compose.onNodeWithTag(EXPORT_SAVED_CLOSE_TAG).getBoundsInRoot()
         assertTrue("close button clipped: $close in $root", close.right <= root.right)
-        assertTrue("close button squeezed: ${close.width}", close.width >= 48.dp)
+        assertTrue("close button squeezed: ${close.width}x${close.height}", close.width >= 48.dp && close.height >= 48.dp)
         for (label in listOf(R.string.editor_export_share, R.string.editor_export_open)) {
             // Text button or labelled icon button: either way it is a whole 48dp target.
             val b = compose.onNode(
                 (hasText(str(label)) or hasContentDescription(str(label))) and hasClickAction(),
             ).getBoundsInRoot()
             assertTrue("${str(label)} clipped: $b in $root", b.right <= root.right && b.left >= root.left)
-            assertTrue("${str(label)} squeezed: ${b.width}", b.width >= 40.dp)
+            assertTrue("${str(label)} squeezed: ${b.width}x${b.height}", b.width >= 48.dp && b.height >= 48.dp)
         }
     }
 
