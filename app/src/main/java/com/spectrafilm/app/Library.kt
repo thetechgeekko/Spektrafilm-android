@@ -38,6 +38,8 @@ internal data class LibraryEntry(
     val mimeType: String?,
     val modifiedMs: Long,
     val sizeBytes: Long,
+    /** A saved edit (recipe) exists for this frame, so reopening it restores the edit. */
+    val edited: Boolean = false,
 ) {
     val isRaw: Boolean get() = detectSourceKind(name, mimeType) == SourceFileKind.RAW
 }
@@ -69,6 +71,16 @@ internal fun libraryEntriesOf(rows: List<LibraryEntry>): List<LibraryEntry> = ro
         }
     }
     .sortedWith(compareByDescending<LibraryEntry> { it.modifiedMs }.thenBy { it.name.lowercase(Locale.ROOT) })
+
+/**
+ * Marks the entries that already carry a saved edit. A lookup that throws counts as not
+ * edited: the badge is a hint, and a failed check must not hide the frame.
+ */
+internal fun markEdited(entries: List<LibraryEntry>, hasEdit: (documentUri: String) -> Boolean): List<LibraryEntry> =
+    entries.map { entry ->
+        val edited = runCatching { hasEdit(entry.documentUri) }.getOrDefault(false)
+        if (edited == entry.edited) entry else entry.copy(edited = edited)
+    }
 
 /** What the Library screen draws. */
 internal data class LibraryUiState(
@@ -104,6 +116,8 @@ internal class LibraryViewModel(
     private val store: LibraryFolderStore,
     private val lister: LibraryLister,
     private val io: CoroutineDispatcher,
+    /** True when a saved edit exists for a document URI. Blocking; called on [io]. */
+    private val hasEdit: (documentUri: String) -> Boolean = { false },
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState(treeUri = store.treeUri))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -119,7 +133,10 @@ internal class LibraryViewModel(
         _state.value = _state.value.copy(treeUri = tree, loading = true, unreadable = false)
         loadJob = viewModelScope.launch {
             val listing = try {
-                withContext(io) { lister.list(tree) }
+                withContext(io) {
+                    val listed = lister.list(tree)
+                    listed.copy(rows = markEdited(libraryEntriesOf(listed.rows), hasEdit))
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -133,7 +150,7 @@ internal class LibraryViewModel(
                 LibraryUiState(
                     treeUri = tree,
                     folderName = listing.folderName,
-                    entries = libraryEntriesOf(listing.rows),
+                    entries = listing.rows,
                 )
             }
         }
@@ -190,6 +207,12 @@ internal class LibraryViewModel(
                     sourceAccessRuntime(context).coordinator.reconcilePersistedGrants()
                 }
             }
+        }
+
+        /** A frame is edited when the editor saved a recipe for its URI (see [Recipes.keyFor]). */
+        fun androidEditLookup(context: Context): (String) -> Boolean {
+            val app = context.applicationContext
+            return { uri -> Recipes.exists(app, Recipes.keyFor(Uri.parse(uri))) }
         }
 
         fun androidLister(context: Context): LibraryLister {

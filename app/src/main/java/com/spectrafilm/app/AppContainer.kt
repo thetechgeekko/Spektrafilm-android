@@ -100,6 +100,7 @@ internal class AppContainer(context: Context) {
                 LibraryViewModel.androidStore(app, settings),
                 LibraryViewModel.androidLister(app),
                 dispatchers.io,
+                LibraryViewModel.androidEditLookup(app),
             )
         },
     )

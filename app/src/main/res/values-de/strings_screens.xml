@@ -266,4 +266,6 @@
     <string name="library_no_photos_title">Hier sind keine Fotos</string>
     <string name="library_no_photos_body">%1$s enthält keine RAW-Dateien oder Fotos. Unterordner werden noch nicht angezeigt.</string>
     <string name="library_loading">Ordner wird geladen</string>
+    <string name="library_badge_edited">Bearbeitet</string>
+    <string name="library_cell_edited_desc">%1$s, bearbeitet</string>
 </resources>
