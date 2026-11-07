@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SpektraEngine
@@ -593,7 +594,13 @@ internal fun MainActivity.EditorScreen(
     val snackbarHost = remember { SnackbarHostState() }
     val recipeRepo = remember(ctx) { ctx.appContainer.recipes }
     val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
-    val exportRuntimeStateState = ExportWorkRuntime.state.collectAsState()
+    // Lifecycle-aware like every other collector here, but kept active down to CREATED on
+    // purpose: an export that finishes while the app is in the background must still be
+    // claimed by this editor. ExportWorkRuntime retains a Finished outcome for only five
+    // minutes, so pausing at STARTED (the default) could let it expire unseen.
+    val exportRuntimeStateState = ExportWorkRuntime.state.collectAsStateWithLifecycle(
+        minActiveState = Lifecycle.State.CREATED,
+    )
     val exportRuntimeState by exportRuntimeStateState
     val lastHandledExportRunState = remember { mutableLongStateOf(0L) }
     var lastHandledExportRun by lastHandledExportRunState

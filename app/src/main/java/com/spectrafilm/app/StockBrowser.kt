@@ -155,9 +155,10 @@ private fun StockBrowserSheet(
         // a column of independently scrolling groups.
         val rows = remember(groups) {
             buildList {
-                for (g in groups) {
-                    if (g.title.isNotBlank()) add(StockRow.Header(g.title))
-                    g.options.forEachIndexed { i, o -> add(StockRow.Item(o, i, g.options.size)) }
+                groups.forEachIndexed { gi, g ->
+                    if (g.title.isNotBlank()) add(StockRow.Header(g.title, "h$gi"))
+                    // Group index in the key: one stock may sit in more than one group.
+                    g.options.forEachIndexed { i, o -> add(StockRow.Item(o, i, g.options.size, "i$gi:${o.id}")) }
                 }
             }
         }
@@ -177,7 +178,11 @@ private fun StockBrowserSheet(
             // same segmented list as Settings and Photo info.
             verticalArrangement = Arrangement.spacedBy(SEGMENT_GAP),
         ) {
-            items(rows) { row ->
+            items(
+                rows,
+                key = { row -> row.key },
+                contentType = { row -> if (row is StockRow.Header) 0 else 1 },
+            ) { row ->
                 when (row) {
                     is StockRow.Header -> Text(
                         row.title,
@@ -209,8 +214,11 @@ private fun StockBrowserSheet(
 }
 
 private sealed interface StockRow {
-    data class Header(val title: String) : StockRow
-    data class Item(val option: DropdownOption, val index: Int, val count: Int) : StockRow
+    /** Stable LazyColumn key, unique across the whole flattened list. */
+    val key: String
+
+    data class Header(val title: String, override val key: String) : StockRow
+    data class Item(val option: DropdownOption, val index: Int, val count: Int, override val key: String) : StockRow
 }
 
 @Composable
