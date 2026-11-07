@@ -106,6 +106,10 @@
 # it calls the production decode, params, engine, grade and encoder entry points on the
 # minified app rather than re-implementing them, so those are cross-APK ABI too.
 -keep class com.spectrafilm.app.ImagePipelineKt { *; }
+# #273 split the export writers and EXIF copy out of ImagePipeline.kt; their top-level
+# functions now compile into these file classes, which the same release test APK calls.
+-keep class com.spectrafilm.app.GalleryExportKt { *; }
+-keep class com.spectrafilm.app.ExportExifKt { *; }
 # #198: the bench passes decodeToLinearProPhoto a DecodeTimings sink that no app code
 # constructs, so without this R8 deletes its constructor (InstantiationError in the test APK).
 -keep class com.spectrafilm.app.DecodeTimings { *; }
