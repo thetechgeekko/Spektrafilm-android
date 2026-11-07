@@ -17,6 +17,9 @@ orgJson = "20231013"
 navigation3 = "1.2.1"
 # JVM Compose UI tests (#280). Check for the newest stable before bumping.
 robolectric = "4.17"
+# Jetpack WindowManager: fold posture for the editor layout (#293). Already on the runtime
+# classpath transitively at this version; declared so the app can compile against it.
+window = "1.5.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +39,7 @@ androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
+androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

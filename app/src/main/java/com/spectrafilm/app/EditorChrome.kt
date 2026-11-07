@@ -342,6 +342,9 @@ internal fun AdjustmentPanel(
     // to close. Hoisted so the choice survives closing and reopening the panel.
     tall: Boolean = false,
     onTallChange: (Boolean) -> Unit = {},
+    // Tabletop posture: the panel fills the screen half below the hinge, overriding the
+    // compact/tall heights (FoldPosture.kt). Null everywhere else.
+    fixedHeight: Dp? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val screenH = localConfigurationHeightDp()
@@ -367,7 +370,7 @@ internal fun AdjustmentPanel(
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxH),
+                .then(if (fixedHeight != null) Modifier.height(fixedHeight) else Modifier.heightIn(max = maxH)),
         ) {
             // drag-handle header: swipe DOWN to dismiss. The drag has no accessible
             // equivalent, so the header is also exposed as a "Close <category> panel"
