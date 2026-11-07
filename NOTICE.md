@@ -105,6 +105,15 @@ Full-resolution RAW/DNG decoding uses **LibRaw**.
   identifies the human approval and confirms rights to license the local patch
   contributions under the elected route.
 
+## Translations
+
+- **Simplified Chinese (zh-CN):** translated by
+  [q8987308-design](https://github.com/q8987308-design/Spektrafilm-android) (GPLv3), imported
+  into `app/src/main/res/values-zh-rCN/strings*.xml`. Strings added after that translation are
+  in `strings_zh_draft.xml`, drafted by Claude and awaiting native-speaker review.
+- The idea of shipping the app in Chinese also came from
+  [hwx959](https://github.com/hwx959/Spektrafilm-android); none of that fork's files are used.
+
 ## Film & paper profiles
 
 The 28 film/paper JSON profiles and the spectral-upsampling LUT binaries originate from
