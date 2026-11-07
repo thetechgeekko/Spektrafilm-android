@@ -1,6 +1,13 @@
-# Spektrafilm for Android — Continuous Integration
+# Spektrafilm for Android — full CI gate set (manual dispatch only)
 #
-# Eight jobs run on every push / PR / manual dispatch:
+# To save Actions minutes this workflow no longer runs on push or PR. Everyday
+# CI is build.yml (one rawr-style job on push to main, or on a PR labelled
+# `run-ci`). Run this full set by hand when a change needs it:
+#   Actions → CI → Run workflow → pick the branch
+#   (or: gh workflow run ci.yml --ref <branch>)
+# release.yml independently reruns the release-critical gates before signing.
+#
+# Eight jobs:
 #   • engine-native   — compiles C++ engine + JNI bridge into libspektra.so (host toolchain)
 #   • native-safety-writers — ordinary + ASan/UBSan + bounded fuzz gates for native
 #                        JSON/profile/neutral-filter hostile input; ASan/UBSan + TSan
@@ -28,10 +35,6 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref.

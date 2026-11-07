@@ -148,12 +148,20 @@ per-test argv is in `.github/workflows/ci.yml` — copy from there rather than g
 - `tools/parity/` is the standalone `.spkvec` golden-vector comparator (CMake + ctest self-test,
   CI `parity` job). Goldens live in `tools/parity/goldens/` and `tests/*.spkvec`.
 
-## CI jobs (`.github/workflows/ci.yml`)
+## CI jobs
+
+Everyday CI is **`build.yml`**: one job (`:app:testDebugUnitTest` + `:app:assembleDebug`, plus
+the `-O2` engine-parity leg when engine/parity files changed) on push to `main`, on a PR only
+when it carries the `run-ci` label, and on manual dispatch. PRs are normally reviewed by Codex
+instead of CI. The full gate set below is **`ci.yml`, manual dispatch only**
+(`gh workflow run ci.yml --ref <branch>`); release.yml reruns the release-critical gates itself.
+
+`ci.yml` jobs:
 
 `engine-native` (host C++ build of libspektra), `engine-parity` (stage parity gate, two legs: `-O2` and the shipping release flags), `parity`
 (.spkvec comparator self-test), `python-lint`, `android` (`:app:testDebugUnitTest` + `:app:lint` +
 full assemble for all ABIs + the 16 KB `zipalign -P 16`/`readelf` alignment gate),
-`android-emulator` (runs after `android` on every push/PR: engine JNI-boundary instrumentation +
+`android-emulator` (runs after `android` on every `ci.yml` run: engine JNI-boundary instrumentation +
 MainActivity smoke on an API 35 x86_64 AVD), `native-safety-writers` and `libraw-hostile` (the
 sanitizer and fuzz legs). `release.yml` builds and hash-binds an unsigned candidate
 without secrets, reruns both parity flag legs plus release JVM/lint/R8/16 KiB gates, then a protected
