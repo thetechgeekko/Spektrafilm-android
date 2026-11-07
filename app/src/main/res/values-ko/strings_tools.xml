@@ -214,4 +214,8 @@
     <string name="tool_curve_editor_desc">톤 커브 편집기. 탭해 점을 추가하고, 점을 드래그해 커브를 만들고, 점을 두 번 탭해 삭제합니다. 커브 조작은 터치 전용입니다. 스크린 리더 사용 시에는 대비 슬라이더와 채널 재설정을 사용하세요.</string>
     <string name="tool_curve_points_state">제어점 %1$d개</string>
     <string name="tool_export_half_frame_pair">하프 프레임 쌍으로 내보내기…</string>
+    <string name="tool_export_proof_none">%1$s에서 미리보기에 잘리는 부분이 없습니다.</string>
+    <string name="tool_export_proof_clipped">미리보기의 %1$s가 %2$s에서 잘립니다: 날아간 하이라이트, 뭉개진 그림자 또는 색 공간 밖의 색입니다. 사진의 클리핑 버튼으로 위치를 확인할 수 있습니다.</string>
+    <string name="tool_export_proof_wide">이 화면은 %1$s의 모든 색을 표시하지 못할 수 있습니다. 파일에는 남아 있지만 미리보기에서는 잘려서 표시됩니다.</string>
+    <string name="tool_export_proof_sharpen">출력 샤프닝은 이후 파일에 적용되며 조금 더 잘릴 수 있습니다.</string>
 </resources>

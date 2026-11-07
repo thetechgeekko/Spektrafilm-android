@@ -214,4 +214,8 @@
     <string name="tool_curve_editor_desc">Editor de la curva de tonos. Toca para añadir un punto, arrastra un punto para dar forma a la curva y toca dos veces un punto para quitarlo. Dar forma a la curva solo es táctil; con un lector de pantalla usa el regulador Contraste y Restablecer canal.</string>
     <string name="tool_curve_points_state">%1$d puntos de control</string>
     <string name="tool_export_half_frame_pair">Exportar como par de medio formato…</string>
+    <string name="tool_export_proof_none">Nada de la vista previa se recorta en %1$s.</string>
+    <string name="tool_export_proof_clipped">El %1$s de la vista previa se recorta en %2$s: luces quemadas, sombras empastadas o colores fuera del espacio. El botón de recorte sobre la foto muestra dónde.</string>
+    <string name="tool_export_proof_wide">Es posible que esta pantalla no muestre todos los colores de %1$s. El archivo los conserva; la vista previa los muestra recortados.</string>
+    <string name="tool_export_proof_sharpen">El enfoque de salida se aplica al archivo después y puede recortar un poco más.</string>
 </resources>
