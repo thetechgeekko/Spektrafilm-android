@@ -16,6 +16,20 @@
 
 namespace spectrafilm {
 
+class ScopedFd final {
+ public:
+    explicit ScopedFd(int fd) noexcept : fd_(fd) {}
+    ~ScopedFd() {
+        if (fd_ >= 0) ::close(fd_);
+    }
+    ScopedFd(const ScopedFd&) = delete;
+    ScopedFd& operator=(const ScopedFd&) = delete;
+    int get() const noexcept { return fd_; }
+
+ private:
+    int fd_;
+};
+
 class RawInputSnapshot final {
  public:
     RawInputSnapshot() = default;
@@ -67,56 +81,52 @@ class RawInputSnapshot final {
                 return fail("RAW input exceeds scratch safety limit");
             }
         }
+        std::vector<uint8_t> chunk(1U << 20);
         scratch_ = ::dup(scratchFd);
         if (scratch_ < 0) return fail("failed to duplicate RAW scratch fd");
-        const int source = ::dup(sourceFd);
+        // Owned for the whole copy, so no exit path -- including a bad_alloc from
+        // building an error string -- can leak the duplicated provider descriptor.
+        const ScopedFd sourceOwner(::dup(sourceFd));
+        const int source = sourceOwner.get();
         if (source < 0) return fail("failed to duplicate RAW source fd");
         if (::ftruncate(scratch_, 0) != 0 || ::lseek(scratch_, 0, SEEK_SET) != 0) {
-            ::close(source);
             return fail("failed to reset RAW scratch fd");
         }
-        // 1 MiB reads, as in fd_read_all.h (#287): on a MediaStore/SAF descriptor
-        // (FUSE) each read is a provider round trip, so small chunks dominate the copy.
+        // 1 MiB reads (chunk above), as in fd_read_all.h (#287): on a MediaStore/SAF
+        // descriptor (FUSE) each read is a provider round trip, so small chunks dominate.
 #if defined(POSIX_FADV_SEQUENTIAL)
         (void)::posix_fadvise(source, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
-        std::vector<uint8_t> chunk(1U << 20);
         for (;;) {
             if (options.cancelFlag != nullptr &&
                 options.cancelFlag->load(std::memory_order_acquire)) {
-                ::close(source);
                 return fail("decode cancelled", SFRAW_ERR_CANCELLED);
             }
             const ssize_t count = ::read(source, chunk.data(), chunk.size());
             if (count < 0 && errno == EINTR) continue;
             if (count < 0) {
-                ::close(source);
                 return fail("failed to read RAW from fd");
             }
             if (count == 0) break;
             if (static_cast<size_t>(count) > kLimit - length_) {
-                ::close(source);
                 return fail("RAW input exceeds scratch safety limit");
             }
             size_t written = 0;
             while (written < static_cast<size_t>(count)) {
                 if (options.cancelFlag != nullptr &&
                     options.cancelFlag->load(std::memory_order_acquire)) {
-                    ::close(source);
                     return fail("decode cancelled", SFRAW_ERR_CANCELLED);
                 }
                 const ssize_t n = ::write(scratch_, chunk.data() + written,
                                           static_cast<size_t>(count) - written);
                 if (n < 0 && errno == EINTR) continue;
                 if (n <= 0) {
-                    ::close(source);
                     return fail("failed to write RAW scratch fd");
                 }
                 written += static_cast<size_t>(n);
             }
             length_ += static_cast<size_t>(count);
         }
-        ::close(source);
         if (options.cancelFlag != nullptr &&
             options.cancelFlag->load(std::memory_order_acquire)) {
             return fail("decode cancelled", SFRAW_ERR_CANCELLED);
