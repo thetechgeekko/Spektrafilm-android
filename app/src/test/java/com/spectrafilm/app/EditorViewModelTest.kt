@@ -2,6 +2,7 @@ package com.spectrafilm.app
 
 import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -92,5 +93,86 @@ class EditorViewModelTest {
         assertEquals(edited, session.redo())
         assertEquals(edited, session.snapshot())
         assertNull(session.redo())
+    }
+
+    @Test fun applyCatalogTakesFreshDefaultsBeforeDecodingTheCheckpoint() {
+        val restored = sessionDocument(exposure = 1.5f)
+        val session = EditorSession(restored, rotationDegrees = 0)
+        val result = session.applyCatalog(
+            profiles = listOf(PORTRA, ENDURA),
+            applyDefaults = { params, _ -> params.exposureCompensationEv = 0.5f },
+            restored = restored,
+        )
+
+        val defaults = ParamsState().also { Presets.decode(JSONObject(result.freshDefaults), it) }
+        assertEquals(0.5f, defaults.exposureCompensationEv, 0f)
+        assertEquals(1.5f, session.params.exposureCompensationEv, 0f)
+        assertTrue(result.restored)
+        assertFalse(result.rebaselined)
+        assertTrue(session.history.canUndo)
+        assertEquals(restored.committed, session.committedSnapshot.value)
+    }
+
+    @Test fun applyCatalogRebaselinesWhenTheSessionNamesAMissingProfile() {
+        val restored = sessionDocument(exposure = 1.5f)
+        val session = EditorSession(restored, rotationDegrees = 0)
+        val result = session.applyCatalog(
+            profiles = listOf("other_film", "other_paper"),
+            applyDefaults = { _, _ -> },
+            restored = restored,
+        )
+
+        assertTrue(result.rebaselined)
+        assertEquals("other_film", session.params.filmProfile)
+        assertEquals("other_film", session.params.printProfile)
+        // Valid edits survive; only the history that could not render is dropped.
+        assertEquals(1.5f, session.params.exposureCompensationEv, 0f)
+        assertFalse(session.history.canUndo)
+        assertNull(session.committedSnapshot.value)
+    }
+
+    @Test fun applyCatalogWithoutACheckpointOnlyAppliesDefaults() {
+        val session = EditorSession(document = null, rotationDegrees = 0)
+        val result = session.applyCatalog(
+            profiles = listOf("only_film"),
+            applyDefaults = { _, _ -> },
+            restored = null,
+        )
+
+        assertFalse(result.restored)
+        assertFalse(result.rebaselined)
+        assertEquals("only_film", session.params.filmProfile)
+        assertEquals(Presets.toJsonString(session.params), result.freshDefaults)
+    }
+
+    private fun sessionDocument(exposure: Float): EditorSessionDocument {
+        fun json(ev: Float) = Presets.encode(ParamsState().apply { exposureCompensationEv = ev }).toString()
+        val baseline = EditSnapshot(json(0f), 0)
+        val current = EditSnapshot(json(exposure), 0)
+        return EditorSessionDocument(
+            source = EditorSourceState(
+                uri = null,
+                kind = SourceKind.DEMO,
+                displayName = "synthetic demo image",
+                authorizationRequired = false,
+            ),
+            current = current,
+            committed = current,
+            history = EditHistoryState(listOf(baseline), emptyList()),
+            tool = EditorToolState(null, EditorOverlayTool.NONE, 0),
+            preset = EditorPresetState(null, null, 1f, null, "", ""),
+            export = EditorExportState(
+                sheetOpen = false,
+                options = ExportOptions(ExportFormat.JPEG, 95, ExportSize.FULL, 2048, ""),
+                keepGps = false,
+                phase = EditorExportPhase.IDLE,
+                runtimeRunId = null,
+            ),
+        )
+    }
+
+    private companion object {
+        const val PORTRA = "kodak_portra_400"
+        const val ENDURA = "kodak_portra_endura"
     }
 }

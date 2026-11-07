@@ -149,6 +149,50 @@ internal class EditorSession(document: EditorSessionDocument?, rotationDegrees: 
     fun redo(): EditSnapshot? = history.redo(snapshot())?.also(::restore)
 
     /**
+     * The catalog half of the restore, run once per composition when the catalog arrives:
+     * applies Settings defaults ([applyDefaults]) to the untouched params, falls back to the
+     * first installed profile, snapshots that as the FRESH DEFAULTS (reset and dirty checks
+     * compare against it, so it must be taken before any checkpoint decode), then decodes
+     * [restored], the session document already matched to the editor's source, if any.
+     *
+     * A catalog update can remove a profile named by an older session. The source and valid
+     * edits are kept, a real installed profile is used, and history is re-baselined instead
+     * of leaving an undo branch that cannot render ([CatalogRestore.rebaselined]).
+     */
+    fun applyCatalog(
+        profiles: List<String>,
+        applyDefaults: (ParamsState, List<String>) -> Unit,
+        restored: EditorSessionDocument?,
+    ): CatalogRestore {
+        applyDefaults(params, profiles)
+        if (profiles.isNotEmpty()) {
+            if (params.filmProfile !in profiles) params.filmProfile = profiles.first()
+            if (params.printProfile !in profiles) params.printProfile = profiles.first()
+        }
+        val freshDefaults = Presets.toJsonString(params)
+        var rebaselined = false
+        if (restored != null) {
+            val removedProfileReference = restored.referencesUnavailableProfiles(profiles.toSet())
+            Presets.decode(AtomicJsonStore.parseObject(restored.current.paramsJson), params)
+            var migratedProfile = false
+            if (profiles.isNotEmpty() && params.filmProfile !in profiles) {
+                params.filmProfile = profiles.first()
+                migratedProfile = true
+            }
+            if (profiles.isNotEmpty() && params.printProfile !in profiles) {
+                params.printProfile = profiles.first()
+                migratedProfile = true
+            }
+            if (migratedProfile || removedProfileReference) {
+                history.clear()
+                committedSnapshot.value = null
+                rebaselined = true
+            }
+        }
+        return CatalogRestore(freshDefaults, restored != null, rebaselined)
+    }
+
+    /**
      * The capture effect's settle step ([settleDecision], unit-tested in EditHistoryTest):
      * pushes the previous committed snapshot when the settled state is a real edit, adopts the
      * settled state and clears [restoring]. Returns true when an undo step was pushed.
@@ -161,6 +205,16 @@ internal class EditorSession(document: EditorSessionDocument?, rotationDegrees: 
         return pushed
     }
 }
+
+/** What [EditorSession.applyCatalog] did. */
+internal data class CatalogRestore(
+    /** Params JSON after Settings defaults and BEFORE the checkpoint decode. */
+    val freshDefaults: String,
+    /** True when a session document was decoded into the params. */
+    val restored: Boolean,
+    /** True when a missing profile forced history to be cleared (the editor tells the user). */
+    val rebaselined: Boolean,
+)
 
 /**
  * The production catalog loader, moved verbatim from EditorScreen's one-time engine init.
