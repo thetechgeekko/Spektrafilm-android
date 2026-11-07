@@ -143,4 +143,34 @@ class RenderPayloadCacheTest {
             ),
         )
     }
+
+    @Test
+    fun `the Ultra HDR scene tap is stored and restored with its payload`() {
+        val store = cache()
+        val tap = SceneLuma(3, 2, floatArrayOf(0.1f, 2f, 9.5f, 0f, 1f, 64f))
+        result(4, 3) { 0.5f }.use { assertTrue(store.put("k", it, tap)) }
+        val back = requireNotNull(store.getScene("k"))
+        assertEquals(3, back.width)
+        assertEquals(2, back.height)
+        for (i in tap.y.indices) assertEquals(tap.y[i], back.y[i], 0f)
+        assertNull("another edit's key must not see this tap", store.getScene("other"))
+    }
+
+    @Test
+    fun `a payload stored without a tap has none, and a new put drops the old tap`() {
+        val store = cache()
+        result(2, 2) { 0f }.use { store.put("a", it, SceneLuma(1, 1, floatArrayOf(5f))) }
+        result(2, 2) { 0f }.use { store.put("b", it) }
+        assertNull(store.getScene("b"))
+        assertNull(store.getScene("a"))
+    }
+
+    @Test
+    fun `a truncated tap reads as a miss`() {
+        val store = cache()
+        result(2, 2) { 0f }.use { store.put("k", it, SceneLuma(2, 2, FloatArray(4) { 1f })) }
+        File(root, "scene.bin").writeBytes(ByteArray(6))
+        assertNull(store.getScene("k"))
+        assertNotNull("the payload itself stays valid", store.get("k")?.also { it.close() })
+    }
 }

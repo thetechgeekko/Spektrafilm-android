@@ -55,6 +55,7 @@ internal class RenderPayloadCache(
 
     private val payloadFile get() = File(root, "payload.bin")
     private val metaFile get() = File(root, "payload.json")
+    private val sceneFile get() = File(root, "scene.bin")
 
     /**
      * The stored render for [key], or null for any doubt at all. Never throws: a miss costs a
@@ -127,17 +128,18 @@ internal class RenderPayloadCache(
      * process killed mid-write leaves a payload no reader will accept rather than a valid-looking
      * entry holding a partial image.
      */
-    fun put(key: String, result: SimResult): Boolean = synchronized(lock) {
-        runCatching { write(key, result) }.getOrElse { failure ->
+    fun put(key: String, result: SimResult, scene: SceneLuma? = null): Boolean = synchronized(lock) {
+        runCatching { write(key, result, scene) }.getOrElse { failure ->
             log("pre-render payload not stored", failure)
             discard()
             false
         }
     }
 
-    private fun write(key: String, result: SimResult): Boolean {
+    private fun write(key: String, result: SimResult, scene: SceneLuma?): Boolean {
         root.mkdirs()
         metaFile.delete()
+        sceneFile.delete()
         val staging = File(root, "payload.tmp")
         val written = result.acquireDataLease().use { lease ->
             val source = lease.data.duplicate().order(ByteOrder.nativeOrder())
@@ -154,22 +156,53 @@ internal class RenderPayloadCache(
             staging.delete()
             return false
         }
-        metaFile.writeText(
-            JSONObject()
-                .put("key", key)
-                .put("contract", contractVersion)
-                .put("width", result.width)
-                .put("height", result.height)
-                .put("bytes", written)
-                .put("color_space", result.colorSpace.name)
-                .toString()
-        )
+        val meta = JSONObject()
+            .put("key", key)
+            .put("contract", contractVersion)
+            .put("width", result.width)
+            .put("height", result.height)
+            .put("bytes", written)
+            .put("color_space", result.colorSpace.name)
+        // The Ultra HDR scene tap needs the DECODE, which a restored payload no longer has, so it
+        // is stored with the render it belongs to. Optional: a payload without it is still valid.
+        if (scene != null && runCatching { writeScene(scene) }.getOrDefault(false)) {
+            meta.put("scene_width", scene.width).put("scene_height", scene.height)
+        }
+        metaFile.writeText(meta.toString())
         return true
+    }
+
+    private fun writeScene(scene: SceneLuma): Boolean {
+        val buf = ByteBuffer.allocate(scene.y.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        buf.asFloatBuffer().put(scene.y)
+        java.io.FileOutputStream(sceneFile).use { it.write(buf.array()) }
+        return true
+    }
+
+    /**
+     * The scene tap stored with [key]'s payload (see [put]), or null when there is none or any
+     * doubt. Never throws: a miss only means the export re-decodes for it.
+     */
+    fun getScene(key: String): SceneLuma? = synchronized(lock) {
+        runCatching {
+            if (!metaFile.isFile || !sceneFile.isFile) return@runCatching null
+            val meta = JSONObject(metaFile.readText())
+            if (meta.optString("key") != key || meta.optString("contract") != contractVersion) {
+                return@runCatching null
+            }
+            val w = meta.optInt("scene_width")
+            val h = meta.optInt("scene_height")
+            if (w <= 0 || h <= 0 || sceneFile.length() != w.toLong() * h * 4L) return@runCatching null
+            val y = FloatArray(w * h)
+            ByteBuffer.wrap(sceneFile.readBytes()).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(y)
+            SceneLuma(w, h, y)
+        }.getOrNull()
     }
 
     fun discard() = synchronized(lock) {
         metaFile.delete()
         payloadFile.delete()
+        sceneFile.delete()
         File(root, "payload.tmp").delete()
         Unit
     }

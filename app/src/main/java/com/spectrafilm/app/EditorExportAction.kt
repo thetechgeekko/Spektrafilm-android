@@ -342,6 +342,12 @@ internal fun MainActivity.startEditorExport(
                         } finally {
                             image?.close()
                         }
+                        if (restored != null && outputDescriptor.metadata.hdrGainMap != null) {
+                            sceneTap = restoredSceneTap(
+                                exportContext, ctx, exportPrerenderKey, exportDecodeRequest,
+                                exportParams, res, outputDescriptor,
+                            )
+                        }
                         phSim = System.currentTimeMillis() - tSim0
                         if (restored != null) {
                             Diag.i("export used pre-rendered payload in $phSim ms")
@@ -610,4 +616,34 @@ internal fun MainActivity.startEditorExport(
             checkpointEditorSession()
         }
     }
+}
+
+/**
+ * The Ultra HDR scene tap for an export served from the idle pre-render, which has no decode of
+ * its own. The pre-render stores the tap with its payload; when it has none (it ran while another
+ * format was selected, or before the tap existed) the source is decoded once more just for the
+ * tap, because without it the gain map is flat: the film render itself never exceeds SDR white.
+ */
+private suspend fun MainActivity.restoredSceneTap(
+    exportContext: android.content.Context,
+    ctx: android.content.Context,
+    prerenderKey: String?,
+    decodeRequest: SourceDecodeRequest,
+    params: com.spectrafilm.engine.SpektraParams,
+    rendered: com.spectrafilm.engine.SimResult,
+    descriptor: OutputDescriptor,
+): SceneLuma? {
+    prerenderKey?.let { RenderPayloads.of(exportContext).getScene(it) }?.let {
+        Diag.i("gain map scene tap restored with the pre-render")
+        return it
+    }
+    return runCatching {
+        decodeSourceRequest(decodeRequest, EXPORT_MAX_EDGE_PX, dispatchers.io).image.use { source ->
+            captureSceneTapForGainmap(ctx, source, params, rendered.width, rendered.height, descriptor)
+        }
+    }.onSuccess {
+        Diag.i("gain map scene tap re-decoded for the pre-render")
+    }.onFailure {
+        Diag.w("gain map scene tap failed: $it")
+    }.getOrNull()
 }

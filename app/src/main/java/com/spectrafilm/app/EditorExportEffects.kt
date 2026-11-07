@@ -303,6 +303,9 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
             val flight = RenderPayloads.flight.launch(key) {
                 withContext(dispatchers.default) {
                     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, dispatchers.io).image
+                    // Ultra HDR's scene tap reads the decode, which an export served from
+                    // this payload will not have: take it now and store it alongside.
+                    var sceneTap: SceneLuma? = null
                     val rendered = try {
                         runCancellableNative(
                             onLateResult = { late ->
@@ -311,6 +314,10 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
                             },
                         ) { cancellation ->
                             activeEngine.simulate(image, params, RenderKind.EXPORT, cancellation)
+                        }.also { r ->
+                            sceneTap = runCatching {
+                                captureSceneTapForGainmap(app, image, params, r.width, r.height, descriptor)
+                            }.getOrNull()
                         }
                     } finally {
                         image.close()
@@ -319,7 +326,7 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
                         releaseGpuAfterFullResRender("pre-render")
                     }
                     rendered.use {
-                        val stored = store.put(key, it)
+                        val stored = store.put(key, it, sceneTap)
                         // A stored payload WAS consumed — its bytes outlive the result. One that
                         // could not be stored is a render nothing ever used.
                         it.reportOutcome(
