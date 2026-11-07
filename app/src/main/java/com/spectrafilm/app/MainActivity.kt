@@ -3878,7 +3878,10 @@ class MainActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    val wide = maxWidth >= 600.dp || maxWidth > maxHeight
+                    // Window size classes (M3): side pane for expanded+ windows and landscape
+                    // phones, bottom sheet for compact and medium portrait. See EditorLayout.kt.
+                    val wide = editorPaneMode(maxWidth.value, maxHeight.value) == EditorPaneMode.SIDE_PANE
+                    val sidePaneWidth = sidePaneWidthDp(maxWidth.value).dp
 
                     // The photo's EXIF capture date for the date-back imprint's default text,
                     // read off the main thread once per source.
@@ -4467,6 +4470,7 @@ class MainActivity : ComponentActivity() {
                                     category = sideCategory,
                                     onDismiss = { activeCategory = null },
                                     onResetCategory = resetActiveCategory,
+                                    width = sidePaneWidth,
                                     content = panelContent,
                                 )
                             }
@@ -4494,6 +4498,8 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     AdjustmentPanel(
                                         modifier = Modifier
+                                            // M3 bottom sheet max width; centred in wider windows.
+                                            .widthIn(max = SHEET_MAX_WIDTH_DP.dp)
                                             .onSizeChanged { panelHeightPx = it.height }
                                             .predictiveBackShrink(panelBackProgress),
                                         category = activeCategory,
