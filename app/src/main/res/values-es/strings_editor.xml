@@ -170,13 +170,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">Abrir la lupa de grano al 100 % en el centro</string>
     <string name="editor_preview_none">Aún no hay vista previa</string>
     <string name="editor_histogram">Histograma</string>
-    <string name="editor_toggle_histogram">Mostrar u ocultar histograma</string>
-    <string name="editor_toggle_clipping">Mostrar u ocultar avisos de recorte</string>
-    <string name="editor_clipping_tooltip">Avisos de recorte: rojo donde las luces se queman, azul donde las sombras se vuelven negras. También se muestran mientras un segundo dedo reposa sobre un regulador.</string>
     <string name="editor_compare">Comparar antes / después</string>
     <string name="editor_crop_transform_tooltip">Recortar y transformar</string>
     <string name="editor_crop_transform">Recortar y transformar</string>
-    <string name="editor_rotate_90">Girar 90°</string>
     <string name="editor_decoding">Decodificando…</string>
     <string name="editor_rendering">Renderizando…</string>
     <string name="editor_pill_render_error">Error de renderizado: %1$s</string>
@@ -191,7 +187,7 @@
     <string name="editor_panel_collapse">Hacer el panel más bajo</string>
     <string name="editor_close">Cerrar</string>
     <string name="editor_magnifier">Lupa al 100 %</string>
-    <string name="editor_magnifier_tooltip">Inspeccionar el grano al 100 %</string>
+    <string name="editor_menu_clipping">Avisos de recorte</string>
     <string name="editor_toggle_chrome">Ocultar o mostrar los controles del editor</string>
     <string name="editor_reset_category">Restablecer %1$s</string>
     <string name="editor_reset_edits_confirm_title">¿Restablecer todas las ediciones?</string>

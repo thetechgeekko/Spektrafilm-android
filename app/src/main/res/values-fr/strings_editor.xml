@@ -170,13 +170,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">Ouvrir la loupe de grain à 100 % au centre</string>
     <string name="editor_preview_none">Pas encore d’aperçu</string>
     <string name="editor_histogram">Histogramme</string>
-    <string name="editor_toggle_histogram">Afficher/masquer l’histogramme</string>
-    <string name="editor_toggle_clipping">Afficher/masquer les alertes d’écrêtage</string>
-    <string name="editor_clipping_tooltip">Alertes d’écrêtage : rouge là où les hautes lumières sont brûlées, bleu là où les ombres sont bouchées. Également affichées tant qu’un deuxième doigt repose sur un curseur.</string>
     <string name="editor_compare">Comparer avant / après</string>
     <string name="editor_crop_transform_tooltip">Recadrer et transformer</string>
     <string name="editor_crop_transform">Recadrer et transformer</string>
-    <string name="editor_rotate_90">Pivoter de 90°</string>
     <string name="editor_decoding">Décodage…</string>
     <string name="editor_rendering">Rendu…</string>
     <string name="editor_pill_render_error">Erreur de rendu : %1$s</string>
@@ -191,7 +187,7 @@
     <string name="editor_panel_collapse">Réduire le panneau</string>
     <string name="editor_close">Fermer</string>
     <string name="editor_magnifier">Loupe 100 %</string>
-    <string name="editor_magnifier_tooltip">Inspecter le grain à 100 %</string>
+    <string name="editor_menu_clipping">Alertes d’écrêtage</string>
     <string name="editor_toggle_chrome">Masquer ou afficher les réglages de l’éditeur</string>
     <string name="editor_reset_category">Rétablir %1$s</string>
     <string name="editor_reset_edits_confirm_title">Réinitialiser toutes les retouches ?</string>

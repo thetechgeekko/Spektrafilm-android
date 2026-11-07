@@ -202,13 +202,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">Open 100% grain magnifier at centre</string>
     <string name="editor_preview_none">No preview yet</string>
     <string name="editor_histogram">Histogram</string>
-    <string name="editor_toggle_histogram">Toggle histogram</string>
-    <string name="editor_toggle_clipping">Toggle clipping warnings</string>
-    <string name="editor_clipping_tooltip">Clipping warnings: red where highlights blow out, blue where shadows go black. Also shown while a second finger rests on a slider.</string>
     <string name="editor_compare">Before / after compare</string>
     <string name="editor_crop_transform_tooltip">Crop &amp; transform</string>
     <string name="editor_crop_transform">Crop and transform</string>
-    <string name="editor_rotate_90">Rotate 90°</string>
 
     <!-- Status pill -->
     <string name="editor_decoding">Decoding…</string>
@@ -231,7 +227,7 @@
     <!-- The 100% magnifier, which until now had no button and could only be reached by
          tapping the photo — a gesture the guide never documented. -->
     <string name="editor_magnifier">100% magnifier</string>
-    <string name="editor_magnifier_tooltip">Inspect grain at 100%</string>
+    <string name="editor_menu_clipping">Clipping warnings</string>
     <!-- Single tap on the photo now hides the editor chrome (Lightroom's own gesture). -->
     <string name="editor_toggle_chrome">Hide or show the editor controls</string>
     <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->

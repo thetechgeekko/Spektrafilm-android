@@ -10,8 +10,6 @@
     <string name="editor_snack_export_without_gps">未获得照片位置权限，导出时将不包含 GPS 信息。</string>
     <string name="editor_magnifier_rendering" formatted="false">正在渲染 100% 局部…</string>
     <string name="editor_status_media_location_denied">照片位置权限被拒绝；导出将不包含 GPS 信息</string>
-    <string name="editor_toggle_clipping">切换溢出警告</string>
-    <string name="editor_clipping_tooltip">溢出警告：高光过曝处显示红色，阴影死黑处显示蓝色。第二根手指按住滑块时也会显示。</string>
     <string name="editor_panel_expand">加高面板</string>
     <string name="editor_panel_collapse">降低面板</string>
     <string name="editor_sim_scene_latitude">场景宽容度</string>

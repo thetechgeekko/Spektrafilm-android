@@ -2120,6 +2120,16 @@ internal fun MainActivity.EditorScreen(
                     onOpenLibrary()
                 },
                 onPhotoInfo = sourceUri?.let { { openPhotoInfo() } },
+                // The canvas tools that used to float on the photo (EditorPreviewRegion.kt).
+                hasPhoto = preview != null || gpuProxy != null,
+                onCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                compare = viewerUi.compare,
+                histogram = viewerUi.histogram,
+                clipWarnings = viewerUi.clipWarnings,
+                onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
+                onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
+                onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
+                onOpenLoupe = { openMagnifier(0.5f, 0.5f) },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
@@ -2303,16 +2313,10 @@ internal fun MainActivity.EditorScreen(
                         compareMode = viewerUi.compare,
                         showHistogram = viewerUi.histogram,
                         showClipping = viewerUi.showClipping,
-                        clipWarnings = viewerUi.clipWarnings,
                         gpuEnabled = gpuEnabled,
                         gpuProxy = gpuProxy,
                         gpuLut = gpuLut,
                         gpuGain = gpuGain,
-                        onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
-                        onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
-                        onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
-                        onRotate = { rotation = rotation.next() },
-                        onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
                         // Single tap on the photo = show/hide the chrome. The point is
                         // ignored: this is a toggle, not a pick. The magnifier that used to
                         // own this gesture now has the button below, which is the affordance
@@ -2396,6 +2400,9 @@ internal fun MainActivity.EditorScreen(
                                 onDismiss = { activeCategory = null },
                                 onResetCategory = resetActiveCategory,
                                 width = sidePaneWidth,
+                                tabs = categoriesOf(sideCategory.stage),
+                                dirty = dirty,
+                                onSelectTab = { activeCategory = it },
                                 content = panelContent,
                             )
                         }
@@ -2450,6 +2457,9 @@ internal fun MainActivity.EditorScreen(
                                     tall = panelTall,
                                     onTallChange = { panelTall = it },
                                     fixedHeight = tabletopPanelHeight,
+                                    tabs = activeCategory?.let { categoriesOf(it.stage) }.orEmpty(),
+                                    dirty = dirty,
+                                    onSelectTab = { activeCategory = it },
                                     content = panelContent,
                                 )
                             }
