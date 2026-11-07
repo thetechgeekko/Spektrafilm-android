@@ -284,8 +284,13 @@ class-wide keeps are **not** about JNI: they are the ABI the separately packaged
 instrumentation APK calls into (for example `DecodeTimings`, whose keep exists because R8
 otherwise deletes a constructor only `Ticket177BenchmarkChecks` uses, and the export
 transaction types that `StorageReliabilityChecks` drives). So the safe scope is narrow:
-tighten only the JNI rules (`com.spectrafilm.engine.**` and the native writer/decoder classes)
-to `-keepclassmembers` on the members `check_release_dex.sh` already lists, and leave the
+tighten only the JNI rules (`com.spectrafilm.engine.**` and the native writer/decoder classes),
+and only after a full inventory of every class and member the native code resolves by name
+(`FindClass`/`GetMethodID`/`GetFieldID` across all four `.so`s) is added to
+`check_release_dex.sh`. Today's list is not complete: `spektra_jni.cpp:1616` resolves
+`NativeBufferAllocation` and its `(ByteBuffer, long)` constructor, which has no Kotlin caller
+and is not asserted by the script, so narrowing to the current list would let R8 delete it
+while the dex check still passes. Leave the
 release-test keeps alone unless a dex check that covers the test APK's references replaces
 them first. Obfuscation is optional for a GPL app. Severity is P3 given those constraints.
 
