@@ -92,6 +92,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -138,7 +139,38 @@ data class SliderReadout(val label: String, val value: String)
 class SliderInteraction(
     val onChange: (SliderReadout?) -> Unit = {},
     val onFinished: () -> Unit = {},
+    /**
+     * A second finger came down on (true) or lifted from (false) a slider row. The editor uses
+     * it to peek at clipping on the preview while the first finger keeps adjusting.
+     */
+    val onMultiTouch: (Boolean) -> Unit = {},
 )
+
+/**
+ * Report when two or more pointers are down inside this element, without consuming anything:
+ * the slider underneath keeps tracking its first finger exactly as before. Observed in the
+ * Initial pass so a child that consumes the drag cannot hide the second finger from us.
+ */
+internal fun Modifier.multiTouchPeek(onMultiTouch: (Boolean) -> Unit): Modifier =
+    pointerInput(onMultiTouch) {
+        awaitPointerEventScope {
+            var active = false
+            try {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val down = event.changes.count { it.pressed }
+                    val now = down >= 2
+                    if (now != active) {
+                        active = now
+                        onMultiTouch(now)
+                    }
+                }
+            } finally {
+                // Leaving composition mid-gesture must not leave the peek stuck on.
+                if (active) onMultiTouch(false)
+            }
+        }
+    }
 
 /** CompositionLocal carrying the active [SliderInteraction]; defaults to a no-op. */
 val LocalSliderInteraction = staticCompositionLocalOf { SliderInteraction() }
@@ -403,7 +435,7 @@ fun EnhancedSlider(
     val interaction = LocalSliderInteraction.current
     var editing by remember { mutableStateOf(false) }
     val formatted = formatValue(value, decimals)
-    Column(modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth().multiTouchPeek(interaction.onMultiTouch)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             // The value pill is interactive (Lightroom-style): single-tap to type an exact
