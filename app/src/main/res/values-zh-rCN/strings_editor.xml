@@ -167,11 +167,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">在中心打开 100% 颗粒放大镜</string>
     <string name="editor_preview_none">暂无预览</string>
     <string name="editor_histogram">直方图</string>
-    <string name="editor_toggle_histogram">切换直方图显示</string>
     <string name="editor_compare">编辑前后对比</string>
     <string name="editor_crop_transform_tooltip">裁剪与变换</string>
     <string name="editor_crop_transform">裁剪与变换</string>
-    <string name="editor_rotate_90">旋转 90°</string>
     <string name="editor_decoding">正在解码…</string>
     <string name="editor_rendering">正在渲染…</string>
     <string name="editor_pill_render_error">渲染错误：%1$s</string>
@@ -184,7 +182,7 @@
     <string name="editor_close_panel_named">关闭%1$s面板</string>
     <string name="editor_close">关闭</string>
     <string name="editor_magnifier">100% 放大镜</string>
-    <string name="editor_magnifier_tooltip">以 100% 查看颗粒</string>
+    <string name="editor_menu_clipping">裁切警告</string>
     <string name="editor_toggle_chrome">隐藏或显示编辑控件</string>
     <string name="editor_reset_category">重置%1$s</string>
     <string name="editor_reset_edits_confirm_title">重置所有编辑？</string>

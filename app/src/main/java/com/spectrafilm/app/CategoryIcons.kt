@@ -502,6 +502,16 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Check — a single tick: the "on" mark for checkable menu items
+    // (m3-design-language, Menus: selected items get a checkmark).
+    // -----------------------------------------------------------------------
+    val Check: ImageVector by lazy {
+        icon("Check") {
+            strokePath("M 5 12.5 L 10 17.5 L 19 7")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Histogram — bar-chart bars inside a frame (preview histogram toggle)
     // Three vertical bars of differing heights sitting on a baseline.
     // -----------------------------------------------------------------------

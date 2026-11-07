@@ -54,6 +54,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -169,6 +171,13 @@ fun SectionCard(
     content: @Composable () -> Unit,
 ) {
     var showHelp by remember { mutableStateOf(false) }
+    if (LocalFlatSections.current) {
+        FlatSection(title, modifier, enabledSwitch, onEnabledChange, help, onHelp = { showHelp = true }, content)
+        if (help != null && showHelp) {
+            HelpSheet(help) { showHelp = false }
+        }
+        return
+    }
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -229,6 +238,82 @@ fun SectionCard(
     }
     if (help != null && showHelp) {
         HelpSheet(help) { showHelp = false }
+    }
+}
+
+/**
+ * True inside an editor tool sheet or side pane, whose header already names the open group
+ * (its tab, or its title). There a [SectionCard] at the top of the panel would be the third
+ * copy of that name, in a card whose only content is the whole panel and whose chevron could
+ * collapse the panel to nothing. m3-design-language, containment / Cards: "Don't force
+ * content into cards when spacing, headers or dividers would do."
+ *
+ * Only the OUTERMOST section flattens: [FlatSection] resets this to false for its content, so a
+ * collapsible group nested inside a panel keeps its card.
+ */
+internal val LocalFlatSections = staticCompositionLocalOf { false }
+
+/**
+ * [SectionCard] inside a sheet: no container, no title, no chevron, content always shown.
+ * What the card header carried besides its title survives as a row: the group's on/off
+ * switch becomes a labelled switch row (m3-design-language, Switches: "always paired with
+ * an inline label"; whole row toggles), and the help badge sits at its end.
+ */
+@Composable
+private fun FlatSection(
+    title: String,
+    modifier: Modifier,
+    enabledSwitch: Boolean?,
+    onEnabledChange: ((Boolean) -> Unit)?,
+    help: ParamHelp?,
+    onHelp: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val hasSwitch = enabledSwitch != null && onEnabledChange != null
+        if (hasSwitch || help != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .then(
+                        if (hasSwitch) {
+                            Modifier.toggleable(
+                                value = enabledSwitch == true,
+                                role = Role.Switch,
+                                onValueChange = { onEnabledChange?.invoke(it) },
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasSwitch) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (help != null) {
+                    HelpBadge(title, onHelp)
+                    if (hasSwitch) Spacer(Modifier.width(8.dp))
+                }
+                if (hasSwitch) {
+                    // The row is the toggle (role Switch, labelled by the title); the Switch
+                    // itself only draws, so TalkBack hears one control, not two.
+                    Switch(checked = enabledSwitch == true, onCheckedChange = null)
+                }
+            }
+        }
+        CompositionLocalProvider(LocalFlatSections provides false) { content() }
     }
 }
 

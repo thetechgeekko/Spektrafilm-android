@@ -31,7 +31,14 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 
-/** The pinned preview region on the near-black canvas with a rotate control. */
+/**
+ * The pinned preview region on the near-black canvas.
+ *
+ * Nothing sits on the photo but its status: the round histogram / clipping / loupe /
+ * compare / crop / rotate buttons that used to float over its bottom edge moved to the app
+ * bar (Crop) and its More menu (the view toggles), and rotate lives inside Crop. The canvas
+ * pattern is full-bleed content (m3-design-language, ux-flows §3, Map / canvas).
+ */
 @Composable
 internal fun MainActivity.PreviewRegion(
     preview: Bitmap?,
@@ -45,16 +52,10 @@ internal fun MainActivity.PreviewRegion(
     compareMode: Boolean,
     showHistogram: Boolean,
     showClipping: Boolean,
-    clipWarnings: Boolean,
     gpuEnabled: Boolean,
     gpuProxy: LinearImage?,
     gpuLut: CubeLut?,
     gpuGain: Float,
-    onToggleCompare: () -> Unit,
-    onToggleHistogram: () -> Unit,
-    onToggleClipWarnings: () -> Unit,
-    onRotate: () -> Unit,
-    onEditCrop: () -> Unit,
     onPointPicked: (Float, Float) -> Unit,
     onOpenMagnifier: () -> Unit,
     renderKey: Int,
@@ -225,58 +226,6 @@ internal fun MainActivity.PreviewRegion(
                     .align(Alignment.TopStart)
                     .padding(start = 12.dp, top = 6.dp),
             )
-
-            // bottom-center controls on a scrim: histogram + compare + crop + rotate
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextTooltip(stringResource(R.string.editor_histogram)) {
-                    CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
-                        Icon(
-                            SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_clipping_tooltip)) {
-                    CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
-                        Icon(
-                            SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
-                    CircleScrimButton(onClick = onOpenMagnifier) {
-                        Icon(
-                            SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_compare)) {
-                    CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
-                        Icon(
-                            SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
-                    CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = SpektraBrand.onCanvas)
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_rotate_90)) {
-                    CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = SpektraBrand.onCanvas)
-                    }
-                }
-            }
         }
     }
 }

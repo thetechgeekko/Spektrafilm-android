@@ -166,13 +166,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">中央で100%粒状ルーペを開く</string>
     <string name="editor_preview_none">プレビューはまだありません</string>
     <string name="editor_histogram">ヒストグラム</string>
-    <string name="editor_toggle_histogram">ヒストグラムの表示切り替え</string>
-    <string name="editor_toggle_clipping">クリッピング警告の切り替え</string>
-    <string name="editor_clipping_tooltip">クリッピング警告：ハイライトが白飛びする部分を赤、シャドウが黒つぶれする部分を青で表示します。スライダー操作中にもう1本の指を置いているときにも表示されます。</string>
     <string name="editor_compare">ビフォー/アフター比較</string>
     <string name="editor_crop_transform_tooltip">切り抜きと変形</string>
     <string name="editor_crop_transform">切り抜きと変形</string>
-    <string name="editor_rotate_90">90°回転</string>
     <string name="editor_decoding">デコード中…</string>
     <string name="editor_rendering">レンダリング中…</string>
     <string name="editor_pill_render_error">レンダリングエラー：%1$s</string>
@@ -187,7 +183,7 @@
     <string name="editor_panel_collapse">パネルを低くする</string>
     <string name="editor_close">閉じる</string>
     <string name="editor_magnifier">100%ルーペ</string>
-    <string name="editor_magnifier_tooltip">粒状を100%で確認</string>
+    <string name="editor_menu_clipping">白飛び・黒つぶれ警告</string>
     <string name="editor_toggle_chrome">エディターの操作部を表示/非表示</string>
     <string name="editor_reset_category">%1$sをリセット</string>
     <string name="editor_reset_edits_confirm_title">すべての編集をリセットしますか？</string>

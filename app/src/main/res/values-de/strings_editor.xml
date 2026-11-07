@@ -168,13 +168,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">100-%-Kornlupe in der Mitte öffnen</string>
     <string name="editor_preview_none">Noch keine Vorschau</string>
     <string name="editor_histogram">Histogramm</string>
-    <string name="editor_toggle_histogram">Histogramm ein-/ausblenden</string>
-    <string name="editor_toggle_clipping">Beschnittwarnungen ein-/ausblenden</string>
-    <string name="editor_clipping_tooltip">Beschnittwarnungen: Rot, wo Lichter ausfressen, Blau, wo Tiefen schwarz werden. Werden auch angezeigt, solange ein zweiter Finger auf einem Regler ruht.</string>
     <string name="editor_compare">Vorher-Nachher-Vergleich</string>
     <string name="editor_crop_transform_tooltip">Zuschneiden und transformieren</string>
     <string name="editor_crop_transform">Zuschneiden und transformieren</string>
-    <string name="editor_rotate_90">90° drehen</string>
     <string name="editor_decoding">Wird dekodiert…</string>
     <string name="editor_rendering">Wird gerendert…</string>
     <string name="editor_pill_render_error">Renderfehler: %1$s</string>
@@ -189,7 +185,7 @@
     <string name="editor_panel_collapse">Panel niedriger machen</string>
     <string name="editor_close">Schließen</string>
     <string name="editor_magnifier">100-%-Lupe</string>
-    <string name="editor_magnifier_tooltip">Korn bei 100 % prüfen</string>
+    <string name="editor_menu_clipping">Clipping-Warnungen</string>
     <string name="editor_toggle_chrome">Editor-Regler aus- oder einblenden</string>
     <string name="editor_reset_category">%1$s zurücksetzen</string>
     <string name="editor_reset_edits_confirm_title">Alle Bearbeitungen zurücksetzen?</string>

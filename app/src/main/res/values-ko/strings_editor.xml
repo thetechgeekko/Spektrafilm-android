@@ -166,13 +166,9 @@
     <string name="editor_preview_action_magnifier" formatted="false">가운데에서 100% 그레인 돋보기 열기</string>
     <string name="editor_preview_none">아직 미리보기가 없습니다</string>
     <string name="editor_histogram">히스토그램</string>
-    <string name="editor_toggle_histogram">히스토그램 켜기/끄기</string>
-    <string name="editor_toggle_clipping">클리핑 경고 켜기/끄기</string>
-    <string name="editor_clipping_tooltip">클리핑 경고: 하이라이트가 날아가는 곳은 빨강, 섀도가 검게 뭉개지는 곳은 파랑으로 표시합니다. 슬라이더 위에 두 번째 손가락을 올려 둔 동안에도 표시됩니다.</string>
     <string name="editor_compare">전후 비교</string>
     <string name="editor_crop_transform_tooltip">자르기 및 변형</string>
     <string name="editor_crop_transform">자르기 및 변형</string>
-    <string name="editor_rotate_90">90° 회전</string>
     <string name="editor_decoding">디코딩 중…</string>
     <string name="editor_rendering">렌더링 중…</string>
     <string name="editor_pill_render_error">렌더링 오류: %1$s</string>
@@ -187,7 +183,7 @@
     <string name="editor_panel_collapse">패널 낮추기</string>
     <string name="editor_close">닫기</string>
     <string name="editor_magnifier">100% 돋보기</string>
-    <string name="editor_magnifier_tooltip">100%로 그레인 확인</string>
+    <string name="editor_menu_clipping">클리핑 경고</string>
     <string name="editor_toggle_chrome">편집기 컨트롤 숨기기/보이기</string>
     <string name="editor_reset_category">%1$s 재설정</string>
     <string name="editor_reset_edits_confirm_title">모든 편집을 재설정할까요?</string>

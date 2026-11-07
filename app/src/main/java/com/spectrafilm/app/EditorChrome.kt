@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -345,6 +346,11 @@ internal fun AdjustmentPanel(
     // Tabletop posture: the panel fills the screen half below the hinge, overriding the
     // compact/tall heights (FoldPosture.kt). Null everywhere else.
     fixedHeight: Dp? = null,
+    // The open stage's groups, shown as tabs under the drag handle. One group or none: the
+    // handle shows the title instead, as before.
+    tabs: List<Category> = emptyList(),
+    dirty: Set<Category> = emptySet(),
+    onSelectTab: (Category) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val screenH = localConfigurationHeightDp()
@@ -422,13 +428,23 @@ internal fun AdjustmentPanel(
                             .clip(RoundedCornerShape(2.dp))
                             .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
                     )
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 6.dp),
-                    )
+                    if (tabs.size > 1) {
+                        // The tabs below name the open group; a title here would repeat it.
+                        Spacer(Modifier.height(8.dp))
+                    } else {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                        )
+                    }
                 }
+            }
+            // Outside the handle's merged semantics node, so each tab stays its own
+            // TalkBack stop rather than being swallowed by the "close panel" button.
+            if (tabs.size > 1 && category != null) {
+                StageTabs(tabs = tabs, active = category, dirty = dirty, onSelect = onSelectTab)
             }
             Column(
                 Modifier
@@ -449,7 +465,7 @@ internal fun AdjustmentPanel(
                         Text(stringResource(R.string.editor_reset_category, title))
                     }
                 }
-                content()
+                CompositionLocalProvider(LocalFlatSections provides true) { content() }
             }
         }
     }
@@ -468,6 +484,9 @@ internal fun SidePanel(
     onResetCategory: (() -> Unit)? = null,
     // M3 fixed supporting pane: 360dp expanded, 412dp large; narrower on a landscape phone.
     width: Dp = PANE_EXPANDED_DP.dp,
+    tabs: List<Category> = emptyList(),
+    dirty: Set<Category> = emptySet(),
+    onSelectTab: (Category) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val title = stringResource(category.labelRes)
@@ -501,6 +520,9 @@ internal fun SidePanel(
                     }
                 }
             }
+            if (tabs.size > 1) {
+                StageTabs(tabs = tabs, active = category, dirty = dirty, onSelect = onSelectTab)
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -519,8 +541,49 @@ internal fun SidePanel(
                         Text(stringResource(R.string.editor_reset_category, title))
                     }
                 }
-                content()
+                CompositionLocalProvider(LocalFlatSections provides true) { content() }
             }
+        }
+    }
+}
+
+/**
+ * The open stage's groups as M3 scrollable primary tabs in the tool sheet's header.
+ *
+ * They replace a row of unlabelled round icons that sat between the sheet and the stage
+ * toolbar: a fourth layer of navigation, identified by glyph alone. m3-design-language:
+ * peers are tabs (ux-flows §2), icon-only controls need labels (foundations §1), and a
+ * sheet is handle + content (containment, Bottom sheets). Scrollable, so a long
+ * translated label is never truncated; a group holding edits carries a small badge.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun StageTabs(
+    tabs: List<Category>,
+    active: Category,
+    dirty: Set<Category>,
+    onSelect: (Category) -> Unit,
+) {
+    val index = tabs.indexOf(active).coerceAtLeast(0)
+    val modifiedState = stringResource(R.string.editor_category_modified)
+    PrimaryScrollableTabRow(
+        selectedTabIndex = index,
+        containerColor = Color.Transparent,
+        edgePadding = 16.dp,
+        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) },
+    ) {
+        tabs.forEach { cat ->
+            val modified = cat in dirty
+            Tab(
+                selected = cat == active,
+                onClick = { if (cat != active) onSelect(cat) },
+                modifier = if (modified) Modifier.semantics { stateDescription = modifiedState } else Modifier,
+                text = {
+                    BadgedBox(badge = { if (modified) Badge() }) {
+                        Text(stringResource(cat.labelRes), maxLines = 1)
+                    }
+                },
+            )
         }
     }
 }

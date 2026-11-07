@@ -14,8 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,17 +38,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The editor parameter navigation: five darkroom stages, with the selected stage's
- * groups on a second row above them.
+ * The editor parameter navigation: five darkroom stages. The groups inside the open stage
+ * are tabs in the tool sheet's own header (EditorChrome.kt, [StageTabs]), not a second row
+ * here: a second row of unlabelled icons under the sheet was a fourth layer of navigation
+ * between the photo and the thumb (m3-design-language, ux-flows §2: peers use tabs; one
+ * toolbar on compact).
  *
  * This replaced a single scrolling LazyRow of all fourteen [Category] chips. At 72dp a
  * chip that row ran past 1000dp against a 360dp screen, so most of the app's controls
  * were reachable only by scrolling a bar that gave no sign of how much lay off-screen,
  * ordered by the enum rather than by the photographic process. Five fixed chips fit any
- * phone without scrolling, and the second row is never longer than six.
+ * phone without scrolling.
  *
  * The stage is DERIVED from the active category rather than held as separate state, so
- * the two rows cannot disagree and closing the panel closes the stage.
+ * the stage and the sheet's tabs cannot disagree and closing the panel closes the stage.
  */
 @Composable
 internal fun CategoryBar(
@@ -62,7 +63,6 @@ internal fun CategoryBar(
     onExport: () -> Unit = {},
 ) {
     val activeStage = active?.stage
-    val subItems = remember(activeStage) { activeStage?.let { categoriesOf(it) }.orEmpty() }
 
     Surface(
         color = SpectraIcons.nearBlackCanvas,
@@ -74,33 +74,6 @@ internal fun CategoryBar(
                 .fillMaxWidth()
                 .navigationBarsPadding(),
         ) {
-            // Second row: the groups inside the open stage. A stage holding a single
-            // group shows no row at all -- there is nothing to choose, and a one-item
-            // row would read as a dead control.
-            if (subItems.size > 1) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .selectableGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp),
-                ) {
-                    itemsIndexed(subItems) { _, cat ->
-                        SubCategoryChip(
-                            category = cat,
-                            selected = cat == active,
-                            modified = cat in dirty,
-                            onClick = { onSelect(cat) },
-                        )
-                    }
-                }
-                HorizontalDivider(
-                    color = SpektraBrand.onCanvas.copy(alpha = 0.10f),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-
             // M3 floating toolbar: the five stages in a pill, with the screen's one primary
             // action -- Export -- as the FAB paired beside it. The five stages share the
             // pill's width equally, so none is squeezed. Where the FAB beside them would
@@ -272,79 +245,6 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
                 )
             } else {
                 Icon(SpectraIcons.Export, contentDescription = null)
-            }
-        }
-    }
-}
-
-/**
- * A group chip on the second row: a round icon button.
- *
- * Two earlier cuts were wrong about width. Reusing [CategoryItem] put six 72dp stacked
- * icon-over-label cells in the row -- 432dp against a 360dp screen, still overflowing,
- * the exact fault this redesign existed to remove. Text-only pills were shorter but only
- * fixed it vertically: "Simulation" is a wide word and the sixth chip still started past
- * the edge. Six icon buttons is roughly 250dp, so the row finally fits outright on the
- * narrowest phone, with no scrolling at all.
- *
- * The name is not lost, only moved: the wrapping [TextTooltip] carries the category hint
- * on long-press, and `contentDescription` carries the label itself, so TalkBack still
- * announces "Grain" rather than an unnamed button. That matters here precisely because
- * the glyph alone is doing the identifying.
- */
-@Composable
-internal fun SubCategoryChip(
-    category: Category,
-    selected: Boolean,
-    modified: Boolean,
-    onClick: () -> Unit,
-) {
-    val accent = MaterialTheme.colorScheme.primary
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val isSelected = selected
-    val label = stringResource(category.labelRes)
-    val modifiedState = stringResource(R.string.editor_category_modified)
-    val press by animateFloatAsState(if (pressed) 0.92f else 1f, RAIL_PRESS, label = "groupPress")
-    val tint by animateColorAsState(
-        if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.82f), RAIL_PAINT, label = "groupTint",
-    )
-    val fill by animateColorAsState(
-        if (selected) accent.copy(alpha = 0.22f) else SpektraBrand.onCanvas.copy(alpha = 0.07f),
-        RAIL_PAINT, label = "groupFill",
-    )
-    TextTooltip(categoryHint(category)) {
-        Box(
-            Modifier
-                .scale(press)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(fill)
-                .clickableNoRipple(interaction, onClick)
-                .semantics(mergeDescendants = true) {
-                    role = Role.Tab
-                    this.selected = isSelected
-                    // The glyph is the only visible identifier, so the name lives here.
-                    contentDescription = label
-                    if (modified) stateDescription = modifiedState
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = categoryIcon(category),
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(20.dp),
-            )
-            if (modified) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(accent),
-                )
             }
         }
     }
