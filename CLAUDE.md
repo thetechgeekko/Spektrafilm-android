@@ -59,7 +59,7 @@ tuning) and **scan** (full-res, for export). Decode + simulate run off the main 
 
 ## Build commands
 
-Required toolchain: **JDK 21** (Gradle `9.5.1` / AGP `9.3.2` with built-in Kotlin `2.2.10`; the PATH JDK 26 on
+Required toolchain: **JDK 21** (Gradle `9.5.1` / AGP `9.5.0` with built-in Kotlin `2.4.21`; the PATH JDK 26 on
 the laptop breaks Gradle, use Android Studio's JBR), **NDK r28c (`28.2.13676358`)**,
 **CMake 3.22.1**, **build-tools 36.0.0** (AGP 9.3 minimum; also the `zipalign -P 16` / `apksigner` used by
 the 16 KB and signing gates).
