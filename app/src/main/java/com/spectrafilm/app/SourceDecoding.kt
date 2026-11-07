@@ -72,9 +72,10 @@ internal fun decodeIdentityOf(request: SourceDecodeRequest): String = with(reque
  *
  * The qualified LibRaw route deliberately refuses inputs it cannot carry EXACTLY: a float
  * DNG, a lossy or JPEG-XL codec it will not quantize behind your back, and metadata whose
- * precision it cannot model — which includes a well-formed DNG whose RATIONAL BlackLevel is
- * fractional (6406/100 = 64.06 is real and shipping), because the precision descriptor
- * carries integer black levels and parity is the prime directive here. Refusing the ROUTE is
+ * precision it cannot model. (A fractional RATIONAL BlackLevel such as GCam's 6406/100 used
+ * to be refused here too, and the platform decoder then handed back the DNG's ~1 MP embedded
+ * preview instead of the raw (#271). The native route now rounds it to the nearest integer
+ * code and decodes the real raw.) Refusing the ROUTE is
  * right. Refusing the PHOTO is not: decodeViaPlatform does not use the LibRaw route at all,
  * so the reason the route stood down does not apply to it. PRECISION_METADATA therefore lands
  * here alongside the codecs that already did.

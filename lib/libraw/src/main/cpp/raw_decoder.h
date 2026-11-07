@@ -204,6 +204,10 @@ enum class RawLevelProvenance : int {
     DngMetadata = 1,
     DeclaredBitsDefault = 2,
     DecoderMetadata = 3,
+    // DNG BlackLevel was a fractional RATIONAL (e.g. 6406/100) and was rounded
+    // to the nearest integer code before LibRaw open (#271). The published
+    // black values are those rounded codes, so they are off by at most 0.5 DN.
+    DngMetadataRounded = 4,
 };
 
 // Versioned, bounded source contract published with every successful native
