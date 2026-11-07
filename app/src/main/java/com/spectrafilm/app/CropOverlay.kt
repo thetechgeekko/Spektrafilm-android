@@ -65,6 +65,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -171,6 +174,9 @@ fun CropOverlay(
     // gesture callbacks, never read during composition) so each overlay instance
     // owns its own handle state.
     val handleRef = remember { mutableStateOf(Handle.NONE) }
+    // Mouse/trackpad (DeX, ChromeOS, desktop windows): the handle under the cursor, so the
+    // cursor shows what a drag from here will do, like any desktop crop tool.
+    var hoverHandle by remember { mutableStateOf(Handle.NONE) }
 
     Box(
         Modifier
@@ -260,6 +266,22 @@ fun CropOverlay(
                                 CustomAccessibilityAction(resetLabel) { rect = Rect(0f, 0f, 1f, 1f); true },
                             )
                         }
+                        .pointerInput(canvasSize) {
+                            val tol = 24.dp.toPx()
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pos = event.changes.firstOrNull()?.position ?: continue
+                                    hoverHandle = when (event.type) {
+                                        PointerEventType.Exit -> Handle.NONE
+                                        PointerEventType.Enter, PointerEventType.Move ->
+                                            pickHandle(rect, pos, canvasSize, tol)
+                                        else -> continue
+                                    }
+                                }
+                            }
+                        }
+                        .pointerHoverIcon(PointerIcon(cropCursorType(hoverHandle)))
                         .pointerInput(aspect, canvasSize) {
                             // 24 dp either side of an edge = a 48 dp grab band (the Material touch
                             // target). It was 48 px, 18 dp on a 420 dpi phone, so corners took aim.
@@ -322,6 +344,16 @@ fun CropOverlay(
 }
 
 internal enum class Handle { NONE, MOVE, TL, TR, BL, BR, L, R, T, B }
+
+/** The platform mouse cursor (android.view.PointerIcon type) for hovering a crop [handle]. */
+internal fun cropCursorType(handle: Handle): Int = when (handle) {
+    Handle.TL, Handle.BR -> android.view.PointerIcon.TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW
+    Handle.TR, Handle.BL -> android.view.PointerIcon.TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW
+    Handle.L, Handle.R -> android.view.PointerIcon.TYPE_HORIZONTAL_DOUBLE_ARROW
+    Handle.T, Handle.B -> android.view.PointerIcon.TYPE_VERTICAL_DOUBLE_ARROW
+    Handle.MOVE -> android.view.PointerIcon.TYPE_GRAB
+    Handle.NONE -> android.view.PointerIcon.TYPE_ARROW
+}
 
 /** Resolve an aspect preset to a concrete ratio (Original -> image aspect; Free -> null). */
 private fun resolveAspect(a: CropAspect, imageAspect: Float): Float? = when (a) {

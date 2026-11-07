@@ -63,7 +63,13 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.mimeTypes
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -685,6 +691,15 @@ class MainActivity : ComponentActivity() {
      * is not on screen. Returns true when the shortcut was handled.
      */
     private var editorShortcutHandler: ((EditorShortcut) -> Boolean)? = null
+
+    /**
+     * Read access to photos dragged in from other apps (ImageDrop.kt). Never released early:
+     * export re-reads the source at full resolution long after the drop, and adoption is
+     * asynchronous and may refuse a new drop, in which case the PREVIOUS dropped photo stays
+     * the source and still needs its grant. The platform revokes them all with the Activity;
+     * a session holds one small token per drop.
+     */
+    private val heldDropPermissions = mutableListOf<android.view.DragAndDropPermissions>()
 
     /**
      * Only reached for keys the focused view did NOT consume, so a text field keeps its own
@@ -3836,10 +3851,56 @@ class MainActivity : ComponentActivity() {
         // #181: a full-screen tool overlay is modal. Compose overlays share the window, so the
         // chrome beneath would otherwise stay reachable by TalkBack explore-by-touch.
         val modalOverlayShown = magnifierOpen || cropShown || maskGeometryShown || sampleReady
+
+        // --- drag and drop a photo in (ImageDrop.kt) ---
+        // Same adoption path as a shared/opened photo. Refused while a modal tool overlay or
+        // an export is up, exactly when the Open button is out of reach too.
+        var dropHover by remember { mutableStateOf(false) }
+        val acceptDrop by rememberUpdatedState(!modalOverlayShown && !exportMaskVisible && !exportInFlight)
+        val onImageDrop by rememberUpdatedState<(DragAndDropEvent) -> Boolean> { event ->
+            val dragEvent = event.toAndroidDragEvent()
+            val uri = droppedContentUri(dragEvent.clipData)
+            if (uri == null || !acceptDrop) {
+                false
+            } else {
+                // Null when the drag came from this app; a cross-app drop needs the grant.
+                requestDragAndDropPermissions(dragEvent)?.let { heldDropPermissions += it }
+                adoptIncomingImage(uri)
+                true
+            }
+        }
+        val imageDropTarget = remember {
+            object : DragAndDropTarget {
+                override fun onDrop(event: DragAndDropEvent): Boolean {
+                    dropHover = false
+                    return onImageDrop(event)
+                }
+                override fun onEntered(event: DragAndDropEvent) { dropHover = true }
+                override fun onExited(event: DragAndDropEvent) { dropHover = false }
+                override fun onEnded(event: DragAndDropEvent) { dropHover = false }
+            }
+        }
+        val dropHighlight = MaterialTheme.colorScheme.primary
         Box(
             Modifier
                 .fillMaxSize()
-                .background(SpectraIcons.nearBlackCanvas),
+                .background(SpectraIcons.nearBlackCanvas)
+                .dragAndDropTarget(
+                    shouldStartDragAndDrop = { event -> acceptDrop && isDroppableImage(event.mimeTypes()) },
+                    target = imageDropTarget,
+                )
+                .drawWithContent {
+                    drawContent()
+                    if (dropHover) {
+                        val w = 4.dp.toPx()
+                        drawRect(
+                            dropHighlight,
+                            topLeft = androidx.compose.ui.geometry.Offset(w / 2f, w / 2f),
+                            size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = w),
+                        )
+                    }
+                },
         ) {
             Column(
                 Modifier
