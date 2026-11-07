@@ -730,6 +730,20 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
                 sizeof(p->scene_latitude_shadow_room));
     h = fnv1a64(h, &p->scene_latitude_rolloff, sizeof(p->scene_latitude_rolloff));
     h = fnv1a64(h, &p->scene_latitude_max_lift, sizeof(p->scene_latitude_max_lift));
+    // Date-back imprint: adds light per pixel BEFORE the tc lookup, so it too
+    // changes film_density_cmy. Text is folded with its length (NULL folds as
+    // length 0, same as "" -- both draw nothing).
+    {
+        h = fnv1a64(h, &p->date_stamp_active, sizeof(p->date_stamp_active));
+        const uint64_t n = p->date_stamp_text ? std::strlen(p->date_stamp_text) : 0;
+        h = fnv1a64(h, &n, sizeof(n));
+        if (n) h = fnv1a64(h, p->date_stamp_text, static_cast<size_t>(n));
+        h = fnv1a64(h, &p->date_stamp_corner, sizeof(p->date_stamp_corner));
+        h = fnv1a64(h, &p->date_stamp_height, sizeof(p->date_stamp_height));
+        h = fnv1a64(h, &p->date_stamp_margin, sizeof(p->date_stamp_margin));
+        h = fnv1a64(h, &p->date_stamp_exposure_ev, sizeof(p->date_stamp_exposure_ev));
+        h = fnv1a64(h, p->date_stamp_color, sizeof(p->date_stamp_color));
+    }
     // 5) DIR-coupler pointwise params.
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -936,6 +950,16 @@ void apply_user_scene_latitude(spk::SceneLatitudeParams& sl, const spk_params* p
     sl.shadow_room = p->scene_latitude_shadow_room;
     sl.rolloff = p->scene_latitude_rolloff;
     sl.max_lift = p->scene_latitude_max_lift;
+}
+
+void apply_user_date_stamp(spk::DateStampParams& d, const spk_params* p) {
+    d.active = p->date_stamp_active != 0;
+    d.text = p->date_stamp_text ? p->date_stamp_text : "";
+    d.corner = p->date_stamp_corner;
+    d.height = p->date_stamp_height;
+    d.margin = p->date_stamp_margin;
+    d.exposure_ev = p->date_stamp_exposure_ev;
+    for (int c = 0; c < 3; ++c) d.color[c] = p->date_stamp_color[c];
 }
 
 void apply_user_halation(spk::HalationParams& h, const spk_params* p) {
@@ -1711,6 +1735,7 @@ const char* pointwise_route_ineligibility(
     if (fparams.halation.active) return "halation";
     if (fparams.halation.boost_ev > 0.0) return "highlight_boost";
     if (fparams.scene_latitude.engaged()) return "scene_latitude";
+    if (fparams.date_stamp.engaged()) return "date_stamp";
     if (fparams.diffusion_filter.active) return "camera_diffusion";
     if (fparams.lens_blur_um > 0.0) return "camera_lens_blur";
     if (fparams.bw_exposure_correction != 1.0)
@@ -2054,6 +2079,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     apply_user_scene_latitude(fparams.scene_latitude, p);
+    apply_user_date_stamp(fparams.date_stamp, p);
     const float g = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
@@ -2612,6 +2638,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     apply_user_scene_latitude(fparams.scene_latitude, p);
+    apply_user_date_stamp(fparams.date_stamp, p);
     const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = fg;
     fparams.density_curve_gamma[1] = fg;
@@ -3375,6 +3402,15 @@ void spk_default_params(spk_params* p) {
     p->scene_latitude_rolloff = 2.0f;
     p->scene_latitude_max_lift = 4.0f;
     p->reserved_tail_pad0 = 0;
+    p->date_stamp_text = nullptr;
+    p->date_stamp_active = 0;
+    p->date_stamp_corner = 0;
+    p->date_stamp_height = 0.045f;
+    p->date_stamp_margin = 0.05f;
+    p->date_stamp_exposure_ev = 2.5f;
+    p->date_stamp_color[0] = 1.0f;
+    p->date_stamp_color[1] = 0.18f;
+    p->date_stamp_color[2] = 0.0f;
     p->enlarger_diffusion_strength = 0.5f;
     p->enlarger_diffusion_spatial_scale = 1.0f;
     p->enlarger_diffusion_halo_warmth = 0.0f;
@@ -3940,6 +3976,7 @@ spk_status spk_bake_cube_lut_cancellable(
     bp.camera_diffusion_active = 0;
     bp.enlarger_diffusion_active = 0;
     bp.lens_blur_um = 0.0f;
+    bp.date_stamp_active = 0;  // positional: a LUT lattice has no frame corner
     bp.dir_diffusion_size_um = 0.0f;  // DIR stays pointwise (size 0), like deactivate
     bp.scanner_lens_blur = 0.0f;
     bp.scanner_unsharp[0] = 0.0f;

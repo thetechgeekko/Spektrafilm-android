@@ -140,6 +140,13 @@ internal object Ticket139EditorProbe {
         "camera.sceneLatitude.shadowRoom",
         "camera.sceneLatitude.rolloff",
         "camera.sceneLatitude.maxLift",
+        "camera.dateStamp.active",
+        "camera.dateStamp.text",
+        "camera.dateStamp.corner",
+        "camera.dateStamp.height",
+        "camera.dateStamp.margin",
+        "camera.dateStamp.exposureEv",
+        "camera.dateStamp.color",
         "enlarger.illuminant",
         "enlarger.printExposure",
         "enlarger.printExposureCompensation",
@@ -311,6 +318,13 @@ internal object Ticket139EditorProbe {
         "camera.sceneLatitude.shadowRoom" to number("1.25"),
         "camera.sceneLatitude.rolloff" to number("2.5"),
         "camera.sceneLatitude.maxLift" to number("3.5"),
+        "camera.dateStamp.active" to flag(true),
+        "camera.dateStamp.text" to text("'26 11 07"),
+        "camera.dateStamp.corner" to number("2"),
+        "camera.dateStamp.height" to number("0.0625"),
+        "camera.dateStamp.margin" to number("0.0625"),
+        "camera.dateStamp.exposureEv" to number("1.75"),
+        "camera.dateStamp.color" to json("[0.75,0.25,0.125]"),
         "enlarger.illuminant" to text("TH-KG3"),
         "enlarger.printExposure" to number("1.05"),
         "enlarger.printExposureCompensation" to flag(false),
@@ -1547,6 +1561,13 @@ internal object Ticket139EditorProbe {
         sceneLatitudeShadowRoom = 1.25f
         sceneLatitudeRolloff = 2.5f
         sceneLatitudeMaxLift = 3.5f
+        dateStampActive = true
+        dateStampText = "'26 11 07"
+        dateStampCorner = 2
+        dateStampHeight = 0.0625f
+        dateStampMargin = 0.0625f
+        dateStampExposureEv = 1.75f
+        dateStampColor = Triple(0.75f, 0.25f, 0.125f)
         cameraDiffusionState.apply {
             family = "glimmerglass"
             strength = 0.41f

@@ -536,6 +536,7 @@ struct ParamStorage {
     std::string auto_exposure_method;
     std::string enlarger_illuminant;
     std::string input_color_space;
+    std::string date_stamp_text;
 };
 
 bool read_diffusion_family(JNIEnv* env, jobject df, int32_t* out) {
@@ -751,6 +752,24 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
             read_float(env, sl, "getRolloff", &out->scene_latitude_rolloff);
             read_float(env, sl, "getMaxLift", &out->scene_latitude_max_lift);
             env->DeleteLocalRef(sl);
+        }
+        jobject ds = call_obj(env, camera, "getDateStamp",
+            "()Lcom/spectrafilm/engine/DateStampParams;");
+        if (ds) {
+            read_bool_i32(env, ds, "getActive", &out->date_stamp_active);
+            jobject text = call_obj(env, ds, "getText", "()Ljava/lang/String;");
+            if (text) {
+                store->date_stamp_text = jstr(env, static_cast<jstring>(text));
+                env->DeleteLocalRef(text);
+                if (!store->date_stamp_text.empty())
+                    out->date_stamp_text = store->date_stamp_text.c_str();
+            }
+            read_int(env, ds, "getCorner", &out->date_stamp_corner);
+            read_float(env, ds, "getHeight", &out->date_stamp_height);
+            read_float(env, ds, "getMargin", &out->date_stamp_margin);
+            read_float(env, ds, "getExposureEv", &out->date_stamp_exposure_ev);
+            read_triple_f(env, ds, "getColor", out->date_stamp_color);
+            env->DeleteLocalRef(ds);
         }
     }
 

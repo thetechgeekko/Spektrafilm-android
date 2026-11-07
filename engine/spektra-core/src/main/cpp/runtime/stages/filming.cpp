@@ -29,6 +29,7 @@
 #include "model/density_curves.h"
 #include "model/diffusion.h"
 #include "model/grain.h"
+#include "model/date_stamp.h"
 #include "model/scene_latitude.h"
 #include "model/spectral.h"
 
@@ -611,6 +612,26 @@ struct SrcLatitude {
     }
 };
 
+// Date-back imprint (opt-in): adds the LED's light, coverage * light, to each
+// loaded triple. Wraps the latitude-mapped source, because the LED is not part
+// of the scene. Only constructed when the mask is non-empty.
+template <typename Src>
+struct SrcDate {
+    const Src& src;
+    const DateStampMask& m;
+    int width;
+    inline void load(int p, double out[3]) const {
+        src.load(p, out);
+        const int y = p / width;
+        const float c = m.at(p - y * width, y);
+        if (c > 0.0f) {
+            out[0] += static_cast<double>(c) * m.light[0];
+            out[1] += static_cast<double>(c) * m.light[1];
+            out[2] += static_cast<double>(c) * m.light[2];
+        }
+    }
+};
+
 template <typename Src>
 void expose_impl(const Src& src, int width, int height,
                  const FilmingParams& params, const NdArray& tc_lut,
@@ -645,7 +666,9 @@ void expose_impl(const Src& src, int width, int height,
     // is off unless the caller set it, so the default route is unchanged.
     const bool gpu_expose_ok =
         params.allow_gpu_filming &&
-        !params.scene_latitude.engaged() &&  // the GPU expose has no latitude stage tc_lut.shape.size() == 3 &&
+        !params.scene_latitude.engaged() &&  // the GPU expose has no latitude stage
+        !params.date_stamp.engaged() &&      // ...and no date-back imprint
+        tc_lut.shape.size() == 3 &&
         tc_lut.shape[0] >= 2 && tc_lut.shape[0] == tc_lut.shape[1] &&
         tc_lut.shape[2] == 3;
 
@@ -831,31 +854,51 @@ void expose_impl(const Src& src, int width, int height,
     });
 }
 
+// Composes the opt-in pre-tc stages around `src`: scene latitude first (it
+// belongs to the scene), then the date-back light. With both off this is the
+// bare source, so the default route is unchanged.
+template <typename Src>
+void expose_staged(const Src& src, int width, int height, const FilmingParams& params,
+                   const NdArray& tc_lut, float* log_raw_out, const double* gpu_rgb_f64,
+                   const float* gpu_rgb_f32, double gpu_gain) {
+    DateStampMask date;
+    if (params.date_stamp.engaged())
+        date = build_date_stamp_mask(params.date_stamp, width, height,
+                                     params.exposure_compensation_ev);
+    const bool latitude = params.scene_latitude.engaged();
+    if (!date.empty()) {
+        if (latitude) {
+            const SrcLatitude<Src> lat{src, params.scene_latitude};
+            expose_impl(SrcDate<SrcLatitude<Src>>{lat, date, width}, width, height, params,
+                        tc_lut, log_raw_out, gpu_rgb_f64, gpu_rgb_f32, gpu_gain);
+        } else {
+            expose_impl(SrcDate<Src>{src, date, width}, width, height, params, tc_lut,
+                        log_raw_out, gpu_rgb_f64, gpu_rgb_f32, gpu_gain);
+        }
+        return;
+    }
+    if (latitude) {
+        expose_impl(SrcLatitude<Src>{src, params.scene_latitude}, width, height, params,
+                    tc_lut, log_raw_out, gpu_rgb_f64, gpu_rgb_f32, gpu_gain);
+        return;
+    }
+    expose_impl(src, width, height, params, tc_lut, log_raw_out, gpu_rgb_f64, gpu_rgb_f32,
+                gpu_gain);
+}
+
 }  // namespace
 
 void expose(const double* rgb, int width, int height, const FilmingParams& params,
             const NdArray& tc_lut, float* log_raw_out) {
-    const SrcF64 src{rgb};
-    if (params.scene_latitude.engaged()) {
-        expose_impl(SrcLatitude<SrcF64>{src, params.scene_latitude}, width, height,
-                    params, tc_lut, log_raw_out, rgb, nullptr, 1.0);
-        return;
-    }
-    expose_impl(src, width, height, params, tc_lut, log_raw_out,
-                rgb, nullptr, 1.0);
+    expose_staged(SrcF64{rgb}, width, height, params, tc_lut, log_raw_out, rgb, nullptr,
+                  1.0);
 }
 
 void expose_f32_gain(const float* rgb, double gain, int width, int height,
                      const FilmingParams& params, const NdArray& tc_lut,
                      float* log_raw_out) {
-    const SrcF32Gain src{rgb, gain};
-    if (params.scene_latitude.engaged()) {
-        expose_impl(SrcLatitude<SrcF32Gain>{src, params.scene_latitude}, width,
-                    height, params, tc_lut, log_raw_out, nullptr, rgb, gain);
-        return;
-    }
-    expose_impl(src, width, height, params, tc_lut,
-                log_raw_out, nullptr, rgb, gain);
+    expose_staged(SrcF32Gain{rgb, gain}, width, height, params, tc_lut, log_raw_out,
+                  nullptr, rgb, gain);
 }
 
 void develop(const float* log_raw, int width, int height, const Profile& film,

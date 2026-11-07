@@ -32,6 +32,10 @@ internal data class InteractiveRenderSnapshot(
         return params.copy(
             camera = params.camera.copy(
                 filmFormatMm = params.camera.filmFormatMm * cropFraction,
+                // The date-back imprint is placed in the corner of the frame the engine
+                // sees; on a cropped ROI/magnifier source that corner is the wrong place
+                // (and its size would follow the crop), so these partial renders omit it.
+                dateStamp = params.camera.dateStamp.copy(active = false),
             ),
             settings = settings,
         )

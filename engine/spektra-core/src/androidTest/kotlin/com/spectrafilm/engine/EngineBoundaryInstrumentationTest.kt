@@ -110,6 +110,15 @@ class EngineBoundaryInstrumentation : Instrumentation() {
                     rolloff = 2.5f,
                     maxLift = 3.5f,
                 ),
+                dateStamp = DateStampParams(
+                    active = true,
+                    text = "'26 11 07",
+                    corner = 2,
+                    height = 0.061f,
+                    margin = 0.071f,
+                    exposureEv = 1.81f,
+                    color = Triple(0.91f, 0.21f, 0.031f),
+                ),
             ),
             enlarger = EnlargerParams(
                 illuminant = "D50",
@@ -630,6 +639,18 @@ class EngineBoundaryInstrumentation : Instrumentation() {
         putF32("scene_latitude_rolloff", sceneLatitude.rolloff)
         putF32("scene_latitude_max_lift", sceneLatitude.maxLift)
         putI32("reserved_tail_pad0", 0)
+        val dateStamp = camera.dateStamp
+        // An empty Kotlin string marshals as a NULL text pointer.
+        putStringValue("date_stamp_text", dateStamp.text.ifEmpty { null })
+        putBool("date_stamp_active", dateStamp.active)
+        putI32("date_stamp_corner", dateStamp.corner)
+        putF32("date_stamp_height", dateStamp.height)
+        putF32("date_stamp_margin", dateStamp.margin)
+        putF32("date_stamp_exposure_ev", dateStamp.exposureEv)
+        putF32Array(
+            "date_stamp_color",
+            listOf(dateStamp.color.first, dateStamp.color.second, dateStamp.color.third),
+        )
     }
 
     private fun MutableMap<String, String>.putToneChannel(

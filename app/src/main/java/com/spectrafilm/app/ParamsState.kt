@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.engine.CameraParams
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.DateStampParams
 import com.spectrafilm.engine.DiffusionFilterParams
 import com.spectrafilm.engine.DirCouplersParams
 import com.spectrafilm.engine.EnlargerParams
@@ -138,6 +139,15 @@ class ParamsState {
     var sceneLatitudeShadowRoom by mutableFloatStateOf(0f)
     var sceneLatitudeRolloff by mutableFloatStateOf(2f)
     var sceneLatitudeMaxLift by mutableFloatStateOf(4f)
+    // Opt-in date-back imprint (engine model/date_stamp.h): LED digits exposed onto the
+    // negative in a corner of the framed picture. Off by default.
+    var dateStampActive by mutableStateOf(false)
+    var dateStampText by mutableStateOf("")
+    var dateStampCorner by mutableIntStateOf(0)
+    var dateStampHeight by mutableFloatStateOf(0.045f)
+    var dateStampMargin by mutableFloatStateOf(0.05f)
+    var dateStampExposureEv by mutableFloatStateOf(2.5f)
+    var dateStampColor by mutableStateOf(Triple(1.0f, 0.18f, 0.0f))
 
     // --- Simulation / enlarger (print) ---
     var printIlluminant by mutableStateOf("TH-KG3")
@@ -315,6 +325,15 @@ class ParamsState {
             sceneLatitudeRolloff = sl.rolloff
             sceneLatitudeMaxLift = sl.maxLift
         }
+        p.camera.dateStamp.let { ds ->
+            dateStampActive = ds.active
+            dateStampText = ds.text
+            dateStampCorner = ds.corner
+            dateStampHeight = ds.height
+            dateStampMargin = ds.margin
+            dateStampExposureEv = ds.exposureEv
+            dateStampColor = ds.color
+        }
 
         printIlluminant = p.enlarger.illuminant
         printExposure = p.enlarger.printExposure
@@ -448,6 +467,15 @@ class ParamsState {
                 shadowRoom = sceneLatitudeShadowRoom,
                 rolloff = sceneLatitudeRolloff,
                 maxLift = sceneLatitudeMaxLift,
+            ),
+            dateStamp = DateStampParams(
+                active = dateStampActive,
+                text = dateStampText,
+                corner = dateStampCorner,
+                height = dateStampHeight,
+                margin = dateStampMargin,
+                exposureEv = dateStampExposureEv,
+                color = dateStampColor,
             ),
         ),
         enlarger = EnlargerParams(

@@ -124,6 +124,8 @@ compression), the spektral-param wiring gates
 `highlight_boost_e2e` (the pre-clip highlight-boost in filming.expose),
 `scene_latitude_e2e` (opt-in, Android-only scene latitude knee before the film -- no oracle, so it
 gates inertness when off, the per-pixel-gain position when on, memo keys and thread identity),
+`date_stamp_e2e` (opt-in date-back imprint: LED light added before the film in frame coordinates --
+inert when off, additive position, untouched outside its box, halates, memo keys incl. text bytes),
 `spatial_decouple_e2e` (per-effect spatial gating: lens blur ON / halation OFF),
 `print_spatial_e2e` (print-route filming spatial branch),
 **`test_parallel`** (thread-invariance, fresh engine per thread count), and the

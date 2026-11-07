@@ -93,6 +93,56 @@ class PresetsRoundTripTest {
     }
 
     @Test
+    fun roundTrip_preservesDateStamp_andReachesEngineParams() {
+        val src = ParamsState().apply {
+            dateStampActive = true
+            dateStampText = "'26 11 07"
+            dateStampCorner = 3
+            dateStampHeight = 0.06f
+            dateStampMargin = 0.08f
+            dateStampExposureEv = 3.5f
+            dateStampColor = Triple(1f, 0.4f, 0.05f)
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+
+        val ds = dst.toParams().camera.dateStamp
+        assertTrue(ds.active)
+        assertEquals("'26 11 07", ds.text)
+        assertEquals(3, ds.corner)
+        assertEquals(0.06f, ds.height, 1e-6f)
+        assertEquals(0.08f, ds.margin, 1e-6f)
+        assertEquals(3.5f, ds.exposureEv, 1e-6f)
+        assertEquals(Triple(1f, 0.4f, 0.05f), ds.color)
+    }
+
+    @Test
+    fun dateStamp_defaultsOff_andMatchEngineDefaults() {
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":1,"camera":{}}"""), dst)
+        assertFalse(dst.dateStampActive)
+        assertEquals(com.spectrafilm.engine.DateStampParams(), dst.toParams().camera.dateStamp)
+    }
+
+    @Test
+    fun dateStamp_rejectsUndrawableTextAndOutOfRangeValues() {
+        for (bad in listOf(
+            """{"active":true,"text":"2026-11-07T10:00"}""",
+            """{"text":"0123456789012345678901234"}""",
+            """{"corner":4}""",
+            """{"height":0.5}""",
+            """{"exposureEv":20}""",
+            """{"color":[2,0,0]}""",
+        )) {
+            val dst = ParamsState()
+            assertThrows(IllegalArgumentException::class.java) {
+                Presets.decode(JSONObject("""{"version":1,"camera":{"dateStamp":$bad}}"""), dst)
+            }
+            assertFalse(dst.dateStampActive)
+        }
+    }
+
+    @Test
     fun decode_missingKeys_keepDefaults() {
         val dst = ParamsState()
         val defFilm = dst.filmProfile

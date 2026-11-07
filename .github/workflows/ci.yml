@@ -450,7 +450,7 @@ jobs:
     # the oracle. That gap is not hypothetical: a Highway f64 tier's byte-equality
     # "proof" was established at -O2 and did not survive the shipping flags,
     # because -ffast-math reassociates the scalar reference itself. Both legs now
-    # run the same 45-case table. Keep the first label verbatim -- it is the
+    # run the same 46-case table. Keep the first label verbatim -- it is the
     # check name any branch protection refers to.
     strategy:
       fail-fast: false
@@ -704,6 +704,7 @@ jobs:
           # to default + within tolerance of scan_portra), equals a per-pixel pre-film gain
           # when on, busts the film memo per field on both routes, 1-vs-8 thread identity.
           build_run test_scene_latitude_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          build_run test_date_stamp_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           # SPATIAL-EFFECT DECOUPLING: every spatial effect gates on its OWN params
           # (zero = inert), matching the oracle; halation_active gates ONLY the
           # halation/scatter block. Golden = camera lens blur ON (1650 µm) with the
