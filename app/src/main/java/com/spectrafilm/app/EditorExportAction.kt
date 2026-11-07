@@ -96,7 +96,14 @@ internal fun MainActivity.startEditorExport(
             Diag.w("export settings rejected: ${failure.message}")
             val message = ctx.getString(R.string.editor_msg_export_settings_unsupported)
             setStatus(message)
-            scope.showEditorMessage(snackbarHost, message)
+            // The snackbar host lives under the sheet, so close the sheet first or the
+            // message would show behind it; the action reopens it to change the choice.
+            exportVm.onAction(ExportAction.CloseSheet)
+            scope.showEditorMessage(
+                snackbarHost,
+                message,
+                actionLabel = ctx.getString(R.string.editor_msg_change_settings),
+            ) { exportVm.onAction(ExportAction.OpenSheet) }
             return
         }
         exportVm.onAction(ExportAction.CloseSheet)

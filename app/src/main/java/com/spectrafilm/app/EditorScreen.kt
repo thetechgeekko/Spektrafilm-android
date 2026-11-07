@@ -998,6 +998,9 @@ internal fun MainActivity.EditorScreen(
     ) { granted ->
         if (!granted) {
             status = ctx.getString(R.string.editor_status_storage_permission_required)
+            // The export sheet may still be open on API <= 28; close it so the message
+            // is not hidden behind it.
+            exportVm.onAction(ExportAction.CloseSheet)
             scope.showEditorMessage(snackbarHost, ctx.getString(R.string.editor_toast_storage_permission))
         }
     }

@@ -501,6 +501,7 @@
     <string name="editor_msg_export_failed">无法导出这张照片。请重试，或选择更小的尺寸或其他格式。</string>
     <string name="editor_msg_export_failed_memory">内存不足，无法以此尺寸导出。请选择更小的尺寸。</string>
     <string name="editor_msg_retry">重试</string>
+    <string name="editor_msg_change_settings">更改设置</string>
     <string name="editor_msg_export_settings_unsupported">这些导出设置无法同时使用。请换一种格式或色彩空间。</string>
     <string name="editor_msg_lut_bake_failed">无法创建 LUT。请重试。</string>
     <string name="editor_msg_save_dialog_failed">无法打开保存对话框。请重试。</string>

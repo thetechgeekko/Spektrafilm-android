@@ -596,6 +596,7 @@
     <string name="editor_msg_export_failed">Das Foto konnte nicht exportiert werden. Versuche es erneut oder wähle eine kleinere Größe oder ein anderes Format.</string>
     <string name="editor_msg_export_failed_memory">Nicht genug Speicher für den Export in dieser Größe. Wähle eine kleinere Größe.</string>
     <string name="editor_msg_retry">Erneut versuchen</string>
+    <string name="editor_msg_change_settings">Einstellungen ändern</string>
     <string name="editor_msg_export_settings_unsupported">Diese Exporteinstellungen passen nicht zusammen. Wähle ein anderes Format oder einen anderen Farbraum.</string>
     <string name="editor_msg_lut_bake_failed">Die LUT konnte nicht erstellt werden. Versuche es erneut.</string>
     <string name="editor_msg_save_dialog_failed">Der Speichern-Dialog konnte nicht geöffnet werden. Versuche es erneut.</string>

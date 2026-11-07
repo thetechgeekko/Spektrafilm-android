@@ -594,6 +594,7 @@
     <string name="editor_msg_export_failed">この写真を書き出せませんでした。もう一度試すか、小さいサイズや別の形式を選んでください。</string>
     <string name="editor_msg_export_failed_memory">このサイズで書き出すにはメモリが足りません。小さいサイズを選んでください。</string>
     <string name="editor_msg_retry">再試行</string>
+    <string name="editor_msg_change_settings">設定を変更</string>
     <string name="editor_msg_export_settings_unsupported">この書き出し設定の組み合わせは使えません。別の形式か色空間を選んでください。</string>
     <string name="editor_msg_lut_bake_failed">LUT を作成できませんでした。もう一度お試しください。</string>
     <string name="editor_msg_save_dialog_failed">保存ダイアログを開けませんでした。もう一度お試しください。</string>

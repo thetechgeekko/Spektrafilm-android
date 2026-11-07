@@ -688,6 +688,7 @@
     <string name="editor_msg_export_failed">Couldn\'t export this photo. Try again, or pick a smaller size or another format.</string>
     <string name="editor_msg_export_failed_memory">Not enough memory to export at this size. Try a smaller size.</string>
     <string name="editor_msg_retry">Retry</string>
+    <string name="editor_msg_change_settings">Change settings</string>
     <string name="editor_msg_export_settings_unsupported">These export settings don\'t work together. Try another format or color space.</string>
     <string name="editor_msg_lut_bake_failed">Couldn\'t create the LUT. Try again.</string>
     <string name="editor_msg_save_dialog_failed">Couldn\'t open the save dialog. Try again.</string>
