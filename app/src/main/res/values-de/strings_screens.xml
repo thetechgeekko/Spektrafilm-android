@@ -268,6 +268,17 @@
     <string name="library_loading">Ordner wird geladen</string>
     <string name="library_badge_edited">Bearbeitet</string>
     <string name="library_cell_edited_desc">%1$s, bearbeitet</string>
+    <string name="library_save_sidecars">Bearbeitungen neben Fotos speichern</string>
+    <string name="library_sidecars_need_access">Um Bearbeitungsdateien in diesem Ordner zu speichern, wähle ihn erneut aus und erlaube Spektrafilm, ihn zu ändern. Deine Fotos werden nie verändert.</string>
+    <string name="library_sidecars_none">Keine bearbeiteten Fotos zum Speichern.</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="one">%1$d Bearbeitungsdatei neben dem Foto gespeichert.</item>
+        <item quantity="other">%1$d Bearbeitungsdateien neben den Fotos gespeichert.</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="one">%1$d gespeichert. %2$d Bearbeitungsdatei konnte nicht geschrieben werden.</item>
+        <item quantity="other">%1$d gespeichert. %2$d Bearbeitungsdateien konnten nicht geschrieben werden.</item>
+    </plurals>
     <string name="library_select_action">Auswählen</string>
     <string name="library_select_all">Alle auswählen</string>
     <string name="library_paste_edit">Bearbeitung einfügen</string>

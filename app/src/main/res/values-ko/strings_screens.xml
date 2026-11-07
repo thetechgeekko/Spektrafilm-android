@@ -268,6 +268,15 @@
     <string name="library_loading">폴더 불러오는 중</string>
     <string name="library_badge_edited">편집됨</string>
     <string name="library_cell_edited_desc">%1$s, 편집됨</string>
+    <string name="library_save_sidecars">사진 옆에 편집 저장</string>
+    <string name="library_sidecars_need_access">이 폴더에 편집 파일을 저장하려면 폴더를 다시 선택하고 Spektrafilm이 변경하도록 허용하세요. 사진은 변경되지 않습니다.</string>
+    <string name="library_sidecars_none">저장할 편집된 사진이 없습니다.</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="other">사진 옆에 편집 파일 %1$d개를 저장했습니다.</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="other">%1$d개를 저장했습니다. 편집 파일 %2$d개는 쓸 수 없습니다.</item>
+    </plurals>
     <string name="library_select_action">선택</string>
     <string name="library_select_all">모두 선택</string>
     <string name="library_paste_edit">편집 붙여넣기</string>

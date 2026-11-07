@@ -218,6 +218,15 @@
     <string name="tool_export_batch">用此编辑导出更多照片…</string>
     <string name="library_badge_edited">已编辑</string>
     <string name="library_cell_edited_desc">%1$s，已编辑</string>
+    <string name="library_save_sidecars">将编辑保存到照片旁</string>
+    <string name="library_sidecars_need_access">要在此文件夹中保存编辑文件，请重新选择该文件夹并允许 Spektrafilm 修改它。你的照片不会被更改。</string>
+    <string name="library_sidecars_none">没有可保存的已编辑照片。</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="other">已在照片旁保存 %1$d 个编辑文件。</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="other">已保存 %1$d 个。%2$d 个编辑文件无法写入。</item>
+    </plurals>
     <string name="library_select_action">选择</string>
     <string name="library_select_all">全选</string>
     <string name="library_paste_edit">粘贴编辑</string>

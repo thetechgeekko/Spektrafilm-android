@@ -268,6 +268,19 @@
     <string name="library_loading">Chargement du dossier</string>
     <string name="library_badge_edited">Modifiée</string>
     <string name="library_cell_edited_desc">%1$s, modifiée</string>
+    <string name="library_save_sidecars">Enregistrer les retouches à côté des photos</string>
+    <string name="library_sidecars_need_access">Pour enregistrer des fichiers de retouche dans ce dossier, choisissez-le à nouveau et autorisez Spektrafilm à le modifier. Vos photos ne sont jamais modifiées.</string>
+    <string name="library_sidecars_none">Aucune photo retouchée à enregistrer.</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="one">%1$d fichier de retouche enregistré à côté de sa photo.</item>
+        <item quantity="many">%1$d fichiers de retouche enregistrés à côté de leurs photos.</item>
+        <item quantity="other">%1$d fichiers de retouche enregistrés à côté de leurs photos.</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="one">%1$d enregistrés. %2$d fichier de retouche n\'a pas pu être écrit.</item>
+        <item quantity="many">%1$d enregistrés. %2$d fichiers de retouche n\'ont pas pu être écrits.</item>
+        <item quantity="other">%1$d enregistrés. %2$d fichiers de retouche n\'ont pas pu être écrits.</item>
+    </plurals>
     <string name="library_select_action">Sélectionner</string>
     <string name="library_select_all">Tout sélectionner</string>
     <string name="library_paste_edit">Coller la retouche</string>

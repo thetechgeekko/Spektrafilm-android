@@ -38,8 +38,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
@@ -86,6 +88,7 @@ internal fun LibraryDestination(
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
     val paste by vm.paste.collectAsStateWithLifecycle()
+    val sidecarSave by vm.sidecarSave.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     // Re-read on every visit, so frames shot since the last one appear.
@@ -117,6 +120,38 @@ internal fun LibraryDestination(
         if (tree != null) vm.chooseFolder(tree.toString())
     }
     val choose = { picker.launch(state.treeUri?.let(Uri::parse)) }
+    val saved = (sidecarSave as? LibrarySidecarState.Done)?.result
+    LaunchedEffect(saved) {
+        if (saved == null) return@LaunchedEffect
+        try {
+            if (saved.needsWriteAccess) {
+                // The folder was granted read-only (or before writing was offered): choosing
+                // it again in the system picker grants write, and the save then finishes.
+                val choice = snackbar.showSnackbar(
+                    message = ctx.getString(R.string.library_sidecars_need_access),
+                    actionLabel = ctx.getString(R.string.library_choose_folder),
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long,
+                )
+                if (choice == SnackbarResult.ActionPerformed) choose()
+            } else {
+                val message = when {
+                    saved.saved == 0 && saved.failed == 0 -> ctx.getString(R.string.library_sidecars_none)
+                    saved.failed == 0 ->
+                        ctx.resources.getQuantityString(R.plurals.library_sidecars_saved, saved.saved, saved.saved)
+                    else -> ctx.resources.getQuantityString(
+                        R.plurals.library_sidecars_partial,
+                        saved.failed,
+                        saved.saved,
+                        saved.failed,
+                    )
+                }
+                snackbar.showSnackbar(message)
+            }
+        } finally {
+            vm.sidecarSaveShown()
+        }
+    }
     val running = paste is LibraryPasteState.Running
     NavScaffold(
         title = if (selecting) {
@@ -142,6 +177,10 @@ internal fun LibraryDestination(
                             text = { Text(stringResource(R.string.library_select_all)) },
                             onClick = { menuOpen = false; vm.selectAll() },
                         )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_save_sidecars)) },
+                            onClick = { menuOpen = false; vm.saveEditsBesidePhotos() },
+                        )
                     }
                 }
             } else if (state.treeUri != null) {
@@ -154,6 +193,10 @@ internal fun LibraryDestination(
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_refresh)) },
                             onClick = { menuOpen = false; vm.refresh() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_save_sidecars)) },
+                            onClick = { menuOpen = false; vm.saveEditsBesidePhotos() },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_change_folder)) },
