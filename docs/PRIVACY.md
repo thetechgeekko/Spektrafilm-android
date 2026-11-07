@@ -9,7 +9,8 @@ form. Privacy or support questions can be filed with the project maintainers thr
 
 Spektrafilm has no analytics SDK, advertising SDK, account system, automatic crash uploader, or
 developer-operated image service. Image processing and export run on the device. Data leaves the
-device only through a user action: checking for updates or opening the GitHub release page, choosing
+device only through a user action, or the once-a-day update check the user can switch off: checking
+for updates, downloading an update the user accepted, or opening the GitHub release page, choosing
 a Copy/Share target for diagnostics, publishing an image export, or participating in a device setup
 transfer that the device manufacturer provides.
 
@@ -24,7 +25,8 @@ transfer that the device manufacturer provides.
 | Render/export working data | Native/managed memory and cache staging files; prior-process stages are recovered or deleted | A completed export is published only after the user's Export action | Never included; Android excludes cache/code-cache/no-backup, and all other working paths are absent from the exact include-only rules |
 | Pending export journal | Private `pending_media_exports_v1` MediaStore URI tokens, retained only until commit/recovery | No | Outside the exact include-only allowlist as device-local transaction state |
 | Diagnostics | One private crash record, at most 64 KiB and seven days; an on-demand process log snapshot, at most 500 lines/128 KiB; a final report, at most 192 KiB | Only after Copy or Share; the chosen Android target then receives the text | The `diag` directory is outside the exact include-only allowlist |
-| Update metadata | One bounded response to a user-tapped Check for updates | GitHub receives the ordinary HTTPS request, including IP transport data and the `Spektrafilm-Android` User-Agent | Nothing is persisted or backed up |
+| Update metadata | One bounded response per check: automatically at most once a day when the app opens (Settings > "Check for updates automatically", default on; never on a Play install), or when the user taps Check for updates | GitHub receives the ordinary HTTPS request, including IP transport data and the `Spektrafilm-Android` User-Agent | Private `updater_state_v1` preferences: the auto-check switch, the last auto-check time and a skipped version tag; outside the backup allowlist |
+| Update download | Only after the user taps Update: the release APK from GitHub's release-asset hosts | GitHub receives the HTTPS request (IP transport data, User-Agent) | No-backup `updater/` directory, deleted when the dialog is dismissed, when verification fails, and on the next app start |
 
 ## Backup and restore boundary
 
@@ -83,21 +85,26 @@ Copy and Share are explicit user actions; there is no background upload.
 
 ## Update, network, and integrity boundary
 
-The app's only direct network operation is the user-tapped advisory release check described in
-[UPDATER_SECURITY.md](UPDATER_SECURITY.md). Cleartext is denied in the manifest and Network Security
-Configuration. Code connects only to the exact `api.github.com` repository endpoint and can open only
-the matching canonical `https://github.com/.../releases/tag/...` browser page.
+The app's direct network operations are the release check and, after the user accepts an update,
+the APK download, both described in [UPDATER_SECURITY.md](UPDATER_SECURITY.md). Cleartext is denied
+in the manifest and Network Security Configuration. Code connects only to the exact `api.github.com`
+repository endpoint, the exact canonical APK URL on `github.com`, and GitHub's two release-asset
+redirect hosts, and can open only the matching canonical `https://github.com/.../releases/tag/...`
+browser page.
 
-The app never downloads an APK, never requests package-install permission, and never claims to
-cryptographically verify APK bytes or a release-metadata signature. GitHub HTTPS protects advisory
-metadata in transit; Android package-signature continuity is the install-time upgrade gate. The
-browser/distribution channel remains responsible for first-install provenance.
+The app declares `REQUEST_INSTALL_PACKAGES` so it can hand a downloaded update to Android's installer;
+the user confirms every install in the system UI. Before that hand-off the APK must be this package,
+a higher version, and signed by the installed app's certificate; Android enforces the same
+signing-certificate continuity again. The app does not claim to verify a release-metadata signature.
+A copy installed from Google Play is never auto-checked or self-updated. The browser/distribution
+channel remains responsible for first-install provenance.
 
 ## Permissions and foreground service
 
 | Permission | Purpose and user-visible behavior |
 |---|---|
-| `INTERNET` | One user-tapped advisory GitHub release check; there is no automatic polling |
+| `INTERNET` | The GitHub release check (at most daily when the app opens, switchable off, or user-tapped) and the download of an update the user accepted |
+| `REQUEST_INSTALL_PACKAGES` | Hands an accepted, signer-verified update to the system installer; the user confirms each install. Not used on a Play install; a Play build must remove it |
 | `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` | Keep a user-started local image export alive while it processes/writes data; the non-exported service shows an ongoing export notification and performs no network sync |
 | `POST_NOTIFICATIONS` (API 33+) | Show the ongoing-export notification; denial does not grant another access path |
 | `WRITE_EXTERNAL_STORAGE` (`maxSdkVersion=28`) | Publish to public Pictures on Android 7-9; Android 10+ uses MediaStore without it |

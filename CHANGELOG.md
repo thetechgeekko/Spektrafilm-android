@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### In-app update with "What's new"
+
+- When the app opens (at most once a day) it checks GitHub for a newer release. If there is one, a
+  dialog shows that release's notes with **Update**, **Later** and **Skip this version**.
+- **Update** downloads the release APK, checks it is a genuine Spektrafilm release (same package,
+  newer version, signed with the same key as the installed app) and hands it to Android's installer,
+  where the user confirms. A debug or self-built copy, or anything that fails a check, gets "Open
+  release page" instead.
+- Settings has "Check for updates automatically" (default on); "Check for updates" works as before
+  and now opens the same dialog. A copy installed from Google Play is never auto-checked or
+  self-updated.
+- New permission: `REQUEST_INSTALL_PACKAGES`. See `docs/UPDATER_SECURITY.md` for the security design.
+
 ## v0.11.0 (versionCode 13) — 2026-11-06 — sized for your phone, lighter after export, smoother while it runs
 
 **Minor, not patch: new installs now pick their preview size from the device.**

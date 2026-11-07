@@ -3,8 +3,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- The advisory update check makes one bounded HTTPS request to GitHub's API. -->
+    <!-- The update check makes one bounded HTTPS request to GitHub's API; an accepted update
+         downloads the release's APK from GitHub (docs/UPDATER_SECURITY.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app update: hands the downloaded, signer-verified release APK to a PackageInstaller
+         session. The user always confirms in the system installer; Android enforces signing-
+         certificate continuity. Never used on a Play-installed copy (Play updates itself).
+         A Play build must remove this permission (tools:node="remove"), see UPDATER_SECURITY.md. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- A backgrounded export is moved to the little-cluster cpuset and runs ~4x
          slower (measured 13894 ms -> 55631 ms on a 12.5 MP export), and becomes a
@@ -81,5 +87,11 @@
             android:name=".ExportForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- PackageInstaller session status for an in-app update. Not exported: only the
+             explicit PendingIntent UpdateInstaller hands the system installer reaches it. -->
+        <receiver
+            android:name=".UpdateInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

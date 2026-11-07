@@ -1,6 +1,6 @@
 /*
- * Spektrafilm for Android — unit tests for the update version compare. GPLv3.
- * AppUpdater.isNewer is pure semver logic; runs on the plain JVM.
+ * Spektrafilm for Android — unit tests for the update check. GPLv3.
+ * Semver compare, response policy, release notes and APK-asset acceptance; plain JVM.
  */
 package com.spectrafilm.app
 
@@ -125,6 +125,91 @@ class AppUpdaterTest {
 
         assertNull(AppUpdater.browserTarget(hostile))
     }
+
+    @Test
+    fun releaseNotesAreKeptWithoutHtmlCommentsAndBounded() {
+        val info = response(
+            body = withExtras(notes = "<!-- spektrafilm-release-run:v2:abc -->\r\n## Highlights\r\n- One"),
+        )!!
+        assertEquals("## Highlights\n- One", info.notes)
+
+        val long = response(body = withExtras(notes = "x".repeat(AppUpdater.MAX_NOTES_CHARS + 50)))!!
+        assertTrue(long.notes.length <= AppUpdater.MAX_NOTES_CHARS + 2)
+        assertTrue(long.notes.endsWith("…"))
+
+        assertEquals("", response(body = validBody())!!.notes)
+    }
+
+    @Test
+    fun theCanonicalApkAssetIsAccepted() {
+        val info = response(body = withExtras(assets = listOf(apkAsset())))!!
+        val apk = info.apk!!
+        assertEquals("Spektrafilm-v0.9.1.apk", apk.name)
+        assertEquals(
+            "https://github.com/thetechgeekko/Spektrafilm-android/releases/download/v0.9.1/Spektrafilm-v0.9.1.apk",
+            apk.downloadUrl,
+        )
+        assertEquals(21_341_655L, apk.sizeBytes)
+        assertEquals("a".repeat(64), apk.sha256)
+        // The test-only instrumentation APK published next to it is never picked.
+        val withTestApk = response(
+            body = withExtras(
+                assets = listOf(
+                    apkAsset(
+                        name = "Spektrafilm-v0.9.1-engine-boundary-androidTest.apk",
+                        url = "https://github.com/thetechgeekko/Spektrafilm-android/releases/download/v0.9.1/" +
+                            "Spektrafilm-v0.9.1-engine-boundary-androidTest.apk",
+                    ),
+                    apkAsset(),
+                ),
+            ),
+        )!!
+        assertEquals("Spektrafilm-v0.9.1.apk", withTestApk.apk!!.name)
+        // A malformed digest is ignored, not trusted.
+        assertNull(response(body = withExtras(assets = listOf(apkAsset(digest = "md5:abc"))))!!.apk!!.sha256)
+    }
+
+    @Test
+    fun anApkAssetThatIsNotExactlyTheReleaseApkFallsBackToTheReleasePage() {
+        val base = "https://github.com/thetechgeekko/Spektrafilm-android/releases/download"
+        val bad = listOf(
+            listOf(apkAsset(url = "https://evil.test/Spektrafilm-v0.9.1.apk")),
+            listOf(apkAsset(url = "http://github.com/thetechgeekko/Spektrafilm-android/releases/download/v0.9.1/Spektrafilm-v0.9.1.apk")),
+            listOf(apkAsset(url = "$base/v9.9.9/Spektrafilm-v0.9.1.apk")),
+            listOf(apkAsset(url = "$base/v0.9.1/Spektrafilm-v0.9.1.apk?x=1")),
+            listOf(apkAsset(name = "Spektrafilm-v0.9.2.apk")),
+            listOf(apkAsset(size = 0)),
+            listOf(apkAsset(size = AppUpdater.MAX_APK_BYTES + 1)),
+            listOf(apkAsset(state = "starter")),
+            listOf(apkAsset(), apkAsset()),
+        )
+        bad.forEach { assets ->
+            val info = response(body = withExtras(assets = assets))
+            assertNotNull(info)
+            assertNull(assets.toString(), info!!.apk)
+        }
+    }
+
+    private fun apkAsset(
+        name: String = "Spektrafilm-v0.9.1.apk",
+        url: String = "https://github.com/thetechgeekko/Spektrafilm-android/releases/download/v0.9.1/Spektrafilm-v0.9.1.apk",
+        size: Long = 21_341_655L,
+        state: String = "uploaded",
+        digest: String = "sha256:" + "a".repeat(64),
+    ): org.json.JSONObject = org.json.JSONObject()
+        .put("name", name)
+        .put("browser_download_url", url)
+        .put("size", size)
+        .put("state", state)
+        .put("digest", digest)
+
+    private fun withExtras(
+        notes: String? = null,
+        assets: List<org.json.JSONObject> = emptyList(),
+    ): String = org.json.JSONObject(validBody()).apply {
+        if (notes != null) put("body", notes)
+        put("assets", org.json.JSONArray(assets))
+    }.toString()
 
     private fun response(
         status: Int = 200,

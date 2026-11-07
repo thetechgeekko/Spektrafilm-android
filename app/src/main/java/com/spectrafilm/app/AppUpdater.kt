@@ -2,11 +2,13 @@
  * Spektrafilm for Android — advisory update check. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * The in-app check reads one bounded response from the repository's fixed GitHub API
- * endpoint, then opens only that repository's canonical HTTPS release page in the
- * browser. It never downloads, verifies, or installs an APK. Android's package-signature
- * continuity is the install-time integrity gate; this file must not claim a signing or
- * hash contract the repository does not ship.
+ * The check reads one bounded response from the repository's fixed GitHub API endpoint.
+ * From it, this file accepts only: a canonical stable tag, the canonical release page,
+ * the release notes (bounded text, shown in the "What's new" dialog), and, when present,
+ * the one APK asset the release workflow publishes for that tag at its canonical download
+ * URL. Downloading and installing that APK is UpdateDownloader / UpdateInstaller's job;
+ * the integrity gate there is signing-certificate continuity with the installed app (see
+ * docs/UPDATER_SECURITY.md), not anything in this response.
  */
 package com.spectrafilm.app
 
@@ -25,15 +27,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+/** The release workflow's signed APK for one tag, as listed in the release's assets. */
+data class ApkAsset(
+    val name: String,
+    val downloadUrl: String,
+    val sizeBytes: Long,
+    /** Lower-case hex SHA-256 GitHub computed at upload, when the API reports one. */
+    val sha256: String?,
+)
+
 data class UpdateInfo(
     val latestTag: String,
     val currentVersion: String,
     val releaseUrl: String,
     val isNewer: Boolean,
+    /** Release body (Markdown), HTML comments stripped and bounded; may be empty. */
+    val notes: String = "",
+    /** Null when the release has no canonical APK asset: the dialog then offers the page. */
+    val apk: ApkAsset? = null,
 )
 
 object AppUpdater {
-    internal const val MAX_RESPONSE_BYTES = 64 * 1024
+    /** A real release (v0.10.0: 14 assets + a long body) is ~33 KiB; leave headroom. */
+    internal const val MAX_RESPONSE_BYTES = 256 * 1024
+    /** The shipped APK is ~21 MB; anything far beyond that is not ours. */
+    internal const val MAX_APK_BYTES = 256L * 1024 * 1024
+    internal const val MAX_NOTES_CHARS = 20_000
 
     private const val MAX_TAG_CHARS = 32
     private const val CONNECT_TIMEOUT_MS = 5_000
@@ -41,6 +60,8 @@ object AppUpdater {
     private const val API_HOST = "api.github.com"
     private const val BROWSER_HOST = "github.com"
     private const val REPOSITORY_PATH = "/thetechgeekko/Spektrafilm-android"
+    private val SHA256_DIGEST = Regex("""sha256:([0-9a-f]{64})""")
+    private val HTML_COMMENT = Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL)
     private const val LATEST_API =
         "https://api.github.com/repos/thetechgeekko/Spektrafilm-android/releases/latest"
     private val STABLE_TAG = Regex(
@@ -128,8 +149,46 @@ object AppUpdater {
                 currentVersion = currentVersion,
                 releaseUrl = releaseUrl,
                 isNewer = isNewer(currentVersion, tag),
+                notes = releaseNotes(metadata.opt("body")),
+                apk = apkAsset(metadata.optJSONArray("assets"), tag),
             )
         }.getOrNull()
+    }
+
+    /** The canonical APK name the release workflow uploads for [tag]. */
+    internal fun apkName(tag: String): String = "Spektrafilm-$tag.apk"
+
+    /** The only URL an APK download may start from (redirects are UpdateDownloader's). */
+    internal fun apkDownloadUrl(tag: String): String =
+        "https://$BROWSER_HOST$REPOSITORY_PATH/releases/download/$tag/${apkName(tag)}"
+
+    private fun releaseNotes(raw: Any?): String {
+        val body = raw as? String ?: return ""
+        val cleaned = body.replace(HTML_COMMENT, "").replace("\r\n", "\n").trim()
+        return if (cleaned.length <= MAX_NOTES_CHARS) cleaned
+        else cleaned.take(MAX_NOTES_CHARS).trimEnd() + "\n…"
+    }
+
+    /**
+     * Exactly one asset named [apkName] at exactly [apkDownloadUrl], fully uploaded and of
+     * a plausible size; anything else (including a second asset of that name) is null, and
+     * the dialog falls back to the release page.
+     */
+    private fun apkAsset(assets: org.json.JSONArray?, tag: String): ApkAsset? {
+        if (assets == null) return null
+        val name = apkName(tag)
+        val matches = (0 until assets.length())
+            .mapNotNull { assets.optJSONObject(it) }
+            .filter { it.opt("name") == name }
+        val asset = matches.singleOrNull() ?: return null
+        if (asset.opt("state") != "uploaded") return null
+        val url = asset.opt("browser_download_url") as? String ?: return null
+        if (url != apkDownloadUrl(tag)) return null
+        val size = (asset.opt("size") as? Number)?.toLong() ?: return null
+        if (size <= 0L || size > MAX_APK_BYTES) return null
+        val sha256 = (asset.opt("digest") as? String)
+            ?.let { SHA256_DIGEST.matchEntire(it)?.groupValues?.get(1) }
+        return ApkAsset(name = name, downloadUrl = url, sizeBytes = size, sha256 = sha256)
     }
 
     private fun readBoundedUtf8(input: InputStream): String? {

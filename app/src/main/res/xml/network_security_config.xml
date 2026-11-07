@@ -5,8 +5,13 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- This documents the updater destination; the code enforces the actual host allowlist. -->
+    <!-- This documents the updater destinations; the code enforces the actual host allowlist
+         (AppUpdater: api.github.com; UpdateDownloader: github.com, then only GitHub's two
+         release-asset redirect hosts). -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="false">api.github.com</domain>
+        <domain includeSubdomains="false">github.com</domain>
+        <domain includeSubdomains="false">objects.githubusercontent.com</domain>
+        <domain includeSubdomains="false">release-assets.githubusercontent.com</domain>
     </domain-config>
 </network-security-config>
