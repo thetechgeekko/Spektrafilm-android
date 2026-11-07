@@ -120,6 +120,40 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:testDebugUnitTest --stacktrace
 
+      # Screenshot tests (MAD audit fix 5). AGP names the suite's tasks
+      # update/test{Suite}{Target}{Variant}TestSuite; the target part is AGP's, so the
+      # names are looked up rather than hard-coded. A PR labelled `write-screenshots`
+      # regenerates the reference images and uploads them as an artifact to review and
+      # commit; every run then checks against the committed references.
+      - name: Find screenshot test tasks
+        id: shots
+        run: |
+          ./gradlew -q :app:tasks --all > /tmp/app-tasks.txt
+          grep -iE 'screenshot|TestSuite' /tmp/app-tasks.txt || true
+          upd=$(grep -oE '^update\S*Screenshot\S*TestSuite\b' /tmp/app-tasks.txt | grep -i debug | head -1)
+          tst=$(grep -oE '^test\S*Screenshot\S*TestSuite\b' /tmp/app-tasks.txt | grep -i debug | head -1)
+          if [ -z "$upd" ] || [ -z "$tst" ]; then echo "::error::screenshot suite tasks not found"; exit 1; fi
+          echo "update=$upd" >> "$GITHUB_OUTPUT"
+          echo "test=$tst" >> "$GITHUB_OUTPUT"
+
+      - name: Update screenshot references (write-screenshots label only)
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'write-screenshots')
+        run: ./gradlew ":app:${{ steps.shots.outputs.update }}" --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'write-screenshots')
+        with:
+          name: screenshot-references
+          path: app/src/screenshotTest*/reference/
+          retention-days: 7
+
+      - name: Screenshot tests
+        run: ./gradlew ":app:${{ steps.shots.outputs.test }}" --stacktrace
+
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
