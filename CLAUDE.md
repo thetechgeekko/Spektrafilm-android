@@ -178,7 +178,7 @@ without secrets, reruns both parity flag legs plus release JVM/lint/R8/16 KiB ga
 Environment downloads by exact artifact database ID, signs that exact app/instrumentation pair,
 proves installed-byte identity on API 35, and verifies immutable remote release/assets by numeric IDs
 before publication. Candidate identity is bound to source/version/run ID/run attempt/artifact digest,
-all six Gradle locks, both SPDX documents, mapping, symbols, runtime classpath, and provenance.
+all seven Gradle locks, both SPDX documents, mapping, symbols, runtime classpath, and provenance.
 `r8-smoke.yml` (manual dispatch) builds the R8-minified unsigned candidate,
 explicitly signs it with the committed public debug key, and runs the 16 KB pre-tag smoke checks.
 

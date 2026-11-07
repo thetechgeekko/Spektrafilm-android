@@ -24,7 +24,7 @@ of overhead in the form of increased build complexity and boilerplate code."
 
 ## What a split would cost here
 
-- **Release identity.** `release.yml` hash-binds every `gradle.lockfile` (six today), both
+- **Release identity.** `release.yml` hash-binds every `gradle.lockfile` (seven since `:baselineprofile`, #459), both
   SPDX documents and the runtime classpath into the candidate's identity. Each new module
   adds a lockfile, which has to be listed in `release.yml`, regenerated with
   `--update-locks` and kept in sync on every dependency bump. Eight new modules would more

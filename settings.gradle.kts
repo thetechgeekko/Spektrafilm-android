@@ -25,3 +25,5 @@ include(":engine:spektra-core")
 include(":lib:libraw")
 include(":lib:tiffwriter")
 include(":lib:pngwriter")
+// Baseline/Startup Profile generator and Macrobenchmarks for :app (#459). Test-only module.
+include(":baselineprofile")

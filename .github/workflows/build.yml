@@ -105,11 +105,15 @@ jobs:
           # build-tool configurations locked in all of them, not only :app's.
           ./gradlew :app:dependencies :engine:spektra-core:dependencies \
             :lib:libraw:dependencies :lib:tiffwriter:dependencies \
-            :lib:pngwriter:dependencies --write-locks -q > /dev/null
+            :lib:pngwriter:dependencies :baselineprofile:dependencies \
+            --write-locks -q > /dev/null
           echo "----- BEGIN LOCKFILE DIFF -----"
           git diff --stat -- '*.lockfile'
+          git ls-files --others --exclude-standard -- '*.lockfile'
           echo "----- END LOCKFILE DIFF -----"
-          for f in $(git diff --name-only -- '*.lockfile'); do
+          # A new module's lockfile is untracked, so list those as well.
+          for f in $( (git diff --name-only -- '*.lockfile'; \
+                       git ls-files --others --exclude-standard -- '*.lockfile') | sort -u); do
             echo "===== BEGIN $f ====="
             cat "$f"
             echo "===== END $f ====="

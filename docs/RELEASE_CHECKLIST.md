@@ -114,8 +114,8 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
    missing APK notices, a malformed SBOM, or a checksum
    mismatch fails before publication. A green tool result is technical evidence,
    not legal approval.
-7. Generates a deterministic app SPDX document from the exact six Gradle
-   lockfiles and release runtime classpath. It archives those six locks exactly,
+7. Generates a deterministic app SPDX document from the exact seven Gradle
+   lockfiles and release runtime classpath. It archives those seven locks exactly,
    retains the LibRaw SPDX/source bundle, R8 mapping and full native symbols, and
    emits a fixed gate attestation bound to source SHA, version, run ID/attempt,
    and both unsigned APK hashes.
@@ -132,7 +132,7 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
     An API 35 emulator installs both signed APKs, pulls installed `base.apk` and
     byte-compares it with the local signed APK, runs the release instrumentation,
     cold-launches `MainActivity`, and rejects app-scoped fatal Java/JNI/native logs.
-11. Stages the app APK, both SPDX documents, LibRaw source/relink ZIP, six-lock
+11. Stages the app APK, both SPDX documents, LibRaw source/relink ZIP, seven-lock
     archive, R8 mapping, full native symbols, runtime classpath, provenance, and
     checksums. Provenance binds source/tag/version, run ID/attempt, candidate
     artifact ID/digest, signer, unsigned/signed/installed/test APK hashes, and all
@@ -231,7 +231,7 @@ git push origin v0.7.0
 
 Expect the unsigned-candidate and protected signing jobs to assemble, gate,
 sign, device-verify, and publish `Spektrafilm-v0.7.0.apk`, the deterministic
-LibRaw source/relink ZIP, app and LibRaw SPDX documents, six-lock archive, R8
+LibRaw source/relink ZIP, app and LibRaw SPDX documents, seven-lock archive, R8
 mapping, full native symbols, release runtime classpath, provenance, and
 `SHA256SUMS` to the Release for that tag.
 
@@ -292,7 +292,7 @@ it cannot be assumed to have repository Administration read permission.
 ## 5. Post-release
 
 - [ ] Open the immutable published Release; confirm the APK, both SPDX files,
-  LibRaw source/relink ZIP, six-lock archive, R8 mapping, full native symbols,
+  LibRaw source/relink ZIP, seven-lock archive, R8 mapping, full native symbols,
   runtime classpath, provenance, and `SHA256SUMS` assets are attached.
 - [ ] Verify the APK is production-signed and 16 KB-aligned (§3).
 - [ ] Close/update issues resolved by the release; keep `CHANGELOG.md` current.

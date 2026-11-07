@@ -60,7 +60,7 @@ That job reruns the exact engine suite at both `-O2` and the shipping flags, rel
 R8/JNI checks, and 16 KiB ZIP/ELF checks. A fixed gate attestation binds those
 results, the exact commit/version, run ID/attempt, and all three APK hashes. The
 service artifact digest and checked manifest bind that attestation together with
-all six Gradle lockfiles, deterministic app and LibRaw SPDX documents, runtime
+all seven Gradle lockfiles, deterministic app and LibRaw SPDX documents, runtime
 classpath, R8 mapping, and full native symbols; final provenance records the
 artifact database ID/digest and the signed/installed identities.
 The separate LibRaw qualifier emits its run ID/attempt/source receipt; a partial
@@ -92,7 +92,7 @@ foreign release. Publication uses the protected Environment secret
 `RELEASE_GITHUB_TOKEN`, a fine-grained PAT or GitHub App token with repository
 Administration (read) and Contents (write); a missing/under-scoped token fails
 closed. A successful run publishes the APK, both SPDX documents, LibRaw
-source/relink ZIP, six-lock archive, R8 mapping, full native symbols, runtime
+source/relink ZIP, seven-lock archive, R8 mapping, full native symbols, runtime
 classpath, engine boundary APK/transcript, provenance, and checksums.
 Release uses JDK 21; NDK r28c (28.2.13676358), CMake 3.22.1, and build-tools 36.0.0 match CI.
 Repository administrators must additionally protect `refs/tags/v*` with a
