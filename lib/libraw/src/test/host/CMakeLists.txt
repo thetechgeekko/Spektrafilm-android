@@ -248,6 +248,11 @@ target_include_directories(sfraw_raw_preview_test PRIVATE
 target_link_libraries(sfraw_raw_preview_test PRIVATE sfraw_host_libraw
                       sfraw_host_sanitizers)
 
+add_executable(sfraw_raw_inset_crop_test test_raw_inset_crop.cpp)
+target_include_directories(sfraw_raw_inset_crop_test PRIVATE
+                           "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
+target_link_libraries(sfraw_raw_inset_crop_test PRIVATE sfraw_host_sanitizers)
+
 add_executable(sfraw_fd_read_all_test test_fd_read_all.cpp)
 target_include_directories(sfraw_fd_read_all_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
@@ -270,6 +275,14 @@ if(BUILD_TESTING)
       TIMEOUT 60
       ENVIRONMENT
         "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1:strict_string_checks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+  add_test(NAME sfraw.raw-inset-crop.contract
+           COMMAND sfraw_raw_inset_crop_test)
+  set_tests_properties(
+    sfraw.raw-inset-crop.contract
+    PROPERTIES
+      TIMEOUT 10
+      ENVIRONMENT
+        "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
   add_test(NAME sfraw.fd-read-all.contract
            COMMAND sfraw_fd_read_all_test)
   set_tests_properties(
