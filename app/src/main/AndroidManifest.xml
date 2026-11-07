@@ -34,6 +34,13 @@
          export is written without GPS, nothing else. Ignored below API 29. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
+    <!-- Large screens / desktop windowing: ChromeOS laptops and DeX with a mouse have no
+         touchscreen. Nothing in the editor needs one (every gesture has a click or keyboard
+         path), so do not let the store filter those devices out. -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
     <application
         android:name=".SpektraApplication"
         android:allowBackup="false"
@@ -58,11 +65,25 @@
         <!-- singleTask: an incoming VIEW/SEND must reach the one live editor through
              onNewIntent — a second Activity instance would fight the process-owned
              export/session runtimes for ownership. -->
+        <!-- Large-screen quality (tablets, foldables, DeX, ChromeOS, Android desktop windows):
+             no orientation lock, resizable, and the window-shape config changes are handled IN
+             PLACE instead of recreating the Activity. The UI is Compose-only and already reacts
+             to LocalConfiguration / constraints, while a recreate would tear down the GPU
+             preview's GL context and re-read the editor session from disk on every window
+             drag, fold, rotate or keyboard attach. Deliberately NOT listed: density (moving to
+             another display), uiMode, locale and fontScale; those still recreate, as before.
+             <layout> only sets the first size of a freeform/desktop window. -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
             android:exported="true"
             android:launchMode="singleTask"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
+            <layout
+                android:defaultWidth="1024dp"
+                android:defaultHeight="720dp"
+                android:gravity="center" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
