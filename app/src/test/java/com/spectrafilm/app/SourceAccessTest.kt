@@ -50,6 +50,41 @@ class SourceAccessTest {
     }
 
     @Test
+    fun reconcile_keepsTheLibraryFolderGrant() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3ADCIM"
+        val stale = "content://photos/stale"
+        val backend = FakeUriGrantBackend(
+            persistedUris = mutableSetOf(tree, stale),
+            readableUris = mutableSetOf(tree),
+        )
+        val coordinator = SourceAccessCoordinator(backend, FakeSourceRefStore()) { setOf(tree) }
+
+        assertEquals(SourceRestoreResult.None, coordinator.restore())
+
+        assertEquals(listOf(stale), backend.releasedUris)
+    }
+
+    @Test
+    fun acquire_photoInsideTheLibraryFolder_keepsTheFolderGrant() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3ADCIM"
+        val child = "$tree/document/primary%3ADCIM%2FIMG_1.dng"
+        // A document inside a granted tree cannot take a grant of its own.
+        val backend = FakeUriGrantBackend(
+            takeSucceeds = false,
+            persistedUris = mutableSetOf(tree),
+            readableUris = mutableSetOf(child),
+        )
+        val store = FakeSourceRefStore()
+        val coordinator = SourceAccessCoordinator(backend, store) { setOf(tree) }
+
+        coordinator.acquire(child, "RAW", "IMG_1.dng")
+        coordinator.restore()
+
+        assertTrue(backend.releasedUris.isEmpty())
+        assertEquals(SourceAccessMode.TRANSIENT, store.stored?.accessMode)
+    }
+
+    @Test
     fun acquire_whenPersistableGrantFails_marksTransientAndRequiresAuthorizationAfterRestart() {
         val uri = "content://cloud/raw/7"
         val backend = FakeUriGrantBackend(

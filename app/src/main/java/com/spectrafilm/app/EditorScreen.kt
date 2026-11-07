@@ -112,6 +112,7 @@ internal fun MainActivity.EditorScreen(
     activeCategoryState: MutableState<Category?>,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenLibrary: () -> Unit,
     onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
     onOpenFilmCurves: (id: String, name: String) -> Unit,
     onOpenPrintCurves: (id: String, name: String) -> Unit,
@@ -2932,6 +2933,10 @@ internal fun MainActivity.EditorScreen(
                     checkpointEditorSession()
                     onOpenAbout()
                 },
+                onOpenLibrary = {
+                    checkpointEditorSession()
+                    onOpenLibrary()
+                },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
@@ -4374,6 +4379,7 @@ internal fun MainActivity.EditorTopBar(
     onOpenSource: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenLibrary: () -> Unit,
 ) {
     Box(
         Modifier
@@ -4450,6 +4456,13 @@ internal fun MainActivity.EditorTopBar(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {
+                    // The Library (a folder of RAWs and photos) comes first: it is where a
+                    // shoot is worked through frame by frame.
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(stringResource(R.string.library_title)) },
+                        leadingIcon = { Icon(SpectraIcons.SourceImage, contentDescription = null) },
+                        onClick = { menuOpen = false; onOpenLibrary() },
+                    )
                     androidx.compose.material3.DropdownMenuItem(
                         text = { Text(stringResource(R.string.editor_action_settings)) },
                         leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },

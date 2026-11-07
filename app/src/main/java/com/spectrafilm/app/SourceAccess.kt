@@ -79,6 +79,12 @@ internal class LatestSourceMutationGate {
 internal class SourceAccessCoordinator(
     private val backend: UriGrantBackend,
     private val store: SourceRefStore,
+    /**
+     * Persisted grants the app holds for something other than the editor's source -- the
+     * Library's folder tree. Reconciliation releases every grant it does not expect, so
+     * without this the folder would be revoked on the next restore.
+     */
+    private val retainedGrants: () -> Set<String> = { emptySet() },
 ) {
     private val mutationLock = Any()
 
@@ -201,8 +207,10 @@ internal class SourceAccessCoordinator(
 
     private fun reconcilePersistedGrantsLocked(expectedUri: String?): Int {
         var released = 0
+        // Unknown retained set: release nothing rather than risk revoking the Library folder.
+        val retained = runCatching { retainedGrants() }.getOrElse { return 0 }
         for (uri in backend.persistedReads()) {
-            if (uri == expectedUri) continue
+            if (uri == expectedUri || uri in retained) continue
             runCatching { backend.releasePersistableRead(uri) }
                 .onSuccess { released++ }
         }
@@ -365,6 +373,9 @@ internal object SourceAccessRuntimeHolder {
             coordinator = SourceAccessCoordinator(
                 AndroidUriGrantBackend(context.applicationContext),
                 SharedPreferencesSourceRefStore(context.applicationContext),
+                retainedGrants = {
+                    setOfNotNull(AppSettings.from(context.applicationContext).libraryTreeUri)
+                },
             ),
             mutations = LatestSourceMutationGate(),
         ).also { runtime = it }

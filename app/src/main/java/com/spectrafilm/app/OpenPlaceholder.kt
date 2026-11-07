@@ -82,7 +82,7 @@ internal object OpenPlaceholder {
                 val orientation = ExifOrientation.fromExif(
                     exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL),
                 )
-                transform(thumb, placeholderTransform(orientation, userRotation))
+                applyTransform(thumb, placeholderTransform(orientation, userRotation))
             }
         }.getOrNull()
 
@@ -116,7 +116,7 @@ internal object OpenPlaceholder {
                 runCatching {
                     ctx.contentResolver.loadThumbnail(uri, Size(TARGET_EDGE_PX, TARGET_EDGE_PX), signal)
                 }.getOrNull()?.let {
-                    transform(
+                    applyTransform(
                         it,
                         providerTransform(
                             exif = meta.orientation,
@@ -151,7 +151,7 @@ internal object OpenPlaceholder {
     }.getOrNull() ?: OrientationMeta(ExifOrientation.NONE, 0, 0)
 
     /** Applies [t] and the [TARGET_EDGE_PX] cap in one pass; recycles [src] if it was copied. */
-    private fun transform(src: Bitmap, t: PlaceholderTransform): Bitmap {
+    internal fun applyTransform(src: Bitmap, t: PlaceholderTransform): Bitmap {
         val longest = max(src.width, src.height)
         val scale = if (longest > TARGET_EDGE_PX) TARGET_EDGE_PX.toFloat() / longest else 1f
         if (t.isIdentity && scale == 1f) return src

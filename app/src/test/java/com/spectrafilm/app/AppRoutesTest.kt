@@ -12,6 +12,7 @@ class AppRoutesTest {
             DiagnosticsRoute,
             AboutRoute,
             HowToRoute,
+            LibraryRoute,
             FilmCurvesRoute("kodak_portra_400", "Portra 400"),
             PrintCurvesRoute("kodak_portra_endura", "Endura"),
         )
