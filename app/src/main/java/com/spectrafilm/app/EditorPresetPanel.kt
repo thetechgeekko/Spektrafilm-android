@@ -25,7 +25,10 @@ import org.json.JSONObject
  * out of EditorScreen (#273); editor `var`s arrive as their state holders.
  */
 @Composable
-internal fun MainActivity.EditorPresetPanel(
+internal fun EditorPresetPanel(
+    dispatchers: AppDispatchers,
+    presetVm: PresetViewModel,
+    versionsVm: VersionsViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,

@@ -1696,6 +1696,7 @@ internal fun MainActivity.EditorScreen(
     // of writing it, so a superseded render can never leak or land on screen.
     fun openMagnifier(nx: Float, ny: Float) {
         startMagnifierRender(
+            dispatchers = dispatchers,
             nx = nx,
             ny = ny,
             ctx = ctx,
@@ -1723,6 +1724,8 @@ internal fun MainActivity.EditorScreen(
     // while cropping or comparing (those branches own the gestures / have no zoom).
     fun renderRoi(roi: RoiRect) {
         startRoiPatchRender(
+            dispatchers = dispatchers,
+            patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
             roi = roi,
             scope = scope,
             state = state,
@@ -2384,6 +2387,9 @@ internal fun MainActivity.EditorScreen(
                         )
                         Category.DISPLAY -> DisplaySection(state)
                         Category.PRESETS -> EditorPresetPanel(
+                            dispatchers = dispatchers,
+                            presetVm = presetVm,
+                            versionsVm = versionsVm,
                             ctx = ctx,
                             scope = scope,
                             state = state,
@@ -2695,6 +2701,8 @@ internal fun MainActivity.EditorScreen(
         // is open (see the PredictiveBackHandler above).
         Box(Modifier.fillMaxSize().predictiveBackShrink(overlayBackProgress)) {
             EditorToolOverlays(
+                dispatchers = dispatchers,
+                toolVm = toolVm,
                 ctx = ctx,
                 scope = scope,
                 state = state,
