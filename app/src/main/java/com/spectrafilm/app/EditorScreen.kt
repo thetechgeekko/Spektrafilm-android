@@ -1421,7 +1421,7 @@ internal fun MainActivity.EditorScreen(
     fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
         previews = vm.previews,
         request = vm::request,
-        open = open@{
+        open = open@{ owner ->
             if (!sourceRenderAllowed || sourceUri == null) return@open
             val fullEdge = state.previewMaxSize.coerceAtLeast(256)
             val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
@@ -1453,9 +1453,10 @@ internal fun MainActivity.EditorScreen(
                         simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
                     },
                 ),
+                owner,
             )
         },
-        close = vm::close,
+        close = { owner -> vm.close(owner) },
     )
 
     suspend fun loadSourceCached(
@@ -2165,7 +2166,9 @@ internal fun MainActivity.EditorScreen(
                             stockPreviewHost = ::stockPreviewHost,
                             checkpointEditorSession = ::checkpointEditorSession,
                             sourceKey = sourceUri,
-                            previewBusy = previewBusy,
+                            // A slider drag runs draft renders without setting previewBusy,
+                            // so the strip also waits for the drag to end.
+                            previewBusy = previewBusy || interacting.value,
                         )
                         Category.GRAIN -> GrainSection(state)
                         Category.PREFLASH -> PreflashSection(state)

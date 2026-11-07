@@ -140,8 +140,9 @@ private fun StockBrowserSheet(
     // The host is rebuilt on every editor recomposition; key the session to the sheet's own
     // lifetime and always talk to the latest host.
     val host by rememberUpdatedState(previewHost)
-    LaunchedEffect(Unit) { host?.open() }
-    DisposableEffect(Unit) { onDispose { host?.close() } }
+    val owner = remember { Any() }
+    LaunchedEffect(Unit) { host?.open?.invoke(owner) }
+    DisposableEffect(Unit) { onDispose { host?.close?.invoke(owner) } }
     val previews = previewHost?.previews?.collectAsStateWithLifecycle()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Text(

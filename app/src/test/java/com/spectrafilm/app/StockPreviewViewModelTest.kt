@@ -145,6 +145,23 @@ class StockPreviewViewModelTest {
         assertEquals(listOf("a"), renderer.rendered)
     }
 
+    @Test fun oneOwnerClosingDoesNotStopAnotherOwnersTiles() {
+        // The Film & look strip and the browser sheet share the model: dismissing the sheet
+        // must leave the strip rendering.
+        val renderer = FakeRenderer()
+        val model = StockPreviewViewModel(renderer, inline)
+        val strip = Any()
+        val sheet = Any()
+        model.open(session("look1", Sources()), strip)
+        model.open(session("look1", Sources()), sheet)
+        model.close(sheet)
+        model.request("a"); idle()
+        assertEquals(listOf("a"), renderer.rendered)
+        model.close(strip)
+        model.request("b"); idle()
+        assertEquals(listOf("a"), renderer.rendered)
+    }
+
     @Test fun aFailedTileDropsItsPlaceholderAndCanBeAskedForAgain() {
         val renderer = FakeRenderer().apply { failOnce += "a" }
         val model = StockPreviewViewModel(renderer, inline)

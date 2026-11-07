@@ -14,7 +14,7 @@
  * must scroll the selected stock into view and LazyListState does that with a stable API.
  *
  * Tiles share [StockPreviewViewModel] with the browser sheet, under one extra rule: the strip
- * renders only while the interactive preview is idle ([paused] is the editor's busy flag), so a
+ * renders only while the interactive preview is idle and no slider is held ([paused]), so a
  * tile never competes with the render the user is waiting for.
  */
 package com.spectrafilm.app
@@ -38,7 +38,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.awaitCancellation
 
 /** Edge of one strip tile. Small enough that four show on a compact panel. */
 private val STRIP_TILE_DP = 88.dp
@@ -88,10 +88,18 @@ internal fun FilmStockStrip(
     val host by rememberUpdatedState(previewHost)
     // Rebinding on every idle moment is what keeps the tiles live: the session key carries the
     // current params, so a settled edit re-renders them, and an unchanged look is a no-op.
+    // The strip is one owner of the shared view model, so the browser sheet closing over it
+    // does not stop its tiles; each open is paired with its own close.
+    val owner = remember { Any() }
     LaunchedEffect(sourceKey, paused) {
-        if (paused) host.close() else host.open()
+        if (paused) return@LaunchedEffect
+        try {
+            host.open(owner)
+            awaitCancellation()
+        } finally {
+            host.close(owner)
+        }
     }
-    DisposableEffect(Unit) { onDispose { host.close() } }
     val previews by previewHost.previews.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = stripSelectedIndex(stocks, selectedId))

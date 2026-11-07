@@ -144,8 +144,9 @@ internal class StockPreviewQueue<B> {
 internal class StockPreviewHost(
     val previews: StateFlow<Map<String, ImageBitmap?>>,
     val request: (stockId: String) -> Unit,
-    val open: suspend () -> Unit,
-    val close: () -> Unit,
+    /** Start (or refresh) rendering on behalf of an owner; each owner closes its own. */
+    val open: suspend (owner: Any) -> Unit,
+    val close: (owner: Any) -> Unit,
 )
 
 /** Renders one tile. Production: the shared engine; tests: a fake. */
@@ -176,8 +177,15 @@ internal class StockPreviewViewModel(
     private var sourceKey: Any? = null
     private var pump: Job? = null
 
-    /** The sheet opened (or the look changed while open): render for [next]. */
-    fun open(next: StockPreviewSession) {
+    /**
+     * Who currently wants tiles: the browser sheet and the Film & look strip share this view
+     * model, and one closing must not stop the other's rendering.
+     */
+    private val owners = mutableSetOf<Any>()
+
+    /** [owner] opened (or the look changed while open): render for [next]. */
+    fun open(next: StockPreviewSession, owner: Any = DEFAULT_OWNER) {
+        owners += owner
         session = next
         queue.bind(next.key) // ImageBitmaps are GC-owned; nothing to release explicitly
         if (sourceKey != next.key) {
@@ -189,8 +197,13 @@ internal class StockPreviewViewModel(
         ensurePump()
     }
 
-    /** The sheet closed: stop rendering, keep finished tiles and the source for a reopen. */
-    fun close() {
+    /**
+     * [owner] closed. When nobody else wants tiles, stop rendering and keep finished tiles and
+     * the source for a reopen.
+     */
+    fun close(owner: Any = DEFAULT_OWNER) {
+        owners -= owner
+        if (owners.isNotEmpty()) return
         session = null
         pump?.cancel()
         pump = null
@@ -257,6 +270,9 @@ internal class StockPreviewViewModel(
     }
 
     companion object {
+        /** The owner for callers that never share the model (and the JVM tests). */
+        internal val DEFAULT_OWNER = Any()
+
         /** Production renderer: the shared process engine at preview quality. */
         fun engineRenderer(context: Context): StockPreviewRenderer {
             val app = context.applicationContext
