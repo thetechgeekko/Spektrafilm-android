@@ -2005,6 +2005,16 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
                        c.ensureBuf(s.dyeB, cellBytes) && c.ensureBuf(s.cmfB, counterBytes)) {
                 allocated = true;
                 break;
+            } else {
+                // Refused. ensureBuf keeps any buffer already at least as large as
+                // asked, so a retry at half the height would reuse the oversized
+                // input (or one left from an earlier, larger frame) and never
+                // return its reservation. Release all four so the smaller band
+                // really asks for less.
+                c.destroyBuf(s.in);
+                c.destroyBuf(s.out);
+                c.destroyBuf(s.dyeB);
+                c.destroyBuf(s.cmfB);
             }
             if (bandRows / 2u < minRows) break;
             bandRows /= 2u;
