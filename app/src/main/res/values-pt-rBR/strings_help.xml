@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="help_grain_title">Grão</string>
+    <string name="help_grain_summary">A textura fina e cintilante que faz o filme parecer filme.</string>
+    <string name="help_grain_body">O filme real é feito de partículas microscópicas sensíveis à luz, e o agrupamento aleatório delas é o que você vê como grão. Partículas maiores (um filme mais rápido, de ISO mais alto) dão um grão mais grosso e visível; as escalas por canal permitem que uma camada de cor tenha mais grão que as outras. Diminua para um visual limpo e moderno ou aumente para um visual áspero e vintage. O grão é medido em mícrons, então pode parecer mais fino na pequena prévia na tela do que na exportação em resolução total.</string>
+    <string name="help_halation_title">Halação</string>
+    <string name="help_halation_summary">O brilho suave e avermelhado que floresce em volta dos realces fortes.</string>
+    <string name="help_halation_body">No filme real, a luz forte atravessa a emulsão, reflete no fundo da base e volta a expor o filme em volta das áreas claras: postes de luz, o sol entre as folhas, reflexos especulares. “Quantidade de halação” define a força desse brilho, enquanto a “dispersão” adiciona um espalhamento de luz mais amplo e sutil dentro da emulsão; “EV de reforço” decide o quão claro um realce precisa ser para florescer. Aumente para um visual onírico e cinematográfico, ou desligue a seção inteira para realces limpos e digitais.</string>
+    <string name="help_couplers_title">Caráter de cor do filme (acopladores)</string>
+    <string name="help_couplers_summary">A separação de cor característica do filme, o reforço de bordas e a queda de saturação.</string>
+    <string name="help_couplers_body">Enquanto o filme é revelado, o corante que se forma em uma camada de cor segura quimicamente as vizinhas: o efeito dos “acopladores DIR”. Essa interferência explica boa parte de por que as cores do filme são como são: bordas mais nítidas e uma saturação característica e não linear. “Intensidade do efeito” escala todo o caráter, e os controles entre cores definem o quanto cada cor vaza para as outras. É um controle de caráter, não um simples controle de saturação: para o “mais / menos colorido” comum, use Saturação / Vibração em Saída.</string>
+    <string name="help_print_gamma_title">Contraste do filme e da cópia (gama)</string>
+    <string name="help_print_gamma_summary">O contraste de base embutido no negativo e no papel de cópia.</string>
+    <string name="help_print_gamma_body">Todo filme e papel tem uma curva característica, e o “gama” é a inclinação dessa curva: o equivalente fotoquímico de um controle de contraste. Um gama de cópia mais alto dá uma cópia mais marcante e contrastada; mais baixo a achata. Para ajustes de contraste do dia a dia, use primeiro o controle Contraste; estes são os botões fotoquímicos de fundo para moldar a base do estilo.</string>
+    <string name="help_preflash_title">Pré-exposição</string>
+    <string name="help_preflash_summary">Uma exposição prévia, fraca e uniforme, do papel que suaviza o contraste duro.</string>
+    <string name="help_preflash_body">No laboratório, às vezes se dá ao papel um flash de luz baixa e uniforme antes da exposição real. Isso levanta as sombras mais profundas e reduz suavemente o contraste da cópia sem mexer nos realces. Aumente “Exposição” para sombras mais suaves e abertas; os deslocamentos dos filtros Y e M tingem essa luz de pré-exposição, como a filtragem do ampliador.</string>
+    <string name="help_glare_title">Ofuscamento</string>
+    <string name="help_glare_summary">Névoa causada pela luz que se espalha sobre a superfície da cópia.</string>
+    <string name="help_glare_body">Modela a luz parasita que rebate na cópia e no scanner, levantando um pouco os pretos e espalhando uma névoa suave sobre a imagem. É um efeito aleatório (estocástico), por isso vem desligado e não faz parte da exportação exata e repetível. Aumente “Porcentagem” para um visual mais enevoado, de menor contraste e mais nostálgico.</string>
+    <string name="help_contrast_mask_title">Máscara de contraste</string>
+    <string name="help_contrast_mask_summary">Segura a luz nas grandes áreas claras e a adiciona nas grandes áreas escuras, como uma máscara de laboratório.</string>
+    <string name="help_contrast_mask_body">Antigamente, os laboratoristas colocavam no ampliador uma cópia suave e desfocada do negativo junto com o original. Onde o negativo era fino ela segurava a luz, e onde era denso não adicionava nada, então as grandes áreas claras e escuras da cópia se aproximavam do meio enquanto as bordas e a textura mantinham sua definição. “Realces” recupera o detalhe do céu e dos realces, “Sombras” abre as áreas escuras, “Meios-tons intocados” protege o meio da escala e “Suavidade” define o quanto a máscara é desfocada. Vem desligada e só funciona na rota de cópia.</string>
+</resources>

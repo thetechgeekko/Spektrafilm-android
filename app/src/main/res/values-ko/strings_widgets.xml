@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="widget_state_expanded">펼쳐짐</string>
+    <string name="widget_state_collapsed">접힘</string>
+    <string name="widget_section_expand">펼치기</string>
+    <string name="widget_section_collapse">접기</string>
+    <string name="widget_section_enable_switch">%1$s 사용</string>
+    <string name="widget_help_badge_tooltip">\"%1$s\"은(는) 어떤 기능인가요?</string>
+    <string name="widget_help_badge_description">%1$s 정보</string>
+    <string name="widget_help_badge_action">도움말 보기</string>
+    <string name="widget_advanced_hide">고급 옵션 숨기기</string>
+    <string name="widget_advanced_show">고급 옵션 보기</string>
+    <string name="widget_value_pill_description">%1$s 값 %2$s</string>
+    <string name="widget_value_pill_description_modified">%1$s 값 %2$s, 변경됨</string>
+    <string name="widget_value_pill_enter_exact">%1$s의 정확한 값 입력</string>
+    <string name="widget_value_pill_reset_default">%1$s을(를) 기본값으로 재설정</string>
+    <string name="widget_component_r">R</string>
+    <string name="widget_component_g">G</string>
+    <string name="widget_component_b">B</string>
+    <string name="widget_component_1">1</string>
+    <string name="widget_component_2">2</string>
+    <string name="widget_not_yet_active_badge">아직 적용되지 않음</string>
+    <string name="widget_not_yet_active_detail">이 설정은 향후 엔진 업데이트를 위한 것으로, 아직 효과가 없습니다.</string>
+    <string name="widget_numeric_entry_field_label">값</string>
+    <string name="widget_numeric_entry_sign_toggle">부호 전환</string>
+    <string name="widget_numeric_entry_range_hint">%1$s에서 %2$s 사이의 값을 입력하세요.</string>
+    <string name="widget_numeric_entry_set">설정</string>
+    <string name="widget_numeric_entry_cancel">취소</string>
+    <string name="widget_ae_drag_handle">드래그 핸들</string>
+    <string name="widget_ae_dismiss_menu">측광 메뉴 닫기</string>
+    <string name="widget_ae_metering_method">측광 방식</string>
+    <string name="widget_ae_off_manual">끄기 / 수동</string>
+    <string name="widget_ae_description">자동 노출</string>
+    <string name="widget_ae_state_on">켜짐, %1$s</string>
+    <string name="widget_ae_state_off">꺼짐, 수동 노출</string>
+    <string name="widget_ae_choose_method">측광 방식 선택</string>
+    <string name="widget_ae_turn_on">켜고 측광 방식 선택</string>
+    <string name="widget_ae_tooltip">자동 노출: 탭하여 측광 패턴을 선택하거나 위로 스와이프하여 펼칩니다. 끄면 노출은 완전히 수동입니다.</string>
+    <string name="widget_ae_button_on">"자동  ·  %1$s"</string>
+    <string name="widget_ae_button_off">자동</string>
+    <string name="widget_ae_manual_exposure">수동 노출</string>
+</resources>
