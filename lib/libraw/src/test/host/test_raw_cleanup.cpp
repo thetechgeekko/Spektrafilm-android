@@ -150,10 +150,74 @@ void chroma(int w, int h, const char* label) {
 
 }  // namespace
 
+void extendedBox() {
+    using spectrafilm::cleanup::boxPassColumns;
+    using spectrafilm::cleanup::boxPassRow;
+    using spectrafilm::cleanup::boxRadiusForSigma;
+    // Three extended-box passes reach the requested sigma exactly, sub-pixel included.
+    bool exact = true;
+    for (float sigma : {0.1f, 0.3f, 0.8f, 1.0f, 1.7f, 4.2f, 9.5f}) {
+        const float r = boxRadiusForSigma(sigma);
+        constexpr int n = 401;
+        std::vector<float> x(n, 0.0f), y(n), padded;
+        x[n / 2] = 1.0f;
+        std::vector<float> column = x, scratch(n);
+        std::vector<double> sums;
+        for (int pass = 0; pass < 3; ++pass) {
+            boxPassRow(x.data(), y.data(), n, r, padded);
+            x.swap(y);
+            boxPassColumns(column.data(), scratch.data(), 1, n, r, sums);
+            column.swap(scratch);
+        }
+        for (int i = 0; i < n; ++i) exact &= std::fabs(x[i] - column[i]) < 1e-7f;
+        double mass = 0.0, var = 0.0;
+        for (int i = 0; i < n; ++i) {
+            mass += x[i];
+            var += x[i] * static_cast<double>(i - n / 2) * (i - n / 2);
+        }
+        exact &= std::fabs(mass - 1.0) < 1e-5 && std::fabs(std::sqrt(var) - sigma) < 1e-3;
+    }
+    check(exact, "row and column extended-box passes agree, reach sigma and keep mass");
+}
+
+void banding() {
+    using spectrafilm::cleanup::reduceChromaNoise;
+    // Banded processing must equal one whole-image pass: the halo carries every row
+    // that can influence a band's interior, and later bands read original pixels.
+    constexpr int w = 300, h = 517;
+    const auto original = noisyImage(w, h);
+    bool same = true;
+    for (float strength : {5.0f, 40.0f, 100.0f}) {
+        auto whole = original;
+        auto banded = original;
+        reduceChromaNoise(whole.data(), w, h, strength, nullptr, std::size_t{1} << 30);
+        reduceChromaNoise(banded.data(), w, h, strength, nullptr, 5U * w * 40U);
+        for (std::size_t i = 0; i < whole.size(); ++i) {
+            same &= std::fabs(whole[i] - banded[i]) < 2e-6f;
+        }
+    }
+    check(same, "banded chroma NR matches a whole-image pass");
+}
+
+void scaleConsistency() {
+    using spectrafilm::cleanup::reduceChromaNoise;
+    // A low strength is a light touch at any size: no work-size step adds blur.
+    constexpr int w = 2000, h = 1300;
+    const auto original = noisyImage(w, h);
+    auto image = original;
+    reduceChromaNoise(image.data(), w, h, 1.0f);
+    const double kept = chromaVariance(image) / chromaVariance(original);
+    std::printf("     strength 1 on %dx%d keeps %.3f of chroma variance\n", w, h, kept);
+    check(kept > 0.9, "strength 1 on a large frame keeps over 90% of chroma variance");
+}
+
 int main() {
+    extendedBox();
+    banding();
+    scaleConsistency();
     hotPixels();
     chroma(640, 427, "chroma NR on a preview-sized frame");
-    chroma(2000, 1300, "chroma NR on a frame above the 2 MiPixel work size");
+    chroma(2000, 1300, "chroma NR on a frame larger than one band");
     if (failures != 0) {
         std::printf("%d failure(s)\n", failures);
         return EXIT_FAILURE;
