@@ -455,10 +455,12 @@ object RawDecoder {
      *    memory-bitmap route would quantize the float source before this module's
      *    float32 boundary. It therefore fails closed as [DecodeStatus.DEFLATE_DNG]
      *    instead of claiming native precision parity.
-     *  * **Lossy-baseline-JPEG DNG** (DNG 1.4 lossy, Compression 0x884C; or
-     *    old-style JPEG, Compression 6) — common in Samsung Expert RAW. LibRaw
-     *    `unpack()` fails; the native layer throws [RawDecodeException] with
-     *    status [DecodeStatus.LOSSY_JPEG_DNG].
+     *  * **Lossy-baseline-JPEG DNG** that is not the qualified route: old-style
+     *    JPEG (Compression 6), or a 0x884C file whose JPEG tiles are corrupt,
+     *    progressive, arithmetic-coded or multi-scan. Surfaces as
+     *    [DecodeStatus.LOSSY_JPEG_DNG]. (Ordinary 0x884C LinearRaw, e.g. Samsung
+     *    Expert RAW, decodes natively through the bundled libjpeg-turbo and is
+     *    labelled [RawPacking.LOSSY_COMPRESSED].)
      *  * **JPEG-XL DNG** (DNG 1.7, recent Galaxy S24+ Expert RAW) — needs libjxl
      *    / Adobe DNG SDK 1.7; surfaces as [DecodeStatus.JPEGXL_DNG] (or, if the
      *    container can't be opened at all, [DecodeStatus.FILE_UNSUPPORTED]).
@@ -494,10 +496,9 @@ object RawDecoder {
      * }
      * ```
      *
-     * Full lossy-JPEG-DNG support on the engine (linear) path requires linking
-     * libjpeg into this module (see `SFRAW_LIBRAW_JPEG_TARGET` in
-     * `src/main/cpp/CMakeLists.txt`); JPEG-XL additionally requires the Adobe
-     * DNG SDK 1.7.
+     * Lossy-JPEG DNG reaches the engine (linear) path through the libjpeg-turbo
+     * that `src/main/cpp/CMakeLists.txt` links by default (`SFRAW_WITH_JPEG`);
+     * JPEG-XL would additionally require the Adobe DNG SDK 1.7.
      */
 
     // --- native bridge (raw_decoder_jni.cpp) ---
@@ -547,6 +548,9 @@ object RawDecoder {
  *  - Lossless-JPEG / LJ92 DNG (Compression 7) — common Google Pixel and other
  *    computational-RAW DNGs; LibRaw decodes these with its own internal
  *    lossless-JPEG code (no libjpeg required).
+ *  - Lossy-JPEG DNG (Compression 0x884C, LinearRaw), e.g. Samsung / Pixel Expert
+ *    RAW, through the bundled libjpeg-turbo. The precision descriptor labels these
+ *    [RawPacking.LOSSY_COMPRESSED].
  *  - Mainstream camera RAW (CR2/CR3/NEF/ARW/RAF/ORF/RW2/...).
  */
 enum class DecodeStatus(val code: Int) {
@@ -566,8 +570,10 @@ enum class DecodeStatus(val code: Int) {
 
     /**
      * Lossy-baseline-JPEG compressed DNG (DNG 1.4 lossy, Compression 0x884C, or
-     * old-style JPEG, Compression 6). The build has no libjpeg, so fall back to
-     * the platform `ImageDecoder`. See [RawDecoder].
+     * old-style JPEG, Compression 6) that LibRaw could not decode natively: legacy
+     * Compression 6, or a 0x884C file whose JPEG tiles are corrupt, progressive or
+     * otherwise outside the qualified baseline route. Fall back to the platform
+     * `ImageDecoder`. See [RawDecoder].
      */
     LOSSY_JPEG_DNG(11),
 

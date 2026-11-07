@@ -16,7 +16,7 @@ Upstream baseline:
 - annotated tag object: `24fa7e5463cbf8b8615dbd2b16c933a294d52400`
 - peeled commit: `b93f6e45c194f5df9b02a43b1af9a54b4f41f33f`
 - tag signature: none; the archive hash is therefore the shipping trust anchor
-- audited patched-tree aggregate: `bc463c30e414781d2455a47b99c30741830798b5941a049782b560fbb3abc74c`
+- audited patched-tree aggregate: `29be40072fe3b05cba3e7768e4d8cacafbc2c18e5d962a13cbba855ff0b3745d`
   over the resolver's sorted 100-file source/header manifest
 
 Patch order:
@@ -126,6 +126,19 @@ Patch order:
     rounds generated ICC XYZ matrix entries in the signed domain before their
     defined modulo encoding as 32-bit s15Fixed16 words. This preserves negative
     ACES profile coefficients without undefined floating-to-unsigned conversion.
+26. `0026-harden-lossy-dng-jpeg-loader.patch`
+    (`2a885e77d6a2d509a6975e8a492f70620f84426fdffd6b0c16765d0f9cd8bed2`)
+    hardens `lossy_dng_load_raw`, which the build reaches once libjpeg-turbo is
+    linked (`USE_JPEG`) for Samsung / Pixel Expert RAW lossy DNG. It applies
+    patch 0006's tile-stream bound to the JPEG tiles; accepts only 8-bit,
+    single-scan, Huffman (baseline sequential) JPEG tiles, because progressive,
+    arithmetic and multi-scan streams make libjpeg buffer the whole JPEG image
+    before the first row; keeps the decompressor inside the try so a libjpeg
+    error never leaks it; clamps `MapPolynomial` results to `[0,1]` before the
+    `ushort` conversion (NaN or out-of-range coefficients were undefined
+    behaviour); and starts every plane from the default curve instead of
+    indeterminate stack memory. It also keeps the legacy Kodak JPEG loader
+    unreachable under `LIBRAW_NO_KODAK_JPEG`, as it was in the `NO_JPEG` build.
 
 Patch 0021 deliberately preserves ordered first-match decoding rather than
 requiring a prefix-free codebook: Panasonic S5M2 metadata contains an 8-bit

@@ -78,7 +78,8 @@ target_compile_definitions(sfraw_host_libraw PRIVATE
                            LIBRAW_MAX_METADATA_ALLOC_SIZE_MB=16
                            LIBRAW_MAX_TILE_STREAM_COUNT=131072
                            NO_JASPER
-                           NO_JPEG
+                           USE_JPEG
+                           LIBRAW_NO_KODAK_JPEG
                            USE_X3FTOOLS
                            USE_ZLIB)
 target_compile_options(sfraw_host_libraw PRIVATE -w)
@@ -86,6 +87,12 @@ target_link_libraries(sfraw_host_libraw PUBLIC sfraw_host_sanitizers)
 
 find_package(ZLIB REQUIRED)
 target_link_libraries(sfraw_host_libraw PUBLIC ZLIB::ZLIB)
+
+# Lossy-JPEG DNG, exactly as Android builds it: the pinned libjpeg-turbo
+# release, built unmodified (and so uninstrumented by the sanitizers above).
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/LibJpegTurboVendor.cmake")
+sfraw_add_libjpeg_turbo(sfraw_host_libjpeg_turbo)
+target_link_libraries(sfraw_host_libraw PUBLIC sfraw_host_libjpeg_turbo)
 
 if(SFRAW_HOST_REQUIRE_OPENMP AND NOT SFRAW_HOST_ENABLE_OPENMP)
   message(FATAL_ERROR
@@ -143,7 +150,8 @@ target_include_directories(sfraw_decoder_resource_limits_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
 target_compile_definitions(sfraw_decoder_resource_limits_test PRIVATE
                            SFRAW_TESTING=1
-                           USE_ZLIB=1)
+                           USE_ZLIB=1
+                           USE_JPEG=1)
 target_link_libraries(sfraw_decoder_resource_limits_test
                       PRIVATE sfraw_public_api_test_support)
 
@@ -154,8 +162,23 @@ target_include_directories(sfraw_raw_precision_contract_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
 target_compile_definitions(sfraw_raw_precision_contract_test PRIVATE
                            SFRAW_TESTING=1
-                           USE_ZLIB=1)
+                           USE_ZLIB=1
+                           USE_JPEG=1)
 target_link_libraries(sfraw_raw_precision_contract_test
+                      PRIVATE sfraw_public_api_test_support)
+
+# Lossy-JPEG DNG (Compression 0x884C) through the production wrapper and the
+# pinned libjpeg-turbo, including LibRaw patch 0026's hostile-tile gates.
+add_executable(sfraw_lossy_dng_test
+               test_lossy_dng.cpp
+               "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp/raw_decoder.cpp")
+target_include_directories(sfraw_lossy_dng_test PRIVATE
+                           "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
+target_compile_definitions(sfraw_lossy_dng_test PRIVATE
+                           SFRAW_TESTING=1
+                           USE_ZLIB=1
+                           USE_JPEG=1)
+target_link_libraries(sfraw_lossy_dng_test
                       PRIVATE sfraw_public_api_test_support)
 
 # First-party bounded TIFF/DNG diagnostic parser. Force the lightweight
@@ -295,6 +318,14 @@ if(BUILD_TESTING)
     sfraw.raw-precision.contract
     PROPERTIES
       TIMEOUT 30
+      ENVIRONMENT
+        "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1:strict_string_checks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+  add_test(NAME sfraw.lossy-dng.contract
+           COMMAND sfraw_lossy_dng_test)
+  set_tests_properties(
+    sfraw.lossy-dng.contract
+    PROPERTIES
+      TIMEOUT 60
       ENVIRONMENT
         "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1:strict_string_checks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
   add_test(NAME sfraw.ljpeg.concurrent-first-use

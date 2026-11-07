@@ -109,12 +109,13 @@ if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
     #     parser capability is not advertised as native precision parity.
     #     Integer/linear deflate also surfaces as SFRAW_ERR_DEFLATE_DNG.
     #
-    #   * Lossy-JPEG-compressed DNG (DNG 1.4 lossy, Compression 0x884C; legacy 6).
-    #     LibRaw decodes these via libjpeg; guarded by USE_JPEG. The NDK does
-    #     NOT ship libjpeg, so this stays OFF unless a libjpeg target is
-    #     provided (SFRAW_LIBRAW_JPEG_TARGET). When OFF, lossy-JPEG Expert RAW
-    #     DNGs cannot be unpacked by LibRaw; the decoder reports a specific
-    #     error so the app can fall back to the platform ImageDecoder.
+    #   * Lossy-JPEG-compressed DNG (DNG 1.4 lossy, Compression 0x884C), e.g.
+    #     Samsung / Pixel "Expert RAW". LibRaw decodes these via libjpeg, guarded
+    #     by USE_JPEG. The NDK does not ship libjpeg, so libjpeg-turbo is built
+    #     from its pinned, hash-verified release (cmake/LibJpegTurboVendor.cmake).
+    #     The decoded samples are 8-bit JPEG codes linearised to 16 bits by the
+    #     file's own curve; the precision descriptor labels them LossyCompressed
+    #     so nothing downstream mistakes them for lossless sensor data.
     #
     # LIBRAW_NODLL -> static (no dllimport/export); integration glue stays out.
     set(SFRAW_LIBRAW_DEFS
@@ -144,11 +145,24 @@ if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
                 "sfraw: shipping builds require SFRAW_WITH_ZLIB=ON for "
                 "the audited floating-point deflate DNG parser")
     endif ()
-    # libjpeg / lossy-DNG: OFF by default (NDK has no libjpeg). Point
-    # SFRAW_LIBRAW_JPEG_TARGET at a CMake target that provides libjpeg
-    # (headers + library) to enable lossy-JPEG DNG decoding.
+    # libjpeg / lossy-DNG: ON by default, from the pinned libjpeg-turbo release.
+    # SFRAW_LIBRAW_JPEG_TARGET may name another CMake target that provides
+    # libjpeg (headers + library) instead; it must be built with
+    # -fexceptions -funwind-tables (see LibJpegTurboVendor.cmake).
+    option(SFRAW_WITH_JPEG
+            "Decode lossy-JPEG DNG (Compression 0x884C) through libjpeg-turbo" ON)
     set(SFRAW_LIBRAW_JPEG_TARGET "" CACHE STRING
-            "CMake target providing libjpeg (headers+lib); enables lossy-JPEG DNG")
+            "Optional CMake target providing libjpeg instead of the pinned libjpeg-turbo")
+    if (_sfraw_shipping_config AND NOT SFRAW_WITH_JPEG)
+        message(FATAL_ERROR
+                "sfraw: shipping builds require SFRAW_WITH_JPEG=ON for "
+                "lossy-JPEG DNG (Samsung / Pixel Expert RAW)")
+    endif ()
+    if (SFRAW_WITH_JPEG AND SFRAW_LIBRAW_JPEG_TARGET STREQUAL "")
+        include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/LibJpegTurboVendor.cmake")
+        sfraw_add_libjpeg_turbo(sfraw_libjpeg_turbo)
+        set(SFRAW_LIBRAW_JPEG_TARGET sfraw_libjpeg_turbo)
+    endif ()
 
     if (SFRAW_WITH_ZLIB)
         list(APPEND SFRAW_LIBRAW_DEFS USE_ZLIB)
@@ -161,13 +175,15 @@ if (EXISTS "${LIBRAW_DIR}/libraw/libraw.h")
                 "Compression 8 inputs will use typed fallback.")
     endif ()
 
-    if (SFRAW_LIBRAW_JPEG_TARGET STREQUAL "")
+    if (NOT SFRAW_WITH_JPEG)
         list(APPEND SFRAW_LIBRAW_DEFS NO_JPEG)
-        message(STATUS "sfraw: lossy-JPEG DNG support DISABLED (no libjpeg in NDK); "
+        message(WARNING "sfraw: lossy-JPEG DNG support DISABLED; "
                 "lossy-JPEG Expert RAW reports SFRAW_ERR_LOSSY_JPEG_DNG for "
                 "app-side ImageDecoder fallback.")
     else ()
-        list(APPEND SFRAW_LIBRAW_DEFS USE_JPEG)
+        # LIBRAW_NO_KODAK_JPEG (patch 0026) keeps LibRaw's legacy Kodak JPEG
+        # loader unreachable: libjpeg is linked for lossy DNG only.
+        list(APPEND SFRAW_LIBRAW_DEFS USE_JPEG LIBRAW_NO_KODAK_JPEG)
         target_link_libraries(raw ${SFRAW_LIBRAW_JPEG_TARGET})
         message(STATUS "sfraw: lossy-JPEG DNG support ENABLED (${SFRAW_LIBRAW_JPEG_TARGET})")
     endif ()

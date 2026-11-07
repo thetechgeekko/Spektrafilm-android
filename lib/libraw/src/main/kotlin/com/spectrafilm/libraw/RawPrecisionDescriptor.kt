@@ -38,6 +38,15 @@ enum class RawPacking(val code: Int) {
     TIFF_FLOAT(3),
     LOSSLESS_COMPRESSED(4),
     VENDOR_DEFINED(5),
+
+    /**
+     * DNG 1.4 lossy baseline JPEG (Compression 0x884C, LinearRaw only), e.g. Samsung /
+     * Pixel Expert RAW. The container holds 8-bit JPEG codes that the decoder maps
+     * through the file's curve into a 16-bit linear domain, so `declaredBitsPerSample`
+     * is 16 and the levels are the decoder's (black 0, white 65535). Full resolution,
+     * but lossy: never present these samples as sensor-exact.
+     */
+    LOSSY_COMPRESSED(6),
     ;
 
     internal companion object {
@@ -182,6 +191,10 @@ class RawPrecisionDescriptor private constructor(
     val blackPattern: List<Long> = blackPattern.toList()
     val whiteLevels: List<Long> = whiteLevels.toList()
 
+    /** True for lossy-JPEG DNG: full resolution, but the samples are not sensor-exact. */
+    val isLossy: Boolean
+        get() = packing == RawPacking.LOSSY_COMPRESSED
+
     companion object {
         const val CURRENT_VERSION: Int = 1
 
@@ -196,6 +209,7 @@ class RawPrecisionDescriptor private constructor(
         private const val BASELINE_PRESENT_AT = 129
         private const val LINEAR_RESPONSE_PRESENT_AT = 130
         private const val COMPRESSION_AT = 131
+        private const val LOSSY_JPEG_COMPRESSION = 0x884C
         private const val REQUESTED_MAX_LONG_EDGE_AT = 132
         private const val OUTPUT_SUBSAMPLE_STEP_AT = 133
         private const val CFA_PATTERN_ROWS_AT = 134
@@ -353,6 +367,14 @@ class RawPrecisionDescriptor private constructor(
                             RawPacking.TIFF_PACKED_BITS
                         },
                     )
+                } else if (packing == RawPacking.LOSSY_COMPRESSED) {
+                    require(compression == LOSSY_JPEG_COMPRESSION)
+                    require(declaredBits == 16)
+                    require(layout == RawPixelLayout.LINEAR)
+                    require(whiteProvenance == RawLevelProvenance.DECODER_METADATA)
+                    require(whiteLevels.all { it == 65535L })
+                    require(commonBlack == 0L && channelBlack.all { it == 0L })
+                    require(blackPattern.isEmpty())
                 } else {
                     require(packing == RawPacking.LOSSLESS_COMPRESSED)
                 }

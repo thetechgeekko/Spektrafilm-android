@@ -83,6 +83,9 @@ def _fixture_pins() -> object:
         patched_tree_sha256="3" * 64,
         patches=("fixture.patch",),
         patch_sha256={"fixture.patch": "4" * 64},
+        libjpeg_turbo_version="3.1.4",
+        libjpeg_turbo_url="https://example.invalid/libjpeg-turbo-3.1.4.tar.gz",
+        libjpeg_turbo_sha256="5" * 64,
     )
 
 
@@ -258,6 +261,14 @@ function(sfraw_resolve_libraw out_var)
 endfunction()
 '''
         (resolver_dir / "LibRawVendor.cmake").write_text(resolver, encoding="utf-8")
+        (resolver_dir / "LibJpegTurboVendor.cmake").write_text(
+            'set(SFRAW_PINNED_LIBJPEG_TURBO_VERSION "3.1.4")\n'
+            "set(SFRAW_PINNED_LIBJPEG_TURBO_URL\n"
+            '    "https://example.invalid/libjpeg-turbo-3.1.4.tar.gz")\n'
+            "set(SFRAW_PINNED_LIBJPEG_TURBO_SHA256\n"
+            f'    "{"5" * 64}")\n',
+            encoding="utf-8",
+        )
 
         compliance_dir = root / "lib/libraw/compliance"
         compliance_dir.mkdir(parents=True)
@@ -301,7 +312,10 @@ endfunction()
             "raw_decoder.cpp raw_decoder_jni.cpp raw_preview.cpp raw_result_publication.cpp "
             "unofficial_relink_marker.cpp)\n"
             "set_target_properties(sfraw PROPERTIES OUTPUT_NAME sfraw)\n"
-            "target_compile_definitions(raw PRIVATE NO_JPEG USE_ZLIB LIBRAW_NODLL)\n"
+            "target_compile_definitions(raw PRIVATE USE_JPEG LIBRAW_NO_KODAK_JPEG "
+            "USE_ZLIB LIBRAW_NODLL)\n"
+            'include("../../cmake/LibJpegTurboVendor.cmake")\n'
+            "sfraw_add_libjpeg_turbo(sfraw_libjpeg_turbo)\n"
             'target_link_options(sfraw PRIVATE "-Wl,-soname,libsfraw.so")\n'
             'target_link_options(sfraw PRIVATE "-Wl,-z,max-page-size=16384")\n',
             encoding="utf-8",
@@ -732,7 +746,10 @@ class LibRawBundleCliTest(unittest.TestCase):
                 "raw_decoder.cpp raw_decoder_jni.cpp raw_preview.cpp raw_result_publication.cpp "
                 "unofficial_relink_marker.cpp)\n"
                 "set_target_properties(sfraw PROPERTIES OUTPUT_NAME sfraw)\n"
-                "target_compile_definitions(raw PRIVATE NO_JPEG USE_ZLIB LIBRAW_NODLL)\n"
+                "target_compile_definitions(raw PRIVATE USE_JPEG LIBRAW_NO_KODAK_JPEG "
+                "USE_ZLIB LIBRAW_NODLL)\n"
+                'include("../../cmake/LibJpegTurboVendor.cmake")\n'
+                "sfraw_add_libjpeg_turbo(sfraw_libjpeg_turbo)\n"
                 'target_link_options(sfraw PRIVATE "-Wl,-soname,libsfraw.so")\n'
                 'target_link_options(sfraw PRIVATE "-Wl,-z,max-page-size=16384")\n',
                 encoding="utf-8",
@@ -771,6 +788,41 @@ class LibRawBundleCliTest(unittest.TestCase):
             self.assertIn("max-page-size=16384", cmake)
             self.assertIn("UNOFFICIAL RECIPIENT RELINK", marker)
             self.assertIn("-DANDROID_STL=c++_shared", relinking)
+            self.assertIn("SFRAW_LIBJPEG_TURBO_ARCHIVE", relinking)
+            with zipfile.ZipFile(bundle) as archive:
+                self.assertIn(
+                    "relink/lib/libraw/cmake/LibJpegTurboVendor.cmake", archive.namelist()
+                )
+                sbom = json.loads(archive.read("sbom.spdx.json"))
+            jpeg = [
+                package
+                for package in sbom["packages"]
+                if package["SPDXID"] == "SPDXRef-Package-libjpeg-turbo"
+            ]
+            self.assertEqual(1, len(jpeg))
+            self.assertEqual("IJG AND BSD-3-Clause AND Zlib", jpeg[0]["licenseDeclared"])
+            self.assertEqual("3.1.4", jpeg[0]["versionInfo"])
+
+    def test_relink_project_must_not_fall_back_to_no_jpeg(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = FixtureRepository(root)
+            cmake_path = root / "lib/libraw/compliance/relink/CMakeLists.txt"
+            cmake_path.write_text(
+                cmake_path.read_text(encoding="utf-8") + "add_compile_definitions(NO_JPEG)\n",
+                encoding="utf-8",
+            )
+            built = self.run_cli(
+                "build",
+                "--repo-root",
+                str(root),
+                "--archive",
+                str(fixture.archive),
+                "--output",
+                str(root / "bundle.zip"),
+            )
+            self.assertNotEqual(0, built.returncode)
+            self.assertIn("NO_JPEG", built.stderr)
 
     def test_spdx_identity_changes_with_exact_wrapper_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

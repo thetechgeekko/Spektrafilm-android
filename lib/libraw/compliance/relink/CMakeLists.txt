@@ -78,7 +78,8 @@ add_library(raw STATIC ${LIBRAW_SOURCES})
 target_include_directories(raw PUBLIC "${LIBRAW_SOURCE_DIR}")
 target_compile_definitions(raw PUBLIC
     NO_JASPER
-    NO_JPEG
+    USE_JPEG
+    LIBRAW_NO_KODAK_JPEG
     USE_ZLIB
     LIBRAW_NODLL
     LIBRAW_MAX_PROFILE_SIZE_MB=16
@@ -88,6 +89,13 @@ target_compile_definitions(raw PUBLIC
 target_compile_options(raw PRIVATE -w)
 find_library(SFRAW_ZLIB z REQUIRED)
 target_link_libraries(raw PUBLIC "${SFRAW_ZLIB}")
+
+# Lossy-JPEG DNG, as in the official build: libjpeg-turbo from its pinned,
+# hash-verified release (BSD-style licences; see the bundle's NOTICE). Set
+# SFRAW_LIBJPEG_TURBO_ARCHIVE to an offline copy of the same archive.
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/LibJpegTurboVendor.cmake")
+sfraw_add_libjpeg_turbo(sfraw_libjpeg_turbo)
+target_link_libraries(raw PUBLIC sfraw_libjpeg_turbo)
 
 add_library(sfraw SHARED
     "${SFRAW_WRAPPER_SOURCE_DIR}/native_allocation_registry.cpp"
