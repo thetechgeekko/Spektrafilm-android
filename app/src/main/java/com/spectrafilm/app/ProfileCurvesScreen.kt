@@ -641,7 +641,7 @@ private fun formatTick(v: Float): String =
 /** Returns the three R/G/B channel colors appropriate for the current theme. */
 @Composable
 private fun channelColors(): List<Color> = listOf(
-    Color(0xFFE53935.toInt()), // red
-    Color(0xFF43A047.toInt()), // green
-    Color(0xFF1E88E5.toInt()), // blue
+    SpektraBrand.profileRed, // red
+    SpektraBrand.profileGreen, // green
+    SpektraBrand.profileBlue, // blue
 )

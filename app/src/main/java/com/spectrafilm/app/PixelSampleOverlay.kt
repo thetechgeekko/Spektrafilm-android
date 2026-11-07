@@ -85,7 +85,7 @@ fun PixelSampleOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.92f))
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
@@ -97,11 +97,11 @@ fun PixelSampleOverlay(
                 val cancelLabel = stringResource(R.string.tool_cancel)
                 TextTooltip(cancelLabel) {
                     IconButton(onClick = onCancel) {
-                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = Color.White)
+                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
                 Text(
-                    title, color = Color.White,
+                    title, color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(start = 4.dp).semantics { heading() },
                 )
@@ -129,7 +129,7 @@ fun PixelSampleOverlay(
                         onClick = { sampled?.let { val p = point; onPick(it.first, it.second, it.third, p?.x ?: 0.5f, p?.y ?: 0.5f) } },
                         enabled = sampled != null,
                     ) {
-                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = Color.White)
+                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
             }
@@ -166,10 +166,10 @@ fun PixelSampleOverlay(
                         )
                         point?.let { p ->
                             val c = Offset(p.x * size.width, p.y * size.height)
-                            drawCircle(Color.White, radius = 16f, center = c, style = Stroke(width = 2.5f))
-                            drawCircle(Color.Black, radius = 18f, center = c, style = Stroke(width = 1f))
-                            drawLine(Color.White, Offset(c.x - 26f, c.y), Offset(c.x + 26f, c.y), strokeWidth = 1.5f)
-                            drawLine(Color.White, Offset(c.x, c.y - 26f), Offset(c.x, c.y + 26f), strokeWidth = 1.5f)
+                            drawCircle(SpektraBrand.onCanvas, radius = 16f, center = c, style = Stroke(width = 2.5f))
+                            drawCircle(SpektraBrand.scrim, radius = 18f, center = c, style = Stroke(width = 1f))
+                            drawLine(SpektraBrand.onCanvas, Offset(c.x - 26f, c.y), Offset(c.x + 26f, c.y), strokeWidth = 1.5f)
+                            drawLine(SpektraBrand.onCanvas, Offset(c.x, c.y - 26f), Offset(c.x, c.y + 26f), strokeWidth = 1.5f)
                         }
                     }
                 }
@@ -177,7 +177,7 @@ fun PixelSampleOverlay(
 
             Text(
                 hint,
-                color = Color.White.copy(alpha = 0.7f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             )

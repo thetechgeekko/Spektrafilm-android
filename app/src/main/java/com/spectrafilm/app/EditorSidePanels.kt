@@ -389,7 +389,7 @@ internal fun ExportMask(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.78f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.78f))
             .pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent() }
             },
@@ -400,11 +400,11 @@ internal fun ExportMask(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (!done) {
-                SpectraLoadingIndicator(color = Color.White)
+                SpectraLoadingIndicator(color = SpektraBrand.onCanvas)
                 Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
                 Text(
                     stringResource(R.string.editor_export_rendering),
-                    color = Color.White,
+                    color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -412,7 +412,7 @@ internal fun ExportMask(
             } else {
                 Text(
                     stringResource(R.string.editor_export_saved),
-                    color = Color.White,
+                    color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.titleLarge,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics {
@@ -422,7 +422,7 @@ internal fun ExportMask(
                 )
                 Text(
                     "Pictures/Spektrafilm",
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = SpektraBrand.onCanvas.copy(alpha = 0.8f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(onClick = onDismiss) { Text(stringResource(R.string.editor_export_done)) }

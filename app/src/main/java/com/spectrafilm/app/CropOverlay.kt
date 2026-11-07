@@ -199,7 +199,7 @@ fun CropOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.92f))
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
@@ -212,11 +212,11 @@ fun CropOverlay(
                 val cancelLabel = stringResource(R.string.tool_crop_cancel)
                 TextTooltip(cancelLabel) {
                     androidx.compose.material3.IconButton(onClick = onCancel) {
-                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = Color.White)
+                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
                 Text(
-                    stringResource(R.string.tool_crop_title), color = Color.White,
+                    stringResource(R.string.tool_crop_title), color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(start = 4.dp).semantics { heading() },
                 )
@@ -224,7 +224,7 @@ fun CropOverlay(
                 val rotateLabel = stringResource(R.string.tool_crop_rotate)
                 TextTooltip(rotateLabel) {
                     androidx.compose.material3.IconButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = rotateLabel, tint = Color.White)
+                        Icon(SpectraIcons.Rotate, contentDescription = rotateLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
                 val applyLabel = stringResource(R.string.tool_crop_apply)
@@ -249,7 +249,7 @@ fun CropOverlay(
                             }
                         },
                     ) {
-                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = Color.White)
+                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
             }
@@ -367,10 +367,10 @@ fun CropOverlay(
                             shape = connectedShape(i, entries.size),
                             onClick = { applyAspect(a, portrait) },
                             // The crop surface is always near-black, whatever the theme.
-                            selectedContainer = Color.White,
-                            selectedContent = Color.Black,
-                            container = Color.White.copy(alpha = 0.12f),
-                            content = Color.White,
+                            selectedContainer = SpektraBrand.onCanvas,
+                            selectedContent = SpektraBrand.onCanvasSelected,
+                            container = SpektraBrand.onCanvas.copy(alpha = 0.12f),
+                            content = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -386,7 +386,7 @@ fun CropOverlay(
                             .padding(start = 8.dp)
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.12f))
+                            .background(SpektraBrand.onCanvas.copy(alpha = 0.12f))
                             .clickable(
                                 role = Role.Button,
                                 onClickLabel = flipLabel,
@@ -397,7 +397,7 @@ fun CropOverlay(
                         // A small frame drawn tall or wide: the orientation it will produce.
                         Canvas(Modifier.size(if (portrait) 14.dp else 20.dp, if (portrait) 20.dp else 14.dp)) {
                             drawRoundRect(
-                                color = Color.White,
+                                color = SpektraBrand.onCanvas,
                                 cornerRadius = CornerRadius(2.dp.toPx()),
                                 style = Stroke(width = 2.dp.toPx()),
                             )
@@ -565,14 +565,14 @@ private fun DrawScope.drawCropChrome(rect: Rect) {
     val w = size.width; val h = size.height
     val l = rect.left * w; val t = rect.top * h
     val r = rect.right * w; val b = rect.bottom * h
-    val scrim = Color.Black.copy(alpha = 0.55f)
+    val scrim = SpektraBrand.scrim.copy(alpha = 0.55f)
     // Dim the four exterior bands.
     drawRect(scrim, topLeft = Offset(0f, 0f), size = Size(w, t))
     drawRect(scrim, topLeft = Offset(0f, b), size = Size(w, h - b))
     drawRect(scrim, topLeft = Offset(0f, t), size = Size(l, b - t))
     drawRect(scrim, topLeft = Offset(r, t), size = Size(w - r, b - t))
     // Rule-of-thirds grid.
-    val grid = Color.White.copy(alpha = 0.45f)
+    val grid = SpektraBrand.onCanvas.copy(alpha = 0.45f)
     val cw = (r - l); val ch = (b - t)
     for (i in 1..2) {
         val gx = l + cw * i / 3f
@@ -582,11 +582,11 @@ private fun DrawScope.drawCropChrome(rect: Rect) {
     }
     // Border.
     drawRect(
-        Color.White, topLeft = Offset(l, t), size = Size(cw, ch),
+        SpektraBrand.onCanvas, topLeft = Offset(l, t), size = Size(cw, ch),
         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f),
     )
     // Corner handles (short L brackets).
-    val hc = Color.White; val len = 26f; val sw = 5f
+    val hc = SpektraBrand.onCanvas; val len = 26f; val sw = 5f
     fun corner(cx: Float, cy: Float, sx: Int, sy: Int) {
         drawLine(hc, Offset(cx, cy), Offset(cx + len * sx, cy), strokeWidth = sw)
         drawLine(hc, Offset(cx, cy), Offset(cx, cy + len * sy), strokeWidth = sw)

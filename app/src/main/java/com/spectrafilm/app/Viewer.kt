@@ -528,10 +528,10 @@ fun ZoomableImage(
             if (scale > 1.01f) {
                 Text(
                     stringResource(R.string.tool_viewer_zoom_percent, (scale * 100f).roundToInt()),
-                    color = Color.White,
+                    color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .background(SpektraBrand.scrim.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
                 ZoomButton("−", stringResource(R.string.tool_viewer_zoom_out)) {  // minus
@@ -564,7 +564,7 @@ private fun ZoomButton(
 ) {
     Surface(
         shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.5f),
+        color = SpektraBrand.scrim.copy(alpha = 0.5f),
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(40.dp)
@@ -575,7 +575,7 @@ private fun ZoomButton(
         Box(contentAlignment = Alignment.Center) {
             Text(
                 label,
-                color = Color.White,
+                color = SpektraBrand.onCanvas,
                 style = if (label.length > 1) MaterialTheme.typography.labelMedium
                 else MaterialTheme.typography.titleLarge,
             )
@@ -753,7 +753,7 @@ fun CompareSlider(
             Canvas(Modifier.fillMaxSize()) {
                 val x = size.width * split
                 drawLine(
-                    color = Color.White,
+                    color = SpektraBrand.onCanvas,
                     start = Offset(x, 0f),
                     end = Offset(x, size.height),
                     strokeWidth = 3f,
@@ -770,12 +770,12 @@ private fun CompareTag(text: String, alignment: Alignment) {
     Box(Modifier.fillMaxSize()) {
         Text(
             text,
-            color = Color.White,
+            color = SpektraBrand.onCanvas,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier
                 .align(alignment)
                 .padding(6.dp)
-                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                .background(SpektraBrand.scrim.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
@@ -817,7 +817,7 @@ fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
             .fillMaxWidth(0.6f)
             .height(56.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.42f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.42f))
             .semantics { contentDescription = histogramDesc },
     ) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawHistogram(h, clipLow, clipHigh) }
@@ -1038,10 +1038,10 @@ private fun DrawScope.drawHistogram(hist: Histogram, clipLow: Boolean, clipHigh:
         }
     }
     // luma backdrop, then additive-ish RGB on top
-    drawChannel(hist.luma, Color(0x33FFFFFF))
-    drawChannel(hist.r, Color(0x88FF4040))
-    drawChannel(hist.g, Color(0x8840FF40))
-    drawChannel(hist.b, Color(0x884070FF))
+    drawChannel(hist.luma, SpektraBrand.histLuma)
+    drawChannel(hist.r, SpektraBrand.histRed)
+    drawChannel(hist.g, SpektraBrand.histGreen)
+    drawChannel(hist.b, SpektraBrand.histBlue)
 
     // Corner wedges, in the padding OUTSIDE the plot, so they cannot be mistaken for data.
     // Blown highlights are the ones that cost you a print, so that corner is the loud one.
@@ -1051,7 +1051,7 @@ private fun DrawScope.drawHistogram(hist: Histogram, clipLow: Boolean, clipHigh:
             Path().apply {
                 moveTo(0f, 0f); lineTo(wedge, 0f); lineTo(0f, wedge); close()
             },
-            Color(0xCC6FA8FF),
+            SpektraBrand.clipShadows,
         )
     }
     if (clipHigh) {
@@ -1059,7 +1059,7 @@ private fun DrawScope.drawHistogram(hist: Histogram, clipLow: Boolean, clipHigh:
             Path().apply {
                 moveTo(w, 0f); lineTo(w - wedge, 0f); lineTo(w, wedge); close()
             },
-            Color(0xFFFF5A4D),
+            SpektraBrand.clipHighlights,
         )
     }
 }
@@ -1080,7 +1080,7 @@ fun MagnifierOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.85f))
             .pointerInput(Unit) { detectTapGestures(onTap = { onClose() }) },
         contentAlignment = Alignment.Center,
     ) {
@@ -1091,7 +1091,7 @@ fun MagnifierOverlay(
         ) {
             Text(
                 stringResource(R.string.tool_viewer_magnifier_title),
-                color = Color.White,
+                color = SpektraBrand.onCanvas,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
@@ -1121,26 +1121,26 @@ fun MagnifierOverlay(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    SpectraLoadingIndicator(color = Color.White)
+                    SpectraLoadingIndicator(color = SpektraBrand.onCanvas)
                 }
             }
             // Progress copy is announced as it changes (polite: never interrupts).
             Text(
                 status,
-                color = Color.White.copy(alpha = 0.8f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             if (rendering) {
                 Text(
                     stringResource(R.string.tool_viewer_magnifier_rendering),
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
             TextButton(onClick = onClose) {
-                Text(stringResource(R.string.tool_close), color = Color.White)
+                Text(stringResource(R.string.tool_close), color = SpektraBrand.onCanvas)
             }
         }
     }

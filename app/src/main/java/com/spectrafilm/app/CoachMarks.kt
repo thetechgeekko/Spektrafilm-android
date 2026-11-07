@@ -49,7 +49,7 @@ fun EditorCoachOverlay(onDismiss: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.72f))
             // Tap anywhere on the scrim to dismiss (no ripple — it's a backdrop).
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
