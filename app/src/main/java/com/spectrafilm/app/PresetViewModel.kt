@@ -14,8 +14,6 @@
 package com.spectrafilm.app
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.CreationExtras
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,15 +97,6 @@ internal class PresetViewModel : ViewModel() {
     }
 
     companion object {
-        /** Explicit factory: no reflective construction for R8 to get wrong in release. */
-        val factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                require(modelClass.isAssignableFrom(PresetViewModel::class.java)) { "unknown $modelClass" }
-                @Suppress("UNCHECKED_CAST")
-                return PresetViewModel() as T
-            }
-        }
-
         fun reduce(state: PresetUiState, action: PresetAction): PresetUiState = when (action) {
             is PresetAction.SetName -> state.copy(name = action.value)
             is PresetAction.Select -> state.copy(selected = action.value)

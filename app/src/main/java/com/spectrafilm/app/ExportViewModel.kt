@@ -16,8 +16,6 @@
 package com.spectrafilm.app
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.CreationExtras
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -122,15 +120,6 @@ internal class ExportViewModel : ViewModel() {
     }
 
     companion object {
-        /** Explicit factory: no reflective construction for R8 to get wrong in release. */
-        val factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                require(modelClass.isAssignableFrom(ExportViewModel::class.java)) { "unknown $modelClass" }
-                @Suppress("UNCHECKED_CAST")
-                return ExportViewModel() as T
-            }
-        }
-
         fun reduce(state: ExportUiState, action: ExportAction): ExportUiState = when (action) {
             ExportAction.OpenSheet -> state.copy(sheetOpen = true)
             ExportAction.CloseSheet -> state.copy(sheetOpen = false)
