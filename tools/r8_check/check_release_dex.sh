@@ -272,7 +272,11 @@ check_member 'Lcom/spectrafilm/app/DecodeTimings;' method 'getConvertMs' '()J'
 check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'saveSimResultAsTiff' '(Landroid/content/Context;Lcom/spectrafilm/engine/SimResult;Lcom/spectrafilm/app/OutputDescriptor;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;'
 check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'saveSimResultAsPng16' '(Landroid/content/Context;Lcom/spectrafilm/engine/SimResult;Lcom/spectrafilm/app/OutputDescriptor;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;'
 check_member 'Lcom/spectrafilm/app/DisplayBitmapsKt;' method 'simResultToBitmapGraded' '(Lcom/spectrafilm/engine/SimResult;ZFFFLjava/util/List;Lcom/spectrafilm/engine/RenderCancellation;)Landroid/graphics/Bitmap;'
-check_member 'Lcom/spectrafilm/app/ParamsState;' method 'toParams' '(Ljava/lang/Integer;Ljava/lang/Float;Z)Lcom/spectrafilm/engine/SpektraParams;'
+# The instrumentation calls these with default arguments, so the call it actually makes is the
+# synthetic $default bridge; both it and the full method are pinned to today's prototypes
+# (the old 3-arg toParams / 3-arg attachRenderedGainmap entries had drifted after new params).
+check_member 'Lcom/spectrafilm/app/ParamsState;' method 'toParams' '(Ljava/lang/Integer;Ljava/lang/Float;ZLjava/lang/String;Ljava/lang/String;)Lcom/spectrafilm/engine/SpektraParams;'
+check_member 'Lcom/spectrafilm/app/ParamsState;' method 'toParams$default' '(Lcom/spectrafilm/app/ParamsState;Ljava/lang/Integer;Ljava/lang/Float;ZLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/spectrafilm/engine/SpektraParams;'
 check_member 'Lcom/spectrafilm/app/BuiltInPresets;' method 'load' '(Landroid/content/Context;)Ljava/util/List;'
 check_member 'Lcom/spectrafilm/app/ExportClock;' method 'exifDateTime' '()Ljava/lang/String;'
 # #179/#140: the benchmark also drives the export cache and the render-derived gain map.
@@ -281,7 +285,8 @@ check_member 'Lcom/spectrafilm/app/ExportCaches;' method 'contractVersionOf' '(L
 check_member 'Lcom/spectrafilm/app/ExportCache;' method 'get' '(Ljava/lang/String;)Lcom/spectrafilm/app/ExportCacheEntry;'
 check_member 'Lcom/spectrafilm/app/ExportCache;' method 'adopt' '(Ljava/lang/String;Ljava/io/File;JLjava/lang/String;)Z'
 check_member 'Lcom/spectrafilm/app/ExportCacheKey;' method 'digestSource' '(Lkotlin/jvm/functions/Function0;)Lkotlin/Pair;'
-check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'attachRenderedGainmap' '(Lcom/spectrafilm/engine/SimResult;Landroid/graphics/Bitmap;Lcom/spectrafilm/app/OutputDescriptor;)Lcom/spectrafilm/app/HdrGainMap$Result;' 
+check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'attachRenderedGainmap' '(Lcom/spectrafilm/engine/SimResult;Landroid/graphics/Bitmap;Lcom/spectrafilm/app/OutputDescriptor;Lcom/spectrafilm/app/BorderLayout;Lcom/spectrafilm/app/SceneLuma;)Lcom/spectrafilm/app/HdrGainMap$Result;'
+check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'attachRenderedGainmap$default' '(Lcom/spectrafilm/engine/SimResult;Landroid/graphics/Bitmap;Lcom/spectrafilm/app/OutputDescriptor;Lcom/spectrafilm/app/BorderLayout;Lcom/spectrafilm/app/SceneLuma;ILjava/lang/Object;)Lcom/spectrafilm/app/HdrGainMap$Result;'
 check_member 'Lkotlin/io/CloseableKt;' method 'closeFinally' '(Ljava/io/Closeable;Ljava/lang/Throwable;)V'
 check_member 'Lkotlin/jvm/internal/Ref$ObjectRef;' method '<init>' '()V'
 
@@ -365,6 +370,37 @@ for d in \
 do
     check_class "$d"
 done
+
+# #463: every app-owned class/member the four native libraries resolve BY NAME
+# (FindClass, Get*MethodID/Get*FieldID, the engine's getter-by-name param readers,
+# and every JNI-exported native method), generated from the C++ sources by
+# jni_inventory.py so the list cannot drift. The hand-written Pair/Triple lines
+# above stay as the documented origin of this check. Today these all survive only
+# because proguard-rules.pro keeps com.spectrafilm.** wholesale; this is what
+# makes narrowing that rule safe.
+echo "checking every member native code resolves by name (jni_inventory.py)"
+PY=""
+for cand in python3 python; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        PY="$cand"; break
+    fi
+done
+# A missing interpreter must fail, not skip: a skipped inventory is a silent pass.
+[ -n "$PY" ] || { echo "FAIL: python 3.9+ not found — cannot generate the JNI inventory"; exit 2; }
+INVENTORY="$WORK/jni_inventory.tsv"
+"$PY" "$(dirname "${BASH_SOURCE[0]}")/jni_inventory.py" > "$INVENTORY" \
+    || { echo "FAIL: jni_inventory.py could not attribute every JNI literal (see above)"; exit 1; }
+[ -s "$INVENTORY" ] || { echo "FAIL: jni_inventory.py produced no requirements — the check would be vacuous"; exit 2; }
+inventory_rows=0
+while IFS=$'\t' read -r inv_desc inv_kind inv_name inv_sig; do
+    inventory_rows=$((inventory_rows + 1))
+    if [ "$inv_kind" = "class" ]; then
+        check_class "$inv_desc"
+    else
+        check_member "$inv_desc" "$inv_kind" "$inv_name" "$inv_sig"
+    fi
+done < "$INVENTORY"
+echo "  ($inventory_rows native-resolved requirements checked)"
 
 if [ "$rc" -ne 0 ]; then
     echo
