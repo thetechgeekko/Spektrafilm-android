@@ -120,6 +120,8 @@ android {
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.
     testBuildType = "release"
+    // Robolectric Compose UI tests (#280) read real string resources.
+    testOptions { unitTests.isIncludeAndroidResources = true }
 
     lint {
         baseline = file("lint-baseline.xml")
@@ -156,6 +158,12 @@ dependencies {
     // Real org.json on the unit-test classpath (the android.jar stub throws "not
     // mocked"); lets Presets JSON round-trip be tested on the plain JVM.
     testImplementation(libs.org.json)
+    // Compose UI tests on the JVM under Robolectric (#280). The test manifest supplies the
+    // ComponentActivity that createComposeRule launches; it is test-only, never in the APK.
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.ui.test.manifest)
+    testImplementation(libs.robolectric)
 }
 
 // Canonical provenance input: Gradle's `dependencies` console report includes
