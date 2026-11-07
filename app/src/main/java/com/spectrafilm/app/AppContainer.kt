@@ -88,6 +88,9 @@ internal class AppContainer(context: Context) {
             )
         },
         versionsViewModel = { VersionsViewModel(versions, dispatchers.io) },
+        stockPreviewViewModel = {
+            StockPreviewViewModel(StockPreviewViewModel.engineRenderer(app), dispatchers.default)
+        },
     )
 }
 
@@ -99,12 +102,16 @@ internal class AppViewModelFactory(
     private val settingsViewModel: () -> SettingsViewModel,
     private val updateViewModel: () -> UpdateViewModel,
     private val versionsViewModel: () -> VersionsViewModel = { error("versions not provided") },
+    private val stockPreviewViewModel: () -> StockPreviewViewModel = {
+        error("stock previews not provided")
+    },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
         val vm: ViewModel = when (modelClass) {
             SettingsViewModel::class.java -> settingsViewModel()
             UpdateViewModel::class.java -> updateViewModel()
             VersionsViewModel::class.java -> versionsViewModel()
+            StockPreviewViewModel::class.java -> stockPreviewViewModel()
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()
             EditorToolViewModel::class.java -> EditorToolViewModel()
