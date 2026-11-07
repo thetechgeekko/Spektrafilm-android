@@ -214,7 +214,8 @@
     <string name="tool_curve_editor_desc">トーンカーブエディター。タップで点を追加し、点をドラッグしてカーブを形づくり、点をダブルタップで削除します。カーブの操作はタッチのみです。スクリーンリーダーでは、コントラストスライダーと「チャンネルをリセット」を使ってください。</string>
     <string name="tool_curve_points_state">%1$d個の制御点</string>
     <string name="tool_export_half_frame_pair">ハーフサイズのペアとして書き出す…</string>
-    <string name="tool_export_proof_none">%1$s では画像に白飛び・黒つぶれはありません。</string>
-    <string name="tool_export_proof_clipped">画像の %1$s が %2$s でクリップされます（白飛び、黒つぶれ、色空間外の色）。写真のクリッピングボタンで場所を確認できます。</string>
+    <string name="tool_export_proof_none">%1$s ではプレビューに白飛び・黒つぶれはありません。</string>
+    <string name="tool_export_proof_clipped">プレビューの %1$s が %2$s でクリップされます（白飛び、黒つぶれ、色空間外の色）。写真のクリッピングボタンで場所を確認できます。</string>
     <string name="tool_export_proof_wide">この画面では %1$s のすべての色を表示できない場合があります。ファイルには保持されますが、プレビューではクリップして表示されます。</string>
+    <string name="tool_export_proof_sharpen">出力シャープニングはこの後ファイルに適用され、わずかにクリップが増えることがあります。</string>
 </resources>

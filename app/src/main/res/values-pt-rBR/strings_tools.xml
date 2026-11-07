@@ -214,7 +214,8 @@
     <string name="tool_curve_editor_desc">Editor da curva de tons. Toque para adicionar um ponto, arraste um ponto para moldar a curva e toque duas vezes em um ponto para removê-lo. Moldar a curva é só por toque; com um leitor de tela, use o controle Contraste e Redefinir canal.</string>
     <string name="tool_curve_points_state">%1$d pontos de controle</string>
     <string name="tool_export_half_frame_pair">Exportar como par de meio quadro…</string>
-    <string name="tool_export_proof_none">Nada na imagem é cortado em %1$s.</string>
-    <string name="tool_export_proof_clipped">%1$s da imagem é cortado em %2$s: realces estourados, sombras empastadas ou cores fora do espaço. O botão de recorte na foto mostra onde.</string>
+    <string name="tool_export_proof_none">Nada na prévia é cortado em %1$s.</string>
+    <string name="tool_export_proof_clipped">%1$s da prévia é cortado em %2$s: realces estourados, sombras empastadas ou cores fora do espaço. O botão de recorte na foto mostra onde.</string>
     <string name="tool_export_proof_wide">Esta tela pode não mostrar todas as cores de %1$s. O arquivo as mantém; a prévia as mostra cortadas.</string>
+    <string name="tool_export_proof_sharpen">A nitidez de saída é aplicada ao arquivo depois e pode cortar um pouco mais.</string>
 </resources>

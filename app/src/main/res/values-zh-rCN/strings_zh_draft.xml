@@ -245,7 +245,8 @@
     <string name="editor_snack_pair_done">半格双联已导出</string>
     <string name="editor_snack_pair_failed">无法导出半格双联</string>
     <string name="editor_snack_pair_cancelled">半格双联导出已停止</string>
-    <string name="tool_export_proof_none">在 %1$s 中画面没有被裁切的部分。</string>
-    <string name="tool_export_proof_clipped">画面的 %1$s 在 %2$s 中被裁切：高光溢出、暗部死黑或超出色彩空间的颜色。照片上的裁切提示按钮会显示位置。</string>
+    <string name="tool_export_proof_none">在 %1$s 中预览没有被裁切的部分。</string>
+    <string name="tool_export_proof_clipped">预览的 %1$s 在 %2$s 中被裁切：高光溢出、暗部死黑或超出色彩空间的颜色。照片上的裁切提示按钮会显示位置。</string>
     <string name="tool_export_proof_wide">此屏幕可能无法显示 %1$s 中的所有颜色。文件会保留这些颜色，预览中显示为裁切后的效果。</string>
+    <string name="tool_export_proof_sharpen">输出锐化会在此之后应用到文件，可能会多裁切一点。</string>
 </resources>

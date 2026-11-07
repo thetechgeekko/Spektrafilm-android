@@ -254,8 +254,10 @@ fun ExportSheet(
                 ExportProofSection(
                     previewBitmap = previewBitmap,
                     colorSpace = colorSpace,
+                    cctf = cctf,
                     spaceName = resources.getString(colorSpace.labelRes()),
                     format = options.format,
+                    sharpened = options.effectiveSharpen() != OutputSharpen.NONE,
                 )
             }
 

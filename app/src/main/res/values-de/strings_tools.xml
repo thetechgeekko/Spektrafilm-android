@@ -214,7 +214,8 @@
     <string name="tool_curve_editor_desc">Tonwertkurven-Editor. Tippen, um einen Punkt hinzuzufügen, einen Punkt ziehen, um die Kurve zu formen, und einen Punkt doppeltippen, um ihn zu entfernen. Das Formen der Kurve geht nur per Touch; mit einem Screenreader nutze stattdessen den Kontrastregler und „Kanal zurücksetzen“.</string>
     <string name="tool_curve_points_state">%1$d Kontrollpunkte</string>
     <string name="tool_export_half_frame_pair">Als Halbformat-Paar exportieren…</string>
-    <string name="tool_export_proof_none">Im Bild ist in %1$s nichts beschnitten.</string>
-    <string name="tool_export_proof_clipped">%1$s des Bildes ist in %2$s beschnitten: ausgefressene Lichter, abgesoffene Schatten oder Farben außerhalb des Farbraums. Die Clipping-Taste am Foto zeigt, wo.</string>
+    <string name="tool_export_proof_none">In der Vorschau ist in %1$s nichts beschnitten.</string>
+    <string name="tool_export_proof_clipped">%1$s der Vorschau ist in %2$s beschnitten: ausgefressene Lichter, abgesoffene Schatten oder Farben außerhalb des Farbraums. Die Clipping-Taste am Foto zeigt, wo.</string>
     <string name="tool_export_proof_wide">Dieser Bildschirm zeigt eventuell nicht alle Farben von %1$s. Die Datei behält sie; die Vorschau zeigt sie beschnitten.</string>
+    <string name="tool_export_proof_sharpen">Die Ausgabeschärfung wird danach auf die Datei angewendet und kann etwas mehr beschneiden.</string>
 </resources>

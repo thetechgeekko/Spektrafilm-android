@@ -7,9 +7,12 @@
  * descriptor passes it to the engine unchanged. So the preview IS the proof of the file's
  * colour. What the sheet did not say is what that proof means:
  *
- *  - how much of the picture the file clips (a channel pinned at the top or bottom of the
+ *  - how much of the preview clips in that space (a channel pinned at the top or bottom of the
  *    scale: a blown highlight, a blocked shadow, or a colour outside the chosen space), counted
- *    on the same preview pixels the clipping overlay classifies, and
+ *    on the same preview pixels the clipping overlay classifies. Only for JPEG and PNG, which
+ *    clamp to 8 bits as the preview does; output sharpening, applied to the file after this,
+ *    can clip a little more, and the sheet says so when it is on. A frame rendered for other
+ *    settings is never counted under the new ones; and
  *  - that a space wider than sRGB holds colours the screen may not show, so the preview draws
  *    those clipped while the file keeps them.
  *
@@ -79,6 +82,18 @@ internal fun proofWiderThanScreen(space: ColorSpace): Boolean =
 internal fun proofPercent(stats: ProofStats, format: NumberFormat): String =
     format.format(maxOf(stats.fraction, 0.001))
 
+/**
+ * Whether [bmp] was rendered for [space], judged by its colour tag (API 26+). An untagged frame
+ * on older Android cannot be checked, so it is trusted only by the stale-frame rule.
+ */
+internal fun proofFrameMatches(bmp: Bitmap, space: ColorSpace): Boolean {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return true
+    val expected = OutputDescriptor.bitmapColorSpaceNameFor(space) ?: return false
+    val tag = bmp.colorSpace ?: return false
+    return runCatching { tag == android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.valueOf(expected)) }
+        .getOrDefault(false)
+}
+
 /** Counts [bmp]'s clipped pixels on [default] under a preview read lease; null when retired. */
 internal suspend fun computeProofStats(bmp: Bitmap, default: CoroutineDispatcher): ProofStats? =
     withContext(default) {
@@ -101,16 +116,28 @@ internal suspend fun computeProofStats(bmp: Bitmap, default: CoroutineDispatcher
 internal fun ExportProofSection(
     previewBitmap: Bitmap?,
     colorSpace: ColorSpace,
+    cctf: Boolean,
     spaceName: String,
     format: ExportFormat,
+    sharpened: Boolean,
 ) {
     if (!proofApplies(colorSpace)) return
     val counts = proofCountsFileClipping(format)
-    var stats by remember(previewBitmap, counts) { mutableStateOf<ProofStats?>(null) }
+    // The preview re-renders a moment after the space (or encoding) changes. Until a new frame
+    // arrives, the one on screen belongs to the old settings: remember it and show no count for
+    // it, so the old space's numbers never appear under the new space's name.
+    val settingChanges = remember { intArrayOf(-1) }
+    val staleFrame = remember(colorSpace, cctf) {
+        // Runs once when the sheet opens (nothing is stale yet) and again on every change.
+        settingChanges[0]++
+        if (settingChanges[0] == 0) null else previewBitmap
+    }
+    val current = previewBitmap?.takeIf { it !== staleFrame && proofFrameMatches(it, colorSpace) }
+    var stats by remember(current, counts) { mutableStateOf<ProofStats?>(null) }
     val dispatchers = rememberAppDispatchers()
-    LaunchedEffect(previewBitmap, counts) {
+    LaunchedEffect(current, counts) {
         if (!counts) return@LaunchedEffect
-        val bmp = previewBitmap ?: return@LaunchedEffect
+        val bmp = current ?: return@LaunchedEffect
         if (bmp.isRecycled) return@LaunchedEffect
         stats = try {
             computeProofStats(bmp, dispatchers.default)
@@ -134,6 +161,9 @@ internal fun ExportProofSection(
             stringResource(R.string.tool_export_proof_clipped, percent, spaceName)
         }
         Text(text, style = style, color = color)
+        if (sharpened) {
+            Text(stringResource(R.string.tool_export_proof_sharpen), style = style, color = color)
+        }
     }
     if (proofWiderThanScreen(colorSpace)) {
         Text(stringResource(R.string.tool_export_proof_wide, spaceName), style = style, color = color)
