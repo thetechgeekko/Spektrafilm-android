@@ -63,6 +63,12 @@ class LibrarySidecarsTest {
         assertThrows(Exception::class.java) {
             LibrarySidecars.decode(JSONObject(good.toString()).put("manualRotationDeg", 45).toString())
         }
+        assertThrows(Exception::class.java) {
+            LibrarySidecars.decode(good.toString().replace("\"version\": 1", "\"version\": 1.5"))
+        }
+        assertThrows(Exception::class.java) {
+            LibrarySidecars.decode(JSONObject(good.toString()).put("manualRotationDeg", 4294967386L).toString())
+        }
         assertThrows(Exception::class.java) { LibrarySidecars.decode("{not json") }
     }
 

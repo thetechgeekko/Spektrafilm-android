@@ -58,16 +58,23 @@ internal object LibrarySidecars {
     fun decode(text: String): Edit {
         val root = AtomicJsonStore.parseObject(text)
         require(root.optString("schema") == SCHEMA_ID) { "not a Spektrafilm sidecar" }
-        val version = root.opt("version")
-        require((version is Int || version is Long) && (version as Number).toLong() == VERSION.toLong()) {
-            "unsupported sidecar version: $version"
-        }
-        val rotationValue = root.opt("manualRotationDeg") ?: 0
-        require(rotationValue is Int || rotationValue is Long) { "invalid rotation" }
-        val rotation = (rotationValue as Number).toLong()
-        require(rotation in VALID_ROTATIONS.map { it.toLong() }) { "invalid rotation" }
+        // The bounded parser returns integer tokens as BigInteger; accept only exact integers.
+        require(exactInt(root.opt("version"), "version") == VERSION) { "unsupported sidecar version" }
+        val rotation = if (root.has("manualRotationDeg")) exactInt(root.opt("manualRotationDeg"), "rotation") else 0
+        require(rotation in VALID_ROTATIONS) { "invalid rotation" }
         val params = root.optJSONObject("params") ?: throw IllegalArgumentException("no params")
-        return Edit(Presets.parseImportJson(params.toString()), rotation.toInt())
+        return Edit(Presets.parseImportJson(params.toString()), rotation)
+    }
+
+    private fun exactInt(value: Any?, field: String): Int {
+        val big = when (value) {
+            is Int, is Long, is Short, is Byte -> java.math.BigInteger.valueOf((value as Number).toLong())
+            is java.math.BigInteger -> value
+            is java.math.BigDecimal -> runCatching { value.toBigIntegerExact() }.getOrNull()
+            else -> null
+        } ?: throw IllegalArgumentException("$field must be a JSON integer")
+        require(big.bitLength() < 32) { "$field is out of range" }
+        return big.toInt()
     }
 
     /**
