@@ -178,3 +178,85 @@ internal class RoiPatchTracker {
         const val REUSED_IN_FLIGHT = "in-flight"
     }
 }
+
+/**
+ * Least-recently-used store of finished ROI patch renders (zoom step 3, rawr study), so panning
+ * back to an area or zooming back to a level already rendered for the current edit shows it at
+ * once instead of rendering again. Bounded by [maxBytes] of bitmap memory.
+ *
+ * Ownership: the cache owns every value it holds. A value leaving the cache (eviction, [retain]
+ * or [clear]) is handed to [recycle] unless [isShown] says it is the overlay on screen right now;
+ * a shown value is then recycled by whoever replaces it on screen, which must check [holds] first
+ * and skip values still cached. That keeps a bitmap from being recycled while it is drawn and
+ * from being recycled twice. Main thread only.
+ */
+internal class RoiPatchCache<T : Any>(
+    private val maxBytes: Long,
+    private val sizeOf: (T) -> Long,
+    private val recycle: (T) -> Unit,
+    private val isShown: (T) -> Boolean,
+) {
+    private val entries = LinkedHashMap<RoiPatchRecord, T>(16, 0.75f, true)
+    // Sizes as measured at put(): a recycled bitmap may no longer report its allocation.
+    private val sizes = HashMap<RoiPatchRecord, Long>()
+    private var bytes = 0L
+
+    val size: Int get() = entries.size
+    val totalBytes: Long get() = bytes
+
+    /** Adds [value] for [record]; evicts the least recently used entries over [maxBytes]. */
+    fun put(record: RoiPatchRecord, value: T) {
+        val size = sizeOf(value)
+        if (size > maxBytes) return
+        entries.remove(record)?.let { old -> drop(record, old) }
+        entries[record] = value
+        sizes[record] = size
+        bytes += size
+        val it = entries.entries.iterator()
+        while (bytes > maxBytes && it.hasNext()) {
+            val e = it.next()
+            if (e.value === value) continue
+            it.remove()
+            drop(e.key, e.value)
+        }
+    }
+
+    /** The most recently used entry that shows [roi] for [renderKey] sharply enough, or null. */
+    fun find(roi: RoiRect, renderKey: Int, maxViewportEdgePx: Int): Pair<RoiPatchRecord, T>? {
+        val hit = entries.entries.lastOrNull { it.key.covers(roi, renderKey, maxViewportEdgePx) }
+            ?: return null
+        // Touch: re-read through get() so access order marks it most recent.
+        val value = entries[hit.key] ?: return null
+        return hit.key to value
+    }
+
+    /** True while [value] is held here (the caller must not recycle it). */
+    fun holds(value: T): Boolean = entries.values.any { it === value }
+
+    /** Drops every entry not rendered for [renderKey]. */
+    fun retain(renderKey: Int) {
+        val it = entries.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.key.renderKey != renderKey) {
+                it.remove()
+                drop(e.key, e.value)
+            }
+        }
+    }
+
+    /**
+     * Drops every entry. [includeShown] also recycles the one on screen: only for when the screen
+     * itself is going away (the overlay's own disposal may already have skipped it as cached).
+     */
+    fun clear(includeShown: Boolean = false) {
+        val all = entries.entries.map { it.key to it.value }
+        entries.clear()
+        all.forEach { (k, v) -> drop(k, v, includeShown) }
+    }
+
+    private fun drop(record: RoiPatchRecord, value: T, includeShown: Boolean = false) {
+        bytes -= sizes.remove(record) ?: 0L
+        if (includeShown || !isShown(value)) recycle(value)
+    }
+}

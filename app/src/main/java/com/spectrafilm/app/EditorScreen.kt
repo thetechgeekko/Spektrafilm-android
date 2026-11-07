@@ -406,6 +406,18 @@ internal fun MainActivity.EditorScreen(
     var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
     val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val roiPatchTracker = remember { RoiPatchTracker() }
+    // Zoom step 3: recent finished patch renders for the current edit (RoiPatchCache).
+    // 64 MiB like rawr's tile LRU on roomy devices, 16 MiB elsewhere.
+    val roiPatchCache = remember {
+        RoiPatchCache<RoiOverlay>(
+            maxBytes = if (ZoomPrewarm.eligible(ctx)) 64L shl 20 else 16L shl 20,
+            sizeOf = { it.bitmap.allocationByteCount.toLong() },
+            // Through the lease registry: a patch the Canvas still draws this frame is
+            // recycled only once its draw lease closes.
+            recycle = { retirePreviewBitmap(it.bitmap) },
+            isShown = { it === roiOverlay },
+        )
+    }
     val roiPublicationGate = remember { RoiRenderPublicationGate() }
     val latestRoiRenderKey by rememberUpdatedState(previewTick)
     val latestMagnifierRenderKey by rememberUpdatedState(previewTick)
@@ -433,6 +445,7 @@ internal fun MainActivity.EditorScreen(
         zoomPrewarmJobRef.value?.cancel()
         roiPublicationGate.invalidate()
         roiJobRef.value?.cancel()
+        roiPatchCache.clear()
         roiOverlay = null
         magnifierPublicationGate.invalidate()
         magnifierJobRef.value?.cancel()
@@ -457,6 +470,9 @@ internal fun MainActivity.EditorScreen(
         zoomPrewarmJobRef.value?.cancel()
         roiPublicationGate.invalidate()
         roiJobRef.value?.cancel()
+        // Before roiOverlay is cleared, so the shown patch is skipped here and retired by
+        // DisposableEffect(roiOverlay) once it has left the screen.
+        roiPatchCache.retain(previewTick)
         roiOverlay = null
         magnifierPublicationGate.invalidate()
         magnifierJobRef.value?.cancel()
@@ -473,12 +489,21 @@ internal fun MainActivity.EditorScreen(
             magnifierJobRef.value?.cancel()
             roiJobRef.value?.cancel()
             zoomPrewarmJobRef.value?.cancel()
+            // The editor is leaving: retire every cached patch, the one on screen included
+            // (its own disposal may have skipped it as still cached). Lease-safe and
+            // idempotent, so a patch retired twice or still mid-draw is fine.
+            roiPatchCache.clear(includeShown = true)
         }
     }
     // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
     DisposableEffect(roiOverlay) {
         val current = roiOverlay
-        onDispose { current?.bitmap?.let { if (!it.isRecycled) it.recycle() } }
+        onDispose {
+            // A patch still held by roiPatchCache is the cache's to recycle.
+            if (current != null && !roiPatchCache.holds(current)) {
+                retirePreviewBitmap(current.bitmap)
+            }
+        }
     }
 
     // presets
@@ -1752,6 +1777,17 @@ internal fun MainActivity.EditorScreen(
             Diag.i("zoom roi reused $reason")
             return
         }
+        // A finished patch for this edit that already covers the view (pan back, zoom back):
+        // show it now instead of rendering again.
+        roiPatchCache.find(roi, previewTick, ROI_RENDER_MAX_PX)?.let { (record, cached) ->
+            roiPublicationGate.invalidate()
+            roiJobRef.value?.cancel()
+            roiOverlay = cached
+            roiPatchTracker.shownOverlay = cached
+            roiPatchTracker.shown = record
+            Diag.i("zoom roi reused cache entries=${roiPatchCache.size}")
+            return
+        }
         roiJobRef.value?.cancel()
         val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
         val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
@@ -1883,6 +1919,7 @@ internal fun MainActivity.EditorScreen(
                     roiOverlay = overlay
                     roiPatchTracker.shownOverlay = overlay
                     roiPatchTracker.shown = record
+                    roiPatchCache.put(record, overlay)
                     pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
                 }
                 Diag.i(timing.line("done"))
