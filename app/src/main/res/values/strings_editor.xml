@@ -156,7 +156,6 @@
     <string name="editor_status_source_expired">source access expired or file moved · choose it again</string>
     <string name="editor_status_preview_error">preview error: %1$s</string>
     <string name="editor_status_recipe_clear_failed">could not clear saved recipe</string>
-    <string name="editor_snack_back_again">Press back again to exit</string>
     <string name="editor_snack_slide_film">%1$s is a slide film — view it as a positive?</string>
     <string name="editor_snack_slide_mode">Slide mode</string>
     <string name="editor_snack_switched_to">Switched to %1$s</string>

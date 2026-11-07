@@ -128,7 +128,6 @@
     <string name="editor_status_source_expired">源文件访问权限已失效或文件已移动 · 请重新选择</string>
     <string name="editor_status_preview_error">预览错误：%1$s</string>
     <string name="editor_status_recipe_clear_failed">无法清除已保存的编辑配方</string>
-    <string name="editor_snack_back_again">再按一次返回键退出</string>
     <string name="editor_snack_slide_film">%1$s 是反转片 — 是否作为正片查看？</string>
     <string name="editor_snack_slide_mode">反转片模式</string>
     <string name="editor_snack_switched_to">已切换至 %1$s</string>

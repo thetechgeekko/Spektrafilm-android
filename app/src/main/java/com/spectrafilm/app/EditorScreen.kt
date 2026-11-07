@@ -771,8 +771,8 @@ internal fun MainActivity.EditorScreen(
         }
     }
 
-    // --- double-back-to-exit on the root editor ---
-    var backArmed by remember { mutableStateOf(false) }
+    // Predictive-back progress of the open full-screen tool (crop / mask geometry / sampler).
+    var overlayBackProgress by remember { mutableFloatStateOf(0f) }
 
     // --- in-session undo / redo edit history ---
     // A snapshot = the full preset/recipe JSON (Presets.toJsonString — covers every
@@ -2762,7 +2762,7 @@ internal fun MainActivity.EditorScreen(
     // --- hardware keyboard shortcuts (EditorShortcuts.kt) ---
     // Every shortcut calls the SAME action as its on-screen control. Esc goes through the
     // back dispatcher, so it closes exactly what Back would (and in the same order), but
-    // only when something is open: at the root it must not arm double-back-to-exit.
+    // only when something is open: at the root Back leaves the app, and Esc must not.
     val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
         // The magnifier is a full-screen overlay in this window (not a dialog), so it
         // has to block shortcuts too; an undo behind it would invalidate its crop.
@@ -2797,14 +2797,31 @@ internal fun MainActivity.EditorScreen(
     }
 
     // --- back handling on the root editor ---
-    // 0) crop overlay open -> close it; 1) panel open -> close panel;
-    // 2) else double-back-to-exit with one-time hint.
+    // 0) full-screen tool open -> close it; 1) panel open -> close panel;
+    // 2) else the system takes Back (to home).
     // Above every other rung: with the chrome hidden there is no visible control at
     // all, so Back has to mean "give me the app back" before it means anything else.
     BackHandler(enabled = viewerUi.chromeHidden) { viewerVm.onAction(EditorViewerAction.ShowChrome) }
-    BackHandler(enabled = toolUi.cropOpen) { toolVm.onAction(EditorToolAction.CloseCrop) }
-    BackHandler(enabled = toolUi.maskGeometryOpen) { toolVm.onAction(EditorToolAction.CloseMaskGeometry) }
-    BackHandler(enabled = toolUi.sampleOpen) { toolVm.onAction(EditorToolAction.CloseSample) }
+    // Predictive back on the full-screen tools (crop, mask geometry, eyedropper): while the
+    // swipe is held the tool shrinks away so the user can see Back will close it, and can
+    // still cancel. Committing cancels the tool exactly as its own Cancel button does.
+    androidx.activity.compose.PredictiveBackHandler(
+        enabled = toolUi.cropOpen || toolUi.maskGeometryOpen || toolUi.sampleOpen,
+    ) { progress ->
+        try {
+            progress.collect { overlayBackProgress = it.progress }
+            val tool = toolVm.current
+            when {
+                tool.cropOpen -> toolVm.onAction(EditorToolAction.CloseCrop)
+                tool.maskGeometryOpen -> toolVm.onAction(EditorToolAction.CloseMaskGeometry)
+                tool.sampleOpen -> toolVm.onAction(EditorToolAction.CloseSample)
+            }
+        } catch (e: CancellationException) {
+            // Gesture cancelled: leave the tool open.
+        } finally {
+            overlayBackProgress = 0f
+        }
+    }
     // Predictive back on the open panel: while the back swipe is in progress the panel
     // shrinks toward the bottom edge (M3 sheets), so the user sees what Back will do and
     // can still cancel. Committing closes it; cancelling springs it back.
@@ -2820,23 +2837,11 @@ internal fun MainActivity.EditorScreen(
             panelBackProgress = 0f
         }
     }
-    BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory == null) {
-        if (backArmed) {
-            finish()
-        } else {
-            backArmed = true
-            scope.launch {
-                val firstTime = !BackHintStore.hasShown(ctx)
-                if (firstTime) {
-                    BackHintStore.markShown(ctx)
-                    snackbarHost.currentSnackbarData?.dismiss()
-                    snackbarHost.showSnackbar(ctx.getString(R.string.editor_snack_back_again))
-                }
-                delay(2000)
-                backArmed = false
-            }
-        }
-    }
+    // At the editor root Back is left to the system, so Android 13+ shows the predictive
+    // back-to-home preview and the task simply goes to the background. Nothing is lost:
+    // the session is checkpointed on ON_STOP and restored on the next launch. (This used
+    // to be a "press Back again to exit" trap, which blocks that preview and which M3's
+    // back model -- close the top surface, pop the stack, then exit -- does not have.)
     // Registered last so it wins: the full-screen grain magnifier sits over everything
     // above, and Back (or Esc) must close IT, not the panel or overlay hidden beneath.
     BackHandler(enabled = magnifierOpen) { closeMagnifier() }
@@ -3637,104 +3642,108 @@ internal fun MainActivity.EditorScreen(
             )
         }
 
-        // --- interactive crop overlay (Lightroom-style) ---
-        // Only shown once a preview bitmap exists (the crop tool needs the image
-        // to draw and to read its aspect ratio).
-        if (cropShown && cropBmp != null) {
-            CropOverlay(
-                bitmap = cropBmp,
-                initialCrop = state.crop,
-                initialCenter = state.cropCenter,
-                initialSize = state.cropSize,
-                onRotate = { rotation = rotation.next() },
-                onConfirm = { crop, center, size ->
-                    state.crop = crop
-                    state.cropCenter = center
-                    state.cropSize = size
-                    toolVm.onAction(EditorToolAction.CloseCrop)
-                    previewTick++
-                },
-                onCancel = { toolVm.onAction(EditorToolAction.CloseCrop) },
-            )
-        }
-
-        // --- draw-on-the-preview mask geometry editor ---
-        if (maskGeometryShown && cropBmp != null) {
-            MaskGeometryOverlay(
-                bitmap = cropBmp,
-                mask = state.localAdjustments[toolUi.maskIndex].mask,
-                onConfirm = { updated ->
-                    val maskIndex = toolVm.current.maskIndex
-                    val list = state.localAdjustments.toMutableList()
-                    list[maskIndex] = list[maskIndex].copy(mask = updated)
-                    state.localAdjustments = list
-                    toolVm.onAction(EditorToolAction.CloseMaskGeometry)
-                    previewTick++
-                },
-                onCancel = { toolVm.onAction(EditorToolAction.CloseMaskGeometry) },
-            )
-        }
-
-        // --- eyedropper: WB gray-point, or a color-/luminance-range mask target ---
-        if (sampleReady) {
-            PixelSampleOverlay(
-                bitmap = requireNotNull(cropBmp),
-                title = when {
-                    toolUi.sampleWb -> stringResource(R.string.editor_sample_title_wb)
-                    toolUi.sampleLuminance -> stringResource(R.string.editor_sample_title_tone)
-                    else -> stringResource(R.string.editor_sample_title_color)
-                },
-                hint = when {
-                    toolUi.sampleWb -> stringResource(R.string.editor_sample_hint_wb)
-                    toolUi.sampleLuminance -> stringResource(R.string.editor_sample_hint_tone)
-                    else -> stringResource(R.string.editor_sample_hint_color)
-                },
-                onPick = { r, g, b, nx, ny ->
-                    val tool = toolVm.current
-                    if (tool.sampleWb) {
-                        toolVm.onAction(EditorToolAction.CloseSample)
-                        // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
-                        // and solve the WB that neutralizes it. Off the main thread (decode + crop).
-                        scope.launch {
-                            runCatching {
-                                val avg = loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                                    withContext(dispatchers.default) {
-                                        val crop = cropLinearImageRect(fullLease.image, nx, ny, 5, 5)
-                                        try { avgRgb(crop) } finally { crop.close() }
-                                    }
-                                }
-                                CreativeWhiteBalance.solveNeutral(
-                                    avg.first, avg.second, avg.third,
-                                    state.creativeWbTemp, state.creativeWbTint,
-                                )
-                            }.onSuccess { (t, ti) ->
-                                state.creativeWbTemp = t; state.creativeWbTint = ti
-                                status = ctx.getString(R.string.editor_status_wb_set)
-                            }.onFailure {
-                                Toast.makeText(
-                                    ctx,
-                                    ctx.getString(R.string.editor_toast_wb_sample_failed, it.message),
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        }
-                    } else {
-                        val list = state.localAdjustments.toMutableList()
-                        val m = list[tool.maskIndex].mask
-                        val nm = if (tool.sampleLuminance) {
-                            m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
-                        } else {
-                            val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
-                            m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
-                        }
-                        list[tool.maskIndex] = list[tool.maskIndex].copy(mask = nm)
-                        state.localAdjustments = list
-                        toolVm.onAction(EditorToolAction.MaskSampleApplied)
+        // The full-screen tools share one wrapper so a held back swipe shrinks whichever
+        // is open (see the PredictiveBackHandler above).
+        Box(Modifier.fillMaxSize().predictiveBackShrink(overlayBackProgress)) {
+            // --- interactive crop overlay (Lightroom-style) ---
+            // Only shown once a preview bitmap exists (the crop tool needs the image
+            // to draw and to read its aspect ratio).
+            if (cropShown && cropBmp != null) {
+                CropOverlay(
+                    bitmap = cropBmp,
+                    initialCrop = state.crop,
+                    initialCenter = state.cropCenter,
+                    initialSize = state.cropSize,
+                    onRotate = { rotation = rotation.next() },
+                    onConfirm = { crop, center, size ->
+                        state.crop = crop
+                        state.cropCenter = center
+                        state.cropSize = size
+                        toolVm.onAction(EditorToolAction.CloseCrop)
                         previewTick++
-                    }
-                },
-                onCancel = { toolVm.onAction(EditorToolAction.CloseSample) },
-            )
+                    },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseCrop) },
+                )
+            }
+
+            // --- draw-on-the-preview mask geometry editor ---
+            if (maskGeometryShown && cropBmp != null) {
+                MaskGeometryOverlay(
+                    bitmap = cropBmp,
+                    mask = state.localAdjustments[toolUi.maskIndex].mask,
+                    onConfirm = { updated ->
+                        val maskIndex = toolVm.current.maskIndex
+                        val list = state.localAdjustments.toMutableList()
+                        list[maskIndex] = list[maskIndex].copy(mask = updated)
+                        state.localAdjustments = list
+                        toolVm.onAction(EditorToolAction.CloseMaskGeometry)
+                        previewTick++
+                    },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseMaskGeometry) },
+                )
+            }
+
+            // --- eyedropper: WB gray-point, or a color-/luminance-range mask target ---
+            if (sampleReady) {
+                PixelSampleOverlay(
+                    bitmap = requireNotNull(cropBmp),
+                    title = when {
+                        toolUi.sampleWb -> stringResource(R.string.editor_sample_title_wb)
+                        toolUi.sampleLuminance -> stringResource(R.string.editor_sample_title_tone)
+                        else -> stringResource(R.string.editor_sample_title_color)
+                    },
+                    hint = when {
+                        toolUi.sampleWb -> stringResource(R.string.editor_sample_hint_wb)
+                        toolUi.sampleLuminance -> stringResource(R.string.editor_sample_hint_tone)
+                        else -> stringResource(R.string.editor_sample_hint_color)
+                    },
+                    onPick = { r, g, b, nx, ny ->
+                        val tool = toolVm.current
+                        if (tool.sampleWb) {
+                            toolVm.onAction(EditorToolAction.CloseSample)
+                            // Sample the engine INPUT (linear ProPhoto — creative WB's space) at the tap
+                            // and solve the WB that neutralizes it. Off the main thread (decode + crop).
+                            scope.launch {
+                                runCatching {
+                                    val avg = loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
+                                        withContext(dispatchers.default) {
+                                            val crop = cropLinearImageRect(fullLease.image, nx, ny, 5, 5)
+                                            try { avgRgb(crop) } finally { crop.close() }
+                                        }
+                                    }
+                                    CreativeWhiteBalance.solveNeutral(
+                                        avg.first, avg.second, avg.third,
+                                        state.creativeWbTemp, state.creativeWbTint,
+                                    )
+                                }.onSuccess { (t, ti) ->
+                                    state.creativeWbTemp = t; state.creativeWbTint = ti
+                                    status = ctx.getString(R.string.editor_status_wb_set)
+                                }.onFailure {
+                                    Toast.makeText(
+                                        ctx,
+                                        ctx.getString(R.string.editor_toast_wb_sample_failed, it.message),
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        } else {
+                            val list = state.localAdjustments.toMutableList()
+                            val m = list[tool.maskIndex].mask
+                            val nm = if (tool.sampleLuminance) {
+                                m.copy(luminanceRange = com.spectrafilm.app.masks.LuminanceRange.fromSample(r, g, b))
+                            } else {
+                                val cr = m.colorRange ?: com.spectrafilm.app.masks.ColorRange()
+                                m.copy(colorRange = cr.copy(targetR = r, targetG = g, targetB = b))
+                            }
+                            list[tool.maskIndex] = list[tool.maskIndex].copy(mask = nm)
+                            state.localAdjustments = list
+                            toolVm.onAction(EditorToolAction.MaskSampleApplied)
+                            previewTick++
+                        }
+                    },
+                    onCancel = { toolVm.onAction(EditorToolAction.CloseSample) },
+                )
+            }
         }
 
         // --- full-screen export mask ---
