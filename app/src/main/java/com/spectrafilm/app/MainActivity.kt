@@ -4053,6 +4053,9 @@ class MainActivity : ComponentActivity() {
                     // Measured height of the floating adjustment panel (narrow layout only). The
                     // preview's zoom control is inset by it so it never sits under the panel.
                     var panelHeightPx by remember { mutableIntStateOf(0) }
+                    // Compact vs tall panel height (drag the handle). Kept across panel closes
+                    // and rotation so a user who prefers the tall panel is not reset each time.
+                    var panelTall by rememberSaveable { mutableStateOf(false) }
                     // Preview-first: the photo fits into the space ABOVE the floating panel
                     // instead of sitting underneath it, so opening a panel never hides the
                     // part of the frame being judged. Animated so the photo eases up as the
@@ -4182,6 +4185,8 @@ class MainActivity : ComponentActivity() {
                                         category = activeCategory,
                                         onDismiss = { activeCategory = null },
                                         onResetCategory = resetActiveCategory,
+                                        tall = panelTall,
+                                        onTallChange = { panelTall = it },
                                         content = panelContent,
                                     )
                                 }

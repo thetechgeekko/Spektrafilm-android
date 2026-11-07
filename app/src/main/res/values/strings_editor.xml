@@ -210,6 +210,8 @@
     <!-- Adjustment panels (narrow bottom sheet + wide side panel) -->
     <string name="editor_panel_title">%1$s panel</string>
     <string name="editor_close_panel_named">Close %1$s panel</string>
+    <string name="editor_panel_expand">Make panel taller</string>
+    <string name="editor_panel_collapse">Make panel shorter</string>
     <string name="editor_close">Close</string>
     <!-- The 100% magnifier, which until now had no button and could only be reached by
          tapping the photo — a gesture the guide never documented. -->
