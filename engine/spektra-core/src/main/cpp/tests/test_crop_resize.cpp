@@ -160,8 +160,35 @@ int main(int argc, char** argv) {
         spk_image_free(&tap);
     }
 
+    // --- Android deviation (upstream PR #71): an oversize short side is clipped ----
+    // A 64x40 frame (the fixture's first 40 rows) cropped at size y = 41/64 of the long
+    // side asks for 41 of 40 rows. The oracle's overflow rule set y0 = -1 and NumPy's
+    // negative-start slice returned ONE row; the engine now clips the extent and keeps
+    // the full height. Also covers size 1.0 (64 of 40 rows -> 24-row strip before).
+    bool pass_clip = true;
+    {
+        const int sw = 64, sh = 40;
+        std::vector<float> strip(rgb32.begin(), rgb32.begin() + static_cast<size_t>(sw) * sh * 3);
+        spk_image small{strip.data(), sw, sh, SPK_CS_PROPHOTO};
+        spk_params q = p;
+        q.upscale_factor = 1.0f;
+        q.crop_center[0] = 0.5f; q.crop_center[1] = 0.5f;
+        const float ys[2] = {41.0f / 64.0f, 1.0f};
+        for (float y : ys) {
+            q.crop_size[0] = 0.5f; q.crop_size[1] = y;
+            spk_image o{};
+            spk_status cs = spk_simulate(eng, &small, &q, &o);
+            const bool ok = cs == SPK_OK && o.width == 32 && o.height == sh;
+            std::printf("[oversize crop y=%.4f] got %dx%d, want 32x%d -> %s\n", y,
+                        cs == SPK_OK ? o.width : -1, cs == SPK_OK ? o.height : -1, sh,
+                        ok ? "PASS" : "FAIL");
+            if (cs == SPK_OK) spk_image_free(&o);
+            pass_clip = pass_clip && ok;
+        }
+    }
+
     spk_engine_destroy(eng);
-    bool all = pass_geom && pass_cmy && pass_rgb;
+    bool all = pass_geom && pass_cmy && pass_rgb && pass_clip;
     std::printf("%s\n", all ? "ALL PASS" : "FAIL");
     return all ? 0 : 1;
 }

@@ -439,16 +439,23 @@ internal fun GlareSection(s: ParamsState) {
     }
 }
 
+/**
+ * Film and print gamma divide the log exposure axis, so 0 is meaningless: the engine reads it
+ * as "unset" and renders gamma 1, a jump from the flattest step to normal. Upstream floors the
+ * slider at one step for the same reason (spektrafilm PR #70).
+ */
+internal val GAMMA_FACTOR_RANGE = 0.05f..3f
+
 @Composable
 internal fun ExperimentalSection(s: ParamsState) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_exp_title), expanded, { expanded = it },
         help = ParamHelpText.forKey(ParamHelpText.PRINT_GAMMA)) {
-        EnhancedSlider(stringResource(R.string.editor_exp_film_gamma), s.filmGammaFactor, 0f..3f, { s.filmGammaFactor = it },
+        EnhancedSlider(stringResource(R.string.editor_exp_film_gamma), s.filmGammaFactor, GAMMA_FACTOR_RANGE, { s.filmGammaFactor = it },
             step = 0.05f, decimals = 2,
             tooltip = stringResource(R.string.editor_exp_film_gamma_tooltip),
             default = PARAM_DEFAULTS.filmGammaFactor)
-        EnhancedSlider(stringResource(R.string.editor_exp_print_gamma), s.printGammaFactor, 0f..3f, { s.printGammaFactor = it },
+        EnhancedSlider(stringResource(R.string.editor_exp_print_gamma), s.printGammaFactor, GAMMA_FACTOR_RANGE, { s.printGammaFactor = it },
             step = 0.05f, decimals = 2,
             tooltip = stringResource(R.string.editor_exp_print_gamma_tooltip),
             default = PARAM_DEFAULTS.printGammaFactor)

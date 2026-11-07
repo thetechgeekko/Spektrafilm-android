@@ -1268,15 +1268,18 @@ bool valid_preprocess_geometry(const spk_image* image,
         const std::int64_t size_cols = static_cast<std::int64_t>(
             std::nearbyint(longest * params->crop_size[0]));
         if (size_rows <= 0 || size_cols <= 0) return false;
+        // Same short-side clip as crop_image (upstream PR #71).
+        const std::int64_t clipped_rows = std::min<std::int64_t>(size_rows, image->height);
+        const std::int64_t clipped_cols = std::min<std::int64_t>(size_cols, image->width);
 
         std::int64_t row0 = static_cast<std::int64_t>(
-            std::nearbyint(static_cast<double>(center_row) - size_rows / 2.0));
+            std::nearbyint(static_cast<double>(center_row) - clipped_rows / 2.0));
         std::int64_t col0 = static_cast<std::int64_t>(
-            std::nearbyint(static_cast<double>(center_col) - size_cols / 2.0));
+            std::nearbyint(static_cast<double>(center_col) - clipped_cols / 2.0));
         if (row0 < 0) row0 = 0;
         if (col0 < 0) col0 = 0;
-        if (row0 + size_rows > image->height) row0 = image->height - size_rows;
-        if (col0 + size_cols > image->width) col0 = image->width - size_cols;
+        if (row0 + clipped_rows > image->height) row0 = image->height - clipped_rows;
+        if (col0 + clipped_cols > image->width) col0 = image->width - clipped_cols;
 
         const auto slice_extent = [](std::int64_t start, std::int64_t size,
                                      std::int64_t dimension) noexcept {
@@ -1287,8 +1290,8 @@ bool valid_preprocess_geometry(const spk_image* image,
             stop = std::max<std::int64_t>(0, std::min(stop, dimension));
             return stop > start ? stop - start : std::int64_t{0};
         };
-        crop_h = slice_extent(row0, size_rows, image->height);
-        crop_w = slice_extent(col0, size_cols, image->width);
+        crop_h = slice_extent(row0, clipped_rows, image->height);
+        crop_w = slice_extent(col0, clipped_cols, image->width);
         if (crop_w <= 0 || crop_h <= 0) return false;
     }
 
