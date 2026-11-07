@@ -9,6 +9,7 @@
  */
 package com.spectrafilm.app
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -25,9 +26,9 @@ class DerivedProfilesTest {
     fun `CineStill 800T carries Vision3 500T's data unchanged`() {
         val base = profile("kodak_vision3_500t")
         val derived = profile("cinestill_800t")
-        // org.json compares by value, so a re-serialised but equal array still passes, while any
-        // changed number fails.
-        assertTrue("data differs from kodak_vision3_500t", base.getJSONObject("data").similar(derived.getJSONObject("data")))
+        // Compared by value, so a re-serialised but equal array still passes, while any changed
+        // number fails.
+        assertTrue("data differs from kodak_vision3_500t", sameJson(base.getJSONObject("data"), derived.getJSONObject("data")))
         assertEquals("kodak_vision3_500t", derived.getJSONObject("metadata").getString("derived_from"))
     }
 
@@ -43,8 +44,8 @@ class DerivedProfilesTest {
             "antihalation" to "no",
             "target_print" to "kodak_portra_endura",
         )
-        assertEquals(base.keySet(), info.keySet())
-        for (key in base.keySet()) {
+        assertEquals(keysOf(base), keysOf(info))
+        for (key in keysOf(base)) {
             val want = expected[key] ?: base.get(key)
             assertEquals("info.$key", want, info.get(key))
         }
@@ -64,7 +65,7 @@ class DerivedProfilesTest {
                 assertTrue("$paper/$illuminant has no cinestill_800t entry", byFilm.has("cinestill_800t"))
                 assertTrue(
                     "$paper/$illuminant filters differ",
-                    byFilm.getJSONArray("kodak_vision3_500t").similar(byFilm.getJSONArray("cinestill_800t")),
+                    sameJson(byFilm.getJSONArray("kodak_vision3_500t"), byFilm.getJSONArray("cinestill_800t")),
                 )
                 pairs++
             }
@@ -79,6 +80,19 @@ class DerivedProfilesTest {
         assertEquals("color_negative", stock.getString("group"))
         assertEquals("film", stock.getString("kind"))
         assertEquals("tungsten", stock.getString("balance"))
+    }
+
+    // The unit-test compile classpath sees android.jar's org.json, which has neither
+    // JSONObject.similar nor keySet, so value equality is spelled out here.
+    private fun keysOf(o: JSONObject): Set<String> = o.keys().asSequence().toSet()
+
+    private fun sameJson(a: Any?, b: Any?): Boolean = when {
+        a is JSONObject && b is JSONObject ->
+            keysOf(a) == keysOf(b) && keysOf(a).all { sameJson(a.get(it), b.get(it)) }
+        a is JSONArray && b is JSONArray ->
+            a.length() == b.length() && (0 until a.length()).all { sameJson(a.get(it), b.get(it)) }
+        a is Number && b is Number -> a.toDouble() == b.toDouble()
+        else -> a == b
     }
 
     /** Locate a repo-relative file by walking up from the test working dir (repo root or app/). */
