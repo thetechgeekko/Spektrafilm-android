@@ -191,12 +191,12 @@ internal class LibraryViewModel(
         writeScope.launch {
             // An earlier paste changes which frames are edited, and an earlier save creates the
             // sidecars this one must update rather than create again. Either may belong to an
-            // earlier Library entry whose refresh never reaches this one, so after waiting on
-            // one, list the folder again here before choosing frames and rows.
-            val waited = !writeLock.tryLock()
-            if (waited) writeLock.lock()
+            // earlier Library entry whose refresh never reaches this one, and may have finished
+            // before this save was asked for, so always list the folder again under the lock
+            // before choosing frames and rows.
+            writeLock.lock()
             try {
-                if (waited) refresh()
+                refresh()
                 saveLocked(tree, picked)
             } finally {
                 writeLock.unlock()
