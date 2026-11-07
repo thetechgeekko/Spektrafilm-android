@@ -15,7 +15,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -66,14 +65,19 @@ class SettingsDataStoreTest {
         val (store, dataStore) = open()
         for (q in 1..50) store.edit { it[quality] = q }
         store.edit { it[gps] = true }
-        val persisted = withTimeout(10_000) { dataStore.data.first { it[gps] == true } }
+        assertTrue("writer did not drain", store.flush(timeoutMs = 10_000))
+        val persisted = dataStore.data.first()
+        assertEquals(true, persisted[gps])
         assertEquals(50, persisted[quality])
     }
 
     @Test fun aNewStoreReadsWhatTheLastOneWrote() = runBlocking {
         val (store, dataStore) = open()
         store.edit { it[theme] = "LIGHT"; it[quality] = 80 }
-        withTimeout(10_000) { dataStore.data.first { it[quality] == 80 } }
+        // Wait on the writer itself, then read the file back, instead of waiting for the
+        // DataStore data flow to re-emit: flush() returns once the edit is persisted.
+        assertTrue("writer did not drain", store.flush(timeoutMs = 10_000))
+        assertEquals(80, dataStore.data.first()[quality])
         closeAll()
 
         val (reopened, _) = open()
