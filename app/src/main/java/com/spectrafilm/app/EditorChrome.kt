@@ -121,8 +121,8 @@ internal fun StatusPill(
     ) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = Color.Black.copy(alpha = 0.45f),
-            contentColor = Color.White,
+            color = SpektraBrand.scrim.copy(alpha = 0.45f),
+            contentColor = SpektraBrand.onCanvas,
             modifier = Modifier
                 .wrapContentSize()
                 // One merged node: the spinner + text read as a single polite live status.
@@ -140,12 +140,12 @@ internal fun StatusPill(
                     is PillState.Busy -> {
                         SpectraLoadingIndicator(
                             modifier = Modifier.size(18.dp),
-                            color = Color.White,
+                            color = SpektraBrand.onCanvas,
                         )
                         Text(
                             pillState.label,
                             fontSize = 12.sp,
-                            color = Color.White,
+                            color = SpektraBrand.onCanvas,
                         )
                     }
                     is PillState.Error -> {
@@ -161,7 +161,7 @@ internal fun StatusPill(
                         Text(
                             stringResource(R.string.editor_pill_rendered_in_text, pillState.ms),
                             fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
                         )
                     }
                     PillState.Hidden -> { /* not shown */ }
@@ -200,7 +200,7 @@ internal fun CircleScrimButton(
             .clip(CircleShape)
             .background(
                 if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                else Color.Black.copy(alpha = 0.35f)
+                else SpektraBrand.scrim.copy(alpha = 0.35f)
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -257,7 +257,7 @@ internal val PANEL_DIM_IN_SPEC = tween<Float>(durationMillis = 240)
 internal fun SliderReadoutPill(readout: State<SliderReadout?>) {
     val r = readout.value ?: return
     Surface(
-        color = Color.Black.copy(alpha = 0.62f),
+        color = SpektraBrand.scrim.copy(alpha = 0.62f),
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .padding(top = 6.dp, end = 6.dp)
@@ -275,14 +275,14 @@ internal fun SliderReadoutPill(readout: State<SliderReadout?>) {
             Text(
                 r.label,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.72f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 r.value,
                 style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
+                color = SpektraBrand.onCanvas,
                 maxLines = 1,
             )
         }
@@ -585,7 +585,7 @@ internal fun CategoryBar(
                     }
                 }
                 HorizontalDivider(
-                    color = Color.White.copy(alpha = 0.10f),
+                    color = SpektraBrand.onCanvas.copy(alpha = 0.10f),
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -619,7 +619,7 @@ internal fun CategoryBar(
                     .weight(1f)
                     .widthIn(max = 420.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.10f))
+                    .background(SpektraBrand.onCanvas.copy(alpha = 0.10f))
                     .padding(TOOLBAR_INNER_PADDING)
                     .selectableGroup(),
             ) {
@@ -676,7 +676,7 @@ internal fun StageItem(
     // GPU preview off and jolted the CPU one (see PanelOverlay's note).
     val press by animateFloatAsState(if (pressed) 0.92f else 1f, RAIL_PRESS, label = "stagePress")
     val tint by animateColorAsState(
-        if (selected) accent else Color.White.copy(alpha = 0.78f), RAIL_PAINT, label = "stageTint",
+        if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.78f), RAIL_PAINT, label = "stageTint",
     )
     val fill by animateColorAsState(
         if (selected) accent.copy(alpha = 0.18f) else Color.Transparent, RAIL_PAINT, label = "stageFill",
@@ -793,10 +793,10 @@ internal fun SubCategoryChip(
     val modifiedState = stringResource(R.string.editor_category_modified)
     val press by animateFloatAsState(if (pressed) 0.92f else 1f, RAIL_PRESS, label = "groupPress")
     val tint by animateColorAsState(
-        if (selected) accent else Color.White.copy(alpha = 0.82f), RAIL_PAINT, label = "groupTint",
+        if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.82f), RAIL_PAINT, label = "groupTint",
     )
     val fill by animateColorAsState(
-        if (selected) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.07f),
+        if (selected) accent.copy(alpha = 0.22f) else SpektraBrand.onCanvas.copy(alpha = 0.07f),
         RAIL_PAINT, label = "groupFill",
     )
     TextTooltip(categoryHint(category)) {
@@ -883,7 +883,7 @@ internal fun CategoryItem(
                 imageVector = categoryIcon(category),
                 // Decorative: the visible label text below carries the name.
                 contentDescription = null,
-                tint = if (selected) accent else Color.White.copy(alpha = 0.78f),
+                tint = if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.78f),
                 modifier = Modifier.size(24.dp),
             )
             // "This category is doing something to the photograph." The chips encoded
@@ -905,7 +905,7 @@ internal fun CategoryItem(
             fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = if (selected) accent else Color.White.copy(alpha = 0.78f),
+            color = if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.78f),
         )
         // sliding pill indicator
         Box(

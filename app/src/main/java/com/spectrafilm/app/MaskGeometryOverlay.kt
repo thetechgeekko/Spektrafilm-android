@@ -103,7 +103,7 @@ fun MaskGeometryOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
+            .background(SpektraBrand.scrim.copy(alpha = 0.92f))
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
@@ -115,11 +115,11 @@ fun MaskGeometryOverlay(
                 val cancelLabel = stringResource(R.string.tool_cancel)
                 TextTooltip(cancelLabel) {
                     IconButton(onClick = onCancel) {
-                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = Color.White)
+                        Icon(SpectraIcons.Cancel, contentDescription = cancelLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
                 Text(
-                    stringResource(R.string.tool_mask_geometry_title), color = Color.White,
+                    stringResource(R.string.tool_mask_geometry_title), color = SpektraBrand.onCanvas,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(start = 4.dp).semantics { heading() },
                 )
@@ -127,7 +127,7 @@ fun MaskGeometryOverlay(
                 val applyLabel = stringResource(R.string.tool_apply)
                 TextTooltip(applyLabel) {
                     IconButton(onClick = { confirm() }) {
-                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = Color.White)
+                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = SpektraBrand.onCanvas)
                     }
                 }
             }
@@ -181,7 +181,7 @@ fun MaskGeometryOverlay(
 
             Text(
                 stringResource(R.string.tool_mask_geometry_hint),
-                color = Color.White.copy(alpha = 0.7f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             )
@@ -192,8 +192,8 @@ fun MaskGeometryOverlay(
 /** Draw the editable shape: a radial ellipse + its center/edge handles, or a gradient axis + endpoints. */
 private fun DrawScope.drawMaskChrome(shape: MaskComponent) {
     val w = size.width; val h = size.height
-    val line = Color.White
-    val handle = Color(0xFF7FD1FF)  // a light accent for the draggable handles
+    val line = SpektraBrand.onCanvas
+    val handle = SpektraBrand.maskHandle  // a light accent for the draggable handles
     when (shape) {
         is MaskComponent.Radial -> {
             val cx = shape.cx * w; val cy = shape.cy * h

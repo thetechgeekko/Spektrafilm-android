@@ -4273,7 +4273,7 @@ internal fun MainActivity.EditorTopBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                    listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
                 )
             )
             .windowInsetsPadding(WindowInsets.statusBars),
@@ -4290,7 +4290,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onOpenSource) {
                     Icon(
                         SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
-                        tint = Color.White,
+                        tint = SpektraBrand.onCanvas,
                     )
                 }
             }
@@ -4298,7 +4298,7 @@ internal fun MainActivity.EditorTopBar(
             // ellipsizes instead of pushing the menu off the right edge (#181).
             Text(
                 stringResource(R.string.app_name),
-                color = Color.White.copy(alpha = 0.92f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.92f),
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -4313,7 +4313,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onUndo, enabled = canUndo) {
                     Icon(
                         SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
-                        tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.4f),
+                        tint = if (canUndo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -4321,7 +4321,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onRedo, enabled = canRedo) {
                     Icon(
                         SpectraIcons.Redo, contentDescription = stringResource(R.string.editor_action_redo),
-                        tint = if (canRedo) Color.White else Color.White.copy(alpha = 0.4f),
+                        tint = if (canRedo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -4335,7 +4335,7 @@ internal fun MainActivity.EditorTopBar(
                         Icon(
                             SpectraIcons.More,
                             contentDescription = stringResource(R.string.editor_action_more),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4526,7 +4526,7 @@ internal fun MainActivity.PreviewRegion(
                     // No inset: this Box already stops at the panel's top edge.
                 )
                 placeholder != null -> Unit
-                else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
+                else -> Text(stringResource(R.string.editor_preview_none), color = SpektraBrand.onCanvas.copy(alpha = 0.7f))
             }
 
             // Compact translucent histogram overlaid at the TOP EDGE of the preview
@@ -4566,7 +4566,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
                         Icon(
                             SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4574,7 +4574,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
                         Icon(
                             SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4582,7 +4582,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onOpenMagnifier) {
                         Icon(
                             SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4590,18 +4590,18 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
                         Icon(
                             SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
                 TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
                     CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = Color.White)
+                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = SpektraBrand.onCanvas)
                     }
                 }
                 TextTooltip(stringResource(R.string.editor_rotate_90)) {
                     CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = Color.White)
+                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = SpektraBrand.onCanvas)
                     }
                 }
             }
