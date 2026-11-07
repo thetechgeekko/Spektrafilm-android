@@ -14,8 +14,38 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class ParamHelpTest {
+
+    /** English text of every app string, read from res/values (resources aren't loaded on the JVM). */
+    private val english: Map<String, String> by lazy {
+        var dir: File? = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        var values: File? = null
+        while (dir != null && values == null) {
+            values = listOf(File(dir, "app/src/main/res/values"), File(dir, "src/main/res/values"))
+                .firstOrNull { it.isDirectory }
+            dir = dir.parentFile
+        }
+        val entry = Regex("""<string name="([^"]+)"[^>]*>(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
+        values!!.listFiles { f -> f.extension == "xml" }.orEmpty()
+            .flatMap { f -> entry.findAll(f.readText()).map { it.groupValues[1] to it.groupValues[2] }.toList() }
+            .associate { (name, raw) ->
+                name to raw.replace("\\\"", "\"").replace("\\'", "'").replace("&amp;", "&").replace("&lt;", "<")
+            }
+    }
+
+    /** Resource id -> resource name, through the generated R class. */
+    private val names: Map<Int, String> by lazy {
+        R.string::class.java.fields.associate { it.getInt(null) to it.name }
+    }
+
+    private fun text(id: Int): String =
+        english[names[id] ?: error("unknown string id $id")] ?: error("no English text for ${names[id]}")
+
+    private val ParamHelp.titleText get() = text(title)
+    private val ParamHelp.summaryText get() = text(summary)
+    private val ParamHelp.bodyText get() = text(body)
 
     /** The opaque controls §6h names (couplers/grain/halation/print-gamma) — plus preflash/glare. */
     private val opaqueKeys = listOf(
@@ -33,9 +63,19 @@ class ParamHelpTest {
             val help = ParamHelpText.forKey(key)
             assertNotNull("no help registered for '$key'", help)
             help!!
-            assertTrue("blank title for '$key'", help.title.isNotBlank())
-            assertTrue("blank summary for '$key'", help.summary.isNotBlank())
-            assertTrue("blank body for '$key'", help.body.isNotBlank())
+            assertTrue("blank title for '$key'", help.titleText.isNotBlank())
+            assertTrue("blank summary for '$key'", help.summaryText.isNotBlank())
+            assertTrue("blank body for '$key'", help.bodyText.isNotBlank())
+        }
+    }
+
+    /** Each help points at its own help_<key>_* strings (also proves R ids resolve uniquely here). */
+    @Test
+    fun helpUsesItsOwnStringResources() {
+        for ((key, help) in ParamHelpText.sections) {
+            assertEquals("help_${key}_title", names[help.title])
+            assertEquals("help_${key}_summary", names[help.summary])
+            assertEquals("help_${key}_body", names[help.body])
         }
     }
 
@@ -47,13 +87,13 @@ class ParamHelpTest {
     @Test
     fun summaryIsAConciseSingleLineAndBodyIsRicher() {
         for ((key, help) in ParamHelpText.sections) {
-            assertFalse("summary should be a single line: '$key'", help.summary.contains('\n'))
+            assertFalse("summary should be a single line: '$key'", help.summaryText.contains('\n'))
             assertTrue(
-                "summary should stay a one-liner (<=100 chars): '$key' is ${help.summary.length}",
-                help.summary.length <= 100,
+                "summary should stay a one-liner (<=100 chars): '$key' is ${help.summaryText.length}",
+                help.summaryText.length <= 100,
             )
-            assertTrue("body should be a real explanation (>=80 chars): '$key'", help.body.length >= 80)
-            assertTrue("body should add more than the summary: '$key'", help.body.length > help.summary.length)
+            assertTrue("body should be a real explanation (>=80 chars): '$key'", help.bodyText.length >= 80)
+            assertTrue("body should add more than the summary: '$key'", help.bodyText.length > help.summaryText.length)
         }
     }
 

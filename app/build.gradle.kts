@@ -108,9 +108,12 @@ android {
     // localeFilters keeps the list to languages the APP translates: without it AGP would also
     // pick up AndroidX/Compose library translations (values-fr etc.) and offer languages in
     // which our own UI stays English. Add a locale here when its values-<locale> folder lands.
+    // en-rXA / ar-rXB are the debug pseudolocales (isPseudoLocalesEnabled below): a locale
+    // filter strips them too unless they are listed, which silently broke the #181 layout
+    // checks. Release builds generate no pseudolocale resources, so listing them is inert there.
     androidResources {
         generateLocaleConfig = true
-        localeFilters += listOf("en")
+        localeFilters += listOf("en", "en-rXA", "ar-rXB")
     }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.

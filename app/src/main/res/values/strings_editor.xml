@@ -73,8 +73,14 @@
     <string name="editor_status_undo">undo</string>
     <string name="editor_status_redo">redo</string>
     <string name="editor_status_session_migrated">restored session migrated to available profiles</string>
-    <string name="editor_status_ready_profiles">ready · %1$d profiles</string>
-    <string name="editor_status_session_restored_profiles">editor session restored · %1$d profiles</string>
+    <plurals name="editor_status_ready_profiles">
+        <item quantity="one">ready · %1$d profile</item>
+        <item quantity="other">ready · %1$d profiles</item>
+    </plurals>
+    <plurals name="editor_status_session_restored_profiles">
+        <item quantity="one">editor session restored · %1$d profile</item>
+        <item quantity="other">editor session restored · %1$d profiles</item>
+    </plurals>
 
     <!-- Saved-recipe restore notices -->
     <string name="editor_snack_recipe_restored">Restored saved edit for this image</string>

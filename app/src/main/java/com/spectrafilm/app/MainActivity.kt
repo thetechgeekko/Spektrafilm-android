@@ -1995,9 +1995,9 @@ class MainActivity : ComponentActivity() {
                         status == ctx.getString(R.string.editor_status_initializing)
                     ) {
                         status = if (initialRestoredSession == null) {
-                            ctx.getString(R.string.editor_status_ready_profiles, list.size)
+                            ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
                         } else {
-                            ctx.getString(R.string.editor_status_session_restored_profiles, list.size)
+                            ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
                         }
                     }
                     defaultsJson = freshDefaults
