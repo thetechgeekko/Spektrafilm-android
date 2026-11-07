@@ -163,6 +163,26 @@ class ParamsState {
     var enlargerLensBlur by mutableFloatStateOf(0f)
     val printDiffusionState = DiffusionState()
 
+    /**
+     * Multigrade contrast grade ("00".."5", [SilverPrint.GRADES]). Read only while the print is a
+     * silver paper; a colour print ignores it, so it never moves a colour render.
+     */
+    var paperGrade by mutableStateOf(SilverPrint.DEFAULT_GRADE)
+
+    /**
+     * The grade [toParams] sends, or null on a colour print. A silver paper takes its grade's
+     * filter pack and mid-grey exposure instead of the colour-pack table (database lookup off).
+     */
+    private fun silverGradeFor(print: String): PaperGrade? =
+        if (SilverPrint.isSilverPaper(print)) SilverPrint.grade(paperGrade) else null
+
+    /**
+     * The colour paper a black-and-white film moved the print off, so choosing a colour film
+     * again puts it back (SilverPrint.printAfterFilmChange). Held here rather than in the
+     * panel so switching editor categories does not drop it. Session-only, not a recipe field.
+     */
+    var lastColourPrint by mutableStateOf<String?>(null)
+
     // --- Preflash ---
     var preflashExposure by mutableFloatStateOf(0f)
     var preflashYFilterShift by mutableFloatStateOf(0f)
@@ -355,6 +375,8 @@ class ParamsState {
         printMFilterShift = p.enlarger.mFilterShift
         enlargerLensBlur = p.enlarger.lensBlur
         printDiffusionState.loadFrom(p.enlarger.diffusionFilter)
+        paperGrade = SilverPrint.DEFAULT_GRADE
+        lastColourPrint = null
 
         preflashExposure = p.enlarger.preflashExposure
         preflashYFilterShift = p.enlarger.preflashYFilterShift
@@ -467,9 +489,15 @@ class ParamsState {
         // the magnifier and EXPORT do NOT, so grain/halation still render where they're visible.
         // Preview-only — never set on the export path, so parity is unaffected. Couplers stay on.
         skipGrainHalation: Boolean = false,
+        // Stock-preview tiles render a candidate film or paper as a tap would apply it. The
+        // paper-dependent fields (grade filtration, exposure, database lookup) and the
+        // film-dependent ones (grain sub-layers) must follow the candidate, so they are derived
+        // from these overrides rather than patched onto a finished SpektraParams.
+        filmOverride: String? = null,
+        printOverride: String? = null,
     ): SpektraParams = SpektraParams(
-        filmProfile = filmProfile,
-        printProfile = printProfile,
+        filmProfile = filmOverride ?: filmProfile,
+        printProfile = printOverride ?: printProfile,
         camera = CameraParams(
             exposureCompensationEv = exposureCompensationEv,
             autoExposure = autoExposure,
@@ -500,7 +528,10 @@ class ParamsState {
         ),
         enlarger = EnlargerParams(
             illuminant = printIlluminant,
-            printExposure = printExposure,
+            printExposure = printExposure * (silverGradeFor(printOverride ?: printProfile)?.printExposure ?: 1f),
+            yFilterNeutral = silverGradeFor(printOverride ?: printProfile)?.yFilter ?: DEFAULT_ENLARGER.yFilterNeutral,
+            mFilterNeutral = silverGradeFor(printOverride ?: printProfile)?.mFilter ?: DEFAULT_ENLARGER.mFilterNeutral,
+            cFilterNeutral = if (silverGradeFor(printOverride ?: printProfile) != null) 0f else DEFAULT_ENLARGER.cFilterNeutral,
             printExposureCompensation = printExposureCompensation,
             yFilterShift = printYFilterShift,
             mFilterShift = printMFilterShift,
@@ -539,12 +570,15 @@ class ParamsState {
             previewMaxSize = previewMaxSizeOverride ?: previewMaxSize,
             gpuPreview = gpuEngine,
             gpuExport = gpuExport,
+            neutralPrintFiltersFromDatabase = silverGradeFor(printOverride ?: printProfile) == null,
         ),
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,
             grain = GrainParams(
                 active = grainActive && !skipGrainHalation,
-                sublayersActive = grainSublayersActive,
+                // The three grain sub-layers are the colour films' model; a silver film's
+                // datasheet supports no split, so its grain is always one layer.
+                sublayersActive = grainSublayersActive && !SilverPrint.isSilverFilm(filmOverride ?: filmProfile),
                 agxParticleAreaUm2 = grainParticleAreaUm2,
                 agxParticleScale = grainParticleScale,
                 agxParticleScaleLayers = grainParticleScaleLayers,
@@ -724,3 +758,6 @@ private fun Triple<Float, Float, Float>.times100() =
 
 private fun Triple<Float, Float, Float>.div100() =
     Triple(first / 100f, second / 100f, third / 100f)
+
+/** The engine's colour enlarger defaults, which a colour print keeps sending unchanged. */
+private val DEFAULT_ENLARGER = EnlargerParams()

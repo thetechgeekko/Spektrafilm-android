@@ -1,7 +1,7 @@
 # Spektrafilm Stock Catalog
 
-Spektrafilm ships with 29 spectral film and paper profiles (28 from spektrafilm plus one
-derived stock, CineStill 800T). This reference groups every
+Spektrafilm ships with 34 spectral film and paper profiles: 28 from spektrafilm, one derived
+stock (CineStill 800T), and five black-and-white stocks built from manufacturer datasheets. This reference groups every
 bundled stock by its role in the photographic chain — the film you expose, the slide you
 project, the cine negative you shoot, and the print medium that renders the final image.
 
@@ -48,6 +48,24 @@ viewed or projected directly, so contrast and saturation are baked into the emul
 | Fujifilm Velvia 100 | Fujifilm | 100 | Daylight | 2005 | High contrast, ultra-saturated; the landscape shooter's favorite. |
 | Kodak Kodachrome 64 | Kodak | 64 | Daylight | 1974 (disc. 2009) | Legendary K-14 slide; rich, archival color with a warm signature. |
 
+## Black & White Negative
+
+Silver films: one panchromatic emulsion written identically into all three channels, with
+neutral silver density, so the image is neutral by construction. Built by Hanze Qiu from the
+manufacturers' datasheets (GPLv3); each profile's `metadata` says what was read off the sheet and
+what was assumed. They print on the black-and-white paper below; picking one moves a colour
+print onto it (a silver negative has no colour pack and renders orange on RA-4 paper). Grain is
+always a single layer on these films.
+
+| Name | Manufacturer | ISO | Development modeled | Character |
+|------|--------------|-----|---------------------|-----------|
+| Kodak Tri-X 400 | Kodak | 400 | D-76, CI 0.56 | The classic high-speed black-and-white negative. |
+| Ilford HP5 Plus 400 | Ilford | 400 | Ilfotec HC 1+31, CI 0.60 | Forgiving 400-speed film with wide latitude. |
+| Kodak T-Max 100 | Kodak | 100 | D-76, CI 0.56 | Fine-grain tabular emulsion, crisp detail. |
+| Fujifilm Neopan Acros 100 II | Fujifilm | 100 | D-76, CI 0.57 | Very fine grain, clean bright highlights. |
+
+---
+
 ## Motion-Picture Negative
 
 Eastman cine camera negatives. These are shot on a movie camera and then printed onto a
@@ -86,6 +104,14 @@ These are papers, not films, so they carry no ISO speed.
 | Kodak Professional Endura Premier | Kodak | RA-4 paper | 2010 | Kodak's last RA-4 paper; tunable contrast, 100+ yr stability. |
 | Kodak Ektacolor Edge | Kodak | RA-4 paper | ~1997 | Consumer/minilab paper; natural skin, rich everyday color. |
 | Fujifilm Crystal Archive Type II | Fujifilm | RA-4 paper | ~2005 | Benchmark Fuji paper; rich gradation, vivid color, great stability. |
+
+---
+
+## Black & White Paper
+
+| Name | Manufacturer | Type | Character |
+|------|--------------|------|-----------|
+| Ilford Multigrade IV RC | Ilford | Variable-contrast RC paper | Three emulsions, one per channel, fitted to Ilford's curves for filters 00 to 5. The editor's **Paper grade** control (Print panel) sets the enlarger filtration and holds mid-grey at every grade. Colour negatives print on it too. |
 
 ---
 

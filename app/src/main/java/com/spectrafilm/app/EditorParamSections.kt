@@ -378,6 +378,7 @@ internal fun SimulationSection(
                     onClick = onOpenPrintCurves,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.editor_sim_view_print_curves)) }
+                if (SilverPrint.isSilverPaper(s.printProfile)) PaperGradeRow(s)
                 EnhancedSlider(stringResource(R.string.editor_sim_print_exposure), s.printExposure, 0f..4f, { s.printExposure = it },
                     step = 0.02f, decimals = 2,
                     tooltip = stringResource(R.string.editor_sim_print_exposure_tooltip),
@@ -502,6 +503,38 @@ internal fun SimulationSection(
                     stringResource(R.string.editor_sim_saving_cctf_tooltip))
                 SwitchRow(stringResource(R.string.editor_sim_slide_mode), s.scanFilm, { s.scanFilm = it },
                     stringResource(R.string.editor_sim_slide_mode_tooltip))
+            }
+        }
+    }
+}
+
+/**
+ * Multigrade contrast grade, 00 to 5, as one segmented row. Shown only on a silver paper, where
+ * [ParamsState.toParams] turns the grade into the enlarger's filter pack and mid-grey exposure.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaperGradeRow(s: ParamsState) {
+    val label = stringResource(R.string.editor_sim_paper_grade)
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(
+            stringResource(R.string.editor_sim_paper_grade_tooltip),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        val grades = SilverPrint.GRADES
+        val current = SilverPrint.grade(s.paperGrade).label
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            grades.forEachIndexed { index, grade ->
+                SegmentedButton(
+                    selected = grade.label == current,
+                    onClick = { s.paperGrade = grade.label },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = grades.size),
+                    modifier = Modifier.semantics { contentDescription = "$label ${grade.label}" },
+                    icon = {},
+                ) { Text(grade.label, maxLines = 1) }
             }
         }
     }

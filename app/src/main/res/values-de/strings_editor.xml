@@ -350,6 +350,9 @@
     <string name="editor_sim_view_print_curves">Kurven des Abzugsprofils ansehen</string>
     <string name="editor_sim_print_exposure">Abzugsbelichtung</string>
     <string name="editor_sim_print_exposure_tooltip">Ändert die Belichtungszeit im virtuellen Vergrößerer</string>
+    <string name="editor_sim_paper_grade">Papiergradation</string>
+    <string name="editor_sim_paper_grade_tooltip">Multigrade-Filterung am Vergrößerer: 00 ist am weichsten, 5 am härtesten. Mittelgrau bleibt, der Kontrast ändert sich.</string>
+    <string name="editor_snack_silver_paper">Schwarzweißfilm wird auf %1$s vergrößert</string>
     <string name="editor_sim_print_auto_comp">Automatische Abzugskorrektur</string>
     <string name="editor_sim_print_auto_comp_tooltip">Passt die Abzugsbelichtung automatisch an die Belichtungskorrektur der Kamera (EV) an</string>
     <string name="editor_sim_print_y_shift">Y-Filterverschiebung (Abzug)</string>

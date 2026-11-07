@@ -348,6 +348,9 @@
     <string name="editor_sim_view_print_curves">プリントプロファイルのカーブを見る</string>
     <string name="editor_sim_print_exposure">プリントの露光</string>
     <string name="editor_sim_print_exposure_tooltip">仮想の引き伸ばし機で設定する露光時間を変えます</string>
+    <string name="editor_sim_paper_grade">印画紙の号数</string>
+    <string name="editor_sim_paper_grade_tooltip">引き伸ばし機のマルチグレードフィルター。00が最も軟調、5が最も硬調です。中間グレーは保ったままコントラストが変わります。</string>
+    <string name="editor_snack_silver_paper">白黒フィルムは%1$sにプリントします</string>
     <string name="editor_sim_print_auto_comp">プリントの自動補正</string>
     <string name="editor_sim_print_auto_comp_tooltip">カメラの露出補正EVに合わせてプリントの露光を自動調整します</string>
     <string name="editor_sim_print_y_shift">プリントのYフィルターシフト</string>

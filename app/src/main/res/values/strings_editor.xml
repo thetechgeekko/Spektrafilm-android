@@ -416,6 +416,9 @@
     <string name="editor_sim_view_print_curves">View print profile curves</string>
     <string name="editor_sim_print_exposure">Print exposure</string>
     <string name="editor_sim_print_exposure_tooltip">Changes the exposure time set in the virtual enlarger</string>
+    <string name="editor_sim_paper_grade">Paper grade</string>
+    <string name="editor_sim_paper_grade_tooltip">Multigrade filtration on the enlarger: 00 is softest, 5 is hardest. Mid-grey stays put while contrast changes.</string>
+    <string name="editor_snack_silver_paper">Black-and-white film prints on %1$s</string>
     <string name="editor_sim_print_auto_comp">Print auto compensation</string>
     <string name="editor_sim_print_auto_comp_tooltip">Auto adjust the print exposure for the camera exposure compensation ev</string>
     <string name="editor_sim_print_y_shift">Print Y filter shift</string>

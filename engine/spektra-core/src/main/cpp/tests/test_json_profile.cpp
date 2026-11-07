@@ -502,8 +502,8 @@ int main(int argc, char** argv) {
           "profile requires string info.channel_model");
     bad = {};
     bad.channel_model_json = "\"bw\"";
-    check(rejects_profile(make_profile(bad)),
-          "profile rejects unsupported monochrome channel model");
+    check(!rejects_profile(make_profile(bad)),
+          "profile accepts a three-channel black-and-white stock");
     bad = {};
     bad.channel_model_json = "\"spectral\"";
     check(rejects_profile(make_profile(bad)),

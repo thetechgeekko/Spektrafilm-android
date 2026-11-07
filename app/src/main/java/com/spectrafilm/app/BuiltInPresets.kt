@@ -162,6 +162,7 @@ object BuiltInPresets {
             if (e.has("preflashExposure")) s.preflashExposure = e.f("preflashExposure", s.preflashExposure)
             if (e.has("preflashYFilterShift")) s.preflashYFilterShift = e.f("preflashYFilterShift", s.preflashYFilterShift)
             if (e.has("preflashMFilterShift")) s.preflashMFilterShift = e.f("preflashMFilterShift", s.preflashMFilterShift)
+            if (e.has("paperGrade")) s.paperGrade = e.optString("paperGrade", s.paperGrade)
             e.optJSONObject("diffusionFilter")?.let { applyDiffusion(it, s.printDiffusionState) }
         }
 
