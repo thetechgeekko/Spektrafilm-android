@@ -3752,7 +3752,9 @@ internal fun MainActivity.EditorScreen(
                 exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
                 exportPresetVm.load()
             }
-            var lastUsedApplied by remember { mutableStateOf(false) }
+            // Saveable, so a recreated Activity (theme or locale change) that restores the open
+            // sheet with the user's own edits does not overwrite them with the preset again.
+            var lastUsedApplied by rememberSaveable { mutableStateOf(false) }
             LaunchedEffect(exportPresets.lastUsed) {
                 val last = exportPresets.lastUsedPreset
                 if (!lastUsedApplied && last != null) {
