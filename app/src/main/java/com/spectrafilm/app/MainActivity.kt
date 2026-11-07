@@ -652,6 +652,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
     }
 
+    /** Saved export presets for the export sheet. */
+    private val exportPresetVm: ExportPresetViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[ExportPresetViewModel::class.java]
+    }
+
     /** Viewer modes: compare, histogram, hidden chrome (#272). */
     private val viewerVm: EditorViewerViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewerViewModel::class.java]
@@ -4726,7 +4731,39 @@ class MainActivity : ComponentActivity() {
 
             // --- Lightroom-style export options sheet ---
             if (exportUi.sheetOpen) {
+                val exportPresets by exportPresetVm.uiState.collectAsStateWithLifecycle()
+                // Opening the sheet: load the presets, then preselect the one used last so the
+                // Export button is two taps for a repeat export.
+                LaunchedEffect(Unit) {
+                    exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
+                    exportPresetVm.load()
+                }
+                var lastUsedApplied by remember { mutableStateOf(false) }
+                LaunchedEffect(exportPresets.lastUsed) {
+                    val last = exportPresets.lastUsedPreset
+                    if (!lastUsedApplied && last != null) {
+                        lastUsedApplied = true
+                        exportVm.onAction(ExportAction.SetOptions(last.options))
+                        exportVm.onAction(ExportAction.SetKeepGps(last.keepGps))
+                    }
+                }
+                val matchingPreset = exportPresets.presets.firstOrNull {
+                    it.matches(exportUi.options, exportUi.keepGps)
+                }?.name
                 ExportSheet(
+                    presetNames = exportPresets.presets.map { it.name },
+                    selectedPreset = matchingPreset,
+                    onSelectPreset = { name ->
+                        exportPresets.presets.firstOrNull { it.name == name }?.let { p ->
+                            exportVm.onAction(ExportAction.SetOptions(p.options))
+                            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
+                        }
+                    },
+                    onSavePreset = { name ->
+                        exportPresetVm.save(name, exportVm.current.options, exportVm.current.keepGps)
+                        status = ctx.getString(R.string.editor_status_export_preset_saved, name)
+                    },
+                    onDeletePreset = { name -> exportPresetVm.delete(name) },
                     options = exportUi.options,
                     onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
                     colorSpace = state.outputColorSpace,
@@ -4739,6 +4776,11 @@ class MainActivity : ComponentActivity() {
                     onExport = export@{
                         val exportOptions = exportVm.current.options
                         val exportKeepGps = exportVm.current.keepGps
+                        // The next sheet opens with this preset (or with none, if the choices
+                        // no longer match one).
+                        exportPresetVm.markUsed(
+                            exportPresets.presets.firstOrNull { it.matches(exportOptions, exportKeepGps) }?.name,
+                        )
                         if (!sourceRenderAllowed) {
                             exportVm.onAction(ExportAction.CloseSheet)
                             status = ctx.getString(R.string.editor_status_source_access_required)

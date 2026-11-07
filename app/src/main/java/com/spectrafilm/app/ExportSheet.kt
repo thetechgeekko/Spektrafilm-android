@@ -11,6 +11,20 @@ package com.spectrafilm.app
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,7 +67,16 @@ fun ExportSheet(
     onKeepGpsChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
+    // Saved export presets: their names, the one the sheet's state matches (null = custom), and
+    // the three things you can do with them. Defaults keep the sheet usable without presets.
+    presetNames: List<String> = emptyList(),
+    selectedPreset: String? = null,
+    onSelectPreset: (String) -> Unit = {},
+    onSavePreset: (String) -> Unit = {},
+    onDeletePreset: (String) -> Unit = {},
 ) {
+    var savingPreset by remember { mutableStateOf(false) }
+    var managingPresets by remember { mutableStateOf(false) }
     // Dropdown's `display` is a plain (non-composable) lambda, so stringResource cannot go inside
     // it. LocalResources is the lint-approved read and, unlike LocalContext.current.getString,
     // recomposes when the configuration changes (locale, font scale).
@@ -79,6 +102,18 @@ fun ExportSheet(
                 modifier = Modifier.semantics { heading() },
             )
             val isSceneLinear = options.format == ExportFormat.SCENE_LINEAR_TIFF
+
+            // --- Saved presets: one tap sets every choice below ---
+            if (presetNames.isNotEmpty()) {
+                val customLabel = stringResource(R.string.tool_export_preset_custom)
+                Dropdown(
+                    label = stringResource(R.string.tool_export_preset),
+                    selected = selectedPreset,
+                    options = listOf<String?>(null) + presetNames,
+                    display = { it ?: customLabel },
+                    onSelect = { name -> if (name != null) onSelectPreset(name) },
+                )
+            }
 
             // --- Format (+ format-specific quality) ---
             Dropdown(
@@ -213,9 +248,106 @@ fun ExportSheet(
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.tool_cancel))
                 }
-                Button(onClick = onExport, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.tool_export_action))
+                // Split button: the action, plus a menu of its variants (save these settings as a
+                // preset, manage presets). The two halves share one row and read as one control.
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Button(
+                        onClick = onExport,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 4.dp, bottomEnd = 4.dp),
+                    ) {
+                        Text(stringResource(R.string.tool_export_action))
+                    }
+                    Box {
+                        var menu by remember { mutableStateOf(false) }
+                        Button(
+                            onClick = { menu = true },
+                            shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.semantics {
+                                contentDescription = resources.getString(R.string.tool_export_more_options)
+                            },
+                        ) {
+                            Icon(SpectraIcons.ChevronDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_preset_save)) },
+                                onClick = { menu = false; savingPreset = true },
+                            )
+                            if (presetNames.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tool_export_preset_manage)) },
+                                    onClick = { menu = false; managingPresets = true },
+                                )
+                            }
+                        }
+                    }
                 }
+            }
+
+            if (savingPreset) {
+                var name by remember { mutableStateOf(selectedPreset ?: "") }
+                val cleaned = ExportPresetCodec.cleanName(name)
+                AlertDialog(
+                    onDismissRequest = { savingPreset = false },
+                    title = { Text(stringResource(R.string.tool_export_preset_save_title)) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { if (it.length <= ExportPresetCodec.MAX_NAME_CHARS) name = it },
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.tool_export_preset_name)) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (presetNames.any { it.equals(cleaned, ignoreCase = true) }) {
+                                Text(
+                                    stringResource(R.string.tool_export_preset_overwrite),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = { savingPreset = false; onSavePreset(cleaned) },
+                            enabled = cleaned.isNotEmpty(),
+                        ) { Text(stringResource(R.string.tool_export_preset_save_confirm)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { savingPreset = false }) { Text(stringResource(R.string.tool_cancel)) }
+                    },
+                )
+            }
+
+            if (managingPresets) {
+                AlertDialog(
+                    onDismissRequest = { managingPresets = false },
+                    title = { Text(stringResource(R.string.tool_export_preset_manage)) },
+                    text = {
+                        Column {
+                            for (preset in presetNames) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(preset, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { onDeletePreset(preset) }) {
+                                        Text(stringResource(R.string.tool_export_preset_delete))
+                                    }
+                                }
+                            }
+                            if (presetNames.isEmpty()) {
+                                Text(stringResource(R.string.tool_export_preset_none))
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { managingPresets = false }) { Text(stringResource(R.string.tool_done)) }
+                    },
+                )
             }
 
             Text(
