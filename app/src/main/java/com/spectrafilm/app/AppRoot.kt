@@ -301,7 +301,7 @@ internal fun MainActivity.AppRoot(
                 sessionWriteAccess == EditorSessionWriteAccess.RECOVERING &&
                 liveMutation
             ) liveSessionMutatedDuringRecovery = true
-            Ticket139EditorProbe.publishCheckpoint()
+            editorProbe.publishCheckpoint()
             savedFallback = EditorSavedFallback(
                 source = document.source,
                 rotationDegrees = document.current.rotationDegrees,
@@ -386,7 +386,7 @@ internal fun MainActivity.AppRoot(
         editorAuthorityReady = true
     }
     DisposableEffect(Unit) {
-        Ticket139EditorProbe.onHostCreated()
+        editorProbe.onHostCreated()
         onDispose { }
     }
 
@@ -396,8 +396,8 @@ internal fun MainActivity.AppRoot(
     var lastPrintCurves by remember { mutableStateOf(PrintCurvesRoute("", "")) }
 
     LaunchedEffect(Unit) {
-        if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
-        Ticket139EditorProbe.navigationRequests.collect { request ->
+        if (!editorProbe.isArmed()) return@LaunchedEffect
+        editorProbe.navigationRequests.collect { request ->
             if (request.destination.isEmpty()) return@collect
             val destination = try {
                 Screen.valueOf(request.destination)
@@ -423,7 +423,7 @@ internal fun MainActivity.AppRoot(
     }
     SideEffect {
         if (screen != Screen.EDITOR || editorAuthorityReady) {
-            Ticket139EditorProbe.publishDestination(screen)
+            editorProbe.publishDestination(screen)
         }
     }
     // Hoisted here (not inside EditorScreen) so the open adjustment category survives a

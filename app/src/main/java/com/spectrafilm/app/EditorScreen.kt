@@ -132,7 +132,7 @@ internal fun EditorScreen(
     // source/recipe/export work is submitted to its process owner first; AppRoot reconciles
     // SourceAccess again before a later editor composition, so disposed state is never mutated.
     val scope = rememberCoroutineScope()
-    val editorInstance = remember { Ticket139EditorProbe.beginLiveEditorInstance() }
+    val editorInstance = remember { editorProbe.beginLiveEditorInstance() }
     // Parent checkpoints update while this composition is alive. Restoration is intentionally
     // one-shot; the newest checkpoint becomes the initializer only after navigation creates a
     // fresh EditorScreen composition.
@@ -501,7 +501,7 @@ internal fun EditorScreen(
         magnifierRendering = false
         // Evidence is published only after every production gate/cache/lease owner has been
         // invalidated or retired; callers never observe a start-of-cleanup false positive.
-        Ticket139EditorProbe.publishSourceRetirement()
+        editorProbe.publishSourceRetirement()
     }
 
     // Authorization is part of the render identity. Revocation of the same URI must retire
@@ -746,7 +746,7 @@ internal fun EditorScreen(
 
     fun checkpointEditorSession(): Boolean = runCatching {
         captureEditorSessionDocument()?.let { document ->
-            Ticket139EditorProbe.publishLiveEditorSnapshot(editorInstance, document)
+            editorProbe.publishLiveEditorSnapshot(editorInstance, document)
             onSessionCheckpoint(document, liveCursorMutated)
         } ?: false
     }.getOrElse {
@@ -762,9 +762,9 @@ internal fun EditorScreen(
         runCatching { captureEditorSessionDocument() }
             .onSuccess { document ->
                 if (document != null) {
-                    Ticket139EditorProbe.publishLiveEditorSnapshot(editorInstance, document)
+                    editorProbe.publishLiveEditorSnapshot(editorInstance, document)
                     onSessionCheckpoint(document, liveCursorMutated)
-                    Ticket139EditorProbe.publishLiveEditorReady(editorInstance, document)
+                    editorProbe.publishLiveEditorReady(editorInstance, document)
                 }
             }
             .onFailure {
@@ -1118,7 +1118,7 @@ internal fun EditorScreen(
                         ctx.getString(R.string.editor_status_access_temporary, readyStatus)
                     }
                     previewTick++
-                    probeLabel?.let(Ticket139EditorProbe::publishProbeSource)
+                    probeLabel?.let(editorProbe::publishProbeSource)
                 }
                 is ReconciledSourceMutation.Rejected -> {
                     Diag.w("source adoption failed: ${outcome.failure.message}")
@@ -1135,10 +1135,10 @@ internal fun EditorScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
-        Ticket139EditorProbe.sourceProbeRequests.collect { request ->
+        if (!editorProbe.isArmed()) return@LaunchedEffect
+        editorProbe.sourceProbeRequests.collect { request ->
             adoptSource(
-                uri = Uri.parse(Ticket139EditorProbe.sourceProbeUri(request.label)),
+                uri = Uri.parse(editorProbe.sourceProbeUri(request.label)),
                 kind = SourceKind.PHOTO,
                 displayName = "ticket139-source-${request.label.lowercase()}.png",
                 readyStatus = "source probe ${request.label} selected",
@@ -1148,10 +1148,10 @@ internal fun EditorScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
-        Ticket139EditorProbe.previewCompletionRequests.collect {
+        if (!editorProbe.isArmed()) return@LaunchedEffect
+        editorProbe.previewCompletionRequests.collect {
             if (
-                Ticket139EditorProbe.sourceProbeLabel(sourceUri?.toString()) == "A" &&
+                editorProbe.sourceProbeLabel(sourceUri?.toString()) == "A" &&
                 sourceRenderAllowed
             ) {
                 // A published frame normally makes this a grade-cache hit. Clearing only the
@@ -2049,10 +2049,10 @@ internal fun EditorScreen(
         }
     }
     LaunchedEffect(Unit) {
-        if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
-        Ticket139EditorProbe.exportProbeRequests.collect { request ->
+        if (!editorProbe.isArmed()) return@LaunchedEffect
+        editorProbe.exportProbeRequests.collect { request ->
             openExportSheetIfAllowed()
-            Ticket139EditorProbe.publishExportProbeResult(
+            editorProbe.publishExportProbeResult(
                 request.sequence,
                 exportVm.current.sheetOpen,
             )

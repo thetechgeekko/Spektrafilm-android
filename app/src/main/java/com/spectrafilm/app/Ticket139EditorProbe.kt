@@ -50,7 +50,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Internal, default-off implementation behind the small kept release-test ABI facade. */
-internal object Ticket139EditorProbe {
+internal object Ticket139EditorProbe : EditorProbe {
     internal data class NavigationRequest(val sequence: Long, val destination: String)
     internal data class SourceProbeRequest(val sequence: Long, val label: String)
     internal data class ExportProbeRequest(val sequence: Long)
@@ -464,10 +464,10 @@ internal object Ticket139EditorProbe {
     private val previewCompletionLock = Any()
     private var previewCompletionProbe: PreviewCompletionProbe? = null
 
-    internal val navigationRequests: StateFlow<NavigationRequest> = commands.asStateFlow()
-    internal val sourceProbeRequests: Flow<SourceProbeRequest> = sourceProbeCommands.receiveAsFlow()
-    internal val exportProbeRequests: Flow<ExportProbeRequest> = exportProbeCommands.receiveAsFlow()
-    internal val previewCompletionRequests: Flow<PreviewCompletionRequest> =
+    override val navigationRequests: StateFlow<NavigationRequest> = commands.asStateFlow()
+    override val sourceProbeRequests: Flow<SourceProbeRequest> = sourceProbeCommands.receiveAsFlow()
+    override val exportProbeRequests: Flow<ExportProbeRequest> = exportProbeCommands.receiveAsFlow()
+    override val previewCompletionRequests: Flow<PreviewCompletionRequest> =
         previewCompletionCommands.receiveAsFlow()
 
     fun arm() {
@@ -480,7 +480,7 @@ internal object Ticket139EditorProbe {
         clearState()
     }
 
-    internal fun isArmed(): Boolean = armed.get()
+    override fun isArmed(): Boolean = armed.get()
 
     internal fun requireArmed() {
         check(armed.get()) { "ticket #139 probe is not armed" }
@@ -572,7 +572,7 @@ internal object Ticket139EditorProbe {
      * inert outside the fixed #139 oracle and independently verifies that the draft equals the
      * committed crop passed into the Composable.
      */
-    internal fun publishCropDraftInitialized(
+    override fun publishCropDraftInitialized(
         bitmapWidth: Int,
         bitmapHeight: Int,
         initialCrop: Boolean,
@@ -609,7 +609,7 @@ internal object Ticket139EditorProbe {
     }
 
     /** Same real-composition proof for the mask geometry editor's remembered local draft. */
-    internal fun publishMaskDraftInitialized(
+    override fun publishMaskDraftInitialized(
         bitmapWidth: Int,
         bitmapHeight: Int,
         committed: MaskComponent,
@@ -1176,22 +1176,22 @@ internal object Ticket139EditorProbe {
         check(livePreviewSource.get() == "B") { "source B is not the published preview" }
     }
 
-    internal fun onHostCreated() {
+    override fun onHostCreated() {
         if (!armed.get()) return
         hostGeneration.incrementAndGet()
     }
 
-    internal fun beginLiveEditorInstance(): Long {
+    override fun beginLiveEditorInstance(): Long {
         if (!armed.get()) return 0L
         return editorInstanceSequence.incrementAndGet().also { activeEditorInstance.set(it) }
     }
 
-    internal fun publishLiveEditorSnapshot(instance: Long, document: EditorSessionDocument) {
+    override fun publishLiveEditorSnapshot(instance: Long, document: EditorSessionDocument) {
         if (!armed.get() || instance == 0L) return
         if (instance == activeEditorInstance.get()) liveEditorSnapshot.set(document)
     }
 
-    internal fun publishLiveEditorReady(instance: Long, document: EditorSessionDocument) {
+    override fun publishLiveEditorReady(instance: Long, document: EditorSessionDocument) {
         if (!armed.get() || instance == 0L) return
         if (instance != activeEditorInstance.get()) return
         publishLiveEditorSnapshot(instance, document)
@@ -1205,27 +1205,27 @@ internal object Ticket139EditorProbe {
         }
     }
 
-    internal fun publishDestination(destination: Screen) {
+    override fun publishDestination(destination: Screen) {
         if (!armed.get()) return
         currentDestination.set(destination.name)
     }
 
-    internal fun publishCheckpoint() {
+    override fun publishCheckpoint() {
         if (!armed.get()) return
         checkpointGeneration.incrementAndGet()
     }
 
-    internal fun publishProbeSource(label: String) {
+    override fun publishProbeSource(label: String) {
         if (!armed.get()) return
         currentProbeSource.set(label)
     }
 
-    internal fun publishSourceRetirement() {
+    override fun publishSourceRetirement() {
         if (!armed.get()) return
         sourceRetirementGeneration.incrementAndGet()
     }
 
-    internal suspend fun awaitCompletedPreviewBeforePublication(label: String): Boolean {
+    override suspend fun awaitCompletedPreviewBeforePublication(label: String): Boolean {
         if (!armed.get()) return false
         if (label != "A") return false
         val signature = currentMemorySignature()
@@ -1253,7 +1253,7 @@ internal object Ticket139EditorProbe {
         return true
     }
 
-    internal fun publishLivePreview(label: String) {
+    override fun publishLivePreview(label: String) {
         if (!armed.get()) return
         if (label != "A" && label != "B") return
         livePreviewSource.set(label)
@@ -1270,7 +1270,7 @@ internal object Ticket139EditorProbe {
         }
     }
 
-    internal fun publishPreviewDecision(label: String, claimed: Boolean) {
+    override fun publishPreviewDecision(label: String, claimed: Boolean) {
         if (!armed.get()) return
         if (label != "A") return
         synchronized(previewCompletionLock) {
@@ -1280,7 +1280,7 @@ internal object Ticket139EditorProbe {
         }
     }
 
-    internal fun publishPreviewCleanup(label: String) {
+    override fun publishPreviewCleanup(label: String) {
         if (!armed.get()) return
         if (label != "A") return
         val signature = currentMemorySignature()
@@ -1292,7 +1292,7 @@ internal object Ticket139EditorProbe {
         }
     }
 
-    internal fun publishExportProbeResult(sequence: Long, sheetOpen: Boolean) {
+    override fun publishExportProbeResult(sequence: Long, sheetOpen: Boolean) {
         if (!armed.get()) return
         exportProbeSheetOpen.set(sheetOpen)
         exportProbeHandledGeneration.updateAndGet { handled -> maxOf(handled, sequence) }
@@ -1304,13 +1304,13 @@ internal object Ticket139EditorProbe {
         check(!exportProbeSheetOpen.get()) { "revoked source opened the export sheet" }
     }
 
-    internal fun sourceProbeUri(label: String): String {
+    override fun sourceProbeUri(label: String): String {
         requireArmed()
         require(label == "A" || label == "B") { "unsupported source probe" }
         return "content://com.spectrafilm.app.test.ticket139.sources/source/${label.lowercase()}.png"
     }
 
-    internal fun sourceProbeLabel(uri: String?): String {
+    override fun sourceProbeLabel(uri: String?): String {
         if (!armed.get()) return ""
         return when (uri) {
             sourceProbeUri("A") -> "A"

@@ -174,7 +174,7 @@ fun CropOverlay(
     // Fixed #139 evidence is gated inside the bridge and is a no-op for normal app sessions. The
     // effect runs only after this actual overlay instance has initialized its remembered draft.
     LaunchedEffect(Unit) {
-        Ticket139EditorProbe.publishCropDraftInitialized(
+        editorProbe.publishCropDraftInitialized(
             bitmapWidth = bitmap.width,
             bitmapHeight = bitmap.height,
             initialCrop = initialCrop,
