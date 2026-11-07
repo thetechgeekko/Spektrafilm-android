@@ -867,6 +867,10 @@ internal fun MainActivity.EditorScreen(
         if (recipeReady) lookUpPreviousEdit()
     }
     fun applyPreviousEdit(edit: PreviousEdit) {
+        // Accepted right after opening, the settle effect may not have taken this photo's
+        // baseline yet (it is debounced and was cleared by the source change); capture it now
+        // so settleDecision pushes it and the applied look stays one undo away.
+        if (committedSnapshot == null) committedSnapshot = snapshotNow()
         runCatching { Presets.decode(JSONObject(edit.paramsJson), state) }
             .onSuccess {
                 presetVm.onAction(PresetAction.ClearAmount)
