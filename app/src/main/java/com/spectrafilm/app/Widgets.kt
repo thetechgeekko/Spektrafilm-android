@@ -27,6 +27,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -114,6 +115,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalDensity
@@ -469,6 +471,7 @@ fun EnhancedSlider(
         val steps = if (step > 0f) {
             (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0)
         } else 0
+        val endExclusionPx = with(LocalDensity.current) { SLIDER_END_EXCLUSION.toPx() }
         // Lightroom-style tactile feedback: a light tick when a drag settles, so an
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
         Slider(
@@ -487,10 +490,12 @@ fun EnhancedSlider(
             valueRange = range,
             steps = steps,
             // Announce "<label>, <value>" rather than a bare percentage.
-            modifier = Modifier.semantics {
-                contentDescription = label
-                stateDescription = formatted
-            },
+            modifier = Modifier
+                .sliderEndsGestureExclusion(endExclusionPx)
+                .semantics {
+                    contentDescription = label
+                    stateDescription = formatted
+                },
         )
         if (tooltip != null) {
             Text(
@@ -1532,3 +1537,26 @@ private fun MeteringMethodRow(
         }
     }
 }
+
+/** Width of each slider end that is shielded from the system back gesture. */
+private val SLIDER_END_EXCLUSION = 48.dp
+
+/**
+ * Keep the system back gesture off the two ends of a slider track.
+ *
+ * Panel sliders run almost edge to edge, so a thumb at either end of its range sits inside
+ * the gesture-navigation back zone. Grabbing it there was read as Back: the preset amount
+ * slider rests at 100% on the far right, and dragging it closed the Presets panel instead
+ * of changing the amount. Only the two thumb-sized ends are excluded, not the whole track,
+ * because Android honours at most 200dp of exclusion per screen edge and a panel shows
+ * several sliders at once.
+ */
+private fun Modifier.sliderEndsGestureExclusion(stripPx: Float): Modifier =
+    this
+        .systemGestureExclusion { c ->
+            Rect(0f, 0f, minOf(stripPx, c.size.width.toFloat()), c.size.height.toFloat())
+        }
+        .systemGestureExclusion { c ->
+            val w = c.size.width.toFloat()
+            Rect(maxOf(0f, w - stripPx), 0f, w, c.size.height.toFloat())
+        }
