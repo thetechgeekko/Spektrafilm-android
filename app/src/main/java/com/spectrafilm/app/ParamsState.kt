@@ -376,6 +376,7 @@ class ParamsState {
         enlargerLensBlur = p.enlarger.lensBlur
         printDiffusionState.loadFrom(p.enlarger.diffusionFilter)
         paperGrade = SilverPrint.DEFAULT_GRADE
+        lastColourPrint = null
 
         preflashExposure = p.enlarger.preflashExposure
         preflashYFilterShift = p.enlarger.preflashYFilterShift

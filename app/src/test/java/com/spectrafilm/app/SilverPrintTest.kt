@@ -128,6 +128,29 @@ class SilverPrintTest {
     }
 
     @Test
+    fun `the remembered colour paper applies only to the move that replaced it`() {
+        val endura = "kodak_portra_endura"
+        val mg = SilverPrint.MULTIGRADE
+        // Colour film on Endura -> Tri-X moves the print to Multigrade: remember Endura.
+        var memo = SilverPrint.colourPrintToRemember("kodak_tri_x_400", endura, mg, null)
+        assertEquals(endura, memo)
+        // Tri-X -> HP5 stays on silver film and paper: keep it for the way back.
+        memo = SilverPrint.colourPrintToRemember("ilford_hp5_plus_400", mg, mg, memo)
+        assertEquals(endura, memo)
+        // Back to a colour film (restored to Endura): consumed.
+        memo = SilverPrint.colourPrintToRemember("kodak_portra_400", mg, endura, memo)
+        assertEquals(null, memo)
+        // Colour film deliberately on Multigrade -> Tri-X -> colour film again: nothing moved
+        // the paper, so nothing is remembered and Multigrade stays.
+        memo = SilverPrint.colourPrintToRemember("kodak_tri_x_400", mg, mg, memo)
+        assertEquals(null, memo)
+        assertEquals(
+            mg,
+            SilverPrint.printAfterFilmChange("kodak_tri_x_400", "kodak_portra_400", mg, memo, listOf(mg, endura)),
+        )
+    }
+
+    @Test
     fun `the grade round-trips through a recipe`() {
         val s = ParamsState().apply { paperGrade = "00" }
         val back = ParamsState()

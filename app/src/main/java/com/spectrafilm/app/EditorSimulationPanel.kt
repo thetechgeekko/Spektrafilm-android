@@ -82,10 +82,11 @@ internal fun MainActivity.EditorSimulationPanel(
                     oldFilm = oldFilm, newFilm = id, print = oldPrint,
                     lastColourPrint = state.lastColourPrint, available = printIds,
                 )
-                if (newPrint != oldPrint) {
-                    if (!SilverPrint.isSilverPaper(oldPrint)) state.lastColourPrint = oldPrint
-                    state.printProfile = newPrint
-                }
+                state.lastColourPrint = SilverPrint.colourPrintToRemember(
+                    newFilm = id, oldPrint = oldPrint, newPrint = newPrint,
+                    remembered = state.lastColourPrint,
+                )
+                if (newPrint != oldPrint) state.printProfile = newPrint
                 val name = StockCatalog.displayName(ctx, id)
                 // A reversal (slide) film is most naturally viewed as a
                 // positive — nudge Slide mode if the print is still showing;
@@ -109,6 +110,8 @@ internal fun MainActivity.EditorSimulationPanel(
             val changed = id != state.printProfile
             state.printProfile = id
             if (changed) {
+                // A paper the user picks is theirs: nothing to restore on the way back.
+                state.lastColourPrint = null
                 offerSnackbarSuggestion(scope, snackbarHost,
                     ctx.getString(R.string.editor_snack_switched_to, StockCatalog.displayName(ctx, id)),
                     ctx.getString(R.string.editor_snack_use_defaults)) { state.resetStockCharacter() }

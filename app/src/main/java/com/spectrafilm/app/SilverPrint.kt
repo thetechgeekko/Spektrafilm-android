@@ -90,6 +90,24 @@ object SilverPrint {
         else -> print
     }
 
+    /**
+     * The colour paper to remember after a film change that moved the print from [oldPrint] to
+     * [newPrint]. Only the automatic move of a colour paper onto silver paper is remembered; it
+     * is kept while the film stays silver, and consumed (cleared) as soon as a colour film is
+     * back, whether or not it was restored, so a later deliberate choice of silver paper is
+     * never undone by a stale memory. A manual paper change clears it too.
+     */
+    fun colourPrintToRemember(
+        newFilm: String,
+        oldPrint: String,
+        newPrint: String,
+        remembered: String?,
+    ): String? = when {
+        newPrint != oldPrint && isSilverFilm(newFilm) && !isSilverPaper(oldPrint) -> oldPrint
+        isSilverFilm(newFilm) -> remembered
+        else -> null
+    }
+
     /** True when [print] cannot print [film] well: a silver film on a colour paper. */
     fun isMismatched(film: String, print: String): Boolean =
         isSilverFilm(film) && !isSilverPaper(print)
