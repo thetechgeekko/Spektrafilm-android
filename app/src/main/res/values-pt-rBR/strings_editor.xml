@@ -173,8 +173,6 @@
     <string name="editor_pill_rendered_in">Renderizado em %1$d ms</string>
     <string name="editor_pill_rendered_in_text">Renderizado em %1$d ms</string>
     <string name="editor_pill_error">Erro: %1$s</string>
-    <string name="editor_state_on">Ligado</string>
-    <string name="editor_state_off">Desligado</string>
     <string name="editor_panel_title">Painel %1$s</string>
     <string name="editor_close_panel_named">Fechar o painel %1$s</string>
     <string name="editor_panel_expand">Deixar o painel mais alto</string>

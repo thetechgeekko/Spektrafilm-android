@@ -208,9 +208,6 @@
     <string name="editor_pill_rendered_in_text">Rendered in %1$d ms</string>
     <string name="editor_pill_error">Error: %1$s</string>
 
-    <!-- Toggle state announced by circular scrim buttons -->
-    <string name="editor_state_on">On</string>
-    <string name="editor_state_off">Off</string>
 
     <!-- Adjustment panels (narrow bottom sheet + wide side panel) -->
     <string name="editor_panel_title">%1$s panel</string>
