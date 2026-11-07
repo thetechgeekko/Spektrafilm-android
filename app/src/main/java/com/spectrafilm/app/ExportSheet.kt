@@ -327,7 +327,9 @@ fun ExportSheet(
                     onDismissRequest = { managingPresets = false },
                     title = { Text(stringResource(R.string.tool_export_preset_manage)) },
                     text = {
-                        Column {
+                        // AlertDialog bounds the text slot to the window; scroll inside it
+                        // so all 30 presets stay reachable on a phone.
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
                             for (preset in presetNames) {
                                 Row(
                                     Modifier.fillMaxWidth(),
