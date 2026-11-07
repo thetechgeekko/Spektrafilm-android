@@ -216,7 +216,7 @@ class EditorSessionTest {
             ),
             export = EditorExportState(
                 sheetOpen = false,
-                options = ExportOptions(ExportFormat.TIFF32F, 97, ExportSize.FULL, 2048, "final"),
+                options = ExportOptions(ExportFormat.TIFF32F, 97, ExportSize.FULL, 2048, "final", OutputSharpen.STANDARD),
                 keepGps = false,
                 phase = EditorExportPhase.RUNNING,
                 runtimeRunId = 77L,
@@ -235,6 +235,15 @@ class EditorSessionTest {
         assertEquals("Night portrait", restored.preset.selectedPreset)
         assertEquals(EditorExportPhase.RUNNING, restored.export.phase)
         assertEquals(77L, restored.export.runtimeRunId)
+        assertEquals(document.export.options, restored.export.options)
+
+        // A journal written before output sharpening existed has no "sharpen" key: no sharpening.
+        val legacy = JSONObject(encoded)
+        stripKeyRecursively(legacy, "sharpen")
+        assertEquals(
+            OutputSharpen.NONE,
+            EditorSessionDocumentCodec.decode(legacy.toString()).export.options.sharpen,
+        )
 
         val params = ParamsState()
         Presets.decode(JSONObject(restored.current.paramsJson), params)
@@ -1601,5 +1610,14 @@ class EditorSessionTest {
             }
         }
         return EditSnapshot(root.toString(), 0)
+    }
+
+    private fun stripKeyRecursively(o: JSONObject, key: String) {
+        o.remove(key)
+        for (k in o.keys()) {
+            when (val v = o.opt(k)) {
+                is JSONObject -> stripKeyRecursively(v, key)
+            }
+        }
     }
 }

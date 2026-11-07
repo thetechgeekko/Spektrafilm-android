@@ -73,6 +73,7 @@ internal object ExportCacheKey {
         jpegQuality: Int,
         keepGps: Boolean,
         contractVersion: String,
+        sharpen: OutputSharpen = OutputSharpen.NONE,
     ): String {
         val text = buildString {
             line("schema", SCHEMA)
@@ -115,6 +116,7 @@ internal object ExportCacheKey {
             line("out.releaseStatus", descriptor.releaseStatus.name)
 
             line("geometry.longEdge", targetLongEdge?.toString() ?: "full")
+            line("post.sharpen", sharpen.name)
             line("encoder.jpegQuality", jpegQuality)
             line("exif.keepGps", keepGps)
         }

@@ -977,6 +977,7 @@ internal object EditorSessionDocumentCodec {
         put("size", options.size.name)
         put("customLongEdge", options.customLongEdge)
         put("customName", options.customName)
+        put("sharpen", options.sharpen.name)
     }
 
     private fun presetToJson(preset: EditorPresetState) = JSONObject().apply {
@@ -1006,6 +1007,12 @@ internal object EditorSessionDocumentCodec {
         size = strictEnum(value.requiredString("size"), "export size"),
         customLongEdge = exactInt(value.opt("customLongEdge"), "customLongEdge"),
         customName = value.requiredString("customName"),
+        // Added after schema v1 shipped: absent in older journals, which meant no sharpening.
+        sharpen = if (value.has("sharpen")) {
+            strictEnum(value.requiredString("sharpen"), "export sharpening")
+        } else {
+            OutputSharpen.NONE
+        },
     )
 
     private fun JSONObject.requiredObject(key: String): JSONObject =

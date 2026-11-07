@@ -58,9 +58,18 @@ class ExportCacheKeyTest {
         jpegQuality: Int = 95,
         keepGps: Boolean = false,
         contractVersion: String = contract,
+        sharpen: OutputSharpen = OutputSharpen.NONE,
     ) = ExportCacheKey.compute(
-        source, params, grade, descriptor, longEdge, jpegQuality, keepGps, contractVersion,
+        source, params, grade, descriptor, longEdge, jpegQuality, keepGps, contractVersion, sharpen,
     )
+
+    @Test
+    fun `output sharpening participates`() {
+        val base = key()
+        assertNotEquals("sharpened export served from an unsharpened cache entry", base,
+            key(sharpen = OutputSharpen.STANDARD))
+        assertNotEquals(key(sharpen = OutputSharpen.LOW), key(sharpen = OutputSharpen.HIGH))
+    }
 
     @Test
     fun `the key is a stable lowercase sha256 for identical inputs`() {

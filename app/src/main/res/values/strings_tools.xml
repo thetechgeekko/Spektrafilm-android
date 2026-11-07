@@ -22,6 +22,12 @@
     <string name="tool_export_cctf_help">On for normal viewing. Off writes scene-linear values (for further grading).</string>
     <string name="tool_export_file_name">File name (optional)</string>
     <string name="tool_export_file_name_placeholder">Spektrafilm_&lt;timestamp&gt;</string>
+    <string name="tool_export_file_name_tokens">Use {name}, {film}, {print}, {date} or {time} to fill in the photo\'s name, the stocks or when it was exported.</string>
+    <string name="tool_export_sharpen">Output sharpening</string>
+    <string name="tool_export_sharpen_none">None</string>
+    <string name="tool_export_sharpen_low">Low</string>
+    <string name="tool_export_sharpen_standard">Standard</string>
+    <string name="tool_export_sharpen_high">High</string>
     <string name="tool_export_include_gps">Include location (GPS)</string>
     <string name="tool_export_include_gps_help">Copy GPS coordinates from the source photo into the exported file.</string>
     <string name="tool_export_attribution">Film modeling powered by spektrafilm</string>

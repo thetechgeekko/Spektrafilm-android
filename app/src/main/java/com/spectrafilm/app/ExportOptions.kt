@@ -29,6 +29,8 @@ data class ExportOptions(
     val size: ExportSize,
     val customLongEdge: Int,
     val customName: String,
+    /** Output sharpening, applied after the resize (8-bit formats only). */
+    val sharpen: OutputSharpen = OutputSharpen.NONE,
 ) {
     /**
      * Target long edge in px for a post-render downscale, or null = full resolution. 16-bit formats
@@ -67,6 +69,10 @@ data class ExportOptions(
         return descriptor.requireExportable(apiLevel)
     }
 
+    /** The sharpening this export actually gets: none for the high-bit-depth archive formats. */
+    fun effectiveSharpen(): OutputSharpen =
+        if (format.isHighBitDepth()) OutputSharpen.NONE else sharpen
+
     companion object {
         const val MIN_CUSTOM_EDGE = 256
         const val MAX_CUSTOM_EDGE = 16384
@@ -89,10 +95,43 @@ fun scaledDimensions(w: Int, h: Int, longEdge: Int): Pair<Int, Int> {
  * when it's blank or sanitises to nothing. Keeps letters/digits/space/underscore/hyphen; spaces
  * collapse to underscores so the result is a valid, portable filename.
  */
-fun exportBaseName(custom: String, timestampMs: Long): String {
-    val cleaned = custom.trim()
+fun exportBaseName(
+    custom: String,
+    timestampMs: Long,
+    tokens: ExportNameTokens = ExportNameTokens(),
+): String {
+    val cleaned = expandExportNameTokens(custom, timestampMs, tokens).trim()
         .replace(Regex("[^A-Za-z0-9 _-]"), "")
         .replace(Regex("\\s+"), "_")
         .trim('_')
     return cleaned.ifEmpty { "Spektrafilm_$timestampMs" }
+}
+
+/** Values for the `{...}` placeholders a file name may contain; see [expandExportNameTokens]. */
+data class ExportNameTokens(
+    val sourceName: String = "",
+    val film: String = "",
+    val print: String = "",
+)
+
+/**
+ * Replace the placeholders in a file-name [template]: `{name}` (the photo's file name without
+ * extension), `{film}`, `{print}`, `{date}` (yyyyMMdd) and `{time}` (HHmmss), both in local time
+ * at [timestampMs]. Unknown placeholders are left as typed, so the sanitiser strips their braces
+ * and keeps the word. Matching is case-insensitive.
+ */
+fun expandExportNameTokens(template: String, timestampMs: Long, tokens: ExportNameTokens): String {
+    if ('{' !in template) return template
+    val date = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date(timestampMs))
+    val time = java.text.SimpleDateFormat("HHmmss", java.util.Locale.US).format(java.util.Date(timestampMs))
+    return Regex("\\{(\\w+)\\}").replace(template) { m ->
+        when (m.groupValues[1].lowercase(java.util.Locale.ROOT)) {
+            "name" -> tokens.sourceName.substringBeforeLast('.')
+            "film" -> tokens.film
+            "print" -> tokens.print
+            "date" -> date
+            "time" -> time
+            else -> m.value
+        }
+    }
 }

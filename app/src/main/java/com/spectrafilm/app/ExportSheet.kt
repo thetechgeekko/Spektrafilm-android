@@ -26,6 +26,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -145,6 +148,24 @@ fun ExportSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // Output sharpening: applied after the resize, so it belongs with Dimensions and
+                // hides with it for the high-bit-depth formats that never get it. Four options:
+                // a single-select connected row, not a dropdown (M3: menus are for long lists).
+                Text(
+                    stringResource(R.string.tool_export_sharpen),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    val choices = OutputSharpen.entries
+                    choices.forEachIndexed { index, choice ->
+                        SegmentedButton(
+                            selected = options.sharpen == choice,
+                            onClick = { onOptionsChange(options.copy(sharpen = choice)) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
+                            label = { Text(stringResource(choice.labelRes), maxLines = 1) },
+                        )
+                    }
+                }
             }
 
             if (!isSceneLinear) {
@@ -174,6 +195,7 @@ fun ExportSheet(
                 onValueChange = { onOptionsChange(options.copy(customName = it)) },
                 label = { Text(stringResource(R.string.tool_export_file_name)) },
                 placeholder = { Text(stringResource(R.string.tool_export_file_name_placeholder)) },
+                supportingText = { Text(stringResource(R.string.tool_export_file_name_tokens)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )

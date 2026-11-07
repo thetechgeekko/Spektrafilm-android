@@ -4792,8 +4792,17 @@ class MainActivity : ComponentActivity() {
                             onSettingsAction(SettingsAction.SetKeepGps(exportKeepGps))
                             val fmt = outputDescriptor.format
                             val exportFmt = fmt
-                            val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
+                            val baseName = exportBaseName(
+                                exportOptions.customName,
+                                System.currentTimeMillis(),
+                                ExportNameTokens(
+                                    sourceName = sourceName,
+                                    film = StockCatalog.displayName(ctx, state.filmProfile),
+                                    print = StockCatalog.displayName(ctx, state.printProfile),
+                                ),
+                            )
                             val longEdge = exportOptions.targetLongEdge()
+                            val exportSharpen = exportOptions.effectiveSharpen()
                             val keepGps = exportKeepGps
                             // Wall-clock breadcrumbs for the on-device baseline capture
                             // (issue #119): logcat-visible start marker + duration on ok/fail.
@@ -4888,6 +4897,7 @@ class MainActivity : ComponentActivity() {
                                                 exportJpegQuality,
                                                 keepGps,
                                                 exportContract,
+                                                exportSharpen,
                                             )
                                         }
                                         // Pre-encode identity: the same payload serves every
@@ -5043,6 +5053,15 @@ class MainActivity : ComponentActivity() {
                                                         }.onFailure {
                                                             Diag.w("gain map failed; exporting SDR base: $it")
                                                         }
+                                                    }
+                                                    // Output sharpening, once, on the final-size
+                                                    // image: after the resize (so it suits the size
+                                                    // it is seen at) and after the gain map (which
+                                                    // then lifts the sharpened base, not the soft one).
+                                                    if (sized.isMutable) {
+                                                        sharpenBitmapInPlace(sized, exportSharpen)
+                                                    } else if (exportSharpen != OutputSharpen.NONE) {
+                                                        Diag.w("export bitmap immutable; output sharpening skipped")
                                                     }
                                                     sized
                                                 } else {
