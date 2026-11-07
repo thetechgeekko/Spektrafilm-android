@@ -115,7 +115,7 @@ android {
     // checks. Release builds generate no pseudolocale resources, so listing them is inert there.
     androidResources {
         generateLocaleConfig = true
-        localeFilters += listOf("en", "en-rXA", "ar-rXB")
+        localeFilters += listOf("en", "zh-rCN", "en-rXA", "ar-rXB")
     }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.
@@ -124,6 +124,9 @@ android {
     testOptions { unitTests.isIncludeAndroidResources = true }
 
     lint {
+        // A translation may trail English by a release: a missing string falls back to
+        // English at runtime, which is fine. TranslationKeysTest still blocks stale keys.
+        warning += "MissingTranslation"
         baseline = file("lint-baseline.xml")
         abortOnError = true
         checkReleaseBuilds = true

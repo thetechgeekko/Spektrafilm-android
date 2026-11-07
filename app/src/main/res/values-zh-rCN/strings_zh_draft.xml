@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simplified Chinese for strings added after q8987308-design's translation (2026-11).
+  Drafted by Claude to match that translation's terminology; needs review by a native
+  speaker. When a reviewer confirms an entry, move it into the matching strings_*.xml.
+-->
+<resources>
+    <!-- strings_editor.xml -->
+    <string name="editor_action_more">更多选项</string>
+    <string name="editor_snack_export_without_gps">未获得照片位置权限，导出时将不包含 GPS 信息。</string>
+    <string name="editor_magnifier_rendering" formatted="false">正在渲染 100% 局部…</string>
+    <string name="editor_status_media_location_denied">照片位置权限被拒绝；导出将不包含 GPS 信息</string>
+    <string name="editor_toggle_clipping">切换溢出警告</string>
+    <string name="editor_clipping_tooltip">溢出警告：高光过曝处显示红色，阴影死黑处显示蓝色。第二根手指按住滑块时也会显示。</string>
+    <string name="editor_panel_expand">加高面板</string>
+    <string name="editor_panel_collapse">降低面板</string>
+    <string name="editor_sim_scene_latitude">场景宽容度</string>
+    <string name="editor_sim_scene_latitude_tooltip">在曝光前把超出胶片宽容度的场景收进胶片范围：拐点之外的高光和阴影被平滑压缩，中间调保持不变。适合高反差的手机 DNG。并非上游 spektrafilm 的功能；创意来自 SpektraLab。</string>
+    <string name="editor_sim_scene_latitude_highlight_knee">高光拐点（档）</string>
+    <string name="editor_sim_scene_latitude_highlight_knee_tooltip">从测光中灰向上多少档开始压缩高光。低于此处不做任何改变。</string>
+    <string name="editor_sim_scene_latitude_highlight_room">高光空间（档）</string>
+    <string name="editor_sim_scene_latitude_highlight_room_tooltip">所有高光被收进拐点之上多少档内。数值越小保留的高光细节越多，但会更平；被压缩的高光也会像胶片肩部那样降低饱和度。0 关闭高光压缩。照片中原本已溢出的高光没有可恢复的细节。</string>
+    <string name="editor_sim_scene_latitude_shadow_knee">阴影拐点（档）</string>
+    <string name="editor_sim_scene_latitude_shadow_knee_tooltip">从测光中灰向下多少档开始提亮阴影。高于此处不做任何改变。</string>
+    <string name="editor_sim_scene_latitude_shadow_room">阴影空间（档）</string>
+    <string name="editor_sim_scene_latitude_shadow_room_tooltip">所有阴影被收进拐点之下多少档内。提亮深阴影也会放大其中的噪点；0 关闭阴影提亮。</string>
+    <string name="editor_sim_scene_latitude_rolloff">拐点硬度</string>
+    <string name="editor_sim_scene_latitude_rolloff_tooltip">过渡曲线的形状：1 是最柔和的肩部，4 会让场景在接近极限前更接近线性。</string>
+    <string name="editor_sim_scene_latitude_max_lift">阴影最大提亮（档）</string>
+    <string name="editor_sim_scene_latitude_max_lift_tooltip">无论最深的阴影离拐点多远，提亮幅度都不超过此值。数值越低，黑色越保持黑。</string>
+    <string name="editor_sim_date_stamp">日期背印</string>
+    <string name="editor_sim_date_stamp_tooltip">把相机日期背的印字曝光到底片上，让 LED 数字与画面一起显影、发光并带有颗粒，而不是贴在上面。并非上游 spektrafilm 的功能；创意来自 SpektraLab。</string>
+    <string name="editor_sim_date_stamp_text">印字</string>
+    <string name="editor_sim_date_stamp_text_help">仅限数字、空格以及 \' - . : /</string>
+    <string name="editor_sim_date_stamp_photo_date">拍摄日期</string>
+    <string name="editor_sim_date_stamp_today">今天</string>
+    <string name="editor_sim_date_stamp_corner">位置</string>
+    <string name="editor_sim_date_stamp_corner_br">右下</string>
+    <string name="editor_sim_date_stamp_corner_bl">左下</string>
+    <string name="editor_sim_date_stamp_corner_tr">右上</string>
+    <string name="editor_sim_date_stamp_corner_tl">左上</string>
+    <string name="editor_sim_date_stamp_color">LED 颜色</string>
+    <string name="editor_sim_date_stamp_color_orange">橙色</string>
+    <string name="editor_sim_date_stamp_color_red">红色</string>
+    <string name="editor_sim_date_stamp_color_amber">琥珀色</string>
+    <string name="editor_sim_date_stamp_size">数字高度（短边的 %）</string>
+    <string name="editor_sim_date_stamp_size_tooltip">数字的高度，以画面短边的百分比表示。</string>
+    <string name="editor_sim_date_stamp_margin">边距（短边的 %）</string>
+    <string name="editor_sim_date_stamp_margin_tooltip">印字到角落的距离，以画面短边的百分比表示。</string>
+    <string name="editor_sim_date_stamp_brightness">LED 亮度（档）</string>
+    <string name="editor_sim_date_stamp_brightness_tooltip">LED 对胶片的曝光强度，以高于中灰的档数表示。数字越亮，向画面中晕开得越多。与曝光滑块无关。</string>
+
+    <!-- strings_help.xml -->
+    <string name="help_grain_title">颗粒</string>
+    <string name="help_grain_summary">让胶片看起来像胶片的细腻闪烁质感。</string>
+    <string name="help_grain_body">真实的胶片由微小的感光颗粒构成，它们随机聚集，就是你看到的颗粒。颗粒越大（感光度越高的胶片），颗粒越粗、越明显；各通道的缩放可以让某一色层比其他色层更粗。调低可获得干净、现代的观感，调高则更粗犷、复古。颗粒以微米为单位计算，因此在屏幕上的小预览中可能比全分辨率导出看起来更细。</string>
+    <string name="help_halation_title">光晕</string>
+    <string name="help_halation_summary">明亮高光周围泛起的柔和红色光晕。</string>
+    <string name="help_halation_body">在真实胶片上，强光会穿过乳剂层，在片基背面反射，再次曝光亮部周围的区域，例如路灯、穿过树叶的阳光和镜面高光。“光晕量”决定光晕的强度，“散射”在乳剂层内加入更宽、更柔和的光线扩散；“增强 EV”决定高光要多亮才会泛光。调高可获得梦幻的电影感，关闭整个分组则得到干净利落的数码高光。</string>
+    <string name="help_couplers_title">胶片色彩特性（成色剂）</string>
+    <string name="help_couplers_summary">胶片标志性的色彩分离、边缘锐度和饱和度过渡。</string>
+    <string name="help_couplers_body">胶片显影时，一个色层中形成的染料会在化学上抑制相邻色层，这就是“DIR 成色剂”效应。这种串扰是胶片色彩独特的重要原因：边缘更清晰，饱和度呈非线性变化。“效果强度”控制整体特性，交叉色彩控制决定每种颜色向其他颜色渗透的程度。这是特性控制，而不是普通的饱和度滑块；若只想让画面更浓或更淡，请使用“输出”中的饱和度和自然饱和度。</string>
+    <string name="help_print_gamma_title">胶片与相纸对比度（伽马）</string>
+    <string name="help_print_gamma_summary">底片和相纸本身固有的对比度。</string>
+    <string name="help_print_gamma_body">每种胶片和相纸都有一条特性曲线，“伽马”就是这条曲线的陡峭程度，相当于光化学层面的对比度控制。相纸伽马越高，照片越有冲击力、对比越强；越低则越平。日常调整对比度请先使用对比度滑块；这些是塑造整体风格骨架的底层光化学参数。</string>
+    <string name="help_preflash_title">预闪</string>
+    <string name="help_preflash_summary">对相纸进行微弱、均匀的预曝光，以缓和过强的对比。</string>
+    <string name="help_preflash_body">暗房放大时，有时会在正式曝光前用微弱均匀的光先闪一下相纸。这样能提亮最深的阴影，温和地降低照片对比度，而不影响高光。调高“曝光”可让阴影更柔和、更通透；Y 和 M 滤镜偏移会给预闪光加上色调，就像放大机的滤色一样。</string>
+    <string name="help_glare_title">眩光</string>
+    <string name="help_glare_summary">光线在相纸表面散射形成的朦胧光雾。</string>
+    <string name="help_glare_body">这模拟了在相纸和扫描仪中四处反射的杂散光，会略微抬高黑位，并在画面上蒙上一层柔和的雾。它是随机效果，因此默认关闭，也不属于精确可重复的导出。调高“百分比”可获得更朦胧、对比更低、更怀旧的感觉。</string>
+
+    <!-- strings_screens.xml -->
+    <string name="screen_settings_language">应用语言</string>
+    <string name="screen_settings_language_note">当前：%1$s。打开此应用的系统语言设置。</string>
+    <string name="screen_settings_preview_auto">自动预览尺寸</string>
+    <string name="screen_settings_preview_auto_note">根据本设备的内存、处理器和屏幕选择：%1$d px。</string>
+    <string name="screen_settings_preview_auto_off_note">已关闭：使用下方的尺寸。自动将选择 %1$d px。</string>
+    <string name="screen_settings_draft_auto">自动草稿尺寸</string>
+    <string name="screen_settings_draft_auto_note">从 %1$d px 开始，并根据本设备渲染草稿的速度调整。</string>
+    <string name="screen_settings_draft_auto_off_note">已关闭：使用下方的尺寸。自动将从 %1$d px 开始。</string>
+    <string name="screen_settings_update_view">查看新功能</string>
+    <string name="screen_settings_auto_update">自动检查更新</string>
+    <string name="screen_settings_auto_update_note">每天最多一次，在打开应用时。只向 GitHub 查询最新版本，不会发送任何关于你或你的照片的信息。</string>
+    <string name="update_dialog_title">%1$s 的新功能</string>
+    <string name="update_dialog_current">你当前使用的是 %1$s。</string>
+    <string name="update_no_notes">此版本没有更新说明。</string>
+    <string name="update_now">更新</string>
+    <string name="update_later">稍后</string>
+    <string name="update_cancel">取消</string>
+    <string name="update_skip_version">跳过此版本</string>
+    <string name="update_try_again">重试</string>
+    <string name="update_open_release_page">打开发布页面</string>
+    <string name="update_downloading">正在下载… %1$d%%</string>
+    <string name="update_verifying">正在确认下载的是正版 Spektrafilm 发布包…</string>
+    <string name="update_installing">请在 Android 安装程序中确认更新。</string>
+    <string name="update_failed_download">下载未完成。请检查网络连接后重试。</string>
+    <string name="update_failed_signer">此应用副本使用的签名密钥与正式版不同（例如调试版或自行构建的版本），因此 Android 无法直接更新。请改从 GitHub 页面安装正式版。</string>
+    <string name="update_failed_verify">下载的文件不是预期的发布包，已被删除。你可以改从 GitHub 页面安装。</string>
+    <string name="update_failed_install">Android 无法安装此更新。你可以改从 GitHub 页面安装。</string>
+    <string name="theme_mode_system">跟随系统</string>
+    <string name="theme_mode_light">浅色</string>
+    <string name="theme_mode_dark">深色</string>
+    <string name="export_format_png">PNG（8 位）</string>
+    <string name="export_format_jpeg">JPEG</string>
+    <string name="export_format_ultra_hdr">Ultra HDR（JPEG）</string>
+    <string name="export_format_tiff16">16 位 TIFF</string>
+    <string name="export_format_png16">16 位 PNG</string>
+    <string name="export_format_tiff32f">32 位浮点 TIFF</string>
+    <string name="export_format_scene_linear_tiff">场景线性输入（32 位 TIFF）</string>
+
+    <!-- strings_tools.xml -->
+    <string name="tool_crop_aspect_4_5">4:5</string>
+    <string name="tool_crop_aspect_3_4">3:4</string>
+    <string name="tool_crop_aspect_2_3">2:3</string>
+    <string name="tool_crop_aspect_9_16">9:16</string>
+    <string name="tool_viewer_magnifier_title" formatted="false">100% 局部</string>
+</resources>
