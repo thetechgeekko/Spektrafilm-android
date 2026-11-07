@@ -1551,6 +1551,9 @@ class MainActivity : ComponentActivity() {
         // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Zoom step 4: background decode of the zoom source after an idle settle (ZoomPrewarm).
+        val zoomPrewarmJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        val zoomPrewarmEligible = remember { ZoomPrewarm.eligible(ctx) }
         fun closeMagnifier() {
             // Cancel any in-flight crop render so it doesn't resurrect the overlay
             // state or leak its bitmap (a cancelled job recycles its own result).
@@ -1565,6 +1568,7 @@ class MainActivity : ComponentActivity() {
         // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
         var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
         val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        val roiPatchTracker = remember { RoiPatchTracker() }
         val roiPublicationGate = remember { RoiRenderPublicationGate() }
         val latestRoiRenderKey by rememberUpdatedState(previewTick)
         val latestMagnifierRenderKey by rememberUpdatedState(previewTick)
@@ -1589,6 +1593,7 @@ class MainActivity : ComponentActivity() {
             gpuLut = null
             gpuGain = 1f
 
+            zoomPrewarmJobRef.value?.cancel()
             roiPublicationGate.invalidate()
             roiJobRef.value?.cancel()
             roiOverlay = null
@@ -1611,6 +1616,8 @@ class MainActivity : ComponentActivity() {
         // Invalidate an old edit generation before its next main-thread publication, cancel its
         // remaining native work, and retire its overlay while the replacement preview is pending.
         LaunchedEffect(previewTick) {
+            // An edit is under way: don't let the idle zoom-source decode compete with it.
+            zoomPrewarmJobRef.value?.cancel()
             roiPublicationGate.invalidate()
             roiJobRef.value?.cancel()
             roiOverlay = null
@@ -1628,6 +1635,7 @@ class MainActivity : ComponentActivity() {
             onDispose {
                 magnifierJobRef.value?.cancel()
                 roiJobRef.value?.cancel()
+                zoomPrewarmJobRef.value?.cancel()
             }
         }
         // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
@@ -2772,6 +2780,26 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        // Zoom step 4: once the fit preview has settled and the editor stays idle, decode the
+        // zoom source into zoomSourceCache so the first pinch starts from a cache hit (see
+        // ZoomPrewarm). Cancelled by the next edit; a zoom during the decode joins its flight.
+        fun scheduleZoomPrewarm() {
+            if (!sourceRenderAllowed) return
+            zoomPrewarmJobRef.value?.cancel()
+            zoomPrewarmJobRef.value = scope.launch {
+                delay(ZoomPrewarm.IDLE_DELAY_MS)
+                val start = System.nanoTime()
+                runCatching { loadSourceCachedForZoom(MAX_EDGE_PX).close() }
+                    .onSuccess {
+                        Diag.i("zoom prewarm ready ms=${(System.nanoTime() - start) / 1_000_000L}")
+                    }
+                    .onFailure { t ->
+                        if (t is CancellationException) throw t
+                        Diag.w("zoom prewarm failed: ${t.message}")
+                    }
+            }
+        }
+
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
         //
         // PERF/RACE: each tap previously launched an independent coroutine with no
@@ -2872,6 +2900,21 @@ class MainActivity : ComponentActivity() {
             if (!sourceRenderAllowed) return
             val e = engine ?: return
             if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
+            // A settle inside the patch already on screen (or already rendering) at the same edit
+            // and sharpness needs no new render: keep it rather than cancel and redo it.
+            roiPatchTracker.reuseReason(
+                roi, previewTick, roiOverlay, roiJobRef.value, ROI_RENDER_MAX_PX,
+            )?.let { reason ->
+                if (reason == RoiPatchTracker.REUSED_SHOWN) {
+                    // The view came back inside the shown patch: any render still running for
+                    // an intermediate viewport must not land over it (it would not cover this
+                    // view, and no further settle would come to fix that).
+                    roiPublicationGate.invalidate()
+                    roiJobRef.value?.cancel()
+                }
+                Diag.i("zoom roi reused $reason")
+                return
+            }
             roiJobRef.value?.cancel()
             val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
             val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
@@ -2884,15 +2927,35 @@ class MainActivity : ComponentActivity() {
                     loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
                         timing.sourceMs = timing.sinceStartMs()
                         val full = fullLease.image
-                        val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
-                        val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
-                        timing.cropW = cw
-                        timing.cropH = ch
+                        // Render a grid-snapped patch around the viewport, not the viewport
+                        // itself (RoiPatch): the margin keeps halation/blur light from just off
+                        // screen, and a later pan inside the patch reuses this render.
+                        val box = RoiPatch.box(roi, full.width, full.height)
+                        val patchRect = RoiPatch.rectOf(box, full.width, full.height)
+                        val scale = RoiPatch.neededScale(
+                            roi, full.width, full.height, ROI_RENDER_MAX_PX,
+                        )
+                        val draftScale = RoiPatch.neededScale(
+                            roi, full.width, full.height, ROI_DRAFT_MAX_PX,
+                        )
+                        val patchRecord = RoiPatchRecord(
+                            renderKey = renderSnapshot.renderKey,
+                            srcW = full.width,
+                            srcH = full.height,
+                            box = box,
+                            scale = scale,
+                        )
+                        currentCoroutineContext()[Job]?.let { job ->
+                            roiPatchTracker.inFlightJob = job
+                            roiPatchTracker.inFlight = patchRecord
+                        }
+                        timing.cropW = box.width
+                        timing.cropH = box.height
                         withOwnedContext(
                             context = dispatchers.default,
                             dispose = LinearImage::close,
                         ) {
-                            cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
+                            cropLinearImageBox(full, box)
                         }.use { crop ->
                             // Effective film format so the crop's pixel_size_um matches the proxy (the crop
                             // spans only cropFrac of the frame); keeps grain/halation at the right strength
@@ -2937,7 +3000,8 @@ class MainActivity : ComponentActivity() {
                             // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
                             // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
                             // so a cancel mid-flight never leaks one.
-                            val (draft, draftRenderId) = renderAt(ROI_DRAFT_MAX_PX)
+                            val (draft, draftRenderId) =
+                                renderAt(RoiPatch.renderEdge(box, draftScale))
                             timing.draftMs = timing.sinceStartMs()
                             if (
                                 isActive && roiPublicationGate.canPublish(
@@ -2945,14 +3009,18 @@ class MainActivity : ComponentActivity() {
                                     latestRoiRenderKey,
                                 )
                             ) {
-                                roiOverlay = RoiOverlay(draft, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                                roiOverlay = RoiOverlay(
+                                    draft, patchRect.cxN, patchRect.cyN, patchRect.wN, patchRect.hN,
+                                )
                                 pendingOutcomes.resolve(draftRenderId, AppRenderOutcome.CONSUMED)
                             } else {
                                 pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
                                 if (!draft.isRecycled) draft.recycle()
                                 return@runCatching null
                             }
-                            renderAt(ROI_RENDER_MAX_PX).also { timing.finalMs = timing.sinceStartMs() }
+                            renderAt(RoiPatch.renderEdge(box, scale)).also {
+                                timing.finalMs = timing.sinceStartMs()
+                            }.let { (bmp, id) -> Triple(bmp, id, patchRecord to patchRect) }
                         }
                     }
                 }
@@ -2972,8 +3040,12 @@ class MainActivity : ComponentActivity() {
                 // On success publish the sharp final; the prior overlay (the draft) is recycled by
                 // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
                 result.onSuccess { rendered ->
-                    rendered?.let { (bmp, renderId) ->
-                        roiOverlay = RoiOverlay(bmp, roi.cxN, roi.cyN, roi.wN, roi.hN)
+                    rendered?.let { (bmp, renderId, patch) ->
+                        val (record, rect) = patch
+                        val overlay = RoiOverlay(bmp, rect.cxN, rect.cyN, rect.wN, rect.hN)
+                        roiOverlay = overlay
+                        roiPatchTracker.shownOverlay = overlay
+                        roiPatchTracker.shown = record
                         pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
                     }
                     Diag.i(timing.line("done"))
@@ -3335,6 +3407,7 @@ class MainActivity : ComponentActivity() {
                     Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
                     lastRenderMs = System.currentTimeMillis() - renderStart
                     Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
+                    if (zoomPrewarmEligible) scheduleZoomPrewarm()
                     renderErr = null
                     status = ctx.getString(R.string.editor_status_preview_ready)
                 }.onFailure {
