@@ -62,11 +62,11 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
 
 /** Stage icons, reusing the vector that best represents each stage's contents. */
 internal fun stageIcon(stage: Stage) = when (stage) {
-    Stage.LOOK -> SpectraIcons.Presets
-    Stage.FILM -> SpectraIcons.Simulation
-    Stage.PRINT -> SpectraIcons.Preflash
-    Stage.SCAN -> SpectraIcons.Glare
-    Stage.FINISH -> SpectraIcons.ToneCurve
+    Stage.LOOK -> SpectraIcons.StageLook
+    Stage.FILM -> SpectraIcons.StageFilm
+    Stage.PRINT -> SpectraIcons.StagePrint
+    Stage.SCAN -> SpectraIcons.StageScan
+    Stage.FINISH -> SpectraIcons.StageFinish
 }
 
 @Composable
@@ -107,7 +107,7 @@ internal fun CategoryItem(
                 imageVector = categoryIcon(category),
                 // Decorative: the visible label text below carries the name.
                 contentDescription = null,
-                tint = if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.78f),
+                tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp),
             )
             // "This category is doing something to the photograph." The chips encoded
@@ -129,7 +129,7 @@ internal fun CategoryItem(
             fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = if (selected) accent else SpektraBrand.onCanvas.copy(alpha = 0.78f),
+            color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         // sliding pill indicator
         Box(
@@ -171,20 +171,20 @@ internal fun categoryHint(c: Category) = stringResource(
 internal fun categoryIcon(c: Category) = when (c) {
     Category.SIMULATION -> SpectraIcons.Simulation
     Category.INPUT -> SpectraIcons.Input
-    Category.RAW_WB -> SpectraIcons.ImportRaw
+    Category.RAW_WB -> SpectraIcons.WhiteBalance
     Category.GRAIN -> SpectraIcons.Grain
     Category.PREFLASH -> SpectraIcons.Preflash
     Category.CONTRAST_MASK -> SpectraIcons.ContrastMask
     Category.HALATION -> SpectraIcons.Halation
     Category.COUPLERS -> SpectraIcons.Couplers
     Category.GLARE -> SpectraIcons.Glare
-    Category.PAPER -> SpectraIcons.Preflash
-    Category.SCANNER -> SpectraIcons.Glare
-    Category.OUTPUT -> SpectraIcons.Display
+    Category.PAPER -> SpectraIcons.Paper
+    Category.SCANNER -> SpectraIcons.StageScan
+    Category.OUTPUT -> SpectraIcons.Output
     Category.EXPERIMENTAL -> SpectraIcons.Experimental
     Category.TONE_CURVE -> SpectraIcons.ToneCurve
     Category.MASKS -> SpectraIcons.Masks
     Category.DISPLAY -> SpectraIcons.Display
     Category.PRESETS -> SpectraIcons.Presets
-    Category.SOURCE -> SpectraIcons.SourceImage
+    Category.SOURCE -> SpectraIcons.Source
 }

@@ -13,6 +13,7 @@
  */
 package com.spectrafilm.app
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -30,6 +32,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -101,6 +104,7 @@ internal fun SettingsScreen(
                 add {
                     ChoiceRow(
                         title = stringResource(R.string.screen_settings_theme),
+                        icon = MaterialSymbols.Contrast,
                         selected = state.theme,
                         options = ThemeMode.entries.toList(),
                         display = { themeLabels.getValue(it) },
@@ -111,6 +115,7 @@ internal fun SettingsScreen(
                 if (dynamicColorSupported) add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_dynamic_color),
+                        icon = MaterialSymbols.Palette,
                         note = stringResource(R.string.screen_settings_dynamic_color_note),
                         checked = state.dynamicColor,
                         onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
@@ -119,6 +124,7 @@ internal fun SettingsScreen(
                 add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_full_screen),
+                        icon = MaterialSymbols.Fullscreen,
                         note = stringResource(R.string.screen_settings_full_screen_note),
                         checked = state.fullScreenEditing,
                         onCheckedChange = { onAction(SettingsAction.SetFullScreenEditing(it)) },
@@ -128,6 +134,8 @@ internal fun SettingsScreen(
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && appLanguageChoiceAvailable(ctx)) add {
                     NavRow(
                         title = stringResource(R.string.screen_settings_language),
+                        icon = MaterialSymbols.Translate,
+                        trailing = MaterialSymbols.OpenInNew,
                         supporting = stringResource(R.string.screen_settings_language_note, currentAppLanguageLabel(ctx)),
                         onClick = { ctx.startActivity(appLanguageSettingsIntent(ctx)) },
                     )
@@ -142,6 +150,7 @@ internal fun SettingsScreen(
                 add {
                     ChoiceRow(
                         title = stringResource(R.string.screen_settings_export_format),
+                        icon = MaterialSymbols.IosShare,
                         selected = state.exportFormat,
                         options = ExportFormat.entries.toList(),
                         display = { formatLabels.getValue(it) },
@@ -161,6 +170,7 @@ internal fun SettingsScreen(
                 add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_keep_gps),
+                        icon = MaterialSymbols.LocationOff,
                         note = stringResource(R.string.screen_settings_keep_gps_note),
                         checked = state.keepGps,
                         onCheckedChange = { onAction(SettingsAction.SetKeepGps(it)) },
@@ -176,6 +186,7 @@ internal fun SettingsScreen(
                 add {
                     ChoiceRow(
                         title = stringResource(R.string.screen_settings_default_output_cs),
+                        icon = MaterialSymbols.Monitor,
                         selected = state.outputColorSpace,
                         options = ColorSpace.entries.toList(),
                         display = { it.name },
@@ -205,6 +216,7 @@ internal fun SettingsScreen(
                 add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_preview_auto),
+                        icon = MaterialSymbols.AspectRatio,
                         note = stringResource(
                             if (state.previewAuto) R.string.screen_settings_preview_auto_note
                             else R.string.screen_settings_preview_auto_off_note,
@@ -228,6 +240,7 @@ internal fun SettingsScreen(
                 add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_draft_auto),
+                        icon = MaterialSymbols.Tune,
                         note = stringResource(
                             if (state.draftAuto) R.string.screen_settings_draft_auto_note
                             else R.string.screen_settings_draft_auto_off_note,
@@ -269,6 +282,7 @@ internal fun SettingsScreen(
                 add {
                     NavRow(
                         title = stringResource(R.string.screen_settings_check_updates),
+                        icon = MaterialSymbols.SystemUpdate,
                         supporting = updateStatus,
                         enabled = !checking,
                         onClick = { onUpdateAction(UpdateAction.CheckNow) },
@@ -278,12 +292,15 @@ internal fun SettingsScreen(
                 if (updateUi.status == UpdateStatus.AVAILABLE && updateUi.offer == null) add {
                     NavRow(
                         title = stringResource(R.string.screen_settings_update_view),
+                        icon = MaterialSymbols.SystemUpdate,
+                        trailing = MaterialSymbols.ChevronRight,
                         onClick = { onUpdateAction(UpdateAction.ShowOffer) },
                     )
                 }
                 add {
                     SettingToggleRow(
                         title = stringResource(R.string.screen_settings_auto_update),
+                        icon = MaterialSymbols.SystemUpdate,
                         note = stringResource(R.string.screen_settings_auto_update_note),
                         checked = updateUi.autoCheck,
                         onCheckedChange = { onUpdateAction(UpdateAction.SetAutoCheck(it)) },
@@ -292,6 +309,8 @@ internal fun SettingsScreen(
                 add {
                     NavRow(
                         title = stringResource(R.string.screen_settings_diagnostics_logs),
+                        icon = MaterialSymbols.BugReport,
+                        trailing = MaterialSymbols.ChevronRight,
                         onClick = onOpenDiagnostics,
                         selected = selectedDetail == SettingsDetail.DIAGNOSTICS,
                     )
@@ -306,6 +325,8 @@ internal fun SettingsScreen(
                 {
                     NavRow(
                         title = stringResource(R.string.screen_how_to_use_app),
+                        icon = MaterialSymbols.MenuBook,
+                        trailing = MaterialSymbols.ChevronRight,
                         onClick = onOpenHowTo,
                         selected = selectedDetail == SettingsDetail.HOW_TO,
                     )
@@ -313,12 +334,15 @@ internal fun SettingsScreen(
                 {
                     NavRow(
                         title = stringResource(R.string.screen_settings_show_onboarding),
+                        icon = MaterialSymbols.Help,
                         onClick = onShowOnboarding,
                     )
                 },
                 {
                     NavRow(
                         title = stringResource(R.string.screen_report_issue),
+                        icon = MaterialSymbols.BugReport,
+                        trailing = MaterialSymbols.OpenInNew,
                         onClick = { Links.open(ctx, Links.NEW_ISSUE) },
                         modifier = linkSemantics,
                     )
@@ -326,6 +350,7 @@ internal fun SettingsScreen(
                 {
                     NavRow(
                         title = stringResource(R.string.screen_settings_view_issues),
+                        trailing = MaterialSymbols.OpenInNew,
                         onClick = { Links.open(ctx, Links.ISSUES) },
                         modifier = linkSemantics,
                     )
@@ -333,6 +358,7 @@ internal fun SettingsScreen(
                 {
                     NavRow(
                         title = stringResource(R.string.screen_settings_source),
+                        trailing = MaterialSymbols.OpenInNew,
                         onClick = { Links.open(ctx, Links.SOURCE) },
                         modifier = linkSemantics,
                     )
@@ -340,6 +366,8 @@ internal fun SettingsScreen(
                 {
                     NavRow(
                         title = stringResource(R.string.screen_about_title),
+                        icon = MaterialSymbols.Info,
+                        trailing = MaterialSymbols.ChevronRight,
                         supporting = stringResource(
                             R.string.screen_about_version, appVersionName(ctx), appVersionCode(ctx),
                         ),
@@ -423,8 +451,12 @@ private fun NavRow(
     enabled: Boolean = true,
     supportingLive: Boolean = false,
     selected: Boolean = false,
+    /** Leading Material Symbol (Pen board, Settings rows). */
+    icon: ImageVector? = null,
+    /** Trailing hint: chevron for a choice or sub-screen, open-in-new for a link. */
+    trailing: ImageVector? = null,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
@@ -437,8 +469,10 @@ private fun NavRow(
             .semantics { if (selected) this.selected = true }
             .then(modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        RowIcon(icon)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
         Text(
             title,
             style = MaterialTheme.typography.bodyLarge,
@@ -454,7 +488,28 @@ private fun NavRow(
                 } else Modifier,
             )
         }
+        }
+        if (trailing != null) {
+            Icon(
+                trailing,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp).size(24.dp),
+            )
+        }
     }
+}
+
+/** The 24dp leading icon of a Settings row, 16dp before the text (M3 list item). */
+@Composable
+private fun RowIcon(icon: ImageVector?) {
+    if (icon == null) return
+    Icon(
+        icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(end = 16.dp).size(24.dp),
+    )
 }
 
 /**
@@ -468,9 +523,16 @@ private fun <T> ChoiceRow(
     options: List<T>,
     display: (T) -> String,
     onSelect: (T) -> Unit,
+    icon: ImageVector? = null,
 ) {
     var open by remember { mutableStateOf(false) }
-    NavRow(title = title, supporting = display(selected), onClick = { open = true })
+    NavRow(
+        title = title,
+        supporting = display(selected),
+        onClick = { open = true },
+        icon = icon,
+        trailing = MaterialSymbols.ChevronRight,
+    )
     if (open) {
         AlertDialog(
             onDismissRequest = { open = false },
@@ -518,6 +580,7 @@ private fun SettingToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
 ) {
     Row(
         modifier = modifier
@@ -527,6 +590,7 @@ private fun SettingToggleRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        RowIcon(icon)
         Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(

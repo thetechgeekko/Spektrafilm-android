@@ -17,7 +17,7 @@ class HardcodedColorTest {
 
     private val allowed = setOf(
         "Theme.kt", // SpektraBrand: the one place literals live
-        "CategoryIcons.kt", // vector path default fill, replaced by Icon tint at draw time
+        "MaterialSymbols.kt", // vector path default fill, replaced by Icon tint at draw time
     )
     private val literal = Regex("""\bColor\.(White|Black)\b|\bColor\(0x""")
 

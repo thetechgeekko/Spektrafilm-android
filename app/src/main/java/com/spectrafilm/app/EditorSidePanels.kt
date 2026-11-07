@@ -431,7 +431,7 @@ internal fun ExportMask(
     Box(
         Modifier
             .fillMaxSize()
-            .background(SpektraBrand.scrim.copy(alpha = 0.78f))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
             .pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent() }
             },
@@ -447,11 +447,11 @@ internal fun ExportMask(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (!done) {
-                SpectraLoadingIndicator(color = SpektraBrand.onCanvas)
+                SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
                 Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
                 Text(
                     stringResource(R.string.editor_export_rendering),
-                    color = SpektraBrand.onCanvas,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -462,7 +462,7 @@ internal fun ExportMask(
                 ExportSavedHero()
                 Text(
                     stringResource(R.string.editor_export_saved),
-                    color = SpektraBrand.onCanvas,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.displaySmallEmphasized,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics {
@@ -472,7 +472,7 @@ internal fun ExportMask(
                 )
                 Text(
                     "Pictures/Spektrafilm",
-                    color = SpektraBrand.onCanvas.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 // Share leads when there is something to share; Done is then the quiet way out.
@@ -481,7 +481,7 @@ internal fun ExportMask(
                         Text(stringResource(R.string.editor_export_share))
                     }
                     TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.editor_export_done), color = SpektraBrand.onCanvas)
+                        Text(stringResource(R.string.editor_export_done), color = MaterialTheme.colorScheme.onSurface)
                     }
                 } else {
                     Button(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {

@@ -95,7 +95,7 @@ internal fun MainActivity.PreviewRegion(
     Box(
         Modifier
             .fillMaxSize()
-            .background(SpectraIcons.nearBlackCanvas)
+            .background(MaterialTheme.colorScheme.surface)
             // Edge to edge: no side gutter. A 16dp gutter on each side cost a landscape
             // photo (the common case on a portrait phone) 32dp of width and therefore
             // ~8% of its displayed size. The overlays below carry their own insets.
@@ -199,7 +199,7 @@ internal fun MainActivity.PreviewRegion(
                     // No inset: this Box already stops at the panel's top edge.
                 )
                 placeholder != null -> Unit
-                else -> Text(stringResource(R.string.editor_preview_none), color = SpektraBrand.onCanvas.copy(alpha = 0.7f))
+                else -> Text(stringResource(R.string.editor_preview_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             // Compact translucent histogram overlaid at the TOP EDGE of the preview
