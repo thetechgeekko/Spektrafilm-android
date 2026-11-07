@@ -309,7 +309,7 @@ fun CropOverlay(
                             aspect = a
                             val locked = resolveAspect(a, imageAspect)
                             if (locked != null) {
-                                rect = constrainToAspect(rect, locked, imgW, imgH)
+                                rect = largestCenteredAspect(rect, locked, imgW, imgH)
                             }
                         },
                         label = { Text(stringResource(a.labelRes)) },
@@ -428,6 +428,29 @@ internal fun constrainToAspect(
     if (l + nw > 1f) l = (1f - nw).coerceAtLeast(0f)
     if (t + nh > 1f) t = (1f - nh).coerceAtLeast(0f)
     return Rect(l, t, (l + nw).coerceAtMost(1f), (t + nh).coerceAtMost(1f))
+}
+
+/**
+ * Picking a ratio chip: the LARGEST box of [aspect] that fits the image, centred on the
+ * current box's centre and shifted only as far as needed to stay inside the image.
+ *
+ * Chips used to go through [constrainToAspect], which keeps the top-left corner and starts
+ * from the current box, so the box stuck to the top-left and every ratio shrank from the
+ * last one (1:1 after 3:4 was not the largest square). Handle drags still use
+ * [constrainToAspect], where keeping the opposite corner is the point.
+ */
+internal fun largestCenteredAspect(rect: Rect, aspect: Float, imgW: Float, imgH: Float): Rect {
+    var nw = 1f
+    var nh = (imgW / aspect) / imgH
+    if (nh > 1f) {
+        nh = 1f
+        nw = ((imgH * aspect) / imgW).coerceIn(0.05f, 1f)
+    }
+    val cx = (rect.left + rect.right) / 2f
+    val cy = (rect.top + rect.bottom) / 2f
+    val l = (cx - nw / 2f).coerceIn(0f, 1f - nw)
+    val t = (cy - nh / 2f).coerceIn(0f, 1f - nh)
+    return Rect(l, t, l + nw, t + nh)
 }
 
 /** Draw the ImageBitmap to fill the whole DrawScope (the Box already has the aspect). */

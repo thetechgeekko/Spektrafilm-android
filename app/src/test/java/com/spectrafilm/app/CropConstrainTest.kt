@@ -72,4 +72,27 @@ class CropConstrainTest {
         assertEquals("2:3 portrait in pixels", 2f / 3f, pixelAspect, 1e-3f)
         assertTrue("inside the image", out.left >= 0f && out.top >= 0f && out.right <= 1f && out.bottom <= 1f)
     }
+
+    @Test
+    fun ratioChip_givesLargestCentredBox() {
+        // 3:2 landscape photo; a small off-centre box; pick 1:1.
+        val w = 300f; val h = 200f
+        val out = largestCenteredAspect(Rect(0.6f, 0.1f, 0.8f, 0.3f), 1f, w, h)
+        val pxW = (out.right - out.left) * w
+        val pxH = (out.bottom - out.top) * h
+        assertEquals("square in pixels", pxW, pxH, 1e-3f)
+        assertEquals("full photo height, the largest square", 1f, out.bottom - out.top, 1e-4f)
+        assertTrue("inside the image", out.left >= 0f && out.right <= 1f + 1e-5f)
+        // Centre x 0.7 asks for [0.367, 1.033]; it shifts left just enough to fit.
+        assertEquals(1f, out.right, 1e-4f)
+    }
+
+    @Test
+    fun ratioChip_doesNotShrinkFromThePreviousBox() {
+        val w = 300f; val h = 200f
+        val portrait = largestCenteredAspect(Rect(0f, 0f, 1f, 1f), 3f / 4f, w, h)
+        val square = largestCenteredAspect(portrait, 1f, w, h)
+        assertEquals("1:1 after 3:4 is still the largest square", 1f, square.bottom - square.top, 1e-4f)
+        assertEquals("centred", 0.5f, (square.left + square.right) / 2f, 1e-4f)
+    }
 }
