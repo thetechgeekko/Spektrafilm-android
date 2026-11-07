@@ -88,9 +88,15 @@ private enum class CropAspect(@StringRes val labelRes: Int, val ratio: Float?) {
     FREE(R.string.tool_crop_aspect_free, null),
     ORIGINAL(R.string.tool_crop_aspect_original, null),  // resolved at runtime to the image aspect
     SQUARE(R.string.tool_crop_aspect_square, 1f),
+    // Portrait ratios sit beside their landscape twins (#258: 2:3 was missing, and 4:5 /
+    // 9:16 are the common social-feed and story frames).
+    R4_5(R.string.tool_crop_aspect_4_5, 4f / 5f),
     R4_3(R.string.tool_crop_aspect_4_3, 4f / 3f),
+    R3_4(R.string.tool_crop_aspect_3_4, 3f / 4f),
     R3_2(R.string.tool_crop_aspect_3_2, 3f / 2f),
+    R2_3(R.string.tool_crop_aspect_2_3, 2f / 3f),
     R16_9(R.string.tool_crop_aspect_16_9, 16f / 9f),
+    R9_16(R.string.tool_crop_aspect_9_16, 9f / 16f),
 }
 
 /**
@@ -397,7 +403,10 @@ internal fun constrainToAspect(
 ): Rect {
     val w = rect.right - rect.left
     // desired normalized height so the pixel aspect (w*imgW)/(nh*imgH) == aspect.
-    var nh = ((w * imgW / aspect) / imgH).coerceIn(0.05f, 1f)
+    // NOT clamped to 1 yet: clamping first hid an overflow from the availH check below
+    // whenever the fixed edge was the image's top (availH == 1), so a full-frame crop on a
+    // landscape photo ignored 1:1 or any portrait lock and stayed at the photo's own aspect.
+    var nh = (w * imgW / aspect) / imgH
     var nw = w
     // The corner OPPOSITE the dragged handle stays fixed and the box grows toward the
     // handle: a left/top edge drag keeps the right/bottom edge, and vice versa. (The old
@@ -410,6 +419,7 @@ internal fun constrainToAspect(
         nh = availH
         nw = ((nh * imgH * aspect) / imgW).coerceIn(0.05f, 1f)
     }
+    nh = nh.coerceIn(0.05f, 1f)
     var l = if (leftFixed) rect.left else rect.right - nw
     var t = if (topFixed) rect.top else rect.bottom - nh
     // Shift back into [0,1] without resizing.

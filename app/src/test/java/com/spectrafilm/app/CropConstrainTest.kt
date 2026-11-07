@@ -60,4 +60,16 @@ class CropConstrainTest {
         val out = constrainToAspect(Rect(0.0f, 0.0f, 1.0f, 0.3f), aspect = 1f, imgW, imgH, anchor = Handle.BR)
         assertTrue(out.left >= 0f && out.top >= 0f && out.right <= 1f + 1e-4f && out.bottom <= 1f + 1e-4f)
     }
+
+    @Test
+    fun portrait2to3_onLandscapePhoto_fitsInsideTheFrame() {
+        // A full-frame crop on a 3:2 landscape photo, locked to portrait 2:3: the box is far
+        // too wide for the height available, so it must shrink its width, not overflow.
+        val out = constrainToAspect(
+            Rect(0f, 0f, 1f, 1f), aspect = 2f / 3f, imgW = 300f, imgH = 200f, anchor = Handle.BR,
+        )
+        val pixelAspect = ((out.right - out.left) * 300f) / ((out.bottom - out.top) * 200f)
+        assertEquals("2:3 portrait in pixels", 2f / 3f, pixelAspect, 1e-3f)
+        assertTrue("inside the image", out.left >= 0f && out.top >= 0f && out.right <= 1f && out.bottom <= 1f)
+    }
 }
