@@ -51,4 +51,16 @@ class WheelZoomTest {
         assertEquals(1f, fitScale, eps)
         assertTrue(fitOffset == Offset.Zero)
     }
+
+    @Test
+    fun keyboardZoomStepsLikeOneWheelNotchAboutTheCentre() {
+        val (inScale, inOffset) = keyboardZoomTransform(2f, Offset(10f, 0f), ViewerZoom.IN)
+        assertEquals(2.5f, inScale, eps)
+        assertEquals(12.5f, inOffset.x, eps) // offset scales with zoom about the centre
+        val (outScale, _) = keyboardZoomTransform(2.5f, Offset.Zero, ViewerZoom.OUT)
+        assertEquals(2f, outScale, eps)
+        val (fitScale, fitOffset) = keyboardZoomTransform(5f, Offset(40f, 40f), ViewerZoom.FIT)
+        assertEquals(1f, fitScale, eps)
+        assertEquals(Offset.Zero, fitOffset)
+    }
 }

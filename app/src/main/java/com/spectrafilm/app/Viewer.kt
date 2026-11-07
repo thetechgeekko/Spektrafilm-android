@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -81,6 +82,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlin.math.min
@@ -106,6 +108,20 @@ private const val DOUBLE_TAP_MIN_ZOOM = 2f
 
 /** Zoom factor per mouse-wheel notch (scrollDelta.y of 1). */
 private const val WHEEL_ZOOM_STEP = 1.25f
+
+/** A keyboard zoom request (Ctrl+= / Ctrl+- / Ctrl+0) for whichever preview is on screen. */
+enum class ViewerZoom { IN, OUT, FIT }
+
+/**
+ * New (scale, offset) for a keyboard zoom: one wheel notch about the view centre, so the
+ * keys behave exactly like the wheel with the cursor in the middle; FIT returns to 1x.
+ */
+internal fun keyboardZoomTransform(scale: Float, offset: Offset, zoom: ViewerZoom): Pair<Float, Offset> =
+    when (zoom) {
+        ViewerZoom.FIT -> MIN_ZOOM to Offset.Zero
+        ViewerZoom.IN -> wheelZoomTransform(scale, offset, Offset.Zero, Offset(0f, -1f), 0f)
+        ViewerZoom.OUT -> wheelZoomTransform(scale, offset, Offset.Zero, Offset(0f, 1f), 0f)
+    }
 
 /**
  * Mouse wheel / trackpad scroll over the preview (DeX, ChromeOS, desktop windows, tablets with
@@ -167,9 +183,16 @@ fun GpuPreviewSurface(
     // Height of whatever overlays the bottom of this surface (the floating adjustment panel):
     // the zoom control centres in the part that is still visible (#181, 200% font).
     controlsBottomInset: Dp = 0.dp,
+    // Keyboard zoom. This surface is fit-only, so zoom-in hands off like the "+" button and
+    // zoom-out / fit have nothing to do.
+    zoomRequests: Flow<ViewerZoom>? = null,
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     val aspect = proxy.width.toFloat() / proxy.height.toFloat()
+    val latestOnZoomIn by rememberUpdatedState(onZoomIn)
+    LaunchedEffect(zoomRequests) {
+        zoomRequests?.collect { if (it == ViewerZoom.IN) latestOnZoomIn() }
+    }
     val previewDesc = stringResource(R.string.tool_viewer_preview_desc)
     Box(
         modifier = modifier
@@ -266,6 +289,8 @@ fun ZoomableImage(
     // A same-size mask drawn over the photo through the SAME transform (the clipping
     // warnings). Hidden while peeking at the unedited frame, which it does not describe.
     overlay: Bitmap? = null,
+    // Keyboard zoom (Ctrl+= / Ctrl+- / Ctrl+0), about the view centre.
+    zoomRequests: Flow<ViewerZoom>? = null,
 ) {
     var scale by remember { mutableFloatStateOf(initialScale) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -336,6 +361,13 @@ fun ZoomableImage(
     // above it). A pan that was legal in the taller view can overshoot the shorter one, so
     // re-clamp whenever the size changes rather than waiting for the next gesture.
     LaunchedEffect(viewSize) { offset = clampOffset(offset, scale) }
+    LaunchedEffect(zoomRequests) {
+        zoomRequests?.collect { zoom ->
+            val (ns, no) = keyboardZoomTransform(scale, offset, zoom)
+            scale = ns
+            offset = clampOffset(no, ns)
+        }
+    }
 
     Box(
         modifier = modifier

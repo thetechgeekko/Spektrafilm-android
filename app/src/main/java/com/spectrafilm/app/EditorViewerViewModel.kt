@@ -14,7 +14,11 @@
 package com.spectrafilm.app
 
 import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -53,6 +57,21 @@ internal class EditorViewerViewModel : ViewModel() {
 
     /** Latest state, read synchronously by effects and callbacks (see [ExportViewModel.current]). */
     val current: EditorViewerUiState get() = _uiState.value
+
+    /**
+     * Keyboard zoom requests (EditorShortcuts.kt) for the preview on screen. One-shot events,
+     * not state: the zoom level itself stays local to the viewer, as it always has. Dropped,
+     * not queued, when nothing is collecting (no preview yet), so a stale press never fires later.
+     */
+    private val _zoomRequests = MutableSharedFlow<ViewerZoom>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val zoomRequests: SharedFlow<ViewerZoom> = _zoomRequests.asSharedFlow()
+
+    fun requestZoom(zoom: ViewerZoom) {
+        _zoomRequests.tryEmit(zoom)
+    }
 
     /** A new editor composition starts with every viewer mode off, as it always has. */
     fun reset() {
