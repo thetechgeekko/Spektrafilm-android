@@ -4538,6 +4538,18 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
                     std::strcmp(d.reason, "dispatch-failed") == 0)) {
             c.destroyHalation();
         }
+    } catch (const ParallelCancelled&) {
+        // A superseded render (the user moved a slider again) cancels the
+        // engine's parallel_for, which can fire inside this pass's host-side
+        // conversions. That is not a device failure: the conversions run only
+        // outside a submission, so no command buffer is pending and the kernel
+        // is still valid -- tearing it down here (as the generic catch below
+        // does) forced a full pipeline rebuild on the next frame and logged the
+        // cancel as gpu_dir=fallback/exception. The cancellation is latched, so
+        // the caller's CPU fallback hits it on its first parallel_for and the
+        // render unwinds to the run_* boundary exactly as it would have.
+        d.reason = "cancelled";
+        ok = false;
     } catch (...) {
         d.reason = "exception";
         ok = false;

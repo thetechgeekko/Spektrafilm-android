@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "gpu/vulkan_compute.h"
+#include "kernels/parallel.h"
 #include "kernels/exponential_filter.h"
 #include "model/diffusion.h"
 #include "model/glare.h"
@@ -318,6 +319,27 @@ int main() {
         std::vector<double> again(raw.size());
         check(spk::gpu::halation_scatter(r, again.data(), nullptr) && bytes_eq(gpu, again),
               "whole-frame route byte-identical after banded runs");
+    }
+
+    {
+        // A superseded render cancels the engine's parallel_for inside the
+        // pass's host conversions. That must read as "cancelled" (not a device
+        // "exception", which also tore the kernel down), and the next pass must
+        // run normally and give the same bytes.
+        spk::gpu::HalationScatterDiagnostics dc{};
+        std::vector<double> gc(raw.size());
+        bool okc = true;
+        {
+            spk::ParallelCancellationScope cancel([](void*) -> int { return 1; }, nullptr);
+            okc = spk::gpu::halation_scatter(r, gc.data(), &dc);
+        }
+        std::printf("cancelled pass: ok=%d reason=%s\n", okc ? 1 : 0, dc.reason);
+        check(!okc && !dc.engaged && std::strcmp(dc.reason, "cancelled") == 0,
+              "a cancelled render reports reason=cancelled, not a device exception");
+        std::vector<double> after(raw.size());
+        spk::gpu::HalationScatterDiagnostics da{};
+        check(spk::gpu::halation_scatter(r, after.data(), &da) && da.engaged && bytes_eq(gpu, after),
+              "the pass after a cancellation runs and gives the same bytes");
     }
 
     // FIR-class halation (sigma sqrt(3) < 3 px) against the CPU.
