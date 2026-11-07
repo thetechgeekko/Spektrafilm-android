@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -196,7 +197,11 @@ fun EnhancedSlider(
                 )
             },
             // Announce "<label>, <value>" rather than a bare percentage.
+            // The M3 Expressive slider lays out 44dp tall; a 48dp minimum keeps the whole
+            // track a full touch target (#455: measured 44.2dp on device). The extra height
+            // is centred, so the track does not move.
             modifier = Modifier
+                .heightIn(min = 48.dp)
                 .sliderEndsGestureExclusion(endExclusionPx)
                 .semantics {
                     contentDescription = label
