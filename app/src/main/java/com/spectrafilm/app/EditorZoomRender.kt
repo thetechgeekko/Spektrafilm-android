@@ -38,7 +38,7 @@ internal fun startMagnifierRender(
     magnifierJobRef: MutableState<Job?>,
     magnifierPublicationGate: RoiRenderPublicationGate,
     loadSourceCachedForZoom: suspend (Int) -> DecodedSourceCache.Lease,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     previewTickState: MutableIntState,
     magnifierBitmapState: MutableState<Bitmap?>,
     magnifierOpenState: MutableState<Boolean>,
@@ -46,7 +46,7 @@ internal fun startMagnifierRender(
     magnifierStatusState: MutableState<String>,
     latestMagnifierRenderKeyState: State<Int>,
 ) {
-    var engine by engineState
+    val engine by engineState
     var previewTick by previewTickState
     var magnifierBitmap by magnifierBitmapState
     var magnifierOpen by magnifierOpenState
@@ -147,12 +147,12 @@ internal fun startRoiPatchRender(
     roiPatchTracker: RoiPatchTracker,
     roiPublicationGate: RoiRenderPublicationGate,
     loadSourceCachedForZoom: suspend (Int) -> DecodedSourceCache.Lease,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     previewTickState: MutableIntState,
     roiOverlayState: MutableState<RoiOverlay?>,
     latestRoiRenderKeyState: State<Int>,
 ) {
-    var engine by engineState
+    val engine by engineState
     var previewTick by previewTickState
     var roiOverlay by roiOverlayState
     val latestRoiRenderKey by latestRoiRenderKeyState

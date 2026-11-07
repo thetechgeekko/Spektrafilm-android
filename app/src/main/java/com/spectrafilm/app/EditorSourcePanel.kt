@@ -52,7 +52,7 @@ internal fun EditorSourcePanel(
     recipeAccessState: MutableState<EditorRecipeAccess>,
     committedSnapshotState: MutableState<EditSnapshot?>,
     restoringState: MutableState<Boolean>,
-    profilesState: MutableState<List<String>>,
+    profilesState: State<List<String>>,
     checkpointEditorSessionFn: () -> Boolean,
     retireSourceResourcesFn: () -> Unit,
     resetEditorCursorForSourceChangeFn: () -> Unit,

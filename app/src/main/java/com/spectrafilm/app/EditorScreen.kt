@@ -143,13 +143,16 @@ internal fun EditorScreen(
         if (sessionRestoreNotice != null) onSessionRestoreNoticeConsumed()
     }
 
-    val engineState = remember { mutableStateOf<SpektraEngine?>(null) }
-    var engine by engineState
-    val profilesState = remember { mutableStateOf<List<String>>(emptyList()) }
-    var profiles by profilesState
     // Per-composition editing state, owned by EditorViewModel and fresh for every composition
     // (see EditorViewModel for why): params, manual rotation, undo/redo history.
     val session = remember { editorVm.beginSession(initialRestoration) }
+    // The catalog this composition has applied (null until its restore ran, #452). Engine,
+    // profiles and built-in looks are read-only views of that one value, not separate copies.
+    val appliedCatalog = session.appliedCatalog
+    val engineState = remember { derivedStateOf { appliedCatalog.value?.engine } }
+    val engine by engineState
+    val profilesState = remember { derivedStateOf { appliedCatalog.value?.profiles.orEmpty() } }
+    val profiles by profilesState
     val state = session.params
 
     // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
@@ -192,8 +195,10 @@ internal fun EditorScreen(
     }
 
     // bundled catalog (friendly stock names + grouping) and built-in presets
-    var builtInGroups by remember { mutableStateOf<Map<String, List<BuiltInPreset>>>(emptyMap()) }
-    var catalogReady by remember { mutableStateOf(false) }
+    val builtInGroups by remember {
+        derivedStateOf { appliedCatalog.value?.builtInGroups.orEmpty() }
+    }
+    val catalogReady by remember { derivedStateOf { appliedCatalog.value != null } }
 
     // SourceAccess and the complete session are reconciled before this Composable exists.
     // Keep the resulting identity as ordinary live state: destination SavedState is never a
@@ -809,8 +814,6 @@ internal fun EditorScreen(
     LaunchedEffect(editorCatalog) {
         val loaded = editorCatalog ?: return@LaunchedEffect
         val list = loaded.profiles
-        engine = loaded.engine
-        profiles = list
         val restore = session.applyCatalog(
             profiles = list,
             applyDefaults = settings::applyDefaultsTo,
@@ -826,8 +829,7 @@ internal fun EditorScreen(
             presetVm.onAction(PresetAction.SetClipboard(null))
             status = ctx.getString(R.string.editor_status_session_migrated)
         }
-        builtInGroups = loaded.builtInGroups
-        catalogReady = true
+        session.adoptCatalog(loaded)
         refreshPresets()
         if (
             initialSessionRestoreNotice == null &&

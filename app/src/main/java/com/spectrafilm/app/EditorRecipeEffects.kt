@@ -35,7 +35,7 @@ internal suspend fun CoroutineScope.runRecipeRestore(
     hasRecipeState: MutableState<Boolean>,
     lastRestoredKeyState: MutableState<String?>,
     previewTickState: MutableIntState,
-    profilesState: MutableState<List<String>>,
+    profilesState: State<List<String>>,
     recipeAccessState: MutableState<EditorRecipeAccess>,
     recipeReadyState: MutableState<Boolean>,
     restoringState: MutableState<Boolean>,
@@ -47,7 +47,7 @@ internal suspend fun CoroutineScope.runRecipeRestore(
     var hasRecipe by hasRecipeState
     var lastRestoredKey by lastRestoredKeyState
     var previewTick by previewTickState
-    var profiles by profilesState
+    val profiles by profilesState
     var recipeAccess by recipeAccessState
     var recipeReady by recipeReadyState
     var restoring by restoringState
