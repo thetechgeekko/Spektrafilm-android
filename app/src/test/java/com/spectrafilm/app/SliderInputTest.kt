@@ -2,7 +2,7 @@
  * Spektrafilm for Android — tests for slider numeric-entry parsing. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * Covers parseSliderInput (Widgets.kt): the pure parse/clamp/snap behind the
+ * Covers parseSliderInput (Sliders.kt): the pure parse/clamp/snap behind the
  * Lightroom-style "tap the number to type a value" affordance on EnhancedSlider.
  */
 package com.spectrafilm.app
