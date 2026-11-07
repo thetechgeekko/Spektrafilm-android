@@ -345,7 +345,7 @@ private data class EditorStartupRead(
 
 /** Waits behind any process-owned grant mutation and returns only its newest durable identity. */
 private suspend fun restoreLatestSourceAccess(context: Context): SourceRestoreResult {
-    val runtime = sourceAccessRuntime(context.applicationContext)
+    val runtime = context.appContainer.sources
     while (currentCoroutineContext().isActive) {
         val generation = runtime.mutations.snapshot()
         val restored = try {
@@ -1202,7 +1202,7 @@ class MainActivity : ComponentActivity() {
         var sourceUri by remember { mutableStateOf(restoredSource.uri?.let(Uri::parse)) }
         var sourceKind by remember { mutableStateOf(restoredSource.kind) }
         var sourceName by remember { mutableStateOf(restoredSource.displayName) }
-        val sourceRuntime = remember(ctx.applicationContext) { sourceAccessRuntime(ctx) }
+        val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
         val sourceAccess = sourceRuntime.coordinator
         val sourceMutationGate = sourceRuntime.mutations
         var sourceAuthorizationRequired by remember {
