@@ -116,6 +116,7 @@ HUMAN_ROUTE_ASSERTION = re.compile(
 )
 REQUIRED_NATIVE_FILES = (
     "CMakeLists.txt",
+    "fd_read_all.h",
     "native_allocation_registry.cpp",
     "native_allocation_registry.h",
     "raw_decoder.cpp",

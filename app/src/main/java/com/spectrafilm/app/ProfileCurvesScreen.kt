@@ -185,7 +185,7 @@ fun ProfileCurvesScreen(
             when {
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     val loadingDesc = stringResource(R.string.screen_curves_loading)
-                    CircularProgressIndicator(
+                    SpectraLoadingIndicator(
                         modifier = statusModifier.semantics { contentDescription = loadingDesc },
                     )
                 }

@@ -294,22 +294,22 @@ fun HelpSheet(help: ParamHelp, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                help.title,
+                stringResource(help.title),
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                help.summary,
+                stringResource(help.summary),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                help.body,
+                stringResource(help.body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Film modeling powered by spektrafilm",
+                stringResource(R.string.help_attribution),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
@@ -1560,3 +1560,18 @@ private fun Modifier.sliderEndsGestureExclusion(stripPx: Float): Modifier =
             val w = c.size.width.toFloat()
             Rect(maxOf(0f, w - stripPx), 0f, w, c.size.height.toFloat())
         }
+
+/**
+ * The app's indeterminate wait indicator: Material 3 Expressive's shape-morphing
+ * [LoadingIndicator] (#294) in place of the plain circular spinner, for waits that fill a
+ * screen or a canvas (startup, the export render, the magnifier, curve loading). Inline
+ * waits inside a button keep the small circular spinner, which fits a text line.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun SpectraLoadingIndicator(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+) {
+    androidx.compose.material3.LoadingIndicator(modifier = modifier, color = color)
+}

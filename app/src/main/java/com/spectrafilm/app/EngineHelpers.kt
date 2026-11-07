@@ -100,6 +100,7 @@ fun decodeRawToLinear(
     tint: Double,
     maxEdge: Int = MAX_EDGE_PX,
     cancellation: RawDecodeCancellation? = null,
+    memoryDegraded: AtomicBoolean? = null,
 ): LinearImage {
     // Issue #7 mitigation: even with the fd decode (no full-file Java byte[]), LibRaw
     // still expands the RAW to a float32 buffer (12 bytes/px) natively. For preview-scale
@@ -122,6 +123,9 @@ fun decodeRawToLinear(
                 cancellation,
             )
         } catch (oom: OutOfMemoryError) {
+            // Whatever this ladder returns now is smaller than asked for; callers that
+            // persist the result (#288's disk cache) must not store it as the full decode.
+            memoryDegraded?.set(true)
             // Encourage the collector to reclaim the failed transient before retrying.
             System.gc()
             if (!halfSize) {

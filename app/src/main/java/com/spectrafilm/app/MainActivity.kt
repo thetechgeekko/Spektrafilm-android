@@ -132,9 +132,16 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 
 /** Which kind of source image is loaded. */
 internal enum class SourceKind { DEMO, PHOTO, RAW }
+
+/** #286: how long the open stand-in fades into the first render, and stays under it. */
+private const val OPEN_PLACEHOLDER_FADE_MS = 220
+private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
 
 private fun Throwable.isSourceAuthorizationFailure(): Boolean =
     generateSequence(this) { it.cause }
@@ -158,6 +165,8 @@ private data class SourceDecodeRequest(
 private data class SourceDecodeResult(
     val image: LinearImage,
     val usedPlatformFallback: Boolean,
+    /** The RAW OOM ladder returned a smaller decode than requested (#288: never persist it). */
+    val memoryDegraded: Boolean = false,
 )
 
 private data class CachedSourceDecodeRequest(
@@ -245,6 +254,7 @@ private suspend fun decodeSourceRequest(
     }
     var applyExifBaseline = request.kind != SourceKind.RAW
     var usedPlatformFallback = false
+    val rawMemoryDegraded = java.util.concurrent.atomic.AtomicBoolean(false)
     val image = when (request.kind) {
         SourceKind.RAW -> try {
             runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
@@ -256,6 +266,7 @@ private suspend fun decodeSourceRequest(
                     request.rawTint.toDouble(),
                     maxEdge,
                     cancellation,
+                    rawMemoryDegraded,
                 )
             }
         } catch (failure: RawDecodeException) {
@@ -329,12 +340,54 @@ private suspend fun decodeSourceRequest(
         }
         if (isCancelled()) throw CancellationException("source decode cancelled")
         Diag.i("decode kind=${request.kind.name} ${rotated.width}x${rotated.height} maxEdge=$maxEdge")
-        val decoded = SourceDecodeResult(rotated, usedPlatformFallback)
+        val decoded = SourceDecodeResult(rotated, usedPlatformFallback, rawMemoryDegraded.get())
         ownedImage = null
         decoded
     } catch (failure: Throwable) {
         ownedImage?.close()
         throw failure
+    }
+}
+
+/**
+ * [decodeSourceRequest] behind the on-disk proxy cache (#288): a hit returns the stored decode
+ * without touching LibRaw or the platform codec; a miss decodes and stores the result. Only the
+ * preview and zoom proxies come through here; export decodes stay uncached.
+ */
+private suspend fun decodeSourceRequestDiskCached(
+    request: SourceDecodeRequest,
+    cacheRequest: DecodedSourceCache.Request,
+    maxEdge: Int,
+    io: CoroutineDispatcher,
+): SourceDecodeResult {
+    val uri = request.uri
+    if (uri == null || request.kind == SourceKind.DEMO) return decodeSourceRequest(request, maxEdge, io)
+    val ctx = request.context.applicationContext
+    // One owned context: whatever image the block produces is closed if the caller is
+    // cancelled before taking it, hit or fresh decode alike.
+    return withOwnedContext(
+        context = io,
+        dispose = { result: SourceDecodeResult -> result.image.close() },
+    ) {
+        val key = ProxyDiskCache.keyFor(ctx, uri, cacheRequest)
+        val startNs = System.nanoTime()
+        val hit = key?.let { ProxyDiskCache.read(ctx, it) }
+        if (hit != null) {
+            Diag.i(
+                "proxy disk cache hit ${hit.image.width}x${hit.image.height} " +
+                    "ms=${(System.nanoTime() - startNs) / 1_000_000L}",
+            )
+            SourceDecodeResult(hit.image, hit.usedPlatformFallback)
+        } else {
+            val decoded = decodeSourceRequest(request, maxEdge, io)
+            // Blocking and non-throwing: no cancellation point between the decode and return.
+            // A memory-degraded RAW decode is smaller than its key promises; storing it would
+            // pin the low-resolution proxy for every later open, so it is used but not kept.
+            if (key != null && !decoded.memoryDegraded) {
+                ProxyDiskCache.write(ctx, key, decoded.image, decoded.usedPlatformFallback)
+            }
+            decoded
+        }
     }
 }
 
@@ -746,7 +799,7 @@ class MainActivity : ComponentActivity() {
                 Modifier.fillMaxSize().background(SpectraIcons.nearBlackCanvas),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(
+                SpectraLoadingIndicator(
                     color = Color.White,
                     modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
                 )
@@ -1040,7 +1093,7 @@ class MainActivity : ComponentActivity() {
                         // unreconciled.
                         if (!editorAuthorityReady || backStack.lastOrNull() != EditorRoute) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
+                                SpectraLoadingIndicator(
                                     color = Color.White,
                                     modifier = Modifier.semantics {
                                         contentDescription = res.getString(R.string.editor_loading)
@@ -1378,6 +1431,28 @@ class MainActivity : ComponentActivity() {
         // (see loadSource) and is NOT persisted in the recipe.
         var rotation by remember {
             mutableStateOf(SourceRotation.fromDegrees(initialRestoration.rotationDegrees))
+        }
+
+        // #286: a display-only stand-in (the file's embedded thumbnail, else the provider's) shown
+        // from the moment a source is picked or restored until the first engine render lands.
+        // It never feeds the engine, an export or a cache. Keyed on the source identity only:
+        // a later rotate does not reload it, because by then the render is on screen.
+        var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
+        LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
+            openPlaceholder = null
+            val uri = sourceUri ?: return@LaunchedEffect
+            if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
+            OpenPlaceholder.load(ctx.applicationContext, uri, rotation, dispatchers.io) { bmp ->
+                // A render that already landed wins; a late thumbnail never covers it.
+                if (preview == null) openPlaceholder = bmp
+            }
+        }
+        // Keep the stand-in under the fading-in render briefly, then drop it.
+        LaunchedEffect(preview != null) {
+            if (preview != null && openPlaceholder != null) {
+                delay(OPEN_PLACEHOLDER_HOLD_MS)
+                if (preview != null) openPlaceholder = null
+            }
         }
 
         // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
@@ -1976,9 +2051,9 @@ class MainActivity : ComponentActivity() {
                         status == ctx.getString(R.string.editor_status_initializing)
                     ) {
                         status = if (initialRestoredSession == null) {
-                            ctx.getString(R.string.editor_status_ready_profiles, list.size)
+                            ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
                         } else {
-                            ctx.getString(R.string.editor_status_session_restored_profiles, list.size)
+                            ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
                         }
                     }
                     defaultsJson = freshDefaults
@@ -2590,7 +2665,12 @@ class MainActivity : ComponentActivity() {
                 if (existing != null) {
                     existing.close()
                 } else {
-                    val decoded = decodeSourceRequest(snapshot.decode, maxEdge, dispatchers.io)
+                    val decoded = decodeSourceRequestDiskCached(
+                        snapshot.decode,
+                        ticket.request,
+                        maxEdge,
+                        dispatchers.io,
+                    )
                     // publish() consumes the image even when this ticket became stale. An old
                     // detached decode therefore cannot evict the newest source generation.
                     val accepted = cache.publish(ticket, decoded.image)
@@ -4128,6 +4208,7 @@ class MainActivity : ComponentActivity() {
                         PreviewRegion(
                             controlsBottomInset = panelInset,
                             preview = preview,
+                            placeholder = openPlaceholder,
                             before = beforePreview,
                             busy = previewBusy,
                             decoding = decoding,
@@ -5095,6 +5176,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PreviewRegion(
         preview: Bitmap?,
+        placeholder: Bitmap?,
         before: Bitmap?,
         busy: Boolean,
         decoding: Boolean,
@@ -5187,6 +5269,17 @@ class MainActivity : ComponentActivity() {
                     Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
                 },
             )
+            // #286: the render fades in over the open stand-in instead of popping in. Starts
+            // transparent only while a stand-in is showing, so an ordinary re-render (no
+            // stand-in) is never faded.
+            val revealAlpha = remember { Animatable(1f) }
+            LaunchedEffect(placeholder != null, bmp != null) {
+                when {
+                    placeholder != null && bmp == null -> revealAlpha.snapTo(0f)
+                    placeholder != null -> revealAlpha.animateTo(1f, tween(OPEN_PLACEHOLDER_FADE_MS))
+                    else -> revealAlpha.snapTo(1f)
+                }
+            }
             // Everything except the GPU surface lives in the part of the canvas ABOVE the
             // floating panel ([controlsBottomInset]), so an open panel moves and fits the photo
             // instead of covering it, and the canvas buttons ride on top of the panel. The GPU
@@ -5198,13 +5291,23 @@ class MainActivity : ComponentActivity() {
                     .padding(bottom = controlsBottomInset),
                 contentAlignment = Alignment.Center,
             ) {
+                if (placeholder != null && !gpuActive) {
+                    Image(
+                        bitmap = placeholder.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 when {
                     gpuActive -> Unit
                     bmp != null && compareMode && before != null ->
                         CompareSlider(before = before, after = bmp)
                     bmp != null -> ZoomableImage(
                         bitmap = bmp,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = revealAlpha.value },
                         initialScale = gpuZoomInitial,
                         onPointPicked = onPointPicked,
                         // Press and hold the photo for the unedited frame. The bitmap already
@@ -5225,6 +5328,7 @@ class MainActivity : ComponentActivity() {
                         roiOverlay = roiOverlay,
                         // No inset: this Box already stops at the panel's top edge.
                     )
+                    placeholder != null -> Unit
                     else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
                 }
 

@@ -20,6 +20,7 @@
  * compile the real SFRAW_HAVE_LIBRAW decode path.
  */
 #include "raw_decoder.h"
+#include "fd_read_all.h"
 
 #include <algorithm>
 #include <array>
@@ -2453,50 +2454,27 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
     LibRaw raw;
     applyInputLimits(raw);
     applyCancellationHandler(raw, options);
-    // LibRaw can read from a FILE*; we dup the fd so the caller keeps ownership.
-    int dup_fd = ::dup(fd);
-    if (dup_fd < 0) {
-        result.status = SFRAW_ERR_INPUT;
-        result.error = "dup(fd) failed";
-        return result;
-    }
-    FILE* openedFile = ::fdopen(dup_fd, "rb");
-    if (openedFile == nullptr) {
-        ::close(dup_fd);
-        result.status = SFRAW_ERR_INPUT;
-        result.error = "fdopen() failed";
-        return result;
-    }
-    std::unique_ptr<FILE, decltype(&std::fclose)> fp(openedFile, &std::fclose);
-    // Keep the existing open_buffer parity path for this ticket, but read in
-    // bounded chunks. This supports descriptors without a trustworthy stat size
-    // and rejects over-limit files before growing the vector past the ceiling.
+    // Read the whole source up front (the open_buffer parity path) with the size known
+    // from fstat and 1 MiB reads; see fd_read_all.h (#287). The caller keeps ownership
+    // of fd. Descriptors without a trustworthy stat size still read to EOF, and an
+    // over-limit file is refused before the buffer grows past the ceiling.
     std::vector<uint8_t> bytes;
     const auto ioAt = std::chrono::steady_clock::now();
-    std::array<uint8_t, 64U * 1024U> chunk{};
-    for (;;) {
-        if (cancellationRequested(options)) return cancellationFailure();
-        const size_t read =
-            std::fread(chunk.data(), 1, chunk.size(), fp.get());
-        if (cancellationRequested(options)) return cancellationFailure();
-        if (read > 0) {
-            if (read > kMaxEncodedInputBytes - bytes.size()) {
-                result.status = SFRAW_ERR_INPUT;
-                result.error = "RAW input exceeds 64 MiB safety limit";
-                return result;
-            }
-            bytes.insert(bytes.end(), chunk.data(), chunk.data() + read);
-        }
-        if (read < chunk.size()) {
-            if (std::ferror(fp.get())) {
-                result.status = SFRAW_ERR_INPUT;
-                result.error = "failed to read RAW from fd";
-                return result;
-            }
+    switch (sfraw::readAllFromFd(fd, kMaxEncodedInputBytes, bytes,
+                                 [&options] { return cancellationRequested(options); })) {
+        case sfraw::FdReadStatus::Ok:
             break;
-        }
+        case sfraw::FdReadStatus::Cancelled:
+            return cancellationFailure();
+        case sfraw::FdReadStatus::TooLarge:
+            result.status = SFRAW_ERR_INPUT;
+            result.error = "RAW input exceeds 64 MiB safety limit";
+            return result;
+        case sfraw::FdReadStatus::IoError:
+            result.status = SFRAW_ERR_INPUT;
+            result.error = "failed to read RAW from fd";
+            return result;
     }
-    fp.reset();  // closes only the duplicate; caller retains ownership
     // Only the fd path has input I/O: decodeFromBuffer receives caller-owned bytes.
     const double inputIoMs = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - ioAt).count();
