@@ -91,6 +91,8 @@
     <string name="screen_howto_cat_couplers_desc">DIR色素カプラーの拡散</string>
     <string name="screen_howto_cat_preflash">プリフラッシュ</string>
     <string name="screen_howto_cat_preflash_desc">ベースかぶりのプリフラッシュ量</string>
+    <string name="screen_howto_cat_contrast_mask">コントラストマスク</string>
+    <string name="screen_howto_cat_contrast_mask_desc">大きなハイライトとシャドウ向けの暗室アンシャープマスク（プリント経路、初期設定はオフ）</string>
     <string name="screen_howto_cat_experimental">実験的</string>
     <string name="screen_howto_cat_experimental_desc">開発者向けオプションと高度なエンジン設定</string>
     <string name="screen_howto_cat_tone_curve">トーンカーブ</string>

@@ -25,6 +25,7 @@
     <string name="editor_category_glare">グレア</string>
     <string name="editor_category_couplers">カプラー</string>
     <string name="editor_category_preflash">プリフラッシュ</string>
+    <string name="editor_category_contrast_mask">コントラストマスク</string>
     <string name="editor_category_experimental">実験的</string>
     <string name="editor_category_tone_curve">トーンカーブ</string>
     <string name="editor_category_masks">マスク</string>
@@ -203,6 +204,7 @@
     <string name="editor_hint_glare">プリントのグレア（確率的、既定はオフ）</string>
     <string name="editor_hint_couplers">フィルムの色の個性：DIRカプラー（化学的な色の相互作用）。単純な彩度は出力にあります。</string>
     <string name="editor_hint_preflash">引き伸ばし機のプリフラッシュ露光とフィルター</string>
+    <string name="editor_hint_contrast_mask">引き伸ばし機のソフトマスク：大きな明部と暗部のディテール</string>
     <string name="editor_hint_experimental">フィルムとプリントの濃度曲線のガンマ係数</string>
     <string name="editor_hint_tone_curve">最終RGBへのポイントトーンカーブ：マスターとチャンネル別</string>
     <string name="editor_hint_masks">部分補正：露光量/彩度/コントラストを円形の範囲に限定</string>
@@ -441,6 +443,16 @@
     <string name="editor_preflash_y_shift_tooltip">プリフラッシュのYフィルターをニュートラルからシフト（Kodak CC）</string>
     <string name="editor_preflash_m_shift">Mフィルターシフト</string>
     <string name="editor_preflash_m_shift_tooltip">プリフラッシュのMフィルターをニュートラルからシフト（Kodak CC）</string>
+    <string name="editor_contrast_mask_title">コントラストマスク</string>
+    <string name="editor_contrast_mask_desc">プリント経路でのみ有効です（スライドモード / フィルムスキャンでは効果なし）。エッジと質感のコントラストは保たれます。</string>
+    <string name="editor_contrast_mask_highlights">ハイライト</string>
+    <string name="editor_contrast_mask_highlights_tooltip">大きな明るい領域を中間に向けて下げる量（段）。空やハイライトのディテールを取り戻します</string>
+    <string name="editor_contrast_mask_shadows">シャドウ</string>
+    <string name="editor_contrast_mask_shadows_tooltip">大きな暗い領域を中間に向けて持ち上げる量（段）。シャドウのディテールを開きます</string>
+    <string name="editor_contrast_mask_core">中間調の保護範囲</string>
+    <string name="editor_contrast_mask_core_tooltip">ミドルグレーの上下何段をマスクがまったく変えずに残すか</string>
+    <string name="editor_contrast_mask_size">柔らかさ（フレームの%）</string>
+    <string name="editor_contrast_mask_size_tooltip">長辺に対する割合で表したマスクのぼかし。小さいほど形に密着し、大きいほど穏やかになります</string>
     <string name="editor_hal_title">ハレーション</string>
     <string name="editor_hal_amount">ハレーション量</string>
     <string name="editor_hal_amount_tooltip">ハレーションの強さの全体的な係数。</string>
@@ -561,4 +573,23 @@
     <string name="shortcut_zoom_out">縮小</string>
     <string name="shortcut_zoom_fit">画面に合わせる</string>
     <string name="shortcut_close">パネルやツールを閉じる</string>
+    <string name="photo_info_title">写真情報</string>
+    <string name="photo_info_group_camera">カメラ</string>
+    <string name="photo_info_group_exposure">露出</string>
+    <string name="photo_info_group_file">ファイル</string>
+    <string name="photo_info_camera">カメラ</string>
+    <string name="photo_info_lens">レンズ</string>
+    <string name="photo_info_focal_length">焦点距離</string>
+    <string name="photo_info_aperture">絞り</string>
+    <string name="photo_info_shutter">シャッタースピード</string>
+    <string name="photo_info_iso">ISO</string>
+    <string name="photo_info_exposure_bias">露出補正</string>
+    <string name="photo_info_taken">撮影日時</string>
+    <string name="photo_info_name">ファイル名</string>
+    <string name="photo_info_dimensions">サイズ（ピクセル）</string>
+    <string name="photo_info_size">ファイルサイズ</string>
+    <string name="photo_info_location">位置情報</string>
+    <string name="photo_info_location_present">ファイルに含まれています</string>
+    <string name="photo_info_location_absent">なし</string>
+    <string name="photo_info_empty">このファイルにはカメラ情報がありません。</string>
 </resources>
