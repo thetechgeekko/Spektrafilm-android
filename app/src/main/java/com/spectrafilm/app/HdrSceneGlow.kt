@@ -7,18 +7,25 @@ package com.spectrafilm.app
 /**
  * [tap] with the film's halation glow (see [SceneHighlightTap.withHalationGlow]), using the same
  * strength, sigma and bounce model the engine renders with. The sigma is converted to map cells
- * with the engine's own film pixel size (film format long edge / render long edge).
+ * through the film area a render pixel covers. The engine sizes its kernels from the PRE-crop
+ * source (film format long edge / source long edge, then / upscale factor); a crop does not
+ * enlarge the film. So: [sourceLongEdge] is the decoded source's long edge, [renderedSourceWidth]
+ * the width in source pixels the render covers (the crop box, or the whole source), and
+ * [renderWidth] the render's width -- which also absorbs any upscale or resize.
  */
 internal fun withFilmHalationGlow(
     tap: SceneLuma,
     params: com.spectrafilm.engine.SpektraParams,
-    renderLongEdge: Int,
+    sourceLongEdge: Int,
+    renderedSourceWidth: Int,
+    renderWidth: Int,
     downsample: Int,
 ): SceneLuma {
     val h = params.filmRender.halation
-    if (!h.active || renderLongEdge <= 0) return tap
+    if (!h.active || sourceLongEdge <= 0 || renderedSourceWidth <= 0 || renderWidth <= 0) return tap
     val fmm = params.camera.filmFormatMm.takeIf { it > 0f } ?: 35f
-    val cellUm = fmm * 1000f / renderLongEdge * downsample
+    val sourcePixelUm = fmm * 1000f / sourceLongEdge
+    val cellUm = sourcePixelUm * renderedSourceWidth / renderWidth * downsample
     // Luminance weights of linear ProPhoto, the space the scene tap is measured in.
     val wr = 0.2880402f
     val wg = 0.7118741f

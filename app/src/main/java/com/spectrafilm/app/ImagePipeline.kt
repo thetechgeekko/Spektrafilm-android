@@ -502,5 +502,8 @@ internal fun captureSceneTapForGainmap(
             mapH = mapH,
         )
     }
-    return withFilmHalationGlow(tap, params, maxOf(renderW, renderH), contract.downsample)
+    return withFilmHalationGlow(
+        tap, params, maxOf(source.width, source.height), box?.width ?: source.width, renderW,
+        contract.downsample,
+    )
 }
