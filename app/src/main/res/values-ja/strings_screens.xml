@@ -268,6 +268,15 @@
     <string name="library_loading">フォルダを読み込み中</string>
     <string name="library_badge_edited">編集済み</string>
     <string name="library_cell_edited_desc">%1$s、編集済み</string>
+    <string name="library_save_sidecars">編集を写真の横に保存</string>
+    <string name="library_sidecars_need_access">このフォルダに編集ファイルを保存するには、フォルダをもう一度選び、Spektrafilm による変更を許可してください。写真自体は変更されません。</string>
+    <string name="library_sidecars_none">保存する編集済みの写真がありません。</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="other">写真の横に編集ファイルを %1$d 件保存しました。</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="other">%1$d 件保存しました。%2$d 件の編集ファイルは書き込めませんでした。</item>
+    </plurals>
     <string name="library_select_action">選択</string>
     <string name="library_select_all">すべて選択</string>
     <string name="library_paste_edit">編集を貼り付け</string>

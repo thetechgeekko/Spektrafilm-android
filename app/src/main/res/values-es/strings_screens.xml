@@ -268,6 +268,19 @@
     <string name="library_loading">Cargando carpeta</string>
     <string name="library_badge_edited">Editada</string>
     <string name="library_cell_edited_desc">%1$s, editada</string>
+    <string name="library_save_sidecars">Guardar ediciones junto a las fotos</string>
+    <string name="library_sidecars_need_access">Para guardar archivos de edición en esta carpeta, vuelve a elegirla y permite que Spektrafilm la modifique. Tus fotos nunca se modifican.</string>
+    <string name="library_sidecars_none">No hay fotos editadas que guardar.</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="one">Se guardó %1$d archivo de edición junto a su foto.</item>
+        <item quantity="many">Se guardaron %1$d archivos de edición junto a sus fotos.</item>
+        <item quantity="other">Se guardaron %1$d archivos de edición junto a sus fotos.</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="one">Se guardaron %1$d. No se pudo escribir %2$d archivo de edición.</item>
+        <item quantity="many">Se guardaron %1$d. No se pudieron escribir %2$d archivos de edición.</item>
+        <item quantity="other">Se guardaron %1$d. No se pudieron escribir %2$d archivos de edición.</item>
+    </plurals>
     <string name="library_select_action">Seleccionar</string>
     <string name="library_select_all">Seleccionar todo</string>
     <string name="library_paste_edit">Pegar edición</string>

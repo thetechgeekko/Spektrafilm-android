@@ -296,6 +296,17 @@
     <string name="library_loading">Loading folder</string>
     <string name="library_badge_edited">Edited</string>
     <string name="library_cell_edited_desc">%1$s, edited</string>
+    <string name="library_save_sidecars">Save edits beside photos</string>
+    <string name="library_sidecars_need_access">To save edit files in this folder, choose it again and allow Spektrafilm to change it. Your photos are never changed.</string>
+    <string name="library_sidecars_none">No edited photos to save.</string>
+    <plurals name="library_sidecars_saved">
+        <item quantity="one">Saved %1$d edit file beside its photo.</item>
+        <item quantity="other">Saved %1$d edit files beside their photos.</item>
+    </plurals>
+    <plurals name="library_sidecars_partial">
+        <item quantity="one">Saved %1$d. %2$d edit file could not be written.</item>
+        <item quantity="other">Saved %1$d. %2$d edit files could not be written.</item>
+    </plurals>
     <string name="library_select_action">Select</string>
     <string name="library_select_all">Select all</string>
     <string name="library_paste_edit">Paste edit</string>

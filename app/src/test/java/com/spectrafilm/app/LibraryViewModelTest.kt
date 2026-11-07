@@ -195,4 +195,68 @@ class LibraryViewModelTest {
         model.refresh(); idle()
         assertEquals(setOf("content://doc/a.jpg"), model.selection.value)
     }
+
+    private class FakeSidecars(var writable: Boolean) : LibrarySidecarPort {
+        val imports = mutableListOf<List<String>>()
+        val saves = mutableListOf<List<String>>()
+        override fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>): Int {
+            imports += rows.map { it.name }
+            return 0
+        }
+        override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult {
+            if (!writable) return LibrarySidecars.SaveResult(0, 0, needsWriteAccess = true)
+            saves += frames.map { it.name }
+            return LibrarySidecars.SaveResult(frames.size, 0)
+        }
+    }
+
+    private fun sidecarVm(store: LibraryFolderStore, rows: List<LibraryEntry>, sidecars: LibrarySidecarPort, edited: Set<String>) =
+        LibraryViewModel(
+            store,
+            { LibraryListing("A", rows) },
+            Dispatchers.Unconfined,
+            { it in edited },
+            { _, _ -> error("no paste") },
+            sidecars,
+        )
+
+    @Test fun refreshOffersTheWholeListingForSidecarImport() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("a.jpg.spektra.json", "application/json", 2))
+        val sidecars = FakeSidecars(writable = true)
+        val model = sidecarVm(FakeStore("tree://a"), rows, sidecars, emptySet())
+        model.refresh(); idle()
+        assertEquals(listOf(listOf("a.jpg", "a.jpg.spektra.json")), sidecars.imports)
+        assertEquals(listOf("a.jpg"), model.state.value.entries.map { it.name })
+    }
+
+    @Test fun saveBesidePhotosTakesEditedFramesOrTheEditedSelection() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2), entry("c.jpg", "image/jpeg", 3))
+        val sidecars = FakeSidecars(writable = true)
+        val edited = setOf("content://doc/a.jpg", "content://doc/b.jpg")
+        val model = sidecarVm(FakeStore("tree://a"), rows, sidecars, edited)
+        model.refresh(); idle()
+        model.saveEditsBesidePhotos(); idle()
+        assertEquals(setOf("a.jpg", "b.jpg"), sidecars.saves.last().toSet())
+        model.toggleSelected("content://doc/b.jpg")
+        model.toggleSelected("content://doc/c.jpg")
+        model.saveEditsBesidePhotos(); idle()
+        assertEquals(listOf("b.jpg"), sidecars.saves.last())
+    }
+
+    @Test fun withoutWriteAccessChoosingTheFolderAgainFinishesTheSave() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1))
+        val sidecars = FakeSidecars(writable = false)
+        val store = FakeStore("tree://a")
+        val model = sidecarVm(store, rows, sidecars, setOf("content://doc/a.jpg"))
+        model.refresh(); idle()
+        model.saveEditsBesidePhotos(); idle()
+        assertEquals(
+            LibrarySidecarState.Done(LibrarySidecars.SaveResult(0, 0, needsWriteAccess = true)),
+            model.sidecarSave.value,
+        )
+        model.sidecarSaveShown()
+        sidecars.writable = true
+        model.chooseFolder("tree://a"); idle()
+        assertEquals(listOf("a.jpg"), sidecars.saves.single())
+    }
 }

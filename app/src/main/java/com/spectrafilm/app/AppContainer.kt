@@ -102,6 +102,7 @@ internal class AppContainer(context: Context) {
                 dispatchers.io,
                 LibraryViewModel.androidEditLookup(app),
                 LibraryViewModel.androidLookPaste(recipes),
+                LibraryViewModel.androidSidecars(app, recipes),
             )
         },
     )

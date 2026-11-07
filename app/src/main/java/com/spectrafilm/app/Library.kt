@@ -93,6 +93,27 @@ internal data class LibraryUiState(
     val unreadable: Boolean = false,
 )
 
+/** Edit files beside the photos ([LibrarySidecars]). Blocking; called on the IO dispatcher. */
+internal interface LibrarySidecarPort {
+    /** Imports sidecars of frames that have no edit yet; returns how many. */
+    fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>): Int
+
+    fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult
+
+    object None : LibrarySidecarPort {
+        override fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>) = 0
+        override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
+            LibrarySidecars.SaveResult(0, 0)
+    }
+}
+
+/** Progress of "Save edits beside photos". */
+internal sealed interface LibrarySidecarState {
+    data object Idle : LibrarySidecarState
+    data object Running : LibrarySidecarState
+    data class Done(val result: LibrarySidecars.SaveResult) : LibrarySidecarState
+}
+
 /** Progress of a Library look paste ([LibraryViewModel.pasteLookFrom]). */
 internal sealed interface LibraryPasteState {
     data object Idle : LibraryPasteState
@@ -128,7 +149,55 @@ internal class LibraryViewModel(
     /** Pastes the look of the photo at the first URI onto the targets. Called on [io]. */
     private val pasteLook: suspend (sourceUri: String, targets: List<LookSync.Target>) -> LookSync.Result =
         { _, _ -> LookSync.Result(0, 0, noSource = true) },
+    private val sidecars: LibrarySidecarPort = LibrarySidecarPort.None,
 ) : ViewModel() {
+    /** The whole last listing (frames and other files), for pairing frames with sidecars. */
+    private var lastRows: List<LibraryEntry> = emptyList()
+
+    private val _sidecarSave = MutableStateFlow<LibrarySidecarState>(LibrarySidecarState.Idle)
+    val sidecarSave: StateFlow<LibrarySidecarState> = _sidecarSave.asStateFlow()
+
+    /**
+     * Set when a save stopped for want of a write grant: the frames it was for (empty = every
+     * edited frame). Choosing the same folder again retries it.
+     */
+    private var saveAfterGrant: Set<String>? = null
+
+    /**
+     * Writes the edit of every edited frame (or of the selected ones, while selecting) beside
+     * it. Without a write grant the result says so and the screen asks for the folder again.
+     */
+    fun saveEditsBesidePhotos(only: Set<String> = _selection.value) {
+        val tree = store.treeUri ?: return
+        if (_sidecarSave.value is LibrarySidecarState.Running) return
+        val picked = only
+        val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
+        val rows = lastRows
+        _sidecarSave.value = LibrarySidecarState.Running
+        viewModelScope.launch {
+            val result = try {
+                withContext(io) { sidecars.save(tree, frames, rows) }
+            } catch (cancelled: CancellationException) {
+                _sidecarSave.value = LibrarySidecarState.Idle
+                throw cancelled
+            } catch (failure: Exception) {
+                Diag.w("sidecar save failed: ${failure.message}")
+                LibrarySidecars.SaveResult(saved = 0, failed = frames.size)
+            }
+            saveAfterGrant = if (result.needsWriteAccess) picked else null
+            _sidecarSave.value = LibrarySidecarState.Done(result)
+            if (result.saved > 0) {
+                _selection.value = emptySet()
+                refresh()
+            }
+        }
+    }
+
+    /** The screen showed the outcome of [saveEditsBesidePhotos]. */
+    fun sidecarSaveShown() {
+        if (_sidecarSave.value is LibrarySidecarState.Done) _sidecarSave.value = LibrarySidecarState.Idle
+    }
+
     private val _state = MutableStateFlow(LibraryUiState(treeUri = store.treeUri))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
     private var loadJob: Job? = null
@@ -200,10 +269,15 @@ internal class LibraryViewModel(
         loadJob?.cancel()
         _state.value = _state.value.copy(treeUri = tree, loading = true, unreadable = false)
         loadJob = viewModelScope.launch {
-            val listing = try {
+            val result = try {
                 withContext(io) {
                     val listed = lister.list(tree)
-                    listed.copy(rows = markEdited(libraryEntriesOf(listed.rows), hasEdit))
+                    val frames = libraryEntriesOf(listed.rows)
+                    // Edits saved beside photos (another install, another phone) fill frames
+                    // that have none here; before the badges are read, so they show at once.
+                    runCatching { sidecars.importMissing(frames, listed.rows) }
+                        .onFailure { Diag.w("sidecar import failed: ${it.message}") }
+                    listed.copy(rows = markEdited(frames, hasEdit)) to listed.rows
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -212,6 +286,8 @@ internal class LibraryViewModel(
                 null
             }
             if (store.treeUri != tree) return@launch
+            val listing = result?.first
+            if (result != null) lastRows = result.second
             if (listing != null) {
                 // A frame that left the folder cannot stay selected.
                 val present = listing.rows.mapTo(HashSet()) { it.documentUri }
@@ -244,6 +320,16 @@ internal class LibraryViewModel(
         if (previous != null && previous != treeUri) releaseUnused()
         _state.value = LibraryUiState(treeUri = treeUri)
         refresh()
+        val retry = saveAfterGrant
+        saveAfterGrant = null
+        if (retry != null && treeUri == previous) {
+            // The user chose the folder again to let Spektrafilm write to it: finish the save
+            // they asked for, once the listing it needs has landed.
+            viewModelScope.launch {
+                loadJob?.join()
+                saveEditsBesidePhotos(retry)
+            }
+        }
     }
 
     /** Forget the folder and its grant. */
@@ -271,7 +357,15 @@ internal class LibraryViewModel(
                     get() = settings.libraryTreeUri
                     set(v) { settings.libraryTreeUri = v }
 
+                // Keep write too when the picker granted it, so "Save edits beside photos" can
+                // write sidecars without asking again; reading never depends on it.
                 override fun takeGrant(treeUri: String): Boolean = runCatching {
+                    resolver.takePersistableUriPermission(
+                        Uri.parse(treeUri),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    true
+                }.recoverCatching {
                     resolver.takePersistableUriPermission(Uri.parse(treeUri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     true
                 }.getOrDefault(false)
@@ -296,6 +390,29 @@ internal class LibraryViewModel(
          */
         fun androidLookPaste(recipes: RecipeRepository): suspend (String, List<LookSync.Target>) -> LookSync.Result =
             { source, targets -> RecipeWorkRuntime.submit { LookSync.paste(recipes, source, targets) }.await() }
+
+        fun androidSidecars(context: Context, recipes: RecipeRepository): LibrarySidecarPort {
+            val resolver = context.applicationContext.contentResolver
+            val keyOf = { uri: String -> Recipes.keyFor(Uri.parse(uri)) }
+            return object : LibrarySidecarPort {
+                override fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>): Int =
+                    LibrarySidecars.importMissing(
+                        recipes,
+                        frames,
+                        LibrarySidecars.pair(frames, rows),
+                        keyOf,
+                    ) { LibrarySidecars.readDocument(resolver, it) }
+
+                override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
+                    LibrarySidecars.saveAll(
+                        recipes,
+                        LibrarySidecars.androidFolder(resolver, treeUri),
+                        frames,
+                        LibrarySidecars.pair(frames, rows),
+                        keyOf,
+                    )
+            }
+        }
 
         fun androidLister(context: Context): LibraryLister {
             val resolver = context.applicationContext.contentResolver
