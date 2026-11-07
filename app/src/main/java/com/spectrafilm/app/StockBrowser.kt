@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -271,7 +270,7 @@ private fun StockCard(
 
 /**
  * The photo through one stock. A fixed square, so cards never reflow when a tile lands; a
- * neutral dark tile while it renders, with no per-tile spinner (28 spinners read as broken).
+ * plain themed tile while it renders, with no per-tile spinner (28 spinners read as broken).
  * Decorative for accessibility: the card already reads the stock's name and note.
  */
 @Composable
@@ -281,7 +280,7 @@ private fun StockPreviewTile(preview: ImageBitmap?) {
         Modifier
             .size(72.dp)
             .clip(shape)
-            .background(Color(0xFF262626), shape),
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, shape),
     ) {
         if (preview != null) {
             Image(
