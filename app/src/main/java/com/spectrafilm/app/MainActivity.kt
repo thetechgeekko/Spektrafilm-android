@@ -1130,6 +1130,8 @@ class MainActivity : ComponentActivity() {
                                 printGroups = settingsPrintGroups,
                                 onShowOnboarding = { showOnboarding = true; popToEditor() },
                                 onOpenDiagnostics = { push(DiagnosticsRoute) },
+                                onOpenAbout = { push(AboutRoute) },
+                                onOpenHowTo = { push(HowToRoute) },
                                 updateUi = updateUi,
                                 onUpdateAction = onUpdateAction,
                             )
