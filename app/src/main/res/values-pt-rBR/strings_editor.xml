@@ -149,6 +149,7 @@
     <string name="editor_status_wb_set">balanço de branco ajustado a partir de um neutro</string>
     <string name="editor_share_export_title">Compartilhar exportação</string>
     <string name="editor_status_no_share_target">nenhum app instalado pode receber esta imagem</string>
+    <string name="editor_status_no_open_target">nenhum app instalado pode abrir esta imagem</string>
     <string name="editor_status_cancelling_export">cancelando a exportação</string>
     <string name="editor_status_source_access_required">é necessário acesso à origem antes de exportar</string>
     <string name="editor_status_grant_storage">conceda acesso ao armazenamento e toque em Exportar de novo</string>
@@ -240,6 +241,7 @@
     <string name="editor_export_saved">Salvo na galeria</string>
     <string name="editor_export_done">Concluído</string>
     <string name="editor_export_share">Compartilhar</string>
+    <string name="editor_export_open">Abrir</string>
     <string name="editor_input_title">Entrada</string>
     <string name="editor_input_gated_colorspace">O motor renderiza toda entrada como ProPhoto RGB linear; outros espaços de cor de entrada ainda não estão ligados.</string>
     <string name="editor_input_color_space">Espaço de cor de entrada</string>

@@ -145,6 +145,7 @@
     <string name="editor_status_wb_set">ニュートラルからホワイトバランスを設定しました</string>
     <string name="editor_share_export_title">書き出しを共有</string>
     <string name="editor_status_no_share_target">この画像を受け取れるアプリがインストールされていません</string>
+    <string name="editor_status_no_open_target">この画像を開けるアプリがインストールされていません</string>
     <string name="editor_status_cancelling_export">書き出しをキャンセル中</string>
     <string name="editor_status_source_access_required">書き出す前にソースへのアクセスが必要です</string>
     <string name="editor_status_grant_storage">ストレージへのアクセスを許可してから、もう一度書き出しをタップしてください</string>
@@ -236,6 +237,7 @@
     <string name="editor_export_saved">ギャラリーに保存しました</string>
     <string name="editor_export_done">完了</string>
     <string name="editor_export_share">共有</string>
+    <string name="editor_export_open">開く</string>
     <string name="editor_input_title">入力</string>
     <string name="editor_input_gated_colorspace">エンジンはすべての入力をリニアProPhoto RGBとしてレンダリングします。他の入力色空間にはまだ対応していません。</string>
     <string name="editor_input_color_space">入力色空間</string>

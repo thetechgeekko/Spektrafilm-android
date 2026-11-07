@@ -145,6 +145,7 @@
     <string name="editor_status_wb_set">중성색으로 화이트 밸런스를 설정했습니다</string>
     <string name="editor_share_export_title">내보낸 파일 공유</string>
     <string name="editor_status_no_share_target">이 이미지를 받을 수 있는 앱이 설치되어 있지 않습니다</string>
+    <string name="editor_status_no_open_target">이 이미지를 열 수 있는 앱이 설치되어 있지 않습니다</string>
     <string name="editor_status_cancelling_export">내보내기 취소 중</string>
     <string name="editor_status_source_access_required">내보내기 전에 소스 접근 권한이 필요합니다</string>
     <string name="editor_status_grant_storage">저장소 접근을 허용한 다음 내보내기를 다시 탭하세요</string>
@@ -236,6 +237,7 @@
     <string name="editor_export_saved">갤러리에 저장됨</string>
     <string name="editor_export_done">완료</string>
     <string name="editor_export_share">공유</string>
+    <string name="editor_export_open">열기</string>
     <string name="editor_input_title">입력</string>
     <string name="editor_input_gated_colorspace">엔진은 모든 입력을 선형 ProPhoto RGB로 렌더링합니다 — 다른 입력 색 공간은 아직 연결되지 않았습니다.</string>
     <string name="editor_input_color_space">입력 색 공간</string>

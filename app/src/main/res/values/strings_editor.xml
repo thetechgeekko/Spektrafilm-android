@@ -171,6 +171,7 @@
     <string name="editor_status_wb_set">white balance set from neutral</string>
     <string name="editor_share_export_title">Share export</string>
     <string name="editor_status_no_share_target">no installed app can receive this image</string>
+    <string name="editor_status_no_open_target">no installed app can open this image</string>
     <string name="editor_status_cancelling_export">cancelling export</string>
     <string name="editor_status_source_access_required">source access required before export</string>
     <string name="editor_status_grant_storage">grant storage access, then tap Export again</string>
@@ -297,6 +298,7 @@
     <string name="editor_export_saved">Saved to gallery</string>
     <string name="editor_export_done">Done</string>
     <string name="editor_export_share">Share</string>
+    <string name="editor_export_open">Open</string>
 
     <!-- Input section -->
     <string name="editor_input_title">Input</string>

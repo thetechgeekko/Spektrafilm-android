@@ -8,7 +8,15 @@
 package com.spectrafilm.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,7 +31,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -34,6 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------
@@ -414,20 +426,19 @@ internal fun SourcePanel(
     )
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * The full-screen render mask. Rendering really is modal: the export reads the live edit
+ * state, so this swallows every pointer event until it finishes or is cancelled. The result
+ * is NOT shown here -- see [ExportSavedMoment], which leaves the editor usable.
+ */
 @Composable
-internal fun ExportMask(
-    done: Boolean,
-    onDismiss: () -> Unit,
-    onShare: (() -> Unit)? = null,
-    onCancel: () -> Unit,
-) {
+internal fun ExportMask(onCancel: () -> Unit) {
     // This overlay swallows every pointer event, so Back is the only system gesture that
     // can reach anything while it is up. Without a handler of its own it would fall
     // through to the editor root, where Back leaves the app -- so a stray Back during a
-    // render could send the app away mid-export. Always enabled: dismisses when done, inert while rendering,
-    // because Cancel is a deliberate press and not a reflex.
-    BackHandler(enabled = true) { if (done) onDismiss() }
+    // render could send the app away mid-export. Inert while rendering, because Cancel is
+    // a deliberate press and not a reflex.
+    BackHandler(enabled = true) { }
     Box(
         Modifier
             .fillMaxSize()
@@ -437,8 +448,6 @@ internal fun ExportMask(
             },
         contentAlignment = Alignment.Center,
     ) {
-        // Scrolls so Share and Done stay reachable in short windows (landscape, split screen,
-        // large text) under the hero and the display headline.
         Column(
             Modifier
                 .verticalScroll(rememberScrollState())
@@ -446,47 +455,192 @@ internal fun ExportMask(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!done) {
-                SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
-                Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
-                Text(
-                    stringResource(R.string.editor_export_rendering),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
+            Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
+            Text(
+                stringResource(R.string.editor_export_rendering),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
+    }
+}
+
+/** How long the "Saved to gallery" hero plays before it collapses into the toolbar. */
+internal const val EXPORT_SAVED_HERO_MS = 2_000L
+
+internal const val EXPORT_SAVED_CLOSE_TAG = "export-saved-close"
+
+/** How long the result toolbar stays before it goes away on its own. */
+internal const val EXPORT_SAVED_TOOLBAR_MS = 6_000L
+
+/**
+ * The export result, in two beats. First the hero (Pen board, "Export saved"): the morphing
+ * check and the emphasized headline, which plays for [EXPORT_SAVED_HERO_MS] or until any tap
+ * or Back. Then it collapses into a floating toolbar with Share / Open / close that does not
+ * block the editor and dismisses itself after [EXPORT_SAVED_TOOLBAR_MS].
+ *
+ * Only the hero beat is modal; [collapsed] is hoisted so the editor can stop treating the
+ * result as an open overlay the moment it collapses. Both timeouts go through the system's
+ * accessibility timeout ("Time to take action"), like a Snackbar with an action, so a
+ * TalkBack user gets the time they asked for.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun ExportSavedMoment(
+    collapsed: Boolean,
+    onCollapse: () -> Unit,
+    onDismiss: () -> Unit,
+    onShare: (() -> Unit)?,
+    onOpen: (() -> Unit)?,
+) {
+    val a11y = LocalAccessibilityManager.current
+    val heroMs = a11y?.calculateRecommendedTimeoutMillis(
+        EXPORT_SAVED_HERO_MS, containsIcons = true, containsText = true,
+    ) ?: EXPORT_SAVED_HERO_MS
+    val toolbarMs = a11y?.calculateRecommendedTimeoutMillis(
+        EXPORT_SAVED_TOOLBAR_MS, containsIcons = true, containsText = true, containsControls = true,
+    ) ?: EXPORT_SAVED_TOOLBAR_MS
+    val collapse by rememberUpdatedState(onCollapse)
+    val dismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(collapsed) {
+        if (!collapsed) {
+            delay(heroMs)
+            collapse()
+        } else {
+            delay(toolbarMs)
+            dismiss()
+        }
+    }
+    if (!collapsed) {
+        ExportSavedHeroBeat(onCollapse = onCollapse)
+    } else {
+        ExportSavedToolbar(onDismiss = onDismiss, onShare = onShare, onOpen = onOpen)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExportSavedHeroBeat(onCollapse: () -> Unit) {
+    BackHandler(enabled = true) { onCollapse() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+            // Any tap skips straight to the toolbar; no ripple on a full-screen scrim.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = stringResource(R.string.editor_export_done),
+                onClick = onCollapse,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            ExportSavedHero()
+            Text(
+                stringResource(R.string.editor_export_saved),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.displaySmallEmphasized,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics {
+                    heading()
+                    liveRegion = LiveRegionMode.Polite
+                },
+            )
+            Text(
+                "Pictures/Spektrafilm",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExportSavedToolbar(
+    onDismiss: () -> Unit,
+    onShare: (() -> Unit)?,
+    onOpen: (() -> Unit)?,
+) {
+    val motion = MaterialTheme.motionScheme
+    val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
+    // Sits where the editor's snackbars sit; the Box has no pointer handlers, so everything
+    // around the toolbar still reaches the editor.
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        AnimatedVisibility(
+            visibleState = shown,
+            enter = scaleIn(motion.fastSpatialSpec(), initialScale = 0.6f) + fadeIn(motion.fastEffectsSpec()),
+            exit = scaleOut(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
+        ) {
+            // Text actions need roughly 300dp of row at 1x text; below that (narrow window,
+            // large text, long translation) Share and Open become labelled icon buttons, so
+            // every control keeps its 48dp target instead of being squeezed off the toolbar.
+            val textActions = maxWidth >= 300.dp * LocalDensity.current.fontScale
+            HorizontalFloatingToolbar(
+                expanded = true,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Icon(
+                    SpectraIcons.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp),
                 )
-            } else {
-                // One of the app's two hero moments (Pen board, "Export saved"): a morphing
-                // shape with a check and an emphasized display headline.
-                ExportSavedHero()
                 Text(
                     stringResource(R.string.editor_export_saved),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.displaySmallEmphasized,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.semantics {
-                        heading()
-                        liveRegion = LiveRegionMode.Polite
-                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    // Weighted (not filling) so it is measured AFTER the actions: the label
+                    // ellipsizes and Share / Open / close keep their full size.
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
                 )
-                Text(
-                    "Pictures/Spektrafilm",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                // Share leads when there is something to share; Done is then the quiet way out.
+                val share = stringResource(R.string.editor_export_share)
+                val open = stringResource(R.string.editor_export_open)
                 if (onShare != null) {
-                    Button(onClick = onShare, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.editor_export_share))
+                    if (textActions) {
+                        FilledTonalButton(onClick = { onShare(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
+                            Text(share)
+                        }
+                    } else {
+                        FilledTonalIconButton(onClick = { onShare(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                            Icon(MaterialSymbols.IosShare, contentDescription = share)
+                        }
                     }
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.editor_export_done), color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (onOpen != null) {
+                    if (textActions) {
+                        TextButton(onClick = { onOpen(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
+                            Text(open)
+                        }
+                    } else {
+                        IconButton(onClick = { onOpen(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                            Icon(MaterialSymbols.OpenInNew, contentDescription = open)
+                        }
                     }
-                } else {
-                    Button(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.editor_export_done))
-                    }
+                }
+                // The toolbar lays icon buttons out at their 40dp container; pin the 48dp target.
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(EXPORT_SAVED_CLOSE_TAG),
+                ) {
+                    Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.editor_export_done))
                 }
             }
         }
