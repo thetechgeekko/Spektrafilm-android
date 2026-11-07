@@ -405,7 +405,7 @@ object Diagnostics {
             putExtra(Intent.EXTRA_TEXT, safeReport)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(Intent.createChooser(send, "Share diagnostics").apply {
+        context.startActivity(Intent.createChooser(send, context.getString(R.string.screen_diag_share_report)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }

@@ -14,7 +14,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -620,6 +619,8 @@ internal fun MainActivity.EditorScreen(
             recipeReadyState = recipeReadyState,
             previewState = previewState,
             statusState = statusState,
+            snackbarHost = snackbarHost,
+            messageScope = scope,
         )
     }
 
@@ -997,11 +998,7 @@ internal fun MainActivity.EditorScreen(
     ) { granted ->
         if (!granted) {
             status = ctx.getString(R.string.editor_status_storage_permission_required)
-            Toast.makeText(
-                ctx,
-                ctx.getString(R.string.editor_toast_storage_permission),
-                Toast.LENGTH_LONG,
-            ).show()
+            scope.showEditorMessage(snackbarHost, ctx.getString(R.string.editor_toast_storage_permission))
         }
     }
 
@@ -2703,6 +2700,7 @@ internal fun MainActivity.EditorScreen(
                 previewTickState = previewTickState,
                 rotationState = rotationState,
                 statusState = statusState,
+                snackbarHost = snackbarHost,
             )
         }
 

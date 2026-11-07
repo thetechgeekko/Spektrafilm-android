@@ -57,8 +57,6 @@
     <string name="editor_status_export_stale_source">Export für eine vorherige oder nicht autorisierte Quelle abgeschlossen</string>
     <string name="editor_status_export_pending_reconciliation">Exportergebnis wartet auf Abgleich · vor erneutem Versuch neu starten</string>
     <string name="editor_toast_export_reconciling">Das Exportergebnis wird abgeglichen. Starte vor einem erneuten Versuch neu.</string>
-    <string name="editor_status_export_failed">Export fehlgeschlagen: %1$s</string>
-    <string name="editor_toast_export_failed">Export fehlgeschlagen: %1$s</string>
     <string name="editor_status_export_cancelled">Export abgebrochen</string>
     <string name="editor_status_undo">rückgängig</string>
     <string name="editor_status_redo">wiederholt</string>
@@ -121,8 +119,6 @@
     <string name="editor_status_settings_pasted">Einstellungen eingefügt</string>
     <string name="editor_status_paste_failed">Einfügen fehlgeschlagen: %1$s</string>
     <string name="editor_status_baking_lut">%1$s-LUT wird erzeugt…</string>
-    <string name="editor_status_save_dialog_failed">Speichern-Dialog konnte nicht geöffnet werden: %1$s</string>
-    <string name="editor_status_lut_bake_failed">LUT-Erzeugung fehlgeschlagen: %1$s</string>
     <string name="editor_magnifier_edit_changed">Bearbeitung geändert · tippe erneut auf die Vorschau</string>
     <string name="editor_magnifier_rendering" formatted="false">100-%-Ausschnitt wird gerendert…</string>
     <string name="editor_magnifier_done">%1$d×%2$d px · 1:1-Rendering in voller Auflösung</string>
@@ -149,7 +145,6 @@
     <string name="editor_sample_hint_tone">Tippe auf einen Ton (ein Licht oder eine Tiefe), um ihn anzuvisieren, und wende dann an.</string>
     <string name="editor_sample_hint_color">Tippe auf die Farbe, auf die die Maske zielen soll (z. B. ein Rot), und wende dann an.</string>
     <string name="editor_status_wb_set">Weißabgleich anhand eines Neutraltons gesetzt</string>
-    <string name="editor_toast_wb_sample_failed">Für den Weißabgleich konnte keine Probe genommen werden: %1$s</string>
     <string name="editor_share_export_title">Export teilen</string>
     <string name="editor_status_no_share_target">keine installierte App kann dieses Bild empfangen</string>
     <string name="editor_status_cancelling_export">Export wird abgebrochen</string>
@@ -598,4 +593,11 @@
     <string name="editor_hint_paper">Fotopapier, Printbelichtung, Vergrößerer-Filterung und Printunschärfe</string>
     <string name="editor_hint_scanner">Scanner-Schärfung und Weiß- und Schwarzpunktkorrektur</string>
     <string name="editor_hint_output">Ausgabefarbraum, Gamut-Kompression, Sättigung und Dynamik</string>
+    <string name="editor_msg_export_failed">Das Foto konnte nicht exportiert werden. Versuche es erneut oder wähle eine kleinere Größe oder ein anderes Format.</string>
+    <string name="editor_msg_export_failed_memory">Nicht genug Speicher für den Export in dieser Größe. Wähle eine kleinere Größe.</string>
+    <string name="editor_msg_retry">Erneut versuchen</string>
+    <string name="editor_msg_export_settings_unsupported">Diese Exporteinstellungen passen nicht zusammen. Wähle ein anderes Format oder einen anderen Farbraum.</string>
+    <string name="editor_msg_lut_bake_failed">Die LUT konnte nicht erstellt werden. Versuche es erneut.</string>
+    <string name="editor_msg_save_dialog_failed">Der Speichern-Dialog konnte nicht geöffnet werden. Versuche es erneut.</string>
+    <string name="editor_msg_wb_sample_failed">Weißabgleich konnte dort nicht gemessen werden. Tippe auf eine andere Stelle.</string>
 </resources>

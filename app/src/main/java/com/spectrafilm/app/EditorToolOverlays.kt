@@ -6,7 +6,7 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.widget.Toast
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
@@ -36,6 +36,7 @@ internal fun MainActivity.EditorToolOverlays(
     previewTickState: MutableIntState,
     rotationState: MutableState<SourceRotation>,
     statusState: MutableState<String>,
+    snackbarHost: SnackbarHostState,
 ) {
     var previewTick by previewTickState
     var rotation by rotationState
@@ -114,11 +115,11 @@ internal fun MainActivity.EditorToolOverlays(
                             state.creativeWbTemp = t; state.creativeWbTint = ti
                             status = ctx.getString(R.string.editor_status_wb_set)
                         }.onFailure {
-                            Toast.makeText(
-                                ctx,
-                                ctx.getString(R.string.editor_toast_wb_sample_failed, it.message),
-                                Toast.LENGTH_LONG,
-                            ).show()
+                            Diag.w("white balance sample failed: ${it.message}")
+                            scope.showEditorMessage(
+                                snackbarHost,
+                                ctx.getString(R.string.editor_msg_wb_sample_failed),
+                            )
                         }
                     }
                 } else {

@@ -6,7 +6,6 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
@@ -288,11 +287,16 @@ internal fun MainActivity.EditorPresetPanel(
                         size, clf,
                     )
                     runCatching { lutExporter.launch(fileName) }
-                        .onFailure { status = ctx.getString(R.string.editor_status_save_dialog_failed, it.message) }
+                        .onFailure {
+                            Diag.w("LUT save dialog failed: ${it.message}")
+                            status = ctx.getString(R.string.editor_msg_save_dialog_failed)
+                            scope.showEditorMessage(snackbarHost, status)
+                        }
                 }.onFailure {
                     SimResult.reportOutcome(lutRenderId, AppRenderOutcome.FAILED)
-                    status = ctx.getString(R.string.editor_status_lut_bake_failed, it.message)
-                    Toast.makeText(ctx, status, Toast.LENGTH_LONG).show()
+                    Diag.w("LUT bake failed: ${it.message}")
+                    status = ctx.getString(R.string.editor_msg_lut_bake_failed)
+                    scope.showEditorMessage(snackbarHost, status)
                 }
             }
         },

@@ -55,8 +55,6 @@
     <string name="editor_status_export_stale_source">已完成先前源文件或未经授权源文件的导出</string>
     <string name="editor_status_export_pending_reconciliation">导出结果待核对 · 请重启后再重试</string>
     <string name="editor_toast_export_reconciling">正在核对导出结果。请重启后再重试。</string>
-    <string name="editor_status_export_failed">导出失败：%1$s</string>
-    <string name="editor_toast_export_failed">导出失败：%1$s</string>
     <string name="editor_status_export_cancelled">已取消导出</string>
     <string name="editor_status_undo">撤销</string>
     <string name="editor_status_redo">重做</string>
@@ -116,8 +114,6 @@
     <string name="editor_status_settings_pasted">已粘贴设置</string>
     <string name="editor_status_paste_failed">粘贴失败：%1$s</string>
     <string name="editor_status_baking_lut">正在烘焙 %1$s LUT…</string>
-    <string name="editor_status_save_dialog_failed">无法打开保存对话框：%1$s</string>
-    <string name="editor_status_lut_bake_failed">LUT 烘焙失败：%1$s</string>
     <string name="editor_magnifier_edit_changed">编辑已变更 · 请再次点按预览</string>
     <string name="editor_magnifier_done">%1$d×%2$dpx · 1:1 全分辨率渲染</string>
     <string name="editor_magnifier_failed">局部图像渲染失败：%1$s</string>
@@ -143,7 +139,6 @@
     <string name="editor_sample_hint_tone">点按某个色调（高光或阴影）选中它，然后应用。</string>
     <string name="editor_sample_hint_color">点按希望蒙版作用的颜色（例如红色），然后应用。</string>
     <string name="editor_status_wb_set">已根据中性色设置白平衡</string>
-    <string name="editor_toast_wb_sample_failed">无法采样设置白平衡：%1$s</string>
     <string name="editor_share_export_title">分享导出文件</string>
     <string name="editor_status_no_share_target">没有已安装的应用可接收此图像</string>
     <string name="editor_status_cancelling_export">正在取消导出</string>
@@ -503,4 +498,11 @@
     <string name="editor_hint_paper">相纸、放印曝光、放大机滤色和放印模糊</string>
     <string name="editor_hint_scanner">扫描仪锐化与白点、黑点校正</string>
     <string name="editor_hint_output">输出色彩空间、色域压缩、饱和度和自然饱和度</string>
+    <string name="editor_msg_export_failed">无法导出这张照片。请重试，或选择更小的尺寸或其他格式。</string>
+    <string name="editor_msg_export_failed_memory">内存不足，无法以此尺寸导出。请选择更小的尺寸。</string>
+    <string name="editor_msg_retry">重试</string>
+    <string name="editor_msg_export_settings_unsupported">这些导出设置无法同时使用。请换一种格式或色彩空间。</string>
+    <string name="editor_msg_lut_bake_failed">无法创建 LUT。请重试。</string>
+    <string name="editor_msg_save_dialog_failed">无法打开保存对话框。请重试。</string>
+    <string name="editor_msg_wb_sample_failed">无法在该位置测量白平衡。请点按其他位置。</string>
 </resources>

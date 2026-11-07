@@ -57,8 +57,6 @@
     <string name="editor_status_export_stale_source">exportación completada para un origen anterior o no autorizado</string>
     <string name="editor_status_export_pending_reconciliation">resultado de la exportación pendiente de conciliar · reinicia antes de reintentar</string>
     <string name="editor_toast_export_reconciling">Se está conciliando el resultado de la exportación. Reinicia antes de reintentar.</string>
-    <string name="editor_status_export_failed">la exportación falló: %1$s</string>
-    <string name="editor_toast_export_failed">La exportación falló: %1$s</string>
     <string name="editor_status_export_cancelled">exportación cancelada</string>
     <string name="editor_status_undo">deshacer</string>
     <string name="editor_status_redo">rehacer</string>
@@ -123,8 +121,6 @@
     <string name="editor_status_settings_pasted">ajustes pegados</string>
     <string name="editor_status_paste_failed">no se pudo pegar: %1$s</string>
     <string name="editor_status_baking_lut">generando LUT %1$s…</string>
-    <string name="editor_status_save_dialog_failed">no se pudo abrir el diálogo de guardado: %1$s</string>
-    <string name="editor_status_lut_bake_failed">no se pudo generar la LUT: %1$s</string>
     <string name="editor_magnifier_edit_changed">la edición cambió · vuelve a tocar la vista previa</string>
     <string name="editor_magnifier_rendering" formatted="false">renderizando recorte al 100 %…</string>
     <string name="editor_magnifier_done">%1$d×%2$d px · renderizado 1:1 a resolución completa</string>
@@ -151,7 +147,6 @@
     <string name="editor_sample_hint_tone">Toca un tono (una luz o una sombra) para seleccionarlo y luego aplica.</string>
     <string name="editor_sample_hint_color">Toca el color al que quieres que apunte la máscara (p. ej., un rojo) y luego aplica.</string>
     <string name="editor_status_wb_set">balance de blancos ajustado desde un neutro</string>
-    <string name="editor_toast_wb_sample_failed">No se pudo muestrear para el balance de blancos: %1$s</string>
     <string name="editor_share_export_title">Compartir exportación</string>
     <string name="editor_status_no_share_target">ninguna app instalada puede recibir esta imagen</string>
     <string name="editor_status_cancelling_export">cancelando la exportación</string>
@@ -600,4 +595,11 @@
     <string name="editor_hint_paper">Papel de copia, exposición de copia, filtrado de la ampliadora y desenfoque de copia</string>
     <string name="editor_hint_scanner">Enfoque del escáner y corrección de punto blanco y negro</string>
     <string name="editor_hint_output">Espacio de color de salida, compresión de gama, saturación e intensidad</string>
+    <string name="editor_msg_export_failed">No se pudo exportar esta foto. Inténtalo de nuevo o elige un tamaño más pequeño u otro formato.</string>
+    <string name="editor_msg_export_failed_memory">No hay memoria suficiente para exportar a este tamaño. Prueba un tamaño más pequeño.</string>
+    <string name="editor_msg_retry">Reintentar</string>
+    <string name="editor_msg_export_settings_unsupported">Estos ajustes de exportación no son compatibles entre sí. Prueba otro formato u otro espacio de color.</string>
+    <string name="editor_msg_lut_bake_failed">No se pudo crear la LUT. Inténtalo de nuevo.</string>
+    <string name="editor_msg_save_dialog_failed">No se pudo abrir el diálogo de guardado. Inténtalo de nuevo.</string>
+    <string name="editor_msg_wb_sample_failed">No se pudo medir el balance de blancos ahí. Toca otro punto.</string>
 </resources>

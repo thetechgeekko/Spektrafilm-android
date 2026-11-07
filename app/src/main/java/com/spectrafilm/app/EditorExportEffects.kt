@@ -13,7 +13,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.MutableLongState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
@@ -40,6 +40,8 @@ internal suspend fun CoroutineScope.runExportRuntimeObserver(
     recipeReadyState: MutableState<Boolean>,
     previewState: MutableState<Bitmap?>,
     statusState: MutableState<String>,
+    snackbarHost: SnackbarHostState,
+    messageScope: CoroutineScope,
 ) {
     val exportRuntimeState by exportRuntimeStateState
     var exportPublication by exportPublicationState
@@ -207,19 +209,27 @@ internal suspend fun CoroutineScope.runExportRuntimeObserver(
                             if (outcome.cause is ExportReconciliationPendingException) {
                                 exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
                                 status = ctx.getString(R.string.editor_status_export_pending_reconciliation)
-                                Toast.makeText(
-                                    ctx,
+                                messageScope.showEditorMessage(
+                                    snackbarHost,
                                     ctx.getString(R.string.editor_toast_export_reconciling),
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                )
                             } else {
                                 exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.FAILURE))
-                                status = ctx.getString(R.string.editor_status_export_failed, outcome.cause.message)
-                                Toast.makeText(
-                                    ctx,
-                                    ctx.getString(R.string.editor_toast_export_failed, outcome.cause.message),
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                // The cause is in the diagnostics log above; the user gets what
+                                // happened and what to try, with Retry reopening the export sheet.
+                                val message = ctx.getString(
+                                    if (isMemoryExhaustion(outcome.cause)) {
+                                        R.string.editor_msg_export_failed_memory
+                                    } else {
+                                        R.string.editor_msg_export_failed
+                                    },
+                                )
+                                status = message
+                                messageScope.showEditorMessage(
+                                    snackbarHost,
+                                    message,
+                                    actionLabel = ctx.getString(R.string.editor_msg_retry),
+                                ) { exportVm.onAction(ExportAction.OpenSheet) }
                             }
                         }
                         is ExportTerminalOutcome.Cancelled -> {
