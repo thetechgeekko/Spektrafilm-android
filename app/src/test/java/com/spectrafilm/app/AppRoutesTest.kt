@@ -1,5 +1,6 @@
 package com.spectrafilm.app
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -19,6 +20,7 @@ class AppRoutesTest {
     }
 
     /** rememberNavBackStack saves routes with their generated serializers. */
+    @OptIn(ExperimentalSerializationApi::class)
     @Test fun routesWithArgumentsAreSerializable() {
         val film = FilmCurvesRoute.serializer().descriptor
         assertEquals(listOf("profileId", "displayName"), (0 until film.elementsCount).map(film::getElementName))
