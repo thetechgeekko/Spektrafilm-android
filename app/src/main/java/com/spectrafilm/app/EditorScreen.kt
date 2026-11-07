@@ -310,7 +310,11 @@ internal fun EditorScreen(
     // path can forget to clear a boolean the phase transition already implies.
     val exportInFlight = exportUi.inFlight
     val exportDone = exportUi.done
-    val exportMaskVisible = exportUi.maskVisible
+    // The result collapses from a modal hero into a non-blocking toolbar; only the hero
+    // beat counts as an open overlay. Reset whenever the result goes away.
+    var exportSavedCollapsed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(exportDone) { if (!exportDone) exportSavedCollapsed = false }
+    val exportMaskVisible = exportInFlight || (exportDone && !exportSavedCollapsed)
     val previewTickState = remember { mutableIntStateOf(0) }
     var previewTick by previewTickState
     val publicationGate = remember { RenderPublicationGate() }
@@ -2738,33 +2742,58 @@ internal fun EditorScreen(
         }
 
         // --- full-screen export mask ---
-        if (exportMaskVisible) {
+        if (exportInFlight) {
             ExportMask(
-                done = exportDone,
+                onCancel = {
+                    val running = exportRuntimeState as? ExportRuntimeState.Running
+                    if (running != null && ExportWorkRuntime.cancel(running.runId)) {
+                        status = ctx.getString(R.string.editor_status_cancelling_export)
+                    }
+                },
+            )
+        } else if (exportDone) {
+            // Content URI + minimum read grant; the exported row's exact OutputDescriptor
+            // MIME -- never a filesystem path (#162).
+            fun exportedIntent(action: String, published: String, mime: String) =
+                if (action == Intent.ACTION_SEND) {
+                    Intent(action).apply {
+                        type = mime
+                        putExtra(Intent.EXTRA_STREAM, Uri.parse(published))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                } else {
+                    Intent(action).apply {
+                        setDataAndType(Uri.parse(published), mime)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+            ExportSavedMoment(
+                collapsed = exportSavedCollapsed,
+                onCollapse = { exportSavedCollapsed = true },
                 onDismiss = {
                     exportVm.onAction(ExportAction.DismissResult)
                     checkpointEditorSession()
                 },
                 onShare = exportUi.lastShare?.let { (published, mime) ->
                     {
-                        // Content URI + minimum read grant; the exported row's exact
-                        // OutputDescriptor MIME — never a filesystem path (#162).
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = mime
-                            putExtra(Intent.EXTRA_STREAM, Uri.parse(published))
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
+                        val send = exportedIntent(Intent.ACTION_SEND, published, mime)
                         try {
-                            ctx.startActivity(Intent.createChooser(send, ctx.getString(R.string.editor_share_export_title)))
+                            ctx.startActivity(
+                                Intent.createChooser(send, ctx.getString(R.string.editor_share_export_title))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
                         } catch (_: ActivityNotFoundException) {
                             status = ctx.getString(R.string.editor_status_no_share_target)
                         }
                     }
                 },
-                onCancel = {
-                    val running = exportRuntimeState as? ExportRuntimeState.Running
-                    if (running != null && ExportWorkRuntime.cancel(running.runId)) {
-                        status = ctx.getString(R.string.editor_status_cancelling_export)
+                onOpen = exportUi.lastShare?.let { (published, mime) ->
+                    {
+                        try {
+                            ctx.startActivity(exportedIntent(Intent.ACTION_VIEW, published, mime))
+                        } catch (_: ActivityNotFoundException) {
+                            status = ctx.getString(R.string.editor_status_no_open_target)
+                        }
                     }
                 },
             )

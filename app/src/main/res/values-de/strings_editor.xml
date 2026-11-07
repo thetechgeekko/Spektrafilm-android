@@ -147,6 +147,7 @@
     <string name="editor_status_wb_set">Weißabgleich anhand eines Neutraltons gesetzt</string>
     <string name="editor_share_export_title">Export teilen</string>
     <string name="editor_status_no_share_target">keine installierte App kann dieses Bild empfangen</string>
+    <string name="editor_status_no_open_target">keine installierte App kann dieses Bild öffnen</string>
     <string name="editor_status_cancelling_export">Export wird abgebrochen</string>
     <string name="editor_status_source_access_required">vor dem Export ist Quellzugriff nötig</string>
     <string name="editor_status_grant_storage">erteile Speicherzugriff und tippe dann erneut auf Exportieren</string>
@@ -238,6 +239,7 @@
     <string name="editor_export_saved">In der Galerie gespeichert</string>
     <string name="editor_export_done">Fertig</string>
     <string name="editor_export_share">Teilen</string>
+    <string name="editor_export_open">Öffnen</string>
     <string name="editor_input_title">Eingabe</string>
     <string name="editor_input_gated_colorspace">Die Engine rendert jede Eingabe als lineares ProPhoto RGB; andere Eingabefarbräume sind noch nicht angebunden.</string>
     <string name="editor_input_color_space">Eingabefarbraum</string>

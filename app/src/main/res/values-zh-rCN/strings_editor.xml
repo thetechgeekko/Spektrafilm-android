@@ -141,6 +141,7 @@
     <string name="editor_status_wb_set">已根据中性色设置白平衡</string>
     <string name="editor_share_export_title">分享导出文件</string>
     <string name="editor_status_no_share_target">没有已安装的应用可接收此图像</string>
+    <string name="editor_status_no_open_target">没有已安装的应用可打开此图像</string>
     <string name="editor_status_cancelling_export">正在取消导出</string>
     <string name="editor_status_source_access_required">导出前需要源文件访问权限</string>
     <string name="editor_status_grant_storage">请授予存储访问权限，然后再次点按导出</string>
@@ -235,6 +236,7 @@
     <string name="editor_export_saved">已保存到图库</string>
     <string name="editor_export_done">完成</string>
     <string name="editor_export_share">分享</string>
+    <string name="editor_export_open">打开</string>
     <string name="editor_input_title">输入</string>
     <string name="editor_input_gated_colorspace">引擎将所有输入按线性 ProPhoto RGB 渲染 — 其他输入色彩空间尚未接入。</string>
     <string name="editor_input_color_space">输入色彩空间</string>
