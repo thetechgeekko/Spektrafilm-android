@@ -2147,61 +2147,18 @@ internal fun MainActivity.EditorScreen(
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
                         Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.SIMULATION -> SimulationSection(
-                            s = state,
+                        Category.SIMULATION -> EditorSimulationPanel(
+                            ctx = ctx,
+                            scope = scope,
+                            state = state,
+                            snackbarHost = snackbarHost,
                             photoDateStamp = photoDateStamp,
-                            filmPreviewHost = stockPreviewHost(filmPreviewVm, forFilm = true),
-                            // In slide mode the print stage is skipped, so every paper would
-                            // render the same tile: show the text-only cards instead.
-                            printPreviewHost = if (state.scanFilm) {
-                                null
-                            } else {
-                                stockPreviewHost(printPreviewVm, forFilm = false)
-                            },
                             filmGroups = filmGroups,
                             printGroups = printGroups,
-                            onOpenFilmCurves = {
-                                checkpointEditorSession()
-                                onOpenFilmCurves(
-                                    state.filmProfile,
-                                    StockCatalog.displayName(ctx, state.filmProfile),
-                                )
-                            },
-                            onOpenPrintCurves = {
-                                checkpointEditorSession()
-                                onOpenPrintCurves(
-                                    state.printProfile,
-                                    StockCatalog.displayName(ctx, state.printProfile),
-                                )
-                            },
-                            onFilmProfileChange = { id ->
-                                val changed = id != state.filmProfile
-                                state.filmProfile = id
-                                if (changed) {
-                                    val name = StockCatalog.displayName(ctx, id)
-                                    // A reversal (slide) film is most naturally viewed as a
-                                    // positive — nudge Slide mode if the print is still showing;
-                                    // otherwise offer to drop the previous stock's tweaks.
-                                    if (StockCatalog.isReversalFilm(ctx, id) && !state.scanFilm) {
-                                        offerSnackbarSuggestion(scope, snackbarHost,
-                                            ctx.getString(R.string.editor_snack_slide_film, name),
-                                            ctx.getString(R.string.editor_snack_slide_mode)) { state.scanFilm = true }
-                                    } else {
-                                        offerSnackbarSuggestion(scope, snackbarHost,
-                                            ctx.getString(R.string.editor_snack_switched_to, name),
-                                            ctx.getString(R.string.editor_snack_use_defaults)) { state.resetStockCharacter() }
-                                    }
-                                }
-                            },
-                            onPrintProfileChange = { id ->
-                                val changed = id != state.printProfile
-                                state.printProfile = id
-                                if (changed) {
-                                    offerSnackbarSuggestion(scope, snackbarHost,
-                                        ctx.getString(R.string.editor_snack_switched_to, StockCatalog.displayName(ctx, id)),
-                                        ctx.getString(R.string.editor_snack_use_defaults)) { state.resetStockCharacter() }
-                                }
-                            },
+                            onOpenFilmCurves = onOpenFilmCurves,
+                            onOpenPrintCurves = onOpenPrintCurves,
+                            stockPreviewHost = ::stockPreviewHost,
+                            checkpointEditorSession = ::checkpointEditorSession,
                         )
                         Category.GRAIN -> GrainSection(state)
                         Category.PREFLASH -> PreflashSection(state)
