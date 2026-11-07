@@ -147,6 +147,13 @@ internal class AppViewModelFactory(
 /** Owns the process's [AppContainer]. Registered as `android:name` in the manifest. */
 class SpektraApplication : Application() {
     internal val container: AppContainer by lazy { AppContainer(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // Start the settings read now, in the background, so it has usually finished by the
+        // time the activity asks (MAD audit fix 4). Building the store does not block.
+        container.settings
+    }
 }
 
 private val fallbackContainerLock = Any()

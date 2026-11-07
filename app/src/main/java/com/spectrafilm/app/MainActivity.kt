@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.onClick
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -147,6 +148,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Launch screen (MAD audit fix 4): the theme's splash stays up until saved settings
+        // are read, so the first frame already has the user's theme and nothing reads
+        // settings on the main thread before they are loaded.
+        val settings = appContainer.settings
+        installSplashScreen().setKeepOnScreenCondition { !settings.isLoaded }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         incomingImageIntent.value = intent
@@ -188,30 +194,45 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure { Diag.w("export recovery failed: ${it.message}") }
         }
-        val settings = appContainer.settings
-        val settingsVm = ViewModelProvider(this, appContainer.viewModelFactory)[SettingsViewModel::class.java]
-        val updateVm = ViewModelProvider(this, appContainer.viewModelFactory)[UpdateViewModel::class.java]
         setContent {
-            // Theme follows the saved settings state, so a Settings edit re-themes at once.
-            val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
-            val dark = when (settingsUi.theme) {
-                ThemeMode.SYSTEM -> isSystemInDarkTheme()
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
+            // Nothing below may read settings before they are loaded (that read would block
+            // the main thread). The splash covers this wait, normally a few milliseconds.
+            val loaded by produceState(settings.isLoaded) {
+                settings.awaitLoaded()
+                value = true
             }
-            val updateUi by updateVm.uiState.collectAsStateWithLifecycle()
-            // Launch-time "what's new" check: at most daily, off in Settings, never on Play.
-            LaunchedEffect(Unit) { updateVm.onAction(UpdateAction.AutoCheck) }
-            SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
-                AppRoot(
-                    settings = settings,
-                    settingsUi = settingsUi,
-                    onSettingsAction = settingsVm::onAction,
-                    updateUi = updateUi,
-                    onUpdateAction = updateVm::onAction,
-                )
-                updateUi.offer?.let { offer -> UpdateDialog(offer, updateVm::onAction) }
-            }
+            if (loaded) AppContent(settings)
+        }
+    }
+
+    /** The app once settings are loaded: theme from the saved settings, then [AppRoot]. */
+    @Composable
+    private fun AppContent(settings: AppSettings) {
+        val settingsVm = remember {
+            ViewModelProvider(this@MainActivity, appContainer.viewModelFactory)[SettingsViewModel::class.java]
+        }
+        val updateVm = remember {
+            ViewModelProvider(this@MainActivity, appContainer.viewModelFactory)[UpdateViewModel::class.java]
+        }
+        // Theme follows the saved settings state, so a Settings edit re-themes at once.
+        val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
+        val dark = when (settingsUi.theme) {
+            ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+        }
+        val updateUi by updateVm.uiState.collectAsStateWithLifecycle()
+        // Launch-time "what's new" check: at most daily, off in Settings, never on Play.
+        LaunchedEffect(Unit) { updateVm.onAction(UpdateAction.AutoCheck) }
+        SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
+            AppRoot(
+                settings = settings,
+                settingsUi = settingsUi,
+                onSettingsAction = settingsVm::onAction,
+                updateUi = updateUi,
+                onUpdateAction = updateVm::onAction,
+            )
+            updateUi.offer?.let { offer -> UpdateDialog(offer, updateVm::onAction) }
         }
     }
 

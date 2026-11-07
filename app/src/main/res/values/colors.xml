@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. Window colors shown before Compose draws. -->
+<resources>
+    <color name="window_background">#FFF8F9FF</color>
+</resources>

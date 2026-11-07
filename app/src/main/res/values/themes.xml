@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3.
+     Window themes (MAD audit fix 4). The UI is all Compose; these only decide what the window
+     shows before Compose draws: a launch screen, then a window background that matches the
+     system light/dark mode instead of always light. -->
+<resources>
+    <style name="Theme.Spektrafilm" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+    <!-- The activity starts in this theme; installSplashScreen() switches it to
+         postSplashScreenTheme once the keep-on-screen condition (settings loaded) clears. -->
+    <style name="Theme.Spektrafilm.Starting" parent="Theme.SplashScreen.IconBackground">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.Spektrafilm</item>
+    </style>
+</resources>

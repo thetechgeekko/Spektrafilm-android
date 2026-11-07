@@ -57,7 +57,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:restoreAnyVersion="false"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/Theme.Spektrafilm"
         android:usesCleartextTraffic="false">
         <!-- Lets `adb shell simpleperf` attach to RELEASE builds (API 29+; ignored below).
              Grants profiling to the shell user only — no debugging surface is opened.
@@ -82,6 +82,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
+            android:theme="@style/Theme.Spektrafilm.Starting"
             android:windowSoftInputMode="adjustResize">
             <layout
                 android:defaultWidth="1024dp"
