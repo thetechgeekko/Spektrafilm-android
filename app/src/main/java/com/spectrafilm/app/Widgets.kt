@@ -89,7 +89,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -522,6 +524,16 @@ fun EnhancedSlider(
             },
             valueRange = range,
             steps = steps,
+            // M3 Expressive track: the fill grows from the parameter's neutral point, so a
+            // +/- control (exposure, tint, saturation) reads as "how far from neutral and in
+            // which direction" instead of a bar that is half full at zero.
+            track = {
+                AnchoredSliderTrack(
+                    value = value.coerceIn(range.start, range.endInclusive),
+                    range = range,
+                    anchor = sliderAnchor(default, range),
+                )
+            },
             // Announce "<label>, <value>" rather than a bare percentage.
             modifier = Modifier
                 .sliderEndsGestureExclusion(endExclusionPx)
@@ -1668,3 +1680,61 @@ internal fun ConnectedToggle(
         }
     }
 }
+
+
+/**
+ * Where a slider's fill starts: the neutral [default] when it sits inside the range (a
+ * centred +/- slider), otherwise the range start (an ordinary 0..max slider).
+ */
+internal fun sliderAnchor(default: Float?, range: ClosedFloatingPointRange<Float>): Float =
+    default?.takeIf { it > range.start && it < range.endInclusive } ?: range.start
+
+/** Fraction 0..1 of [v] along [range]; 0 for an empty range. */
+internal fun sliderFraction(v: Float, range: ClosedFloatingPointRange<Float>): Float {
+    val span = range.endInclusive - range.start
+    return if (span <= 0f) 0f else ((v - range.start) / span).coerceIn(0f, 1f)
+}
+
+/**
+ * M3 Expressive slider track (16dp, fully rounded): inactive surfaceContainerHighest, active
+ * primary from [anchor] to [value], and a small stop mark at a centred anchor so neutral is
+ * findable by eye. Drawn in one Canvas so dragging redraws without relayout.
+ */
+@Composable
+private fun AnchoredSliderTrack(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    anchor: Float,
+) {
+    val inactive = MaterialTheme.colorScheme.surfaceContainerHighest
+    val active = MaterialTheme.colorScheme.primary
+    val mark = MaterialTheme.colorScheme.onSurfaceVariant
+    val centred = anchor > range.start
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(SLIDER_TRACK_HEIGHT),
+    ) {
+        val h = size.height
+        val r = CornerRadius(h / 2f)
+        drawRoundRect(color = inactive, cornerRadius = r)
+        val a = sliderFraction(anchor, range) * size.width
+        val v = sliderFraction(value, range) * size.width
+        val left = minOf(a, v)
+        val right = maxOf(a, v)
+        if (right - left > 0.5f) {
+            drawRoundRect(
+                color = active,
+                topLeft = Offset(left, 0f),
+                size = Size(right - left, h),
+                cornerRadius = r,
+            )
+        }
+        if (centred) {
+            val d = 4.dp.toPx()
+            drawCircle(color = mark, radius = d / 2f, center = Offset(a, h / 2f))
+        }
+    }
+}
+
+private val SLIDER_TRACK_HEIGHT = 16.dp
