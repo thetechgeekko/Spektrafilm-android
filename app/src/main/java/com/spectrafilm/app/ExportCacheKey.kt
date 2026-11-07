@@ -75,6 +75,7 @@ internal object ExportCacheKey {
         /** The border actually painted ([ExportOptions.effectiveBorder]); it changes the pixels. */
         border: FilmBorder,
         contractVersion: String,
+        sharpen: OutputSharpen = OutputSharpen.NONE,
     ): String {
         val text = buildString {
             line("schema", SCHEMA)
@@ -117,6 +118,7 @@ internal object ExportCacheKey {
             line("out.releaseStatus", descriptor.releaseStatus.name)
 
             line("geometry.longEdge", targetLongEdge?.toString() ?: "full")
+            line("post.sharpen", sharpen.name)
             line("encoder.jpegQuality", jpegQuality)
             line("exif.keepGps", keepGps)
             line("border", border.name)

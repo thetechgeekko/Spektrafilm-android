@@ -517,6 +517,15 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // ChevronDown — opens a menu of an action's variants (split button)
+    // -----------------------------------------------------------------------
+    val ChevronDown: ImageVector by lazy {
+        icon("ChevronDown") {
+            strokePath("M 6 9 L 12 15 L 18 9")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // AspectRatio — nested rectangles (aspect-ratio preset chips)
     // -----------------------------------------------------------------------
     val AspectRatio: ImageVector by lazy {

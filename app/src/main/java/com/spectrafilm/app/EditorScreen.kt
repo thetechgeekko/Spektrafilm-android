@@ -3821,7 +3821,41 @@ internal fun MainActivity.EditorScreen(
 
         // --- Lightroom-style export options sheet ---
         if (exportUi.sheetOpen) {
+            val exportPresets by exportPresetVm.uiState.collectAsStateWithLifecycle()
+            // Opening the sheet: load the presets, then preselect the one used last so the
+            // Export button is two taps for a repeat export.
+            LaunchedEffect(Unit) {
+                exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
+                exportPresetVm.load()
+            }
+            // Saveable, so a recreated Activity (theme or locale change) that restores the open
+            // sheet with the user's own edits does not overwrite them with the preset again.
+            var lastUsedApplied by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(exportPresets.lastUsed) {
+                val last = exportPresets.lastUsedPreset
+                if (!lastUsedApplied && last != null) {
+                    lastUsedApplied = true
+                    exportVm.onAction(ExportAction.SetOptions(last.options))
+                    exportVm.onAction(ExportAction.SetKeepGps(last.keepGps))
+                }
+            }
+            val matchingPreset = exportPresets.presets.firstOrNull {
+                it.matches(exportUi.options, exportUi.keepGps)
+            }?.name
             ExportSheet(
+                presetNames = exportPresets.presets.map { it.name },
+                selectedPreset = matchingPreset,
+                onSelectPreset = { name ->
+                    exportPresets.presets.firstOrNull { it.name == name }?.let { p ->
+                        exportVm.onAction(ExportAction.SetOptions(p.options))
+                        exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
+                    }
+                },
+                onSavePreset = { name ->
+                    exportPresetVm.save(name, exportVm.current.options, exportVm.current.keepGps)
+                    status = ctx.getString(R.string.editor_status_export_preset_saved, name)
+                },
+                onDeletePreset = { name -> exportPresetVm.delete(name) },
                 options = exportUi.options,
                 onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
                 colorSpace = state.outputColorSpace,
@@ -3835,6 +3869,11 @@ internal fun MainActivity.EditorScreen(
                 onExport = export@{
                     val exportOptions = exportVm.current.options
                     val exportKeepGps = exportVm.current.keepGps
+                    // The next sheet opens with this preset (or with none, if the choices
+                    // no longer match one).
+                    exportPresetVm.markUsed(
+                        exportPresets.presets.firstOrNull { it.matches(exportOptions, exportKeepGps) }?.name,
+                    )
                     if (!sourceRenderAllowed) {
                         exportVm.onAction(ExportAction.CloseSheet)
                         status = ctx.getString(R.string.editor_status_source_access_required)
@@ -3889,9 +3928,18 @@ internal fun MainActivity.EditorScreen(
                         onSettingsAction(SettingsAction.SetExportBorder(exportOptions.border))
                         val fmt = outputDescriptor.format
                         val exportFmt = fmt
-                        val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
+                        val baseName = exportBaseName(
+                            exportOptions.customName,
+                            System.currentTimeMillis(),
+                            ExportNameTokens(
+                                sourceName = sourceName,
+                                film = StockCatalog.displayName(ctx, state.filmProfile),
+                                print = StockCatalog.displayName(ctx, state.printProfile),
+                            ),
+                        )
                         val longEdge = exportOptions.targetLongEdge()
                         val exportBorder = exportOptions.effectiveBorder()
+                        val exportSharpen = exportOptions.effectiveSharpen()
                         val keepGps = exportKeepGps
                         // Wall-clock breadcrumbs for the on-device baseline capture
                         // (issue #119): logcat-visible start marker + duration on ok/fail.
@@ -3987,6 +4035,7 @@ internal fun MainActivity.EditorScreen(
                                             keepGps,
                                             exportBorder,
                                             exportContract,
+                                            exportSharpen,
                                         )
                                     }
                                     // Pre-encode identity: the same payload serves every
@@ -4156,6 +4205,16 @@ internal fun MainActivity.EditorScreen(
                                                         }
                                                     }
                                                 } ?: full
+                                                // Output sharpening, once, on the final-size
+                                                // photo: after the resize (so it suits the size it
+                                                // is seen at) and before the border (so the frame
+                                                // edges stay clean). The gain map below is computed
+                                                // from the float render, not these pixels.
+                                                if (sized.isMutable) {
+                                                    sharpenBitmapInPlace(sized, exportSharpen)
+                                                } else if (exportSharpen != OutputSharpen.NONE) {
+                                                    Diag.w("export bitmap immutable; output sharpening skipped")
+                                                }
                                                 // Film border around the photo (output grows).
                                                 // Frame number is stable per source, so the
                                                 // cache key's source hash already covers it.
