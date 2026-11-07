@@ -153,6 +153,7 @@
     <string name="editor_status_unsupported_export">不支持此导出组合</string>
     <string name="editor_status_export_running">已有导出任务正在运行</string>
     <string name="editor_status_batch_progress">批量导出：第 %1$d 张，共 %2$d 张…</string>
+    <string name="editor_snack_batch_running">批量导出进行中（%1$d）</string>
     <string name="editor_snack_batch_done">已导出 %1$d / %2$d 张照片</string>
     <string name="editor_snack_batch_done_failed">已导出 %1$d / %2$d 张照片；%3$d 张无法导出</string>
     <string name="editor_snack_batch_cancelled">批量导出已在 %1$d / %2$d 张后停止</string>

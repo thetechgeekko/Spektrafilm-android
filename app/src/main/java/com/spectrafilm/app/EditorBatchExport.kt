@@ -13,14 +13,19 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -103,12 +108,31 @@ internal fun BatchExportProgressEffect(
     setStatus: (String) -> Unit,
 ) {
     val batchProgress by BatchExportTracker.state.collectAsStateWithLifecycle()
+    // The in-app Cancel. A batch runs unbound, so the editor's export mask (and its Cancel)
+    // never shows for it, and the notification may be denied or its channel off.
+    val cancelPrompt = remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(batchProgress) {
         val p = batchProgress ?: return@LaunchedEffect
         if (!p.finished) {
             setStatus(ctx.getString(R.string.editor_status_batch_progress, p.position, p.total))
+            // Shown again after any other snackbar replaced it.
+            if (cancelPrompt.value?.isActive != true && snackbarHost.currentSnackbarData == null) {
+                cancelPrompt.value = scope.launch {
+                    val result = snackbarHost.showSnackbar(
+                        message = ctx.getString(R.string.editor_snack_batch_running, p.total),
+                        actionLabel = ctx.getString(R.string.editor_cancel),
+                        duration = SnackbarDuration.Indefinite,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
+                            ?.let { ExportWorkRuntime.cancel(it.runId) }
+                    }
+                }
+            }
             return@LaunchedEffect
         }
+        cancelPrompt.value?.cancel()
+        cancelPrompt.value = null
         val message = when {
             p.cancelled -> ctx.getString(R.string.editor_snack_batch_cancelled, p.done, p.total)
             p.failed > 0 ->
