@@ -43,6 +43,7 @@ class SettingsScreenUiTest {
         exportFormat = ExportFormat.JPEG,
         exportQuality = 90,
         keepGps = false,
+        exportBorder = FilmBorder.NONE,
     )
 
     private class Calls {
