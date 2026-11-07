@@ -2,6 +2,7 @@ package com.spectrafilm.app
 
 import android.os.Looper
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -43,8 +44,12 @@ class StockPreviewViewModelTest {
         ): ImageBitmap {
             val id = params.filmProfile
             if (failOnce.remove(id)) error("render of $id failed")
+            // Build the tile before logging it, so a tile that could not be made never
+            // looks like a successful render.
+            val tile = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                .asImageBitmap()
             rendered += id
-            return ImageBitmap(1, 1)
+            return tile
         }
     }
 
