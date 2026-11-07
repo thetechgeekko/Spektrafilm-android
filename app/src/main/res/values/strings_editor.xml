@@ -671,4 +671,12 @@
     <string name="photo_info_location_present">Included in file</string>
     <string name="photo_info_location_absent">None</string>
     <string name="photo_info_empty">No camera details in this file.</string>
+    <string name="shortcut_apply_previous">Apply previous edit</string>
+    <string name="editor_preset_apply_previous">Apply previous edit</string>
+    <string name="editor_preset_previous_from">From %1$s</string>
+    <string name="editor_preset_previous_none">Edit another photo first, then its look can be applied here.</string>
+    <string name="editor_status_previous_applied">edit from %1$s applied</string>
+    <string name="editor_snack_apply_previous">Apply edits from %1$s?</string>
+    <string name="editor_preset_previous_unnamed">the previous photo</string>
+    <string name="editor_snack_apply_previous_action">Apply</string>
 </resources>
