@@ -115,8 +115,10 @@ internal fun MainActivity.EditorScreen(
     var engine by engineState
     val profilesState = remember { mutableStateOf<List<String>>(emptyList()) }
     var profiles by profilesState
-    // Owned by EditorViewModel; fresh per composition (see EditorViewModel for why).
-    val state = remember { editorVm.beginSession() }
+    // Per-composition editing state, owned by EditorViewModel and fresh for every composition
+    // (see EditorViewModel for why): params, manual rotation, undo/redo history.
+    val session = remember { editorVm.beginSession(initialRestoration) }
+    val state = session.params
 
     // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
     // LinearImage across look/film param edits instead of re-running source decode (LibRaw
@@ -302,9 +304,7 @@ internal fun MainActivity.EditorScreen(
     // source rotation (applied to the decoded LinearImage -> preview AND export).
     // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
     // (see loadSource) and is NOT persisted in the recipe.
-    val rotationState = remember {
-        mutableStateOf(SourceRotation.fromDegrees(initialRestoration.rotationDegrees))
-    }
+    val rotationState = session.rotation
     var rotation by rotationState
 
     // #286: a display-only stand-in (the file's embedded thumbnail, else the provider's) shown
@@ -630,22 +630,16 @@ internal fun MainActivity.EditorScreen(
     // --- in-session undo / redo edit history ---
     // A snapshot = the full preset/recipe JSON (Presets.toJsonString — covers every
     // ParamsState field incl. raw WB/temp/tint) PLUS the editor-local manual rotation.
-    val editHistory = remember {
-        EditHistory().also { history ->
-            initialRestoredSession?.history?.let(history::restoreState)
-        }
-    }
+    val editHistory = session.history
     // The last SETTLED snapshot we committed. Capture coalescing pushes THIS (the
     // pre-edit state) onto undo when a newer settled state differs (see the capture
     // effect below), so one slider drag (which settles once) == one undo step.
-    val committedSnapshotState = remember {
-        mutableStateOf(initialRestoredSession?.committed)
-    }
+    val committedSnapshotState = session.committedSnapshot
     var committedSnapshot by committedSnapshotState
     // Set true while we are programmatically restoring a snapshot (undo/redo). The
     // capture effect skips one settle cycle so the restore is NOT recorded as a new
     // edit — without this the restored state would push itself and we'd never escape.
-    val restoringState = remember { mutableStateOf(false) }
+    val restoringState = session.restoring
     var restoring by restoringState
     // Explicit conflict marker used only while AppRoot is recovering transient session IO.
     // Programmatic restore/default application keeps it false; a settled user edit sets it.
