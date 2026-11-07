@@ -250,7 +250,8 @@ internal data class VersionsUiState(
 internal sealed interface VersionEvent {
     data class Saved(val version: PhotoVersion) : VersionEvent
     data class Updated(val name: String) : VersionEvent
-    data class Deleted(val version: PhotoVersion) : VersionEvent
+    /** [key] is the photo it was deleted from; Undo restores it THERE, whatever is open now. */
+    data class Deleted(val key: String, val version: PhotoVersion) : VersionEvent
     data class Failed(val reason: String) : VersionEvent
 
     /** The photo's versions file was unreadable and moved aside. */
@@ -324,7 +325,21 @@ internal class VersionsViewModel(
         VersionEvent.Updated(version.name)
     }
 
-    fun delete(id: String) = run { key -> repository.delete(key, id)?.let { VersionEvent.Deleted(it) } }
+    fun delete(id: String) = run { key -> repository.delete(key, id)?.let { VersionEvent.Deleted(key, it) } }
 
-    fun restore(version: PhotoVersion) = run { key -> repository.restore(key, version); null }
+    /**
+     * Undo a delete. Takes the photo's [key] from the [VersionEvent.Deleted] rather than the
+     * currently bound photo: the snackbar can outlive a switch to another photo, and restoring
+     * into that one would move a crop and masks onto the wrong frame.
+     */
+    fun restore(key: String, version: PhotoVersion) {
+        viewModelScope.launch {
+            val failure = withContext(io) {
+                runCatching { repository.restore(key, version) }.exceptionOrNull()
+            }
+            if (_uiState.value.key != key) return@launch
+            refresh()
+            failure?.let { onEvent(VersionEvent.Failed(it.message ?: it.javaClass.simpleName)) }
+        }
+    }
 }

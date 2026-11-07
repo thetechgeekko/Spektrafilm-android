@@ -4132,7 +4132,7 @@ class MainActivity : ComponentActivity() {
                                                     snackbarHost,
                                                     ctx.getString(R.string.editor_snack_version_deleted, event.version.name),
                                                     ctx.getString(R.string.editor_action_undo),
-                                                ) { versionsVm.restore(event.version) }
+                                                ) { versionsVm.restore(event.key, event.version) }
                                             }
                                         }
                                         onDispose { versionsVm.onEvent = {} }
