@@ -22,13 +22,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,7 +48,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -95,16 +98,9 @@ fun AboutScreen(onOpenHowTo: (() -> Unit)? = null) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Prominent "How to use this app" entry point at the top of About.
-        Button(
-            onClick = { if (onOpenHowTo != null) onOpenHowTo() else showHowTo = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.screen_how_to_use_app))
-        }
-        AboutContent()
+        AboutContent(onOpenHowTo = { if (onOpenHowTo != null) onOpenHowTo() else showHowTo = true })
     }
 }
 
@@ -121,9 +117,15 @@ private fun LinkChip(label: String, url: String) {
     )
 }
 
+/**
+ * About as a stack of M3 filled cards, one per topic, on the same surfaceContainer as the
+ * grouped Settings list. One tonal action leads (How to use); everything else is a link chip
+ * or the outlined notices button, so no two filled buttons compete (m3-design-language,
+ * "one high-emphasis action per screen").
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AboutContent() {
+private fun AboutContent(onOpenHowTo: () -> Unit) {
     val ctx = LocalContext.current
     var showOpenSourceNotices by remember { mutableStateOf(false) }
 
@@ -131,129 +133,126 @@ private fun AboutContent() {
         OpenSourceNoticesDialog(onDismiss = { showOpenSourceNotices = false })
     }
 
-    Text(
-        stringResource(R.string.app_name),
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.semantics { heading() },
-    )
-    Text(
-        stringResource(R.string.screen_about_version, appVersionName(ctx), appVersionCode(ctx)),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-
-    Text(
-        stringResource(R.string.screen_about_tagline),
-        style = MaterialTheme.typography.bodyMedium,
-    )
-
-    Text(
-        stringResource(R.string.screen_about_dedication_heading),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.semantics { heading() },
-    )
-    Text(
-        stringResource(R.string.screen_dedication_pixls),
-        style = MaterialTheme.typography.bodyMedium,
-    )
-
-    Text(
-        stringResource(R.string.screen_about_thanks_heading),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.semantics { heading() },
-    )
-    Text(
-        stringResource(R.string.screen_about_thanks_body),
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinkChip(stringResource(R.string.screen_link_spektrafilm), Links.SPEKTRAFILM)
-        LinkChip(stringResource(R.string.screen_link_image_toolbox), Links.IMAGE_TOOLBOX)
-        LinkChip(stringResource(R.string.screen_link_colour_science), Links.COLOUR_SCIENCE)
-        LinkChip(stringResource(R.string.screen_link_libraw), Links.LIBRAW)
-        LinkChip(stringResource(R.string.screen_link_pixls), Links.PIXLS)
+    ContentCard {
+        Text(
+            stringResource(R.string.app_name),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.semantics { heading() },
+        )
+        Text(
+            stringResource(R.string.screen_about_version, appVersionName(ctx), appVersionCode(ctx)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.screen_about_tagline),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        FilledTonalButton(
+            onClick = onOpenHowTo,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        ) {
+            Text(stringResource(R.string.screen_how_to_use_app))
+        }
     }
 
-    Text(
-        stringResource(R.string.screen_about_author_heading),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.semantics { heading() },
-    )
-    Text(stringResource(R.string.screen_about_author_name), style = MaterialTheme.typography.bodyMedium)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinkChip(stringResource(R.string.screen_link_instagram), Links.AUTHOR_INSTAGRAM)
-        LinkChip(stringResource(R.string.screen_link_youtube), Links.AUTHOR_YOUTUBE)
+    AboutSection(stringResource(R.string.screen_about_dedication_heading)) {
+        Text(
+            stringResource(R.string.screen_dedication_pixls),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 
-    Text(
-        stringResource(R.string.screen_about_license_heading),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.semantics { heading() },
-    )
-    Text(
-        stringResource(R.string.screen_about_license_body),
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    Text(
-        stringResource(R.string.screen_about_libraw_route_note, LIBRAW_ROUTE_STATUS),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    AboutSection(stringResource(R.string.screen_about_thanks_heading)) {
+        Text(
+            stringResource(R.string.screen_about_thanks_body),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinkChip(stringResource(R.string.screen_link_spektrafilm), Links.SPEKTRAFILM)
+            LinkChip(stringResource(R.string.screen_link_image_toolbox), Links.IMAGE_TOOLBOX)
+            LinkChip(stringResource(R.string.screen_link_colour_science), Links.COLOUR_SCIENCE)
+            LinkChip(stringResource(R.string.screen_link_libraw), Links.LIBRAW)
+            LinkChip(stringResource(R.string.screen_link_pixls), Links.PIXLS)
+        }
+    }
+
+    AboutSection(stringResource(R.string.screen_about_author_heading)) {
+        Text(stringResource(R.string.screen_about_author_name), style = MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinkChip(stringResource(R.string.screen_link_instagram), Links.AUTHOR_INSTAGRAM)
+            LinkChip(stringResource(R.string.screen_link_youtube), Links.AUTHOR_YOUTUBE)
+        }
+    }
+
+    AboutSection(stringResource(R.string.screen_about_license_heading)) {
+        Text(
+            stringResource(R.string.screen_about_license_body),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            stringResource(R.string.screen_about_libraw_route_note, LIBRAW_ROUTE_STATUS),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 
     // The GPLv3 section 7(b) attribution term (see NOTICE.md) is only binding if
     // the notice is actually reachable, so it is shown here rather than living
     // only in a file nobody opens. The notice block itself is selectable so it
     // can be copied verbatim into a derivative's own credits screen.
-    Text(
-        stringResource(R.string.screen_about_reuse_heading),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier
-            .padding(top = 12.dp)
-            .semantics { heading() },
-    )
-    Text(
-        stringResource(R.string.screen_about_reuse_body),
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    SelectionContainer {
-        Column {
-            Text(
-                stringResource(R.string.screen_about_reuse_notice_app),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            Text(
-                stringResource(R.string.screen_about_reuse_notice_engine),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+    AboutSection(stringResource(R.string.screen_about_reuse_heading)) {
+        Text(
+            stringResource(R.string.screen_about_reuse_body),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        SelectionContainer {
+            Column {
+                Text(
+                    stringResource(R.string.screen_about_reuse_notice_app),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Text(
+                    stringResource(R.string.screen_about_reuse_notice_engine),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+        Text(
+            stringResource(R.string.screen_about_reuse_both),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        OutlinedButton(
+            onClick = { showOpenSourceNotices = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.screen_about_open_source_notices))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinkChip(stringResource(R.string.screen_link_source_code), Links.SOURCE)
+            LinkChip(stringResource(R.string.screen_link_releases), Links.RELEASES)
+            LinkChip(stringResource(R.string.screen_link_gplv3), Links.GPLV3)
+            LinkChip(stringResource(R.string.screen_report_issue), Links.NEW_ISSUE)
         }
     }
-    Text(
-        stringResource(R.string.screen_about_reuse_both),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 6.dp),
-    )
-    Button(
-        onClick = { showOpenSourceNotices = true },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(stringResource(R.string.screen_about_open_source_notices))
-    }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinkChip(stringResource(R.string.screen_link_source_code), Links.SOURCE)
-        LinkChip(stringResource(R.string.screen_link_releases), Links.RELEASES)
-        LinkChip(stringResource(R.string.screen_link_gplv3), Links.GPLV3)
-        LinkChip(stringResource(R.string.screen_report_issue), Links.NEW_ISSUE)
+}
+
+/** One About topic: a [ContentCard] led by a title-medium heading. */
+@Composable
+private fun AboutSection(title: String, content: @Composable () -> Unit) {
+    ContentCard {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        content()
     }
 }
 
@@ -272,24 +271,23 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
     ) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.screen_about_open_source_notices),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.screen_close))
-                    }
-                }
-                HorizontalDivider()
+                // M3 full-screen dialog: a small app bar with Close leading and the title
+                // beside it (m3-design-language, components-communication "Full-screen
+                // dialogs"); it has nothing to confirm, so there is no trailing action.
+                @OptIn(ExperimentalMaterial3Api::class)
+                TopAppBar(
+                    title = {
+                        Text(
+                            stringResource(R.string.screen_about_open_source_notices),
+                            modifier = Modifier.semantics { heading() },
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.screen_close))
+                        }
+                    },
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -300,7 +298,6 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
                     Text(
                         stringResource(R.string.screen_about_notices_app_heading),
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.semantics { heading() },
                     )
                     Text(
@@ -310,7 +307,6 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
                     Text(
                         stringResource(R.string.screen_about_notices_libraw_heading),
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.semantics { heading() },
                     )
                     Text(
@@ -324,7 +320,6 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
                     Text(
                         LIBRAW_ROUTE_STATUS,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LinkChip(stringResource(R.string.screen_link_libraw_source), Links.LIBRAW_SOURCE)
@@ -337,7 +332,6 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
                     Text(
                         stringResource(R.string.screen_about_bundled_docs_heading),
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.semantics { heading() },
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -355,7 +349,6 @@ private fun OpenSourceNoticesDialog(onDismiss: () -> Unit) {
                     Text(
                         stringResource(selectedDocument.titleRes),
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.semantics { heading() },
                     )
                     SelectionContainer {

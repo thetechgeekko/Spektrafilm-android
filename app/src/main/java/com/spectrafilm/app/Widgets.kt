@@ -18,7 +18,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,8 +36,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -178,12 +175,11 @@ fun SectionCard(
         }
         return
     }
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        ),
+    // Editor panels sit on surfaceContainer, so a nested group steps up one container level.
+    ContentCard(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        padded = false,
     ) {
         val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
         // The header is one TalkBack node: "<title>, Expanded/Collapsed, heading, button".
@@ -198,7 +194,9 @@ fun SectionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickableNoRipple(onClickLabel = toggleLabel, role = Role.Button) {
+                // A state layer on press, clipped by the card (m3-design-language,
+                // foundations: every interactive element shows press feedback).
+                .clickable(onClickLabel = toggleLabel, role = Role.Button) {
                     onExpandedChange(!expanded)
                 }
                 .semantics {
@@ -431,31 +429,6 @@ private fun Chevron(modifier: Modifier = Modifier) {
     }
 }
 
-/** Convenience clickable without a ripple import dependency cost. */
-@Composable
-private fun Modifier.clickableNoRipple(
-    onClickLabel: String? = null,
-    role: Role? = null,
-    onClick: () -> Unit,
-): Modifier =
-    this.then(
-        Modifier.clickableImpl(onClickLabel, role, onClick),
-    )
-
-@Composable
-private fun Modifier.clickableImpl(onClickLabel: String?, role: Role?, onClick: () -> Unit): Modifier {
-    val interaction = remember { MutableInteractionSource() }
-    return this.then(
-        Modifier.clickable(
-            interactionSource = interaction,
-            indication = null,
-            onClickLabel = onClickLabel,
-            role = role,
-            onClick = onClick,
-        ),
-    )
-}
-
 /** A switch row (label + helper tooltip + trailing switch). */
 @Composable
 fun SwitchRow(
@@ -471,16 +444,15 @@ fun SwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
+            .clip(MaterialTheme.shapes.small)
             .toggleable(
                 value = checked,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
                 role = Role.Switch,
                 onValueChange = onCheckedChange,
             ),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(label, style = MaterialTheme.typography.bodyLarge)
             if (tooltip != null) {
                 Text(
                     tooltip,
@@ -494,9 +466,10 @@ fun SwitchRow(
 }
 
 /**
- * A compact, horizontally-scrolling sub-tab strip for splitting one tool panel into groups
- * (Lightroom-style, e.g. Film / Print / Scanner / Output). The selected tab is a filled
- * primary pill; selection state is owned by the caller.
+ * A one-of-N switcher inside a tool panel (tone-curve channel, mask 1/2/3...), drawn as an M3
+ * connected button group: m3-design-language, components-actions "connected button group for
+ * view/option switching" (it replaced segmented buttons and pill tabs). Segments hug their
+ * labels and the row scrolls when there are more than fit; selection is owned by the caller.
  */
 @Composable
 fun SubTabRow(
@@ -510,30 +483,48 @@ fun SubTabRow(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
     ) {
         tabs.forEachIndexed { i, label ->
-            val active = i == selected
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (active) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .clip(RoundedCornerShape(10.dp))
-                    .selectable(selected = active, role = Role.Tab) { onSelect(i) },
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (active) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
+            ConnectedToggle(
+                label = label,
+                selected = i == selected,
+                shape = connectedShape(i, tabs.size),
+                onClick = { onSelect(i) },
+                modifier = Modifier.widthIn(min = 56.dp),
+            )
         }
     }
 }
+
+/**
+ * The app's card: an M3 filled card on [MaterialTheme.colorScheme.surfaceContainer] with
+ * 16dp corners (the same outer radius as the grouped Settings and Photo info lists, so every
+ * contained block in the app reads as one family). [padded] = false leaves the inside to the
+ * caller (a full-bleed clickable header). Pass [color] = surfaceContainerHigh inside a sheet,
+ * whose own background is already surfaceContainerLow.
+ */
+@Composable
+internal fun ContentCard(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
+    padded: Boolean = true,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = CARD_SHAPE,
+        color = color,
+    ) {
+        Column(
+            if (padded) Modifier.fillMaxWidth().padding(16.dp) else Modifier.fillMaxWidth(),
+            verticalArrangement = if (padded) Arrangement.spacedBy(8.dp) else Arrangement.Top,
+            content = content,
+        )
+    }
+}
+
+internal val CARD_SHAPE = RoundedCornerShape(16.dp)
 
 /**
  * A small "not yet active" badge + helper line for parameters that are present in the

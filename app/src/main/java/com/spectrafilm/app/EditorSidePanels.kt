@@ -225,7 +225,9 @@ internal fun PresetPanel(
             onSelect = onSelect,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onApply, modifier = Modifier.weight(1f)) {
+            // Tonal: Save above is the panel's one filled action (m3-design-language,
+            // "one high-emphasis action per screen").
+            FilledTonalButton(onClick = onApply, modifier = Modifier.weight(1f)) {
                 ButtonIcon(SpectraIcons.Confirm)
                 Text(stringResource(R.string.editor_preset_apply))
             }
@@ -281,7 +283,7 @@ internal fun PresetPanel(
         selected = lutClf,
         onSelect = { lutClf = it },
     )
-    Button(
+    FilledTonalButton(
         onClick = { onExportLut(lutSize, lutClf) },
         enabled = !bakingLut,
         modifier = Modifier.fillMaxWidth(),
@@ -289,7 +291,7 @@ internal fun PresetPanel(
         if (bakingLut) {
             CircularProgressIndicator(
                 modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Spacer(Modifier.width(10.dp))
             Text(stringResource(R.string.editor_lut_baking))
@@ -337,7 +339,9 @@ internal fun SourcePanel(
             ButtonIcon(SpectraIcons.OpenPhoto)
             Text(stringResource(R.string.editor_source_pick_photo))
         }
-        Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) {
+        // Tonal beside the filled Pick photo: two filled buttons side by side read as two
+        // equal primaries.
+        FilledTonalButton(onClick = onOpenRaw, modifier = Modifier.weight(1f)) {
             ButtonIcon(SpectraIcons.ImportRaw)
             Text(stringResource(R.string.editor_source_open_raw))
         }
