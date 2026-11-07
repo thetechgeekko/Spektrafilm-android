@@ -1529,6 +1529,14 @@ class MainActivity : ComponentActivity() {
         // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        fun closeMagnifier() {
+            // Cancel any in-flight crop render so it doesn't resurrect the overlay
+            // state or leak its bitmap (a cancelled job recycles its own result).
+            magnifierJobRef.value?.cancel()
+            magnifierRendering = false
+            magnifierOpen = false
+            magnifierBitmap = null
+        }
         val magnifierPublicationGate = remember { RoiRenderPublicationGate() }
 
         // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
@@ -3724,9 +3732,16 @@ class MainActivity : ComponentActivity() {
         // back dispatcher, so it closes exactly what Back would (and in the same order), but
         // only when something is open: at the root it must not arm double-back-to-exit.
         val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
-            val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible
+            // The magnifier is a full-screen overlay in this window (not a dialog), so it
+            // has to block shortcuts too; an undo behind it would invalidate its crop.
+            val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
             when (shortcut) {
-                EditorShortcut.CLOSE -> {
+                // The magnifier has no back handler of its own: Esc closes it with its own
+                // close button's path rather than letting Back reach the panel beneath.
+                EditorShortcut.CLOSE -> if (magnifierOpen) {
+                    closeMagnifier()
+                    true
+                } else {
                     val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
                     if (closable) onBackPressedDispatcher.onBackPressed()
                     closable
@@ -4462,14 +4477,7 @@ class MainActivity : ComponentActivity() {
                     crop = magnifierBitmap,
                     rendering = magnifierRendering,
                     status = magnifierStatus,
-                    onClose = {
-                        // Cancel any in-flight crop render so it doesn't resurrect the overlay
-                        // state or leak its bitmap (a cancelled job recycles its own result).
-                        magnifierJobRef.value?.cancel()
-                        magnifierRendering = false
-                        magnifierOpen = false
-                        magnifierBitmap = null
-                    },
+                    onClose = { closeMagnifier() },
                 )
             }
 
