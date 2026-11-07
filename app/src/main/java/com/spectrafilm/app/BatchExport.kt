@@ -247,6 +247,8 @@ private suspend fun exportBatchPhoto(
         creativeTint = state.creativeWbTint,
         balanceToFilmStock = state.balanceToFilmStock,
         filmProfile = state.filmProfile,
+        rawHotPixels = state.rawHotPixels,
+        rawChromaNoise = state.rawChromaNoise,
     )
     val srcExif = withContext(io) { readSourceExif(app, source.uri, keepGps = keepGps) }
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image

@@ -1708,6 +1708,8 @@ internal fun MainActivity.EditorScreen(
         // A real export must not compete with a speculative one for the same eight cores:
         // as a key, this cancels any pre-render in flight the moment an export starts.
         exportInFlight,
+        // Same for a run the editor does not own (a batch export): the runtime is busy.
+        exportRuntimeStateState.value is ExportRuntimeState.Running,
     ) {
         runSpeculativePrerender(
             this@EditorScreen,
