@@ -9,6 +9,7 @@
 package com.spectrafilm.app
 
 import android.text.format.Formatter
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,7 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -82,28 +83,42 @@ internal fun PhotoInfoSheet(info: PhotoInfo, onDismiss: () -> Unit) {
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            rows.forEachIndexed { index, (group, items) ->
-                if (index > 0) HorizontalDivider(Modifier.padding(top = 8.dp))
+            // The same grouped list as Settings: one rounded container per group, rows split
+            // by small gaps rather than dividers.
+            rows.forEach { (group, items) ->
                 Text(
                     stringResource(group.labelRes),
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .padding(top = 16.dp, bottom = 4.dp)
+                        .padding(start = 16.dp, top = 20.dp, bottom = 8.dp)
                         .semantics { heading() },
                 )
-                items.forEach { (field, value) ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                        Text(
-                            stringResource(field.labelRes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            value,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(SEGMENT_GAP)) {
+                    items.forEachIndexed { i, (field, value) ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = segmentShape(i, items.size),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .semantics(mergeDescendants = true) {}
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    stringResource(field.labelRes),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    value,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
                     }
                 }
             }

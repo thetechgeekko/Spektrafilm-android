@@ -382,11 +382,12 @@ private fun SettingsGroup(
     }
 }
 
-private val SEGMENT_GAP = 2.dp
+internal val SEGMENT_GAP = 2.dp
 private val SEGMENT_OUTER = 16.dp
 private val SEGMENT_INNER = 4.dp
 
-private fun segmentShape(index: Int, count: Int): RoundedCornerShape {
+/** Shape of row [index] of [count] in an M3 grouped list (Settings, Photo info). */
+internal fun segmentShape(index: Int, count: Int): RoundedCornerShape {
     val top = if (index == 0) SEGMENT_OUTER else SEGMENT_INNER
     val bottom = if (index == count - 1) SEGMENT_OUTER else SEGMENT_INNER
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
