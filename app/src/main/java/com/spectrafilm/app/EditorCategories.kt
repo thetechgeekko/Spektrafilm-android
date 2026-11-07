@@ -16,8 +16,12 @@ import org.json.JSONObject
 import androidx.compose.animation.core.tween
 
 internal enum class Category(val label: String, @StringRes val labelRes: Int) {
-    SOURCE("Source", R.string.editor_category_source),
+    // Enum order is tab order inside a stage, and a stage opens on its first group
+    // (StageTaxonomyTest pins it). Most used first: Presets before Source in Look (Source's
+    // open / RAW actions are also in the app bar), Tone curve first and Experimental last
+    // in Finish (m3-design-language, foundations §7: primary goal first).
     PRESETS("Presets", R.string.editor_category_presets),
+    SOURCE("Source", R.string.editor_category_source),
     SIMULATION("Simulation", R.string.editor_category_simulation),
     INPUT("Input", R.string.editor_category_input),
     RAW_WB("White Bal", R.string.editor_category_raw_wb),
@@ -27,10 +31,10 @@ internal enum class Category(val label: String, @StringRes val labelRes: Int) {
     COUPLERS("Couplers", R.string.editor_category_couplers),
     PREFLASH("Preflash", R.string.editor_category_preflash),
     CONTRAST_MASK("Contrast mask", R.string.editor_category_contrast_mask),
-    EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
     TONE_CURVE("Tone Curve", R.string.editor_category_tone_curve),
     MASKS("Masks", R.string.editor_category_masks),
     DISPLAY("Display", R.string.editor_category_display),
+    EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
 }
 
 /**
