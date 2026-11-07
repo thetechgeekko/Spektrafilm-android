@@ -54,13 +54,46 @@ sleep 8
 # The release smoke recreates MainActivity (two activities rendering at once),
 # and the legacy swiftshader_indirect renderer segfaulted its host RenderThreads
 # exactly there (release run 34913971651, host dmesg) while this single-launch
-# smoke stayed green. MainActivity declares no configChanges, so a uiMode flip
-# recreates it the same way; a dead emulator fails the adb calls below.
+# smoke stayed green. MainActivity does not handle uiMode in configChanges, so a
+# uiMode flip recreates it the same way; a dead emulator fails the adb calls below.
+# The events buffer records each relaunch (wm_relaunch_*), which the large-screen
+# check below relies on, so it is cleared first and this toggle doubles as proof
+# that relaunch detection works on this image.
+adb logcat -b events -c || true
 echo "--- Forcing an Activity recreate via a night-mode toggle ---"
 adb shell cmd uimode night yes
 sleep 4
 adb shell cmd uimode night no
 sleep 4
+adb logcat -b events -d > emulator-artifacts/events-uimode.txt || true
+if ! grep -i "relaunch" emulator-artifacts/events-uimode.txt | grep -q "com.spectrafilm.app"; then
+  echo "SMOKE TEST FAILED: the uiMode toggle left no wm_relaunch event for com.spectrafilm.app,"
+  echo "so the no-relaunch check below would pass vacuously on this image."
+  grep -i "relaunch" emulator-artifacts/events-uimode.txt || true
+  exit 1
+fi
+
+# Large screens (#350): MainActivity handles window-shape changes in place, so a
+# tablet-sized display, a rotation and a return to the phone size must NOT relaunch
+# it (a relaunch tears down the GL preview and re-reads the editor session).
+echo "--- Large-screen: resize to tablet, rotate, restore; expect no relaunch ---"
+adb logcat -b events -c || true
+adb shell wm size 1600x2560
+sleep 3
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 1
+sleep 3
+adb exec-out screencap -p > emulator-artifacts/screenshot-tablet-landscape.png || true
+adb shell settings put system user_rotation 0
+sleep 2
+adb shell wm size reset
+sleep 3
+adb logcat -b events -d > emulator-artifacts/events-large-screen.txt || true
+if grep -i "relaunch" emulator-artifacts/events-large-screen.txt | grep -q "com.spectrafilm.app"; then
+  echo "SMOKE TEST FAILED: MainActivity was relaunched by a resize/rotation (see configChanges)."
+  grep -i "relaunch" emulator-artifacts/events-large-screen.txt || true
+  exit 1
+fi
 
 echo "--- Capturing screenshot ---"
 adb exec-out screencap -p > emulator-artifacts/screenshot.png || true

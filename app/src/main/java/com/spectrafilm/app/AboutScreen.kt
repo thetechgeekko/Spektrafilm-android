@@ -2,9 +2,9 @@
  * Spektrafilm for Android — About section. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * The dedication, credits/thanks, author links, version, license and source. Rendered
- * either as its own scrollable screen (AboutScreen) or as a card embedded in Settings
- * (AboutCard). Links open via Links.open(). Self-contained Material3, no new dependency.
+ * The dedication, credits/thanks, author links, version, license and source, as its own
+ * scrollable screen (AboutScreen), reached from the editor menu and the About row in
+ * Settings. Links open via Links.open(). Self-contained Material3, no new dependency.
  */
 package com.spectrafilm.app
 
@@ -104,15 +104,6 @@ fun AboutScreen(onOpenHowTo: (() -> Unit)? = null) {
         ) {
             Text(stringResource(R.string.screen_how_to_use_app))
         }
-        AboutContent()
-    }
-}
-
-/** About rendered as a collapsible card (embedded in Settings). */
-@Composable
-fun AboutCard() {
-    var expanded by remember { mutableStateOf(false) }
-    SectionCard(stringResource(R.string.screen_about_title), expanded, { expanded = it }) {
         AboutContent()
     }
 }

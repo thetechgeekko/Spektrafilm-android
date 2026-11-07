@@ -251,17 +251,30 @@ This module deliberately uses `RawDecoderBoundaryInstrumentation`, a small custo
 instrumentation runner, instead of exposing JUnit test cases. Android Gradle Plugin's
 UTP summary therefore reports `0 tests`; that count is not the acceptance marker.
 The generated `testlog/test-results.log` must contain both
-`INSTRUMENTATION_RESULT: stream=OK (8 tests)` and `INSTRUMENTATION_CODE: -1`.
+`INSTRUMENTATION_RESULT: stream=OK (11 tests)` and `INSTRUMENTATION_CODE: -1`.
 Any other stream, code, missing log, install failure, or zero-test summary without
 those two exact instrumentation markers is a failed gate.
 
 ## Half-size (proxy) decode — memory and performance option
 
-The current decoder is deliberately fail-closed before unpack: encoded input is
-limited to 64 MiB, LibRaw's raw store to 128 MiB, and declared/ActiveArea/
-DefaultScale geometry to 12 MiPixels on 64-bit or 8 MiPixels on 32-bit. Files
-above that geometry would need a seekable/tiled design, which no ticket tracks today;
-`halfSize` does not bypass this gate because some layouts ignore the request.
+When a source's declared size is above 64 MiB or unknown
+(`RawInputLimits.needsInputSnapshot`), the app's file-descriptor path snapshots
+encoded input into an unlinked private cache file (1 MiB reads) and decodes a
+read-only mapping, with a 512 MiB input ceiling on 64-bit and 64 MiB on 32-bit.
+A source of known size within 64 MiB keeps the faster in-memory read and writes
+nothing to storage. The three-argument fd overload, InputStream,
+ByteArray, and ByteBuffer paths retain their 64 MiB in-memory ceiling.
+
+Native output admission is 8 MiPixels on 32-bit and 12/24/32 MiPixels on
+64-bit according to total/available RAM. Only the highest tier can admit
+a qualified Bayer source up to 128 MiPixels for half-size output, with a
+320 MiB raw-store cap; other requests retain 128 MiB. Layout, margins, aspect,
+padded output, and post-unpack single-plane geometry are checked independently.
+See [the RAW contract](../../docs/RAW_DNG.md#large-files-proxy-decode-and-off-heap-buffers)
+for thresholds. A larger encoded file alone does not qualify a larger frame.
+The snapshot requires temporary disk space and adds file I/O; mapped pages can
+still contribute to memory pressure. See [large RAW input](../../docs/research/large-raw-input.md)
+for the ownership contract, limits, and validation.
 
 `RawDecoder.Settings` exposes a `halfSize: Boolean` flag (default `false`):
 
@@ -298,9 +311,11 @@ and `dcraw_make_mem_image` reports the post-process dimensions, so
 - App-side thumbnail generation before handing the full-res job to a background
   worker.
 
-**When NOT to use:**
-- Export (TIFF / PNG / Ultra HDR) — lower quality, wrong dimensions.
-- Engine spectral film simulation — all processing must be at full resolution.
+**Export fallback:** the app may use a half-size decode when full-size native
+admission fails with `NO_MEMORY`. Film simulation then runs at that reduced
+resolution and the UI describes the export as maximum available resolution.
+This is not full-source-resolution export; callers requiring exact source
+dimensions must reject or explicitly handle a reduced result.
 
 The app module decides when to request `halfSize = true`; the lib only exposes
 the capability. Existing call sites default to `halfSize = false`, which requests

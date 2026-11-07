@@ -20,6 +20,8 @@
 package com.spectrafilm.libraw
 
 import java.io.InputStream
+import java.io.File
+import android.os.ParcelFileDescriptor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
@@ -312,19 +314,55 @@ object RawDecoder {
     /**
      * Decode from a file descriptor (e.g. `ParcelFileDescriptor.detachFd()` from a
      * SAF Uri). The fd is duplicated natively; the caller retains ownership.
+     * This overload retains the 64 MiB in-memory encoded-input ceiling.
      */
     fun decodeToLinear(
         fd: Int,
         settings: Settings = Settings(),
         cancellation: RawDecodeCancellation? = null,
-    ): LinearResult =
-        nativeDecodeFd(
+    ): LinearResult = nativeDecodeFd(
+        fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
+        settings.halfSize, settings.maxLongEdge,
+        cancellation?.tokenForDecode() ?: NO_CANCELLATION, -1,
+    ).toLinear()
+
+    /**
+     * With [scratchDirectory] (the application's private cache directory), encoded
+     * input is snapshotted to an unlinked file in bounded chunks: up to 512 MiB on
+     * 64-bit, 64 MiB on 32-bit. The caller retains ownership of [fd].
+     * Pixel/raw-store limits are independent and unchanged.
+     */
+    fun decodeToLinear(
+        fd: Int,
+        settings: Settings = Settings(),
+        cancellation: RawDecodeCancellation? = null,
+        scratchDirectory: File,
+    ): LinearResult {
+        fun decode(scratchFd: Int) = nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
-            cancellation?.tokenForDecode() ?: NO_CANCELLATION,
+            cancellation?.tokenForDecode() ?: NO_CANCELLATION, scratchFd,
         ).toLinear()
+        cancellation?.throwIfCancellationRequested()
+        val scratch = File.createTempFile("sfraw-input-", ".tmp", scratchDirectory)
+        var result: LinearResult? = null
+        try {
+            ParcelFileDescriptor.open(scratch, ParcelFileDescriptor.MODE_READ_WRITE).use { descriptor ->
+                // Unlink before copying: no stale RAW remains after cancellation or
+                // process death, and another process cannot truncate our mapping.
+                check(scratch.delete()) { "Could not unlink private RAW input snapshot" }
+                result = decode(descriptor.fd)
+            }
+            return checkNotNull(result)
+        } catch (failure: Throwable) {
+            result?.close()
+            throw failure
+        } finally {
+            if (scratch.exists()) scratch.delete()
+        }
+    }
 
-    /** Decode an InputStream with the same 64 MiB ceiling as the native path. */
+    /** Decode an InputStream with the 64 MiB in-memory encoded-input ceiling. */
     fun decodeToLinear(
         stream: InputStream,
         settings: Settings = Settings(),
@@ -453,7 +491,7 @@ object RawDecoder {
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long,
+        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long, scratchFd: Int,
     ): NativeResult
 
     /** Release an exact token/base/capacity match from the native registry. */

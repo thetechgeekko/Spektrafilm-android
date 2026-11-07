@@ -59,6 +59,8 @@ internal fun PresetPanel(
     onPasteSettings: () -> Unit,
     onExportLut: (size: Int, clf: Boolean) -> Unit,
     bakingLut: Boolean,
+    // Versions of the open photo, under the copy/paste row (see VersionsSection).
+    versionsContent: @Composable () -> Unit = {},
 ) {
     if (builtInGroups.isNotEmpty()) {
         Text(
@@ -230,6 +232,8 @@ internal fun PresetPanel(
             modifier = Modifier.weight(1f),
         ) { Text(stringResource(R.string.editor_preset_paste_settings)) }
     }
+    Divider()
+    versionsContent()
     Divider()
     var lutSize by remember { mutableIntStateOf(33) }
     var lutClf by remember { mutableStateOf(false) }
