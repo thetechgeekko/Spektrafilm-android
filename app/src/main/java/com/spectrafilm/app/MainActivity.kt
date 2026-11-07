@@ -743,7 +743,7 @@ class MainActivity : ComponentActivity() {
                 Modifier.fillMaxSize().background(SpectraIcons.nearBlackCanvas),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(
+                SpectraLoadingIndicator(
                     color = Color.White,
                     modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
                 )
@@ -994,7 +994,7 @@ class MainActivity : ComponentActivity() {
             // setting impossible, since reaching the toggle destroyed the subject.
             if (screen == Screen.EDITOR && !editorAuthorityReady) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
+                    SpectraLoadingIndicator(
                         color = Color.White,
                         modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
                     )

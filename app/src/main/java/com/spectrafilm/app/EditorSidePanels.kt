@@ -396,7 +396,7 @@ internal fun ExportMask(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (!done) {
-                CircularProgressIndicator(color = Color.White)
+                SpectraLoadingIndicator(color = Color.White)
                 Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
                 Text(
                     stringResource(R.string.editor_export_rendering),

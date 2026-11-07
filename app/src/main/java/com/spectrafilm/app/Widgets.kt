@@ -1560,3 +1560,18 @@ private fun Modifier.sliderEndsGestureExclusion(stripPx: Float): Modifier =
             val w = c.size.width.toFloat()
             Rect(maxOf(0f, w - stripPx), 0f, w, c.size.height.toFloat())
         }
+
+/**
+ * The app's indeterminate wait indicator: Material 3 Expressive's shape-morphing
+ * [LoadingIndicator] (#294) in place of the plain circular spinner, for waits that fill a
+ * screen or a canvas (startup, the export render, the magnifier, curve loading). Inline
+ * waits inside a button keep the small circular spinner, which fits a text line.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun SpectraLoadingIndicator(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+) {
+    androidx.compose.material3.LoadingIndicator(modifier = modifier, color = color)
+}

@@ -66,7 +66,7 @@ import kotlinx.coroutines.delay
  *
  * Priority: exporting > decoding > rendering > error > idle (last render time or "Ready").
  * Fades in when visible; the idle state auto-fades after 2 s using [animateFloatAsState].
- * Shows a small [CircularProgressIndicator] while busy.
+ * Shows a small [SpectraLoadingIndicator] while busy.
  */
 @Composable
 internal fun StatusPill(
@@ -135,9 +135,8 @@ internal fun StatusPill(
             ) {
                 when (pillState) {
                     is PillState.Busy -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(13.dp),
-                            strokeWidth = 1.5.dp,
+                        SpectraLoadingIndicator(
+                            modifier = Modifier.size(18.dp),
                             color = Color.White,
                         )
                         Text(
