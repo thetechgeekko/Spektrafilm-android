@@ -102,6 +102,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    // Per-app language (Android 13+): AGP writes the LocaleConfig from the values-* folders,
+    // so a translation shows up in the system's per-app language list with no code change.
+    // The default (unqualified) locale is declared in src/main/res/resources.properties.
+    androidResources { generateLocaleConfig = true }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.
     testBuildType = "release"
