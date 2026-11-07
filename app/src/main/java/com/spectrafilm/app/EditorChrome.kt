@@ -582,26 +582,42 @@ internal fun CategoryBar(
             }
 
             // M3 floating toolbar: the five stages in a pill, with the screen's one primary
-            // action -- Export -- as the FAB paired beside it.
+            // action -- Export -- as the FAB paired beside it. The five stages share the
+            // pill's width equally, so none is squeezed. Where the FAB beside them would
+            // leave a stage under the 48dp touch target (very narrow windows, or a side
+            // column), the FAB moves to its own row at the trailing edge above the toolbar.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val fabBeside = !exportVisible ||
+                (maxWidth - TOOLBAR_SIDE_PADDING * 2 - TOOLBAR_GAP - EXPORT_FAB_SIZE - TOOLBAR_INNER_PADDING * 2) / Stage.entries.size >= 48.dp
+            Column(Modifier.fillMaxWidth()) {
+            if (exportVisible && !fabBeside) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(end = 16.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) { ExportFab(exporting = exporting, onClick = onExport) }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    .padding(start = TOOLBAR_SIDE_PADDING, end = TOOLBAR_SIDE_PADDING, top = 6.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(TOOLBAR_GAP, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
             Row(
                 modifier = Modifier
-                    .weight(1f, fill = false)
+                    .weight(1f)
+                    .widthIn(max = 420.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.10f))
-                    .padding(4.dp)
+                    .padding(TOOLBAR_INNER_PADDING)
                     .selectableGroup(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 Stage.entries.forEach { stage ->
                     val members = categoriesOf(stage)
                     StageItem(
+                        modifier = Modifier.weight(1f),
                         stage = stage,
                         selected = stage == activeStage,
                         // A stage is "doing something" when any group inside it is.
@@ -618,11 +634,18 @@ internal fun CategoryBar(
                     )
                 }
             }
-            if (exportVisible) ExportFab(exporting = exporting, onClick = onExport)
+            if (exportVisible && fabBeside) ExportFab(exporting = exporting, onClick = onExport)
+            }
+            }
             }
         }
     }
 }
+
+private val TOOLBAR_SIDE_PADDING = 12.dp
+private val TOOLBAR_GAP = 8.dp
+private val TOOLBAR_INNER_PADDING = 4.dp
+private val EXPORT_FAB_SIZE = 56.dp
 
 /** One of the five stage chips on the bottom row. */
 @Composable
@@ -631,6 +654,7 @@ internal fun StageItem(
     selected: Boolean,
     modified: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
@@ -651,8 +675,7 @@ internal fun StageItem(
     val pill by animateDpAsState(if (selected) 20.dp else 0.dp, RAIL_PILL, label = "stagePill")
     TextTooltip(stringResource(stage.hintRes)) {
         Column(
-            Modifier
-                .widthIn(min = 52.dp)
+            modifier
                 .scale(press)
                 .clip(CircleShape)
                 .background(fill)
