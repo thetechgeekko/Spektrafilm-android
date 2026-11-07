@@ -3538,6 +3538,18 @@ class MainActivity : ComponentActivity() {
                 exportVm.onAction(ExportAction.OpenSheet)
             }
         }
+        // The Export FAB stays enabled while a preview render runs (a FAB is never disabled),
+        // so a tap during a render is held and opens the sheet as soon as the render settles.
+        var exportPending by remember { mutableStateOf(false) }
+        fun requestExport() {
+            if (previewBusy) exportPending = true else openExportSheetIfAllowed()
+        }
+        LaunchedEffect(exportPending, previewBusy) {
+            if (exportPending && !previewBusy) {
+                exportPending = false
+                openExportSheetIfAllowed()
+            }
+        }
         LaunchedEffect(Unit) {
             if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
             Ticket139EditorProbe.exportProbeRequests.collect { request ->
@@ -3604,8 +3616,6 @@ class MainActivity : ComponentActivity() {
             ) {
                 // --- TOP BAR ---
                 if (!viewerUi.chromeHidden) EditorTopBar(
-                    canExport = engine != null && sourceRenderAllowed && !previewBusy && !exportInFlight,
-                    exporting = exportInFlight,
                     canUndo = editHistory.canUndo,
                     canRedo = editHistory.canRedo,
                     onUndo = { doUndo() },
@@ -3616,7 +3626,6 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    onExport = { openExportSheetIfAllowed() },
                     onOpenSettings = {
                         checkpointEditorSession()
                         onOpenSettings()
@@ -4122,6 +4131,11 @@ class MainActivity : ComponentActivity() {
                         CategoryBar(
                             active = activeCategory,
                             dirty = dirty,
+                            // The FAB is hidden, not disabled, when there is nothing to export;
+                            // a render in flight only defers the tap (see openExportSheetIfAllowed).
+                            exportVisible = engine != null && sourceRenderAllowed,
+                            exporting = exportInFlight,
+                            onExport = { requestExport() },
                             onSelect = { cat ->
                                 activeCategory = if (activeCategory == cat) null else cat
                             },
@@ -4934,14 +4948,11 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun EditorTopBar(
-        canExport: Boolean,
-        exporting: Boolean,
         canUndo: Boolean,
         canRedo: Boolean,
         onUndo: () -> Unit,
         onRedo: () -> Unit,
         onOpenSource: () -> Unit,
-        onExport: () -> Unit,
         onOpenSettings: () -> Unit,
         onOpenAbout: () -> Unit,
     ) {
@@ -4971,8 +4982,8 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                // weight(1f): the title yields to the six 48dp actions, so at 200% font it
-                // ellipsizes instead of pushing Settings/About off the right edge (#181).
+                // weight(1f): the title yields to the 48dp actions, so at 200% font it
+                // ellipsizes instead of pushing the menu off the right edge (#181).
                 Text(
                     stringResource(R.string.app_name),
                     color = Color.White.copy(alpha = 0.92f),
@@ -5002,33 +5013,34 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                // Export / save
-                TextTooltip(stringResource(R.string.editor_tooltip_export_gallery)) {
-                    PressIconButton(onClick = onExport, enabled = canExport) {
-                        if (exporting) {
-                            val exportingDesc = stringResource(R.string.editor_exporting)
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .semantics { contentDescription = exportingDesc },
-                                strokeWidth = 2.dp, color = Color.White,
-                            )
-                        } else {
+                // M3 app bars carry one or two essential actions; Undo and Redo are this
+                // screen's. Export moved to the FAB beside the stage toolbar, and Settings /
+                // About live behind the overflow menu.
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextTooltip(stringResource(R.string.editor_action_more)) {
+                        PressIconButton(onClick = { menuOpen = true }) {
                             Icon(
-                                SpectraIcons.Export, contentDescription = stringResource(R.string.editor_action_export),
-                                tint = if (canExport) Color.White else Color.White.copy(alpha = 0.4f),
+                                SpectraIcons.More,
+                                contentDescription = stringResource(R.string.editor_action_more),
+                                tint = Color.White,
                             )
                         }
                     }
-                }
-                TextTooltip(stringResource(R.string.editor_action_settings)) {
-                    PressIconButton(onClick = onOpenSettings) {
-                        Icon(SpectraIcons.Settings, contentDescription = stringResource(R.string.editor_action_settings), tint = Color.White)
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_action_about)) {
-                    PressIconButton(onClick = onOpenAbout) {
-                        Icon(SpectraIcons.Help, contentDescription = stringResource(R.string.editor_action_about), tint = Color.White)
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.editor_action_settings)) },
+                            leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },
+                            onClick = { menuOpen = false; onOpenSettings() },
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.editor_action_about)) },
+                            leadingIcon = { Icon(SpectraIcons.Help, contentDescription = null) },
+                            onClick = { menuOpen = false; onOpenAbout() },
+                        )
                     }
                 }
             }

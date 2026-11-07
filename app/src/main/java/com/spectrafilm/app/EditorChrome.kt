@@ -537,6 +537,9 @@ internal fun CategoryBar(
     active: Category?,
     dirty: Set<Category>,
     onSelect: (Category) -> Unit,
+    exportVisible: Boolean = false,
+    exporting: Boolean = false,
+    onExport: () -> Unit = {},
 ) {
     val activeStage = active?.stage
     val subItems = remember(activeStage) { activeStage?.let { categoriesOf(it) }.orEmpty() }
@@ -578,10 +581,21 @@ internal fun CategoryBar(
                 )
             }
 
+            // M3 floating toolbar: the five stages in a pill, with the screen's one primary
+            // action -- Export -- as the FAB paired beside it.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp, horizontal = 4.dp)
+                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .padding(4.dp)
                     .selectableGroup(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
@@ -603,6 +617,8 @@ internal fun CategoryBar(
                         },
                     )
                 }
+            }
+            if (exportVisible) ExportFab(exporting = exporting, onClick = onExport)
             }
         }
     }
@@ -636,9 +652,9 @@ internal fun StageItem(
     TextTooltip(stringResource(stage.hintRes)) {
         Column(
             Modifier
-                .widthIn(min = 64.dp)
+                .widthIn(min = 52.dp)
                 .scale(press)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(CircleShape)
                 .background(fill)
                 .clickableNoRipple(interaction, onClick)
                 .semantics(mergeDescendants = true) {
@@ -646,9 +662,9 @@ internal fun StageItem(
                     this.selected = isSelected
                     if (modified) stateDescription = modifiedState
                 }
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -683,6 +699,34 @@ internal fun StageItem(
                     .clip(RoundedCornerShape(2.dp))
                     .background(accent),
             )
+        }
+    }
+}
+
+/**
+ * The editor's one primary action. M3: a FAB is for the constructive main action, is hidden
+ * rather than disabled when unavailable, and may sit beside a floating toolbar. While an
+ * export runs it shows the loading indicator in place of its icon and ignores taps.
+ */
+@Composable
+internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
+    val label = stringResource(R.string.editor_action_export)
+    val busyLabel = stringResource(R.string.editor_exporting)
+    TextTooltip(stringResource(R.string.editor_tooltip_export_gallery)) {
+        FloatingActionButton(
+            onClick = { if (!exporting) onClick() },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.semantics { contentDescription = if (exporting) busyLabel else label },
+        ) {
+            if (exporting) {
+                SpectraLoadingIndicator(
+                    Modifier.size(28.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                Icon(SpectraIcons.Export, contentDescription = null)
+            }
         }
     }
 }
