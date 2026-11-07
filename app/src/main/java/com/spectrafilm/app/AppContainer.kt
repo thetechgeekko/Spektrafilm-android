@@ -65,6 +65,9 @@ internal class AppContainer(context: Context) {
     /** Saved presets (#276). */
     val presets: PresetRepository = FilePresetRepository(app)
 
+    /** Per-source recipes (#276). */
+    val recipes: RecipeRepository = FileRecipeRepository(app)
+
     /** Builds every app ViewModel from this container. */
     val viewModelFactory: ViewModelProvider.Factory = AppViewModelFactory(
         settingsViewModel = { SettingsViewModel(settings, settings.autoPreviewEdges()) },

@@ -1513,6 +1513,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val snackbarHost = remember { SnackbarHostState() }
+        val recipeRepo = remember(ctx) { ctx.appContainer.recipes }
         val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
         val exportRuntimeState by ExportWorkRuntime.state.collectAsState()
         var lastHandledExportRun by remember { mutableLongStateOf(0L) }
@@ -1940,7 +1941,7 @@ class MainActivity : ComponentActivity() {
         // starts PENDING and only the exact generation classified by readResult may become writable.
         var recipeAccess by remember(recipeKey) {
             mutableStateOf<EditorRecipeAccess>(
-                recipeKey?.let { EditorRecipeAccess.Pending(it, Recipes.generation(it)) }
+                recipeKey?.let { EditorRecipeAccess.Pending(it, recipeRepo.generation(it)) }
                     ?: EditorRecipeAccess.None,
             )
         }
@@ -1977,9 +1978,9 @@ class MainActivity : ComponentActivity() {
             var restored: RecipeReadResult
             while (true) {
                 val pendingRestore = RecipeWorkRuntime.submit {
-                    val before = Recipes.generation(recipeKey)
-                    val result = Recipes.readResult(ctx, recipeKey)
-                    Triple(before, result, Recipes.generation(recipeKey))
+                    val before = recipeRepo.generation(recipeKey)
+                    val result = recipeRepo.readResult(recipeKey)
+                    Triple(before, result, recipeRepo.generation(recipeKey))
                 }
                 val (before, result, after) = pendingRestore.await()
                 val classified = classifyEditorRecipeAccess(recipeKey, before, after, result)
@@ -3415,9 +3416,9 @@ class MainActivity : ComponentActivity() {
             if (current != null && current == defaultsJson && rotation == SourceRotation.NONE) {
                 if (!hasRecipe) return@LaunchedEffect
                 val pendingDelete = RecipeWorkRuntime.submit {
-                    if (Recipes.generation(recipeKey) != writableGeneration) return@submit null
-                    Recipes.delete(ctx, recipeKey)
-                    Recipes.generation(recipeKey)
+                    if (recipeRepo.generation(recipeKey) != writableGeneration) return@submit null
+                    recipeRepo.delete(recipeKey)
+                    recipeRepo.generation(recipeKey)
                 }
                 val newGeneration = try {
                     pendingDelete.await()
@@ -3441,8 +3442,7 @@ class MainActivity : ComponentActivity() {
                 val savedSourceName = sourceName
                 val savedRotationDegrees = rotation.degrees
                 val pendingSave = RecipeWorkRuntime.submit {
-                    Recipes.saveJson(
-                        ctx,
+                    recipeRepo.saveJson(
                         recipeKey,
                         paramsJson,
                         savedSourceName,
@@ -4011,7 +4011,7 @@ class MainActivity : ComponentActivity() {
                                     // Submit before attaching a UI waiter: recreation can cancel the
                                     // waiter, never the durable delete or its position before restore.
                                     val pendingDelete = RecipeWorkRuntime.submit {
-                                        Recipes.delete(ctx, recipeKey)
+                                        recipeRepo.delete(recipeKey)
                                     }
                                     scope.launch {
                                         try {
@@ -4030,7 +4030,7 @@ class MainActivity : ComponentActivity() {
                                         recipeAccess = recipeKey?.let {
                                             EditorRecipeAccess.Writable(
                                                 it,
-                                                Recipes.generation(it),
+                                                recipeRepo.generation(it),
                                             )
                                         } ?: EditorRecipeAccess.None
                                         Recipes.resetToDefaults(state, settings, profiles)
