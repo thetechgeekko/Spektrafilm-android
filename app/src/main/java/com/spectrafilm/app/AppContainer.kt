@@ -22,10 +22,21 @@ import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
+/**
+ * Background dispatchers for the process-owned singletons (export, checkpoint, source and recipe
+ * runtimes) that are created before, and outlive, any [AppContainer] (#277). The only place
+ * outside [AppDispatchers] that names a `Dispatchers.*` literal. Main is deliberately absent:
+ * reading it on the plain JVM fails, and these singletons are touched by unit tests.
+ */
+internal object ProcessDispatchers {
+    val io: CoroutineDispatcher = Dispatchers.IO
+    val default: CoroutineDispatcher = Dispatchers.Default
+}
+
 /** Injected dispatchers (#277). Tests pass a StandardTestDispatcher for each. */
 internal data class AppDispatchers(
-    val io: CoroutineDispatcher = Dispatchers.IO,
-    val default: CoroutineDispatcher = Dispatchers.Default,
+    val io: CoroutineDispatcher = ProcessDispatchers.io,
+    val default: CoroutineDispatcher = ProcessDispatchers.default,
     val main: CoroutineDispatcher = Dispatchers.Main,
     val mainImmediate: CoroutineDispatcher = Dispatchers.Main.immediate,
 )

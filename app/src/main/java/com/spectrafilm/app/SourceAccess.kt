@@ -9,7 +9,6 @@ import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -308,7 +307,7 @@ internal class SharedPreferencesSourceRefStore(context: Context) : SourceRefStor
 internal class SourceAccessRuntime internal constructor(
     val coordinator: SourceAccessCoordinator,
     val mutations: LatestSourceMutationGate,
-    private val workScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val workScope: CoroutineScope = CoroutineScope(SupervisorJob() + ProcessDispatchers.io),
 ) {
     private val queue = Channel<() -> Unit>(Channel.UNLIMITED)
 
