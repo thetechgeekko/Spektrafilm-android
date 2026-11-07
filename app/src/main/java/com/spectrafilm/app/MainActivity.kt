@@ -155,6 +155,8 @@ private data class SourceDecodeRequest(
 private data class SourceDecodeResult(
     val image: LinearImage,
     val usedPlatformFallback: Boolean,
+    /** The RAW OOM ladder returned a smaller decode than requested (#288: never persist it). */
+    val memoryDegraded: Boolean = false,
 )
 
 private data class CachedSourceDecodeRequest(
@@ -242,6 +244,7 @@ private suspend fun decodeSourceRequest(
     }
     var applyExifBaseline = request.kind != SourceKind.RAW
     var usedPlatformFallback = false
+    val rawMemoryDegraded = java.util.concurrent.atomic.AtomicBoolean(false)
     val image = when (request.kind) {
         SourceKind.RAW -> try {
             runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
@@ -253,6 +256,7 @@ private suspend fun decodeSourceRequest(
                     request.rawTint.toDouble(),
                     maxEdge,
                     cancellation,
+                    rawMemoryDegraded,
                 )
             }
         } catch (failure: RawDecodeException) {
@@ -326,12 +330,54 @@ private suspend fun decodeSourceRequest(
         }
         if (isCancelled()) throw CancellationException("source decode cancelled")
         Diag.i("decode kind=${request.kind.name} ${rotated.width}x${rotated.height} maxEdge=$maxEdge")
-        val decoded = SourceDecodeResult(rotated, usedPlatformFallback)
+        val decoded = SourceDecodeResult(rotated, usedPlatformFallback, rawMemoryDegraded.get())
         ownedImage = null
         decoded
     } catch (failure: Throwable) {
         ownedImage?.close()
         throw failure
+    }
+}
+
+/**
+ * [decodeSourceRequest] behind the on-disk proxy cache (#288): a hit returns the stored decode
+ * without touching LibRaw or the platform codec; a miss decodes and stores the result. Only the
+ * preview and zoom proxies come through here; export decodes stay uncached.
+ */
+private suspend fun decodeSourceRequestDiskCached(
+    request: SourceDecodeRequest,
+    cacheRequest: DecodedSourceCache.Request,
+    maxEdge: Int,
+    io: CoroutineDispatcher,
+): SourceDecodeResult {
+    val uri = request.uri
+    if (uri == null || request.kind == SourceKind.DEMO) return decodeSourceRequest(request, maxEdge, io)
+    val ctx = request.context.applicationContext
+    // One owned context: whatever image the block produces is closed if the caller is
+    // cancelled before taking it, hit or fresh decode alike.
+    return withOwnedContext(
+        context = io,
+        dispose = { result: SourceDecodeResult -> result.image.close() },
+    ) {
+        val key = ProxyDiskCache.keyFor(ctx, uri, cacheRequest)
+        val startNs = System.nanoTime()
+        val hit = key?.let { ProxyDiskCache.read(ctx, it) }
+        if (hit != null) {
+            Diag.i(
+                "proxy disk cache hit ${hit.image.width}x${hit.image.height} " +
+                    "ms=${(System.nanoTime() - startNs) / 1_000_000L}",
+            )
+            SourceDecodeResult(hit.image, hit.usedPlatformFallback)
+        } else {
+            val decoded = decodeSourceRequest(request, maxEdge, io)
+            // Blocking and non-throwing: no cancellation point between the decode and return.
+            // A memory-degraded RAW decode is smaller than its key promises; storing it would
+            // pin the low-resolution proxy for every later open, so it is used but not kept.
+            if (key != null && !decoded.memoryDegraded) {
+                ProxyDiskCache.write(ctx, key, decoded.image, decoded.usedPlatformFallback)
+            }
+            decoded
+        }
     }
 }
 
@@ -2534,7 +2580,12 @@ class MainActivity : ComponentActivity() {
                 if (existing != null) {
                     existing.close()
                 } else {
-                    val decoded = decodeSourceRequest(snapshot.decode, maxEdge, dispatchers.io)
+                    val decoded = decodeSourceRequestDiskCached(
+                        snapshot.decode,
+                        ticket.request,
+                        maxEdge,
+                        dispatchers.io,
+                    )
                     // publish() consumes the image even when this ticket became stale. An old
                     // detached decode therefore cannot evict the newest source generation.
                     val accepted = cache.publish(ticket, decoded.image)
