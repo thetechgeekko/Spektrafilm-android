@@ -124,7 +124,26 @@ int main() {
   check(!allowed(gfx100, 32 * kMiB, false, 0x94949494U, 3, 0, true) &&
             !allowed(gfx100, 24 * kMiB, true, 0x94949494U, 3, 0, true) &&
             !allowed(gfx100, 8 * kMiB, true, 0x94949494U, 3, 0, true),
-        "full-size and lower RAM tiers cannot use large-Bayer admission");
+        "full-size, 32-bit, and sources over 4x a lower tier's ceiling are refused");
+  // #268: a 16 MP NEF (4948 x 3280) on a 3.6 GB phone's 12 MiPixel tier.
+  const DecodeGeometry nef16{4992, 3280, 4948, 3280, 0, 0, 1.0};
+  check(allowed(nef16, 12 * kMiB, true, 0x94949494U, 3, 0, true) &&
+            allowed(nef16, 24 * kMiB, true, 0x94949494U, 3, 0, true) &&
+            !allowed(nef16, 12 * kMiB, false, 0x94949494U, 3, 0, true) &&
+            !allowed(nef16, 8 * kMiB, true, 0x94949494U, 3, 0, true),
+        "16 MP Bayer half-sizes on the 12 and 24 MiPixel tiers, never full-size or 32-bit");
+  // 4 x 12 MiPixels bounds the 12 tier's source, and the padded half-size
+  // image must still fit 12 MiPixels: 8180 x 6140 passes both; 8192 x 6145 is
+  // over the source bound.
+  check(allowed({8180, 6140, 8180, 6140, 0, 0, 1.0}, 12 * kMiB, true,
+                0x94949494U, 3, 0, true) &&
+            !allowed({8192, 6145, 8192, 6145, 0, 0, 1.0}, 12 * kMiB, true,
+                     0x94949494U, 3, 0, true),
+        "the 12 MiPixel tier admits at most a 48 MiPixel half-size source");
+  check(spectrafilm::largeBayerRawStoreMiB(32 * kMiB) == 320U &&
+            spectrafilm::largeBayerRawStoreMiB(24 * kMiB) == 256U &&
+            spectrafilm::largeBayerRawStoreMiB(12 * kMiB) == 160U,
+        "raw-store ceiling scales with the tier's source bound");
   check(!allowed(gfx100, 32 * kMiB, true, 9, 3, 0, true) &&
             !allowed(gfx100, 32 * kMiB, true, 0, 3, 0, true) &&
             !allowed(gfx100, 32 * kMiB, true, UINT32_MAX, 3, 0, true) &&
@@ -443,16 +462,32 @@ int main() {
         "full-resolution metadata above 12 MiPixels fails before unpack",
         describe(fullResult));
 
-  // Some non-Bayer/linear DNGs ignore half_size, so the metadata ceiling must
-  // stay fail-closed even when callers request a proxy.
+  // #268: a half-size Bayer request above the 12 MiPixel ceiling is now
+  // admitted past the geometry guard (its source is under 4x the ceiling), so
+  // this truncated fixture fails later, on its missing data, not on geometry.
   options.halfSize = true;
   const std::vector<std::uint8_t> halfOversize =
       sfraw::hosttest::makeDeclaredOversizeUncompressedDng(4096U, 3073U);
   const spectrafilm::DecodeResult halfResult = spectrafilm::decodeFromBuffer(
       halfOversize.data(), halfOversize.size(), options);
-  check(!halfResult.ok && halfResult.status == spectrafilm::SFRAW_ERR_NO_MEMORY,
-        "half-size metadata above 12 MiPixels still fails before unpack",
+  check(!halfResult.ok &&
+            halfResult.error.find("MiPixel in-memory safety limit") ==
+                std::string::npos,
+        "half-size Bayer metadata above 12 MiPixels passes the geometry guard",
         describe(halfResult));
+  // ...but a half-size Bayer source above 4x the ceiling still fails before
+  // unpack, on geometry.
+  const std::vector<std::uint8_t> halfFarOversize =
+      sfraw::hosttest::makeDeclaredOversizeUncompressedDng(8192U, 6145U);
+  const spectrafilm::DecodeResult halfFarResult =
+      spectrafilm::decodeFromBuffer(halfFarOversize.data(),
+                                    halfFarOversize.size(), options);
+  check(!halfFarResult.ok &&
+            halfFarResult.status == spectrafilm::SFRAW_ERR_NO_MEMORY &&
+            halfFarResult.error.find("MiPixel in-memory safety limit") !=
+                std::string::npos,
+        "half-size metadata above 4x the 12 MiPixel ceiling fails before unpack",
+        describe(halfFarResult));
 
   const std::vector<std::uint8_t> extremeAspect =
       sfraw::hosttest::makeExtremeAspectDng();

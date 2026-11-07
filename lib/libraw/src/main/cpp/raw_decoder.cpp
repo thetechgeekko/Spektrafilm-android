@@ -1388,7 +1388,8 @@ void selectRawStoreLimit(LibRaw& raw, const DecodeOptions& options,
                          uint64_t pixelLimit) {
     if (declaredDecodeDimensionsExceedLimit(raw.imgdata.sizes, pixelLimit) &&
         largeBayerHalfAllowed(raw, options, pixelLimit, false))
-        raw.imgdata.rawparams.max_raw_memory_mb = kLargeBayerRawStoreMiB;
+        raw.imgdata.rawparams.max_raw_memory_mb =
+            std::max(kMaxRawMemoryMb, largeBayerRawStoreMiB(pixelLimit));
 }
 
 DecodeResult dimensionLimitFailure(uint64_t pixelLimit) {

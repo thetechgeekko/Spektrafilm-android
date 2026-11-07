@@ -228,9 +228,10 @@ object RawDecoder {
      *   `dcraw_make_mem_image` reports the post-process dimensions, so the returned
      *   `width * height * 3 == rgb.size()` invariant is always satisfied.
      *
-     * The pre-unpack safety ceiling remains **12 MiPixels on 64-bit** and
-     * **8 MiPixels on 32-bit**, even when this flag is true; some linear/non-Bayer
-     * formats ignore LibRaw's half-size request. Tiled high-MP decode is tracked by
+     * The pre-unpack output ceiling is **8 MiPixels on 32-bit** and 12/24/32 MiPixels
+     * on 64-bit by device RAM. On 64-bit, a three-colour Bayer source up to 4x that
+     * ceiling is admitted when this flag is true (#268); linear/non-Bayer formats,
+     * which can ignore LibRaw's half-size request, keep the plain ceiling. Tiled high-MP decode is tracked by
      * ticket #173. **Default `false`** requests full-resolution output within the cap.
      */
     data class Settings(

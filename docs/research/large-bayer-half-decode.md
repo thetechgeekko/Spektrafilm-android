@@ -17,17 +17,22 @@ One Android `/proc/meminfo` snapshot selects the output ceiling for a decode:
 | 64-bit, total >= 6 GiB and available >= 2 GiB | 24 MiPixels |
 | 64-bit, total >= 8 GiB and available >= 3 GiB | 32 MiPixels |
 
-Only the highest tier admits a larger source for a half-size request. The
+Every 64-bit tier admits a larger source for a half-size request, up to four
+times its output ceiling (48 / 96 / 128 MiPixels for the 12 / 24 / 32 tiers).
+This was originally the 32 MiPixel tier only; #268 extended it after a 16 MP NEF
+on a 3.6 GB phone (12 MiPixel tier) could not even preview. The
 source must be three-color Bayer, without rotated Fuji geometry; after unpack
 it must have a single integer RAW plane. Raw, visible and margin-adjusted areas
-must each fit 128 MiPixels (134,217,728 pixels). Padded half-size allocation and
-aspect-adjusted dimensions must fit the 32 MiPixel processed ceiling. The
+must each fit four times the tier's ceiling (128 MiPixels = 134,217,728 pixels on
+the 32 tier). Padded half-size allocation and aspect-adjusted dimensions must fit
+the tier's processed ceiling. The
 post-unpack check uses `rawdata.sizes`, `rawdata.iparams` and
 `rawdata.ioparams`, because LibRaw restores those before `raw2image_ex` allocates.
 The final bitmap check still bounds returned processing dimensions.
 
-These qualified large requests receive a 320 MiB LibRaw raw-store ceiling;
-ordinary requests retain 128 MiB. This bounds the unpacked store, not total
+These qualified large requests receive a raw-store ceiling of
+`source bound x 2 bytes + 64 MiB` (160 / 256 / 320 MiB); ordinary requests retain
+128 MiB. This bounds the unpacked store, not total
 process memory. X-Trans, linear/float/multi-plane, unknown and rotated layouts do
 not gain this exception. The 512/64 MiB encoded-input limits from #265 stay
 independent. No full-resolution 102 MP export is enabled.
