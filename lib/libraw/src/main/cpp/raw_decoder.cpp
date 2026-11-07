@@ -1161,11 +1161,10 @@ inline int classifyKnownCodecFallback(const PrimaryImageInfo& info) {
     if (!info.isDng) return SFRAW_ERR_UNPACK;
     const int comp = info.compression;
     if (isJpegXL(comp)) return SFRAW_ERR_JPEGXL_DNG;
-    if (isLossyJpeg(comp)) {
-#ifndef USE_JPEG
-        return SFRAW_ERR_LOSSY_JPEG_DNG;
-#endif
-    }
+    // Reached only after LibRaw failed. With USE_JPEG a lossy DNG normally
+    // decodes natively; one that still fails (a corrupt JPEG tile, legacy
+    // Compression 6) keeps the typed platform-decoder fallback either way.
+    if (isLossyJpeg(comp)) return SFRAW_ERR_LOSSY_JPEG_DNG;
     // Parser availability is not publication qualification. Every deflate
     // layout uses the typed fallback: integer layouts are unsupported and the
     // float bitmap path quantizes before the module's f32 boundary.
@@ -1714,19 +1713,33 @@ bool buildPrecisionDescriptor(
         value.byteOrder = source.bigEndian ? RawByteOrder::BigEndian
                                            : RawByteOrder::LittleEndian;
         value.containerCompression = source.compression;
-        if (source.compression == dngsniff::kNone) {
-            value.packing = source.bitsPerSample == 16
-                ? RawPacking::TiffWord16
-                : RawPacking::TiffPackedBits;
-        } else {
-            value.packing = RawPacking::LosslessCompressed;
-        }
         value.whiteLevelProvenance = source.hasWhiteLevel
             ? RawLevelProvenance::DngMetadata
             : RawLevelProvenance::Unknown;
         value.blackLevelProvenance = source.hasBlackLevel
             ? RawLevelProvenance::DngMetadata
             : RawLevelProvenance::Unknown;
+        if (source.compression == dngsniff::kNone) {
+            value.packing = source.bitsPerSample == 16
+                ? RawPacking::TiffWord16
+                : RawPacking::TiffPackedBits;
+        } else if (source.compression == dngsniff::kLossyJpeg) {
+            // LibRaw decodes 8-bit JPEG codes through a curve into a 16-bit
+            // linear domain and replaces maximum/WhiteLevel with 0xffff; any
+            // file WhiteLevel is in the 8-bit code domain and no longer applies.
+            // A file BlackLevel would also stay in the 8-bit domain, which
+            // LibRaw does not rescale, so only a zero black is representable.
+            if (source.photometric != 34892 || source.bitsPerSample != 8) {
+                *failure =
+                    "lossy-JPEG DNG is qualified only as 8-bit LinearRaw";
+                return false;
+            }
+            value.packing = RawPacking::LossyCompressed;
+            value.declaredBitsPerSample = 16;
+            value.whiteLevelProvenance = RawLevelProvenance::DecoderMetadata;
+        } else {
+            value.packing = RawPacking::LosslessCompressed;
+        }
     } else {
         value.sampleFormat = RawSampleFormat::UnsignedInteger;
         const unsigned rawBits = raw.imgdata.color.raw_bps;
@@ -1902,7 +1915,8 @@ bool buildPrecisionDescriptor(
             ? RawLevelProvenance::DeclaredBitsDefault
             : RawLevelProvenance::DecoderMetadata;
     }
-    if (source.isDng && !source.hasWhiteLevel) {
+    if (source.isDng && !source.hasWhiteLevel &&
+        value.packing != RawPacking::LossyCompressed) {
         const bool defaultWhiteLevel = std::all_of(
             value.whiteLevels.begin(),
             value.whiteLevels.begin() + activeLevelChannels,
@@ -1912,6 +1926,22 @@ bool buildPrecisionDescriptor(
         value.whiteLevelProvenance = defaultWhiteLevel
             ? RawLevelProvenance::DeclaredBitsDefault
             : RawLevelProvenance::DecoderMetadata;
+    }
+    if (value.packing == RawPacking::LossyCompressed) {
+        const bool zeroBlack = value.blackLevelCommon == 0U &&
+            std::all_of(value.blackLevelChannels.begin(),
+                        value.blackLevelChannels.begin() + activeLevelChannels,
+                        [](std::uint32_t level) { return level == 0U; }) &&
+            value.blackPatternCount == 0U;
+        const bool fullWhite = std::all_of(
+            value.whiteLevels.begin(),
+            value.whiteLevels.begin() + activeLevelChannels,
+            [](std::uint32_t level) { return level == 65535U; });
+        if (!zeroBlack || !fullWhite) {
+            *failure =
+                "lossy-JPEG DNG levels are outside the decoder's 16-bit linear domain";
+            return false;
+        }
     }
     std::uint64_t largestSpan = 0U;
     const std::size_t repeatCount =
@@ -2419,8 +2449,8 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
                                   : std::string();
         const char* hint = "";
         if (result.status == SFRAW_ERR_LOSSY_JPEG_DNG)
-            hint = " [lossy-JPEG DNG (e.g. Samsung Expert RAW); this build has no "
-                   "libjpeg — fall back to platform ImageDecoder]";
+            hint = " [lossy-JPEG DNG (e.g. Samsung Expert RAW) that LibRaw "
+                   "could not decode natively; fall back to platform ImageDecoder]";
         else if (result.status == SFRAW_ERR_JPEGXL_DNG)
             hint = " [JPEG-XL DNG; this build has no libjxl/dngsdk — fall back to "
                    "platform ImageDecoder]";

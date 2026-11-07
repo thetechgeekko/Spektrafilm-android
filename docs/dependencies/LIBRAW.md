@@ -10,7 +10,7 @@ Status: implemented for ticket [Patch LibRaw to 0.22.2 and add hostile-RAW regre
 | Official archive | `https://www.libraw.org/data/LibRaw-0.22.2.tar.gz` |
 | Archive size | `1,682,962` bytes |
 | Archive SHA-256 | `de86b035655accff8d4010f1a221fdf50d353cb7b1422ba26f14a0db92612cfa` |
-| Audited patched-tree SHA-256 | `bc463c30e414781d2455a47b99c30741830798b5941a049782b560fbb3abc74c` over the sorted 100-file source/header manifest |
+| Audited patched-tree SHA-256 | `29be40072fe3b05cba3e7768e4d8cacafbc2c18e5d962a13cbba855ff0b3745d` over the sorted 100-file source/header manifest |
 | Annotated Git tag object | `24fa7e5463cbf8b8615dbd2b16c933a294d52400` |
 | Peeled release commit | `b93f6e45c194f5df9b02a43b1af9a54b4f41f33f` |
 | Signature | The annotated tag is not signed; the official URL plus archive SHA-256 is the shipping trust anchor. |
@@ -59,6 +59,7 @@ The complete manifest and patch hashes are in
 | `0023-record-local-modification-notices.patch` | Adds a dated Spektrafilm Android modification notice to every upstream file changed by patches 0001–0022. This is a notice-only patch; aggregate `2fb59481…` is retained only as the exact migration input to the 23-patch notice tree. |
 | `0024-define-xtrans-negative-index-arithmetic.patch` | Rewrites X-Trans neighbor offsets from undefined `-i << c` to the intended `-(i << c)`. A valid 520 x 520 public-seam X-Trans DNG keeps the exact pre-fix float digest while ASan/UBSan stays clean; the digest is build-configuration-sensitive, so the host contract test pins one value per leg: `5238915555911424415` serial (matching the pre-fix capture), `2892219489530756344` OpenMP. |
 | `0025-define-icc-s15fixed16-conversion.patch` | Rounds generated ICC XYZ coefficients in the signed domain before defined s15Fixed16 word encoding, preserving negative ACES matrix entries without floating-to-unsigned undefined behavior. |
+| `0026-harden-lossy-dng-jpeg-loader.patch` | Hardens the lossy-JPEG DNG loader reached once libjpeg-turbo is linked: the tile-stream bound of 0006, 8-bit single-scan Huffman JPEG tiles only, no decompressor leak on a libjpeg error, `MapPolynomial` clamped before the `ushort` conversion, a defined default curve for every plane, and the legacy Kodak JPEG loader kept unreachable (`LIBRAW_NO_KODAK_JPEG`). |
 
 Panasonic C8 codebooks are intentionally decoded in metadata order. Requiring a
 prefix-free table would reject a real S5M2 table whose 8-bit entry shadows two
@@ -80,10 +81,14 @@ checks the hostile-column bound rather than applying a duplicate patch.
 - Official release archive is compiled statically into `libsfraw.so`.
 - Definitions: `LIBRAW_NODLL`, `LIBRAW_CALLOC_RAWSTORE`,
   `LIBRAW_MAX_PROFILE_SIZE_MB=16`, `LIBRAW_MAX_METADATA_ALLOC_SIZE_MB=16`,
-  `NO_JASPER`, `NO_JPEG`, and `USE_ZLIB`; LCMS stays disabled by omitting every
-  `USE_LCMS*` define.
-- `NO_JPEG` disables the external lossy-JPEG dependency; it does not disable
-  LibRaw's internal lossless-JPEG/CR2 decoder and is not a security mitigation.
+  `NO_JASPER`, `USE_JPEG`, `LIBRAW_NO_KODAK_JPEG`, and `USE_ZLIB`; LCMS stays
+  disabled by omitting every `USE_LCMS*` define.
+- `USE_JPEG` links libjpeg-turbo 3.1.4, built unmodified from its SHA-256-pinned
+  release by `lib/libraw/cmake/LibJpegTurboVendor.cmake` (static, libjpeg API only,
+  no arithmetic decoder, `-fexceptions -funwind-tables` because LibRaw's libjpeg
+  error handler throws through C frames). It enables lossy-JPEG DNG
+  (Compression 0x884C), hardened by patch 0026. `LIBRAW_NO_KODAK_JPEG` keeps the
+  legacy Kodak JPEG loader unreachable, as it was under the former `NO_JPEG`.
 - RawSpeed and Adobe DNG SDK glue are compiled inert because `USE_RAWSPEED` and
   `USE_DNGSDK` are not defined.
 - Shipping `RelWithDebInfo` now uses `-O3 -g -DNDEBUG` with NDK hardening flags,
@@ -176,9 +181,19 @@ the rewrite arithmetic-neutral; CI’s serial leg reproduces that exact value.
 The digest is build-configuration-sensitive — the OpenMP leg deterministically
 produces `2892219489530756344` — so the contract test pins one value per leg. Patch 0025 defines signed ICC
 s15Fixed16 conversion while retaining negative ACES profile coefficients. The
-current 25-patch `bc463c30…` aggregate passed all 7/7 shipping-serial host CTests
+25-patch `bc463c30…` aggregate passed all 7/7 shipping-serial host CTests
 under Clang 18.1.3 ASan + UBSan + float-cast-overflow on 2026-09-01, including
 both-endian hostile next/reduced IFDs and the complete RAW precision contract.
+Patch 0026 (2026-11-07) hardens the lossy-JPEG DNG loader that `USE_JPEG` makes
+reachable. The current 26-patch `29be4007…` aggregate, built with libjpeg-turbo
+3.1.4 under GCC ASan + UBSan + float-cast-overflow, passed the host suite
+including the new `sfraw.lossy-dng.contract` (baseline decode and descriptor,
+progressive and non-JPEG tiles failing closed without leaks, a NaN /
+out-of-range `MapPolynomial`, and a lossy BlackLevel failing closed). The
+X-Trans digest check in `sfraw.raw-precision.contract` matched the serial pin
+(`5238915555911424415`) with `OMP_NUM_THREADS=1`; with OpenMP threads on this
+local GCC host it varied between runs (the OpenMP pin and other values), which is
+independent of this change because no X-Trans or demosaic code was touched.
 Earlier #165 qualification passed 4/4 CTest
 targets in both shipping-serial and OpenMP-required builds. The dedicated
 first-use concurrency target passed under ThreadSanitizer; WSL required
@@ -263,9 +278,11 @@ internal lossless-JPEG/LJ92. Floating-point DEFLATE
 (`Compression=8`, `SampleFormat=3`) is parsed only by the audited dependency
 corpus: the wrapper rejects it before LibRaw's quantizing memory-bitmap handoff.
 It, integer/linear Compression 8, and Adobe 0x80B2 deflate use the dedicated
-`DEFLATE_DNG` fallback classification. External lossy JPEG and JPEG-XL DNG are
-not enabled; every platform fallback is display-referred and is not equivalent
-to a high-bit scene-linear RAW decode.
+`DEFLATE_DNG` fallback classification. Lossy-JPEG DNG (0x884C, 8-bit LinearRaw)
+decodes natively through libjpeg-turbo and is labelled `LossyCompressed`: full
+resolution, 16-bit linearised levels, but lossy samples. JPEG-XL DNG is not
+enabled; every platform fallback is display-referred and is not equivalent to a
+high-bit scene-linear RAW decode.
 
 The v1 wrapper binds DNG metadata to the single non-reduced RAW IFD matching
 LibRaw geometry before and after unpack; root `DNGVersion` is the only inherited

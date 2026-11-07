@@ -122,6 +122,9 @@ struct DecodeOptions {
 //       src/decoders/decoders_dcraw.cpp), which is compiled unconditionally and
 //       does NOT require USE_JPEG/libjpeg. (USE_JPEG only adds *lossy* baseline
 //       JPEG, below.)
+//   * Lossy-JPEG DNG (Compression 0x884C, LinearRaw), e.g. Samsung / Pixel
+//       Expert RAW, through the pinned libjpeg-turbo (USE_JPEG). Labelled
+//       RawPacking::LossyCompressed in the precision descriptor.
 //   * Floating-point DEFLATE/ZIP parsing exists in LibRaw via USE_ZLIB, but its
 //       dcraw memory-bitmap route quantizes before this module's float boundary.
 //       The wrapper therefore routes SampleFormat=3 to a typed display-referred /
@@ -146,9 +149,11 @@ enum DecodeStatus {
     SFRAW_ERR_DEFLATE_DNG = 10,
 
     // Lossy-baseline-JPEG-compressed DNG (DNG 1.4 lossy, Compression 0x884C, and
-    // old-style JPEG, Compression 6). Needs libjpeg (USE_JPEG), which the NDK
-    // does not ship, so this is an expected residual limitation. The app should
-    // fall back to the platform ImageDecoder.
+    // old-style JPEG, Compression 6). The shipping build links libjpeg-turbo
+    // (USE_JPEG), so 0x884C LinearRaw normally decodes natively (packing
+    // LossyCompressed). This status remains for a build without libjpeg, for
+    // Compression 6, and for a lossy file LibRaw still fails to unpack; the
+    // app then falls back to the platform ImageDecoder.
     SFRAW_ERR_LOSSY_JPEG_DNG = 11,
 
     // JPEG-XL-compressed DNG (Compression 0xCD42 / 52546, DNG 1.7+). Needs
@@ -185,6 +190,13 @@ enum class RawPacking : int {
     TiffFloat = 3,
     LosslessCompressed = 4,
     VendorDefined = 5,
+    // DNG 1.4 lossy baseline JPEG (Compression 0x884C, LinearRaw only). The
+    // container holds 8-bit JPEG codes; LibRaw maps them through the file's
+    // MapPolynomial (or its default curve) into a 16-bit linear domain. For
+    // this packing declaredBitsPerSample is that decoded 16-bit domain, not
+    // the container's 8 bits, and the levels are the decoder's (0..65535).
+    // The samples are lossy: they must never be presented as sensor-exact.
+    LossyCompressed = 6,
 };
 
 enum class RawPixelLayout : int {

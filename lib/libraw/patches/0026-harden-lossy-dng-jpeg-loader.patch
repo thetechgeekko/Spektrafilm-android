@@ -1,0 +1,136 @@
+diff --git a/src/decoders/dng.cpp b/src/decoders/dng.cpp
+--- a/src/decoders/dng.cpp
++++ b/src/decoders/dng.cpp
+@@ -267,6 +267,13 @@
+   ushort cur[4][256];
+   double coeff[9], tot;
+ 
++  /* Spektrafilm hardening: every plane starts from the documented no-opcode
++   * default, so a plane without a MapPolynomial never reads indeterminate
++   * stack memory. Upstream left cur[][] uninitialised whenever meta_offset
++   * was set but did not cover every plane. */
++  gamma_curve(1 / 2.4, 12.92, 1, 255);
++  FORC4 memcpy(cur[c], curve, sizeof cur[0]);
++
+   if (meta_offset)
+   {
+     fseek(ifp, meta_offset, SEEK_SET);
+@@ -294,16 +301,45 @@
+       {
+         for (tot = j = 0; j <= deg; j++)
+           tot += coeff[j] * pow(i / 255.0, (int)j);
++        /* Spektrafilm hardening: file-controlled coefficients may produce a
++         * value outside [0,1] or NaN; converting that to ushort is undefined
++         * behaviour. Clamp to the 16-bit output range first. */
++        if (!(tot > 0.0))
++          tot = 0.0;
++        else if (tot > 1.0)
++          tot = 1.0;
+         cur[c][i] = (ushort)(tot * 0xffff);
+       }
+     }
+     order = sorder;
+   }
+-  else
+-  {
+-    gamma_curve(1 / 2.4, 12.92, 1, 255);
+-    FORC4 memcpy(cur[c], curve, sizeof cur[0]);
+-  }
++
++  /* Spektrafilm hardening: bound the number of JPEG tile streams exactly as
++   * lossless_dng_load_raw does (patch 0006), so a tiny tile size cannot turn
++   * a bounded raw plane into millions of decoder set-ups. */
++#if defined(LIBRAW_MAX_TILE_STREAM_COUNT) && LIBRAW_MAX_TILE_STREAM_COUNT > 0
++  if (!raw_width || !raw_height || !tile_width || !tile_length)
++    throw LIBRAW_EXCEPTION_TOOBIG;
++  const INT64 work_tile_width =
++      tile_width < INT_MAX ? INT64(tile_width) : INT64(raw_width);
++  const INT64 work_tile_height =
++      tile_length < INT_MAX ? INT64(tile_length) : INT64(raw_height);
++  const INT64 tile_streams_across =
++      1 + (INT64(raw_width) - 1) / work_tile_width;
++  const INT64 tile_streams_down =
++      1 + (INT64(raw_height) - 1) / work_tile_height;
++  const INT64 compliant_streams_across = 1 + (INT64(raw_width) - 1) / 16;
++  const INT64 compliant_streams_down = 1 + (INT64(raw_height) - 1) / 16;
++  INT64 permitted_tile_streams =
++      compliant_streams_across * compliant_streams_down * 2;
++  permitted_tile_streams = MAX(permitted_tile_streams, INT64(4096));
++  permitted_tile_streams =
++      MIN(permitted_tile_streams, INT64(LIBRAW_MAX_TILE_STREAM_COUNT));
++  if (tile_streams_down < 1 ||
++      tile_streams_across > permitted_tile_streams / tile_streams_down)
++    throw LIBRAW_EXCEPTION_TOOBIG;
++  INT64 remaining_dng_tile_streams = tile_streams_across * tile_streams_down;
++#endif
+ 
+   struct jpeg_error_mgr pub;
+   cinfo.err = jpeg_std_error(&pub);
+@@ -315,6 +351,14 @@
+ 
+   while (trow < raw_height)
+   {
++#if defined(LIBRAW_MAX_TILE_STREAM_COUNT) && LIBRAW_MAX_TILE_STREAM_COUNT > 0
++    if (remaining_dng_tile_streams < 1)
++    {
++      jpeg_destroy_decompress(&cinfo);
++      throw LIBRAW_EXCEPTION_TOOBIG;
++    }
++    remaining_dng_tile_streams--;
++#endif
+     fseek(ifp, save += 4, SEEK_SET);
+     if (tile_length < INT_MAX)
+       fseek(ifp, get4(), SEEK_SET);
+@@ -323,16 +367,26 @@
+       jpeg_destroy_decompress(&cinfo);
+       throw LIBRAW_EXCEPTION_DECODE_JPEG;
+     }
+-    jpeg_read_header(&cinfo, TRUE);
+-    jpeg_start_decompress(&cinfo);
+-	if (cinfo.output_components != colors)
+-		throw LIBRAW_EXCEPTION_DECODE_JPEG;
+-
+-	if (buf.size() < cinfo.output_width * cinfo.output_components)
+-		buf = std::vector<JSAMPLE>(cinfo.output_width * cinfo.output_components,0);
+-
++    /* Spektrafilm hardening: the header, start and component checks are
++     * inside the try so a libjpeg error (thrown by jpegErrorExit_d) or a
++     * rejected stream never leaks the decompressor. */
+     try
+     {
++      jpeg_read_header(&cinfo, TRUE);
++      /* DNG lossy JPEG is 8-bit baseline sequential. Progressive, arithmetic
++       * and multi-scan streams make libjpeg buffer the whole JPEG image as
++       * coefficients before the first row, sized by the file-controlled
++       * JPEG dimensions rather than by the raw plane; refuse them. */
++      if (cinfo.data_precision != 8 || cinfo.progressive_mode ||
++          cinfo.arith_code || jpeg_has_multiple_scans(&cinfo))
++        throw LIBRAW_EXCEPTION_DECODE_JPEG;
++      jpeg_start_decompress(&cinfo);
++      if (cinfo.output_components != colors)
++        throw LIBRAW_EXCEPTION_DECODE_JPEG;
++
++      if (buf.size() < cinfo.output_width * cinfo.output_components)
++        buf = std::vector<JSAMPLE>(cinfo.output_width * cinfo.output_components,0);
++
+       JSAMPLE *buffer_array[1];
+       buffer_array[0] = buf.data();
+       while (cinfo.output_scanline < cinfo.output_height &&
+diff --git a/src/metadata/identify.cpp b/src/metadata/identify.cpp
+--- a/src/metadata/identify.cpp
++++ b/src/metadata/identify.cpp
+@@ -1289,6 +1289,14 @@
+     is_raw = 0;
+     imgdata.process_warnings |= LIBRAW_WARN_NO_JPEGLIB;
+   }
++#elif defined(LIBRAW_NO_KODAK_JPEG)
++  /* Spektrafilm: libjpeg is linked for lossy DNG only. The legacy Kodak JPEG
++   * loader stays unreachable, exactly as it was in the NO_JPEG build. */
++  if (load_raw == &LibRaw::kodak_jpeg_load_raw)
++  {
++    is_raw = 0;
++    imgdata.process_warnings |= LIBRAW_WARN_NO_JPEGLIB;
++  }
+ #endif
+   if (!cdesc[0])
+     strcpy(cdesc, colors == 3 ? "RGBG" : "GMCY");

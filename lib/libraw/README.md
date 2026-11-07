@@ -149,7 +149,8 @@ headers and security guards, and refuses to build a runtime decoder stub.
 `*_ph.cpp` placeholder TUs**,
 which are postprocessing-free stubs that would otherwise shadow the real
 `dcraw_process` / `dcraw_make_mem_image`), builds a static `raw` lib (with
-`LIBRAW_CALLOC_RAWSTORE/NO_JASPER/NO_JPEG/USE_ZLIB`; LCMS stays disabled because
+`LIBRAW_CALLOC_RAWSTORE/NO_JASPER/USE_JPEG/LIBRAW_NO_KODAK_JPEG/USE_ZLIB`, linked
+against the pinned libjpeg-turbo from `cmake/LibJpegTurboVendor.cmake`); LCMS stays disabled because
 no `USE_LCMS*` define is supplied), generates the exact
 source manifest, and links it into `libsfraw.so`. See
 [`docs/dependencies/LIBRAW.md`](../../docs/dependencies/LIBRAW.md) for provenance,
@@ -172,14 +173,16 @@ selected full-resolution raw plane, not from the file extension or preview:
 | 8 — DEFLATE, float (`SampleFormat=3`) | ❌ precision fallback | LibRaw's bitmap handoff would quantize float input before f32; fails closed as `DEFLATE_DNG` |
 | 8 — DEFLATE, integer/linear | ❌ fallback | pinned decoder rejects safely → `DEFLATE_DNG` |
 | 0x80B2 — Adobe deflate | ❌ fallback | no qualified 0.22.2 route → `DEFLATE_DNG` |
-| 6 — old-style JPEG     | ❌ fallback   | needs libjpeg → `LOSSY_JPEG_DNG`                      |
-| 0x884C — lossy JPEG    | ❌ fallback   | needs libjpeg → `LOSSY_JPEG_DNG`                      |
+| 6 — old-style JPEG     | ❌ fallback   | not a qualified route → `LOSSY_JPEG_DNG`              |
+| 0x884C — lossy JPEG    | ✅ native, labelled lossy | LibRaw `lossy_dng_load_raw` + pinned libjpeg-turbo, hardened by patch 0026; 8-bit LinearRaw only; descriptor `LossyCompressed`. Progressive/arithmetic/multi-scan or corrupt tiles → `LOSSY_JPEG_DNG` |
 | 0xCD42 — JPEG-XL       | ❌ fallback   | needs libjxl/dngsdk → `JPEGXL_DNG`                    |
 
-**Key point:** `USE_JPEG` is intentionally OFF and is not needed for a DNG whose
-raw plane uses lossless JPEG/LJ92. It only adds *lossy* baseline-JPEG decode and embedded
-JPEG thumbnails; LibRaw's lossless-JPEG (LJ92) raw decoder is compiled
-unconditionally. A Pixel/Samsung/other mobile DNG must still be classified from
+**Key point:** `USE_JPEG` (libjpeg-turbo) is needed only for *lossy* baseline-JPEG
+DNG such as Samsung / Pixel Expert RAW; LibRaw's lossless-JPEG (LJ92) raw decoder is
+compiled unconditionally. A lossy DNG decodes at full resolution, but its samples are
+8-bit JPEG codes mapped through the file's curve into 16 bits, so the precision
+descriptor labels them `LossyCompressed` and never claims sensor-exact precision.
+LibRaw's legacy Kodak JPEG loader stays unreachable (`LIBRAW_NO_KODAK_JPEG`). A Pixel/Samsung/other mobile DNG must still be classified from
 its actual raw IFD; model-level blanket support is not claimed.
 
 > Mobile DNGs commonly embed a large JPEG **preview** in IFD0 with the real
