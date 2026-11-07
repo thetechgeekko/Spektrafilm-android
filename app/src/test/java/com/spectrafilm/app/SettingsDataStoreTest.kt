@@ -99,4 +99,32 @@ class SettingsDataStoreTest {
         store.edit { it.remove(gps) }
         assertNull(store[gps])
     }
+
+    /**
+     * Edits are saved as they are made, so once the writer has caught up, onStop's flush
+     * must return on its fast path without waiting at all (MAD audit fix 1).
+     */
+    @Test fun flushDoesNotWaitOnceEditsAreSaved() = runBlocking {
+        val (store, dataStore) = open()
+        store.edit { it[theme] = "DARK" }
+        val deadline = System.nanoTime() + 10_000_000_000L
+        while (dataStore.data.first()[theme] != "DARK" && System.nanoTime() < deadline) Thread.sleep(5)
+        assertEquals("DARK", dataStore.data.first()[theme])
+        // Persisted without any flush call; now a zero-timeout flush must still succeed.
+        Thread.sleep(50)
+        assertTrue(store.flush(timeoutMs = 0))
+    }
+
+    /** A burst written as one batched edit still lands in order, removals included. */
+    @Test fun aBurstOfEditsLandsInOrder() = runBlocking {
+        val (store, dataStore) = open()
+        for (i in 1..500) {
+            store.edit { it[quality] = i }
+            store.edit { if (i % 2 == 0) it[gps] = true else it.remove(gps) }
+        }
+        assertTrue("writer did not drain", store.flush(timeoutMs = 10_000))
+        val persisted = dataStore.data.first()
+        assertEquals(500, persisted[quality])
+        assertEquals(true, persisted[gps])
+    }
 }

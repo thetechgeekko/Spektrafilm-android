@@ -85,6 +85,7 @@ fun EnhancedSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     default: Float? = null,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -105,6 +106,7 @@ fun EnhancedSlider(
             val reset: (() -> Unit)? = resetDefault?.let { dv ->
                 {
                     onValueChange(snap(dv, range, step))
+                    onValueChangeFinished?.invoke()
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
@@ -135,6 +137,7 @@ fun EnhancedSlider(
                             interaction.onChange(SliderReadout(label, formatValue(it, decimals)))
                         },
                         onSettled = {
+                            onValueChangeFinished?.invoke()
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             interaction.onFinished()
                         },
@@ -178,6 +181,7 @@ fun EnhancedSlider(
                 interaction.onChange(SliderReadout(label, formatValue(snapped, decimals)))
             },
             onValueChangeFinished = {
+                onValueChangeFinished?.invoke()
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 interaction.onFinished()
             },
@@ -216,6 +220,7 @@ fun EnhancedSlider(
                 onDismiss = { editing = false },
                 onConfirm = {
                     onValueChange(it)
+                    onValueChangeFinished?.invoke()
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 },
             )
@@ -338,6 +343,7 @@ fun IntSlider(
     onValueChange: (Int) -> Unit,
     tooltip: String? = null,
     default: Int? = null,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     EnhancedSlider(
         label = label,
@@ -348,6 +354,7 @@ fun IntSlider(
         tooltip = tooltip,
         default = default?.toFloat(),
         onValueChange = { onValueChange(it.roundToInt()) },
+        onValueChangeFinished = onValueChangeFinished,
     )
 }
 

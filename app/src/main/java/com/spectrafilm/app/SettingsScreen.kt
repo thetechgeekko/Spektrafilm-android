@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -159,11 +160,11 @@ internal fun SettingsScreen(
                 }
                 if (state.showsQuality) add {
                     RowBody {
-                        IntSlider(
+                        SavedOnReleaseSlider(
                             label = stringResource(R.string.screen_settings_jpeg_quality),
                             value = state.exportQuality,
                             range = 1..100,
-                            onValueChange = { onAction(SettingsAction.SetExportQuality(it)) },
+                            onCommit = { onAction(SettingsAction.SetExportQuality(it)) },
                         )
                     }
                 }
@@ -228,11 +229,11 @@ internal fun SettingsScreen(
                 }
                 if (!state.previewAuto) add {
                     RowBody {
-                        IntSlider(
+                        SavedOnReleaseSlider(
                             label = stringResource(R.string.screen_settings_preview_max_size),
                             value = state.previewMaxSize,
                             range = 128..1024,
-                            onValueChange = { onAction(SettingsAction.SetPreviewMaxSize(it)) },
+                            onCommit = { onAction(SettingsAction.SetPreviewMaxSize(it)) },
                             tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
                         )
                     }
@@ -252,11 +253,11 @@ internal fun SettingsScreen(
                 }
                 if (!state.draftAuto) add {
                     RowBody {
-                        IntSlider(
+                        SavedOnReleaseSlider(
                             label = stringResource(R.string.screen_settings_draft_size),
                             value = state.draftMaxPx,
                             range = 128..512,
-                            onValueChange = { onAction(SettingsAction.SetDraftMaxPx(it)) },
+                            onCommit = { onAction(SettingsAction.SetDraftMaxPx(it)) },
                             tooltip = stringResource(R.string.screen_settings_draft_size_tip),
                         )
                     }
@@ -602,4 +603,29 @@ private fun SettingToggleRow(
         // The row owns the toggle; a null callback keeps the Switch from adding a second node.
         Switch(checked = checked, onCheckedChange = null)
     }
+}
+
+/**
+ * An [IntSlider] for a stored setting: the thumb follows the finger, and the value is saved
+ * once, when the drag (or typed value, or reset) is committed, instead of once per drag frame.
+ * Each save is a DataStore write, so this keeps the settings write queue short and the
+ * onStop flush on its fast path (MAD audit fix 1).
+ */
+@Composable
+private fun SavedOnReleaseSlider(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onCommit: (Int) -> Unit,
+    tooltip: String? = null,
+) {
+    var draft by remember(value) { mutableIntStateOf(value) }
+    IntSlider(
+        label = label,
+        value = draft,
+        range = range,
+        onValueChange = { draft = it },
+        tooltip = tooltip,
+        onValueChangeFinished = { if (draft != value) onCommit(draft) },
+    )
 }
