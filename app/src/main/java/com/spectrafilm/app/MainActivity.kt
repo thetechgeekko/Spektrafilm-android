@@ -61,7 +61,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -100,6 +99,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
 import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.InputGamutCompress
@@ -954,17 +957,31 @@ class MainActivity : ComponentActivity() {
         var showOnboarding by remember { mutableStateOf(!settings.seenOnboarding) }
         // One-time editor coach marks, shown once onboarding is out of the way.
         var showEditorCoach by remember { mutableStateOf(!settings.seenEditorCoach) }
-        var screen by remember { mutableStateOf(Screen.EDITOR) }
+        // Navigation 3 back stack (#274): the editor is the root entry and is never popped,
+        // so its saved state outlives every round-trip to a sub-screen. Routes carry their
+        // own arguments and the stack is saved across rotation and process death.
+        val backStack = rememberNavBackStack(EditorRoute)
+        val currentRoute = backStack.lastOrNull() ?: EditorRoute
+        val screen = currentRoute.screen
 
-        fun navigateTo(destination: Screen) {
-            if (destination == Screen.EDITOR && screen != Screen.EDITOR) {
-                // Do not compose the editor with its last in-memory identity. A source acquire or
-                // clear may have completed while the editor destination was disposed; the FIFO
-                // restore below waits behind it and reconciles the latest session first.
+        /**
+         * Every stack change goes through here. Returning to the editor from a sub-screen
+         * must not compose it with its last in-memory identity: a source acquire or clear may
+         * have completed while it was off screen, so the FIFO restore below waits behind that
+         * and reconciles the latest session first.
+         */
+        fun navigate(change: () -> Unit) {
+            val wasEditor = backStack.lastOrNull() == EditorRoute
+            change()
+            if (!wasEditor && backStack.lastOrNull() == EditorRoute) {
                 editorAuthorityReady = false
                 editorEntryGeneration++
             }
-            screen = destination
+        }
+        fun push(route: NavKey) = navigate { backStack.add(route) }
+        fun pop() = navigate { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
+        fun popToEditor() = navigate {
+            while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
         }
 
         LaunchedEffect(editorEntryGeneration) {
@@ -988,6 +1005,12 @@ class MainActivity : ComponentActivity() {
             Ticket139EditorProbe.onHostCreated()
             onDispose { }
         }
+
+        // Profile IDs and names last opened in the Curves screens, for the test probe, which
+        // names a destination without arguments.
+        var lastFilmCurves by remember { mutableStateOf(FilmCurvesRoute("", "")) }
+        var lastPrintCurves by remember { mutableStateOf(PrintCurvesRoute("", "")) }
+
         LaunchedEffect(Unit) {
             if (!Ticket139EditorProbe.isArmed()) return@LaunchedEffect
             Ticket139EditorProbe.navigationRequests.collect { request ->
@@ -997,7 +1020,20 @@ class MainActivity : ComponentActivity() {
                 } catch (_: IllegalArgumentException) {
                     return@collect
                 }
-                navigateTo(destination)
+                val route: NavKey = when (destination) {
+                    Screen.EDITOR -> EditorRoute
+                    Screen.SETTINGS -> SettingsRoute
+                    Screen.DIAGNOSTICS -> DiagnosticsRoute
+                    Screen.ABOUT -> AboutRoute
+                    Screen.HOWTO -> HowToRoute
+                    Screen.CURVES_FILM -> lastFilmCurves
+                    Screen.CURVES_PRINT -> lastPrintCurves
+                }
+                // The probe jumps straight to a destination: the editor plus that one screen.
+                navigate {
+                    while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+                    if (route != EditorRoute) backStack.add(route)
+                }
             }
         }
         SideEffect {
@@ -1020,103 +1056,123 @@ class MainActivity : ComponentActivity() {
         // Catalog-grouped profile options for the Settings default-profile pickers.
         var settingsFilmGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
         var settingsPrintGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
-
-        // Profile IDs and names remembered for the Curves screens.
-        var curvesFilmId by remember { mutableStateOf("") }
-        var curvesFilmName by remember { mutableStateOf("") }
-        var curvesPrintId by remember { mutableStateOf("") }
-        var curvesPrintName by remember { mutableStateOf("") }
-
-        // Back from a pushed sub-screen returns to the editor (root).
-        BackHandler(enabled = screen != Screen.EDITOR) { navigateTo(Screen.EDITOR) }
-
-        val screenState = rememberSaveableStateHolder()
+        // The editor publishes these once its engine is up, but a restored back stack can
+        // open straight onto Settings without composing the editor. Load them here as well so
+        // the pickers are never empty; a later editor publish replaces them.
+        LaunchedEffect(Unit) {
+            if (settingsFilmGroups.isNotEmpty()) return@LaunchedEffect
+            val (film, print) = withContext(dispatchers.io) {
+                val list = runCatching { EngineHolder.get(appContext).listProfiles() }
+                    .getOrDefault(emptyList())
+                StockCatalog.optionsFor(appContext, list, forFilm = true).toGroups() to
+                    StockCatalog.optionsFor(appContext, list, forFilm = false).toGroups()
+            }
+            if (settingsFilmGroups.isEmpty()) {
+                settingsFilmGroups = film
+                settingsPrintGroups = print
+            }
+        }
 
         Box(
             Modifier
                 .fillMaxSize()
                 .background(SpectraIcons.nearBlackCanvas),
         ) {
-            // Each destination keeps its own rememberSaveable bucket, keyed by screen.
-            // Without this the `when` below simply drops EditorScreen out of composition
-            // when the user opens Settings, discarding sourceUri/sourceKind/sourceName/
-            // rotation with it — so coming back from Settings silently landed on the
-            // synthetic demo image instead of the photo being edited. Those four are
-            // declared rememberSaveable precisely so source identity is durable; the nav
-            // swap was defeating that, and it also made any in-app A/B of a render
-            // setting impossible, since reaching the toggle destroyed the subject.
-            if (screen == Screen.EDITOR && !editorAuthorityReady) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    SpectraLoadingIndicator(
-                        color = Color.White,
-                        modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
-                    )
-                }
-            } else screenState.SaveableStateProvider(screen) {
-                when (screen) {
-                    Screen.EDITOR -> key(editorCompositionGeneration) {
-                        EditorScreen(
-                            settings = settings,
-                            restoration = activeRestoration,
-                            sessionRestoreNotice = pendingSessionRestoreNotice,
-                            onSessionRestoreNoticeConsumed = { pendingSessionRestoreNotice = null },
-                            onSessionCheckpoint = acceptEditorSession,
-                            activeCategoryState = editorCategory,
-                            onOpenSettings = { navigateTo(Screen.SETTINGS) },
-                            onOpenAbout = { navigateTo(Screen.ABOUT) },
-                            onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
-                            onOpenFilmCurves = { id, name ->
-                                curvesFilmId = id; curvesFilmName = name; navigateTo(Screen.CURVES_FILM)
-                            },
-                            onOpenPrintCurves = { id, name ->
-                                curvesPrintId = id; curvesPrintName = name; navigateTo(Screen.CURVES_PRINT)
-                            },
-                            onSettingsAction = onSettingsAction,
+            // NavDisplay gives each entry its own rememberSaveable bucket, so EditorScreen's
+            // source identity and rotation survive a trip to Settings and back (without that
+            // the editor came back on the synthetic demo image). System and predictive back
+            // pop one entry; the editor root has nothing below it, so back there stays with
+            // the editor's own BackHandlers.
+            NavDisplay(
+                backStack = backStack,
+                onBack = { pop() },
+                entryProvider = entryProvider {
+                    entry<EditorRoute> {
+                        // Only the top entry may show the editor: a predictive-back preview
+                        // composes it before the pop commits, while its identity is still
+                        // unreconciled.
+                        if (!editorAuthorityReady || backStack.lastOrNull() != EditorRoute) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                SpectraLoadingIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = res.getString(R.string.editor_loading)
+                                    },
+                                )
+                            }
+                        } else key(editorCompositionGeneration) {
+                            EditorScreen(
+                                settings = settings,
+                                restoration = activeRestoration,
+                                sessionRestoreNotice = pendingSessionRestoreNotice,
+                                onSessionRestoreNoticeConsumed = { pendingSessionRestoreNotice = null },
+                                onSessionCheckpoint = acceptEditorSession,
+                                activeCategoryState = editorCategory,
+                                onOpenSettings = { push(SettingsRoute) },
+                                onOpenAbout = { push(AboutRoute) },
+                                onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
+                                onOpenFilmCurves = { id, name ->
+                                    FilmCurvesRoute(id, name).let { lastFilmCurves = it; push(it) }
+                                },
+                                onOpenPrintCurves = { id, name ->
+                                    PrintCurvesRoute(id, name).let { lastPrintCurves = it; push(it) }
+                                },
+                                onSettingsAction = onSettingsAction,
+                            )
+                        }
+                    }
+                    entry<SettingsRoute> {
+                        NavScaffold(stringResource(R.string.editor_action_settings), onBack = { pop() }) {
+                            SettingsScreen(
+                                state = settingsUi,
+                                onAction = onSettingsAction,
+                                filmGroups = settingsFilmGroups,
+                                printGroups = settingsPrintGroups,
+                                onShowOnboarding = { showOnboarding = true; popToEditor() },
+                                onOpenDiagnostics = { push(DiagnosticsRoute) },
+                                updateUi = updateUi,
+                                onUpdateAction = onUpdateAction,
+                            )
+                        }
+                    }
+                    entry<DiagnosticsRoute> {
+                        NavScaffold(stringResource(R.string.editor_nav_diagnostics), onBack = { pop() }) {
+                            DiagnosticsScreen()
+                        }
+                    }
+                    entry<AboutRoute> {
+                        NavScaffold(stringResource(R.string.editor_action_about), onBack = { pop() }) {
+                            AboutScreen(onOpenHowTo = { push(HowToRoute) })
+                        }
+                    }
+                    entry<HowToRoute> {
+                        NavScaffold(stringResource(R.string.screen_howto_title), onBack = { pop() }) {
+                            // Header supplied by the scaffold above, so the guide draws none.
+                            HowToUseScreen(onBack = null)
+                        }
+                    }
+                    entry<FilmCurvesRoute> { route ->
+                        ProfileCurvesScreen(
+                            profileId = route.profileId,
+                            displayName = route.displayName,
+                            onBack = { pop() },
                         )
                     }
-                    Screen.SETTINGS -> NavScaffold(stringResource(R.string.editor_action_settings), onBack = { navigateTo(Screen.EDITOR) }) {
-                        SettingsScreen(
-                            state = settingsUi,
-                            onAction = onSettingsAction,
-                            filmGroups = settingsFilmGroups,
-                            printGroups = settingsPrintGroups,
-                            onShowOnboarding = { showOnboarding = true; navigateTo(Screen.EDITOR) },
-                            onOpenDiagnostics = { navigateTo(Screen.DIAGNOSTICS) },
-                            updateUi = updateUi,
-                            onUpdateAction = onUpdateAction,
+                    entry<PrintCurvesRoute> { route ->
+                        ProfileCurvesScreen(
+                            profileId = route.profileId,
+                            displayName = route.displayName,
+                            onBack = { pop() },
                         )
                     }
-                    Screen.DIAGNOSTICS -> NavScaffold(stringResource(R.string.editor_nav_diagnostics), onBack = { navigateTo(Screen.SETTINGS) }) {
-                        DiagnosticsScreen()
-                    }
-                    Screen.ABOUT -> NavScaffold(stringResource(R.string.editor_action_about), onBack = { navigateTo(Screen.EDITOR) }) {
-                        AboutScreen(onOpenHowTo = { navigateTo(Screen.HOWTO) })
-                    }
-                    Screen.HOWTO -> NavScaffold(
-                        stringResource(R.string.screen_howto_title),
-                        onBack = { navigateTo(Screen.ABOUT) },
-                    ) {
-                        // Header supplied by the scaffold above, so the guide draws none.
-                        HowToUseScreen(onBack = null)
-                    }
-                    Screen.CURVES_FILM -> ProfileCurvesScreen(
-                        profileId = curvesFilmId,
-                        displayName = curvesFilmName,
-                        onBack = { navigateTo(Screen.EDITOR) },
-                    )
-                    Screen.CURVES_PRINT -> ProfileCurvesScreen(
-                        profileId = curvesPrintId,
-                        displayName = curvesPrintName,
-                        onBack = { navigateTo(Screen.EDITOR) },
-                    )
-                }
-            }
+                },
+            )
 
             if (showOnboarding && screen == Screen.EDITOR) {
                 WelcomeFlow(
                     onFinish = { settings.seenOnboarding = true; showOnboarding = false },
                     onOpenSettings = {
-                        settings.seenOnboarding = true; showOnboarding = false; screen = Screen.SETTINGS
+                        settings.seenOnboarding = true; showOnboarding = false; push(SettingsRoute)
                     },
                     onReportIssue = { Links.open(ctx, Links.NEW_ISSUE) },
                 )
