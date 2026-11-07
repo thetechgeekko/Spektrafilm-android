@@ -169,6 +169,8 @@
     <string name="screen_settings_theme">Theme</string>
     <string name="screen_settings_dynamic_color">Material You colour</string>
     <string name="screen_settings_dynamic_color_note">Derive the palette from your wallpaper. Off uses the built-in scheme.</string>
+    <string name="screen_settings_language">App language</string>
+    <string name="screen_settings_language_note">Current: %1$s. Opens the system language setting for this app.</string>
     <string name="screen_settings_render_defaults">Render defaults</string>
     <string name="screen_settings_render_defaults_note">Applied when the app starts. Per-image edits and presets still override these.</string>
     <string name="screen_settings_default_output_cs">Default output color space</string>
@@ -266,4 +268,14 @@
     <string name="screen_curves_axis_log_s">log S</string>
     <string name="screen_curves_axis_log_e">log E</string>
     <string name="screen_curves_axis_density">Density</string>
+    <string name="theme_mode_system">System default</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+    <string name="export_format_png">PNG (8-bit)</string>
+    <string name="export_format_jpeg">JPEG</string>
+    <string name="export_format_ultra_hdr">Ultra HDR (JPEG)</string>
+    <string name="export_format_tiff16">16-bit TIFF</string>
+    <string name="export_format_png16">16-bit PNG</string>
+    <string name="export_format_tiff32f">32-bit float TIFF</string>
+    <string name="export_format_scene_linear_tiff">Scene-linear input (32-bit TIFF)</string>
 </resources>

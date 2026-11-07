@@ -13,6 +13,8 @@
  */
 package com.spectrafilm.app
 
+import android.os.Build
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,6 +65,9 @@ internal fun SettingsScreen(
     onUpdateAction: (UpdateAction) -> Unit = {},
 ) {
     val ctx = LocalContext.current
+    // Dropdown's display lambda isn't composable, so resolve the translated labels up front.
+    val themeLabels = ThemeMode.entries.associateWith { stringResource(it.labelRes) }
+    val formatLabels = ExportFormat.entries.associateWith { stringResource(it.labelRes) }
 
     val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
     // Label only: each link button keeps its own click action (null action merges).
@@ -87,7 +92,7 @@ internal fun SettingsScreen(
                 label = stringResource(R.string.screen_settings_theme),
                 selected = state.theme,
                 options = ThemeMode.entries.toList(),
-                display = { it.display },
+                display = { themeLabels.getValue(it) },
                 onSelect = { onAction(SettingsAction.SetTheme(it)) },
             )
             // Only offered where the platform can actually do it (API 31+). Showing a switch that
@@ -98,6 +103,15 @@ internal fun SettingsScreen(
                     note = stringResource(R.string.screen_settings_dynamic_color_note),
                     checked = state.dynamicColor,
                     onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            // Per-app language lives in the system (Android 13+); this row only opens it, and
+            // only appears once the app ships more than one language (see AppLanguage.kt).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && appLanguageChoiceAvailable(ctx)) {
+                LanguageRow(
+                    current = currentAppLanguageLabel(ctx),
+                    onClick = { ctx.startActivity(appLanguageSettingsIntent(ctx)) },
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -179,7 +193,7 @@ internal fun SettingsScreen(
                 label = stringResource(R.string.screen_settings_export_format),
                 selected = state.exportFormat,
                 options = ExportFormat.entries.toList(),
-                display = { it.display },
+                display = { formatLabels.getValue(it) },
                 onSelect = { onAction(SettingsAction.SetExportFormat(it)) },
             )
             if (state.showsQuality) {
@@ -281,6 +295,24 @@ internal fun SettingsScreen(
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(title, expanded, { expanded = it }) { content() }
+}
+
+/** A tappable row that opens the system per-app language page; one TalkBack node, full-row target. */
+@Composable
+private fun LanguageRow(current: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 8.dp),
+    ) {
+        Text(stringResource(R.string.screen_settings_language), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            stringResource(R.string.screen_settings_language_note, current),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 /**

@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.system.Os
+import androidx.annotation.StringRes
 import androidx.exifinterface.media.ExifInterface
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
@@ -470,22 +471,28 @@ fun lutFileName(film: String, print: String, size: Int, clf: Boolean): String {
     return "${clean(film)}_${clean(print)}_$size.${if (clf) "clf" else "cube"}"
 }
 
-enum class ExportFormat(val display: String, val mime: String, val ext: String) {
-    PNG("PNG (8-bit)", "image/png", "png"),
-    JPEG("JPEG", "image/jpeg", "jpg"),
+/** [display] is the stable English name (logs, diagnostics); the UI shows [labelRes]. */
+enum class ExportFormat(
+    val display: String,
+    val mime: String,
+    val ext: String,
+    @StringRes val labelRes: Int,
+) {
+    PNG("PNG (8-bit)", "image/png", "png", R.string.export_format_png),
+    JPEG("JPEG", "image/jpeg", "jpg", R.string.export_format_jpeg),
     // Ultra HDR is a JPEG container with an embedded ISO 21496-1 / Google gain map +
     // MPF index — its MIME type stays image/jpeg and the extension stays jpg.
-    ULTRA_HDR("Ultra HDR (JPEG)", "image/jpeg", "jpg"),
-    TIFF("16-bit TIFF", "image/tiff", "tif"),
+    ULTRA_HDR("Ultra HDR (JPEG)", "image/jpeg", "jpg", R.string.export_format_ultra_hdr),
+    TIFF("16-bit TIFF", "image/tiff", "tif", R.string.export_format_tiff16),
     // True 16-bit-per-channel PNG via lib:pngwriter (libsfpng.so) — the engine's float
     // SimResult is quantised directly to uint16, no 8-bit Bitmap round-trip (unlike PNG).
-    PNG16("16-bit PNG", "image/png", "png"),
+    PNG16("16-bit PNG", "image/png", "png", R.string.export_format_png16),
     // True 32-bit IEEE-float TIFF (lib:tiffwriter) — the engine's float SimResult written
     // VERBATIM (no quantise/clamp). Archival / scene-linear-grade-elsewhere export.
-    TIFF32F("32-bit float TIFF", "image/tiff", "tif"),
+    TIFF32F("32-bit float TIFF", "image/tiff", "tif", R.string.export_format_tiff32f),
     // The decoded scene-linear INPUT (before the film engine) as a 32-bit float TIFF — verbatim,
     // untagged scene-referred linear, for grading in another app (the honest "linear DNG" hand-off).
-    SCENE_LINEAR_TIFF("Scene-linear input (32-bit TIFF)", "image/tiff", "tif"),
+    SCENE_LINEAR_TIFF("Scene-linear input (32-bit TIFF)", "image/tiff", "tif", R.string.export_format_scene_linear_tiff),
 }
 
 /**
