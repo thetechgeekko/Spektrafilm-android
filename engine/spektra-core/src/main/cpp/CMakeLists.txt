@@ -58,6 +58,7 @@ add_library(spektra SHARED
         model/grain.cpp                      # AgX particle grain model (M6)
         model/morph_curves.cpp               # opt-in s023 print density-curve morph (default OFF)
         model/date_stamp.cpp                 # opt-in date-back imprint (default OFF; idea from SpektraLab RFC-031)
+        model/contrast_mask.cpp              # opt-in virtual contrast mask at the print (default OFF; idea from SpektraLab RFC-024)
         model/scene_latitude.cpp             # opt-in scene latitude mapping (default OFF; idea from SpektraLab RFC-023)
         model/gamut_compression.cpp          # opt-in gamut compression: ACES RGC v1.3 output + radial-to-locus input (default OFF)
         model/color_output.cpp               # XYZ->output RGB + CCTF (M3)

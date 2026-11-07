@@ -914,6 +914,12 @@ static uint64_t compute_print_density_key(const std::vector<float>& film_density
     h = fnv1a64(h, &p->scanner_black_correction, sizeof(p->scanner_black_correction));
     h = fnv1a64(h, &p->scanner_white_level, sizeof(p->scanner_white_level));
     h = fnv1a64(h, &p->scanner_black_level, sizeof(p->scanner_black_level));
+    // Opt-in virtual contrast mask (print_expose).
+    h = fnv1a64(h, &p->contrast_mask_active, sizeof(p->contrast_mask_active));
+    h = fnv1a64(h, &p->contrast_mask_highlights, sizeof(p->contrast_mask_highlights));
+    h = fnv1a64(h, &p->contrast_mask_shadows, sizeof(p->contrast_mask_shadows));
+    h = fnv1a64(h, &p->contrast_mask_core, sizeof(p->contrast_mask_core));
+    h = fnv1a64(h, &p->contrast_mask_scale, sizeof(p->contrast_mask_scale));
     return h;
 }
 
@@ -1743,6 +1749,7 @@ const char* pointwise_route_ineligibility(
     if (pparams.diffusion_filter.active) return "print_diffusion";
     if (pparams.morph.active) return "print_morph";
     if (pparams.preflash_exposure > 0.0) return "preflash";
+    if (pparams.contrast_mask.engaged()) return "contrast_mask";
     if (pparams.bw_exposure_correction != 1.0 ||
         sparams.bw_xyz_correction)
         return "scan_bw_correction";
@@ -2579,6 +2586,13 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // pixel_size_um from the resize service drives the µm->pixel conversion.
     apply_user_diffusion_filter(pparams.diffusion_filter, p, /*is_camera=*/false);
     pparams.pixel_size_um = resize_pixel_size_um;
+    // Opt-in virtual contrast mask (model/contrast_mask.h). Default-off -> never
+    // engaged, so print_expose takes its unchanged single-pass path.
+    pparams.contrast_mask.active = p->contrast_mask_active != 0;
+    pparams.contrast_mask.highlights = static_cast<double>(p->contrast_mask_highlights);
+    pparams.contrast_mask.shadows = static_cast<double>(p->contrast_mask_shadows);
+    pparams.contrast_mask.core = static_cast<double>(p->contrast_mask_core);
+    pparams.contrast_mask.scale = static_cast<double>(p->contrast_mask_scale);
 
     // Scanner BLACK/WHITE correction (print route). Active only when a correction is
     // enabled AND the print paper is NEGATIVE (color_reference.py's
@@ -3411,6 +3425,12 @@ void spk_default_params(spk_params* p) {
     p->date_stamp_color[0] = 1.0f;
     p->date_stamp_color[1] = 0.18f;
     p->date_stamp_color[2] = 0.0f;
+    p->contrast_mask_active = 0;
+    p->contrast_mask_highlights = 1.0f;
+    p->contrast_mask_shadows = 0.5f;
+    p->contrast_mask_core = 1.0f;
+    p->contrast_mask_scale = 0.03f;
+    p->reserved_tail_pad1 = 0;
     p->enlarger_diffusion_strength = 0.5f;
     p->enlarger_diffusion_spatial_scale = 1.0f;
     p->enlarger_diffusion_halo_warmth = 0.0f;
@@ -3977,6 +3997,7 @@ spk_status spk_bake_cube_lut_cancellable(
     bp.enlarger_diffusion_active = 0;
     bp.lens_blur_um = 0.0f;
     bp.date_stamp_active = 0;  // positional: a LUT lattice has no frame corner
+    bp.contrast_mask_active = 0;  // spatial: a lattice has no neighbourhood
     bp.dir_diffusion_size_um = 0.0f;  // DIR stays pointwise (size 0), like deactivate
     bp.scanner_lens_blur = 0.0f;
     bp.scanner_unsharp[0] = 0.0f;

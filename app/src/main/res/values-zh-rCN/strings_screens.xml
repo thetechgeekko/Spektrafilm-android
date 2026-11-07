@@ -90,6 +90,8 @@
     <string name="screen_howto_cat_couplers_desc">DIR 成色剂扩散</string>
     <string name="screen_howto_cat_preflash">预闪</string>
     <string name="screen_howto_cat_preflash_desc">基础灰雾预闪量</string>
+    <string name="screen_howto_cat_contrast_mask">反差蒙版</string>
+    <string name="screen_howto_cat_contrast_mask_desc">暗房柔焦蒙版，处理大面积高光与阴影（冲印流程，默认关闭）</string>
     <string name="screen_howto_cat_experimental">实验功能</string>
     <string name="screen_howto_cat_experimental_desc">开发者选项和高级引擎开关</string>
     <string name="screen_howto_cat_tone_curve">色调曲线</string>

@@ -26,6 +26,7 @@ internal enum class Category(val label: String, @StringRes val labelRes: Int) {
     GLARE("Glare", R.string.editor_category_glare),
     COUPLERS("Couplers", R.string.editor_category_couplers),
     PREFLASH("Preflash", R.string.editor_category_preflash),
+    CONTRAST_MASK("Contrast mask", R.string.editor_category_contrast_mask),
     EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
     TONE_CURVE("Tone Curve", R.string.editor_category_tone_curve),
     MASKS("Masks", R.string.editor_category_masks),
@@ -78,7 +79,7 @@ internal val Category.stage: Stage
         Category.SOURCE, Category.PRESETS -> Stage.LOOK
         Category.SIMULATION, Category.INPUT, Category.RAW_WB,
         Category.GRAIN, Category.HALATION, Category.COUPLERS -> Stage.FILM
-        Category.PREFLASH -> Stage.PRINT
+        Category.PREFLASH, Category.CONTRAST_MASK -> Stage.PRINT
         Category.GLARE -> Stage.SCAN
         Category.TONE_CURVE, Category.MASKS, Category.DISPLAY,
         Category.EXPERIMENTAL -> Stage.FINISH
@@ -115,6 +116,7 @@ internal val CATEGORY_SECTIONS: Map<Category, List<String>> = mapOf(
     Category.GRAIN to listOf("grain"),
     Category.HALATION to listOf("halation"),
     Category.GLARE to listOf("glare"),
+    Category.CONTRAST_MASK to listOf("contrastMask"),
     Category.COUPLERS to listOf("couplers"),
     Category.EXPERIMENTAL to listOf("experimental"),
     Category.TONE_CURVE to listOf("toneCurve"),

@@ -2969,6 +2969,7 @@ internal fun MainActivity.EditorScreen(
                         )
                         Category.GRAIN -> GrainSection(state)
                         Category.PREFLASH -> PreflashSection(state)
+                        Category.CONTRAST_MASK -> ContrastMaskSection(state)
                         Category.HALATION -> HalationSection(state)
                         Category.COUPLERS -> CouplersSection(state)
                         Category.GLARE -> GlareSection(state)

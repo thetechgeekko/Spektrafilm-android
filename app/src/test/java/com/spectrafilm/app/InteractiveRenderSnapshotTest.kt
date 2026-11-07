@@ -39,4 +39,16 @@ class InteractiveRenderSnapshotTest {
         assertEquals(0.3f, snapshot.vibrance, 0f)
         assertEquals(0.4f, snapshot.gamutCompress, 0f)
     }
+
+    @Test
+    fun aCroppedRenderKeepsTheContrastMaskTheSamePhysicalSize() {
+        val state = ParamsState().apply {
+            contrastMaskActive = true
+            contrastMaskScale = 0.03f
+        }
+        val crop = state.captureInteractiveRenderSnapshot(renderKey = 1)
+            .paramsForCrop(cropFraction = 0.25f)
+        assertEquals(true, crop.printRender.contrastMask.active)
+        assertEquals(0.12f, crop.printRender.contrastMask.scale, 1e-6f)
+    }
 }

@@ -25,6 +25,7 @@
 #include "kernels/lut3d_cache.h"
 #include "kernels/parallel.h"
 #include "runtime/stage_timer.h"
+#include "model/contrast_mask.h"
 #include "model/density_curves.h"
 #include "model/diffusion.h"
 #include "model/morph_curves.h"
@@ -249,6 +250,13 @@ void print_expose(const Profile& film, const Profile& print_profile,
     // is unused, keeping the default (no-op) path byte-identical.
     std::vector<double> raw_buf;
     if (diffusion) raw_buf.resize(static_cast<size_t>(npix) * 3);
+    // Opt-in contrast mask (model/contrast_mask.h, not an oracle stage). It needs
+    // the whole frame's exposure before any pixel's tail can run, so when engaged
+    // the per-pixel loop parks y in `mask_y` and a second pass finishes the tail.
+    // Off (the default): `mask_y` stays empty and the loop below is unchanged.
+    const bool mask = params.contrast_mask.engaged();
+    std::vector<double> mask_y;
+    if (mask) mask_y.resize(static_cast<size_t>(npix) * 3);
 
     // print sensitivity = nan_to_num(10**log_sensitivity) on the working shape.
     // Precompute once: print_profile.log_sensitivity is (S*3,) row-major [s*3+k].
@@ -538,6 +546,11 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // expose(): raw = 10^log_raw; raw *= print_exposure * bw_correction;
         // then the optical diffusion filter (if active) runs on `raw`; finally
         // return log10(max(raw,0) + 1e-10).
+        if (mask) {
+            double* my = mask_y.data() + static_cast<size_t>(p) * 3;
+            my[0] = y0; my[1] = y1; my[2] = y2;
+            continue;
+        }
         const double mult = params.print_exposure * params.bw_exposure_correction;
         double r0 = y0 * mult;
         double r1 = y1 * mult;
@@ -554,6 +567,29 @@ void print_expose(const Profile& film, const Profile& print_profile,
         }
     }
     });
+
+    if (mask) {
+        const double mult = params.print_exposure * params.bw_exposure_correction;
+        contrast_mask_apply(mask_y.data(), width, height, preflash_raw, mult,
+                            params.contrast_mask);
+        // The same tail as the per-pixel loop above, on the masked exposure.
+        const double* my = mask_y.data();
+        parallel_for(0, npix, [&](int lo, int hi) {
+            for (int p = lo; p < hi; ++p) {
+                const size_t i = static_cast<size_t>(p) * 3;
+                const double r0 = my[i] * mult, r1 = my[i + 1] * mult, r2 = my[i + 2] * mult;
+                if (diffusion) {
+                    double* rb = raw_buf.data() + i;
+                    rb[0] = r0; rb[1] = r1; rb[2] = r2;
+                } else {
+                    float* out = log_raw_print_out + i;
+                    out[0] = static_cast<float>(std::log10(std::fmax(r0, 0.0) + 1e-10));
+                    out[1] = static_cast<float>(std::log10(std::fmax(r1, 0.0) + 1e-10));
+                    out[2] = static_cast<float>(std::log10(std::fmax(r2, 0.0) + 1e-10));
+                }
+            }
+        });
+    }
 
     if (diffusion) {
         apply_diffusion_filter_um(raw_buf.data(), width, height,

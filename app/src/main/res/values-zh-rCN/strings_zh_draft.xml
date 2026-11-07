@@ -66,6 +66,9 @@
     <string name="help_preflash_title">预闪</string>
     <string name="help_preflash_summary">对相纸进行微弱、均匀的预曝光，以缓和过强的对比。</string>
     <string name="help_preflash_body">暗房放大时，有时会在正式曝光前用微弱均匀的光先闪一下相纸。这样能提亮最深的阴影，温和地降低照片对比度，而不影响高光。调高“曝光”可让阴影更柔和、更通透；Y 和 M 滤镜偏移会给预闪光加上色调，就像放大机的滤色一样。</string>
+    <string name="help_contrast_mask_title">反差蒙版</string>
+    <string name="help_contrast_mask_summary">像暗房蒙版一样，在大面积亮部减少光量、在大面积暗部增加光量。</string>
+    <string name="help_contrast_mask_body">过去的放大师会把一张柔和、模糊的底片拷贝与原底片叠在一起放大。底片薄的地方光被挡住一些，底片厚的地方则不受影响，于是照片中大面积的亮部与暗部都向中间调靠拢，而边缘和纹理依然清晰。“高光”找回天空与高光细节，“阴影”打开暗部，“不受影响的中间调”保护中间灰阶，“柔和度”决定蒙版的模糊程度。默认关闭，仅适用于冲印流程。</string>
     <string name="help_glare_title">眩光</string>
     <string name="help_glare_summary">光线在相纸表面散射形成的朦胧光雾。</string>
     <string name="help_glare_body">这模拟了在相纸和扫描仪中四处反射的杂散光，会略微抬高黑位，并在画面上蒙上一层柔和的雾。它是随机效果，因此默认关闭，也不属于精确可重复的导出。调高“百分比”可获得更朦胧、对比更低、更怀旧的感觉。</string>
