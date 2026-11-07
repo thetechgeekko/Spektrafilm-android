@@ -24,6 +24,7 @@
 #include "raw_input_snapshot.h"
 #include "raw_decode_budget.h"
 #include "raw_cleanup.h"
+#include "raw_inset_crop.h"
 
 #include <algorithm>
 #include <array>
@@ -2379,6 +2380,26 @@ void applyParityParams(LibRaw& raw, const DecodeOptions& options) {
     }
 }
 
+// The geometry raw_inset_crop.h needs, read once unpack() has finalized it.
+rawcrop::InsetGeometry insetGeometryOf(const LibRaw& raw) {
+    const auto& s = raw.imgdata.sizes;
+    rawcrop::InsetGeometry g;
+    g.width = s.width;
+    g.height = s.height;
+    g.leftMargin = s.left_margin;
+    g.topMargin = s.top_margin;
+    g.rawWidth = s.raw_width;
+    g.rawHeight = s.raw_height;
+    // raw2image_start() replaces flip with params.user_flip when one is set.
+    g.flip = raw.imgdata.params.user_flip >= 0 ? raw.imgdata.params.user_flip : s.flip;
+    g.fujiRotated = raw.imgdata.rawdata.ioparams.fuji_width != 0;
+    g.cropLeft = s.raw_inset_crops[0].cleft;
+    g.cropTop = s.raw_inset_crops[0].ctop;
+    g.cropWidth = s.raw_inset_crops[0].cwidth;
+    g.cropHeight = s.raw_inset_crops[0].cheight;
+    return g;
+}
+
 // Run unpack + dcraw_process + dcraw_make_mem_image and copy the 16-bit linear RGB
 // into a normalized float result (value / 65535), matching the Python:
 //   rgb = raw.postprocess(...).astype(float32) / 65535.0
@@ -2514,6 +2535,9 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
         }
     }
     if (cancellationRequested(options)) return cancellationFailure();
+    // The usable-area box LibRaw reported (raw_inset_crops[0]), captured in the geometry
+    // unpack() finalized, before dcraw_process() rewrites sizes for its output.
+    const rawcrop::InsetGeometry inset = insetGeometryOf(raw);
     phaseMs();  // param setup is not decode work — keep it out of `process`
     rc = raw.dcraw_process();
     mProcess = phaseMs();
@@ -2567,16 +2591,24 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     }
     result.descriptor.processedBitsPerSample = image->bits;
 
-    const int fullW = image->width;
-    const int fullH = image->height;
-    if (fullW <= 0 || fullH <= 0 ||
-        pixelProductExceeds(static_cast<uint64_t>(fullW),
-                            static_cast<uint64_t>(fullH),
+    const int bitmapW = image->width;
+    const int bitmapH = image->height;
+    if (bitmapW <= 0 || bitmapH <= 0 ||
+        pixelProductExceeds(static_cast<uint64_t>(bitmapW),
+                            static_cast<uint64_t>(bitmapH),
                             pixelLimit)) {
         return dimensionLimitFailure(pixelLimit);
     }
+    // Copy only the usable area: a sensor that returns a masked optical-black border (Sony
+    // A1 II) would otherwise render it as a dark band. No reported box, or one that does not
+    // fit, keeps the whole bitmap (raw_inset_crop.h).
+    const rawcrop::OutputCrop crop = rawcrop::insetCropForBitmap(inset, bitmapW, bitmapH);
+    const int cropX = crop.active ? crop.x : 0;
+    const int cropY = crop.active ? crop.y : 0;
+    const int fullW = crop.active ? crop.width : bitmapW;
+    const int fullH = crop.active ? crop.height : bitmapH;
     const std::size_t fullPixels =
-        static_cast<std::size_t>(fullW) * static_cast<std::size_t>(fullH);
+        static_cast<std::size_t>(bitmapW) * static_cast<std::size_t>(bitmapH);
     const std::size_t bytesPerSample =
         image->bits == 16 ? sizeof(std::uint16_t) : sizeof(std::uint8_t);
     if (fullPixels > std::numeric_limits<std::size_t>::max() / 3U ||
@@ -2618,7 +2650,9 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     mAllocate = phaseMs();
     for (int oy = 0; oy < oh; ++oy) {
         if (cancellationRequested(options)) return cancellationFailure();
-        const size_t srow = static_cast<size_t>(oy) * step * fullW;
+        const size_t srow =
+            (static_cast<size_t>(cropY) + static_cast<size_t>(oy) * step) * bitmapW +
+            static_cast<size_t>(cropX);
         for (int ox = 0; ox < ow; ++ox) {
             const size_t si = (srow + static_cast<size_t>(ox) * step) * 3;
             const size_t di = (static_cast<size_t>(oy) * ow + ox) * 3;
