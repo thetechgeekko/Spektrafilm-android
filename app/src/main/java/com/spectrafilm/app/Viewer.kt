@@ -63,6 +63,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -340,6 +342,8 @@ fun ZoomableImage(
             .clipToBounds()
             .onSizeChanged { viewSize = it }
             .semantics { stateDescription = zoomState }
+            // Mouse cursor: an open hand while zoomed says "drag to pan".
+            .pointerHoverIcon(if (zoomedIn) PointerIcon.Hand else PointerIcon.Default)
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val oldScale = scale

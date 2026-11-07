@@ -61,7 +61,7 @@
     <string name="editor_status_prev_export_failed">previous export failed</string>
     <string name="editor_status_prev_export_cancelled">previous export cancelled</string>
     <string name="editor_status_prev_export_reconciling">previous export interrupted · storage reconciliation is running</string>
-    <string name="editor_status_rendering_full">rendering full resolution…</string>
+    <string name="editor_status_rendering_full">rendering export…</string>
     <string name="editor_status_saved_to_gallery">saved to Pictures/Spektrafilm</string>
     <string name="editor_status_export_complete_retrying_save">export complete · retrying editor session save</string>
     <string name="editor_status_export_complete_save_waiting">export complete · editor session save is waiting</string>
@@ -301,7 +301,7 @@
 
     <!-- Export overlay -->
     <string name="editor_export_cancel">Cancel export</string>
-    <string name="editor_export_rendering">Rendering at full resolution…</string>
+    <string name="editor_export_rendering">Rendering export…</string>
     <string name="editor_export_saved">Saved to gallery</string>
     <string name="editor_export_done">Done</string>
     <string name="editor_export_share">Share</string>
