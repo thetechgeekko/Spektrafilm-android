@@ -44,6 +44,14 @@ SOURCE=$OUT/corpus-source.png
 APP_SHA=$(sha256sum "$APP_APK" | cut -d' ' -f1)
 echo "run_preview: app $APP_APK sha256=$APP_SHA runs=$RUNS"
 
+# The APP must create its external files dir before we push into it: on a fresh install
+# (the CI emulator) `adb push` would otherwise create it owned by shell, and the app then
+# gets EACCES opening bench-corpus.json. Harmless when the dir already exists.
+adb_ shell am instrument -w -r -e ticket177_phase prepare \
+  $PKG.test/$PKG.ReleaseCandidateSmokeInstrumentation | grep -a "TICKET177_PREPARE: PASS" >/dev/null || {
+  echo "run_preview: could not prepare the app's external files dir" >&2
+  exit 1
+}
 adb_ push "$(host_path "$SOURCE")" "$DEVICE_DIR/bench-source.png" >/dev/null
 adb_ push "$(host_path "$REPO/tools/baseline/corpus.json")" "$DEVICE_DIR/bench-corpus.json" >/dev/null
 

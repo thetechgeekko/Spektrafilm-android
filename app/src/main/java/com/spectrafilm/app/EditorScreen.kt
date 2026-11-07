@@ -32,55 +32,27 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.LinearImage
-import com.spectrafilm.engine.RenderKind
-import com.spectrafilm.engine.SimResult
 import com.spectrafilm.engine.SpektraEngine
-import com.spectrafilm.app.masks.MaskCompositor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
 
-private const val OPEN_PLACEHOLDER_FADE_MS = 220
+internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
 /**
  * True once the editor has restored in this process. Distinguishes a cold start (the first
@@ -134,8 +106,10 @@ internal fun MainActivity.EditorScreen(
         if (sessionRestoreNotice != null) onSessionRestoreNoticeConsumed()
     }
 
-    var engine by remember { mutableStateOf<SpektraEngine?>(null) }
-    var profiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    val engineState = remember { mutableStateOf<SpektraEngine?>(null) }
+    var engine by engineState
+    val profilesState = remember { mutableStateOf<List<String>>(emptyList()) }
+    var profiles by profilesState
     val state = remember { ParamsState() }
 
     // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
@@ -185,15 +159,19 @@ internal fun MainActivity.EditorScreen(
     // Keep the resulting identity as ordinary live state: destination SavedState is never a
     // second restoration authority and therefore cannot resurrect an older subject.
     val restoredSource = initialRestoration.source
-    var sourceUri by remember { mutableStateOf(restoredSource.uri?.let(Uri::parse)) }
-    var sourceKind by remember { mutableStateOf(restoredSource.kind) }
-    var sourceName by remember { mutableStateOf(restoredSource.displayName) }
+    val sourceUriState = remember { mutableStateOf(restoredSource.uri?.let(Uri::parse)) }
+    var sourceUri by sourceUriState
+    val sourceKindState = remember { mutableStateOf(restoredSource.kind) }
+    var sourceKind by sourceKindState
+    val sourceNameState = remember { mutableStateOf(restoredSource.displayName) }
+    var sourceName by sourceNameState
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
     val sourceMutationGate = sourceRuntime.mutations
-    var sourceAuthorizationRequired by remember {
+    val sourceAuthorizationRequiredState = remember {
         mutableStateOf(restoredSource.authorizationRequired)
     }
+    var sourceAuthorizationRequired by sourceAuthorizationRequiredState
     val sourceRenderAllowed = !sourceAuthorizationRequired
     val exportSourceIdentity = remember(
         sourceUri,
@@ -206,8 +184,10 @@ internal fun MainActivity.EditorScreen(
             authorizationRequired = sourceAuthorizationRequired,
         )
     }
-    var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var beforePreview by remember { mutableStateOf<Bitmap?>(null) }
+    val previewState = remember { mutableStateOf<Bitmap?>(null) }
+    var preview by previewState
+    val beforePreviewState = remember { mutableStateOf<Bitmap?>(null) }
+    var beforePreview by beforePreviewState
     // The histogram captures its pixels during composition and never retains either Bitmap.
     // Once a frame is replaced (or the editor leaves composition), no asynchronous reader can
     // still touch it, so release the native pixel storage deterministically after composition.
@@ -219,10 +199,14 @@ internal fun MainActivity.EditorScreen(
         val owned = beforePreview
         onDispose { owned?.let(::retirePreviewBitmap) }
     }
-    var previewBusy by remember { mutableStateOf(false) }
-    var decoding by remember { mutableStateOf(false) }
-    var lastRenderMs by remember { mutableStateOf<Long?>(null) }
-    var renderErr by remember { mutableStateOf<String?>(null) }
+    val previewBusyState = remember { mutableStateOf(false) }
+    var previewBusy by previewBusyState
+    val decodingState = remember { mutableStateOf(false) }
+    var decoding by decodingState
+    val lastRenderMsState = remember { mutableStateOf<Long?>(null) }
+    var lastRenderMs by lastRenderMsState
+    val renderErrState = remember { mutableStateOf<String?>(null) }
+    var renderErr by renderErrState
     // One-shot at-restore snapshot (remember, no keys): later runtime transitions reach the
     // UI through its Compose observer, never through this initializer.
     val activeExportRunAtRestore = remember { authorizedRunningExportId(exportSourceIdentity) }
@@ -251,7 +235,8 @@ internal fun MainActivity.EditorScreen(
         EditorExportPhase.CANCELLED -> stringResource(R.string.editor_status_prev_export_cancelled)
         EditorExportPhase.RECONCILING -> stringResource(R.string.editor_status_prev_export_reconciling)
     }
-    var status by remember { mutableStateOf(initialEditorStatus) }
+    val statusState = remember { mutableStateOf(initialEditorStatus) }
+    var status by statusState
     // Lightroom-style export sheet (per-export format / quality / size / colour / name,
     // seeded from Settings and remembered back on export) and the export phase machine
     // live in ExportViewModel (#272). Each editor composition seeds it once from the
@@ -283,7 +268,8 @@ internal fun MainActivity.EditorScreen(
     val exportInFlight = exportUi.inFlight
     val exportDone = exportUi.done
     val exportMaskVisible = exportUi.maskVisible
-    var previewTick by remember { mutableIntStateOf(0) }
+    val previewTickState = remember { mutableIntStateOf(0) }
+    var previewTick by previewTickState
     val publicationGate = remember { RenderPublicationGate() }
     val previewRevision = remember(previewTick) { publicationGate.nextRevision() }
     // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
@@ -310,9 +296,10 @@ internal fun MainActivity.EditorScreen(
     // source rotation (applied to the decoded LinearImage -> preview AND export).
     // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
     // (see loadSource) and is NOT persisted in the recipe.
-    var rotation by remember {
+    val rotationState = remember {
         mutableStateOf(SourceRotation.fromDegrees(initialRestoration.rotationDegrees))
     }
+    var rotation by rotationState
 
     // #286: a display-only stand-in (the file's embedded thumbnail, else the provider's) shown
     // from the moment a source is picked or restored until the first engine render lands.
@@ -347,8 +334,10 @@ internal fun MainActivity.EditorScreen(
     var dngFallbackNotice by remember { mutableStateOf(false) }
 
     // LUT export
-    var bakingLut by remember { mutableStateOf(false) }
-    var pendingLutText by remember { mutableStateOf<String?>(null) }
+    val bakingLutState = remember { mutableStateOf(false) }
+    var bakingLut by bakingLutState
+    val pendingLutTextState = remember { mutableStateOf<String?>(null) }
+    var pendingLutText by pendingLutTextState
 
     // Viewer modes (compare, histogram, hidden chrome) live in EditorViewerViewModel (#272).
     // Not journalled: every editor composition starts with them off, as before.
@@ -360,12 +349,15 @@ internal fun MainActivity.EditorScreen(
     // GPU-samples them instead of the CPU bitmap. Read at composition — toggling in
     // Settings applies on the next return to the editor.
     val gpuEnabled = settings.gpuPreview
-    var gpuProxyLease by remember { mutableStateOf<DecodedSourceCache.Lease?>(null) }
+    val gpuProxyLeaseState = remember { mutableStateOf<DecodedSourceCache.Lease?>(null) }
+    var gpuProxyLease by gpuProxyLeaseState
     val gpuProxy = gpuProxyLease?.image
-    var gpuLut by remember { mutableStateOf<CubeLut?>(null) }
+    val gpuLutState = remember { mutableStateOf<CubeLut?>(null) }
+    var gpuLut by gpuLutState
     // Auto-exposure gain (2^ev) for the GPU path: the LUT is baked AE-off at unity
     // gain, so the shader multiplies this in before the lookup (see LutGpuPreview).
-    var gpuGain by remember { mutableFloatStateOf(1f) }
+    val gpuGainState = remember { mutableFloatStateOf(1f) }
+    var gpuGain by gpuGainState
     DisposableEffect(Unit) {
         onDispose { gpuProxyLease?.close() }
     }
@@ -383,15 +375,19 @@ internal fun MainActivity.EditorScreen(
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
     // 100% grain magnifier
-    var magnifierOpen by remember { mutableStateOf(false) }
+    val magnifierOpenState = remember { mutableStateOf(false) }
+    var magnifierOpen by magnifierOpenState
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
     // that would remeasure it every frame, which is the churn documented on PanelOverlay.
     // A one-shot layout change is a different thing and is what this is.
-    var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var magnifierRendering by remember { mutableStateOf(false) }
-    var magnifierStatus by remember { mutableStateOf("") }
+    val magnifierBitmapState = remember { mutableStateOf<Bitmap?>(null) }
+    var magnifierBitmap by magnifierBitmapState
+    val magnifierRenderingState = remember { mutableStateOf(false) }
+    var magnifierRendering by magnifierRenderingState
+    val magnifierStatusState = remember { mutableStateOf("") }
+    var magnifierStatus by magnifierStatusState
     // Tracks the in-flight magnifier render so a rapid re-tap can cancel the previous
     // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
     // Held in a remember box (not Compose state — we never read it during composition).
@@ -411,7 +407,8 @@ internal fun MainActivity.EditorScreen(
 
     // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
     // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
-    var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
+    val roiOverlayState = remember { mutableStateOf<RoiOverlay?>(null) }
+    var roiOverlay by roiOverlayState
     val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val roiPatchTracker = remember { RoiPatchTracker() }
     // Zoom step 3: recent finished patch renders for the current edit (RoiPatchCache).
@@ -427,8 +424,10 @@ internal fun MainActivity.EditorScreen(
         )
     }
     val roiPublicationGate = remember { RoiRenderPublicationGate() }
-    val latestRoiRenderKey by rememberUpdatedState(previewTick)
-    val latestMagnifierRenderKey by rememberUpdatedState(previewTick)
+    val latestRoiRenderKeyState = rememberUpdatedState(previewTick)
+    val latestRoiRenderKey by latestRoiRenderKeyState
+    val latestMagnifierRenderKeyState = rememberUpdatedState(previewTick)
+    val latestMagnifierRenderKey by latestMagnifierRenderKeyState
 
     /** Retire every source-derived resource before committing a different source identity. */
     fun retireSourceResources() {
@@ -516,7 +515,8 @@ internal fun MainActivity.EditorScreen(
 
     // presets
     val restoredPreset = initialRestoredSession?.preset
-    var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
+    val presetListState = remember { mutableStateOf<List<String>>(emptyList()) }
+    var presetList by presetListState
     // Preset panel selection + name, the Lightroom-style amount blend anchors and the
     // copy/paste settings clipboard (backlog #10) live in PresetViewModel (#272), seeded
     // once per editor composition from the checkpoint. The clipboard is part of the
@@ -538,8 +538,10 @@ internal fun MainActivity.EditorScreen(
     // sync: a run ends by itself the moment the live state stops matching what the last
     // apply produced, which covers source changes, resets, pastes and any hand edit in
     // one condition. (A hand-maintained effect-key list in this file has drifted before.)
-    var presetBaselineJson by remember { mutableStateOf<String?>(null) }
-    var lastBuiltInOutput by remember { mutableStateOf<String?>(null) }
+    val presetBaselineJsonState = remember { mutableStateOf<String?>(null) }
+    var presetBaselineJson by presetBaselineJsonState
+    val lastBuiltInOutputState = remember { mutableStateOf<String?>(null) }
+    var lastBuiltInOutput by lastBuiltInOutputState
 
     // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
     // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
@@ -565,9 +567,12 @@ internal fun MainActivity.EditorScreen(
     fun refreshPresets() { presetList = presetRepo.list() }
 
     // --- non-destructive recipe (sidecar) layer ---
-    var recipeReady by remember { mutableStateOf(false) }
-    var hasRecipe by remember { mutableStateOf(false) }
-    var defaultsJson by remember { mutableStateOf<String?>(null) }
+    val recipeReadyState = remember { mutableStateOf(false) }
+    var recipeReady by recipeReadyState
+    val hasRecipeState = remember { mutableStateOf(false) }
+    var hasRecipe by hasRecipeState
+    val defaultsJsonState = remember { mutableStateOf<String?>(null) }
+    var defaultsJson by defaultsJsonState
     LaunchedEffect(recipeReady, state.localAdjustments.size) {
         if (recipeReady) {
             toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
@@ -576,11 +581,14 @@ internal fun MainActivity.EditorScreen(
     val snackbarHost = remember { SnackbarHostState() }
     val recipeRepo = remember(ctx) { ctx.appContainer.recipes }
     val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
-    val exportRuntimeState by ExportWorkRuntime.state.collectAsState()
-    var lastHandledExportRun by remember { mutableLongStateOf(0L) }
-    var exportPublication by remember {
+    val exportRuntimeStateState = ExportWorkRuntime.state.collectAsState()
+    val exportRuntimeState by exportRuntimeStateState
+    val lastHandledExportRunState = remember { mutableLongStateOf(0L) }
+    var lastHandledExportRun by lastHandledExportRunState
+    val exportPublicationState = remember {
         mutableStateOf<Pair<Long, RenderPublicationTicket>?>(null)
     }
+    var exportPublication by exportPublicationState
     val sessionCheckpointAction = remember { arrayOfNulls<() -> Boolean>(1) }
 
     // The process-owned export survives this Activity. A recreated UI observes exactly one
@@ -591,192 +599,19 @@ internal fun MainActivity.EditorScreen(
         recipeReady,
         onSessionCheckpoint,
     ) {
-        when (val runtime = exportRuntimeState) {
-            ExportRuntimeState.Idle -> {
-                if (exportVm.current.phase == EditorExportPhase.RECONCILING) {
-                    exportVm.onAction(ExportAction.RuntimeIdle)
-                    status = ctx.getString(R.string.editor_status_prev_export_reconciling)
-                }
-            }
-            is ExportRuntimeState.Running -> {
-                // Ownership (exact current source binding) tracks the durable cursor; full
-                // publication authorization additionally requires an authorization-free
-                // source and gates only the pixels. A revoked source still remembers its own
-                // in-flight run so process-death recovery can reconcile it (ticket #139).
-                if (!exportRunOwnedByEditor(runtime.sourceIdentity, exportSourceIdentity)) {
-                    exportVm.onAction(ExportAction.RunDisowned(runtime.runId))
-                    return@LaunchedEffect
-                }
-                if (
-                    exportPublication?.first != runtime.runId &&
-                    exportPublicationAuthorized(runtime.sourceIdentity, exportSourceIdentity)
-                ) {
-                    exportPublication = runtime.runId to publicationGate.begin(
-                        publicationGate.nextRevision(),
-                        RenderPublicationPriority.EXPORT,
-                    )
-                }
-                exportVm.onAction(ExportAction.Running(runtime.runId))
-                status = ctx.getString(R.string.editor_status_rendering_full)
-                sessionCheckpointAction[0]?.invoke()
-            }
-            is ExportRuntimeState.Finished -> {
-                if (!exportPublicationAuthorized(runtime.sourceIdentity, exportSourceIdentity)) {
-                    val discarded = ExportWorkRuntime.claimFinished(runtime.runId)
-                        ?: return@LaunchedEffect
-                    recycleUnpublishedExport(discarded)
-                    lastHandledExportRun = runtime.runId
-                    exportPublication = null
-                    exportVm.onAction(ExportAction.RunDisowned(runtime.runId))
-                    return@LaunchedEffect
-                }
-                if (!recipeReady || sessionCheckpointAction[0] == null) return@LaunchedEffect
-                if (runtime.runId == lastHandledExportRun) return@LaunchedEffect
-                // Persist a sanitized terminal marker before atomically claiming the process
-                // result. If recreation cancels this coroutine before/during the IO flush, the
-                // process runtime still owns the unclaimed result; if it cancels after the
-                // flush, the replacement UI can restore the terminal marker exactly once.
-                when (val pending = runtime.outcome) {
-                    is ExportTerminalOutcome.Success -> {
-                        exportVm.onAction(ExportAction.Terminal(EditorExportPhase.SUCCESS))
-                        status = ctx.getString(R.string.editor_status_saved_to_gallery)
-                    }
-                    is ExportTerminalOutcome.Failure -> {
-                        exportVm.onAction(
-                            ExportAction.Terminal(
-                                if (pending.cause is ExportReconciliationPendingException) {
-                                    EditorExportPhase.RECONCILING
-                                } else {
-                                    EditorExportPhase.FAILURE
-                                },
-                            ),
-                        )
-                    }
-                    is ExportTerminalOutcome.Cancelled -> {
-                        exportVm.onAction(ExportAction.Terminal(EditorExportPhase.CANCELLED))
-                    }
-                }
-                val durableTerminal = awaitDurableEditorSessionCheckpoint(
-                    checkpoint = { sessionCheckpointAction[0]?.invoke() == true },
-                    flush = {
-                        withContext(dispatchers.io) {
-                            EditorSessionCheckpointRuntime.flush()
-                        }
-                    },
-                    onRetryableFailure = { failure ->
-                        // The process runtime keeps the terminal result unclaimed while the
-                        // latest checkpoint remains pending. Retry without exposing session
-                        // contents or allowing an older disk generation to count as success.
-                        Diag.w(
-                            "terminal editor session save retrying " +
-                                "(${failure.javaClass.simpleName})",
-                        )
-                        status = ctx.getString(R.string.editor_status_export_complete_retrying_save)
-                        delay(500)
-                    },
-                )
-                if (!durableTerminal) {
-                    // Startup storage may still be recovering, or a future-version session may
-                    // be protected. In both cases the process outcome remains retained.
-                    status = ctx.getString(R.string.editor_status_export_complete_save_waiting)
-                    return@LaunchedEffect
-                }
-                val publicationTicket = exportPublication
-                    ?.takeIf { it.first == runtime.runId }
-                    ?.second
-                    ?: publicationGate.begin(
-                        publicationGate.nextRevision(),
-                        RenderPublicationPriority.EXPORT,
-                    )
-                // Identity decides the durable outcome; the render gate only decides whether
-                // this export's pixels may replace the preview. A newer interactive render
-                // outranking the export ticket must suppress stale pixels, never rewrite a
-                // committed MediaStore success into RECONCILING (ticket #139).
-                val identityAuthorized =
-                    exportPublicationAuthorized(runtime.sourceIdentity, exportSourceIdentity)
-                val publicationAllowed =
-                    identityAuthorized && publicationGate.tryClaim(publicationTicket)
-                val claimedOutcome = ExportWorkRuntime.claimFinished(runtime.runId)
-                    ?: return@LaunchedEffect
-                lastHandledExportRun = runtime.runId
-                exportPublication = null
-                when (val outcome = claimedOutcome) {
-                    is ExportTerminalOutcome.Success -> {
-                        outcome.bitmap?.let { bitmap ->
-                            if (publicationAllowed) {
-                                preview = bitmap
-                            } else if (!bitmap.isRecycled) {
-                                bitmap.recycle()
-                            }
-                        }
-                        if (!identityAuthorized) {
-                            exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
-                            status = ctx.getString(R.string.editor_status_export_stale_source)
-                            sessionCheckpointAction[0]?.invoke()
-                            return@LaunchedEffect
-                        }
-                        val phases = outcome.phases
-                        val accounted = phases.setupMs + phases.decodeMs + phases.exifMs +
-                            phases.simulateMs + phases.gradeMs + phases.encodeMs
-                        Diag.i(
-                            "export phases ms: setup=${phases.setupMs} decode=${phases.decodeMs} " +
-                                "exif=${phases.exifMs} simulate=${phases.simulateMs} " +
-                                "grade=${phases.gradeMs} encode=${phases.encodeMs} " +
-                                "residual=${outcome.totalMs - accounted} total=${outcome.totalMs}",
-                        )
-                        Diag.i("export format=${outcome.format.name} ok in ${outcome.totalMs}ms")
-                        exportVm.onAction(
-                            ExportAction.SetShare(
-                                outcome.publishedUri?.let { published ->
-                                    published to (outcome.publishedMimeType ?: "image/*")
-                                },
-                            ),
-                        )
-                        exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.SUCCESS))
-                        status = ctx.getString(R.string.editor_status_saved_to_gallery)
-                    }
-                    is ExportTerminalOutcome.Failure -> {
-                        Diag.w(
-                            "export format=${outcome.format.name} failed after " +
-                                "${outcome.elapsedMs}ms: ${outcome.cause.message}" +
-                                // #269: a memory failure report should carry the budget
-                                // state without the user having to export diagnostics.
-                                if (isMemoryExhaustion(outcome.cause)) {
-                                    " budget=${memoryBudgetSnapshotForLog()}"
-                                } else {
-                                    ""
-                                },
-                        )
-                        if (outcome.cause is ExportReconciliationPendingException) {
-                            exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
-                            status = ctx.getString(R.string.editor_status_export_pending_reconciliation)
-                            Toast.makeText(
-                                ctx,
-                                ctx.getString(R.string.editor_toast_export_reconciling),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        } else {
-                            exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.FAILURE))
-                            status = ctx.getString(R.string.editor_status_export_failed, outcome.cause.message)
-                            Toast.makeText(
-                                ctx,
-                                ctx.getString(R.string.editor_toast_export_failed, outcome.cause.message),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
-                    is ExportTerminalOutcome.Cancelled -> {
-                        Diag.i(
-                            "export format=${outcome.format.name} cancelled after " +
-                                "${outcome.elapsedMs}ms",
-                        )
-                        exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.CANCELLED))
-                        status = ctx.getString(R.string.editor_status_export_cancelled)
-                    }
-                }
-                sessionCheckpointAction[0]?.invoke()
-            }
-        }
+        runExportRuntimeObserver(
+            this@EditorScreen,
+            ctx = ctx,
+            exportSourceIdentity = exportSourceIdentity,
+            publicationGate = publicationGate,
+            sessionCheckpointAction = sessionCheckpointAction,
+            exportRuntimeStateState = exportRuntimeStateState,
+            exportPublicationState = exportPublicationState,
+            lastHandledExportRunState = lastHandledExportRunState,
+            recipeReadyState = recipeReadyState,
+            previewState = previewState,
+            statusState = statusState,
+        )
     }
 
     // Predictive-back progress of the open full-screen tool (crop / mask geometry / sampler).
@@ -793,13 +628,15 @@ internal fun MainActivity.EditorScreen(
     // The last SETTLED snapshot we committed. Capture coalescing pushes THIS (the
     // pre-edit state) onto undo when a newer settled state differs (see the capture
     // effect below), so one slider drag (which settles once) == one undo step.
-    var committedSnapshot by remember {
+    val committedSnapshotState = remember {
         mutableStateOf(initialRestoredSession?.committed)
     }
+    var committedSnapshot by committedSnapshotState
     // Set true while we are programmatically restoring a snapshot (undo/redo). The
     // capture effect skips one settle cycle so the restore is NOT recorded as a new
     // edit — without this the restored state would push itself and we'd never escape.
-    var restoring by remember { mutableStateOf(false) }
+    val restoringState = remember { mutableStateOf(false) }
+    var restoring by restoringState
     // Explicit conflict marker used only while AppRoot is recovering transient session IO.
     // Programmatic restore/default application keeps it false; a settled user edit sets it.
     var liveCursorMutated by remember { mutableStateOf(false) }
@@ -1004,131 +841,40 @@ internal fun MainActivity.EditorScreen(
     val restoredRecipeKey = initialRestoredSession?.source?.uri
         ?.let(Uri::parse)
         ?.let(Recipes::keyFor)
-    var lastRestoredKey by remember { mutableStateOf(restoredRecipeKey) }
+    val lastRestoredKeyState = remember { mutableStateOf(restoredRecipeKey) }
+    var lastRestoredKey by lastRestoredKeyState
     // A restored source identity proves nothing about its sidecar contents. Every composition
     // starts PENDING and only the exact generation classified by readResult may become writable.
-    var recipeAccess by remember(recipeKey) {
+    val recipeAccessState = remember(recipeKey) {
         mutableStateOf<EditorRecipeAccess>(
             recipeKey?.let { EditorRecipeAccess.Pending(it, recipeRepo.generation(it)) }
                 ?: EditorRecipeAccess.None,
         )
     }
+    var recipeAccess by recipeAccessState
     val recipeEditEpoch = remember { RecipeEditEpoch() }
     LaunchedEffect(recipeKey, recipeReady) {
-        if (!recipeReady) return@LaunchedEffect
-        if (recipeKey == null) {
-            hasRecipe = false
-            recipeAccess = EditorRecipeAccess.None
-            // Switched to a keyless source (the demo image): still drop cross-image
-            // history and re-baseline once for the demo's current state.
-            if (lastRestoredKey != null) {
-                lastRestoredKey = null
-                editHistory.clear()
-                committedSnapshot = null
-                restoring = true
-            }
-            return@LaunchedEffect
-        }
-        val preserveSessionCursor = recipeKey == restoredRecipeKey
-        val sourceChanged = recipeKey != lastRestoredKey
-        lastRestoredKey = recipeKey
-        // New source: undo must never cross images. Drop the history and re-baseline so
-        // the just-restored/default state for THIS image is the empty-history baseline
-        // (canUndo=false). `restoring` makes the next capture settle adopt the new
-        // baseline without recording it as an edit.
-        if (sourceChanged) {
-            editHistory.clear()
-            committedSnapshot = null
-            restoring = true
-        }
-        // Submission itself happens on Main and is process-owned. If an old Activity already
-        // submitted an autosave, FIFO guarantees this recreated restore reads after its commit.
-        var restored: RecipeReadResult
-        while (true) {
-            val pendingRestore = RecipeWorkRuntime.submit {
-                val before = recipeRepo.generation(recipeKey)
-                val result = recipeRepo.readResult(recipeKey)
-                Triple(before, result, recipeRepo.generation(recipeKey))
-            }
-            val (before, result, after) = pendingRestore.await()
-            val classified = classifyEditorRecipeAccess(recipeKey, before, after, result)
-            recipeAccess = classified
-            if (classified is EditorRecipeAccess.Pending) continue
-            restored = result
-            break
-        }
-        when (restored) {
-            is RecipeReadResult.Loaded -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Presets.decode(restored.document.params, state)
-                    rotation = SourceRotation.fromDegrees(restored.document.manualRotationDeg)
-                    previewTick++
-                    snackbarHost.currentSnackbarData?.dismiss()
-                    snackbarHost.showSnackbar(
-                        message = ctx.getString(R.string.editor_snack_recipe_restored),
-                        withDismissAction = true,
-                    )
-                }
-            }
-            is RecipeReadResult.CorruptQuarantined -> {
-                hasRecipe = false
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                Diag.w("recipe quarantined: ${restored.reason}")
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_quarantined),
-                    withDismissAction = true,
-                )
-            }
-            RecipeReadResult.Missing -> {
-                hasRecipe = false
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-            }
-            is RecipeReadResult.Unsupported -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                status = ctx.getString(R.string.editor_status_recipe_newer_version, restored.version)
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_newer_version),
-                    withDismissAction = true,
-                )
-            }
-            is RecipeReadResult.CorruptQuarantineFailed,
-            is RecipeReadResult.IoFailure -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                val reason = when (restored) {
-                    is RecipeReadResult.CorruptQuarantineFailed -> restored.reason
-                    is RecipeReadResult.IoFailure -> restored.reason
-                    else -> error("unreachable")
-                }
-                Diag.w("recipe unavailable and writes paused: $reason")
-                status = ctx.getString(R.string.editor_status_recipe_unavailable)
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_unavailable),
-                    withDismissAction = true,
-                )
-            }
-        }
+        runRecipeRestore(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            settings = settings,
+            editHistory = editHistory,
+            recipeKey = recipeKey,
+            recipeRepo = recipeRepo,
+            restoredRecipeKey = restoredRecipeKey,
+            snackbarHost = snackbarHost,
+            committedSnapshotState = committedSnapshotState,
+            hasRecipeState = hasRecipeState,
+            lastRestoredKeyState = lastRestoredKeyState,
+            previewTickState = previewTickState,
+            profilesState = profilesState,
+            recipeAccessState = recipeAccessState,
+            recipeReadyState = recipeReadyState,
+            restoringState = restoringState,
+            rotationState = rotationState,
+            statusState = statusState,
+        )
     }
 
     // One-shot snackbar when a compressed DNG fell back to the system decoder.
@@ -1472,7 +1218,8 @@ internal fun MainActivity.EditorScreen(
     // Exports the SELECTED SAVED preset, byte-for-byte as stored. Distinct from
     // [presetExporter] above, which serialises live editor state — that one sat under
     // the saved-preset dropdown and looked like it exported the selection.
-    var pendingPresetExport by remember { mutableStateOf<String?>(null) }
+    val pendingPresetExportState = remember { mutableStateOf<String?>(null) }
+    var pendingPresetExport by pendingPresetExportState
     val savedPresetExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -1737,84 +1484,24 @@ internal fun MainActivity.EditorScreen(
     // the coroutine is still active — a cancelled run recycles its own bitmap instead
     // of writing it, so a superseded render can never leak or land on screen.
     fun openMagnifier(nx: Float, ny: Float) {
-        if (!sourceRenderAllowed) return
-        val e = engine ?: return
-        magnifierJobRef.value?.cancel()
-        val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
-        val publicationTicket = magnifierPublicationGate.begin(renderSnapshot.renderKey)
-        magnifierOpen = true
-        magnifierBitmap = null
-        magnifierRendering = true
-        magnifierStatus = ctx.getString(R.string.editor_magnifier_rendering)
-        magnifierJobRef.value = scope.launch {
-            var renderId = 0L
-            val result = runCatching {
-                withOwnedContext(
-                    context = dispatchers.default,
-                    dispose = { bitmap: Bitmap ->
-                        if (!bitmap.isRecycled) bitmap.recycle()
-                    },
-                ) {
-                    loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                        val full = fullLease.image
-                        cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX).use { crop ->
-                            // Effective film format so the crop's pixel_size_um matches the proxy it was
-                            // cut from (the crop spans only cropFrac of the frame). Without it the engine
-                            // treats the crop as a whole 35mm frame and grain/halation (µm-based) render
-                            // too weak even at 1:1. See toParams(filmFormatMmOverride).
-                            val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                                maxOf(full.width, full.height).coerceAtLeast(1)
-                            // SimResult holds a native off-heap buffer; close() frees it once the
-                            // bitmap copy is made.
-                            runCancellableNative(
-                                onLateResult = { late ->
-                                    late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                    late.close()
-                                },
-                            ) { cancellation ->
-                                e.simulate(
-                                    crop,
-                                    renderSnapshot.paramsForCrop(cropFrac),
-                                    RenderKind.MAGNIFIER,
-                                    cancellation,
-                                )
-                            }.use { res ->
-                                renderId = res.renderId
-                                simResultToBitmapGraded(
-                                    res,
-                                    renderSnapshot.cctfEncoded,
-                                    renderSnapshot.saturation,
-                                    renderSnapshot.vibrance,
-                                    renderSnapshot.gamutCompress,
-                                    renderSnapshot.localAdjustments,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (
-                !isActive || !magnifierPublicationGate.canPublish(
-                    publicationTicket,
-                    latestMagnifierRenderKey,
-                )
-            ) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                // Superseded by a newer tap (this job was cancelled): drop our render so
-                // it neither overwrites the latest request nor leaks an orphaned bitmap.
-                result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
-                return@launch
-            }
-            result.onSuccess {
-                magnifierBitmap = it
-                SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                magnifierStatus = ctx.getString(R.string.editor_magnifier_done, it.width, it.height)
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                magnifierStatus = ctx.getString(R.string.editor_magnifier_failed, it.message)
-            }
-            magnifierRendering = false
-        }
+        startMagnifierRender(
+            nx = nx,
+            ny = ny,
+            ctx = ctx,
+            scope = scope,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            magnifierJobRef = magnifierJobRef,
+            magnifierPublicationGate = magnifierPublicationGate,
+            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
+            engineState = engineState,
+            previewTickState = previewTickState,
+            magnifierBitmapState = magnifierBitmapState,
+            magnifierOpenState = magnifierOpenState,
+            magnifierRenderingState = magnifierRenderingState,
+            magnifierStatusState = magnifierStatusState,
+            latestMagnifierRenderKeyState = latestMagnifierRenderKeyState,
+        )
     }
 
     // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
@@ -1824,175 +1511,21 @@ internal fun MainActivity.EditorScreen(
     // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
     // while cropping or comparing (those branches own the gestures / have no zoom).
     fun renderRoi(roi: RoiRect) {
-        if (!sourceRenderAllowed) return
-        val e = engine ?: return
-        if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
-        // A settle inside the patch already on screen (or already rendering) at the same edit
-        // and sharpness needs no new render: keep it rather than cancel and redo it.
-        roiPatchTracker.reuseReason(
-            roi, previewTick, roiOverlay, roiJobRef.value, ROI_RENDER_MAX_PX,
-        )?.let { reason ->
-            if (reason == RoiPatchTracker.REUSED_SHOWN) {
-                // The view came back inside the shown patch: any render still running for
-                // an intermediate viewport must not land over it (it would not cover this
-                // view, and no further settle would come to fix that).
-                roiPublicationGate.invalidate()
-                roiJobRef.value?.cancel()
-            }
-            Diag.i("zoom roi reused $reason")
-            return
-        }
-        // A finished patch for this edit that already covers the view (pan back, zoom back):
-        // show it now instead of rendering again.
-        roiPatchCache.find(roi, previewTick, ROI_RENDER_MAX_PX)?.let { (record, cached) ->
-            roiPublicationGate.invalidate()
-            roiJobRef.value?.cancel()
-            roiOverlay = cached
-            roiPatchTracker.shownOverlay = cached
-            roiPatchTracker.shown = record
-            Diag.i("zoom roi reused cache entries=${roiPatchCache.size}")
-            return
-        }
-        roiJobRef.value?.cancel()
-        val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
-        val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
-        roiJobRef.value = scope.launch {
-            val pendingOutcomes = PendingRenderOutcomes()
-            // Zoom timing (rawr study step 1): settle -> source -> draft -> final, all in ms
-            // from the settle. One line per completed or superseded ROI render.
-            val timing = RoiTiming()
-            val result = runCatching {
-                loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                    timing.sourceMs = timing.sinceStartMs()
-                    val full = fullLease.image
-                    // Render a grid-snapped patch around the viewport, not the viewport
-                    // itself (RoiPatch): the margin keeps halation/blur light from just off
-                    // screen, and a later pan inside the patch reuses this render.
-                    val box = RoiPatch.box(roi, full.width, full.height)
-                    val patchRect = RoiPatch.rectOf(box, full.width, full.height)
-                    val scale = RoiPatch.neededScale(
-                        roi, full.width, full.height, ROI_RENDER_MAX_PX,
-                    )
-                    val draftScale = RoiPatch.neededScale(
-                        roi, full.width, full.height, ROI_DRAFT_MAX_PX,
-                    )
-                    val patchRecord = RoiPatchRecord(
-                        renderKey = renderSnapshot.renderKey,
-                        srcW = full.width,
-                        srcH = full.height,
-                        box = box,
-                        scale = scale,
-                    )
-                    currentCoroutineContext()[Job]?.let { job ->
-                        roiPatchTracker.inFlightJob = job
-                        roiPatchTracker.inFlight = patchRecord
-                    }
-                    timing.cropW = box.width
-                    timing.cropH = box.height
-                    withOwnedContext(
-                        context = dispatchers.default,
-                        dispose = LinearImage::close,
-                    ) {
-                        cropLinearImageBox(full, box)
-                    }.use { crop ->
-                        // Effective film format so the crop's pixel_size_um matches the proxy (the crop
-                        // spans only cropFrac of the frame); keeps grain/halation at the right strength
-                        // when zoomed instead of treating the crop as a whole frame.
-                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                            maxOf(full.width, full.height).coerceAtLeast(1)
-                        suspend fun renderAt(edge: Int): Pair<Bitmap, Long> =
-                            withOwnedContext(
-                                context = dispatchers.default,
-                                dispose = { rendered: Pair<Bitmap, Long> ->
-                                    if (!rendered.first.isRecycled) rendered.first.recycle()
-                                },
-                            ) {
-                                runCancellableNative(
-                                    onLateResult = { late ->
-                                        late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                        late.close()
-                                    },
-                                ) { cancellation ->
-                                    e.simulatePreview(
-                                        crop,
-                                        renderSnapshot.paramsForCrop(
-                                            cropFraction = cropFrac,
-                                            previewMaxSize = edge,
-                                        ),
-                                        RenderKind.ROI,
-                                        cancellation,
-                                    )
-                                }.use { res ->
-                                    pendingOutcomes.add(res.renderId)
-                                    simResultToBitmapGraded(
-                                        res,
-                                        renderSnapshot.cctfEncoded,
-                                        renderSnapshot.saturation,
-                                        renderSnapshot.vibrance,
-                                        renderSnapshot.gamutCompress,
-                                        renderSnapshot.localAdjustments,
-                                    ) to res.renderId
-                                }
-                            }
-                        // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
-                        // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
-                        // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
-                        // so a cancel mid-flight never leaks one.
-                        val (draft, draftRenderId) =
-                            renderAt(RoiPatch.renderEdge(box, draftScale))
-                        timing.draftMs = timing.sinceStartMs()
-                        if (
-                            isActive && roiPublicationGate.canPublish(
-                                roiPublicationTicket,
-                                latestRoiRenderKey,
-                            )
-                        ) {
-                            roiOverlay = RoiOverlay(
-                                draft, patchRect.cxN, patchRect.cyN, patchRect.wN, patchRect.hN,
-                            )
-                            pendingOutcomes.resolve(draftRenderId, AppRenderOutcome.CONSUMED)
-                        } else {
-                            pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
-                            if (!draft.isRecycled) draft.recycle()
-                            return@runCatching null
-                        }
-                        renderAt(RoiPatch.renderEdge(box, scale)).also {
-                            timing.finalMs = timing.sinceStartMs()
-                        }.let { (bmp, id) -> Triple(bmp, id, patchRecord to patchRect) }
-                    }
-                }
-            }
-            if (
-                !isActive || !roiPublicationGate.canPublish(
-                    roiPublicationTicket,
-                    latestRoiRenderKey,
-                )
-            ) {
-                pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
-                // Superseded (cancelled): drop the final render (the draft, if published, stays
-                // and is recycled by the DisposableEffect when the next overlay replaces it).
-                result.getOrNull()?.first?.let { if (!it.isRecycled) it.recycle() }
-                Diag.i(timing.line("superseded"))
-                return@launch
-            }
-            // On success publish the sharp final; the prior overlay (the draft) is recycled by
-            // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
-            result.onSuccess { rendered ->
-                rendered?.let { (bmp, renderId, patch) ->
-                    val (record, rect) = patch
-                    val overlay = RoiOverlay(bmp, rect.cxN, rect.cyN, rect.wN, rect.hN)
-                    roiOverlay = overlay
-                    roiPatchTracker.shownOverlay = overlay
-                    roiPatchTracker.shown = record
-                    roiPatchCache.put(record, overlay)
-                    pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
-                }
-                Diag.i(timing.line("done"))
-            }.onFailure {
-                pendingOutcomes.resolveAll(AppRenderOutcome.FAILED)
-                Diag.i(timing.line("failed"))
-            }
-        }
+        startRoiPatchRender(
+            roi = roi,
+            scope = scope,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            roiJobRef = roiJobRef,
+            roiPatchCache = roiPatchCache,
+            roiPatchTracker = roiPatchTracker,
+            roiPublicationGate = roiPublicationGate,
+            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
+            engineState = engineState,
+            previewTickState = previewTickState,
+            roiOverlayState = roiOverlayState,
+            latestRoiRenderKeyState = latestRoiRenderKeyState,
+        )
     }
 
     fun clearRoi() {
@@ -2037,122 +1570,22 @@ internal fun MainActivity.EditorScreen(
     // Honest scope: this was written while chasing a cold-start hang and did NOT fix it.
     // It closes a real race that is simply not the one observed there.
     LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
-            if (!sourceRenderAllowed) return@LaunchedEffect
-            val publicationTicket = publicationGate.begin(
-                previewRevision,
-                RenderPublicationPriority.DRAFT,
-            )
-            val e = engine ?: return@LaunchedEffect
-            if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return@LaunchedEffect
-            // Lightroom's ICBSliderTrackingBegin/End gate. `interacting` has been
-            // written by SliderInteraction since the widget shipped but was never
-            // read, so the draft pass fired on EVERY edit — including discrete ones
-            // (a switch, a dropdown, applying a preset), where it buys nothing: the
-            // crisp settle pass is already only 500 ms away, so the draft just burns
-            // a render and flashes a soft frame before the sharp one lands.
-            //
-            // Reading it here is what the widget's own doc comment always described:
-            // draft while a slider is actually moving, straight to crisp otherwise.
-            if (!interacting.value) return@LaunchedEffect
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Grade-only edit? Re-grade the retained full-quality settle result in
-            // pure Kotlin — zero native work, and it beats a low-res draft on quality.
-            gradeCache.lookup(gradeCacheKey(fullEdge))?.let { pristine ->
-                val gradeResult = try {
-                    runCatching {
-                        withOwnedContext(
-                            context = dispatchers.default,
-                            dispose = { bitmap: Bitmap ->
-                                if (!bitmap.isRecycled) bitmap.recycle()
-                            },
-                        ) {
-                            pristine.withScratch { scratch ->
-                                gradeBufferToBitmap(scratch, pristine.width,
-                                    pristine.height, pristine.colorSpace, state.savingCctfEncoding,
-                                    state.saturation, state.vibrance, state.gamutCompress,
-                                    state.localAdjustments)
-                            }
-                        }
-                    }
-                } finally {
-                    pristine.close()
-                }
-                gradeResult.onSuccess { bmp ->
-                    withContext(dispatchers.main) {
-                        if (publicationGate.tryClaim(publicationTicket)) {
-                            preview = bmp
-                        } else if (!bmp.isRecycled) {
-                            bmp.recycle()
-                        }
-                    }
-                }
-                    .onFailure { Diag.w("render mode=draft failed: ${it.message}") }
-                return@LaunchedEffect
-            }
-            // Progressive ladder rung. The edge is a setting rather than a constant
-            // so the coarse/fine trade can be swept on a real device: lower = the
-            // image tracks the finger more closely, higher = the live frame is closer
-            // to what the settle pass will show. Defaults to DRAFT_RENDER_MAX_PX, so
-            // an untouched install renders exactly as before.
-            val draftEdge = minOf(settings.effectiveDraftEdge(), fullEdge)
-            if (draftEdge >= fullEdge) return@LaunchedEffect // no meaningful step-down to draft
-            val proxyRequest = cachedSourceDecodeRequest(sourceCache, fullEdge)
-            val proxyLease = sourceCache.acquire(
-                proxyRequest.ticket,
-            ) ?: return@LaunchedEffect                      // proxy not cached yet — settle owns the decode
-            var renderId = 0L
-            val draftResult = proxyLease.use { lease ->
-                runCatching {
-                    withOwnedContext(
-                        context = dispatchers.default,
-                        dispose = { bitmap: Bitmap ->
-                            if (!bitmap.isRecycled) bitmap.recycle()
-                        },
-                    ) {
-                        runCancellableNative(
-                            onLateResult = { late ->
-                                late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                late.close()
-                            },
-                        ) { cancellation ->
-                            val draftStartNs = System.nanoTime()
-                            e.simulatePreview(
-                                lease.image,
-                                state.toParams(previewMaxSizeOverride = draftEdge, skipGrainHalation = true),
-                                cancellation = cancellation,
-                            ).also {
-                                // Only a completed native render reaches here (cancel/failure
-                                // throws), so the calibrator never learns from a cut-short run.
-                                settings.recordDraftTiming(
-                                    draftEdge,
-                                    (System.nanoTime() - draftStartNs) / 1_000_000L,
-                                )
-                            }
-                        }.use { res ->
-                            renderId = res.renderId
-                            simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
-                        }
-                    }
-                }
-            }
-            if (!isActive || !publicationGate.tryClaim(publicationTicket)) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                draftResult.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
-                return@LaunchedEffect
-            }
-            draftResult.onSuccess { bmp ->
-                try {
-                    withContext(dispatchers.main) { preview = bmp }
-                    SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                } catch (cancelled: CancellationException) {
-                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                    if (!bmp.isRecycled) bmp.recycle()
-                    throw cancelled
-                }
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                Diag.w("render mode=draft failed: ${it.message}")
-            }
+        runDraftPreviewPass(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            previewRevision = previewRevision,
+            publicationGate = publicationGate,
+            gradeCache = gradeCache,
+            interacting = interacting,
+            settings = settings,
+            sourceCache = sourceCache,
+            gradeCacheKey = ::gradeCacheKey,
+            cachedSourceDecodeRequest = ::cachedSourceDecodeRequest,
+            engineState = engineState,
+            previewState = previewState,
+        )
     }
 
     // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
@@ -2162,217 +1595,31 @@ internal fun MainActivity.EditorScreen(
     // Keyed on engine for the same reason as the draft effect above: without it a cold
     // start that composes before the native engine is ready never renders at all.
     LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
-        if (!sourceRenderAllowed) return@LaunchedEffect
-        val e = engine ?: return@LaunchedEffect
-        val previewProbeLabel = Ticket139EditorProbe.sourceProbeLabel(sourceUri?.toString())
-        // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
-        // ~1s, so waiting a bit longer for the user to pause means fewer renders that start
-        // then get cancelled mid-flight on the next edit ("coroutine scope left the
-        // composition" in the logcat) — wasted all-core CPU that drains battery.
-        delay(500)
-        val publicationTicket = publicationGate.begin(
-            previewRevision,
-            RenderPublicationPriority.SETTLE,
+        runFinalPreviewPass(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            previewRevision = previewRevision,
+            publicationGate = publicationGate,
+            gradeCache = gradeCache,
+            zoomPrewarmEligible = zoomPrewarmEligible,
+            gradeCacheKey = ::gradeCacheKey,
+            loadSourceCachedForPreview = ::loadSourceCachedForPreview,
+            retireSourceResources = ::retireSourceResources,
+            scheduleZoomPrewarm = ::scheduleZoomPrewarm,
+            engineState = engineState,
+            previewState = previewState,
+            beforePreviewState = beforePreviewState,
+            decodingState = decodingState,
+            lastRenderMsState = lastRenderMsState,
+            previewBusyState = previewBusyState,
+            renderErrState = renderErrState,
+            sourceAuthorizationRequiredState = sourceAuthorizationRequiredState,
+            statusState = statusState,
+            sourceKindState = sourceKindState,
+            sourceUriState = sourceUriState,
         )
-        previewBusy = true
-        renderErr = null
-        status = ctx.getString(R.string.editor_status_rendering_preview)
-        // Every reset below used to be a plain statement. Cancellation skips every
-        // statement after the suspension point it unwinds from, so a render cancelled
-        // mid-flight left decoding/previewBusy set and the status pinned to
-        // "rendering preview…" — with no work running, all engine threads idle,
-        // and nothing to restart the effect (its keys are previewTick and
-        // sourceRenderAllowed). The editor sat there permanently. Observed on a
-        // 4080x3060 DNG after a speculative export pre-render exhausted the memory
-        // budget. A finally runs on cancellation, which is the whole point.
-        var settled = false
-        try {
-            val renderStart = System.currentTimeMillis()
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            // Key built on MAIN (reads Compose state); the same snapshot renders below,
-            // so the key and the render can never disagree.
-            val cacheKey = gradeCacheKey(fullEdge)
-            val cacheStoreTicket = gradeCache.beginStore(cacheKey)
-            val cached = gradeCache.lookup(cacheKey)
-            val prevBefore = beforePreview
-            var renderId = 0L
-            var completionProbeHandled = false
-            val result = try {
-                runCatching {
-                    withOwnedContext(
-                        context = dispatchers.default,
-                        dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
-                            if (!submission.second.isRecycled) submission.second.recycle()
-                            if (submission.third && !submission.first.isRecycled) {
-                                submission.first.recycle()
-                            }
-                        },
-                    ) {
-                        if (cached != null && prevBefore != null) {
-                            // Grade-only edit (identical engine inputs): re-grade the retained
-                            // pristine engine result — ZERO native work. The ungraded `before`
-                            // is unchanged by construction.
-                            var after: Bitmap? = null
-                            var transferred = false
-                            try {
-                                val rendered = cached.withScratch { scratch ->
-                                    gradeBufferToBitmap(scratch, cached.width,
-                                        cached.height, cached.colorSpace, state.savingCctfEncoding,
-                                        state.saturation, state.vibrance, state.gamutCompress,
-                                        state.localAdjustments)
-                                }
-                                after = rendered
-                                val submission = Triple(prevBefore, rendered, false)
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) after?.let { if (!it.isRecycled) it.recycle() }
-                            }
-                        } else {
-                            decoding = true
-                        // The live DRAFT effect above already paints a fast low-res proxy during the
-                        // edit, so this settle pass goes straight to the crisp full render (no separate
-                        // coarse pass / extra fresh decode). Cached proxy source — re-decodes only when
-                        // a decode-affecting key (URI/kind/WB/temp/tint/rotation/edge) changed;
-                        // look-param edits reuse it.
-                            var before: Bitmap? = null
-                            var after: Bitmap? = null
-                            var transferred = false
-                            var completionProbeHeld = false
-                            try {
-                                val submission = loadSourceCachedForPreview(fullEdge).use { lease ->
-                                    decoding = false
-                                    // Cut to the engine's crop box so compare/peek register (#254).
-                                    val ownedBefore = beforeFrameBitmap(lease.image, cacheKey.engineParams)
-                                    before = ownedBefore
-                                    // Fit preview skips grain/halation (the user's "grain at 100%" choice): they
-                                    // are rendered by the zoom ROI, the magnifier and export, never the fit settle.
-                                    // Render with cacheKey.engineParams — the exact snapshot the key hashed.
-                                    val ownedAfter = runCancellableNative(
-                                        onLateResult = { late ->
-                                            late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                            late.close()
-                                        },
-                                    ) { cancellation ->
-                                        e.simulatePreview(
-                                            lease.image,
-                                            cacheKey.engineParams,
-                                            cancellation = cancellation,
-                                        )
-                                    }.use { res ->
-                                        renderId = res.renderId
-                                        // Retain the PRISTINE engine output BEFORE the grade mutates it.
-                                        res.acquireDataLease().use { resultLease ->
-                                            val cacheOutcome = storeGradeCacheBestEffort {
-                                                gradeCache.store(
-                                                    cacheStoreTicket,
-                                                    cacheKey,
-                                                    resultLease.data,
-                                                    res.width,
-                                                    res.height,
-                                                    res.colorSpace,
-                                                )
-                                            }
-                                            if (cacheOutcome == GradeCacheStoreOutcome.CAPACITY_DENIED) {
-                                                Diag.w("grade cache skipped: memory admission denied")
-                                            }
-                                        }
-                                        val rendered = simResultToBitmapGraded(
-                                            res,
-                                            state.savingCctfEncoding,
-                                            state.saturation,
-                                            state.vibrance,
-                                            state.gamutCompress,
-                                            state.localAdjustments,
-                                        ).also { bitmap -> after = bitmap }
-                                        // The test seam is exactly the completed native settle's
-                                        // production completion-before-publication boundary. The
-                                        // SimResult and decoded-source lease remain owned here.
-                                        completionProbeHeld = Ticket139EditorProbe
-                                            .awaitCompletedPreviewBeforePublication(previewProbeLabel)
-                                        rendered
-                                    }
-                                    Triple(ownedBefore, ownedAfter, true)
-                                }
-                                if (completionProbeHeld) {
-                                    // B cancels this LaunchedEffect while A is held. Complete the
-                                    // actual gate decision and full resource cleanup synchronously
-                                    // here, before withOwnedContext's prompt-cancellation return can
-                                    // discard the owned Triple. This branch is test-armed only.
-                                    val claimed = publicationGate.tryClaim(publicationTicket)
-                                    Ticket139EditorProbe.publishPreviewDecision(
-                                        previewProbeLabel,
-                                        claimed,
-                                    )
-                                    SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                                    val (probeBefore, probeAfter, ownsProbeBefore) = submission
-                                    if (!probeAfter.isRecycled) probeAfter.recycle()
-                                    if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
-                                    completionProbeHandled = true
-                                    Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                                }
-                                transferred = true
-                                submission
-                            } finally {
-                                if (!transferred) {
-                                    after?.let { if (!it.isRecycled) it.recycle() }
-                                    before?.let { if (!it.isRecycled) it.recycle() }
-                                }
-                            }
-                        }
-                    }
-                }
-            } finally {
-                cached?.close()
-            }
-            decoding = false
-            if (completionProbeHandled) return@LaunchedEffect
-            val publicationClaimed = publicationGate.tryClaim(publicationTicket)
-            Ticket139EditorProbe.publishPreviewDecision(
-                previewProbeLabel,
-                publicationClaimed && isActive,
-            )
-            if (!isActive || !publicationClaimed) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                result.getOrNull()?.let { (before, after, ownsBefore) ->
-                    if (!after.isRecycled) after.recycle()
-                    if (ownsBefore && !before.isRecycled) before.recycle()
-                }
-                Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
-                return@LaunchedEffect
-            }
-            result.onSuccess { (before, after, _) ->
-                beforePreview = before; preview = after
-                SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
-                lastRenderMs = System.currentTimeMillis() - renderStart
-                Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
-                if (zoomPrewarmEligible) scheduleZoomPrewarm()
-                renderErr = null
-                status = ctx.getString(R.string.editor_status_preview_ready)
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
-                if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
-                    retireSourceResources()
-                    sourceAuthorizationRequired = true
-                    renderErr = ctx.getString(R.string.editor_render_error_auth_required)
-                    status = ctx.getString(R.string.editor_status_source_expired)
-                } else {
-                    renderErr = it.message?.take(60)
-                    status = ctx.getString(R.string.editor_status_preview_error, it.message)
-                }
-            }
-            previewBusy = false
-            settled = true
-        } finally {
-            decoding = false
-            previewBusy = false
-            // Not settled means cancelled, not finished. When a NEWER render caused the
-            // cancellation it overwrites this within a frame; when nothing did, this is
-            // the difference between a recoverable editor and a dead one.
-            if (!settled) status = ctx.getString(R.string.editor_status_preview_interrupted)
-        }
     }
 
     // GPU LUT preview feed (experimental, default OFF): after the CPU preview settles,
@@ -2380,83 +1627,17 @@ internal fun MainActivity.EditorScreen(
     // path. The proxy decode is a cache hit (the main effect already loaded it), so this
     // adds only the LUT bake. Cancelled/replaced cleanly when previewTick advances.
     LaunchedEffect(previewTick, gpuEnabled, sourceRenderAllowed) {
-        if (!gpuEnabled || !sourceRenderAllowed) {
-            gpuLut = null
-            gpuProxyLease?.close()
-            gpuProxyLease = null
-            gpuGain = 1f
-            return@LaunchedEffect
-        }
-        val e = engine ?: return@LaunchedEffect
-        delay(380)
-        val gpuMaxEdge = state.previewMaxSize.coerceAtLeast(256)
-        val gpuParams = state.toParams()
-        var lutRenderId = 0L
-        val bakeResult = runCatching {
-            withOwnedContext(
-                context = dispatchers.default,
-                dispose = { submission: Triple<DecodedSourceCache.Lease, CubeLut?, Float> ->
-                    submission.first.close()
-                },
-            ) {
-                val lease = loadSourceCachedForPreview(gpuMaxEdge)
-                try {
-                    // SHAPER_SRGB is REQUIRED here, not optional: LutGpuPreview's shader
-                    // always indexes through the sRGB transfer, so a LUT baked on the linear
-                    // lattice would be sampled at the wrong cell entirely — mid-grey 0.18
-                    // looking up at 0.46, i.e. overexposed and flat. The only unshaped bake
-                    // is the user-facing .cube export, which no shader consumes.
-                    val bake = runCancellableNative(
-                        onLateResult = { late ->
-                            late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                        },
-                    ) { cancellation ->
-                        e.bakeCubeLut(
-                            gpuParams,
-                            33,
-                            SpektraEngine.SHAPER_SRGB,
-                            cancellation,
-                        )
-                    }
-                    lutRenderId = bake.renderId
-                    val lut = CubeLut.parse(bake.text)
-                    // The bake emits the pointwise transform at UNITY gain (a 3D LUT
-                    // cannot carry auto-exposure), so meter the SAME proxy through the
-                    // engine's own metering and hand the gain to the shader. Without it
-                    // the GPU preview renders dark with lifted shadows — the scene lands
-                    // in the film curve's toe. Metering is cheap next to the bake.
-                    val gain = runCancellableNative { cancellation ->
-                        e.exposureGain(lease.image, gpuParams, cancellation)
-                    }
-                    Triple(lease, lut, gain)
-                } catch (failure: Throwable) {
-                    lease.close()
-                    throw failure
-                }
-            }
-        }
-        if (!isActive) {
-            SimResult.reportOutcome(lutRenderId, AppRenderOutcome.SUPERSEDED)
-            bakeResult.getOrNull()?.first?.close()
-            return@LaunchedEffect
-        }
-        bakeResult.onSuccess { (lease, lut, gain) ->
-            if (lut != null) {
-                val previous = gpuProxyLease
-                gpuProxyLease = lease
-                previous?.close()
-                gpuLut = lut; gpuGain = gain
-                SimResult.reportOutcome(lutRenderId, AppRenderOutcome.CONSUMED)
-                Diag.i("gpu lut baked ${lut.size}^3 gain=%.3f — fit preview runs on GPU".format(gain))
-            } else {
-                lease.close()
-                SimResult.reportOutcome(lutRenderId, AppRenderOutcome.FAILED)
-                Diag.w("gpu lut parse failed -> CPU preview")
-            }
-        }.onFailure {
-            SimResult.reportOutcome(lutRenderId, AppRenderOutcome.FAILED)
-            Diag.w("gpu lut bake failed: ${it.message} -> CPU preview")
-        }
+        runGpuPreviewFeed(
+            this@EditorScreen,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            gpuEnabled = gpuEnabled,
+            loadSourceCachedForPreview = ::loadSourceCachedForPreview,
+            engineState = engineState,
+            gpuGainState = gpuGainState,
+            gpuLutState = gpuLutState,
+            gpuProxyLeaseState = gpuProxyLeaseState,
+        )
     }
 
     // re-trigger preview on any change to the params snapshot / source / rotation.
@@ -2505,10 +1686,12 @@ internal fun MainActivity.EditorScreen(
     // Keyed on previewTick, which the effect above bumps for EVERY render-affecting edit:
     // that avoids adding a fourth hand-maintained key list to the three this file already
     // warns about, and Compose's own cancellation is the latest-wins rule for free.
-    var prerenderDigest by remember(sourceUri) { mutableStateOf<Pair<String, Long>?>(null) }
+    val prerenderDigestState = remember(sourceUri) { mutableStateOf<Pair<String, Long>?>(null) }
+    var prerenderDigest by prerenderDigestState
     // Stood down after a speculative render ran the source out of memory. Keyed on
     // sourceUri like the digest, so a different photo gets a fresh chance.
-    var prerenderOutOfMemory by remember(sourceUri) { mutableStateOf(false) }
+    val prerenderOutOfMemoryState = remember(sourceUri) { mutableStateOf(false) }
+    var prerenderOutOfMemory by prerenderOutOfMemoryState
     LaunchedEffect(
         previewTick, sourceRenderAllowed, sourceUri, exportUi.options,
         state.outputColorSpace, state.savingCctfEncoding,
@@ -2516,90 +1699,18 @@ internal fun MainActivity.EditorScreen(
         // as a key, this cancels any pre-render in flight the moment an export starts.
         exportInFlight,
     ) {
-        val activeEngine = engine ?: return@LaunchedEffect
-        val activeUri = sourceUri ?: return@LaunchedEffect
-        if (!sourceRenderAllowed || exportVm.current.inFlight) return@LaunchedEffect
-        if (prerenderOutOfMemory) return@LaunchedEffect
-        delay(RenderPayloads.IDLE_DEBOUNCE_MS)
-        if (previewBusy || exportVm.current.inFlight) return@LaunchedEffect
-        val app = ctx.applicationContext
-        val descriptor = runCatching {
-            exportVm.current.options.outputDescriptor(
-                state.outputColorSpace, state.savingCctfEncoding, Build.VERSION.SDK_INT,
-            )
-        }.getOrNull() ?: return@LaunchedEffect
-        // Scene-linear exports the DECODE, not the engine output: nothing to pre-render.
-        if (descriptor.format == ExportFormat.SCENE_LINEAR_TIFF) return@LaunchedEffect
-        val params = if (descriptor.engineColorSpace == null) {
-            state.toParams()
-        } else {
-            descriptor.applyTo(state.toParams())
-        }
-        val request = runCatching { currentSourceDecodeRequest() }.getOrNull()
-            ?: return@LaunchedEffect
-        // The source cannot change under a stable Uri, so hash it once per source, not once
-        // per idle: it is a full read of the file (~37 MB on the bench corpus).
-        val digest = prerenderDigest ?: withContext(dispatchers.io) {
-            ExportCacheKey.digestSource { app.contentResolver.openInputStream(activeUri) }
-        }?.also { prerenderDigest = it } ?: return@LaunchedEffect
-        val store = RenderPayloads.of(app)
-        val key = RenderPayloads.key(
-            ExportCacheKey.Source(
-                digest.first, digest.second, EXPORT_MAX_EDGE_PX, decodeIdentityOf(request),
-            ),
-            params,
-            descriptor.engineColorSpace,
-            ExportCaches.contractVersionOf(app),
+        runSpeculativePrerender(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            currentSourceDecodeRequest = ::currentSourceDecodeRequest,
+            engineState = engineState,
+            previewBusyState = previewBusyState,
+            sourceUriState = sourceUriState,
+            prerenderDigestState = prerenderDigestState,
+            prerenderOutOfMemoryState = prerenderOutOfMemoryState,
         )
-        if (store.holds(key) || !RenderPayloads.shouldPrerender(app)) return@LaunchedEffect
-        val startedMs = System.currentTimeMillis()
-        runCatching {
-            withContext(dispatchers.default) {
-                val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, dispatchers.io).image
-                val rendered = try {
-                    runCancellableNative(
-                        onLateResult = { late ->
-                            late.reportOutcome(AppRenderOutcome.CANCELLED)
-                            late.close()
-                        },
-                    ) { cancellation ->
-                        activeEngine.simulate(image, params, RenderKind.EXPORT, cancellation)
-                    }
-                } finally {
-                    image.close()
-                    // Speculative full-res render: do not leave its GPU buffers
-                    // holding budget the real export will need (#269).
-                    releaseGpuAfterFullResRender("pre-render")
-                }
-                rendered.use {
-                    val stored = store.put(key, it)
-                    // A stored payload WAS consumed — its bytes outlive the result. One that
-                    // could not be stored is a render nothing ever used.
-                    it.reportOutcome(
-                        if (stored) AppRenderOutcome.CONSUMED else AppRenderOutcome.FAILED,
-                    )
-                    stored
-                }
-            }
-        }.onSuccess { stored ->
-            if (stored) {
-                Diag.i("pre-rendered export in ${System.currentTimeMillis() - startedMs} ms")
-            }
-        }.onFailure { failure ->
-            if (failure is CancellationException) throw failure
-            Diag.w("pre-render skipped: $failure")
-            // This is SPECULATIVE work for an export the user has not asked for, and it
-            // decodes at EXPORT_MAX_EDGE_PX. On the 4080x3060 DNG that exposed this it cost
-            // a full decode plus most of an export — 13 s and ~650 MB — before failing, while
-            // the preview the user was actually waiting for got nothing. The budget will not
-            // have grown by the next previewTick, so retrying only repeats the damage.
-            // shouldPrerender's own guards do not catch this: they read the SYSTEM low-memory
-            // flag, not this process's own budget, which is what refused the allocation.
-            if (generateSequence(failure) { it.cause }.take(8).any { it is OutOfMemoryError }) {
-                prerenderOutOfMemory = true
-                Diag.w("pre-render stood down for this source after OOM")
-            }
-        }
     }
 
     // --- Non-destructive recipe: debounced auto-save ---
@@ -2614,63 +1725,21 @@ internal fun MainActivity.EditorScreen(
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
-        if (!recipeReady || recipeKey == null) return@LaunchedEffect
-        val writableGeneration = recipeAccess.writableGenerationFor(recipeKey)
-            ?: return@LaunchedEffect
-        val autosaveEpoch = recipeEditEpoch.snapshot()
-        delay(700)
-        if (!recipeEditEpoch.isCurrent(autosaveEpoch)) return@LaunchedEffect
-        if (recipeAccess.writableGenerationFor(recipeKey) != writableGeneration) {
-            return@LaunchedEffect
-        }
-        val current = runCatching { Presets.toJsonString(state) }.getOrNull()
-        // A non-NONE manual rotation is itself an edit worth persisting, even when the
-        // params are otherwise default — so only treat as "pristine" if rotation is NONE.
-        if (current != null && current == defaultsJson && rotation == SourceRotation.NONE) {
-            if (!hasRecipe) return@LaunchedEffect
-            val pendingDelete = RecipeWorkRuntime.submit {
-                if (recipeRepo.generation(recipeKey) != writableGeneration) return@submit null
-                recipeRepo.delete(recipeKey)
-                recipeRepo.generation(recipeKey)
-            }
-            val newGeneration = try {
-                pendingDelete.await()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                Diag.w("pristine recipe delete failed: ${failure.message}")
-                status = ctx.getString(R.string.editor_status_recipe_clear_failed)
-                return@LaunchedEffect
-            }
-            if (newGeneration != null) {
-                recipeAccess = EditorRecipeAccess.Writable(recipeKey, newGeneration)
-                hasRecipe = false
-            }
-            return@LaunchedEffect
-        }
-        val saved = try {
-            // Reuse the main-thread serialization from above (torn-snapshot safety);
-            // only the envelope build + file write cross to IO.
-            val paramsJson = current ?: Presets.toJsonString(state)
-            val savedSourceName = sourceName
-            val savedRotationDegrees = rotation.degrees
-            val pendingSave = RecipeWorkRuntime.submit {
-                recipeRepo.saveJson(
-                    recipeKey,
-                    paramsJson,
-                    savedSourceName,
-                    savedRotationDegrees,
-                    writableGeneration,
-                )
-            }
-            pendingSave.await()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            Diag.w("recipe auto-save failed: ${failure.message}")
-            return@LaunchedEffect
-        }
-        if (saved) hasRecipe = true
+        runRecipeAutosave(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            recipeEditEpoch = recipeEditEpoch,
+            recipeKey = recipeKey,
+            recipeRepo = recipeRepo,
+            defaultsJsonState = defaultsJsonState,
+            hasRecipeState = hasRecipeState,
+            recipeAccessState = recipeAccessState,
+            recipeReadyState = recipeReadyState,
+            rotationState = rotationState,
+            sourceNameState = sourceNameState,
+            statusState = statusState,
+        )
     }
 
     // --- Undo/redo capture (debounced coalescing) ---
@@ -3069,280 +2138,30 @@ internal fun MainActivity.EditorScreen(
                             },
                         )
                         Category.DISPLAY -> DisplaySection(state)
-                        Category.PRESETS -> PresetPanel(
+                        Category.PRESETS -> EditorPresetPanel(
+                            ctx = ctx,
+                            scope = scope,
+                            state = state,
+                            presetRepo = presetRepo,
+                            snackbarHost = snackbarHost,
+                            recipeKey = recipeKey,
                             builtInGroups = builtInGroups,
-                            onApplyBuiltIn = { p ->
-                                val now = runCatching { Presets.toJsonString(state) }.getOrNull()
-                                val baseline =
-                                    presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson)
-                                presetBaselineJson = baseline
-                                applyWithAmount(baseline) {
-                                    // Rewind before overlaying, so a sparse preset cannot
-                                    // inherit the previous one's fields. When the run is not
-                                    // continuing the baseline IS [now], so this is a no-op —
-                                    // one source of truth, in presetRunBaseline.
-                                    if (baseline != null && baseline != now) {
-                                        runCatching {
-                                            Presets.decode(org.json.JSONObject(baseline), state)
-                                        }
-                                    }
-                                    BuiltInPresets.apply(p, state)
-                                }
-                                lastBuiltInOutput = runCatching { Presets.toJsonString(state) }.getOrNull()
-                                status = ctx.getString(R.string.editor_status_applied_builtin, p.name); previewTick++
-                            },
-                            amount = presetUi.amount,
-                            amountEnabled = presetUi.amountEnabled,
-                            onAmountChange = { a ->
-                                presetVm.onAction(PresetAction.SetAmount(a))
-                                val base = presetVm.current.baseJson; val full = presetVm.current.fullJson
-                                if (base != null && full != null) {
-                                    runCatching {
-                                        val blended = PresetAmount.blend(
-                                            org.json.JSONObject(base), org.json.JSONObject(full), a,
-                                        )
-                                        Presets.decodeLook(blended, state)
-                                    }.onFailure { Diag.w("preset amount blend failed: ${it.message}") }
-                                    previewTick++
-                                }
-                            },
-                            presets = presetList,
-                            selected = presetUi.selected,
-                            name = presetUi.name,
-                            onNameChange = { presetVm.onAction(PresetAction.SetName(it)) },
-                            onSelect = { presetVm.onAction(PresetAction.Select(it)) },
-                            onSave = {
-                                if (presetVm.current.name.isNotBlank()) {
-                                    val name = presetVm.current.name
-                                    // Serialize on main (toJsonString reads live Compose
-                                    // state field-by-field — a torn snapshot off-main);
-                                    // only the file write + listing cross to IO.
-                                    scope.launch {
-                                        val json = Presets.toJsonString(state)
-                                        val names = withContext(dispatchers.io) {
-                                            presetRepo.saveJson(name, json); presetRepo.list()
-                                        }
-                                        presetList = names
-                                        // Report the name on disk, not the typed one:
-                                        // safeName may have rewritten it.
-                                        val stored = presetRepo.resolveName(name)
-                                        presetVm.onAction(PresetAction.Select(stored))
-                                        status = ctx.getString(R.string.editor_status_preset_saved, stored)
-                                    }
-                                }
-                            },
-                            nameExists = { presetRepo.exists(it) },
-                            resolveName = { presetRepo.resolveName(it) },
-                            onExportSelected = {
-                                val selectedPreset = presetVm.current.selected
-                                if (selectedPreset.isNotBlank()) {
-                                    pendingPresetExport = selectedPreset
-                                    savedPresetExporter.launch("$selectedPreset.json")
-                                }
-                            },
-                            onApply = {
-                                if (presetVm.current.selected.isNotBlank()) {
-                                    val name = presetVm.current.selected
-                                    // Read the JSON off-main; decode (Compose-state write)
-                                    // + applyWithAmount run back on the main thread.
-                                    scope.launch {
-                                        val text = withContext(dispatchers.io) {
-                                            runCatching { presetRepo.read(name) }.getOrNull()
-                                        }
-                                        if (text == null) { status = ctx.getString(R.string.editor_status_preset_apply_failed); return@launch }
-                                        runCatching {
-                                            applyWithAmount { Presets.decodeLook(org.json.JSONObject(text), state) }
-                                        }
-                                            .onSuccess { status = ctx.getString(R.string.editor_status_preset_applied, name); previewTick++ }
-                                            .onFailure { status = ctx.getString(R.string.editor_status_preset_apply_failed_reason, it.message) }
-                                    }
-                                }
-                            },
-                            onDelete = {
-                                if (presetVm.current.selected.isNotBlank()) {
-                                    val name = presetVm.current.selected
-                                    scope.launch {
-                                        // Read the preset BEFORE deleting it. This was a single
-                                        // tap with no confirmation and nothing to undo; holding
-                                        // the JSON is what lets Undo put it back byte-for-byte
-                                        // (— read and saveJson round-trip through the same
-                                        // parsePersistentJson normalisation).
-                                        val backup = withContext(dispatchers.io) {
-                                            runCatching { presetRepo.read(name) }.getOrNull()
-                                        }
-                                        val names = withContext(dispatchers.io) {
-                                            presetRepo.delete(name); presetRepo.list()
-                                        }
-                                        presetList = names
-                                        status = ctx.getString(R.string.editor_status_preset_deleted, name)
-                                        presetVm.onAction(PresetAction.Select(""))
-                                        if (backup != null) {
-                                            offerSnackbarSuggestion(
-                                                scope,
-                                                snackbarHost,
-                                                ctx.getString(R.string.editor_snack_preset_deleted, name),
-                                                ctx.getString(R.string.editor_action_undo),
-                                            ) {
-                                                scope.launch {
-                                                    val restored = withContext(dispatchers.io) {
-                                                        runCatching { presetRepo.saveJson(name, backup) }
-                                                        presetRepo.list()
-                                                    }
-                                                    presetList = restored
-                                                    if (name in restored) {
-                                                        presetVm.onAction(PresetAction.Select(name))
-                                                        status = ctx.getString(
-                                                            R.string.editor_status_preset_restored, name,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
-                            onExport = { presetExporter.launch("spectrafilm_preset.json") },
-                            onCopySettings = {
-                                val copied = runCatching { Presets.toJsonString(state) }.getOrNull()
-                                presetVm.onAction(PresetAction.SetClipboard(copied))
-                                status = ctx.getString(
-                                    if (copied != null) R.string.editor_status_settings_copied
-                                    else R.string.editor_status_copy_failed,
-                                )
-                            },
-                            canPasteSettings = presetUi.canPaste,
-                            onPasteSettings = {
-                                presetVm.current.clipboardJson?.let { clip ->
-                                    runCatching { Presets.decode(org.json.JSONObject(clip), state) }
-                                        .onSuccess {
-                                            // Pasting replaces the whole look, so the preset
-                                            // amount blend anchor is now stale — clear it so a
-                                            // later slider move can't overwrite the pasted look.
-                                            presetVm.onAction(PresetAction.ClearAmount)
-                                            status = ctx.getString(R.string.editor_status_settings_pasted); previewTick++
-                                        }
-                                        .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
-                                }
-                            },
-                            onExportLut = { size, clf ->
-                                val e = engine ?: return@PresetPanel
-                                bakingLut = true; status = ctx.getString(R.string.editor_status_baking_lut, if (clf) "CLF" else ".cube")
-                                scope.launch {
-                                    var lutRenderId = 0L
-                                    val r = runCatching {
-                                        withContext(dispatchers.default) {
-                                            // UNSHAPED, deliberately: this file goes to
-                                            // other software, and a .cube carries no
-                                            // shaper metadata — it must stay in the
-                                            // linear domain it advertises.
-                                            val bake = runCancellableNative(
-                                                onLateResult = { late ->
-                                                    late.reportOutcome(AppRenderOutcome.CANCELLED)
-                                                },
-                                            ) { cancellation ->
-                                                e.bakeCubeLut(
-                                                    state.toParams(),
-                                                    size,
-                                                    SpektraEngine.SHAPER_NONE,
-                                                    cancellation,
-                                                )
-                                            }
-                                            lutRenderId = bake.renderId
-                                            if (clf) {
-                                                val lut = CubeLut.parse(bake.text) ?: error("baked LUT could not be parsed")
-                                                val film = StockCatalog.displayName(ctx, state.filmProfile)
-                                                val print = StockCatalog.displayName(ctx, state.printProfile)
-                                                ClfWriter.write(lut, title = "$film / $print")
-                                            } else {
-                                                bake.text
-                                            }
-                                        }
-                                    }
-                                    bakingLut = false
-                                    if (!isActive) {
-                                        SimResult.reportOutcome(lutRenderId, AppRenderOutcome.CANCELLED)
-                                        return@launch
-                                    }
-                                    r.onSuccess { text ->
-                                        pendingLutText = text
-                                        SimResult.reportOutcome(lutRenderId, AppRenderOutcome.CONSUMED)
-                                        val fileName = lutFileName(
-                                            StockCatalog.displayName(ctx, state.filmProfile),
-                                            StockCatalog.displayName(ctx, state.printProfile),
-                                            size, clf,
-                                        )
-                                        runCatching { lutExporter.launch(fileName) }
-                                            .onFailure { status = ctx.getString(R.string.editor_status_save_dialog_failed, it.message) }
-                                    }.onFailure {
-                                        SimResult.reportOutcome(lutRenderId, AppRenderOutcome.FAILED)
-                                        status = ctx.getString(R.string.editor_status_lut_bake_failed, it.message)
-                                        Toast.makeText(ctx, status, Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
-                            bakingLut = bakingLut,
-                            versionsContent = {
-                                // Versions of THIS photo, keyed like its recipe. Bound while the
-                                // panel is open, so opening it always shows the current list.
-                                LaunchedEffect(recipeKey) { versionsVm.bind(recipeKey) }
-                                DisposableEffect(Unit) {
-                                    versionsVm.onEvent = { event ->
-                                        when (event) {
-                                            is VersionEvent.Saved -> status =
-                                                ctx.getString(R.string.editor_status_version_saved, event.version.name)
-                                            is VersionEvent.Updated -> status =
-                                                ctx.getString(R.string.editor_status_version_updated, event.name)
-                                            is VersionEvent.Failed -> status =
-                                                ctx.getString(R.string.editor_status_version_failed, event.reason)
-                                            is VersionEvent.Quarantined -> scope.launch {
-                                                snackbarHost.currentSnackbarData?.dismiss()
-                                                snackbarHost.showSnackbar(
-                                                    ctx.getString(R.string.editor_snack_versions_quarantined),
-                                                    withDismissAction = true,
-                                                )
-                                            }
-                                            is VersionEvent.Deleted -> offerSnackbarSuggestion(
-                                                scope,
-                                                snackbarHost,
-                                                ctx.getString(R.string.editor_snack_version_deleted, event.version.name),
-                                                ctx.getString(R.string.editor_action_undo),
-                                            ) { versionsVm.restore(event.key, event.version) }
-                                        }
-                                    }
-                                    onDispose { versionsVm.onEvent = {} }
-                                }
-                                val versionsUi by versionsVm.uiState.collectAsStateWithLifecycle()
-                                VersionsSection(
-                                    ui = versionsUi,
-                                    onSave = { name ->
-                                        runCatching { Presets.toJsonString(state) }
-                                            .onSuccess { versionsVm.save(name, it, rotation.degrees) }
-                                            .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
-                                    },
-                                    onApply = { version ->
-                                        // Exactly Paste Settings: the whole look is replaced (so the
-                                        // preset amount anchors go stale) and Undo takes it back.
-                                        runCatching { Presets.decode(org.json.JSONObject(version.paramsJson), state) }
-                                            .onSuccess {
-                                                presetVm.onAction(PresetAction.ClearAmount)
-                                                // Crop and masks were saved against this
-                                                // orientation, so it comes back with them.
-                                                rotation = SourceRotation.fromDegrees(version.rotationDegrees)
-                                                status = ctx.getString(R.string.editor_status_version_applied, version.name)
-                                                previewTick++
-                                            }
-                                            .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
-                                    },
-                                    onReplaceWithCurrent = { version ->
-                                        runCatching { Presets.toJsonString(state) }
-                                            .onSuccess { versionsVm.replaceWithCurrent(version, it, rotation.degrees) }
-                                            .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
-                                    },
-                                    onRename = { version, name -> versionsVm.rename(version.id, name) },
-                                    onDelete = { version -> versionsVm.delete(version.id) },
-                                )
-                            },
+                            presetUi = presetUi,
+                            presetImporter = presetImporter,
+                            presetExporter = presetExporter,
+                            savedPresetExporter = savedPresetExporter,
+                            lutExporter = lutExporter,
+                            presetListState = presetListState,
+                            presetBaselineJsonState = presetBaselineJsonState,
+                            lastBuiltInOutputState = lastBuiltInOutputState,
+                            bakingLutState = bakingLutState,
+                            pendingLutTextState = pendingLutTextState,
+                            pendingPresetExportState = pendingPresetExportState,
+                            rotationState = rotationState,
+                            statusState = statusState,
+                            previewTickState = previewTickState,
+                            engineState = engineState,
+                            applyWithAmountFn = ::applyWithAmount,
                         )
                         Category.SOURCE -> SourcePanel(
                             sourceName = sourceName,
@@ -3918,368 +2737,6 @@ internal fun MainActivity.EditorScreen(
 // ---------------------------------------------------------------------------
 // New Lightroom-style chrome
 // ---------------------------------------------------------------------------
-
-@Composable
-internal fun MainActivity.EditorTopBar(
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onOpenSource: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onOpenLibrary: () -> Unit,
-) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
-                )
-            )
-            .windowInsetsPadding(WindowInsets.statusBars),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Open / pick a source photo (was an app-exit bug previously).
-            TextTooltip(stringResource(R.string.editor_open_photo)) {
-                PressIconButton(onClick = onOpenSource) {
-                    Icon(
-                        SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
-                        tint = SpektraBrand.onCanvas,
-                    )
-                }
-            }
-            // The Library sits beside Open: both are ways to open a photo, and working
-            // through a shoot frame by frame should be one tap away.
-            TextTooltip(stringResource(R.string.library_title)) {
-                PressIconButton(onClick = onOpenLibrary) {
-                    Icon(
-                        SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
-                        tint = SpektraBrand.onCanvas,
-                    )
-                }
-            }
-            // weight(1f): the title yields to the 48dp actions, so at 200% font it
-            // ellipsizes instead of pushing the menu off the right edge (#181).
-            Text(
-                stringResource(R.string.app_name),
-                color = SpektraBrand.onCanvas.copy(alpha = 0.92f),
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .semantics { heading() },
-            )
-            // Undo / redo — in-session edit history. Disabled (dimmed) when the
-            // respective stack is empty; one slider drag = one undo step.
-            TextTooltip(stringResource(R.string.editor_action_undo)) {
-                PressIconButton(onClick = onUndo, enabled = canUndo) {
-                    Icon(
-                        SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
-                        tint = if (canUndo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
-                    )
-                }
-            }
-            TextTooltip(stringResource(R.string.editor_action_redo)) {
-                PressIconButton(onClick = onRedo, enabled = canRedo) {
-                    Icon(
-                        SpectraIcons.Redo, contentDescription = stringResource(R.string.editor_action_redo),
-                        tint = if (canRedo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
-                    )
-                }
-            }
-            // M3 app bars carry one or two essential actions; Undo and Redo are this
-            // screen's. Export moved to the FAB beside the stage toolbar, and Settings /
-            // About live behind the overflow menu.
-            var menuOpen by remember { mutableStateOf(false) }
-            Box {
-                TextTooltip(stringResource(R.string.editor_action_more)) {
-                    PressIconButton(onClick = { menuOpen = true }) {
-                        Icon(
-                            SpectraIcons.More,
-                            contentDescription = stringResource(R.string.editor_action_more),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                androidx.compose.material3.DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                ) {
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(stringResource(R.string.editor_action_settings)) },
-                        leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenSettings() },
-                    )
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(stringResource(R.string.editor_action_about)) },
-                        leadingIcon = { Icon(SpectraIcons.Help, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenAbout() },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** The pinned preview region on the near-black canvas with a rotate control. */
-@Composable
-internal fun MainActivity.PreviewRegion(
-    preview: Bitmap?,
-    placeholder: Bitmap?,
-    before: Bitmap?,
-    busy: Boolean,
-    decoding: Boolean,
-    exporting: Boolean,
-    lastRenderMs: Long?,
-    renderErr: String?,
-    compareMode: Boolean,
-    showHistogram: Boolean,
-    showClipping: Boolean,
-    clipWarnings: Boolean,
-    gpuEnabled: Boolean,
-    gpuProxy: LinearImage?,
-    gpuLut: CubeLut?,
-    gpuGain: Float,
-    onToggleCompare: () -> Unit,
-    onToggleHistogram: () -> Unit,
-    onToggleClipWarnings: () -> Unit,
-    onRotate: () -> Unit,
-    onEditCrop: () -> Unit,
-    onPointPicked: (Float, Float) -> Unit,
-    onOpenMagnifier: () -> Unit,
-    renderKey: Int,
-    roiOverlay: RoiOverlay?,
-    onRoiSettled: (RoiRect) -> Unit,
-    onRoiCleared: () -> Unit,
-    controlsBottomInset: Dp = 0.dp,
-) {
-    // Accessibility: the canvas gestures (pinch/double-tap zoom, drag to inspect a region,
-    // tap to open the 100% grain magnifier) have no widget of their own, so the region is
-    // described and the tap-to-pick gesture gets a custom action at the frame centre. The
-    // ROI drag is bound to the live zoom state inside ZoomableImage and has no safe
-    // one-shot equivalent, so it is described only. Semantics-only: no gesture changes.
-    val previewDesc = when {
-        preview == null -> stringResource(R.string.editor_preview_desc_empty)
-        compareMode -> stringResource(R.string.editor_preview_desc_compare)
-        else -> stringResource(R.string.editor_preview_desc_film)
-    }
-    val previewActions = if (preview != null && !compareMode) {
-        listOf(
-            // The magnifier moved off the tap and onto its own button, so this action
-            // calls the button's handler rather than the (now unrelated) tap callback.
-            CustomAccessibilityAction(stringResource(R.string.editor_preview_action_magnifier)) {
-                onOpenMagnifier()
-                true
-            },
-            // The tap gesture's own equivalent: hiding the chrome is worth reaching
-            // without a gesture, since the gesture has nothing on screen to announce it.
-            CustomAccessibilityAction(stringResource(R.string.editor_toggle_chrome)) {
-                onPointPicked(0.5f, 0.5f)
-                true
-            },
-        )
-    } else {
-        emptyList()
-    }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(SpectraIcons.nearBlackCanvas)
-            // Edge to edge: no side gutter. A 16dp gutter on each side cost a landscape
-            // photo (the common case on a portrait phone) 32dp of width and therefore
-            // ~8% of its displayed size. The overlays below carry their own insets.
-            .semantics {
-                contentDescription = previewDesc
-                customActions = previewActions
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        val bmp = preview
-        // GPU LUT surface is the FIT view's instant path (the baked look sampled on-GPU,
-        // no per-edit CPU re-render); the CPU ZoomableImage owns ZOOM, where it renders the
-        // region with grain/halation via the ROI path. gpuBroken latches if GL can't build
-        // on this device (→ CPU fallback, never a black screen); gpuZoomHandoff flips when
-        // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
-        var gpuBroken by remember { mutableStateOf(false) }
-        var gpuZoomHandoff by remember { mutableStateOf(false) }
-        // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
-        // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
-        var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
-        val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
-        val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-            !compareMode && !showClipping && !gpuBroken && !gpuZoomHandoff
-        if (gpuActive) GpuPreviewSurface(
-            proxy = gpuProxy!!,
-            lut = gpuLut!!,
-            exposureGain = gpuGain,
-            modifier = Modifier.fillMaxSize(),
-            controlsBottomInset = controlsBottomInset,
-            onPointPicked = onPointPicked,
-            onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
-            onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
-            zoomRequests = viewerVm.zoomRequests,
-            onUnavailable = {
-                gpuBroken = true
-                Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
-            },
-        )
-        // #286: the render fades in over the open stand-in instead of popping in. Starts
-        // transparent only while a stand-in is showing, so an ordinary re-render (no
-        // stand-in) is never faded.
-        val revealAlpha = remember { Animatable(1f) }
-        LaunchedEffect(placeholder != null, bmp != null) {
-            when {
-                placeholder != null && bmp == null -> revealAlpha.snapTo(0f)
-                placeholder != null -> revealAlpha.animateTo(1f, tween(OPEN_PLACEHOLDER_FADE_MS))
-                else -> revealAlpha.snapTo(1f)
-            }
-        }
-        // Everything except the GPU surface lives in the part of the canvas ABOVE the
-        // floating panel ([controlsBottomInset]), so an open panel moves and fits the photo
-        // instead of covering it, and the canvas buttons ride on top of the panel. The GPU
-        // surface keeps the full box: resizing a GLSurfaceView every animation frame is
-        // the churn documented on PanelOverlay.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(bottom = controlsBottomInset),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (placeholder != null && !gpuActive) {
-                Image(
-                    bitmap = placeholder.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            when {
-                gpuActive -> Unit
-                bmp != null && compareMode && before != null ->
-                    CompareSlider(before = before, after = bmp)
-                bmp != null -> ZoomableImage(
-                    bitmap = bmp,
-                    // Clipping warnings: the GPU surface steps aside while they show
-                    // (gpuActive above), as it does for compare, so the mask always has
-                    // the CPU frame it was computed from underneath it.
-                    overlay = clipMask,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = revealAlpha.value },
-                    initialScale = gpuZoomInitial,
-                    zoomRequests = viewerVm.zoomRequests,
-                    onPointPicked = onPointPicked,
-                    // Press and hold the photo for the unedited frame. The bitmap already
-                    // exists for the latched CompareSlider above, so the gesture costs no
-                    // extra render.
-                    //
-                    // PreviewRegion.onPointPicked is NOT nullable -- it is always the
-                    // magnifier opener -- so there is no sampler to yield to here, and a
-                    // long press is otherwise unused on this surface. The colour/WB sampler
-                    // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
-                    peek = before,
-                    // Lightroom-style zoom: render the visible region at native resolution
-                    // (renderKey = previewTick so an edit while zoomed re-renders the crop).
-                    renderKey = renderKey,
-                    onRoiSettled = onRoiSettled,
-                    // Returning to fit also re-arms the GPU fit surface.
-                    onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
-                    roiOverlay = roiOverlay,
-                    // No inset: this Box already stops at the panel's top edge.
-                )
-                placeholder != null -> Unit
-                else -> Text(stringResource(R.string.editor_preview_none), color = SpektraBrand.onCanvas.copy(alpha = 0.7f))
-            }
-
-            // Compact translucent histogram overlaid at the TOP EDGE of the preview
-            // (Lightroom-style). Driven by the same `showHistogram` state as the
-            // Source-panel toggle. PreviewHistogramOverlay acquires an explicit read lease and
-            // samples off-main; preview retirement defers recycle until that lease closes.
-            if (showHistogram && bmp != null) {
-                PreviewHistogramOverlay(
-                    bitmap = bmp,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 4.dp),
-                )
-            }
-
-            // Status pill — top-start of the preview, over the canvas.
-            StatusPill(
-                exporting = exporting,
-                rendering = busy,
-                decoding = decoding,
-                lastRenderMs = lastRenderMs,
-                renderErr = renderErr,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 12.dp, top = 6.dp),
-            )
-
-            // bottom-center controls on a scrim: histogram + compare + crop + rotate
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextTooltip(stringResource(R.string.editor_histogram)) {
-                    CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
-                        Icon(
-                            SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_clipping_tooltip)) {
-                    CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
-                        Icon(
-                            SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
-                    CircleScrimButton(onClick = onOpenMagnifier) {
-                        Icon(
-                            SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_compare)) {
-                    CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
-                        Icon(
-                            SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
-                    CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = SpektraBrand.onCanvas)
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_rotate_90)) {
-                    CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = SpektraBrand.onCanvas)
-                    }
-                }
-            }
-        }
-    }
-}
 
 private fun avgRgb(img: com.spectrafilm.engine.LinearImage): Triple<Float, Float, Float> {
     return img.acquireDataLease().use { lease ->

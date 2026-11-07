@@ -115,7 +115,10 @@ android {
     // checks. Release builds generate no pseudolocale resources, so listing them is inert there.
     androidResources {
         generateLocaleConfig = true
-        localeFilters += listOf("en", "zh-rCN", "en-rXA", "ar-rXB")
+        localeFilters += listOf(
+            "en", "de", "es", "fr", "ja", "ko", "pt-rBR", "zh-rCN",
+            "en-rXA", "ar-rXB",
+        )
     }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.

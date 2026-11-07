@@ -237,17 +237,18 @@ internal fun PresetPanel(
     Divider()
     var lutSize by remember { mutableIntStateOf(33) }
     var lutClf by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.editor_lut_size), style = MaterialTheme.typography.bodySmall)
-        listOf(17, 33, 65).forEach { sz ->
-            FilterChip(selected = lutSize == sz, onClick = { lutSize = sz }, label = { Text("$sz³") })
-        }
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.editor_lut_format), style = MaterialTheme.typography.bodySmall)
-        FilterChip(selected = !lutClf, onClick = { lutClf = false }, label = { Text(".cube") })
-        FilterChip(selected = lutClf, onClick = { lutClf = true }, label = { Text(".clf") })
-    }
+    Text(stringResource(R.string.editor_lut_size), style = MaterialTheme.typography.bodySmall)
+    ConnectedChoiceRow(
+        options = listOf(17, 33, 65).map { it to "$it³" },
+        selected = lutSize,
+        onSelect = { lutSize = it },
+    )
+    Text(stringResource(R.string.editor_lut_format), style = MaterialTheme.typography.bodySmall)
+    ConnectedChoiceRow(
+        options = listOf(false to ".cube", true to ".clf"),
+        selected = lutClf,
+        onSelect = { lutClf = it },
+    )
     Button(
         onClick = { onExportLut(lutSize, lutClf) },
         enabled = !bakingLut,

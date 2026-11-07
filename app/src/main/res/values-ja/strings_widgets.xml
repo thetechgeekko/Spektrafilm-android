@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="widget_state_expanded">展開</string>
+    <string name="widget_state_collapsed">折りたたみ</string>
+    <string name="widget_section_expand">展開</string>
+    <string name="widget_section_collapse">折りたたむ</string>
+    <string name="widget_section_enable_switch">%1$sを有効にする</string>
+    <string name="widget_help_badge_tooltip">「%1$s」の働きは？</string>
+    <string name="widget_help_badge_description">%1$sについて</string>
+    <string name="widget_help_badge_action">ヘルプを表示</string>
+    <string name="widget_advanced_hide">詳細オプションを隠す</string>
+    <string name="widget_advanced_show">詳細オプションを表示</string>
+    <string name="widget_value_pill_description">%1$sの値 %2$s</string>
+    <string name="widget_value_pill_description_modified">%1$sの値 %2$s、変更済み</string>
+    <string name="widget_value_pill_enter_exact">%1$sの値を入力</string>
+    <string name="widget_value_pill_reset_default">%1$sを既定値に戻す</string>
+    <string name="widget_component_r">R</string>
+    <string name="widget_component_g">G</string>
+    <string name="widget_component_b">B</string>
+    <string name="widget_component_1">1</string>
+    <string name="widget_component_2">2</string>
+    <string name="widget_not_yet_active_badge">未対応</string>
+    <string name="widget_not_yet_active_detail">これらの設定は今後のエンジン更新用で、現在は効果がありません。</string>
+    <string name="widget_numeric_entry_field_label">値</string>
+    <string name="widget_numeric_entry_sign_toggle">符号を切り替え</string>
+    <string name="widget_numeric_entry_range_hint">%1$s〜%2$sの値を入力してください。</string>
+    <string name="widget_numeric_entry_set">設定</string>
+    <string name="widget_numeric_entry_cancel">キャンセル</string>
+    <string name="widget_ae_drag_handle">ドラッグハンドル</string>
+    <string name="widget_ae_dismiss_menu">測光メニューを閉じる</string>
+    <string name="widget_ae_metering_method">測光方式</string>
+    <string name="widget_ae_off_manual">オフ / マニュアル</string>
+    <string name="widget_ae_description">自動露出</string>
+    <string name="widget_ae_state_on">オン、%1$s</string>
+    <string name="widget_ae_state_off">オフ、マニュアル露出</string>
+    <string name="widget_ae_choose_method">測光方式を選択</string>
+    <string name="widget_ae_turn_on">オンにして測光方式を選択</string>
+    <string name="widget_ae_tooltip">自動露出：タップで測光パターンを選択、上にスワイプで展開。オフのときは露出は完全にマニュアルです。</string>
+    <string name="widget_ae_button_on">"自動  ·  %1$s"</string>
+    <string name="widget_ae_button_off">自動</string>
+    <string name="widget_ae_manual_exposure">マニュアル露出</string>
+</resources>

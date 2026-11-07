@@ -51,6 +51,7 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
     private static final String TICKET177_PHASE_BENCH = "bench";
     private static final String TICKET177_PHASE_PREVIEW = "preview";
     private static final String TICKET177_PHASE_PRERENDER = "prerender";
+    private static final String TICKET177_PHASE_PREPARE = "prepare";
     private static final String ARG_TICKET177_CORPUS = "ticket177_corpus";
     private static final String ARG_TICKET177_SOURCE = "ticket177_source";
     private static final String ARG_TICKET177_RUNS = "ticket177_runs";
@@ -208,6 +209,16 @@ public final class ReleaseCandidateSmokeInstrumentation extends Instrumentation 
                                 + "TICKET139_RAPID_SOURCE_NATIVE_CLOSE: PASS "
                                 + nativeEvidence + "\n"
                                 + "TICKET139_EXPORT_TERMINAL_EXACTLY_ONCE: PASS\n");
+            } else if (TICKET177_PHASE_PREPARE.equals(ticket177Phase)) {
+                // Have the APP create its external files dir before the host pushes the
+                // corpus into it. On a fresh install (CI emulator) the dir does not exist
+                // yet; if `adb push` creates it, it is owned by shell and the app gets
+                // EACCES reading bench-corpus.json. getExternalFilesDir() asks the system
+                // to create it with the app's ownership; files pushed afterwards inherit it.
+                final java.io.File dir = getTargetContext().getExternalFilesDir(null);
+                require(dir != null && dir.isDirectory(),
+                        "external files dir unavailable: " + dir);
+                results.putString("stream", "TICKET177_PREPARE: PASS " + dir + "\n");
             } else if (TICKET177_PHASE_BENCH.equals(ticket177Phase)) {
                 final int runs = Integer.parseInt(
                         arguments.getString(ARG_TICKET177_RUNS, "1"));

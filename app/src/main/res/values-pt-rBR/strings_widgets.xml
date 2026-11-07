@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="widget_state_expanded">Expandido</string>
+    <string name="widget_state_collapsed">Recolhido</string>
+    <string name="widget_section_expand">Expandir</string>
+    <string name="widget_section_collapse">Recolher</string>
+    <string name="widget_section_enable_switch">Ativar %1$s</string>
+    <string name="widget_help_badge_tooltip">O que faz “%1$s”?</string>
+    <string name="widget_help_badge_description">Sobre %1$s</string>
+    <string name="widget_help_badge_action">Mostrar ajuda</string>
+    <string name="widget_advanced_hide">Ocultar opções avançadas</string>
+    <string name="widget_advanced_show">Mostrar opções avançadas</string>
+    <string name="widget_value_pill_description">%1$s, valor %2$s</string>
+    <string name="widget_value_pill_description_modified">%1$s, valor %2$s, alterado</string>
+    <string name="widget_value_pill_enter_exact">Digitar valor exato de %1$s</string>
+    <string name="widget_value_pill_reset_default">Redefinir %1$s para o padrão</string>
+    <string name="widget_component_r">R</string>
+    <string name="widget_component_g">G</string>
+    <string name="widget_component_b">B</string>
+    <string name="widget_component_1">1</string>
+    <string name="widget_component_2">2</string>
+    <string name="widget_not_yet_active_badge">ainda não ativo</string>
+    <string name="widget_not_yet_active_detail">Estes controles estão preparados para uma futura atualização do motor e ainda não têm efeito.</string>
+    <string name="widget_numeric_entry_field_label">Valor</string>
+    <string name="widget_numeric_entry_sign_toggle">Alternar sinal</string>
+    <string name="widget_numeric_entry_range_hint">Digite um valor entre %1$s e %2$s.</string>
+    <string name="widget_numeric_entry_set">Definir</string>
+    <string name="widget_numeric_entry_cancel">Cancelar</string>
+    <string name="widget_ae_drag_handle">Alça de arrastar</string>
+    <string name="widget_ae_dismiss_menu">Fechar o menu de medição</string>
+    <string name="widget_ae_metering_method">Modo de medição</string>
+    <string name="widget_ae_off_manual">Desligada / Manual</string>
+    <string name="widget_ae_description">Exposição automática</string>
+    <string name="widget_ae_state_on">Ligada, %1$s</string>
+    <string name="widget_ae_state_off">Desligada, exposição manual</string>
+    <string name="widget_ae_choose_method">escolher modo de medição</string>
+    <string name="widget_ae_turn_on">ligar e escolher modo de medição</string>
+    <string name="widget_ae_tooltip">Exposição automática: toque para escolher um padrão de medição ou deslize para cima para expandir. Desligada, a exposição é totalmente manual.</string>
+    <string name="widget_ae_button_on">"Auto  ·  %1$s"</string>
+    <string name="widget_ae_button_off">Auto</string>
+    <string name="widget_ae_manual_exposure">Exposição manual</string>
+</resources>
