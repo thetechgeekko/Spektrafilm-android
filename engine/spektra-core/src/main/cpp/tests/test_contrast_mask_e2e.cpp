@@ -146,6 +146,28 @@ void unit_curve() {
                 hi, m.highlights, lo, m.shadows);
     expect(std::fabs(hi - m.highlights) < 1e-9 && std::fabs(lo + m.shadows) < 1e-9,
            "B amount is the shift at the reach");
+    // The CORRECTED exposure must keep tonal order at every setting: a monotone
+    // delta is not enough, a slope below -1 makes darker regions print lighter.
+    bool order = true;
+    double worst = 1e9;
+    for (double amount : {0.25, 1.0, 2.0, 2.9, 3.0}) {
+        for (double core : {0.0, 0.25, 1.0}) {
+            spk::ContrastMaskParams q;
+            q.active = true;
+            q.highlights = amount;
+            q.shadows = amount;
+            q.core = core;
+            double prev_c = -30.0 + spk::contrast_mask_delta(-30.0, q);
+            for (double b = -30.0 + 0.005; b <= 30.0; b += 0.005) {
+                const double c = b + spk::contrast_mask_delta(b, q);
+                worst = std::min(worst, (c - prev_c) / 0.005);
+                if (c < prev_c - 1e-12) order = false;
+                prev_c = c;
+            }
+        }
+    }
+    std::printf("B corrected exposure: minimum slope %.6f (want >= 0)\n", worst);
+    expect(order, "B corrected exposure keeps tonal order at every amount and core");
     spk::ContrastMaskParams only_hi = m;
     only_hi.shadows = 0.0;
     expect(spk::contrast_mask_delta(5.0, only_hi) == 0.0, "B a zero-amount branch is inert");

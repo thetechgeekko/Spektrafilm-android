@@ -88,13 +88,23 @@ double contrast_mask_delta(double b, const ContrastMaskParams& m) {
     } else {
         return 0.0;
     }
-    // Pre-compensate the gain bound so a base kContrastMaskReach stops past the
-    // core moves by exactly `amount` (closed form), then never past the core.
-    const double L = kContrastMaskGainLimit;
-    const double a = std::min(amount, L * 0.999);
-    const double pre = a * L / std::sqrt(L * L - a * a);
-    const double raw = pre * shape(D) / shape(kContrastMaskReach);
-    const double d = std::min(raw * L / std::sqrt(L * L + raw * raw), D);
+    // t is the fraction of the reach the amount asks for. The pull blends a soft
+    // knee (zero slope at the core) with a straight line, weighted so that
+    //   * a base kContrastMaskReach stops past the core moves by exactly `amount`,
+    //   * the slope of the pull never exceeds 1, so the corrected exposure
+    //     b + delta stays monotone and the mask never reverses tonal order
+    //     (amount 3 flattens the reach instead of inverting it), and
+    //   * the pull never moves a base past the core (d <= D follows from the
+    //     slope bound and d(0) = 0).
+    // knee' < 1 and knee(D)/D rises with D, so with K = R / shape(R) ~= 1.08 the
+    // slope is at most t(1 - t)K + t^2 <= 1 for every t in [0, 1].
+    const double R = kContrastMaskReach;
+    const double t = std::min(amount / R, 1.0);
+    const double knee = R * shape(D) / shape(R);
+    double d = t * ((1.0 - t) * knee + t * D);
+    // Belt and braces: the closed form already keeps both bounds; a constant cap
+    // keeps the corrected exposure monotone too.
+    d = std::min(std::min(d, D), kContrastMaskGainLimit * 0.999);
     return sign * d;
 }
 
