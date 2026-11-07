@@ -8,7 +8,6 @@ import android.graphics.Bitmap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,7 +147,7 @@ internal fun recycleUnpublishedExport(outcome: ExportTerminalOutcome) {
  * it. The foreground service owns scheduling/kill resistance; this runtime owns the actual work.
  */
 internal object ExportWorkRuntime {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + ProcessDispatchers.default)
     private val ids = AtomicLong(0L)
     private val lock = Any()
     private val mutableState = MutableStateFlow<ExportRuntimeState>(ExportRuntimeState.Idle)

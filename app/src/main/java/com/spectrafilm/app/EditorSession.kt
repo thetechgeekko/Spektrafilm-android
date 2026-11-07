@@ -19,7 +19,6 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -1444,7 +1443,7 @@ internal object EditorSessionCheckpointRuntime {
     )
 
     private val signal = Channel<Unit>(Channel.CONFLATED)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + ProcessDispatchers.io)
     private val owners = EditorSessionCheckpointOwners()
     private val coordinator = LatestCheckpointCoordinator<Pending>(writer = { checkpoint ->
         val retained = retainEncodableEditorSession(checkpoint.document)

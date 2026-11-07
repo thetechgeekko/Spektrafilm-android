@@ -848,7 +848,7 @@ internal object Ticket139EditorProbe {
             check(!exportPublicationAuthorized(finished.sourceIdentity, replacement))
             val claims = coroutineScope {
                 (0 until 16).map {
-                    async(Dispatchers.Default) { ExportWorkRuntime.claimFinished(runId) }
+                    async(ProcessDispatchers.default) { ExportWorkRuntime.claimFinished(runId) }
                 }.awaitAll()
             }
             check(claims.count { it != null } == 1) { "mismatched export was not claimed once" }

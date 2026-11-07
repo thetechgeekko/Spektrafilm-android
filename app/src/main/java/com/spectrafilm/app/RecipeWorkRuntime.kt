@@ -6,7 +6,6 @@ package com.spectrafilm.app
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -21,7 +20,7 @@ internal class RecipeEditEpoch {
 }
 
 internal class RecipeOperationRuntime internal constructor(
-    workScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    workScope: CoroutineScope = CoroutineScope(SupervisorJob() + ProcessDispatchers.io),
 ) {
     private val queue = Channel<() -> Unit>(Channel.UNLIMITED)
 

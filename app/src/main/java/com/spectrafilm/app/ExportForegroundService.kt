@@ -17,7 +17,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -109,7 +108,9 @@ internal fun exportForegroundStopDecision(
  */
 class ExportForegroundService : Service() {
     private val generationGate = ExportForegroundServiceGenerationGate()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Lazy: the Service's application context, and so its AppContainer, exists only once
+    // attached, after property initialisers run.
+    private val scope by lazy { CoroutineScope(SupervisorJob() + appContainer.dispatchers.mainImmediate) }
     private var observer: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
