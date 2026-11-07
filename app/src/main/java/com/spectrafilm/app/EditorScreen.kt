@@ -74,7 +74,7 @@ private var editorRestoredInThisProcess = false
  * binding (ownership, not publication — a revoked source still tracks its own run).
  * Called once from a keyless remember at EditorScreen entry.
  */
-internal fun MainActivity.authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Long? =
+internal fun authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Long? =
     (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
         ?.takeIf { running ->
             exportRunOwnedByEditor(running.sourceIdentity, editorIdentity)
@@ -619,7 +619,8 @@ internal fun MainActivity.EditorScreen(
         onSessionCheckpoint,
     ) {
         runExportRuntimeObserver(
-            this@EditorScreen,
+            dispatchers,
+            exportVm,
             ctx = ctx,
             exportSourceIdentity = exportSourceIdentity,
             publicationGate = publicationGate,
@@ -1233,7 +1234,7 @@ internal fun MainActivity.EditorScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            startBatchExport(ctx, scope, state, engine, uris, snackbarHost) { status = it }
+            startBatchExport(dispatchers, exportVm, ctx, scope, state, engine, uris, snackbarHost) { status = it }
         }
     }
     // Half-frame pair: this photo and one more on one picture (HalfFramePair.kt).
@@ -1242,6 +1243,7 @@ internal fun MainActivity.EditorScreen(
     ) { uri ->
         if (uri != null) {
             startHalfFramePair(
+                dispatchers, exportVm,
                 ctx, scope, state, engine, sourceUri, sourceName, sourceKind, rotation, uri, snackbarHost,
             ) { status = it }
         }
@@ -1917,7 +1919,8 @@ internal fun MainActivity.EditorScreen(
         exportRuntimeStateState.value is ExportRuntimeState.Running,
     ) {
         runSpeculativePrerender(
-            this@EditorScreen,
+            dispatchers,
+            exportVm,
             ctx = ctx,
             state = state,
             sourceRenderAllowed = sourceRenderAllowed,
@@ -2834,7 +2837,7 @@ internal fun MainActivity.EditorScreen(
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                 previewBitmap = preview,
                 onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                    { requestBatchExport(ctx, legacyStoragePermission, batchPicker) { status = it } }
+                    { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
                 } else {
                     null
                 },
@@ -2842,12 +2845,15 @@ internal fun MainActivity.EditorScreen(
                     engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
                     halfFramePairSupports(exportUi.options)
                 ) {
-                    { requestHalfFramePair(ctx, legacyStoragePermission, pairPicker) { status = it } }
+                    { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
                 } else {
                     null
                 },
                 onExport = {
                     startEditorExport(
+                        dispatchers = dispatchers,
+                        exportVm = exportVm,
+                        exportPresetVm = exportPresetVm,
                         ctx = ctx,
                         scope = scope,
                         state = state,

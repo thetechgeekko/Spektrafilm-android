@@ -33,7 +33,8 @@ import kotlinx.coroutines.withContext
  * The sheet's "Export more photos with this edit…" item: storage permission on API 28 and
  * below (as the single export does), then close the sheet and open the multi-select picker.
  */
-internal fun MainActivity.requestBatchExport(
+internal fun requestBatchExport(
+    exportVm: ExportViewModel,
     ctx: Context,
     legacyStoragePermission: ManagedActivityResultLauncher<String, Boolean>,
     batchPicker: ManagedActivityResultLauncher<Array<String>, List<Uri>>,
@@ -59,7 +60,8 @@ internal fun MainActivity.requestBatchExport(
  * The sheet's "Export as a half-frame pair…" item: the same storage check as a batch, then
  * the picker for the second frame. The photo open in the editor is the first.
  */
-internal fun MainActivity.requestHalfFramePair(
+internal fun requestHalfFramePair(
+    exportVm: ExportViewModel,
     ctx: Context,
     legacyStoragePermission: ManagedActivityResultLauncher<String, Boolean>,
     pairPicker: ManagedActivityResultLauncher<Array<String>, Uri?>,
@@ -85,7 +87,9 @@ internal fun MainActivity.requestHalfFramePair(
  * Submit a half-frame pair: the editor's photo with its whole edit and turn, and [picked] with
  * its own saved edit (or this look). Edit and options are captured now, as for a batch.
  */
-internal fun MainActivity.startHalfFramePair(
+internal fun startHalfFramePair(
+    dispatchers: AppDispatchers,
+    exportVm: ExportViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,
@@ -143,7 +147,9 @@ internal fun MainActivity.startHalfFramePair(
  * captured now, which is what the sheet showed when the action was chosen; editing during the
  * batch does not change it.
  */
-internal fun MainActivity.startBatchExport(
+internal fun startBatchExport(
+    dispatchers: AppDispatchers,
+    exportVm: ExportViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,
