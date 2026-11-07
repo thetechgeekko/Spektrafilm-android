@@ -3593,4 +3593,33 @@ no longer special. Start the next round from a fresh cooled profile, not from th
   `VK_QCOM_tile_memory_heap` are both present: a 2-D FFT is globally dependent and a tile
   apron is a fixed margin. It would help the pointwise chain, which is ~2-3 s of ~15 s.
 
+## 33. Release evidence for the P2 perf tickets (#281-#285), 2026-11-07
+
+**Build:** release at `3fb0a14` (R8, debug-key signed, zipalign -P 16), phone R5GL13Z3S6L, DNG source.
+The timings are device-side `Spektra` stage-timing lines. Each one is a single capture, not a gated baseline.
+
+| What | Measured | Before |
+|---|---|---|
+| Full-res export pre-render | 3682 / 3465 ms | -- |
+| Save after tapping Export (pre-render reused) | 515 ms (`setup=3 decode=99 exif=21 grade=169 encode=201`) | -- |
+| `grain` stage / `gpu_grain` dispatch | 422.5 / 409.7 ms; GPU 26.1 / 22.6 ms, `bands5` | 5400 ms CPU (#258) |
+| `halation` / `gpu_halation` | 788.2 / 611.5 ms; GPU 477.7 / 462.9 ms, whole-frame (`bands3` = staging bands) | 7.1 s CPU on the compact device (#258) |
+| `dir_couplers` / `gpu_dir` | 556.2 / 513.4 ms; GPU 349.7 / 322.9 ms | 3.3 s CPU (#258) |
+| Slider drag, draft frames (edge 512) | 45 frames, 61-77 ms each | -- |
+| Preview 765x1020 after drag / first open | 264 ms / 481 ms | 927-3045 ms at 1000x750 (#258) |
+| Cold start `TotalTime`, verify vs speed-profile | 82-90 ms vs 82-109 ms | no measurable change |
+
+Notes:
+
+- **Banding (#281, #409).** This phone fits the whole-frame halation buffers, so the banded route did not
+  engage here. On a device that refuses them it shows as `gpu_halation=engaged/banded/bandsN`. Banded
+  output is byte-identical to the whole-frame route (lavapipe gate). It has no device timing yet: that
+  needs the compact-tier phone.
+- **A cancelled render was logged as a GPU exception** (one frame mid-drag: `gpu_dir=fallback/exception`).
+  It also tore down the halation kernel, so the next frame rebuilt it. Fixed in #416, which now logs
+  `fallback/cancelled` and keeps the kernel.
+- **The baseline profile (#283)** ships 6,034 `com.spectrafilm` rules (275 before) and installs with
+  `status=speed-profile`. Time to first frame did not move. Any gain would show in a measure that ends
+  when the editor is actually usable (`reportFullyDrawn`), which has not been measured yet.
+
 *Film modeling powered by spektrafilm (GPLv3).*
