@@ -32,6 +32,26 @@ class ExportForegroundServiceTypeTest {
     }
 
     @Test
+    fun api35AndUpFallBackToDataSyncWhenMediaProcessingIsRefused() {
+        // #458 on device: an API 37 Samsung build refused mediaProcessing; dataSync must
+        // still be tried next, and the first choice must stay mediaProcessing.
+        for (sdk in listOf(35, 36, 37)) {
+            assertEquals(
+                listOf(
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                ),
+                ExportForegroundService.foregroundServiceTypesFor(sdk),
+            )
+        }
+        assertEquals(
+            listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC),
+            ExportForegroundService.foregroundServiceTypesFor(34),
+        )
+        assertEquals(listOf(0), ExportForegroundService.foregroundServiceTypesFor(28))
+    }
+
+    @Test
     fun api29To34StayDataSync() {
         for (sdk in 29..34) {
             assertEquals(
