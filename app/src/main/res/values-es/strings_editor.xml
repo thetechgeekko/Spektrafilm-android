@@ -209,7 +209,6 @@
     <string name="editor_hint_display">Espacio de color de salida, codificación CCTF y tamaño de vista previa</string>
     <string name="editor_preset_builtin_heading">Estilos integrados</string>
     <string name="editor_preset_builtin_label">Ajuste integrado</string>
-    <string name="editor_preset_apply_builtin">Aplicar ajuste integrado</string>
     <string name="editor_preset_yours_heading">Tus ajustes</string>
     <string name="editor_preset_amount">Intensidad del ajuste</string>
     <string name="editor_preset_amount_tooltip" formatted="false">Mezcla el ajuste aplicado sobre el estilo anterior (0 % = antes, 100 % = completo).</string>

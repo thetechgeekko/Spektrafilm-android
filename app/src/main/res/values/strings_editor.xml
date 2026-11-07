@@ -257,7 +257,6 @@
     <!-- Presets panel -->
     <string name="editor_preset_builtin_heading">Built-in looks</string>
     <string name="editor_preset_builtin_label">Built-in preset</string>
-    <string name="editor_preset_apply_builtin">Apply built-in preset</string>
     <string name="editor_preset_yours_heading">Your presets</string>
     <string name="editor_preset_amount">Preset amount</string>
     <string name="editor_preset_amount_tooltip" formatted="false">Mix the applied preset over the previous look (0% = before, 100% = full).</string>

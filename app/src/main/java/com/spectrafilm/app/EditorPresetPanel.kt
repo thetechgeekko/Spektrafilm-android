@@ -42,6 +42,10 @@ internal fun MainActivity.EditorPresetPanel(
     presetListState: MutableState<List<String>>,
     presetBaselineJsonState: MutableState<String?>,
     lastBuiltInOutputState: MutableState<String?>,
+    lastBuiltInIdState: MutableState<String?>,
+    presetPreviewHost: StockPreviewHost?,
+    stripSourceKey: Any?,
+    stripPaused: Boolean,
     bakingLutState: MutableState<Boolean>,
     pendingLutTextState: MutableState<String?>,
     pendingPresetExportState: MutableState<String?>,
@@ -56,6 +60,7 @@ internal fun MainActivity.EditorPresetPanel(
     var presetList by presetListState
     var presetBaselineJson by presetBaselineJsonState
     var lastBuiltInOutput by lastBuiltInOutputState
+    var lastBuiltInId by lastBuiltInIdState
     var bakingLut by bakingLutState
     var pendingLutText by pendingLutTextState
     var pendingPresetExport by pendingPresetExportState
@@ -64,8 +69,20 @@ internal fun MainActivity.EditorPresetPanel(
     var previewTick by previewTickState
     val engine by engineState
     fun applyWithAmount(baseOverride: String? = null, apply: () -> Unit) = applyWithAmountFn(baseOverride, apply)
+    // The strip marks the look on screen: the last one applied, until any other edit makes
+    // the photo something else.
+    val appliedBuiltIn by remember {
+        derivedStateOf {
+            val id = lastBuiltInId
+            if (id != null && runCatching { Presets.toJsonString(state) }.getOrNull() == lastBuiltInOutput) id else ""
+        }
+    }
     PresetPanel(
         builtInGroups = builtInGroups,
+        appliedBuiltInId = appliedBuiltIn,
+        previewHost = presetPreviewHost,
+        stripSourceKey = stripSourceKey,
+        stripPaused = stripPaused,
         onApplyBuiltIn = { p ->
             val now = runCatching { Presets.toJsonString(state) }.getOrNull()
             val baseline =
@@ -84,6 +101,7 @@ internal fun MainActivity.EditorPresetPanel(
                 BuiltInPresets.apply(p, state)
             }
             lastBuiltInOutput = runCatching { Presets.toJsonString(state) }.getOrNull()
+            lastBuiltInId = p.id
             status = ctx.getString(R.string.editor_status_applied_builtin, p.name); previewTick++
         },
         amount = presetUi.amount,

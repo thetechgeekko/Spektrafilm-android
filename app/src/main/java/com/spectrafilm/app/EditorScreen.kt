@@ -547,6 +547,8 @@ internal fun MainActivity.EditorScreen(
     var presetBaselineJson by presetBaselineJsonState
     val lastBuiltInOutputState = remember { mutableStateOf<String?>(null) }
     var lastBuiltInOutput by lastBuiltInOutputState
+    // Id of the built-in look whose result [lastBuiltInOutput] is: the Look strip's selection.
+    val lastBuiltInIdState = remember { mutableStateOf<String?>(null) }
 
     // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
     // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
@@ -1467,6 +1469,59 @@ internal fun MainActivity.EditorScreen(
         close = { owner -> vm.close(owner) },
     )
 
+    /**
+     * The Look strip's preview session: the photo through each built-in look, rendered as a
+     * tap would apply it -- the run's baseline (presetRunBaseline) with the look laid over,
+     * so a tile never stacks on the look applied a moment ago. Same rules as the stock tiles:
+     * the cached proxy only, grain and halation skipped, one tile at a time.
+     */
+    fun presetPreviewHost(vm: StockPreviewViewModel) = StockPreviewHost(
+        previews = vm.previews,
+        request = vm::request,
+        open = open@{ owner ->
+            if (!sourceRenderAllowed || sourceUri == null) return@open
+            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+            val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
+                .getOrNull() ?: return@open
+            val now = runCatching { Presets.toJsonString(state) }.getOrNull() ?: return@open
+            val baseline = presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson) ?: now
+            val looks = builtInGroups.values.flatten().associateBy { it.id }
+            val cctf = state.savingCctfEncoding
+            val saturation = state.saturation
+            val vibrance = state.vibrance
+            val gamut = state.gamutCompress
+            val local = state.localAdjustments.toList()
+            vm.open(
+                StockPreviewSession(
+                    key = listOf(snapshot.ticket.request, baseline, looks.keys, cctf, saturation, vibrance, gamut, local),
+                    source = {
+                        sourceCache.acquire(snapshot.ticket)?.use { lease ->
+                            withContext(dispatchers.default) {
+                                downsampleLinearBox(lease.image, STOCK_PREVIEW_SOURCE_EDGE)
+                            }
+                        }
+                    },
+                    // Called on the main thread (StockPreviewViewModel), so a scratch
+                    // ParamsState is safe to build here.
+                    paramsFor = { id ->
+                        val look = ParamsState()
+                        Presets.decode(JSONObject(baseline), look)
+                        looks[id]?.let { BuiltInPresets.apply(it, look) }
+                        look.toParams(
+                            previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
+                            skipGrainHalation = true,
+                        )
+                    },
+                    toBitmap = { res ->
+                        simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                    },
+                ),
+                owner,
+            )
+        },
+        close = { owner -> vm.close(owner) },
+    )
+
     suspend fun loadSourceCached(
         cache: DecodedSourceCache,
         flight: SingleFlight<Unit>,
@@ -2238,6 +2293,10 @@ internal fun MainActivity.EditorScreen(
                             presetListState = presetListState,
                             presetBaselineJsonState = presetBaselineJsonState,
                             lastBuiltInOutputState = lastBuiltInOutputState,
+                            lastBuiltInIdState = lastBuiltInIdState,
+                            presetPreviewHost = presetPreviewHost(presetPreviewVm),
+                            stripSourceKey = sourceUri,
+                            stripPaused = previewBusy || interacting.value,
                             bakingLutState = bakingLutState,
                             pendingLutTextState = pendingLutTextState,
                             pendingPresetExportState = pendingPresetExportState,

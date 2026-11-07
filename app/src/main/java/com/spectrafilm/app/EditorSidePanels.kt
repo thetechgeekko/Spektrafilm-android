@@ -39,6 +39,12 @@ import kotlinx.coroutines.launch
 internal fun PresetPanel(
     builtInGroups: Map<String, List<BuiltInPreset>>,
     onApplyBuiltIn: (BuiltInPreset) -> Unit,
+    /** The built-in look currently on the photo ("" when the photo has moved on from it). */
+    appliedBuiltInId: String = "",
+    /** Tiles of the photo through each look; null without a photo (no strip then). */
+    previewHost: StockPreviewHost? = null,
+    stripSourceKey: Any? = null,
+    stripPaused: Boolean = false,
     amount: Float,
     amountEnabled: Boolean,
     onAmountChange: (Float) -> Unit,
@@ -72,9 +78,6 @@ internal fun PresetPanel(
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.semantics { heading() },
         )
-        var selectedBuiltIn by remember {
-            mutableStateOf(builtInGroups.values.firstOrNull()?.firstOrNull()?.id ?: "")
-        }
         val all = remember(builtInGroups) { builtInGroups.values.flatten() }
         // GroupedDropdown has always rendered a spec line and a summary under each row
         // (it is what the film/paper pickers use); this panel passed neither, so 27
@@ -102,13 +105,29 @@ internal fun PresetPanel(
                 )
             }
         }
+        // One tap applies a look. The strip shows the photo through every look (M3
+        // uncontained carousel, as on the Film tab); the list below is its "show all"
+        // (carousel a11y: every item reachable without horizontal scrolling) and applies
+        // on pick too. There is no separate Apply button any more: the app bar's Undo
+        // takes a look back, and the Amount slider below fades it.
+        val apply = { id: String -> all.firstOrNull { it.id == id }?.let(onApplyBuiltIn); Unit }
+        if (previewHost != null) {
+            FilmStockStrip(
+                selectedId = appliedBuiltInId,
+                groups = builtInDropdownGroups,
+                previewHost = previewHost,
+                sourceKey = stripSourceKey,
+                paused = stripPaused,
+                onSelect = apply,
+            )
+        }
         GroupedDropdown(
             label = stringResource(R.string.editor_preset_builtin_label),
-            selectedId = selectedBuiltIn,
+            selectedId = appliedBuiltInId,
             groups = builtInDropdownGroups,
-            onSelect = { selectedBuiltIn = it },
+            onSelect = apply,
         )
-        val current = all.firstOrNull { it.id == selectedBuiltIn }
+        val current = all.firstOrNull { it.id == appliedBuiltInId }
         if (current?.description?.isNotBlank() == true) {
             Text(
                 current.description,
@@ -116,11 +135,6 @@ internal fun PresetPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Button(
-            onClick = { current?.let(onApplyBuiltIn) },
-            enabled = current != null,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.editor_preset_apply_builtin)) }
         Divider()
         Text(
             stringResource(R.string.editor_preset_yours_heading),

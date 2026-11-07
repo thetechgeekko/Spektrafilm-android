@@ -56,7 +56,7 @@ internal class StockPreviewSession(
     val key: Any,
     /** A small linear copy of the photo, owned (and closed) by the caller of this lambda. */
     val source: suspend () -> LinearImage?,
-    /** The params a tap on [stockId] would render. */
+    /** The params a tap on [stockId] would render. Called on the view model's main thread. */
     val paramsFor: (stockId: String) -> SpektraParams,
     /** The editor's own display step (saturation, vibrance, gamut, local adjustments). */
     val toBitmap: (SimResult) -> Bitmap,
@@ -230,7 +230,11 @@ internal class StockPreviewViewModel(
                     break
                 }
                 val result = runCatching {
-                    withContext(worker) { renderer.render(image, current.paramsFor(work.stockId), current.toBitmap) }
+                    // Params are built here, on the main thread: the Look strip's builder
+                    // decodes into a scratch ParamsState (Compose state), which must not be
+                    // written from the render worker.
+                    val params = current.paramsFor(work.stockId)
+                    withContext(worker) { renderer.render(image, params, current.toBitmap) }
                 }
                 result.onSuccess { queue.complete(work, it) }
                     .onFailure {

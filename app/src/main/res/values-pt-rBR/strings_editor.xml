@@ -209,7 +209,6 @@
     <string name="editor_hint_display">Espaço de cor de saída, codificação CCTF e tamanho da prévia</string>
     <string name="editor_preset_builtin_heading">Estilos embutidos</string>
     <string name="editor_preset_builtin_label">Predefinição embutida</string>
-    <string name="editor_preset_apply_builtin">Aplicar predefinição embutida</string>
     <string name="editor_preset_yours_heading">Suas predefinições</string>
     <string name="editor_preset_amount">Intensidade da predefinição</string>
     <string name="editor_preset_amount_tooltip" formatted="false">Mistura a predefinição aplicada sobre o estilo anterior (0% = antes, 100% = completo).</string>
