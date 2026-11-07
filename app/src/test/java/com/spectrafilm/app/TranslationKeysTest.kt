@@ -42,4 +42,21 @@ class TranslationKeysTest {
 
         assertTrue("Translated keys missing from English: $stale", stale.isEmpty())
     }
+
+    /**
+     * Every app translation folder must be listed in app/build.gradle.kts `localeFilters`,
+     * otherwise the translation is stripped from the APK and never offered.
+     */
+    @Test fun `every translation is kept by localeFilters`() {
+        val res = resDir()
+        val gradle = File(res.parentFile.parentFile.parentFile, "build.gradle.kts").readText()
+        val filters = Regex("""localeFilters\s*\+=\s*listOf\(([^)]*)\)""").find(gradle)
+            ?.groupValues?.get(1)?.split(',')?.map { it.trim().trim('"') }?.toSet()
+            ?: throw AssertionError("localeFilters not found in app/build.gradle.kts")
+        val translated = res.listFiles { f -> f.isDirectory && f.name.startsWith("values-") }.orEmpty()
+            .filter { it.listFiles().orEmpty().any { f -> f.name.startsWith("strings") } }
+            .map { it.name.removePrefix("values-") }
+        val dropped = translated.filterNot { it in filters }
+        assertTrue("Translations missing from localeFilters: $dropped", dropped.isEmpty())
+    }
 }

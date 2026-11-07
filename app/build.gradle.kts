@@ -105,7 +105,13 @@ android {
     // Per-app language (Android 13+): AGP writes the LocaleConfig from the values-* folders,
     // so a translation shows up in the system's per-app language list with no code change.
     // The default (unqualified) locale is declared in src/main/res/resources.properties.
-    androidResources { generateLocaleConfig = true }
+    // localeFilters keeps the list to languages the APP translates: without it AGP would also
+    // pick up AndroidX/Compose library translations (values-fr etc.) and offer languages in
+    // which our own UI stays English. Add a locale here when its values-<locale> folder lands.
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf("en")
+    }
     // The gate APK must target the minified release variant that is later
     // externally signed, not AGP's default debug app.
     testBuildType = "release"
