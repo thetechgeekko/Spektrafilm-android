@@ -347,7 +347,11 @@ private suspend fun renderFrame(
         check(res.colorSpace == descriptor.engineColorSpace) {
             "Engine result color space disagrees with output contract"
         }
-        val full = simResultToBitmapGraded(res, cctf, state.saturation, state.vibrance, state.gamutCompress)
+        // Local adjustments (masks) are applied in the grade, not by the engine: pass this
+        // frame's own, as the editor's export does.
+        val full = simResultToBitmapGraded(
+            res, cctf, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments,
+        )
         SimResult.reportOutcome(res.renderId, AppRenderOutcome.CONSUMED)
         return full
     } catch (failure: Throwable) {
