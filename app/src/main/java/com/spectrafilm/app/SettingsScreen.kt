@@ -14,6 +14,7 @@
 package com.spectrafilm.app
 
 import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.ColorSpace
@@ -74,6 +76,7 @@ internal fun SettingsScreen(
     onOpenAbout: () -> Unit = {},
     onOpenHowTo: () -> Unit = {},
     updateUi: UpdateUiState = UpdateUiState(),
+    selectedDetail: SettingsDetail? = null,
     onUpdateAction: (UpdateAction) -> Unit = {},
 ) {
     val ctx = LocalContext.current
@@ -282,6 +285,7 @@ internal fun SettingsScreen(
                     NavRow(
                         title = stringResource(R.string.screen_settings_diagnostics_logs),
                         onClick = onOpenDiagnostics,
+                        selected = selectedDetail == SettingsDetail.DIAGNOSTICS,
                     )
                 }
             },
@@ -295,6 +299,7 @@ internal fun SettingsScreen(
                     NavRow(
                         title = stringResource(R.string.screen_how_to_use_app),
                         onClick = onOpenHowTo,
+                        selected = selectedDetail == SettingsDetail.HOW_TO,
                     )
                 },
                 {
@@ -331,6 +336,7 @@ internal fun SettingsScreen(
                             R.string.screen_about_version, appVersionName(ctx), appVersionCode(ctx),
                         ),
                         onClick = onOpenAbout,
+                        selected = selectedDetail == SettingsDetail.ABOUT,
                     )
                 },
             ),
@@ -392,7 +398,13 @@ private fun RowBody(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) { content() }
 }
 
-/** A tappable list row: title, optional supporting line, full-row 56dp+ target. */
+/**
+ * A tappable list row: title, optional supporting line, full-row 56dp+ target.
+ *
+ * [selected] marks the row whose page is open in the detail pane of the two-pane Settings
+ * layout (M3 list-detail: the list shows which item the detail belongs to). It is a fill
+ * change only, so the row does not move when the selection does.
+ */
 @Composable
 private fun NavRow(
     title: String,
@@ -401,12 +413,19 @@ private fun NavRow(
     supporting: String? = null,
     enabled: Boolean = true,
     supportingLive: Boolean = false,
+    selected: Boolean = false,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
+            .then(
+                if (selected) {
+                    Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+                } else Modifier,
+            )
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { if (selected) this.selected = true }
             .then(modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.Center,
