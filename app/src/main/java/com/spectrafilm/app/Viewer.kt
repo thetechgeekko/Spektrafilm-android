@@ -261,6 +261,9 @@ fun ZoomableImage(
     // Scale to start at on first composition — used when the GPU fit surface hands off via its
     // "+" button so zoom-in lands already zoomed instead of at fit. Default 1f (fit) everywhere else.
     initialScale: Float = 1f,
+    // A same-size mask drawn over the photo through the SAME transform (the clipping
+    // warnings). Hidden while peeking at the unedited frame, which it does not describe.
+    overlay: Bitmap? = null,
 ) {
     var scale by remember { mutableFloatStateOf(initialScale) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -447,6 +450,23 @@ fun ZoomableImage(
                     )
                 }
             }
+        }
+
+        val overlayImage = remember(overlay) { overlay?.asImageBitmap() }
+        if (overlayImage != null && !peeking) {
+            Image(
+                bitmap = overlayImage,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .aspectRatio(aspect)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    },
+            )
         }
 
         // Explicit zoom controls (Lightroom-style), complementing pinch + double-tap: "+" zooms

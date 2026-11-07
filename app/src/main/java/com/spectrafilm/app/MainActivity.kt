@@ -1440,6 +1440,9 @@ class MainActivity : ComponentActivity() {
             SliderInteraction(
                 onChange = { readout -> interacting.value = true; sliderReadout.value = readout },
                 onFinished = { interacting.value = false; sliderReadout.value = null },
+                // A second finger on the slider row peeks at clipping (the canvas button
+                // latches the same overlay without a gesture).
+                onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
             )
         }
 
@@ -1647,6 +1650,8 @@ class MainActivity : ComponentActivity() {
         // active adjustment category (null = panel closed); hoisted to AppRoot so it
         // survives navigation to Settings/About and back.
         var activeCategory by activeCategoryState
+        // 0..1 while a predictive-back swipe is closing the open panel; drives its shrink.
+        var panelBackProgress by remember { mutableFloatStateOf(0f) }
 
         val presetRepo = remember(ctx) { ctx.appContainer.presets }
         fun refreshPresets() { presetList = presetRepo.list() }
@@ -3753,7 +3758,21 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = toolUi.cropOpen) { toolVm.onAction(EditorToolAction.CloseCrop) }
         BackHandler(enabled = toolUi.maskGeometryOpen) { toolVm.onAction(EditorToolAction.CloseMaskGeometry) }
         BackHandler(enabled = toolUi.sampleOpen) { toolVm.onAction(EditorToolAction.CloseSample) }
-        BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null) { activeCategory = null }
+        // Predictive back on the open panel: while the back swipe is in progress the panel
+        // shrinks toward the bottom edge (M3 sheets), so the user sees what Back will do and
+        // can still cancel. Committing closes it; cancelling springs it back.
+        androidx.activity.compose.PredictiveBackHandler(
+            enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null,
+        ) { progress ->
+            try {
+                progress.collect { panelBackProgress = it.progress }
+                activeCategory = null
+            } catch (e: CancellationException) {
+                // Gesture cancelled: leave the panel open.
+            } finally {
+                panelBackProgress = 0f
+            }
+        }
         BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory == null) {
             if (backArmed) {
                 finish()
@@ -4273,12 +4292,15 @@ class MainActivity : ComponentActivity() {
                             renderErr = renderErr,
                             compareMode = viewerUi.compare,
                             showHistogram = viewerUi.histogram,
+                            showClipping = viewerUi.showClipping,
+                            clipWarnings = viewerUi.clipWarnings,
                             gpuEnabled = gpuEnabled,
                             gpuProxy = gpuProxy,
                             gpuLut = gpuLut,
                             gpuGain = gpuGain,
                             onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
                             onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
+                            onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
                             onRotate = { rotation = rotation.next() },
                             onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
                             // Single tap on the photo = show/hide the chrome. The point is
@@ -4350,6 +4372,7 @@ class MainActivity : ComponentActivity() {
                             val sideCategory = activeCategory
                             if (sideCategory != null) {
                                 SidePanel(
+                                    modifier = Modifier.predictiveBackShrink(panelBackProgress),
                                     category = sideCategory,
                                     onDismiss = { activeCategory = null },
                                     onResetCategory = resetActiveCategory,
@@ -4379,7 +4402,9 @@ class MainActivity : ComponentActivity() {
                                     dimming = interacting,
                                 ) {
                                     AdjustmentPanel(
-                                        modifier = Modifier.onSizeChanged { panelHeightPx = it.height },
+                                        modifier = Modifier
+                                            .onSizeChanged { panelHeightPx = it.height }
+                                            .predictiveBackShrink(panelBackProgress),
                                         category = activeCategory,
                                         onDismiss = { activeCategory = null },
                                         onResetCategory = resetActiveCategory,
@@ -5244,12 +5269,15 @@ class MainActivity : ComponentActivity() {
         renderErr: String?,
         compareMode: Boolean,
         showHistogram: Boolean,
+        showClipping: Boolean,
+        clipWarnings: Boolean,
         gpuEnabled: Boolean,
         gpuProxy: LinearImage?,
         gpuLut: CubeLut?,
         gpuGain: Float,
         onToggleCompare: () -> Unit,
         onToggleHistogram: () -> Unit,
+        onToggleClipWarnings: () -> Unit,
         onRotate: () -> Unit,
         onEditCrop: () -> Unit,
         onPointPicked: (Float, Float) -> Unit,
@@ -5312,8 +5340,9 @@ class MainActivity : ComponentActivity() {
             // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
             // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
             var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
+            val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
             val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-                !compareMode && !gpuBroken && !gpuZoomHandoff
+                !compareMode && !showClipping && !gpuBroken && !gpuZoomHandoff
             if (gpuActive) GpuPreviewSurface(
                 proxy = gpuProxy!!,
                 lut = gpuLut!!,
@@ -5364,6 +5393,10 @@ class MainActivity : ComponentActivity() {
                         CompareSlider(before = before, after = bmp)
                     bmp != null -> ZoomableImage(
                         bitmap = bmp,
+                        // Clipping warnings: the GPU surface steps aside while they show
+                        // (gpuActive above), as it does for compare, so the mask always has
+                        // the CPU frame it was computed from underneath it.
+                        overlay = clipMask,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = revealAlpha.value },
@@ -5428,6 +5461,14 @@ class MainActivity : ComponentActivity() {
                         CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
                             Icon(
                                 SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                    TextTooltip(stringResource(R.string.editor_clipping_tooltip)) {
+                        CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
+                            Icon(
+                                SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
                                 tint = Color.White,
                             )
                         }
