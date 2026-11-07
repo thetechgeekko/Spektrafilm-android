@@ -23,7 +23,9 @@
 //   8. a request the host must refuse (sigma past the cap) falls back
 //      without touching the output, and the warm kernel agrees afterwards;
 //   9. the DIR-coupler diffusion shape at the 12.5 MP pitch and at the widest
-//      tail the UI allows (500 um), against the CPU filters and blend.
+//      tail the UI allows (500 um), against the CPU filters and blend;
+//  10. submissions (#270): the compute pass split into one submission per
+//      dispatch, and held in a single submission, give byte-identical output.
 // Without a Vulkan device the pass must report a reason and return false,
 // which is the CPU-fallback law; the binary then prints ALL OK for the
 // fallback law only and says so.
@@ -233,6 +235,26 @@ int main() {
     std::printf("1-row staging bands: ok=%d bands=%u\n", bandedOk ? 1 : 0, db.bands);
     check(bandedOk && db.bands == static_cast<uint32_t>(h) && bytes_eq(gpu, gpuBanded),
           "one-row staging bands give the same bytes as the host-chosen band");
+
+    // Submissions (#270): the pass is split into several queue submissions so
+    // the compositor is not starved. One dispatch per submission and the whole
+    // pass in one submission must give the very same bytes as the host cap.
+    {
+        spk::gpu::HalationScatterRequest each = r, whole = r;
+        each.submit_pixels_override = 1u;
+        whole.submit_pixels_override = 0xFFFFFFFFu;
+        std::vector<double> gpuEach(raw.size()), gpuWhole(raw.size());
+        spk::gpu::HalationScatterDiagnostics de{}, dw{};
+        const bool eachOk = spk::gpu::halation_scatter(each, gpuEach.data(), &de);
+        const bool wholeOk = spk::gpu::halation_scatter(whole, gpuWhole.data(), &dw);
+        std::printf("submissions: per-dispatch ok=%d submits=%u dispatches=%u; single ok=%d submits=%u; host cap submits=%u\n",
+                    eachOk ? 1 : 0, de.pass_submits, de.dispatches, wholeOk ? 1 : 0, dw.pass_submits,
+                    d.pass_submits);
+        check(eachOk && de.engaged && de.pass_submits >= de.dispatches && bytes_eq(gpu, gpuEach),
+              "one submission per dispatch gives the same bytes as the host cap");
+        check(wholeOk && dw.engaged && dw.pass_submits == 1u && bytes_eq(gpu, gpuWhole),
+              "a single submission gives the same bytes as the host cap");
+    }
 
     // FIR-class halation (sigma sqrt(3) < 3 px) against the CPU.
     spk::HalationParams fir = p;

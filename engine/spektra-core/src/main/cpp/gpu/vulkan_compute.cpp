@@ -3650,6 +3650,18 @@ constexpr uint32_t kHalWorkBuffers = 4u;         // src, sum, x, xT
 // export ever needs the GPU pass.
 constexpr VkDeviceSize kHalWorkBudgetBytes = 1024ull << 20;
 constexpr VkDeviceSize kHalStagingBytes = 64ull << 20;  // upload/readback band
+// Per-submission work cap for the compute pass (#270), in pixels walked by the
+// dispatches recorded since the last submission. A 12.5 MP pass used to be one
+// 110-145 ms submission, three times per frame (halation, DIR, scatter); a
+// mobile GPU does not preempt a compute submission for the compositor, so the
+// UI's RenderThread waited behind it (queueBuffer stalls up to 36 ms on an
+// SM-S948W export trace). At this cap a full-resolution frame submits after
+// every dispatch, while a 640 px preview still batches a dozen per submission
+// so its fixed submit/fence cost does not grow. Submission boundaries are
+// ordering only -- the dispatch sequence and every barrier are unchanged, and
+// begin() opens each command buffer with a full memory barrier -- so the
+// output is byte-identical for any cap (a test proves it).
+constexpr uint64_t kHalSubmitPixels = 4ull << 20;
 constexpr uint32_t kHalGroupX = 32u, kHalGroupY = 8u;
 constexpr uint32_t kHalSrc = 0u, kHalSum = 1u, kHalX = 2u, kHalXT = 3u;
 
@@ -4053,7 +4065,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     HalationPush push{};
     push.fullWidth = W;
     push.fullHeight = H;
-    uint32_t dispatches = 0, bands = 0;
+    uint32_t dispatches = 0, bands = 0, passSubmits = 0;
+    const uint64_t submitPixels = r.submit_pixels_override ? r.submit_pixels_override : kHalSubmitPixels;
+    uint64_t pendingPixels = 0;   // pixels walked by dispatches recorded since begin()
+    bool passFlushOk = true;      // a mid-pass flush failed (reported after the pass)
+    bool inPass = false;          // flushing applies to the compute pass only
     auto barrier = [&](VkPipelineStageFlags srcStage, VkAccessFlags srcAccess,
                        VkPipelineStageFlags dstStage, VkAccessFlags dstAccess) {
         VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -4105,6 +4121,14 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
         ++dispatches;
+        if (!inPass || !passFlushOk) return;
+        pendingPixels += static_cast<uint64_t>(width) * height;
+        if (pendingPixels >= submitPixels) {
+            // End this submission and open the next; the pass carries on in it.
+            passFlushOk = submit_wait() && begin();
+            if (passFlushOk) ++passSubmits;
+            pendingPixels = 0;
+        }
     };
     // One separable blur into SUM. `fromScattered` selects the bounce sets
     // that read the scattered image in X and use S as scratch.
@@ -4166,9 +4190,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     }
 
-    // The whole pass, one submission.
+    // The compute pass, split into submissions of at most `submitPixels` of
+    // dispatched work (see kHalSubmitPixels).
     const auto gpuStart = std::chrono::steady_clock::now();
     if (!begin()) { d.reason = "dispatch-failed"; return false; }
+    inPass = true;
     if (scatterActive) {
         dispatch(4, kHalOpClear, 0, 0, W, H);
         if (coreNeeded) blur(kHalSigmaCore, 0, false);
@@ -4185,7 +4211,12 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         dispatch(scatterActive ? 10u : 5u, kHalOpBounceResolveRaw, 0, 0, W, H);
     }
     const VkBuffer result = (scatterActive && bounceActive) ? k.work[kHalSrc].buf : k.work[kHalX].buf;
+    inPass = false;
+    // A failed mid-pass flush leaves the command buffer in an unknown state;
+    // the CPU fallback redoes the whole pass.
+    if (!passFlushOk) { d.reason = "dispatch-failed"; return false; }
     if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
+    ++passSubmits;
     d.gpu_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - gpuStart).count();
 
     // Readback: rows [y0, y1) into the caller's f64 plane, one copy per band --
@@ -4232,6 +4263,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     d.reason = "none";
     d.bands = bands;
     d.dispatches = dispatches;
+    d.pass_submits = passSubmits;
     d.resident = resident;
     return true;
 }
