@@ -43,10 +43,19 @@ the app at 6.5. Fix the editor's shape and most other scores move with it.
    `appContainer.settings.flush()` (`MainActivity.kt:139-142`), which does
    `runBlocking { withTimeoutOrNull(2000) … }` (`SettingsDataStore.kt:96`); the first settings
    read is also `runBlocking { dataStore.data.first() }` (`SettingsDataStore.kt:140`). Skill
-   checklist #30: no main-thread I/O or blocking. Fix: flush from
-   `ProcessLifecycleOwner`/an application-scoped coroutine, or accept DataStore's own durability
-   and drop the wait; load settings asynchronously and gate the first frame on it with the
-   splash screen (fix 4).
+   checklist #30: no main-thread I/O or blocking. Careful: the wait is there for a reason.
+   `SettingsDataStore.edit()` updates an in-memory snapshot and queues the edit on a `Channel`;
+   only a background consumer calls `dataStore.edit()`, so DataStore's own durability does not
+   cover edits still in that queue. Do not just drop the wait or move it to another
+   fire-and-forget coroutine: that reopens the "setting lost if the app is killed right after
+   backgrounding" window. A fix that keeps the guarantee shortens the window instead of
+   hiding it: persist each edit as it is made (the settings UI already knows when a value is
+   committed, for example slider release rather than every drag frame), so that by `onStop`
+   the queue is normally empty and `flush()` returns on its fast path without blocking. Keep
+   the bounded flush as the backstop, and only remove it once a test shows a setting changed
+   immediately before backgrounding survives process death. This is a durability-versus-
+   latency trade-off; state it in the PR rather than pretending either side is free. Separately, load
+   settings asynchronously and gate the first frame on it with the splash screen (fix 4).
 
 2. **One dependency refresh PR** (P2, ~half a day plus lockfile regen with `write-locks`).
    Against the 2026-11-07 snapshot: Compose BOM `2026.06.01` → **2026.09.00**; lifecycle
