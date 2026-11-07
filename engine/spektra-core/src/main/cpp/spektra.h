@@ -387,6 +387,19 @@ typedef struct {
      * implicit tail padding: params_manifest.h asserts the last named field ends
      * exactly at sizeof(spk_params). Always 0; never read. */
     int32_t reserved_tail_pad0;
+
+    /* --- date-back imprint (opt-in, Android-only; NOT an oracle stage) ---
+     * model/date_stamp.h. Seven-segment LED digits exposed ONTO the negative in
+     * filming.expose() (after scene latitude), so they develop, halate and grain
+     * with the picture. date_stamp_active = 0 (the default) runs nothing. Idea
+     * from SpektraLab RFC-031 (GPL-3.0-or-later); independent implementation. */
+    const char* date_stamp_text;        /* digits, space, ' - . : /; NULL = none */
+    int32_t date_stamp_active;          /* bool */
+    int32_t date_stamp_corner;          /* 0 BR, 1 BL, 2 TR, 3 TL */
+    float date_stamp_height;            /* digit height, fraction of short edge */
+    float date_stamp_margin;            /* inset, fraction of short edge */
+    float date_stamp_exposure_ev;       /* LED brightness, stops above mid-grey */
+    float date_stamp_color[3];          /* LED colour, linear ProPhoto */
 } spk_params;
 
 /* Initialise `p` to the physical defaults that mirror a default-constructed

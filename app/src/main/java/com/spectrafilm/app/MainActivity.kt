@@ -489,6 +489,13 @@ internal fun categoriesOf(stage: Stage): List<Category> =
 // double-tap-to-reset targets.
 private val PARAM_DEFAULTS = ParamsState()
 
+/** Date-back LED colours (linear ProPhoto): the classic orange, a deeper red, and amber. */
+private val DATE_STAMP_COLORS = listOf(
+    Triple(1.0f, 0.18f, 0.0f) to R.string.editor_sim_date_stamp_color_orange,
+    Triple(1.0f, 0.06f, 0.0f) to R.string.editor_sim_date_stamp_color_red,
+    Triple(1.0f, 0.45f, 0.02f) to R.string.editor_sim_date_stamp_color_amber,
+)
+
 /**
  * The encoded section each category owns, for the "this category is doing something" dot.
  *
@@ -3672,6 +3679,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val wide = maxWidth >= 600.dp || maxWidth > maxHeight
 
+                    // The photo's EXIF capture date for the date-back imprint's default text,
+                    // read off the main thread once per source.
+                    val photoDateStamp by produceState<String?>(null, sourceUri) {
+                        value = sourceUri?.let { uri ->
+                            withContext(Dispatchers.IO) { DateStampText.readCaptureDate(ctx, uri) }
+                        }
+                    }
                     // The active panel body, shared by both branches so the per-category
                     // `when` below is not duplicated.
                     val panelContent: @Composable ColumnScope.() -> Unit = {
@@ -3683,6 +3697,7 @@ class MainActivity : ComponentActivity() {
                                 onPickNeutral = { sampleWbMode = true; sampleOverlayOpen = true })
                             Category.SIMULATION -> SimulationSection(
                                 s = state,
+                                photoDateStamp = photoDateStamp,
                                 filmGroups = filmGroups,
                                 printGroups = printGroups,
                                 onOpenFilmCurves = {
@@ -6672,6 +6687,7 @@ class MainActivity : ComponentActivity() {
         onOpenPrintCurves: () -> Unit,
         onFilmProfileChange: (String) -> Unit,
         onPrintProfileChange: (String) -> Unit,
+        photoDateStamp: String? = null,
     ) {
         var expanded by remember { mutableStateOf(true) }
         SectionCard(stringResource(R.string.editor_sim_title), expanded, { expanded = it }) {
@@ -6721,6 +6737,7 @@ class MainActivity : ComponentActivity() {
                         default = PARAM_DEFAULTS.cameraLensBlurUm)
                     DiffusionGroup(stringResource(R.string.editor_sim_camera_diffusion), s.cameraDiffusionState)
                     SceneLatitudeGroup(s)
+                    DateStampGroup(s, photoDateStamp)
                 }
                 1 -> {
                     StockPickerField(
@@ -6894,6 +6911,80 @@ class MainActivity : ComponentActivity() {
                     step = 0.25f, decimals = 2,
                     tooltip = stringResource(R.string.editor_sim_scene_latitude_rolloff_tooltip),
                     default = PARAM_DEFAULTS.sceneLatitudeRolloff)
+            }
+        }
+    }
+
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun DateStampGroup(s: ParamsState, photoDateStamp: String?) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SwitchRow(stringResource(R.string.editor_sim_date_stamp), s.dateStampActive,
+                { on ->
+                    // A camera date back prints the day the picture was taken: fill that in
+                    // the first time it is switched on, rather than switching on a blank.
+                    if (on && s.dateStampText.isBlank()) {
+                        s.dateStampText = photoDateStamp ?: DateStampText.today()
+                    }
+                    s.dateStampActive = on
+                },
+                stringResource(R.string.editor_sim_date_stamp_tooltip))
+            if (s.dateStampActive) {
+                OutlinedTextField(
+                    value = s.dateStampText,
+                    onValueChange = { s.dateStampText = DateStampText.sanitize(it) },
+                    label = { Text(stringResource(R.string.editor_sim_date_stamp_text)) },
+                    supportingText = { Text(stringResource(R.string.editor_sim_date_stamp_text_help)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { photoDateStamp?.let { s.dateStampText = it } },
+                        enabled = photoDateStamp != null,
+                    ) { Text(stringResource(R.string.editor_sim_date_stamp_photo_date)) }
+                    OutlinedButton(onClick = { s.dateStampText = DateStampText.today() }) {
+                        Text(stringResource(R.string.editor_sim_date_stamp_today))
+                    }
+                }
+                Text(stringResource(R.string.editor_sim_date_stamp_corner),
+                    style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        0 to R.string.editor_sim_date_stamp_corner_br,
+                        1 to R.string.editor_sim_date_stamp_corner_bl,
+                        2 to R.string.editor_sim_date_stamp_corner_tr,
+                        3 to R.string.editor_sim_date_stamp_corner_tl,
+                    ).forEach { (corner, label) ->
+                        FilterChip(selected = s.dateStampCorner == corner,
+                            onClick = { s.dateStampCorner = corner },
+                            label = { Text(stringResource(label)) })
+                    }
+                }
+                Text(stringResource(R.string.editor_sim_date_stamp_color),
+                    style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DATE_STAMP_COLORS.forEach { (color, label) ->
+                        FilterChip(selected = s.dateStampColor == color,
+                            onClick = { s.dateStampColor = color },
+                            label = { Text(stringResource(label)) })
+                    }
+                }
+                EnhancedSlider(stringResource(R.string.editor_sim_date_stamp_size),
+                    s.dateStampHeight * 100f, 2f..10f, { s.dateStampHeight = it / 100f },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_date_stamp_size_tooltip),
+                    default = PARAM_DEFAULTS.dateStampHeight * 100f)
+                EnhancedSlider(stringResource(R.string.editor_sim_date_stamp_margin),
+                    s.dateStampMargin * 100f, 0f..15f, { s.dateStampMargin = it / 100f },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_date_stamp_margin_tooltip),
+                    default = PARAM_DEFAULTS.dateStampMargin * 100f)
+                EnhancedSlider(stringResource(R.string.editor_sim_date_stamp_brightness),
+                    s.dateStampExposureEv, 0f..5f, { s.dateStampExposureEv = it },
+                    step = 0.25f, decimals = 2,
+                    tooltip = stringResource(R.string.editor_sim_date_stamp_brightness_tooltip),
+                    default = PARAM_DEFAULTS.dateStampExposureEv)
             }
         }
     }

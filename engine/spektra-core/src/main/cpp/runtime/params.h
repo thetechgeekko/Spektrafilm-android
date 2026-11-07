@@ -23,6 +23,7 @@
 #include "model/diffusion.h"
 #include "model/grain.h"
 #include "model/morph_curves.h"
+#include "model/date_stamp.h"
 #include "model/scene_latitude.h"
 
 namespace spk {
@@ -62,6 +63,12 @@ struct FilmingParams {
     // to the scene-linear RGB before the tc lookup; inactive by default, and an
     // un-engaged stage is never run, so every golden stays byte-identical.
     SceneLatitudeParams scene_latitude;
+
+    // Opt-in date-back imprint (model/date_stamp.h). Rasterised for the frame
+    // inside expose() and added to the scene-linear RGB after scene latitude,
+    // so the digits develop, halate and grain with the picture. Inactive by
+    // default; an un-engaged stage is never run.
+    DateStampParams date_stamp;
 
     // Density-curve gamma (scalar broadcast to all three channels).
     float density_curve_gamma[3] = {1.0f, 1.0f, 1.0f};

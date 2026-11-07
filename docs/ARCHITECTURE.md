@@ -122,7 +122,7 @@ CPU/GPU equality, or complete container SHA identity. The authoritative levels a
 
 ### Strict Exact CPU
 
-The C++ route is the parity-bearing implementation and universal fallback. Its host matrix (45 cases;
+The C++ route is the parity-bearing implementation and universal fallback. Its host matrix (46 cases;
 `.github/workflows/ci.yml` is authoritative) runs at O2 and the shipping `-O3 -ffast-math -fno-finite-math-only` flags. Deterministic fixed-chunk
 parallelism proves worker-count invariance in covered scenarios. Spatial scratch, memory budgets,
 writer streaming, and cold latency remain explicit work rather than reasons to change arithmetic

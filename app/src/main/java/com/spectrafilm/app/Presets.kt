@@ -48,6 +48,14 @@ internal object OperationalParamLimits {
     val SCENE_LATITUDE_ROOM = 0f..12f
     val SCENE_LATITUDE_ROLLOFF = 1f..4f
     val SCENE_LATITUDE_MAX_LIFT = 0.25f..12f
+    val DATE_STAMP_CORNER = 0..3
+    val DATE_STAMP_HEIGHT = 0.01f..0.2f
+    val DATE_STAMP_MARGIN = 0f..0.3f
+    val DATE_STAMP_EV = -2f..8f
+    val DATE_STAMP_COLOR = 0f..1f
+    const val DATE_STAMP_TEXT_MAX = 24
+    /** Characters the engine's seven-segment font draws (model/date_stamp.cpp). */
+    val DATE_STAMP_TEXT = Regex("[0-9 '\\-.:/]*")
 
     fun validate(state: ParamsState) {
         require(state.spectralGaussianBlur in SPECTRAL_GAUSSIAN_BLUR) {
@@ -72,6 +80,25 @@ internal object OperationalParamLimits {
         }
         require(state.sceneLatitudeMaxLift in SCENE_LATITUDE_MAX_LIFT) {
             "camera.sceneLatitude.maxLift must be in $SCENE_LATITUDE_MAX_LIFT"
+        }
+        require(
+            state.dateStampText.length <= DATE_STAMP_TEXT_MAX &&
+                DATE_STAMP_TEXT.matches(state.dateStampText)
+        ) { "camera.dateStamp.text must be at most $DATE_STAMP_TEXT_MAX of 0-9 space ' - . : /" }
+        require(state.dateStampCorner in DATE_STAMP_CORNER) {
+            "camera.dateStamp.corner must be in $DATE_STAMP_CORNER"
+        }
+        require(state.dateStampHeight in DATE_STAMP_HEIGHT) {
+            "camera.dateStamp.height must be in $DATE_STAMP_HEIGHT"
+        }
+        require(state.dateStampMargin in DATE_STAMP_MARGIN) {
+            "camera.dateStamp.margin must be in $DATE_STAMP_MARGIN"
+        }
+        require(state.dateStampExposureEv in DATE_STAMP_EV) {
+            "camera.dateStamp.exposureEv must be in $DATE_STAMP_EV"
+        }
+        require(state.dateStampColor.allIn(DATE_STAMP_COLOR)) {
+            "camera.dateStamp.color components must be in $DATE_STAMP_COLOR"
         }
         require(state.grainParticleAreaUm2 in GRAIN_PARTICLE_AREA_UM2) {
             "grain.particleAreaUm2 must be in $GRAIN_PARTICLE_AREA_UM2"
@@ -466,6 +493,15 @@ object Presets {
                 put("rolloff", s.sceneLatitudeRolloff.toDouble())
                 put("maxLift", s.sceneLatitudeMaxLift.toDouble())
             })
+            put("dateStamp", JSONObject().apply {
+                put("active", s.dateStampActive)
+                put("text", s.dateStampText)
+                put("corner", s.dateStampCorner)
+                put("height", s.dateStampHeight.toDouble())
+                put("margin", s.dateStampMargin.toDouble())
+                put("exposureEv", s.dateStampExposureEv.toDouble())
+                tri("color", s.dateStampColor)
+            })
         })
 
         put("enlarger", JSONObject().apply {
@@ -686,6 +722,15 @@ object Presets {
                 s.sceneLatitudeShadowRoom = sl.f("shadowRoom", s.sceneLatitudeShadowRoom)
                 s.sceneLatitudeRolloff = sl.f("rolloff", s.sceneLatitudeRolloff)
                 s.sceneLatitudeMaxLift = sl.f("maxLift", s.sceneLatitudeMaxLift)
+            }
+            c.optJSONObject("dateStamp")?.let { ds ->
+                s.dateStampActive = ds.optBoolean("active", s.dateStampActive)
+                s.dateStampText = ds.optString("text", s.dateStampText)
+                s.dateStampCorner = ds.i("corner", s.dateStampCorner)
+                s.dateStampHeight = ds.f("height", s.dateStampHeight)
+                s.dateStampMargin = ds.f("margin", s.dateStampMargin)
+                s.dateStampExposureEv = ds.f("exposureEv", s.dateStampExposureEv)
+                s.dateStampColor = ds.triOf("color", s.dateStampColor)
             }
         }
 

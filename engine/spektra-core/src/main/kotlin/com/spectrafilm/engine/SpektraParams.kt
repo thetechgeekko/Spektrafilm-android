@@ -62,6 +62,7 @@ data class CameraParams(
     val filterIr: Triple<Float, Float, Float> = Triple(0.0f, 675.0f, 15.0f),
     val diffusionFilter: DiffusionFilterParams = DiffusionFilterParams(),
     val sceneLatitude: SceneLatitudeParams = SceneLatitudeParams(),
+    val dateStamp: DateStampParams = DateStampParams(),
 )
 
 /**
@@ -80,6 +81,27 @@ data class SceneLatitudeParams(
     val shadowRoom: Float = 0.0f,
     val rolloff: Float = 2.0f,
     val maxLift: Float = 4.0f,
+)
+
+/**
+ * Opt-in date-back imprint (native model/date_stamp.h): seven-segment LED digits
+ * exposed onto the negative in the corner of the framed picture, so they develop,
+ * halate and grain with it. Idea from SpektraLab's "Date Back" (RFC-031,
+ * GPL-3.0-or-later); independent implementation.
+ *
+ * [text] accepts digits, space and ' - . : / (anything else is skipped).
+ * [corner]: 0 bottom-right, 1 bottom-left, 2 top-right, 3 top-left. [height] and
+ * [margin] are fractions of the frame's short edge. [exposureEv] is the LED's
+ * brightness in stops above mid-grey; [color] is linear ProPhoto RGB.
+ */
+data class DateStampParams(
+    val active: Boolean = false,
+    val text: String = "",
+    val corner: Int = 0,
+    val height: Float = 0.045f,
+    val margin: Float = 0.05f,
+    val exposureEv: Float = 2.5f,
+    val color: Triple<Float, Float, Float> = Triple(1.0f, 0.18f, 0.0f),
 )
 
 data class EnlargerParams(
