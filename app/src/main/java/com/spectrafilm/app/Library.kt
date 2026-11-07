@@ -150,7 +150,8 @@ internal class LibraryViewModel(
      * Where writes run: look pastes, sidecar saves and grant releases (#453). The Library's
      * ViewModel is scoped to its navigation entry and cleared when the user leaves, which
      * must not cut a write to their photos short, so the app passes a process-wide scope.
-     * Null (tests) keeps them on [viewModelScope].
+     * Folder listings run there as well, since a pending save waits on one. Null (tests)
+     * keeps them on [viewModelScope].
      */
     writes: CoroutineScope? = null,
 ) : ViewModel() {
@@ -290,7 +291,10 @@ internal class LibraryViewModel(
         }
         loadJob?.cancel()
         _state.value = _state.value.copy(treeUri = tree, loading = true, unreadable = false)
-        loadJob = viewModelScope.launch {
+        // On the write scope too: a paste or save that outlives this entry joins this
+        // listing to pick its frames, and a listing cancelled with the entry would hand it
+        // the stale one (#503 review). A finished listing on a cleared entry is harmless.
+        loadJob = writeScope.launch {
             val result = try {
                 withContext(io) {
                     val listed = lister.list(tree)
