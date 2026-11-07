@@ -184,6 +184,17 @@ int64_t fast_poisson_one(double lam, StatsRng& rng);
 // Single Binomial(n, p) variate, matching fast_binomial's branch structure.
 int64_t fast_binomial_one(int64_t n, double p, StatsRng& rng);
 
+// Single Binomial(Poisson(lam), p) variate: the oracle's poisson_binomial grain draw
+// (seeds = fast_poisson(lam); developed = fast_binomial(seeds, p)) in ONE draw. Binomial
+// thinning of a Poisson count is exactly Poisson(lam * p), so the distribution is the
+// same; only the RNG stream differs (grain is gated statistically, never byte-wise).
+//   * Where the oracle's two draws were both Normal approximations (lam >= 30 and the
+//     binomial variance lam*p*(1-p) > 10), their composite is N(lam*p, lam*p): one
+//     normal draw, rounded and clamped like fast_poisson's.
+//   * Everywhere else it is fast_poisson_one(lam * p): Knuth below a mean of 30 (exact,
+//     where the oracle's binomial fell into its CDF walk) and Normal above.
+int64_t fast_thinned_poisson_one(double lam, double p, StatsRng& rng);
+
 // Single lognormal variate from underlying-normal (mu, sigma): exp(mu+sigma*z).
 // Mirrors fast_stats.py::fast_lognormal: if sigma < 1e-6, returns exp(mu)
 // (no normal draw is consumed in that branch, matching the Numba code path).

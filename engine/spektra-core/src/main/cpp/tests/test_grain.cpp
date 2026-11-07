@@ -183,8 +183,61 @@ bool sampler_extreme_input_regression() {
 
 }  // namespace
 
+// fast_thinned_poisson_one replaces the oracle's two-draw poisson_binomial step
+// (fast_poisson_one then fast_binomial_one) with one draw from the same distribution,
+// Poisson(lam * p). Check that claim on the sampler itself, across every branch the two
+// paths take: Knuth/CDF-walk (small means), the both-normal band, and the normal tail,
+// at the particle counts grain.cpp sees. Mean and variance of 200k draws from each path
+// must agree within 4 standard errors (and both must sit on lam * p).
+static bool thinned_poisson_matches_two_step() {
+    std::printf("\n=== thinning: Binomial(Poisson(lam),p) == one draw (mean/var, 200k each) ===\n");
+    const double lams[] = {5.0, 40.0, 500.0, 5000.0};
+    const double ps[] = {0.005, 0.03, 0.25, 0.75, 0.999};
+    const int n = 200000;
+    bool ok_all = true;
+    uint64_t seed = 1234;
+    for (double lam : lams) {
+        for (double p : ps) {
+            spk::StatsRng ra(seed++, spk::StatsRng::Generator::Fast);
+            spk::StatsRng rb(seed++, spk::StatsRng::Generator::Fast);
+            double sa = 0, qa = 0, sb = 0, qb = 0;
+            for (int i = 0; i < n; ++i) {
+                const double a = static_cast<double>(
+                    spk::fast_binomial_one(spk::fast_poisson_one(lam, ra), p, ra));
+                const double b = static_cast<double>(spk::fast_thinned_poisson_one(lam, p, rb));
+                sa += a; qa += a * a; sb += b; qb += b * b;
+            }
+            const double ma = sa / n, mb = sb / n;
+            const double va = qa / n - ma * ma, vb = qb / n - mb * mb;
+            const double m = lam * p;
+            // Poisson: var = mean. SE of a sample mean = sqrt(m/n); of a sample variance
+            // ~ sqrt((2 m^2 + m) / n). The approximations' rounding adds ~1/12.
+            const double se_mean = std::sqrt((m + 0.1) / n);
+            const double se_var = std::sqrt((2.0 * m * m + m + 0.1) / n);
+            // The one draw must be Poisson(m): mean and variance both m.
+            bool ok = std::fabs(mb - m) < 4.0 * se_mean + 0.05 &&
+                      std::fabs(vb - m) < 4.0 * se_var + 0.1;
+            // And agree with the oracle's two draws -- except at p -> 1 with many seeds,
+            // where the oracle's binomial is itself biased: (1-p)^n underflows, its CDF
+            // walk degenerates and returns n, so its mean is lam, not lam*p (0.1% high at
+            // p = 0.999). The one draw has no CDF walk and lands on lam*p.
+            if (p < 0.99)
+                ok = ok && std::fabs(ma - mb) < 4.0 * se_mean * std::sqrt(2.0) &&
+                     std::fabs(va - vb) < 4.0 * se_var * std::sqrt(2.0) + 0.1;
+            ok_all = ok_all && ok;
+            std::printf("  lam=%-6g p=%-5g two-step mean=%.4f var=%.4f  one draw mean=%.4f var=%.4f  %s\n",
+                        lam, p, ma, va, mb, vb, ok ? "PASS" : "FAIL");
+        }
+    }
+    return ok_all;
+}
+
 int main(int argc, char** argv) {
     if (!sampler_extreme_input_regression()) return 1;
+    if (!thinned_poisson_matches_two_step()) {
+        std::printf("\nFAILED\n");
+        return 1;
+    }
 
     std::string smooth_path = argc > 1 ? argv[1] : kSmoothGolden;
     std::string oracle_path = argc > 2 ? argv[2] : kOracleGrainy;

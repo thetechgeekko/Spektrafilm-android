@@ -96,11 +96,10 @@ void layer_particle_model(const float* density, int npix, int width, int height,
     // must produce identical bytes), which fixed block seeding preserves exactly.
     //
     // DYNAMIC scheduling, not the fixed chunking parallel_for uses. Grain's per-pixel
-    // cost is wildly uneven: fast_binomial_one falls into an O(n) CDF-inversion walk
-    // where density approaches its maximum, so a bright sky can cost hundreds of times
-    // more per pixel than a shadow. With one contiguous chunk per thread, whichever
-    // threads own the bright region do nearly all the work — measured 2.2x on 8 cores.
-    // Handing out blocks from an atomic counter balances that.
+    // cost is uneven: the Knuth branch loops ~mean times below a mean of 30, and the old
+    // Poisson-then-binomial draw fell into an O(n) CDF-inversion walk (measured 2.2x
+    // imbalance on 8 cores with one contiguous chunk per thread). Handing out blocks
+    // from an atomic counter balances whatever cost profile the sampler has.
     //
     // This is safe HERE and would not be elsewhere: a block's output depends only on its
     // INDEX (its seed) and its pixel range, never on which thread ran it or in what
@@ -118,7 +117,7 @@ void layer_particle_model(const float* density, int npix, int width, int height,
             for (int i = i0; i < i1; ++i) {
                 // Worker threads never touch the JNI-backed callback. They only
                 // observe the caller-owned stop flag, at a granularity small
-                // enough to bound even the expensive binomial inversion tail.
+                // enough to bound even the slowest per-pixel draw.
                 if (stop && (i & 63) == 0 &&
                     stop->load(std::memory_order_relaxed)) {
                     return;
@@ -130,8 +129,13 @@ void layer_particle_model(const float* density, int npix, int width, int height,
 
                 double saturation = 1.0 - p * grain_uniformity * (1.0 - 1e-6);
                 double lam = n_particles_per_pixel / saturation;
-                int64_t seeds = fast_poisson_one(lam, rng);
-                int64_t dev = fast_binomial_one(seeds, p, rng);
+                // The oracle draws seeds ~ Poisson(lam), then developed ~ Binomial(seeds, p).
+                // Binomial thinning of a Poisson count is exactly Poisson(lam * p), so one
+                // draw gives the same distribution at about half the cost (idea: Jing Yu,
+                // arigatou1985's spektrafilm fork, 8c1d578). test_grain / test_grain_sublayer
+                // gate the mean and noise std against the oracle, and test_grain's thinning
+                // section the sampler's moments; the stream is not byte-matchable anyway.
+                int64_t dev = fast_thinned_poisson_one(lam, p, rng);
                 out[i] = static_cast<float>(static_cast<double>(dev) * od_particle * saturation);
             }
         }
