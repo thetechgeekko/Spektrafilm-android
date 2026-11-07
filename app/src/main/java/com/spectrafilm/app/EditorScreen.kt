@@ -2171,27 +2171,27 @@ internal fun MainActivity.EditorScreen(
                 }
             },
     ) {
+        // Whether the editor lays out as an expanded window (stage rail + side pane).
+        // Decided ONCE, here, from the whole editor window (the M3 window size class
+        // plus fold posture), and passed down to both the top bar (Export sits in the
+        // bar only when the rail is not carrying it) and the layout below. It used to
+        // be decided in the box under the top bar and written back up through a
+        // SideEffect, which cost a recomposition and a one-frame mismatch, and let
+        // hiding the chrome flip the layout on windows near the compact-height line.
+        val wide = editorPaneMode(
+            maxWidth.value,
+            maxHeight.value,
+            foldPosture(
+                foldingFeature?.toHinge(editorRootOrigin.x, editorRootOrigin.y, LocalDensity.current.density),
+                maxWidth.value,
+                maxHeight.value,
+            ),
+        ) == EditorPaneMode.SIDE_PANE
         Column(
             Modifier
                 .fillMaxSize()
                 .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
-            // Whether the editor lays out as an expanded window (stage rail + side pane).
-            // Decided ONCE, here, from the whole editor window (the M3 window size class
-            // plus fold posture), and passed down to both the top bar (Export sits in the
-            // bar only when the rail is not carrying it) and the layout below. It used to
-            // be decided in the box under the top bar and written back up through a
-            // SideEffect, which cost a recomposition and a one-frame mismatch, and let
-            // hiding the chrome flip the layout on windows near the compact-height line.
-            val wide = editorPaneMode(
-                maxWidth.value,
-                maxHeight.value,
-                foldPosture(
-                    foldingFeature?.toHinge(editorRootOrigin.x, editorRootOrigin.y, LocalDensity.current.density),
-                    maxWidth.value,
-                    maxHeight.value,
-                ),
-            ) == EditorPaneMode.SIDE_PANE
             // --- TOP BAR ---
             if (!viewerUi.chromeHidden) EditorTopBar(
                 canUndo = editHistory.canUndo,
