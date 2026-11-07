@@ -100,6 +100,34 @@ class SilverPrintTest {
     }
 
     @Test
+    fun `a stock preview renders the candidate exactly as selecting it would`() {
+        // The stock tiles pass the candidate as an override; the result must equal the params
+        // of a state that actually has that stock selected, grade and grain layers included.
+        val colour = ParamsState().apply {
+            filmProfile = "kodak_portra_400"
+            printProfile = "kodak_portra_endura"
+            paperGrade = "4"
+        }
+        val onMultigrade = ParamsState().apply {
+            filmProfile = "kodak_portra_400"
+            printProfile = SilverPrint.MULTIGRADE
+            paperGrade = "4"
+        }
+        assertEquals(onMultigrade.toParams(), colour.toParams(printOverride = SilverPrint.MULTIGRADE))
+        assertEquals(colour.toParams(), onMultigrade.toParams(printOverride = "kodak_portra_endura"))
+
+        val triX = ParamsState().apply {
+            filmProfile = "kodak_tri_x_400"
+            printProfile = SilverPrint.MULTIGRADE
+            paperGrade = "4"
+        }
+        assertEquals(
+            triX.toParams(),
+            colour.toParams(filmOverride = "kodak_tri_x_400", printOverride = SilverPrint.MULTIGRADE),
+        )
+    }
+
+    @Test
     fun `the grade round-trips through a recipe`() {
         val s = ParamsState().apply { paperGrade = "00" }
         val back = ParamsState()

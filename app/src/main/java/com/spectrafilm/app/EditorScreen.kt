@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SpektraEngine
+import com.spectrafilm.engine.SpektraParams
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1441,13 +1442,47 @@ internal fun MainActivity.EditorScreen(
             val fullEdge = state.previewMaxSize.coerceAtLeast(256)
             val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
                 .getOrNull() ?: return@open
-            val base = state.toParams(
+            // Each tile renders its stock as a tap would apply it, so the paper-dependent
+            // settings (a silver paper's grade, the colour-pack lookup) and the film-dependent
+            // ones (grain sub-layers, the silver film's move onto silver paper) follow the
+            // candidate. They depend only on whether the film and paper are silver and on which
+            // paper a film tap would pick, so the few distinct variants are built here, from
+            // this snapshot of the state, and each tile copies its own stock id in.
+            val currentFilm = state.filmProfile
+            val currentPrint = state.printProfile
+            val lastColourPrint = state.lastColourPrint
+            fun variant(film: String?, print: String?) = state.toParams(
                 previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
                 skipGrainHalation = true,
+                filmOverride = film,
+                printOverride = print,
+            ).copy(filmProfile = "", printProfile = "")
+            val silverFilm = SilverPrint.FILMS.first()
+            // A film tap re-pairs the paper (SilverPrint.printAfterFilmChange); a paper tap
+            // keeps the film. Every print a film tap can land on is in this set.
+            val pairable = listOfNotNull(currentPrint, SilverPrint.MULTIGRADE, lastColourPrint)
+                .distinct()
+            fun pairedPrint(film: String) = SilverPrint.printAfterFilmChange(
+                oldFilm = currentFilm, newFilm = film, print = currentPrint,
+                lastColourPrint = lastColourPrint, available = pairable,
             )
-            val free = if (forFilm) base.copy(filmProfile = "") else base.copy(printProfile = "")
+            val variants: Map<Pair<Boolean, String>, SpektraParams> = if (forFilm) {
+                buildMap {
+                    for (silver in listOf(false, true)) {
+                        for (print in pairable) {
+                            put(silver to print, variant(if (silver) silverFilm else "", print))
+                        }
+                    }
+                }
+            } else {
+                // Only silver-or-not matters for a paper, so one representative of each.
+                mapOf(
+                    (true to SilverPrint.MULTIGRADE) to variant(null, SilverPrint.MULTIGRADE),
+                    (false to "") to variant(null, ""),
+                )
+            }
+            val free = variants.entries.sortedBy { it.key.toString() }.map { it.value }
             val balance = state.balanceToFilmStock
-            val currentFilm = state.filmProfile
             val cctf = state.savingCctfEncoding
             val saturation = state.saturation
             val vibrance = state.vibrance
@@ -1455,7 +1490,10 @@ internal fun MainActivity.EditorScreen(
             val local = state.localAdjustments.toList()
             vm.open(
                 StockPreviewSession(
-                    key = listOf(snapshot.ticket.request, free, cctf, saturation, vibrance, gamut, local),
+                    key = listOf(
+                        snapshot.ticket.request, free, currentFilm, currentPrint, lastColourPrint,
+                        cctf, saturation, vibrance, gamut, local,
+                    ),
                     source = {
                         sourceCache.acquire(snapshot.ticket)?.use { lease ->
                             withContext(dispatchers.default) {
@@ -1464,7 +1502,15 @@ internal fun MainActivity.EditorScreen(
                         }
                     },
                     paramsFor = { id ->
-                        if (forFilm) free.copy(filmProfile = id) else free.copy(printProfile = id)
+                        if (forFilm) {
+                            val print = pairedPrint(id)
+                            variants.getValue(SilverPrint.isSilverFilm(id) to print)
+                                .copy(filmProfile = id, printProfile = print)
+                        } else {
+                            val silver = SilverPrint.isSilverPaper(id)
+                            variants.getValue(silver to if (silver) SilverPrint.MULTIGRADE else "")
+                                .copy(filmProfile = currentFilm, printProfile = id)
+                        }
                     },
                     toBitmap = { res ->
                         simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)

@@ -7,11 +7,7 @@ package com.spectrafilm.app
 import android.content.Context
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -36,9 +32,6 @@ internal fun MainActivity.EditorSimulationPanel(
     onOpenPrintCurves: (id: String, name: String) -> Unit,
     part: SimPart = SimPart.FILM,
 ) {
-    // The colour paper a black-and-white film moved the print off, so picking a colour film
-    // again puts it back (SilverPrint.printAfterFilmChange).
-    var lastColourPrint by rememberSaveable { mutableStateOf<String?>(null) }
     val printIds = remember(printGroups) { printGroups.flatMap { g -> g.options.map { it.id } } }
     // A black-and-white film only prints on silver paper (on a colour paper it renders orange),
     // so its print list is the silver papers alone.
@@ -87,10 +80,10 @@ internal fun MainActivity.EditorSimulationPanel(
                 val oldPrint = state.printProfile
                 val newPrint = SilverPrint.printAfterFilmChange(
                     oldFilm = oldFilm, newFilm = id, print = oldPrint,
-                    lastColourPrint = lastColourPrint, available = printIds,
+                    lastColourPrint = state.lastColourPrint, available = printIds,
                 )
                 if (newPrint != oldPrint) {
-                    if (!SilverPrint.isSilverPaper(oldPrint)) lastColourPrint = oldPrint
+                    if (!SilverPrint.isSilverPaper(oldPrint)) state.lastColourPrint = oldPrint
                     state.printProfile = newPrint
                 }
                 val name = StockCatalog.displayName(ctx, id)
