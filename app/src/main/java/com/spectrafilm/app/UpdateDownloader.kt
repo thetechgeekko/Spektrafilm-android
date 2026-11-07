@@ -22,7 +22,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
@@ -104,6 +104,7 @@ internal object UpdateDownloadPolicy {
 
 internal class UpdateDownloader(
     private val directory: File,
+    private val io: CoroutineDispatcher,
     private val open: (URI) -> HttpURLConnection = { uri ->
         uri.toURL().openConnection() as HttpURLConnection
     },
@@ -119,7 +120,7 @@ internal class UpdateDownloader(
         tag: String,
         asset: ApkAsset,
         onProgress: (Long) -> Unit,
-    ): DownloadResult = withContext(Dispatchers.IO) {
+    ): DownloadResult = withContext(io) {
         if (!UpdateDownloadPolicy.isAllowedStart(asset, tag)) return@withContext DownloadResult.Failed
         clear()
         if (!directory.isDirectory && !directory.mkdirs()) return@withContext DownloadResult.Failed

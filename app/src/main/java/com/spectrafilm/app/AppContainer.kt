@@ -56,7 +56,7 @@ internal class AppContainer(context: Context) {
         settingsViewModel = { SettingsViewModel(settings, settings.autoPreviewEdges()) },
         updateViewModel = {
             UpdateViewModel(
-                AndroidUpdateBackend(app),
+                AndroidUpdateBackend(app, dispatchers.io),
                 SharedUpdatePrefs(app.getSharedPreferences(SharedUpdatePrefs.FILE, Context.MODE_PRIVATE)),
             )
         },

@@ -13,6 +13,7 @@ import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.StateFlow
 
 /** SharedPreferences-backed [UpdatePrefs]; its own file, never in the backup allowlist. */
@@ -36,9 +37,12 @@ internal class SharedUpdatePrefs(private val prefs: SharedPreferences) : UpdateP
 }
 
 /** The real network / package-manager side of [UpdateBackend]. */
-internal class AndroidUpdateBackend(context: Context) : UpdateBackend {
+internal class AndroidUpdateBackend(
+    context: Context,
+    private val io: CoroutineDispatcher,
+) : UpdateBackend {
     private val app = context.applicationContext
-    private val downloader = UpdateDownloader(File(app.noBackupFilesDir, "updater"))
+    private val downloader = UpdateDownloader(File(app.noBackupFilesDir, "updater"), io)
 
     override fun currentVersion(): String? = runCatching {
         app.packageManager.getPackageInfo(app.packageName, 0).versionName
@@ -47,14 +51,14 @@ internal class AndroidUpdateBackend(context: Context) : UpdateBackend {
     override fun canSelfUpdate(): Boolean = !UpdateInstaller.installedFromPlay(app)
 
     override suspend fun fetchLatest(currentVersion: String): UpdateInfo? =
-        AppUpdater.checkForUpdate(app)
+        AppUpdater.checkForUpdate(app, io)
 
     override suspend fun download(tag: String, asset: ApkAsset, onProgress: (Long) -> Unit) =
         downloader.download(tag, asset, onProgress)
 
-    override suspend fun verify(apk: File, tag: String) = UpdateInstaller.verify(app, apk, tag)
+    override suspend fun verify(apk: File, tag: String) = UpdateInstaller.verify(app, apk, tag, io)
 
-    override suspend fun install(apk: File) = UpdateInstaller.install(app, apk)
+    override suspend fun install(apk: File) = UpdateInstaller.install(app, apk, io)
 
     override fun openRelease(info: UpdateInfo) = AppUpdater.openRelease(app, info)
 

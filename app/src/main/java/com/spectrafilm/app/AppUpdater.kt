@@ -23,7 +23,7 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -72,7 +72,7 @@ object AppUpdater {
      * Query advisory release metadata. Any transport, policy, or parse failure returns
      * null; no response may choose a different endpoint or browser destination.
      */
-    suspend fun checkForUpdate(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdate(context: Context, io: CoroutineDispatcher): UpdateInfo? = withContext(io) {
         val current = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: return@withContext null
