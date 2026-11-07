@@ -20,6 +20,7 @@ private const val WELCOME_SKIP = "Skip"
 private const val WELCOME_GET_STARTED = "Get started"
 private const val COACH_GOT_IT = "Got it"
 private const val STAGE_FILM = "Film"
+private const val TOOL_GRAIN = "Grain"
 private const val EXPORT = "Export"
 
 private fun label(text: String): BySelector = By.text(text)
@@ -47,20 +48,39 @@ fun MacrobenchmarkScope.startEditor() {
     dismissFirstRun()
 }
 
-/** Open the Film stage, open its first tool, drag a slider, then open and close export. */
+private val SLIDER: BySelector = By.clazz("android.widget.SeekBar")
+
+private fun MacrobenchmarkScope.slider(timeoutMs: Long): UiObject2? =
+    device.wait(Until.findObject(SLIDER), timeoutMs)
+
+/**
+ * Bring a slider on screen whatever state the editor starts in. Tapping the open stage folds
+ * it away (stageTapTarget), and the selected tool survives process restarts, so never tap
+ * the Film stage blindly: use the panel as found if it already shows Grain or a slider.
+ */
+private fun MacrobenchmarkScope.openGrainSlider(): UiObject2 {
+    slider(1_000L)?.let { return it }
+    device.findObject(label(TOOL_GRAIN))?.let { grain ->
+        grain.click()
+        slider(WAIT_MS)?.let { return it }
+    }
+    checkNotNull(find(STAGE_FILM)) { "Film stage not found" }.click()
+    device.waitForIdle()
+    slider(1_000L)?.let { return it }
+    checkNotNull(find(TOOL_GRAIN)) { "Grain tool not found under Film" }.click()
+    return checkNotNull(slider(WAIT_MS)) { "No slider under Film > Grain" }
+}
+
+/** Open Film > Grain, drag a slider both ways, then open and close the export sheet. */
 fun MacrobenchmarkScope.editJourney() {
-    find(STAGE_FILM)?.click()
+    val slider = openGrainSlider()
+    slider.setGestureMargin(device.displayWidth / 10)
+    slider.swipe(Direction.RIGHT, 0.6f)
+    device.waitForIdle()
+    slider.swipe(Direction.LEFT, 0.6f)
     device.waitForIdle()
 
-    device.wait(Until.findObject(By.clazz("android.widget.SeekBar")), WAIT_MS)?.let { slider ->
-        slider.setGestureMargin(device.displayWidth / 10)
-        slider.swipe(Direction.RIGHT, 0.6f)
-        device.waitForIdle()
-        slider.swipe(Direction.LEFT, 0.6f)
-        device.waitForIdle()
-    }
-
-    find(EXPORT)?.click()
+    checkNotNull(find(EXPORT)) { "Export button not found" }.click()
     device.waitForIdle()
     device.pressBack()
     device.waitForIdle()
