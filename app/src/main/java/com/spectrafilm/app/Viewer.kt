@@ -361,11 +361,15 @@ fun ZoomableImage(
     // above it). A pan that was legal in the taller view can overshoot the shorter one, so
     // re-clamp whenever the size changes rather than waiting for the next gesture.
     LaunchedEffect(viewSize) { offset = clampOffset(offset, scale) }
+    // The wheel and keyboard handlers outlive recompositions (pointerInput(Unit) / a
+    // long-lived collector), so they clamp through the LATEST clampOffset: a rotate or crop
+    // changes [aspect], and a stale closure would clamp against the old content bounds.
+    val latestClamp = rememberUpdatedState<(Offset, Float) -> Offset> { raw, s -> clampOffset(raw, s) }
     LaunchedEffect(zoomRequests) {
         zoomRequests?.collect { zoom ->
             val (ns, no) = keyboardZoomTransform(scale, offset, zoom)
             scale = ns
-            offset = clampOffset(no, ns)
+            offset = latestClamp.value(no, ns)
         }
     }
 
@@ -395,7 +399,7 @@ fun ZoomableImage(
                     scale, offset, position - c, delta, panPxPerUnit = viewSize.width / 10f,
                 )
                 scale = ns
-                offset = clampOffset(no, ns)
+                offset = latestClamp.value(no, ns)
             }
             .pointerInput(onPointPicked, peekImage != null) {
                 detectTapGestures(
