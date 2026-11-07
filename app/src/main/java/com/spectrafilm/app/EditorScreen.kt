@@ -1578,6 +1578,52 @@ internal fun MainActivity.EditorScreen(
             CachedSourceDecodeRequest(decode, cache.beginRequest(cacheRequest))
         }
 
+    /**
+     * The stock browser's preview session (StockPreviews.kt). Built when the sheet opens, from a
+     * snapshot of the look with only the stock left free. It reads the proxy the settle render
+     * already cached -- the same request, so it never moves the cache's generation -- and never
+     * decodes: with no cached proxy the tiles simply stay dark.
+     */
+    fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
+        previews = vm.previews,
+        request = vm::request,
+        open = open@{
+            if (!sourceRenderAllowed || sourceUri == null) return@open
+            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+            val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
+                .getOrNull() ?: return@open
+            val base = state.toParams(
+                previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
+                skipGrainHalation = true,
+            )
+            val free = if (forFilm) base.copy(filmProfile = "") else base.copy(printProfile = "")
+            val cctf = state.savingCctfEncoding
+            val saturation = state.saturation
+            val vibrance = state.vibrance
+            val gamut = state.gamutCompress
+            val local = state.localAdjustments.toList()
+            vm.open(
+                StockPreviewSession(
+                    key = listOf(snapshot.ticket.request, free, cctf, saturation, vibrance, gamut, local),
+                    source = {
+                        sourceCache.acquire(snapshot.ticket)?.use { lease ->
+                            withContext(dispatchers.default) {
+                                downsampleLinearBox(lease.image, STOCK_PREVIEW_SOURCE_EDGE)
+                            }
+                        }
+                    },
+                    paramsFor = { id ->
+                        if (forFilm) free.copy(filmProfile = id) else free.copy(printProfile = id)
+                    },
+                    toBitmap = { res ->
+                        simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                    },
+                ),
+            )
+        },
+        close = vm::close,
+    )
+
     suspend fun loadSourceCached(
         cache: DecodedSourceCache,
         flight: SingleFlight<Unit>,
@@ -2922,6 +2968,14 @@ internal fun MainActivity.EditorScreen(
                         Category.SIMULATION -> SimulationSection(
                             s = state,
                             photoDateStamp = photoDateStamp,
+                            filmPreviewHost = stockPreviewHost(filmPreviewVm, forFilm = true),
+                            // In slide mode the print stage is skipped, so every paper would
+                            // render the same tile: show the text-only cards instead.
+                            printPreviewHost = if (state.scanFilm) {
+                                null
+                            } else {
+                                stockPreviewHost(printPreviewVm, forFilm = false)
+                            },
                             filmGroups = filmGroups,
                             printGroups = printGroups,
                             onOpenFilmCurves = {
