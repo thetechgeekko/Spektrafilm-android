@@ -652,4 +652,23 @@
     <string name="shortcut_zoom_out">Zoom out</string>
     <string name="shortcut_zoom_fit">Fit to screen</string>
     <string name="shortcut_close">Close panel or tool</string>
+    <string name="photo_info_title">Photo info</string>
+    <string name="photo_info_group_camera">Camera</string>
+    <string name="photo_info_group_exposure">Exposure</string>
+    <string name="photo_info_group_file">File</string>
+    <string name="photo_info_camera">Camera</string>
+    <string name="photo_info_lens">Lens</string>
+    <string name="photo_info_focal_length">Focal length</string>
+    <string name="photo_info_aperture">Aperture</string>
+    <string name="photo_info_shutter">Shutter speed</string>
+    <string name="photo_info_iso">ISO</string>
+    <string name="photo_info_exposure_bias">Exposure compensation</string>
+    <string name="photo_info_taken">Taken</string>
+    <string name="photo_info_name">File name</string>
+    <string name="photo_info_dimensions">Dimensions</string>
+    <string name="photo_info_size">File size</string>
+    <string name="photo_info_location">Location</string>
+    <string name="photo_info_location_present">Included in file</string>
+    <string name="photo_info_location_absent">None</string>
+    <string name="photo_info_empty">No camera details in this file.</string>
 </resources>
