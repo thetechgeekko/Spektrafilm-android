@@ -175,6 +175,18 @@ baselineProfile {
 // release job. Sign only those two device-test variants with the committed public debug key
 // so they install; `release` itself stays unsigned.
 androidComponents {
+    // The plugin turns unit tests off for those two variants, but AGP's Compose Preview
+    // (Layoutlib) tasks are registered for every variant and need them on to package
+    // resources: without this, realizing all tasks (`./gradlew :app:tasks --all`) fails
+    // with "Compose Preview failed for ':app' (variant 'nonMinifiedRelease')".
+    beforeVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
+        @Suppress("DEPRECATION")
+        variant.enableUnitTest = true
+    }
+    beforeVariants(selector().withBuildType("benchmarkRelease")) { variant ->
+        @Suppress("DEPRECATION")
+        variant.enableUnitTest = true
+    }
     onVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
         variant.signingConfig.setConfig(android.signingConfigs.getByName("debug"))
     }
