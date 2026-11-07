@@ -139,4 +139,42 @@ class SceneHighlightTapTest {
         assertTrue("the halo fades with distance", out.y[c + 2] > out.y[c + 8])
         assertEquals(y.sum(), out.y.sum(), y.sum() * 1e-4f)
     }
+
+    @Test
+    fun oneOutlierCellDoesNotSetTheHeadroomScale() {
+        // The bands scene (highlight band at ~3x) plus one cell 64x brighter, as a sun would be.
+        val w = 150 // 3000 highlight cells, so one cell is under 0.1% of them
+        val h = 60
+        val (rgb, scene) = bands(w, h)
+        val hot = 5 * w + w / 2 // inside the highlight band
+        val y = scene.y.copyOf()
+        y[hot] = 192f
+        val r = HdrGainMap.compute(
+            rgb = FloatBuffer.wrap(rgb), width = w, height = h, colorSpace = ColorSpace.SRGB,
+            cctfEncoded = true, downsample = 1, ratioMaxCeiling = 16f,
+            epsilonSdr = 0.015625f, epsilonHdr = 0.015625f, scene = SceneLuma(w, h, y),
+        )
+        val bandOnly = gain(rgb, w, h, scene)
+        // Scale fitted to the band (+0.25 EV), not to the outlier (which would hit the 16x cap).
+        assertEquals(bandOnly.ratioMax * 2f.pow(0.25f), r.ratioMax, 0.05f)
+        // The band keeps most of the 8-bit range instead of being squashed toward 0.
+        val bandCode = r.alpha[5 * w + w / 2 + 1].toInt() and 0xFF
+        assertTrue("band code $bandCode", bandCode > 190)
+        // The outlier rolls off through the shoulder to the top of the range, not past it.
+        val hotCode = r.alpha[hot].toInt() and 0xFF
+        assertTrue("outlier code $hotCode", hotCode in 240..255)
+    }
+
+    @Test
+    fun theDitherKeepsTheMeanCode() {
+        // A uniform mid gain must average to the same code with or without dither.
+        val w = 32
+        val h = 32
+        val (rgb, scene) = bands(w, h)
+        val r = gain(rgb, w, h, SceneLuma(w, h, FloatArray(w * h) { i ->
+            if ((i % w) * 3 / w == 1) 1.7f else scene.y[i]
+        }))
+        val codes = (0 until w * h).filter { (it % w) * 3 / w == 1 }.map { r.alpha[it].toInt() and 0xFF }
+        assertTrue("codes ${codes.toSet()}", codes.toSet().size <= 2)
+    }
 }
