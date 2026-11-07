@@ -380,9 +380,10 @@ fun ToneCurveSection(s: ParamsState, preview: Bitmap?) {
     // A new preview must not temporarily show the prior source/frame's bins. Sampling itself owns
     // the off-main dispatch and bitmap read lease in computeHistogram.
     var hist by remember(preview) { mutableStateOf<Histogram?>(null) }
+    val dispatchers = rememberAppDispatchers()
     LaunchedEffect(preview) {
         hist = try {
-            preview?.let { computeHistogram(it) }
+            preview?.let { computeHistogram(it, dispatchers.default) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
