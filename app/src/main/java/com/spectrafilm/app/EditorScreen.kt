@@ -322,7 +322,13 @@ internal fun MainActivity.EditorScreen(
         openPlaceholder = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
-        OpenPlaceholder.load(ctx.applicationContext, uri, rotation, dispatchers.io) { bmp ->
+        OpenPlaceholder.load(
+            ctx.applicationContext,
+            uri,
+            rotation,
+            dispatchers.io,
+            rawSource = sourceKind == SourceKind.RAW,
+        ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
             if (preview == null) openPlaceholder = bmp
         }
