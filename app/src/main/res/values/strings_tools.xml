@@ -241,4 +241,7 @@
     <string name="tool_curve_editor_desc">Tone curve editor. Tap to add a point, drag a point to shape the curve, double-tap a point to remove it. Shaping the curve is touch-only; with a screen reader use the Contrast slider and Reset channel instead.</string>
     <string name="tool_curve_points_state">%1$d control points</string>
     <string name="tool_export_half_frame_pair">Export as a half-frame pair…</string>
+    <string name="tool_export_proof_none">Nothing in the picture is clipped in %1$s.</string>
+    <string name="tool_export_proof_clipped">%1$s of the picture is clipped in %2$s: blown highlights, blocked shadows or colours outside the space. The clipping button on the photo shows where.</string>
+    <string name="tool_export_proof_wide">This screen may not show every colour in %1$s. The file keeps them; the preview draws them clipped.</string>
 </resources>

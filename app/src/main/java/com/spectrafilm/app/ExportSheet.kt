@@ -250,6 +250,12 @@ fun ExportSheet(
                     onCheckedChange = onCctfChange,
                     tooltip = stringResource(R.string.tool_export_cctf_help),
                 )
+                // Soft proof: what the preview, rendered in this space, says about the file.
+                ExportProofSection(
+                    previewBitmap = previewBitmap,
+                    colorSpace = colorSpace,
+                    spaceName = resources.getString(colorSpace.labelRes()),
+                )
             }
 
             HorizontalDivider()
