@@ -826,6 +826,7 @@ jobs:
             tools/baseline/tests/test_bench_report.py \
             tools/baseline/tests/test_preview_report.py \
             tools/upstream/gen_upstream_parity.py \
+            tools/upstream/derive_profiles.py \
             tools/upstream/tests/test_upstream_parity.py \
             tools/compliance/libraw_bundle.py \
             tools/compliance/tests/test_libraw_bundle.py \
@@ -862,6 +863,7 @@ jobs:
         run: |
           python -m unittest discover -s tools/upstream/tests -p 'test_*.py'
           python tools/upstream/gen_upstream_parity.py --check
+          python tools/upstream/derive_profiles.py --check
 
       - name: Report newer upstream (read-only; never mutates the pin, never fails)
         run: python tools/upstream/gen_upstream_parity.py --report-upstream

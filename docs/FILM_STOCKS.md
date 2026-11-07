@@ -1,6 +1,7 @@
 # Spektrafilm Stock Catalog
 
-Spektrafilm ships with 28 spectral film and paper profiles. This reference groups every
+Spektrafilm ships with 29 spectral film and paper profiles (28 from spektrafilm plus one
+derived stock, CineStill 800T). This reference groups every
 bundled stock by its role in the photographic chain — the film you expose, the slide you
 project, the cine negative you shoot, and the print medium that renders the final image.
 
@@ -33,6 +34,7 @@ and a look that lives in how they are printed. These pair with the RGB print pap
 | Fujifilm Pro 400H | Fujifilm | 400 | Daylight | 2004 (disc. 2021) | Airy pastels, cool greens, soft skin via a fourth color layer. |
 | Fujifilm C200 | Fujifilm | 200 | Daylight | ~1990 | Economical everyday negative; crisp, slightly cool color. |
 | Fujifilm Superia X-TRA 400 | Fujifilm | 400 | Daylight | 1998 (disc. 2024) | Versatile consumer 400; fourth layer cleans up mixed light. |
+| CineStill 800T | CineStill | 800 | **Tungsten** | — | Vision3 500T without its rem-jet backing: lights bloom into red halos. Derived profile (same data as 500T, anti-halation `no`). |
 
 ## Color Reversal / Slide
 
