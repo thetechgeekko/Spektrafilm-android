@@ -37,8 +37,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
@@ -2033,15 +2038,29 @@ internal fun MainActivity.EditorScreen(
             // desktop windows, unfolded foldables): the active panel docks as a side column
             // beside the preview + category bar. Neither branch touches PreviewRegion or the
             // GPU/CPU render paths; only where the panel body is hosted differs.
+            val foldingFeature by rememberFoldingFeature()
+            var editorBoxOrigin by remember { mutableStateOf(Offset.Zero) }
             BoxWithConstraints(
                 Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .onGloballyPositioned { editorBoxOrigin = it.positionInWindow() },
             ) {
                 // Window size classes (M3): side pane for expanded+ windows and landscape
-                // phones, bottom sheet for compact and medium portrait. See EditorLayout.kt.
-                val wide = editorPaneMode(maxWidth.value, maxHeight.value) == EditorPaneMode.SIDE_PANE
-                val sidePaneWidth = sidePaneWidthDp(maxWidth.value).dp
+                // phones, bottom sheet for compact and medium portrait. A half-folded device
+                // overrides that by posture (FoldPosture.kt): tabletop docks the tools below
+                // the hinge, book posture gives the tools exactly one screen.
+                val posture = foldPosture(
+                    foldingFeature?.toHinge(editorBoxOrigin.x, editorBoxOrigin.y, LocalDensity.current.density),
+                    maxWidth.value,
+                    maxHeight.value,
+                )
+                val wide = editorPaneMode(maxWidth.value, maxHeight.value, posture) == EditorPaneMode.SIDE_PANE
+                val sidePaneWidth = sidePaneWidthDp(
+                    maxWidth.value,
+                    posture,
+                    rtl = LocalLayoutDirection.current == LayoutDirection.Rtl,
+                ).dp
 
                 // The photo's EXIF capture date for the date-back imprint's default text,
                 // read off the main thread once per source.
@@ -2397,12 +2416,16 @@ internal fun MainActivity.EditorScreen(
                 } else {
                     Column(Modifier.fillMaxSize()) {
                         // --- PREVIEW (pinned, weight) ---
-                        Box(
+                        BoxWithConstraints(
                             Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
                                 .heightIn(min = 220.dp),
                         ) {
+                            // Tabletop: the panel fills the lower half exactly, so the photo
+                            // (inset by the panel's height) fills the upper one. This box
+                            // starts where the editor box does, so the hinge offsets apply.
+                            val tabletopPanelHeight = tabletopPanelHeightDp(posture, maxHeight.value)?.dp
                             previewRegion()
 
                             // --- ADJUSTMENT PANEL (floating bottom overlay) ---
@@ -2426,6 +2449,7 @@ internal fun MainActivity.EditorScreen(
                                     onResetCategory = resetActiveCategory,
                                     tall = panelTall,
                                     onTallChange = { panelTall = it },
+                                    fixedHeight = tabletopPanelHeight,
                                     content = panelContent,
                                 )
                             }
