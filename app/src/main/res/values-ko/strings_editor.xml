@@ -174,8 +174,6 @@
     <string name="editor_pill_rendered_in">%1$d ms에 렌더링됨</string>
     <string name="editor_pill_rendered_in_text">%1$d ms에 렌더링됨</string>
     <string name="editor_pill_error">오류: %1$s</string>
-    <string name="editor_state_on">켜짐</string>
-    <string name="editor_state_off">꺼짐</string>
     <string name="editor_panel_title">%1$s 패널</string>
     <string name="editor_close_panel_named">%1$s 패널 닫기</string>
     <string name="editor_panel_expand">패널 높이기</string>

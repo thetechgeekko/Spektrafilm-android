@@ -543,7 +543,7 @@ fun ZoomableImage(
  * visible glyph ("+", "−", "Fit"); [contentDescription] is what TalkBack announces instead of it.
  */
 @Composable
-private fun ZoomButton(
+internal fun ZoomButton(
     label: String,
     contentDescription: String,
     modifier: Modifier = Modifier,

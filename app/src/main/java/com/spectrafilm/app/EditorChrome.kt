@@ -2,7 +2,7 @@
  * Spektrafilm for Android. GPLv3.
  * Film modeling powered by spektrafilm (GPLv3).
  *
- * Editor chrome (#273, third MainActivity split): status pill, scrim and press buttons,
+ * Editor chrome (#273, third MainActivity split): status pill, press buttons,
  * slider readout and panel overlay/adjustment/side panels. Stateless; moved verbatim out of
  * MainActivity. The category rail lives in CategoryRail.kt.
  */
@@ -25,7 +25,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -52,7 +51,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -172,41 +170,6 @@ private sealed interface PillState {
     data class Error(val message: String) : PillState
     data class Done(val ms: Long) : PillState
     data object Hidden : PillState
-}
-
-/**
- * 40dp circular control over a ~35% scrim. [toggle] marks a two-state control so the
- * [active] tint (otherwise colour-only) is also announced as "On"/"Off".
- */
-@Composable
-internal fun CircleScrimButton(
-    onClick: () -> Unit,
-    active: Boolean = false,
-    toggle: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val stateLabel = stringResource(if (active) R.string.editor_state_on else R.string.editor_state_off)
-    Box(
-        Modifier
-            .size(40.dp)
-            .scale(if (pressed) 0.9f else 1f)
-            .clip(CircleShape)
-            .background(
-                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                else SpektraBrand.scrim.copy(alpha = 0.35f)
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        IconButton(
-            onClick = onClick,
-            interactionSource = interaction,
-            modifier = Modifier.semantics {
-                if (toggle) stateDescription = stateLabel
-            },
-        ) { content() }
-    }
 }
 
 /** A press-scaling icon button used in the top bar. */

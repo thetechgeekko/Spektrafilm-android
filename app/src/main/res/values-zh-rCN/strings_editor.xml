@@ -175,8 +175,6 @@
     <string name="editor_pill_rendered_in">预览已更新 · %1$d 毫秒</string>
     <string name="editor_pill_rendered_in_text">预览已更新 · %1$d 毫秒</string>
     <string name="editor_pill_error">错误：%1$s</string>
-    <string name="editor_state_on">开启</string>
-    <string name="editor_state_off">关闭</string>
     <string name="editor_panel_title">%1$s面板</string>
     <string name="editor_close_panel_named">关闭%1$s面板</string>
     <string name="editor_close">关闭</string>
