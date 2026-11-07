@@ -574,10 +574,10 @@ internal fun MainActivity.AppRoot(
 }
 
 /**
- * A sub-screen frame: M3 `Scaffold` with a small top app bar (back, title, actions), as the
- * settings archetype asks. The bar is flat at rest and tints to surfaceContainer once the
- * content scrolls under it (pinned scroll behaviour, no shadow). Content is inset for the
- * system bars by the Scaffold.
+ * A sub-screen frame: M3 `Scaffold` with a medium top app bar (back, title, actions), the
+ * same family as the editor's app bar. The title starts large under the bar and folds into
+ * it as the content scrolls (exit-until-collapsed), as the kit's list and gallery screens
+ * do. Content is inset for the system bars by the Scaffold.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -588,17 +588,26 @@ internal fun NavScaffold(
     // A contextual (selection) app bar leads with Close, not Back: it ends the mode and stays
     // on the screen (m3-design-language, components-navigation "Contextual selection mode").
     closeNavigation: Boolean = false,
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     androidx.compose.material3.Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        floatingActionButton = floatingActionButton,
         topBar = {
-            TopAppBar(
-                title = { Text(title, modifier = Modifier.semantics { heading() }) },
+            MediumTopAppBar(
+                title = {
+                    Text(
+                        title,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

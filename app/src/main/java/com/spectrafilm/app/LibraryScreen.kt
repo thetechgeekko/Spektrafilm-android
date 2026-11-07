@@ -11,6 +11,8 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,10 +33,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -120,6 +125,11 @@ internal fun LibraryDestination(
         if (tree != null) vm.chooseFolder(tree.toString())
     }
     val choose = { picker.launch(state.treeUri?.let(Uri::parse)) }
+    // The Library is where photos are opened from: one photo from anywhere on the phone,
+    // beside the folder of frames. Routed through onOpen like a tapped frame.
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) onOpen(uri)
+    }
     val saved = (sidecarSave as? LibrarySidecarState.Done)?.result
     LaunchedEffect(saved) {
         if (saved == null) return@LaunchedEffect
@@ -161,6 +171,20 @@ internal fun LibraryDestination(
         },
         onBack = if (selecting) vm::clearSelection else onBack,
         closeNavigation = selecting,
+        floatingActionButton = {
+            if (!selecting) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    icon = { Icon(SpectraIcons.OpenPhoto, contentDescription = null) },
+                    text = { Text(stringResource(R.string.editor_open_photo)) },
+                    modifier = Modifier.navigationBarsPadding(),
+                )
+            }
+        },
         actions = {
             if (selecting) {
                 // The look comes from the photo open in the editor; without one there is
@@ -297,10 +321,11 @@ private fun LibraryGrid(
         state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
-            end = 4.dp,
+            start = 12.dp,
+            end = 12.dp,
             top = 4.dp,
-            bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            // Room under the last row for the Open photo button.
+            bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
         ),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -310,6 +335,7 @@ private fun LibraryGrid(
                 entry,
                 current = entry.documentUri == currentUri,
                 selected = entry.documentUri in selection,
+                selecting = selecting,
                 // Long-press starts selecting (as in Photos and Files); while selecting, a tap
                 // toggles instead of opening.
                 onClick = {
@@ -327,6 +353,7 @@ private fun LibraryCell(
     entry: LibraryEntry,
     current: Boolean,
     selected: Boolean,
+    selecting: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -340,24 +367,35 @@ private fun LibraryCell(
     val thumb by produceState<Bitmap?>(LibraryThumbnails.cached(entry.documentUri), entry.documentUri) {
         if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri, entry.isRaw) }
     }
+    // The kit's photo grid: rounded tiles; a selected tile shrinks inside its cell and takes
+    // a filled check, every tile shows an empty check circle while selecting.
+    val inset by animateDpAsState(if (selected) 10.dp else 0.dp, label = "cellInset")
+    val corner by animateDpAsState(if (selected) 16.dp else 12.dp, label = "cellCorner")
+    val shape = RoundedCornerShape(corner)
     Box(
         Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(4.dp))
-            .then(
-                when {
-                    selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(4.dp))
-                    current -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-                    else -> Modifier
-                },
-            )
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = selectLabel)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = description
                 this.selected = selected || current
             },
+    ) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(inset)
+            .clip(shape)
+            .then(
+                if (current && !selecting) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+                } else {
+                    Modifier
+                },
+            )
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
         thumb?.let {
             Image(
@@ -386,20 +424,7 @@ private fun LibraryCell(
                 )
             }
         }
-        if (selected) {
-            Surface(
-                color = MaterialTheme.colorScheme.tertiary,
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-            ) {
-                Icon(
-                    SpectraIcons.Confirm,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiary,
-                    modifier = Modifier.padding(2.dp).size(18.dp),
-                )
-            }
-        }
+
         if (entry.edited) {
             // Mirrors the RAW badge in the opposite corner: a saved edit reopens with the photo.
             Surface(
@@ -414,6 +439,36 @@ private fun LibraryCell(
                     maxLines = 1,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                 )
+            }
+        }
+    }
+        if (selecting) {
+            // Bottom-start, clear of the RAW and Edited badges along the top.
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (selected) {
+                            Modifier.background(MaterialTheme.colorScheme.primary)
+                        } else {
+                            Modifier
+                                .background(SpektraBrand.scrim.copy(alpha = 0.3f))
+                                .border(2.dp, SpektraBrand.onCanvas, CircleShape)
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(
+                        SpectraIcons.Confirm,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
     }

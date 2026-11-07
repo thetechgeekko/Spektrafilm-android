@@ -1,13 +1,17 @@
 package com.spectrafilm.app
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import com.spectrafilm.engine.ColorSpace
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -77,9 +81,14 @@ class ExportSheetUiTest {
         assertEquals(0, calls.dismissals)
     }
 
-    @Test fun cancelButtonDismisses() {
+    // No Cancel button any more: the sheet closes as an M3 modal sheet does. Its drag
+    // handle carries the accessibility Dismiss action, which is also what TalkBack offers.
+    @Test fun sheetDismissActionDismissesWithoutExporting() {
         val calls = show()
-        compose.onNodeWithText(str(R.string.tool_cancel)).performScrollTo().performClick()
+        compose.onNodeWithText(str(R.string.tool_cancel)).assertDoesNotExist()
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
+            .onFirst()
+            .performSemanticsAction(SemanticsActions.Dismiss)
         compose.waitForIdle()
         assertEquals(1, calls.dismissals)
         assertEquals(0, calls.exports)
