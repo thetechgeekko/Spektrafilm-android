@@ -3736,12 +3736,7 @@ class MainActivity : ComponentActivity() {
             // has to block shortcuts too; an undo behind it would invalidate its crop.
             val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
             when (shortcut) {
-                // The magnifier has no back handler of its own: Esc closes it with its own
-                // close button's path rather than letting Back reach the panel beneath.
-                EditorShortcut.CLOSE -> if (magnifierOpen) {
-                    closeMagnifier()
-                    true
-                } else {
+                EditorShortcut.CLOSE -> {
                     val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
                     if (closable) onBackPressedDispatcher.onBackPressed()
                     closable
@@ -3805,6 +3800,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Registered last so it wins: the full-screen grain magnifier sits over everything
+        // above, and Back (or Esc) must close IT, not the panel or overlay hidden beneath.
+        BackHandler(enabled = magnifierOpen) { closeMagnifier() }
 
         // ============================ LAYOUT ============================
         // Overlay predicates, shared with the overlay branches below the chrome.
