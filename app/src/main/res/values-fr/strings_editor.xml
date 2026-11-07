@@ -596,4 +596,8 @@
     <string name="photo_info_location_present">Incluse dans le fichier</string>
     <string name="photo_info_location_absent">Aucune</string>
     <string name="photo_info_empty">Ce fichier ne contient aucune donnée d\'appareil photo.</string>
+    <string name="editor_snack_pair_running">Export de la paire demi-format</string>
+    <string name="editor_snack_pair_done">Paire demi-format exportée</string>
+    <string name="editor_snack_pair_failed">Impossible d\'exporter la paire demi-format</string>
+    <string name="editor_snack_pair_cancelled">Export de la paire demi-format arrêté</string>
 </resources>

@@ -594,4 +594,8 @@
     <string name="photo_info_location_present">In der Datei enthalten</string>
     <string name="photo_info_location_absent">Keiner</string>
     <string name="photo_info_empty">Diese Datei enthält keine Kameradaten.</string>
+    <string name="editor_snack_pair_running">Halbformat-Paar wird exportiert</string>
+    <string name="editor_snack_pair_done">Halbformat-Paar exportiert</string>
+    <string name="editor_snack_pair_failed">Das Halbformat-Paar konnte nicht exportiert werden</string>
+    <string name="editor_snack_pair_cancelled">Export des Halbformat-Paars abgebrochen</string>
 </resources>

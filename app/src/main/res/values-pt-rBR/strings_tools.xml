@@ -213,4 +213,5 @@
     <string name="tool_curve_reset_all">Redefinir tudo</string>
     <string name="tool_curve_editor_desc">Editor da curva de tons. Toque para adicionar um ponto, arraste um ponto para moldar a curva e toque duas vezes em um ponto para removê-lo. Moldar a curva é só por toque; com um leitor de tela, use o controle Contraste e Redefinir canal.</string>
     <string name="tool_curve_points_state">%1$d pontos de controle</string>
+    <string name="tool_export_half_frame_pair">Exportar como par de meio quadro…</string>
 </resources>

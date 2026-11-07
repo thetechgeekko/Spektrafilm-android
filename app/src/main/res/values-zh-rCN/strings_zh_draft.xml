@@ -240,4 +240,9 @@
     <plurals name="library_paste_partial">
         <item quantity="other">已粘贴到 %1$d 张。%2$d 张照片的编辑无法读取，已跳过。</item>
     </plurals>
+    <string name="tool_export_half_frame_pair">导出为半格双联…</string>
+    <string name="editor_snack_pair_running">正在导出半格双联</string>
+    <string name="editor_snack_pair_done">半格双联已导出</string>
+    <string name="editor_snack_pair_failed">无法导出半格双联</string>
+    <string name="editor_snack_pair_cancelled">半格双联导出已停止</string>
 </resources>

@@ -213,4 +213,5 @@
     <string name="tool_curve_reset_all">모두 재설정</string>
     <string name="tool_curve_editor_desc">톤 커브 편집기. 탭해 점을 추가하고, 점을 드래그해 커브를 만들고, 점을 두 번 탭해 삭제합니다. 커브 조작은 터치 전용입니다. 스크린 리더 사용 시에는 대비 슬라이더와 채널 재설정을 사용하세요.</string>
     <string name="tool_curve_points_state">제어점 %1$d개</string>
+    <string name="tool_export_half_frame_pair">하프 프레임 쌍으로 내보내기…</string>
 </resources>

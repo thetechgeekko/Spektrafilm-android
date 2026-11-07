@@ -596,4 +596,8 @@
     <string name="photo_info_location_present">Incluida en el archivo</string>
     <string name="photo_info_location_absent">Ninguna</string>
     <string name="photo_info_empty">Este archivo no tiene datos de la cámara.</string>
+    <string name="editor_snack_pair_running">Exportando par de medio formato</string>
+    <string name="editor_snack_pair_done">Par de medio formato exportado</string>
+    <string name="editor_snack_pair_failed">No se pudo exportar el par de medio formato</string>
+    <string name="editor_snack_pair_cancelled">Exportación del par de medio formato detenida</string>
 </resources>
