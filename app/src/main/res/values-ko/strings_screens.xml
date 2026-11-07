@@ -266,4 +266,6 @@
     <string name="library_no_photos_title">사진이 없습니다</string>
     <string name="library_no_photos_body">%1$s에 RAW 파일이나 사진이 없습니다. 하위 폴더는 아직 표시되지 않습니다.</string>
     <string name="library_loading">폴더 불러오는 중</string>
+    <string name="library_badge_edited">편집됨</string>
+    <string name="library_cell_edited_desc">%1$s, 편집됨</string>
 </resources>

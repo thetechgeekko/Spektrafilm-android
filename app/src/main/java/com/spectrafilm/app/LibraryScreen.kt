@@ -194,6 +194,11 @@ private fun LibraryGrid(entries: List<LibraryEntry>, currentUri: String?, onOpen
 @Composable
 private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Unit) {
     val ctx = LocalContext.current
+    val description = if (entry.edited) {
+        stringResource(R.string.library_cell_edited_desc, entry.name)
+    } else {
+        entry.name
+    }
     val thumb by produceState<Bitmap?>(LibraryThumbnails.cached(entry.documentUri), entry.documentUri) {
         if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri) }
     }
@@ -212,7 +217,7 @@ private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Un
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
-                contentDescription = entry.name
+                contentDescription = description
                 selected = current
             },
     ) {
@@ -239,6 +244,22 @@ private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Un
                     stringResource(R.string.library_badge_raw),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
+        }
+        if (entry.edited) {
+            // Mirrors the RAW badge in the opposite corner: a saved edit reopens with the photo.
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+            ) {
+                Text(
+                    stringResource(R.string.library_badge_edited),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                 )
             }

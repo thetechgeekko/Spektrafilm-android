@@ -266,4 +266,6 @@
     <string name="library_no_photos_title">写真がありません</string>
     <string name="library_no_photos_body">%1$sにはRAWファイルや写真がありません。サブフォルダはまだ表示されません。</string>
     <string name="library_loading">フォルダを読み込み中</string>
+    <string name="library_badge_edited">編集済み</string>
+    <string name="library_cell_edited_desc">%1$s、編集済み</string>
 </resources>
