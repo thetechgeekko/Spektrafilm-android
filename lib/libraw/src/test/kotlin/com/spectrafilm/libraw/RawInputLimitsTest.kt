@@ -50,4 +50,14 @@ class RawInputLimitsTest {
         assertEquals(DecodeStatus.CANCELLED, error.status)
         assertEquals(0, error.librawCode)
     }
+
+    @Test
+    fun `only unknown or over-ceiling sources take the on-disk snapshot`() {
+        val limit = RawInputLimits.MAX_ENCODED_BYTES.toLong()
+        assertEquals(true, RawInputLimits.needsInputSnapshot(-1L))
+        assertEquals(false, RawInputLimits.needsInputSnapshot(0L))
+        assertEquals(false, RawInputLimits.needsInputSnapshot(limit))
+        assertEquals(true, RawInputLimits.needsInputSnapshot(limit + 1L))
+        assertEquals(true, RawInputLimits.needsInputSnapshot(600L * 1024L * 1024L))
+    }
 }
