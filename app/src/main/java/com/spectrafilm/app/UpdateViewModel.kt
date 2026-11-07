@@ -30,6 +30,11 @@ internal class SharedUpdatePrefs(private val prefs: SharedPreferences) : UpdateP
 
     companion object {
         const val FILE = "updater_state_v1"
+
+        /** The app's update state, in its own private file. */
+        fun create(context: Context): SharedUpdatePrefs =
+            SharedUpdatePrefs(context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE))
+
         private const val KEY_AUTO = "auto_check"
         private const val KEY_LAST = "last_auto_check_ms"
         private const val KEY_SKIPPED = "skipped_tag"
