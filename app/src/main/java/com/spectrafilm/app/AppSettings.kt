@@ -287,6 +287,12 @@ class AppSettings private constructor(
         get() = FilmBorder.parse(store[KEY_EXPORT_BORDER])
         set(v) { store.edit { it[KEY_EXPORT_BORDER] = v.name } }
 
+    /** Whether saved settings have been read; see [SettingsDataStore.awaitLoaded]. */
+    val isLoaded: Boolean get() = store.isLoaded
+
+    /** Suspends until saved settings have been read (the splash screen waits on this). */
+    suspend fun awaitLoaded() = store.awaitLoaded()
+
     /** Waits briefly for queued writes to reach disk; see [SettingsDataStore.flush]. */
     fun flush(): Boolean = store.flush()
 

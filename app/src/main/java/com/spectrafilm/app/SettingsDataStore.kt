@@ -6,13 +6,15 @@
  * property API, which the editor, EngineHolder and export read on every render, so this
  * store holds the whole Preferences snapshot in memory:
  *
- *  - The snapshot is loaded once, when the store is built. That first read is a disk read,
- *    the same cost SharedPreferences paid on its first get.
+ *  - The snapshot is loaded once, in the background, as soon as the store is built. The
+ *    activity waits for it behind the splash screen ([awaitLoaded]); any other read made
+ *    before it lands waits for it (bounded), as a first SharedPreferences get did.
  *  - [edit] applies the change to the snapshot at once, so the next read sees it, and queues
  *    the same change for DataStore. A single consumer drains the queue in order, so the
  *    file ends up with the edits in the order they were made.
- *  - This process is the only writer, so the snapshot is never refreshed from the file,
- *    except once if the first read failed (see [reconcile]).
+ *  - This process is the only writer, so the snapshot is never refreshed from the file
+ *    after the first read (retried if it failed, see [reconcile]). Edits made before that
+ *    read are replayed on top of what it returns.
  *  - Edits are saved as they are made, not at onStop: the writer starts on each edit at
  *    once, and edits that pile up while a write is in progress go out together as one
  *    file write. Callers save a value when it is committed (a slider on release, not every
@@ -51,13 +53,17 @@ internal class SettingsDataStore(
     scope: CoroutineScope,
 ) {
     private val lock = Any()
-    private val initial: Preferences? = load(dataStore)
-    private val snapshot = MutableStateFlow(initial ?: emptyPreferences())
+    private val snapshot = MutableStateFlow(emptyPreferences())
     private val writes = Channel<(MutablePreferences) -> Unit>(Channel.UNLIMITED)
 
-    /** Edits made while the first read had failed, replayed onto the file once it reads. */
-    private var unreconciled: MutableList<(MutablePreferences) -> Unit>? =
-        if (initial == null) mutableListOf() else null
+    /**
+     * Edits made before the file has been read (or while the first read had failed), replayed
+     * onto the file's contents once it reads. Non-null until the first successful read.
+     */
+    private var unreconciled: MutableList<(MutablePreferences) -> Unit>? = mutableListOf()
+
+    /** True once the first read has finished, successfully or not (then defaults are used). */
+    private val loadedFlow = MutableStateFlow(false)
 
     /** Edits queued so far, and edits the writer has finished with (persisted or failed). */
     private var queued = 0L
@@ -66,9 +72,21 @@ internal class SettingsDataStore(
     /** Every setting as last written in this process. */
     val data: StateFlow<Preferences> = snapshot.asStateFlow()
 
+    /** Whether the first read has finished; the launch screen stays up until it has. */
+    val isLoaded: Boolean get() = loadedFlow.value
+
+    /** Suspends until the first read has finished. */
+    suspend fun awaitLoaded() {
+        loadedFlow.first { it }
+    }
+
     init {
         scope.launch {
-            reconcile()
+            // The first read happens here, off the caller's thread, instead of blocking the
+            // constructor (MAD audit fixes 1 and 4). The activity waits for it behind the
+            // splash screen with awaitLoaded().
+            if (!reconcile()) Diag.e("settings read failed, using defaults until a retry succeeds")
+            loadedFlow.value = true
             for (first in writes) {
                 // Take every edit already waiting and write them as ONE DataStore edit, in
                 // order: a burst of edits costs one file write instead of one each, so the
@@ -83,9 +101,25 @@ internal class SettingsDataStore(
         }
     }
 
-    operator fun <T> get(key: Preferences.Key<T>): T? = snapshot.value[key]
+    operator fun <T> get(key: Preferences.Key<T>): T? {
+        ensureLoaded()
+        return snapshot.value[key]
+    }
 
-    operator fun contains(key: Preferences.Key<*>): Boolean = key in snapshot.value
+    operator fun contains(key: Preferences.Key<*>): Boolean {
+        ensureLoaded()
+        return key in snapshot.value
+    }
+
+    /**
+     * A read before the file has loaded waits for it (bounded), as the first read always did,
+     * so a background caller such as the engine never sees defaults in place of saved values.
+     * The UI does not get here: it waits in awaitLoaded() behind the splash screen first.
+     */
+    private fun ensureLoaded() {
+        if (loadedFlow.value) return
+        runBlocking { withTimeoutOrNull(LOAD_TIMEOUT_MS) { loadedFlow.first { it } } }
+    }
 
     /** Applies [block] to the in-memory settings now and to the file in order, later. */
     fun edit(block: (MutablePreferences) -> Unit) {
@@ -113,15 +147,18 @@ internal class SettingsDataStore(
      * contents with this process's edits replayed on top, so saved settings come back instead
      * of reading as defaults for the rest of the process.
      */
-    private suspend fun reconcile() {
-        if (synchronized(lock) { unreconciled } == null) return
-        val loaded = runCatching { dataStore.data.first() }.getOrNull() ?: return
+    private suspend fun reconcile(): Boolean {
+        if (synchronized(lock) { unreconciled } == null) return true
+        val read = runCatching { dataStore.data.first() }
+            .onFailure { Diag.w("settings read failed: ${it.message}") }
+            .getOrNull() ?: return false
         synchronized(lock) {
-            val replay = unreconciled ?: return
-            snapshot.value = loaded.toMutablePreferences().apply { replay.forEach { it(this) } }.toPreferences()
+            val replay = unreconciled ?: return true
+            snapshot.value = read.toMutablePreferences().apply { replay.forEach { it(this) } }.toPreferences()
             unreconciled = null
         }
-        Diag.i("settings read recovered after an earlier failure")
+        if (loadedFlow.value) Diag.i("settings read recovered after an earlier failure")
+        return true
     }
 
     companion object {
@@ -146,11 +183,6 @@ internal class SettingsDataStore(
         }
 
         private const val FLUSH_TIMEOUT_MS = 2_000L
-
-        /** The first read, or null if it failed (defaults are used until a retry succeeds). */
-        private fun load(dataStore: DataStore<Preferences>): Preferences? =
-            runCatching { runBlocking { dataStore.data.first() } }
-                .onFailure { Diag.e("settings read failed, using defaults: ${it.message}") }
-                .getOrNull()
+        private const val LOAD_TIMEOUT_MS = 5_000L
     }
 }

@@ -165,6 +165,7 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.window)
+    implementation(libs.androidx.core.splashscreen)
 
     testImplementation(libs.junit)
     // Real org.json on the unit-test classpath (the android.jar stub throws "not

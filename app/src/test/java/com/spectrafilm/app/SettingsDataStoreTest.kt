@@ -127,4 +127,25 @@ class SettingsDataStoreTest {
         assertEquals(500, persisted[quality])
         assertEquals(true, persisted[gps])
     }
+
+    /**
+     * The first read happens in the background (MAD audit fix 4). An edit made before it
+     * lands must be applied on top of the saved values, not replace them with defaults.
+     */
+    @Test fun anEditBeforeTheFirstReadKeepsSavedValues() = runBlocking {
+        val (store, _) = open()
+        store.edit { it[theme] = "LIGHT"; it[quality] = 80 }
+        assertTrue("writer did not drain", store.flush(timeoutMs = 10_000))
+        closeAll()
+
+        val (reopened, dataStore) = open()
+        reopened.edit { it[quality] = 50 }
+        reopened.awaitLoaded()
+        assertTrue(reopened.isLoaded)
+        assertEquals("LIGHT", reopened[theme])
+        assertEquals(50, reopened[quality])
+        assertTrue("writer did not drain", reopened.flush(timeoutMs = 10_000))
+        assertEquals("LIGHT", dataStore.data.first()[theme])
+        assertEquals(50, dataStore.data.first()[quality])
+    }
 }

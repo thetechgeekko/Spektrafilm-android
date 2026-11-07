@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -194,6 +195,9 @@ internal fun MainActivity.EditorScreen(
     }
     val previewState = remember { mutableStateOf<Bitmap?>(null) }
     var preview by previewState
+    // Time to full display (MAD audit fix 4): the editor is fully drawn once the first
+    // rendered preview is on screen, so startup can be measured as TTFD.
+    ReportDrawnWhen { preview != null }
     val beforePreviewState = remember { mutableStateOf<Bitmap?>(null) }
     var beforePreview by beforePreviewState
     // The histogram captures its pixels during composition and never retains either Bitmap.
