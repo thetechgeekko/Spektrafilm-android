@@ -12,6 +12,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
@@ -560,7 +561,12 @@ internal fun MainActivity.AppRoot(
     }
 }
 
-/** A simple back-arrow top bar wrapping a sub-screen (inset for status bar). */
+/**
+ * A sub-screen frame: M3 `Scaffold` with a small top app bar (back, title, actions), as the
+ * settings archetype asks. The bar is flat at rest and tints to surfaceContainer once the
+ * content scrolls under it (pinned scroll behaviour, no shadow). Content is inset for the
+ * system bars by the Scaffold.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NavScaffold(
@@ -569,12 +575,13 @@ internal fun NavScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars),
-        ) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    androidx.compose.material3.Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
             TopAppBar(
                 title = { Text(title, modifier = Modifier.semantics { heading() }) },
                 navigationIcon = {
@@ -586,8 +593,15 @@ internal fun NavScaffold(
                     }
                 },
                 actions = actions,
+                scrollBehavior = scrollBehavior,
             )
-            Box(Modifier.weight(1f)) { content() }
-        }
+        },
+    ) { padding ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding),
+        ) { content() }
     }
 }
