@@ -914,7 +914,7 @@ private fun packsNativelyLikeSetPixels(bitmap: Bitmap): Boolean {
 /** One line per converted frame, so #289's before/after is readable from logcat. */
 private fun logDisplayPack(path: String, w: Int, h: Int, startNs: Long) {
     val ms = (System.nanoTime() - startNs) / 1_000_000.0
-    Diagnostics.i("display pack path=$path ${w}x$h ${"%.2f".format(java.util.Locale.ROOT, ms)}ms")
+    Diag.i("display pack path=$path ${w}x$h ${"%.2f".format(java.util.Locale.ROOT, ms)}ms")
 }
 
 /** [SpektraEngine.packDisplayToBitmap], or false if the native library is unavailable. */
