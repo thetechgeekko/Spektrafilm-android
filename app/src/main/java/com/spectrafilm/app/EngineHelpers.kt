@@ -13,6 +13,7 @@ import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.RenderCancellation
 import com.spectrafilm.engine.SimResult
+import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.libraw.LinearResult
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeCancellation
@@ -864,6 +865,15 @@ fun simResultToBitmap(
         owned = bmp,
         dispose = { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() },
     ) { ownedBitmap ->
+        // #289: pack natively straight into the Bitmap's pixels when that is byte-identical
+        // to the loop below. Only for an sRGB-tagged (or untagged) bitmap: setPixels takes
+        // its ints as sRGB and converts them into the bitmap's own space, while the native
+        // pack writes the values as-is, so on a wide-gamut tag the two would differ.
+        val packStartNs = System.nanoTime()
+        if (packsNativelyLikeSetPixels(ownedBitmap) && packNative(data, w, h, ownedBitmap)) {
+            logDisplayPack("native", w, h, packStartNs)
+            return@disposeOnFailure ownedBitmap
+        }
         // Scratch is now a FLOAT strip plus the int strip, so the band is sized by the float
         // budget (~4 MB = 1M floats) rather than the int one. Total managed scratch stays in the
         // same class as the single 4 MB IntArray this replaced, and stays independent of image
@@ -886,8 +896,32 @@ fun simResultToBitmap(
             ownedBitmap.setPixels(strip, 0, w, 0, y, w, rows)
             y += rows
         }
+        logDisplayPack("kotlin", w, h, packStartNs)
         ownedBitmap
     }
+}
+
+/**
+ * True when writing raw bytes into [bitmap] gives the same pixels as `setPixels`, which
+ * treats its ints as sRGB and converts them into the bitmap's colour space (API 26+).
+ */
+private fun packsNativelyLikeSetPixels(bitmap: Bitmap): Boolean {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return true
+    val cs = bitmap.colorSpace ?: return true
+    return cs == android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB)
+}
+
+/** One line per converted frame, so #289's before/after is readable from logcat. */
+private fun logDisplayPack(path: String, w: Int, h: Int, startNs: Long) {
+    val ms = (System.nanoTime() - startNs) / 1_000_000.0
+    Diag.i("display pack path=$path ${w}x$h ${"%.2f".format(java.util.Locale.ROOT, ms)}ms")
+}
+
+/** [SpektraEngine.packDisplayToBitmap], or false if the native library is unavailable. */
+private fun packNative(data: ByteBuffer, w: Int, h: Int, bitmap: Bitmap): Boolean = try {
+    SpektraEngine.packDisplayToBitmap(data, data.position(), w, h, bitmap)
+} catch (_: LinkageError) {
+    false
 }
 
 /**

@@ -674,6 +674,10 @@ jobs:
           # fp16 (half-float) conversion: scalar IEEE-754 round-trip + bulk path agree
           # (NEON vcvt on arm, scalar on the host runner). No assets needed.
           build_run test_half
+          # #289 display pack: the native float RGB -> RGBA8 Bitmap pack must give the
+          # Kotlin packToArgb bytes for every float32 in [0, 1] (+ a stride over all
+          # bit patterns: NaN, Inf, negatives). No assets needed.
+          build_run test_pack_display
           # Bake a 17^3 .cube 3D LUT for the default scan_film look from the
           # BUNDLED assets (argv[1] = asset dir): validates the .cube header,
           # the N^3 data-line count, value sanity, non-degeneracy (not identity/

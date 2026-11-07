@@ -846,6 +846,29 @@ class SpektraEngine private constructor(
          */
         @JvmStatic fun cpuTopology(): LongArray = nativeCpuTopology()
 
+        /**
+         * Pack display-referred float32 RGB (interleaved, native order, starting at
+         * [byteOffset] in the direct buffer [src]) straight into [bitmap]'s pixels (#289).
+         * The bytes equal the app's Kotlin `packToArgb` loop (gated exhaustively by the
+         * host test `test_pack_display`), written without any managed scratch.
+         *
+         * Writes the values as-is, with no color-space conversion. Returns false, and
+         * leaves [bitmap] untouched, for anything it does not handle — a heap buffer, a
+         * non-ARGB_8888 or wrongly sized bitmap, a buffer too short — so the caller keeps
+         * its own path as the fallback.
+         */
+        @JvmStatic
+        fun packDisplayToBitmap(
+            src: ByteBuffer,
+            byteOffset: Int,
+            width: Int,
+            height: Int,
+            bitmap: android.graphics.Bitmap,
+        ): Boolean {
+            if (!src.isDirect) return false
+            return nativePackDisplayToBitmap(src, byteOffset, width, height, bitmap)
+        }
+
         /** Instrumentation-only observation of the real Kotlin -> JNI marshaller. */
         @JvmStatic
         internal fun debugMarshalledParams(params: Any?): String =
@@ -858,6 +881,13 @@ class SpektraEngine private constructor(
         @JvmStatic private external fun nativeBigCoreCount(): Int
         @JvmStatic private external fun nativeReleaseGpuResources(): Boolean
         @JvmStatic private external fun nativeCpuTopology(): LongArray
+        @JvmStatic private external fun nativePackDisplayToBitmap(
+            src: ByteBuffer,
+            byteOffset: Int,
+            width: Int,
+            height: Int,
+            bitmap: android.graphics.Bitmap,
+        ): Boolean
         @JvmStatic private external fun nativeDebugMarshalledParams(params: Any?): String
         @JvmStatic private external fun nativeConfigureMemoryBudget(limitBytes: Long)
         @JvmStatic private external fun nativeReserveJvmMemory(bytes: Long, stageCode: Int): Long

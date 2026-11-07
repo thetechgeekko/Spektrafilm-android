@@ -89,6 +89,7 @@ TESTS=(
   "test_parallel|$ASSET|tests/scan_portra_input_rgb.f64"
   "test_tonecurve|$ASSET/profiles/kodak_portra_400.json|$G/scan_portra"
   "test_half"
+  "test_pack_display"
   "test_bake_lut|$ASSET"
   "test_params_passthrough|$ASSET|tests/scan_portra_input_rgb.f64"
   "test_highlight_boost_e2e|$ASSET|$G/scan_portra_boost|tests/scan_portra_input_rgb.f64|$G"
