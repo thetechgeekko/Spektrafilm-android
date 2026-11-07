@@ -204,7 +204,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     var sourceUri by sourceUriState
     if (!sourceRenderAllowed) return
     val e = engine ?: return
-    val previewProbeLabel = Ticket139EditorProbe.sourceProbeLabel(sourceUri?.toString())
+    val previewProbeLabel = editorProbe.sourceProbeLabel(sourceUri?.toString())
     // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
     // ~1s, so waiting a bit longer for the user to pause means fewer renders that start
     // then get cancelled mid-flight on the next edit ("coroutine scope left the
@@ -328,7 +328,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                     // The test seam is exactly the completed native settle's
                                     // production completion-before-publication boundary. The
                                     // SimResult and decoded-source lease remain owned here.
-                                    completionProbeHeld = Ticket139EditorProbe
+                                    completionProbeHeld = editorProbe
                                         .awaitCompletedPreviewBeforePublication(previewProbeLabel)
                                     rendered
                                 }
@@ -340,7 +340,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                 // here, before withOwnedContext's prompt-cancellation return can
                                 // discard the owned Triple. This branch is test-armed only.
                                 val claimed = publicationGate.tryClaim(publicationTicket)
-                                Ticket139EditorProbe.publishPreviewDecision(
+                                editorProbe.publishPreviewDecision(
                                     previewProbeLabel,
                                     claimed,
                                 )
@@ -349,7 +349,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                 if (!probeAfter.isRecycled) probeAfter.recycle()
                                 if (ownsProbeBefore && !probeBefore.isRecycled) probeBefore.recycle()
                                 completionProbeHandled = true
-                                Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+                                editorProbe.publishPreviewCleanup(previewProbeLabel)
                             }
                             transferred = true
                             submission
@@ -368,7 +368,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
         decoding = false
         if (completionProbeHandled) return
         val publicationClaimed = publicationGate.tryClaim(publicationTicket)
-        Ticket139EditorProbe.publishPreviewDecision(
+        editorProbe.publishPreviewDecision(
             previewProbeLabel,
             publicationClaimed && isActive,
         )
@@ -378,13 +378,13 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                 if (!after.isRecycled) after.recycle()
                 if (ownsBefore && !before.isRecycled) before.recycle()
             }
-            Ticket139EditorProbe.publishPreviewCleanup(previewProbeLabel)
+            editorProbe.publishPreviewCleanup(previewProbeLabel)
             return
         }
         result.onSuccess { (before, after, _) ->
             beforePreview = before; preview = after
             SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-            Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
+            editorProbe.publishLivePreview(previewProbeLabel)
             lastRenderMs = System.currentTimeMillis() - renderStart
             Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
             if (zoomPrewarmEligible) scheduleZoomPrewarm()

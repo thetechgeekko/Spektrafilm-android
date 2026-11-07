@@ -83,7 +83,7 @@ fun MaskGeometryOverlay(
         ?: MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f)
     // Emitted only for an armed #139 oracle, after this real Composable owns its local draft.
     LaunchedEffect(Unit) {
-        Ticket139EditorProbe.publishMaskDraftInitialized(
+        editorProbe.publishMaskDraftInitialized(
             bitmapWidth = bitmap.width,
             bitmapHeight = bitmap.height,
             committed = committedShape,
