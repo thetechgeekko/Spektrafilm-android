@@ -42,6 +42,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
     }
 
+    /** Saved export presets for the export sheet. */
+    internal val exportPresetVm: ExportPresetViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[ExportPresetViewModel::class.java]
+    }
+
     /** Viewer modes: compare, histogram, hidden chrome (#272). */
     internal val viewerVm: EditorViewerViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewerViewModel::class.java]
