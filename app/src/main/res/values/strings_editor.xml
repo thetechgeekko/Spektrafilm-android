@@ -601,4 +601,26 @@
     <string name="editor_display_title">Display</string>
     <string name="editor_display_preview_max_size">Preview max size</string>
     <string name="editor_display_preview_max_size_tooltip">Max size of the long edge of the preview image, in pixels.</string>
+    <string name="editor_versions_heading">Versions of this photo</string>
+    <string name="editor_versions_help">Save the current look under a name, then switch between looks of the same photo. A version keeps the crop and masks too.</string>
+    <string name="editor_versions_unavailable">Open a photo to save versions of it.</string>
+    <string name="editor_versions_default_prefix">Version</string>
+    <string name="editor_versions_save">Save current look as version</string>
+    <string name="editor_versions_save_title">Save version</string>
+    <string name="editor_versions_save_confirm">Save</string>
+    <string name="editor_versions_full">This photo already has %1$d versions. Delete one to save another.</string>
+    <string name="editor_versions_apply">Apply</string>
+    <string name="editor_versions_more">More options for %1$s</string>
+    <string name="editor_versions_update">Update with current look</string>
+    <string name="editor_versions_rename">Rename</string>
+    <string name="editor_versions_rename_title">Rename version</string>
+    <string name="editor_versions_rename_confirm">Rename</string>
+    <string name="editor_versions_delete">Delete</string>
+    <string name="editor_versions_name_label">Name</string>
+    <string name="editor_status_version_saved">Saved version “%1$s”</string>
+    <string name="editor_status_version_applied">Applied version “%1$s”</string>
+    <string name="editor_status_version_updated">Updated version “%1$s”</string>
+    <string name="editor_status_version_failed">Versions: %1$s</string>
+    <string name="editor_snack_version_deleted">Deleted version “%1$s”</string>
+    <string name="editor_snack_versions_quarantined">This photo’s versions file was damaged and was set aside.</string>
 </resources>
