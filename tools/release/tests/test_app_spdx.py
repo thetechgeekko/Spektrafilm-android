@@ -19,6 +19,7 @@ EXPECTED_LOCKFILES = (
     "lib/libraw/gradle.lockfile",
     "lib/pngwriter/gradle.lockfile",
     "lib/tiffwriter/gradle.lockfile",
+    "baselineprofile/gradle.lockfile",
 )
 SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567"
 SOURCE_DATE_EPOCH = "1700000000"
@@ -48,6 +49,7 @@ class AppSpdxCliTest(unittest.TestCase):
             # Gradle emits this exact sentinel when no configurations are empty.
             "lib/pngwriter/gradle.lockfile": "empty=\n",
             "lib/tiffwriter/gradle.lockfile": "empty=releaseRuntimeClasspath\n",
+            "baselineprofile/gradle.lockfile": "empty=\n",
         }
         for relative, content in lock_contents.items():
             self._write(relative, content.encode("utf-8"))

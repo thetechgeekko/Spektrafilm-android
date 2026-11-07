@@ -8,6 +8,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     // @Serializable navigation routes (#274).
     alias(libs.plugins.kotlin.serialization)
+    // Recorded Baseline + Startup Profiles from :baselineprofile (#459).
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 // Optional local release signing is read from keystore.properties in the project root.
@@ -158,6 +160,39 @@ android {
     }
 }
 
+// Baseline Profile consumer (#459). Profiles are recorded on a device by
+// `./gradlew :app:generateReleaseBaselineProfile` and committed under
+// src/main/generated/baselineProfiles/; a normal build never needs a device.
+baselineProfile {
+    mergeIntoMain = true
+    automaticGenerationDuringBuild = false
+    // Use the recorded startup profile to lay out the startup classes in the primary DEX.
+    dexLayoutOptimization = true
+}
+
+// The plugin derives `nonMinifiedRelease` (profile generation) and `benchmarkRelease`
+// (macrobenchmarks) from `release`, which carries no signing config outside the protected
+// release job. Sign only those two device-test variants with the committed public debug key
+// so they install; `release` itself stays unsigned.
+androidComponents {
+    // The plugin turns unit tests off for those two variants, but AGP's Compose Preview
+    // (Layoutlib) tasks are registered for every variant and need them on to package
+    // resources: without this, realizing all tasks (`./gradlew :app:tasks --all`) fails
+    // with "Compose Preview failed for ':app' (variant 'nonMinifiedRelease')".
+    beforeVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
+    }
+    beforeVariants(selector().withBuildType("benchmarkRelease")) { variant ->
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
+    }
+    onVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
+        variant.signingConfig.setConfig(android.signingConfigs.getByName("debug"))
+    }
+    onVariants(selector().withBuildType("benchmarkRelease")) { variant ->
+        variant.signingConfig.setConfig(android.signingConfigs.getByName("debug"))
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -185,6 +220,9 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.window)
     implementation(libs.androidx.core.splashscreen)
+    // Installs the recorded Baseline Profile on sideloaded installs too (GitHub APK, no Play).
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
 
     testImplementation(libs.junit)
     // Real org.json on the unit-test classpath (the android.jar stub throws "not
