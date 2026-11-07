@@ -77,6 +77,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -84,7 +85,6 @@ import kotlin.math.min
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import java.util.IdentityHashMap
@@ -674,9 +674,10 @@ fun PreviewHistogramOverlay(bitmap: Bitmap, modifier: Modifier = Modifier) {
     // Keying state by identity prevents the previous frame's bins from being displayed while the
     // new frame is sampled. LaunchedEffect cancellation also rejects any late old-frame result.
     var hist by remember(bitmap) { mutableStateOf<Histogram?>(null) }
+    val dispatchers = rememberAppDispatchers()
     LaunchedEffect(bitmap) {
         hist = try {
-            computeHistogram(bitmap)
+            computeHistogram(bitmap, dispatchers.default)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -871,10 +872,10 @@ private fun sampleHistogram(bmp: Bitmap): HistogramSamples {
 
 /**
  * Sample a bitmap (stride-decimated for speed) into 256-bin RGB + luma histograms. The entire
- * Bitmap access runs on Dispatchers.Default and is protected from deterministic recycle by a read
+ * Bitmap access runs on the injected default dispatcher and is protected from deterministic recycle by a read
  * lease. A frame retired before the worker acquires it produces no histogram.
  */
-suspend fun computeHistogram(bmp: Bitmap): Histogram? = withContext(Dispatchers.Default) {
+suspend fun computeHistogram(bmp: Bitmap, default: CoroutineDispatcher): Histogram? = withContext(default) {
     val lease = previewBitmapReadLeases.acquire(bmp) ?: return@withContext null
     lease.use { computeHistogram(sampleHistogram(it.value)) }
 }

@@ -43,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -146,6 +145,7 @@ fun ProfileCurvesScreen(
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current.applicationContext
+    val dispatchers = rememberAppDispatchers()
     var curveData by remember(profileId) { mutableStateOf<ProfileCurveData?>(null) }
     var loading by remember(profileId) { mutableStateOf(true) }
     var error by remember(profileId) { mutableStateOf<String?>(null) }
@@ -154,7 +154,7 @@ fun ProfileCurvesScreen(
         loading = true
         error = null
         curveData = null
-        val result = withContext(Dispatchers.IO) {
+        val result = withContext(dispatchers.io) {
             runCatching { loadProfileCurves(ctx, profileId) }
         }
         result.onSuccess { curveData = it }

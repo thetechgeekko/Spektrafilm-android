@@ -12,6 +12,9 @@ package com.spectrafilm.app
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
@@ -26,6 +29,13 @@ internal data class AppDispatchers(
     val main: CoroutineDispatcher = Dispatchers.Main,
     val mainImmediate: CoroutineDispatcher = Dispatchers.Main.immediate,
 )
+
+/** The process's [AppDispatchers], for composables (#277). */
+@Composable
+internal fun rememberAppDispatchers(): AppDispatchers {
+    val context = LocalContext.current
+    return remember(context) { context.appContainer.dispatchers }
+}
 
 internal class AppContainer(context: Context) {
     private val app: Context = context.applicationContext

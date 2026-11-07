@@ -41,13 +41,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
 fun DiagnosticsScreen() {
     val ctx = LocalContext.current
+    val dispatchers = rememberAppDispatchers()
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var crash by remember { mutableStateOf<String?>(null) }
@@ -55,8 +55,8 @@ fun DiagnosticsScreen() {
     var engineCache by remember { mutableStateOf<String?>(null) }
     // Read the persisted crash off the main thread (file IO).
     LaunchedEffect(Unit) {
-        crash = withContext(Dispatchers.IO) { Diagnostics.lastCrash(ctx) }
-        engineCache = withContext(Dispatchers.Default) { Diagnostics.engineCacheSnapshot() }
+        crash = withContext(dispatchers.io) { Diagnostics.lastCrash(ctx) }
+        engineCache = withContext(dispatchers.default) { Diagnostics.engineCacheSnapshot() }
     }
 
     Column(
@@ -97,7 +97,7 @@ fun DiagnosticsScreen() {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            withContext(Dispatchers.IO) { Diagnostics.clearLastCrash(ctx) }
+                            withContext(dispatchers.io) { Diagnostics.clearLastCrash(ctx) }
                             crash = null
                         }
                     },
@@ -121,9 +121,9 @@ fun DiagnosticsScreen() {
             )
         OutlinedButton(
             onClick = {
-                scope.launch(Dispatchers.Default) {
+                scope.launch(dispatchers.default) {
                     val snapshot = Diagnostics.engineCacheSnapshot()
-                    withContext(Dispatchers.Main) { engineCache = snapshot }
+                    withContext(dispatchers.main) { engineCache = snapshot }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -132,7 +132,7 @@ fun DiagnosticsScreen() {
         // --- logcat snapshot ---
         SectionHeading(stringResource(R.string.screen_diag_logcat_heading))
         Button(onClick = {
-            scope.launch { val l = withContext(Dispatchers.IO) { Diagnostics.captureLogcat() }; log = l }
+            scope.launch { val l = withContext(dispatchers.io) { Diagnostics.captureLogcat() }; log = l }
         }, modifier = Modifier.fillMaxWidth()) {
             val labelRes =
                 if (log == null) R.string.screen_diag_capture_logcat
@@ -145,7 +145,7 @@ fun DiagnosticsScreen() {
         Button(
             onClick = {
                 scope.launch {
-                    val report = withContext(Dispatchers.IO) { Diagnostics.buildReport(ctx) }
+                    val report = withContext(dispatchers.io) { Diagnostics.buildReport(ctx) }
                     Diagnostics.share(ctx, report)
                 }
             },
