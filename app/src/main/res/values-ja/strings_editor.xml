@@ -296,6 +296,11 @@
     <string name="editor_wb_temperature_tooltip">カスタムのホワイトバランスの色温度（ケルビン、1000 K〜12000 K）。</string>
     <string name="editor_wb_tint_multiplier">色かぶり係数</string>
     <string name="editor_wb_tint_multiplier_tooltip">カスタムのホワイトバランスのグリーン/マゼンタ係数（1.0 = ニュートラル）。</string>
+    <string name="editor_raw_cleanup_heading">RAWクリーンアップ</string>
+    <string name="editor_raw_hot_pixels">ホットピクセル除去</string>
+    <string name="editor_raw_hot_pixels_tooltip">デモザイク前に、孤立したスタックピクセルやホットピクセルを周囲の値で置き換えます。本物のハイライトはそのまま残します。</string>
+    <string name="editor_raw_chroma_noise">カラーノイズ低減</string>
+    <string name="editor_raw_chroma_noise_tooltip">シャドウや高感度撮影の色むらを滑らかにします。明るさと細部は保ち、色だけを和らげます。</string>
     <string name="editor_sim_title">シミュレーション</string>
     <string name="editor_sim_tab_film">フィルム</string>
     <string name="editor_sim_tab_print">プリント</string>
