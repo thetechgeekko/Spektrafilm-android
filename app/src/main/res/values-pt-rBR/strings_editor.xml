@@ -10,9 +10,9 @@
     <string name="editor_stage_film_hint">O negativo: exposição, balanço de branco, grão, halação</string>
     <string name="editor_stage_print">Cópia</string>
     <string name="editor_stage_print_hint">O ampliador e o papel</string>
-    <string name="editor_stage_scan">Digitalização</string>
+    <string name="editor_stage_scan">Scan</string>
     <string name="editor_stage_scan_hint">Trazer a cópia de volta para um arquivo</string>
-    <string name="editor_stage_finish">Acabamento</string>
+    <string name="editor_stage_finish">Retoque</string>
     <string name="editor_stage_finish_hint">O tratamento após a digitalização, máscaras e exibição</string>
     <string name="editor_category_modified">Alterado</string>
     <string name="editor_category_source">Origem</string>
