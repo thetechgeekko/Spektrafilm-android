@@ -73,7 +73,7 @@ ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
 # JVM unit tests (plus the androidTest instrumentation the android-emulator CI job runs)
 ./gradlew :app:testDebugUnitTest
 
-# Lint (abortOnError = true; baseline at app/lint-baseline.xml)
+# Lint (abortOnError = true; no baseline since #298 -- fix findings, don't baseline them)
 ./gradlew :app:lint
 ```
 

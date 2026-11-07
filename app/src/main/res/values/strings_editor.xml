@@ -356,6 +356,11 @@
     <string name="editor_wb_temperature_tooltip">Colour temperature in Kelvin for Custom white balance (1000 K – 12000 K).</string>
     <string name="editor_wb_tint_multiplier">Tint multiplier</string>
     <string name="editor_wb_tint_multiplier_tooltip">Green/magenta tint multiplier for Custom white balance (1.0 = neutral).</string>
+    <string name="editor_raw_cleanup_heading">RAW clean-up</string>
+    <string name="editor_raw_hot_pixels">Hot pixel removal</string>
+    <string name="editor_raw_hot_pixels_tooltip">Replaces isolated stuck or hot photosites with their neighbours before demosaicing. Leaves real highlights alone.</string>
+    <string name="editor_raw_chroma_noise">Chroma noise reduction</string>
+    <string name="editor_raw_chroma_noise_tooltip">Smooths colour blotches in shadows and high-ISO shots. Brightness and fine detail are kept; only colour is softened.</string>
 
     <!-- Simulation section (Film / Print / Scanner / Output tabs) -->
     <string name="editor_sim_title">Simulation</string>

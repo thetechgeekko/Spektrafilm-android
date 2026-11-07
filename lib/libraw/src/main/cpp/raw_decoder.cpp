@@ -23,6 +23,7 @@
 #include "fd_read_all.h"
 #include "raw_input_snapshot.h"
 #include "raw_decode_budget.h"
+#include "raw_cleanup.h"
 
 #include <algorithm>
 #include <array>
@@ -1388,7 +1389,8 @@ void selectRawStoreLimit(LibRaw& raw, const DecodeOptions& options,
                          uint64_t pixelLimit) {
     if (declaredDecodeDimensionsExceedLimit(raw.imgdata.sizes, pixelLimit) &&
         largeBayerHalfAllowed(raw, options, pixelLimit, false))
-        raw.imgdata.rawparams.max_raw_memory_mb = kLargeBayerRawStoreMiB;
+        raw.imgdata.rawparams.max_raw_memory_mb =
+            std::max(kMaxRawMemoryMb, largeBayerRawStoreMiB(pixelLimit));
 }
 
 DecodeResult dimensionLimitFailure(uint64_t pixelLimit) {
@@ -2459,6 +2461,28 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
         return precisionMetadataFailure(precisionFailure);
     }
     applyParityParams(raw, options);
+    if (options.hotPixelCorrection) {
+        auto& rawData = raw.imgdata.rawdata;
+        const auto& sizes = raw.imgdata.sizes;
+        const auto& color = raw.imgdata.color;
+        const unsigned filters = raw.imgdata.idata.filters;
+        if (rawData.raw_image != nullptr && filters > 1000U &&
+            filters != UINT32_MAX && sizes.raw_pitch >= 2U) {
+            unsigned channelBlack = color.cblack[0];
+            for (int c = 1; c < 4; ++c) {
+                channelBlack = std::min(channelBlack, color.cblack[c]);
+            }
+            const long fixed = cleanup::correctHotPixelsBayer(
+                rawData.raw_image, sizes.raw_width, sizes.raw_height,
+                sizes.raw_pitch / 2U, color.black + channelBlack, color.maximum,
+                options.cancelFlag);
+            if (fixed < 0) return cancellationFailure();
+#ifdef __ANDROID__
+            __android_log_print(ANDROID_LOG_INFO, "sfraw",
+                                "hot pixels corrected=%ld", fixed);
+#endif
+        }
+    }
     if (cancellationRequested(options)) return cancellationFailure();
     phaseMs();  // param setup is not decode work — keep it out of `process`
     rc = raw.dcraw_process();
@@ -2605,6 +2629,12 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     }
     mColour = phaseMs();
     if (cancellationRequested(options)) return cancellationFailure();
+    if (options.chromaNoiseReduction > 0.0f &&
+        !cleanup::reduceChromaNoise(result.rgb.data(), ow, oh,
+                                    options.chromaNoiseReduction,
+                                    options.cancelFlag)) {
+        return cancellationFailure();
+    }
 
 #ifdef __ANDROID__
     __android_log_print(ANDROID_LOG_INFO, "sfraw",

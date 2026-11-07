@@ -183,6 +183,10 @@ internal object ExportWorkRuntime {
         mutableState.value = ExportRuntimeState.Running(runId, format, sourceIdentity)
         ExportForegroundService.start(appContext, runId, startedAtMillis)
         val job = scope.launch {
+            // GPU buffers grown by earlier previews or a previous export would otherwise
+            // still hold budget the full-res render needs (#258: ~470 MB of 512 MB). No-op
+            // without a GPU context or while a preview frame holds the context.
+            releaseGpuAfterFullResRender("before export")
             val outcome = try {
                 work()
             } catch (_: CancellationException) {

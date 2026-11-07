@@ -25,3 +25,55 @@ internal fun releaseGpuAfterFullResRender(reason: String) {
         .onSuccess { released -> if (released) Diag.i("gpu resources released after $reason") }
         .onFailure { Diag.w("gpu resource release after $reason failed: ${it.message}") }
 }
+
+/** True for the failures a reclaim can plausibly cure: budget denial or a native/ART OOM. */
+internal fun isMemoryExhaustion(failure: Throwable): Boolean =
+    failure is OutOfMemoryError ||
+        (failure is RuntimeException &&
+            failure.message?.contains("native allocation failed") == true)
+
+/** Engine budget snapshot for a failure log; never throws. */
+internal fun memoryBudgetSnapshotForLog(): String =
+    runCatching { SpektraEngine.memoryBudgetSnapshotJson() }.getOrElse { "unavailable (${it.message})" }
+
+/**
+ * Run a full-resolution render, and if it runs out of memory, reclaim once and retry once
+ * (#269).
+ *
+ * #258's export failed with ~470 MB of GPU host memory still reserved from earlier renders and
+ * ~40 MB left for the CPU fallback. [reclaim] (by default: release the GPU context's buffers,
+ * which is output-neutral, then ask ART to collect) gives that memory back before the single
+ * retry. A second failure is thrown with the first attached as suppressed, and both are
+ * logged with the engine's budget snapshot so a report carries it without a diagnostics dump.
+ * Cancellation is never retried.
+ */
+internal suspend fun <T> retryOnceAfterMemoryReclaim(
+    reason: String,
+    reclaim: () -> Unit = {
+        releaseGpuAfterFullResRender("$reason out of memory")
+        Runtime.getRuntime().gc()
+    },
+    log: (String) -> Unit = { Diag.w(it) },
+    snapshot: () -> String = ::memoryBudgetSnapshotForLog,
+    block: suspend () -> T,
+): T {
+    val first = try {
+        return block()
+    } catch (failure: Throwable) {
+        if (failure is kotlinx.coroutines.CancellationException || !isMemoryExhaustion(failure)) {
+            throw failure
+        }
+        failure
+    }
+    log("$reason ran out of memory (${first.message}); reclaiming and retrying once; budget=${snapshot()}")
+    reclaim()
+    return try {
+        block()
+    } catch (second: Throwable) {
+        if (second !== first) second.addSuppressed(first)
+        if (isMemoryExhaustion(second)) {
+            log("$reason retry also ran out of memory (${second.message}); budget=${snapshot()}")
+        }
+        throw second
+    }
+}

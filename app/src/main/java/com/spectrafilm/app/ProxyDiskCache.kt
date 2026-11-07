@@ -195,6 +195,11 @@ internal object ProxyDiskCache {
             append("film=").append(request.filmBalance).append('\n')
             append("rot=").append(request.rotationDegrees).append('\n')
             append("edge=").append(request.maxEdge).append('\n')
+            // #259 clean-up lines only when on: every pre-#259 proxy keeps its key.
+            if (request.hotPixels) append("hot=1").append('\n')
+            if (request.chromaNoise > 0f) {
+                append("cnr=").append(request.chromaNoise.toRawBits()).append('\n')
+            }
         }
         val hash = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
         return hash.toHex()

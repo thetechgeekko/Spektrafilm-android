@@ -287,6 +287,11 @@
     <string name="editor_wb_temperature_tooltip">自定义白平衡的开尔文色温（1000 K – 12000 K）。</string>
     <string name="editor_wb_tint_multiplier">色调倍数</string>
     <string name="editor_wb_tint_multiplier_tooltip">自定义白平衡的绿/品红色调倍数（1.0 = 中性）。</string>
+    <string name="editor_raw_cleanup_heading">RAW 清理</string>
+    <string name="editor_raw_hot_pixels">去除热像素</string>
+    <string name="editor_raw_hot_pixels_tooltip">在去马赛克之前，用相邻像素替换孤立的坏点或热像素。真实的高光不受影响。</string>
+    <string name="editor_raw_chroma_noise">色彩降噪</string>
+    <string name="editor_raw_chroma_noise_tooltip">平滑暗部和高 ISO 照片中的色斑。保留亮度和细节，只柔化颜色。</string>
     <string name="editor_sim_title">模拟</string>
     <string name="editor_sim_tab_film">胶片</string>
     <string name="editor_sim_tab_print">冲印</string>

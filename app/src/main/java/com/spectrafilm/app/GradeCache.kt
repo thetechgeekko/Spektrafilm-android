@@ -107,6 +107,8 @@ internal class GradeCache(
         val filmBalance: String,
         val rotationDegrees: Int,
         val maxEdge: Int,
+        val hotPixels: Boolean = false,
+        val chromaNoise: Float = 0f,
     )
 
     /**

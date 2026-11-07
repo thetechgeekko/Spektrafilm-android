@@ -220,6 +220,10 @@ internal class DecodedSourceCache(
         val filmBalance: String,
         val rotationDegrees: Int,
         val maxEdge: Int,
+        // Opt-in RAW clean-up (#259) is applied inside the native decode, so it is part of
+        // the decoded bytes and of the key. Defaults keep pre-#259 keys identical.
+        val hotPixels: Boolean = false,
+        val chromaNoise: Float = 0f,
     )
 
     /** Publication authority for one immutable logical decode request. */

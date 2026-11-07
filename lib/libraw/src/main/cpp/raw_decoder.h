@@ -65,11 +65,20 @@ struct DecodeOptions {
     //     accordingly; `dcraw_make_mem_image` reports the post-process dimensions).
     //
     // The processed-image limit remains 8/12/24/32 MiPixels according to
-    // device RAM. On the 32 MiPixel device tier, a qualified single-plane
-    // Bayer half-size decode may admit up to 128 MiPixels of sensor geometry;
-    // its unpacked RAW store remains bounded separately. Other layouts retain
+    // device RAM. On every 64-bit tier (12/24/32), a qualified single-plane
+    // Bayer half-size decode may admit sensor geometry up to 4x that limit
+    // (48/96/128 MiPixels, #268); its unpacked RAW store remains bounded
+    // separately (160/256/320 MiB). Other layouts retain
     // the ordinary geometry limit. Default false requests full resolution.
     bool halfSize = false;
+
+    // Opt-in clean-up (#259), both off by default and byte-neutral when off.
+    // hotPixelCorrection: replace isolated stuck photosites in a 2x2 Bayer mosaic
+    // before demosaic (other layouts are left untouched).
+    // chromaNoiseReduction: 0..100, low-pass only the colour of the final image,
+    // never its luminance; the radius is a fraction of the output's long edge.
+    bool hotPixelCorrection = false;
+    float chromaNoiseReduction = 0.0f;
 
     // Hard cap on the output's longest edge (pixels). 0 = no cap. When > 0 and the
     // decoded image's longest edge exceeds it, the result is box-downsampled (integer

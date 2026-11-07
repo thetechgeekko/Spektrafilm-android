@@ -237,6 +237,28 @@ internal fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () 
                     default = PARAM_DEFAULTS.rawTint,
                 )
             }
+
+            // #259: opt-in clean-up inside the RAW decode. Both default off/0, which
+            // decodes byte-identically to a build without them.
+            Divider()
+            Text(
+                stringResource(R.string.editor_raw_cleanup_heading),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.semantics { heading() },
+            )
+            SwitchRow(
+                stringResource(R.string.editor_raw_hot_pixels),
+                s.rawHotPixels,
+                { s.rawHotPixels = it },
+                stringResource(R.string.editor_raw_hot_pixels_tooltip),
+            )
+            EnhancedSlider(
+                stringResource(R.string.editor_raw_chroma_noise), s.rawChromaNoise, 0f..100f,
+                { s.rawChromaNoise = it },
+                step = 1f, decimals = 0,
+                tooltip = stringResource(R.string.editor_raw_chroma_noise_tooltip),
+                default = 0f,
+            )
         }
     }
 }

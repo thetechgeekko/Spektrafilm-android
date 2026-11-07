@@ -738,7 +738,14 @@ internal fun MainActivity.EditorScreen(
                     is ExportTerminalOutcome.Failure -> {
                         Diag.w(
                             "export format=${outcome.format.name} failed after " +
-                                "${outcome.elapsedMs}ms: ${outcome.cause.message}",
+                                "${outcome.elapsedMs}ms: ${outcome.cause.message}" +
+                                // #269: a memory failure report should carry the budget
+                                // state without the user having to export diagnostics.
+                                if (isMemoryExhaustion(outcome.cause)) {
+                                    " budget=${memoryBudgetSnapshotForLog()}"
+                                } else {
+                                    ""
+                                },
                         )
                         if (outcome.cause is ExportReconciliationPendingException) {
                             exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
@@ -1544,6 +1551,8 @@ internal fun MainActivity.EditorScreen(
             creativeTint = state.creativeWbTint,
             balanceToFilmStock = state.balanceToFilmStock,
             filmProfile = state.filmProfile,
+            rawHotPixels = state.rawHotPixels,
+            rawChromaNoise = state.rawChromaNoise,
         )
     }
 
@@ -1573,6 +1582,8 @@ internal fun MainActivity.EditorScreen(
                 filmBalance = filmBalance,
                 rotationDegrees = decode.rotation.degrees,
                 maxEdge = maxEdge,
+                hotPixels = decode.rawHotPixels,
+                chromaNoise = decode.rawChromaNoise,
             )
             // Begin publication authority in the same main-thread turn as the snapshot. An
             // older caller cannot resume later and reorder itself ahead of a newer UI state.
@@ -2004,6 +2015,7 @@ internal fun MainActivity.EditorScreen(
                 tint = state.rawTint, creativeTemp = state.creativeWbTemp,
                 creativeTint = state.creativeWbTint, filmBalance = filmBalance,
                 rotationDegrees = rotation.degrees, maxEdge = fullEdge,
+                hotPixels = state.rawHotPixels, chromaNoise = state.rawChromaNoise,
             ),
         )
     }
@@ -2478,6 +2490,7 @@ internal fun MainActivity.EditorScreen(
     // add a post-engine control you must add it to ALL THREE effects below.
     LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) { previewTick++ }
@@ -2597,6 +2610,7 @@ internal fun MainActivity.EditorScreen(
     LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
         recipeAccess,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
@@ -2682,6 +2696,7 @@ internal fun MainActivity.EditorScreen(
     // undid more than the user did.
     LaunchedEffect(snapshot, recipeKey, recipeReady, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
+        state.rawHotPixels, state.rawChromaNoise,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
@@ -4123,18 +4138,21 @@ internal fun MainActivity.EditorScreen(
                                         // decode is still open (SceneHighlightTap). Null otherwise.
                                         var sceneTap: SceneLuma? = null
                                         val res = restored ?: try {
-                                            runCancellableNative(
-                                                onLateResult = { late ->
-                                                    late.reportOutcome(AppRenderOutcome.CANCELLED)
-                                                    late.close()
-                                                },
-                                            ) { cancellation ->
-                                                e.simulate(
-                                                    requireNotNull(image) { "render needs a decode" },
-                                                    exportParams,
-                                                    RenderKind.EXPORT,
-                                                    cancellation,
-                                                )
+                                            // #269: one reclaim-and-retry on memory exhaustion.
+                                            retryOnceAfterMemoryReclaim("export render") {
+                                                runCancellableNative(
+                                                    onLateResult = { late ->
+                                                        late.reportOutcome(AppRenderOutcome.CANCELLED)
+                                                        late.close()
+                                                    },
+                                                ) { cancellation ->
+                                                    e.simulate(
+                                                        requireNotNull(image) { "render needs a decode" },
+                                                        exportParams,
+                                                        RenderKind.EXPORT,
+                                                        cancellation,
+                                                    )
+                                                }
                                             }.also { rendered ->
                                                 renderId = rendered.renderId
                                                 sceneTap = image?.let { source ->

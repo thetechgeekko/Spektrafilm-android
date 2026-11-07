@@ -65,6 +65,22 @@ class ProxyDiskCacheTest {
     }
 
     @Test
+    fun rawCleanupChangesTheKeyOnlyWhenOn() {
+        val base = ProxyDiskCache.cacheKey(request(), source, app)
+        // Off is the default spelling: a pre-#259 proxy keeps its key and stays valid.
+        assertEquals(
+            base,
+            ProxyDiskCache.cacheKey(request().copy(hotPixels = false, chromaNoise = 0f), source, app),
+        )
+        val hot = ProxyDiskCache.cacheKey(request().copy(hotPixels = true), source, app)
+        val cnr = ProxyDiskCache.cacheKey(request().copy(chromaNoise = 40f), source, app)
+        assertNotEquals(base, hot)
+        assertNotEquals(base, cnr)
+        assertNotEquals(hot, cnr)
+        assertNotEquals(cnr, ProxyDiskCache.cacheKey(request().copy(chromaNoise = 41f), source, app))
+    }
+
+    @Test
     fun headerRoundTripsAndPayloadSizeFollowsDimensions() {
         val header = ProxyHeader(640, 480, "ACES2065-1", usedPlatformFallback = true)
         val decoded = ProxyHeader.decode(header.encode())

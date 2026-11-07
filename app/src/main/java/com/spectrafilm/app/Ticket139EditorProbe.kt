@@ -108,6 +108,8 @@ internal object Ticket139EditorProbe {
         "raw.whiteBalance",
         "raw.temperature",
         "raw.tint",
+        "raw.hotPixels",
+        "raw.chromaNoise",
         "creativeWb.temp",
         "creativeWb.tint",
         "creativeWb.balanceToFilmStock",
@@ -276,6 +278,8 @@ internal object Ticket139EditorProbe {
         "raw.whiteBalance" to text("CUSTOM"),
         "raw.temperature" to number("4875"),
         "raw.tint" to number("0.92"),
+        "raw.hotPixels" to flag(true),
+        "raw.chromaNoise" to number("12"),
         "creativeWb.temp" to number("7"),
         "creativeWb.tint" to number("-4"),
         "creativeWb.balanceToFilmStock" to flag(true),
@@ -1539,6 +1543,8 @@ internal object Ticket139EditorProbe {
         rawWhiteBalance = WhiteBalance.CUSTOM
         rawTemperature = 4_875f
         rawTint = 0.92f
+        rawHotPixels = true
+        rawChromaNoise = 12f
         creativeWbTemp = 7f
         creativeWbTint = -4f
         balanceToFilmStock = true

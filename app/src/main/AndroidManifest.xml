@@ -46,6 +46,7 @@
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
         android:fullBackupContent="@xml/backup_rules"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"

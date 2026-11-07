@@ -16,6 +16,10 @@ class AppMemoryBudgetTest {
         assertEquals(DeviceMemoryTier.LARGE, deviceMemoryPolicy(6L * GIB + 1L).tier)
         assertEquals(DeviceMemoryTier.LARGE, deviceMemoryPolicy(8L * GIB).tier)
         assertEquals(DeviceMemoryTier.XLARGE, deviceMemoryPolicy(8L * GIB + 1L).tier)
+        assertEquals(DeviceMemoryTier.XLARGE, deviceMemoryPolicy(10L * GIB).tier)
+        // A "12 GB" phone reports ~11.2 GiB of totalMem (#264).
+        assertEquals(DeviceMemoryTier.XXLARGE, deviceMemoryPolicy(11L * GIB + GIB / 5L).tier)
+        assertEquals(DeviceMemoryTier.XXLARGE, deviceMemoryPolicy(16L * GIB).tier)
     }
 
     @Test

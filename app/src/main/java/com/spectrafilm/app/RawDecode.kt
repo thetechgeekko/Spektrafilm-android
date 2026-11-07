@@ -46,9 +46,14 @@ fun decodeRawToLinear(
     maxEdge: Int = MAX_EDGE_PX,
     cancellation: RawDecodeCancellation? = null,
     memoryDegraded: AtomicBoolean? = null,
+    hotPixels: Boolean = false,
+    chromaNoise: Float = 0f,
 ): LinearImage {
     return decodeRawWithMemoryFallback(maxEdge, memoryDegraded) { edge, halfSize ->
-        decodeRawAtEdge(ctx, uri, wb, temperatureK, tint, edge, halfSize, cancellation)
+        decodeRawAtEdge(
+            ctx, uri, wb, temperatureK, tint, edge, halfSize, cancellation,
+            hotPixels, chromaNoise,
+        )
     }
 }
 
@@ -161,6 +166,8 @@ private fun decodeRawAtEdge(
     maxEdge: Int,
     halfSize: Boolean,
     cancellation: RawDecodeCancellation?,
+    hotPixels: Boolean,
+    chromaNoise: Float,
 ): LinearImage {
     val settings = RawDecoder.Settings(
         whiteBalance = wb, temperatureK = temperatureK, tint = tint, halfSize = halfSize,
@@ -170,6 +177,8 @@ private fun decodeRawAtEdge(
         // this cap the native decoder downsamples before returning, so the allocation is
         // bounded by maxEdge regardless of half_size.
         maxLongEdge = maxEdge,
+        hotPixelCorrection = hotPixels,
+        chromaNoiseReduction = chromaNoise,
     )
     // Decode straight from the file descriptor: LibRaw reads through the fd, so we never
     // copy the whole RAW file into a single contiguous Java byte[] first. That byte[]

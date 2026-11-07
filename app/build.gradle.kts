@@ -127,7 +127,9 @@ android {
         // A translation may trail English by a release: a missing string falls back to
         // English at runtime, which is fine. TranslationKeysTest still blocks stale keys.
         warning += "MissingTranslation"
-        baseline = file("lint-baseline.xml")
+        // No baseline (#298): every entry the old one held had gone stale (AGP 8.7.3,
+        // targetSdk 34, a 2024 Compose BOM), so it suppressed nothing current. New
+        // findings now surface instead of being able to hide behind a baseline match.
         abortOnError = true
         checkReleaseBuilds = true
     }

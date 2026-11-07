@@ -228,9 +228,10 @@ object RawDecoder {
      *   `dcraw_make_mem_image` reports the post-process dimensions, so the returned
      *   `width * height * 3 == rgb.size()` invariant is always satisfied.
      *
-     * The pre-unpack safety ceiling remains **12 MiPixels on 64-bit** and
-     * **8 MiPixels on 32-bit**, even when this flag is true; some linear/non-Bayer
-     * formats ignore LibRaw's half-size request. Tiled high-MP decode is tracked by
+     * The pre-unpack output ceiling is **8 MiPixels on 32-bit** and 12/24/32 MiPixels
+     * on 64-bit by device RAM. On 64-bit, a three-colour Bayer source up to 4x that
+     * ceiling is admitted when this flag is true (#268); linear/non-Bayer formats,
+     * which can ignore LibRaw's half-size request, keep the plain ceiling. Tiled high-MP decode is tracked by
      * ticket #173. **Default `false`** requests full-resolution output within the cap.
      */
     data class Settings(
@@ -246,6 +247,10 @@ object RawDecoder {
          * dimensions (some DNGs ignore LibRaw's half_size and decode full-resolution).
          */
         val maxLongEdge: Int = 0,
+        /** Replace isolated hot photosites on the Bayer mosaic before demosaic (#259). */
+        val hotPixelCorrection: Boolean = false,
+        /** Luminance-preserving chroma low-pass strength, 0..100; 0 disables (#259). */
+        val chromaNoiseReduction: Float = 0f,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -289,6 +294,7 @@ object RawDecoder {
         return nativeDecodeBytes(
             bytes, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION,
         ).toLinear()
     }
@@ -307,6 +313,7 @@ object RawDecoder {
             direct, direct.remaining(),
             settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION,
         ).toLinear()
     }
@@ -323,6 +330,7 @@ object RawDecoder {
     ): LinearResult = nativeDecodeFd(
         fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
         settings.halfSize, settings.maxLongEdge,
+        settings.hotPixelCorrection, settings.chromaNoiseReduction,
         cancellation?.tokenForDecode() ?: NO_CANCELLATION, -1,
     ).toLinear()
 
@@ -341,6 +349,7 @@ object RawDecoder {
         fun decode(scratchFd: Int) = nativeDecodeFd(
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
+            settings.hotPixelCorrection, settings.chromaNoiseReduction,
             cancellation?.tokenForDecode() ?: NO_CANCELLATION, scratchFd,
         ).toLinear()
         cancellation?.throwIfCancellationRequested()
@@ -481,17 +490,20 @@ object RawDecoder {
     // --- native bridge (raw_decoder_jni.cpp) ---
     private external fun nativeDecodeBytes(
         bytes: ByteArray, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long,
     ): NativeResult
 
     private external fun nativeDecodeBuffer(
         buffer: ByteBuffer, len: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long,
     ): NativeResult
 
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
-        halfSize: Boolean, maxLongEdge: Int, cancellationToken: Long, scratchFd: Int,
+        halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
+        cancellationToken: Long, scratchFd: Int,
     ): NativeResult
 
     /** Release an exact token/base/capacity match from the native registry. */

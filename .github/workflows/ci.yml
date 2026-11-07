@@ -904,7 +904,7 @@ jobs:
             --stacktrace
 
       - name: Lint (:app:lint)
-        # Android lint with abortOnError=true (baseline at app/lint-baseline.xml):
+        # Android lint with abortOnError=true (no baseline since #298):
         # fails the job on any lint error. This gates correctness/NewApi issues such
         # as the unguarded API-28 getLongVersionCode call that previously slipped
         # through because lint ran only locally, never in PR CI. No flags are passed

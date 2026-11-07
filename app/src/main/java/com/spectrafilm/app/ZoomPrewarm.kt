@@ -28,7 +28,7 @@ internal object ZoomPrewarm {
     fun eligible(physicalBytes: Long, lowRamDevice: Boolean): Boolean {
         if (lowRamDevice) return false
         return when (deviceMemoryPolicy(physicalBytes).tier) {
-            DeviceMemoryTier.LARGE, DeviceMemoryTier.XLARGE -> true
+            DeviceMemoryTier.LARGE, DeviceMemoryTier.XLARGE, DeviceMemoryTier.XXLARGE -> true
             DeviceMemoryTier.COMPACT, DeviceMemoryTier.STANDARD -> false
         }
     }

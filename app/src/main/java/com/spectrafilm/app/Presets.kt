@@ -460,6 +460,8 @@ object Presets {
             put("whiteBalance", s.rawWhiteBalance.name)
             put("temperature", s.rawTemperature.toDouble())
             put("tint", s.rawTint.toDouble())
+            put("hotPixels", s.rawHotPixels)
+            put("chromaNoise", s.rawChromaNoise.toDouble())
         })
 
         put("creativeWb", JSONObject().apply {
@@ -688,6 +690,8 @@ object Presets {
             s.rawWhiteBalance = enumOf(r.optString("whiteBalance"), WhiteBalance.entries, s.rawWhiteBalance)
             s.rawTemperature = r.f("temperature", s.rawTemperature)
             s.rawTint = r.f("tint", s.rawTint)
+            s.rawHotPixels = r.optBoolean("hotPixels", s.rawHotPixels)
+            s.rawChromaNoise = r.f("chromaNoise", s.rawChromaNoise).coerceIn(0f, 100f)
         }
 
         o.optJSONObject("creativeWb")?.let { c ->

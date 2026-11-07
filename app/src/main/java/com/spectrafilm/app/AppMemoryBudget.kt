@@ -15,6 +15,14 @@ internal enum class DeviceMemoryTier(val budgetBytes: Long) {
     STANDARD(768L * MIB),
     LARGE(1_024L * MIB),
     XLARGE(1_536L * MIB),
+
+    /**
+     * 12 GB and larger phones (#264: a 12 GB Snapdragon 8 Elite still failed export with
+     * "native allocation failed"). A 12.5 MP full-res export was measured peaking at 1521 of
+     * the 1536 MiB XLARGE ceiling on SM-S948W (#269), so XLARGE leaves no headroom at all for
+     * heavier looks. 2 GiB is still under a fifth of physical RAM at this tier.
+     */
+    XXLARGE(2_048L * MIB),
 }
 
 internal data class DeviceMemoryPolicy(
@@ -35,7 +43,10 @@ internal fun deviceMemoryPolicy(physicalBytes: Long): DeviceMemoryPolicy {
         physicalBytes <= 4L * GIB -> DeviceMemoryTier.COMPACT
         physicalBytes <= 6L * GIB -> DeviceMemoryTier.STANDARD
         physicalBytes <= 8L * GIB -> DeviceMemoryTier.LARGE
-        else -> DeviceMemoryTier.XLARGE
+        // "12 GB" phones report ~11.2 GiB of totalMem and "10 GB" ones ~9.3 GiB, so the
+        // boundary sits between them.
+        physicalBytes <= 10L * GIB -> DeviceMemoryTier.XLARGE
+        else -> DeviceMemoryTier.XXLARGE
     }
     return DeviceMemoryPolicy(tier, physicalBytes.coerceAtLeast(0L))
 }

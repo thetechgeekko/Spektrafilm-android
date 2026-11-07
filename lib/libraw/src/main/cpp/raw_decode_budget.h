@@ -32,11 +32,18 @@ constexpr std::uint64_t decodePixelLimitForMemory(
     return 12ULL * kMiB;
 }
 
-// A half-size Bayer image still needs its full single-plane unpacked store.
-// The 320 MiB LibRaw raw-store ceiling covers at most 128 MiPixels at two
-// bytes/sample, with room for loader metadata and aligned margins. It is only
-// selected for the 32 MiPixel, 64-bit device class.
-constexpr unsigned kLargeBayerRawStoreMiB = 320U;
+// A half-size Bayer image still needs its full single-plane unpacked store:
+// at most 4x the output ceiling, at two bytes/sample, plus 64 MiB for loader
+// metadata and aligned margins. 32 MiPixels -> 320 MiB (128 MiPixel source),
+// 24 -> 256 MiB (96), 12 -> 160 MiB (48). Only the 64-bit tiers qualify.
+constexpr unsigned largeBayerRawStoreMiB(std::uint64_t outputLimit) noexcept {
+    constexpr std::uint64_t kMi = 1024ULL * 1024ULL;
+    return static_cast<unsigned>((outputLimit * 4U * 2U) / kMi + 64U);
+}
+constexpr unsigned kLargeBayerRawStoreMiB =
+    largeBayerRawStoreMiB(32ULL * 1024ULL * 1024ULL);
+static_assert(kLargeBayerRawStoreMiB == 320U,
+              "the 32 MiPixel tier's raw store is unchanged");
 
 struct DecodeGeometry {
     std::uint64_t rawWidth, rawHeight, width, height;
@@ -54,7 +61,12 @@ inline bool qualifiedLargeBayerHalfGeometry(
         bool halfSize, unsigned filters, unsigned colors,
         unsigned fujiWidth, bool singleRawPlane) noexcept {
     constexpr std::uint64_t kMi = 1024ULL * 1024ULL;
-    if (!halfSize || outputLimit != 32ULL * kMi ||
+    // Every 64-bit tier (12/24/32 MiPixels) may half-size a Bayer source of up
+    // to four times its output ceiling. #268: a 16 MP NEF on a 3.6 GB phone
+    // (12 MiPixel tier) was refused even for a 1024 px preview, because only
+    // the 32 MiPixel tier qualified. 32-bit (8 MiPixels) stays excluded.
+    if (!halfSize || outputLimit < 12ULL * kMi ||
+        outputLimit > 32ULL * kMi ||
         filters < 1000U || filters == UINT32_MAX || colors != 3U ||
         fujiWidth != 0U || !singleRawPlane ||
         !g.rawWidth || !g.rawHeight || !g.width || !g.height ||
