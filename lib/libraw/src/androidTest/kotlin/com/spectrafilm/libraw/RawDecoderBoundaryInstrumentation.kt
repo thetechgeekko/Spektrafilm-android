@@ -3,6 +3,9 @@ package com.spectrafilm.libraw
 import android.app.Activity
 import android.app.Instrumentation
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import java.io.File
+import java.io.RandomAccessFile
 import java.lang.reflect.InvocationTargetException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -29,7 +32,10 @@ class RawDecoderBoundaryInstrumentation : Instrumentation() {
             preCancelledDecodeReturnsTypedCancellation()
             closeDefersRealNativeReleaseUntilDataLeaseReturns()
             concurrentCloseAndDecodeCleanupAreSafe()
-            evidence.putString("stream", "OK (8 tests)")
+            largeFileSnapshotMatchesBufferDecode()
+            failedFileSnapshotLeavesNoCacheFile()
+            cancelledFileSnapshotLeavesNoCacheFile()
+            evidence.putString("stream", "OK (11 tests)")
             finish(Activity.RESULT_OK, evidence)
         } catch (failure: Throwable) {
             evidence.putString(
@@ -59,6 +65,87 @@ class RawDecoderBoundaryInstrumentation : Instrumentation() {
         }
         check(input.position() == 4)
         check(input.limit() == 4 + dng.size)
+    }
+
+    private fun snapshotNames(): Set<String> =
+        context.cacheDir.listFiles().orEmpty().filter { it.name.startsWith("sfraw-input-") }
+            .map { it.name }.toSet()
+
+    private fun largeFileSnapshotMatchesBufferDecode() {
+        val dng = validUncompressedDng(64, 64)
+        var reference = ByteArray(0)
+        RawDecoder.decodeToLinear(dng).use { result ->
+            result.withDataLease { pixels -> reference = ByteArray(pixels.remaining()).also { pixels.get(it) } }
+        }
+        val before = snapshotNames()
+        val file = File.createTempFile("large-raw-test-", ".dng", context.cacheDir)
+        try {
+            val relocated = dng.copyOf()
+            val tiff = ByteBuffer.wrap(relocated).order(ByteOrder.LITTLE_ENDIAN)
+            val ifd = tiff.getInt(4)
+            val entries = tiff.getShort(ifd).toInt() and 0xffff
+            val stripField = (0 until entries).map { ifd + 2 + it * 12 }
+                .first { (tiff.getShort(it).toInt() and 0xffff) == 0x111 } + 8
+            val originalStrip = tiff.getInt(stripField)
+            val relocatedStrip = 64 * 1024 * 1024 + 4096
+            tiff.putInt(stripField, relocatedStrip)
+            RandomAccessFile(file, "rw").use { input ->
+                input.write(relocated)
+                input.seek(relocatedStrip.toLong())
+                input.write(dng, originalStrip, dng.size - originalStrip)
+            }
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                if (!android.os.Process.is64Bit()) {
+                    val failure = runCatching {
+                        RawDecoder.decodeToLinear(descriptor.fd, scratchDirectory = context.cacheDir).close()
+                    }.exceptionOrNull()
+                    check(failure is RawDecodeException && failure.status == DecodeStatus.INPUT)
+                    check(snapshotNames() == before)
+                    return
+                }
+                RawDecoder.decodeToLinear(descriptor.fd, scratchDirectory = context.cacheDir).use { result ->
+                    var actual = ByteArray(0)
+                    result.withDataLease { pixels ->
+                        actual = ByteArray(pixels.remaining()).also { pixels.get(it) }
+                    }
+                    check(reference.contentEquals(actual)) { "large FD decode differs from buffer reference" }
+                    check(descriptor.fileDescriptor.valid()) { "caller FD was closed" }
+                }
+            }
+            check(snapshotNames() == before) { "successful decode retained a snapshot" }
+        } finally {
+            check(file.delete()) { "could not remove large input test fixture" }
+        }
+    }
+
+    private fun failedFileSnapshotLeavesNoCacheFile() {
+        val before = snapshotNames()
+        val file = File.createTempFile("invalid-raw-test-", ".dng", context.cacheDir)
+        try {
+            file.writeBytes(byteArrayOf(0, 1, 2, 3))
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                val failure = runCatching {
+                    RawDecoder.decodeToLinear(descriptor.fd, scratchDirectory = context.cacheDir).close()
+                }.exceptionOrNull()
+                check(failure is RawDecodeException)
+                check(descriptor.fileDescriptor.valid())
+            }
+            check(snapshotNames() == before) { "failed decode retained a snapshot" }
+        } finally {
+            check(file.delete())
+        }
+    }
+
+    private fun cancelledFileSnapshotLeavesNoCacheFile() {
+        val before = snapshotNames()
+        RawDecoder.newCancellation().use { cancellation ->
+            cancellation.cancel()
+            val failure = runCatching {
+                RawDecoder.decodeToLinear(-1, cancellation = cancellation, scratchDirectory = context.cacheDir)
+            }.exceptionOrNull()
+            check(failure is RawDecodeException && failure.status == DecodeStatus.CANCELLED)
+        }
+        check(snapshotNames() == before)
     }
 
     private fun nativePrecisionDescriptorCrossesJniAtomically() {

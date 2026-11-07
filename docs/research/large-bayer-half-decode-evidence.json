@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-16",
+  "sourceSha256Lf": {
+    "lib/libraw/src/main/cpp/raw_decoder.cpp": "e337d333666ed13469ef55d4f1d42948d415343a6d531f4c83699a8facb32040",
+    "lib/libraw/src/main/cpp/raw_decoder.h": "48865bab225d199224fc38b932c745093a1fe2ed2177f0a54890606df0920088",
+    "lib/libraw/src/main/cpp/raw_decode_budget.h": "f6c75262bad69f0706540b64f32ad9d7bc9f85615dd766d0d0f312c303e0d8f1",
+    "lib/libraw/src/main/cpp/raw_input_snapshot.h": "9e4ef8b1f21f189cea2546d3b60f7b2d78a9f83d2d19680927a849ba70f5e771"
+  },
+  "nativeLibrarySha256": "292186e5127891c45b0c82c53d4a63f68505ed7acc9efc18c8e686becfcbd620",
+  "build": "Android arm64 Debug; NDK 28.2.13676358; CMake 3.22.1; audited LibRaw 0.22.2; OpenMP off",
+  "jvm": {
+    "tests": 648,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "hostCTest": {
+    "passed": 7,
+    "failed": 0,
+    "compiler": "Clang 18.1.3",
+    "sanitizers": "address,undefined,float-cast-overflow",
+    "openmp": false
+  }
+}

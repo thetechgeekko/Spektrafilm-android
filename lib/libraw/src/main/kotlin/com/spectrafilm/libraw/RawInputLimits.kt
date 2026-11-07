@@ -13,6 +13,16 @@ object RawInputLimits {
     private const val CHUNK_BYTES = 64 * 1024
     private const val MIB = 1024 * 1024
 
+    /**
+     * Whether a file-descriptor decode of a source whose provider-declared size is
+     * [declaredSize] (`ParcelFileDescriptor.statSize`, -1 when unknown) needs the
+     * on-disk input snapshot. A known size within [MAX_ENCODED_BYTES] takes the
+     * in-memory read instead, which is faster and writes nothing to storage; an
+     * unknown size cannot be pre-checked, so it keeps the snapshot's larger ceiling.
+     */
+    fun needsInputSnapshot(declaredSize: Long): Boolean =
+        declaredSize < 0L || declaredSize > MAX_ENCODED_BYTES.toLong()
+
     /** Validate a declared provider size before narrowing it for a direct-buffer allocation. */
     fun checkedCapacity(
         byteCount: Long,

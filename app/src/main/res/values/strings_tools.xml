@@ -13,7 +13,7 @@
     <string name="tool_export_quality">Quality</string>
     <string name="tool_export_scene_linear_note">Exports the decoded scene-linear input — the linear RGB before the film simulation — as an untagged 32-bit float TIFF, for grading in another app. Colour space and metadata options don\'t apply.</string>
     <string name="tool_export_size_heading">Size</string>
-    <string name="tool_export_high_bit_depth_note">High-bit-depth formats export at full resolution.</string>
+    <string name="tool_export_high_bit_depth_note">High-bit-depth formats use the maximum available decoded resolution. Large RAW inputs may be reduced to fit memory.</string>
     <string name="tool_export_dimensions">Dimensions</string>
     <string name="tool_export_long_edge">Long edge (px)</string>
     <string name="tool_export_custom_clamp">Clamped to %1$d–%2$d px; the photo is never enlarged.</string>
@@ -27,7 +27,7 @@
     <string name="tool_export_attribution">Film modeling powered by spektrafilm</string>
 
     <!-- Export size presets (ExportSize.labelRes) -->
-    <string name="tool_export_size_full">Full resolution</string>
+    <string name="tool_export_size_full">Maximum available resolution</string>
     <string name="tool_export_size_large">Large — 4096 px</string>
     <string name="tool_export_size_medium">Medium — 2048 px</string>
     <string name="tool_export_size_small">Small — 1024 px</string>

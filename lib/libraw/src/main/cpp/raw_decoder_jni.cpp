@@ -703,7 +703,7 @@ JNI(jobject, nativeDecodeBuffer)(JNIEnv* env, jobject, jobject directBuffer,
 JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject, jint fd, jint wbMode,
                              jdouble temperatureK, jdouble tint,
                              jboolean halfSize, jint maxLongEdge,
-                             jlong cancellationToken) {
+                             jlong cancellationToken, jint scratchFd) {
     try {
         CancellationLease cancellation =
             acquireCancellation(env, cancellationToken);
@@ -712,9 +712,10 @@ JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject, jint fd, jint wbMode,
             throwCancelled(env);
             return nullptr;
         }
-        spectrafilm::DecodeResult result = spectrafilm::decodeFromFd(
-            fd, readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge,
-                            cancellation));
+        auto options = readOptions(wbMode, temperatureK, tint, halfSize, maxLongEdge,
+                                   cancellation);
+        options.inputScratchFd = scratchFd;
+        spectrafilm::DecodeResult result = spectrafilm::decodeFromFd(fd, options);
         if (isCancelled(cancellation) && result.ok) {
             throwCancelled(env);
             return nullptr;
