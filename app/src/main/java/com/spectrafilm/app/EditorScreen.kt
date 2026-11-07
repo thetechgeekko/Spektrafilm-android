@@ -32,55 +32,27 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.LinearImage
-import com.spectrafilm.engine.RenderKind
-import com.spectrafilm.engine.SimResult
 import com.spectrafilm.engine.SpektraEngine
-import com.spectrafilm.app.masks.MaskCompositor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
 
-private const val OPEN_PLACEHOLDER_FADE_MS = 220
+internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
 /**
  * True once the editor has restored in this process. Distinguishes a cold start (the first
@@ -136,7 +108,8 @@ internal fun MainActivity.EditorScreen(
 
     val engineState = remember { mutableStateOf<SpektraEngine?>(null) }
     var engine by engineState
-    var profiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    val profilesState = remember { mutableStateOf<List<String>>(emptyList()) }
+    var profiles by profilesState
     val state = remember { ParamsState() }
 
     // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
@@ -190,7 +163,8 @@ internal fun MainActivity.EditorScreen(
     var sourceUri by sourceUriState
     val sourceKindState = remember { mutableStateOf(restoredSource.kind) }
     var sourceKind by sourceKindState
-    var sourceName by remember { mutableStateOf(restoredSource.displayName) }
+    val sourceNameState = remember { mutableStateOf(restoredSource.displayName) }
+    var sourceName by sourceNameState
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
     val sourceMutationGate = sourceRuntime.mutations
@@ -595,8 +569,10 @@ internal fun MainActivity.EditorScreen(
     // --- non-destructive recipe (sidecar) layer ---
     val recipeReadyState = remember { mutableStateOf(false) }
     var recipeReady by recipeReadyState
-    var hasRecipe by remember { mutableStateOf(false) }
-    var defaultsJson by remember { mutableStateOf<String?>(null) }
+    val hasRecipeState = remember { mutableStateOf(false) }
+    var hasRecipe by hasRecipeState
+    val defaultsJsonState = remember { mutableStateOf<String?>(null) }
+    var defaultsJson by defaultsJsonState
     LaunchedEffect(recipeReady, state.localAdjustments.size) {
         if (recipeReady) {
             toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
@@ -652,13 +628,15 @@ internal fun MainActivity.EditorScreen(
     // The last SETTLED snapshot we committed. Capture coalescing pushes THIS (the
     // pre-edit state) onto undo when a newer settled state differs (see the capture
     // effect below), so one slider drag (which settles once) == one undo step.
-    var committedSnapshot by remember {
+    val committedSnapshotState = remember {
         mutableStateOf(initialRestoredSession?.committed)
     }
+    var committedSnapshot by committedSnapshotState
     // Set true while we are programmatically restoring a snapshot (undo/redo). The
     // capture effect skips one settle cycle so the restore is NOT recorded as a new
     // edit — without this the restored state would push itself and we'd never escape.
-    var restoring by remember { mutableStateOf(false) }
+    val restoringState = remember { mutableStateOf(false) }
+    var restoring by restoringState
     // Explicit conflict marker used only while AppRoot is recovering transient session IO.
     // Programmatic restore/default application keeps it false; a settled user edit sets it.
     var liveCursorMutated by remember { mutableStateOf(false) }
@@ -863,131 +841,40 @@ internal fun MainActivity.EditorScreen(
     val restoredRecipeKey = initialRestoredSession?.source?.uri
         ?.let(Uri::parse)
         ?.let(Recipes::keyFor)
-    var lastRestoredKey by remember { mutableStateOf(restoredRecipeKey) }
+    val lastRestoredKeyState = remember { mutableStateOf(restoredRecipeKey) }
+    var lastRestoredKey by lastRestoredKeyState
     // A restored source identity proves nothing about its sidecar contents. Every composition
     // starts PENDING and only the exact generation classified by readResult may become writable.
-    var recipeAccess by remember(recipeKey) {
+    val recipeAccessState = remember(recipeKey) {
         mutableStateOf<EditorRecipeAccess>(
             recipeKey?.let { EditorRecipeAccess.Pending(it, recipeRepo.generation(it)) }
                 ?: EditorRecipeAccess.None,
         )
     }
+    var recipeAccess by recipeAccessState
     val recipeEditEpoch = remember { RecipeEditEpoch() }
     LaunchedEffect(recipeKey, recipeReady) {
-        if (!recipeReady) return@LaunchedEffect
-        if (recipeKey == null) {
-            hasRecipe = false
-            recipeAccess = EditorRecipeAccess.None
-            // Switched to a keyless source (the demo image): still drop cross-image
-            // history and re-baseline once for the demo's current state.
-            if (lastRestoredKey != null) {
-                lastRestoredKey = null
-                editHistory.clear()
-                committedSnapshot = null
-                restoring = true
-            }
-            return@LaunchedEffect
-        }
-        val preserveSessionCursor = recipeKey == restoredRecipeKey
-        val sourceChanged = recipeKey != lastRestoredKey
-        lastRestoredKey = recipeKey
-        // New source: undo must never cross images. Drop the history and re-baseline so
-        // the just-restored/default state for THIS image is the empty-history baseline
-        // (canUndo=false). `restoring` makes the next capture settle adopt the new
-        // baseline without recording it as an edit.
-        if (sourceChanged) {
-            editHistory.clear()
-            committedSnapshot = null
-            restoring = true
-        }
-        // Submission itself happens on Main and is process-owned. If an old Activity already
-        // submitted an autosave, FIFO guarantees this recreated restore reads after its commit.
-        var restored: RecipeReadResult
-        while (true) {
-            val pendingRestore = RecipeWorkRuntime.submit {
-                val before = recipeRepo.generation(recipeKey)
-                val result = recipeRepo.readResult(recipeKey)
-                Triple(before, result, recipeRepo.generation(recipeKey))
-            }
-            val (before, result, after) = pendingRestore.await()
-            val classified = classifyEditorRecipeAccess(recipeKey, before, after, result)
-            recipeAccess = classified
-            if (classified is EditorRecipeAccess.Pending) continue
-            restored = result
-            break
-        }
-        when (restored) {
-            is RecipeReadResult.Loaded -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Presets.decode(restored.document.params, state)
-                    rotation = SourceRotation.fromDegrees(restored.document.manualRotationDeg)
-                    previewTick++
-                    snackbarHost.currentSnackbarData?.dismiss()
-                    snackbarHost.showSnackbar(
-                        message = ctx.getString(R.string.editor_snack_recipe_restored),
-                        withDismissAction = true,
-                    )
-                }
-            }
-            is RecipeReadResult.CorruptQuarantined -> {
-                hasRecipe = false
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                Diag.w("recipe quarantined: ${restored.reason}")
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_quarantined),
-                    withDismissAction = true,
-                )
-            }
-            RecipeReadResult.Missing -> {
-                hasRecipe = false
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-            }
-            is RecipeReadResult.Unsupported -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                status = ctx.getString(R.string.editor_status_recipe_newer_version, restored.version)
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_newer_version),
-                    withDismissAction = true,
-                )
-            }
-            is RecipeReadResult.CorruptQuarantineFailed,
-            is RecipeReadResult.IoFailure -> {
-                hasRecipe = true
-                if (!preserveSessionCursor) {
-                    Recipes.resetToDefaults(state, settings, profiles)
-                    rotation = SourceRotation.NONE
-                    previewTick++
-                }
-                val reason = when (restored) {
-                    is RecipeReadResult.CorruptQuarantineFailed -> restored.reason
-                    is RecipeReadResult.IoFailure -> restored.reason
-                    else -> error("unreachable")
-                }
-                Diag.w("recipe unavailable and writes paused: $reason")
-                status = ctx.getString(R.string.editor_status_recipe_unavailable)
-                snackbarHost.currentSnackbarData?.dismiss()
-                snackbarHost.showSnackbar(
-                    message = ctx.getString(R.string.editor_snack_recipe_unavailable),
-                    withDismissAction = true,
-                )
-            }
-        }
+        runRecipeRestore(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            settings = settings,
+            editHistory = editHistory,
+            recipeKey = recipeKey,
+            recipeRepo = recipeRepo,
+            restoredRecipeKey = restoredRecipeKey,
+            snackbarHost = snackbarHost,
+            committedSnapshotState = committedSnapshotState,
+            hasRecipeState = hasRecipeState,
+            lastRestoredKeyState = lastRestoredKeyState,
+            previewTickState = previewTickState,
+            profilesState = profilesState,
+            recipeAccessState = recipeAccessState,
+            recipeReadyState = recipeReadyState,
+            restoringState = restoringState,
+            rotationState = rotationState,
+            statusState = statusState,
+        )
     }
 
     // One-shot snackbar when a compressed DNG fell back to the system decoder.
@@ -1838,63 +1725,21 @@ internal fun MainActivity.EditorScreen(
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
-        if (!recipeReady || recipeKey == null) return@LaunchedEffect
-        val writableGeneration = recipeAccess.writableGenerationFor(recipeKey)
-            ?: return@LaunchedEffect
-        val autosaveEpoch = recipeEditEpoch.snapshot()
-        delay(700)
-        if (!recipeEditEpoch.isCurrent(autosaveEpoch)) return@LaunchedEffect
-        if (recipeAccess.writableGenerationFor(recipeKey) != writableGeneration) {
-            return@LaunchedEffect
-        }
-        val current = runCatching { Presets.toJsonString(state) }.getOrNull()
-        // A non-NONE manual rotation is itself an edit worth persisting, even when the
-        // params are otherwise default — so only treat as "pristine" if rotation is NONE.
-        if (current != null && current == defaultsJson && rotation == SourceRotation.NONE) {
-            if (!hasRecipe) return@LaunchedEffect
-            val pendingDelete = RecipeWorkRuntime.submit {
-                if (recipeRepo.generation(recipeKey) != writableGeneration) return@submit null
-                recipeRepo.delete(recipeKey)
-                recipeRepo.generation(recipeKey)
-            }
-            val newGeneration = try {
-                pendingDelete.await()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                Diag.w("pristine recipe delete failed: ${failure.message}")
-                status = ctx.getString(R.string.editor_status_recipe_clear_failed)
-                return@LaunchedEffect
-            }
-            if (newGeneration != null) {
-                recipeAccess = EditorRecipeAccess.Writable(recipeKey, newGeneration)
-                hasRecipe = false
-            }
-            return@LaunchedEffect
-        }
-        val saved = try {
-            // Reuse the main-thread serialization from above (torn-snapshot safety);
-            // only the envelope build + file write cross to IO.
-            val paramsJson = current ?: Presets.toJsonString(state)
-            val savedSourceName = sourceName
-            val savedRotationDegrees = rotation.degrees
-            val pendingSave = RecipeWorkRuntime.submit {
-                recipeRepo.saveJson(
-                    recipeKey,
-                    paramsJson,
-                    savedSourceName,
-                    savedRotationDegrees,
-                    writableGeneration,
-                )
-            }
-            pendingSave.await()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            Diag.w("recipe auto-save failed: ${failure.message}")
-            return@LaunchedEffect
-        }
-        if (saved) hasRecipe = true
+        runRecipeAutosave(
+            this@EditorScreen,
+            ctx = ctx,
+            state = state,
+            recipeEditEpoch = recipeEditEpoch,
+            recipeKey = recipeKey,
+            recipeRepo = recipeRepo,
+            defaultsJsonState = defaultsJsonState,
+            hasRecipeState = hasRecipeState,
+            recipeAccessState = recipeAccessState,
+            recipeReadyState = recipeReadyState,
+            rotationState = rotationState,
+            sourceNameState = sourceNameState,
+            statusState = statusState,
+        )
     }
 
     // --- Undo/redo capture (debounced coalescing) ---
@@ -2892,368 +2737,6 @@ internal fun MainActivity.EditorScreen(
 // ---------------------------------------------------------------------------
 // New Lightroom-style chrome
 // ---------------------------------------------------------------------------
-
-@Composable
-internal fun MainActivity.EditorTopBar(
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onOpenSource: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onOpenLibrary: () -> Unit,
-) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
-                )
-            )
-            .windowInsetsPadding(WindowInsets.statusBars),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Open / pick a source photo (was an app-exit bug previously).
-            TextTooltip(stringResource(R.string.editor_open_photo)) {
-                PressIconButton(onClick = onOpenSource) {
-                    Icon(
-                        SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
-                        tint = SpektraBrand.onCanvas,
-                    )
-                }
-            }
-            // The Library sits beside Open: both are ways to open a photo, and working
-            // through a shoot frame by frame should be one tap away.
-            TextTooltip(stringResource(R.string.library_title)) {
-                PressIconButton(onClick = onOpenLibrary) {
-                    Icon(
-                        SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
-                        tint = SpektraBrand.onCanvas,
-                    )
-                }
-            }
-            // weight(1f): the title yields to the 48dp actions, so at 200% font it
-            // ellipsizes instead of pushing the menu off the right edge (#181).
-            Text(
-                stringResource(R.string.app_name),
-                color = SpektraBrand.onCanvas.copy(alpha = 0.92f),
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .semantics { heading() },
-            )
-            // Undo / redo — in-session edit history. Disabled (dimmed) when the
-            // respective stack is empty; one slider drag = one undo step.
-            TextTooltip(stringResource(R.string.editor_action_undo)) {
-                PressIconButton(onClick = onUndo, enabled = canUndo) {
-                    Icon(
-                        SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
-                        tint = if (canUndo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
-                    )
-                }
-            }
-            TextTooltip(stringResource(R.string.editor_action_redo)) {
-                PressIconButton(onClick = onRedo, enabled = canRedo) {
-                    Icon(
-                        SpectraIcons.Redo, contentDescription = stringResource(R.string.editor_action_redo),
-                        tint = if (canRedo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
-                    )
-                }
-            }
-            // M3 app bars carry one or two essential actions; Undo and Redo are this
-            // screen's. Export moved to the FAB beside the stage toolbar, and Settings /
-            // About live behind the overflow menu.
-            var menuOpen by remember { mutableStateOf(false) }
-            Box {
-                TextTooltip(stringResource(R.string.editor_action_more)) {
-                    PressIconButton(onClick = { menuOpen = true }) {
-                        Icon(
-                            SpectraIcons.More,
-                            contentDescription = stringResource(R.string.editor_action_more),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                androidx.compose.material3.DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                ) {
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(stringResource(R.string.editor_action_settings)) },
-                        leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenSettings() },
-                    )
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(stringResource(R.string.editor_action_about)) },
-                        leadingIcon = { Icon(SpectraIcons.Help, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenAbout() },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** The pinned preview region on the near-black canvas with a rotate control. */
-@Composable
-internal fun MainActivity.PreviewRegion(
-    preview: Bitmap?,
-    placeholder: Bitmap?,
-    before: Bitmap?,
-    busy: Boolean,
-    decoding: Boolean,
-    exporting: Boolean,
-    lastRenderMs: Long?,
-    renderErr: String?,
-    compareMode: Boolean,
-    showHistogram: Boolean,
-    showClipping: Boolean,
-    clipWarnings: Boolean,
-    gpuEnabled: Boolean,
-    gpuProxy: LinearImage?,
-    gpuLut: CubeLut?,
-    gpuGain: Float,
-    onToggleCompare: () -> Unit,
-    onToggleHistogram: () -> Unit,
-    onToggleClipWarnings: () -> Unit,
-    onRotate: () -> Unit,
-    onEditCrop: () -> Unit,
-    onPointPicked: (Float, Float) -> Unit,
-    onOpenMagnifier: () -> Unit,
-    renderKey: Int,
-    roiOverlay: RoiOverlay?,
-    onRoiSettled: (RoiRect) -> Unit,
-    onRoiCleared: () -> Unit,
-    controlsBottomInset: Dp = 0.dp,
-) {
-    // Accessibility: the canvas gestures (pinch/double-tap zoom, drag to inspect a region,
-    // tap to open the 100% grain magnifier) have no widget of their own, so the region is
-    // described and the tap-to-pick gesture gets a custom action at the frame centre. The
-    // ROI drag is bound to the live zoom state inside ZoomableImage and has no safe
-    // one-shot equivalent, so it is described only. Semantics-only: no gesture changes.
-    val previewDesc = when {
-        preview == null -> stringResource(R.string.editor_preview_desc_empty)
-        compareMode -> stringResource(R.string.editor_preview_desc_compare)
-        else -> stringResource(R.string.editor_preview_desc_film)
-    }
-    val previewActions = if (preview != null && !compareMode) {
-        listOf(
-            // The magnifier moved off the tap and onto its own button, so this action
-            // calls the button's handler rather than the (now unrelated) tap callback.
-            CustomAccessibilityAction(stringResource(R.string.editor_preview_action_magnifier)) {
-                onOpenMagnifier()
-                true
-            },
-            // The tap gesture's own equivalent: hiding the chrome is worth reaching
-            // without a gesture, since the gesture has nothing on screen to announce it.
-            CustomAccessibilityAction(stringResource(R.string.editor_toggle_chrome)) {
-                onPointPicked(0.5f, 0.5f)
-                true
-            },
-        )
-    } else {
-        emptyList()
-    }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(SpectraIcons.nearBlackCanvas)
-            // Edge to edge: no side gutter. A 16dp gutter on each side cost a landscape
-            // photo (the common case on a portrait phone) 32dp of width and therefore
-            // ~8% of its displayed size. The overlays below carry their own insets.
-            .semantics {
-                contentDescription = previewDesc
-                customActions = previewActions
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        val bmp = preview
-        // GPU LUT surface is the FIT view's instant path (the baked look sampled on-GPU,
-        // no per-edit CPU re-render); the CPU ZoomableImage owns ZOOM, where it renders the
-        // region with grain/halation via the ROI path. gpuBroken latches if GL can't build
-        // on this device (→ CPU fallback, never a black screen); gpuZoomHandoff flips when
-        // the user pinches/double-taps the GPU surface and resets when zoom returns to fit.
-        var gpuBroken by remember { mutableStateOf(false) }
-        var gpuZoomHandoff by remember { mutableStateOf(false) }
-        // Scale the CPU ZoomableImage starts at after a GPU-surface handoff: 1f for a pinch/
-        // double-tap (continue from fit), 2f for the explicit "+" so it lands already zoomed.
-        var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
-        val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
-        val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-            !compareMode && !showClipping && !gpuBroken && !gpuZoomHandoff
-        if (gpuActive) GpuPreviewSurface(
-            proxy = gpuProxy!!,
-            lut = gpuLut!!,
-            exposureGain = gpuGain,
-            modifier = Modifier.fillMaxSize(),
-            controlsBottomInset = controlsBottomInset,
-            onPointPicked = onPointPicked,
-            onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
-            onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
-            zoomRequests = viewerVm.zoomRequests,
-            onUnavailable = {
-                gpuBroken = true
-                Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
-            },
-        )
-        // #286: the render fades in over the open stand-in instead of popping in. Starts
-        // transparent only while a stand-in is showing, so an ordinary re-render (no
-        // stand-in) is never faded.
-        val revealAlpha = remember { Animatable(1f) }
-        LaunchedEffect(placeholder != null, bmp != null) {
-            when {
-                placeholder != null && bmp == null -> revealAlpha.snapTo(0f)
-                placeholder != null -> revealAlpha.animateTo(1f, tween(OPEN_PLACEHOLDER_FADE_MS))
-                else -> revealAlpha.snapTo(1f)
-            }
-        }
-        // Everything except the GPU surface lives in the part of the canvas ABOVE the
-        // floating panel ([controlsBottomInset]), so an open panel moves and fits the photo
-        // instead of covering it, and the canvas buttons ride on top of the panel. The GPU
-        // surface keeps the full box: resizing a GLSurfaceView every animation frame is
-        // the churn documented on PanelOverlay.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(bottom = controlsBottomInset),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (placeholder != null && !gpuActive) {
-                Image(
-                    bitmap = placeholder.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            when {
-                gpuActive -> Unit
-                bmp != null && compareMode && before != null ->
-                    CompareSlider(before = before, after = bmp)
-                bmp != null -> ZoomableImage(
-                    bitmap = bmp,
-                    // Clipping warnings: the GPU surface steps aside while they show
-                    // (gpuActive above), as it does for compare, so the mask always has
-                    // the CPU frame it was computed from underneath it.
-                    overlay = clipMask,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = revealAlpha.value },
-                    initialScale = gpuZoomInitial,
-                    zoomRequests = viewerVm.zoomRequests,
-                    onPointPicked = onPointPicked,
-                    // Press and hold the photo for the unedited frame. The bitmap already
-                    // exists for the latched CompareSlider above, so the gesture costs no
-                    // extra render.
-                    //
-                    // PreviewRegion.onPointPicked is NOT nullable -- it is always the
-                    // magnifier opener -- so there is no sampler to yield to here, and a
-                    // long press is otherwise unused on this surface. The colour/WB sampler
-                    // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
-                    peek = before,
-                    // Lightroom-style zoom: render the visible region at native resolution
-                    // (renderKey = previewTick so an edit while zoomed re-renders the crop).
-                    renderKey = renderKey,
-                    onRoiSettled = onRoiSettled,
-                    // Returning to fit also re-arms the GPU fit surface.
-                    onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
-                    roiOverlay = roiOverlay,
-                    // No inset: this Box already stops at the panel's top edge.
-                )
-                placeholder != null -> Unit
-                else -> Text(stringResource(R.string.editor_preview_none), color = SpektraBrand.onCanvas.copy(alpha = 0.7f))
-            }
-
-            // Compact translucent histogram overlaid at the TOP EDGE of the preview
-            // (Lightroom-style). Driven by the same `showHistogram` state as the
-            // Source-panel toggle. PreviewHistogramOverlay acquires an explicit read lease and
-            // samples off-main; preview retirement defers recycle until that lease closes.
-            if (showHistogram && bmp != null) {
-                PreviewHistogramOverlay(
-                    bitmap = bmp,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 4.dp),
-                )
-            }
-
-            // Status pill — top-start of the preview, over the canvas.
-            StatusPill(
-                exporting = exporting,
-                rendering = busy,
-                decoding = decoding,
-                lastRenderMs = lastRenderMs,
-                renderErr = renderErr,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 12.dp, top = 6.dp),
-            )
-
-            // bottom-center controls on a scrim: histogram + compare + crop + rotate
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextTooltip(stringResource(R.string.editor_histogram)) {
-                    CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
-                        Icon(
-                            SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_clipping_tooltip)) {
-                    CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
-                        Icon(
-                            SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
-                    CircleScrimButton(onClick = onOpenMagnifier) {
-                        Icon(
-                            SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_compare)) {
-                    CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
-                        Icon(
-                            SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = SpektraBrand.onCanvas,
-                        )
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
-                    CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = SpektraBrand.onCanvas)
-                    }
-                }
-                TextTooltip(stringResource(R.string.editor_rotate_90)) {
-                    CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = SpektraBrand.onCanvas)
-                    }
-                }
-            }
-        }
-    }
-}
 
 private fun avgRgb(img: com.spectrafilm.engine.LinearImage): Triple<Float, Float, Float> {
     return img.acquireDataLease().use { lease ->
