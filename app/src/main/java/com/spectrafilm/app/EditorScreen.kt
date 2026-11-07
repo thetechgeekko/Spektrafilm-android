@@ -2146,9 +2146,13 @@ internal fun MainActivity.EditorScreen(
         }
     }
     val dropHighlight = MaterialTheme.colorScheme.primary
-    Box(
+    // Editor window origin, for placing the fold hinge in this box's coordinates.
+    var editorRootOrigin by remember { mutableStateOf(Offset.Zero) }
+    val foldingFeature by rememberFoldingFeature()
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
+            .onGloballyPositioned { editorRootOrigin = it.positionInWindow() }
             .background(MaterialTheme.colorScheme.surface)
             .dragAndDropTarget(
                 shouldStartDragAndDrop = { event -> acceptDrop && isDroppableImage(event.mimeTypes()) },
@@ -2172,10 +2176,22 @@ internal fun MainActivity.EditorScreen(
                 .fillMaxSize()
                 .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
-            // Whether the editor below lays out as an expanded window (stage rail + side
-            // pane). Decided inside the BoxWithConstraints below, read here by the top bar,
-            // which puts Export in the bar only when the rail is not carrying it.
-            var paneWide by remember { mutableStateOf(false) }
+            // Whether the editor lays out as an expanded window (stage rail + side pane).
+            // Decided ONCE, here, from the whole editor window (the M3 window size class
+            // plus fold posture), and passed down to both the top bar (Export sits in the
+            // bar only when the rail is not carrying it) and the layout below. It used to
+            // be decided in the box under the top bar and written back up through a
+            // SideEffect, which cost a recomposition and a one-frame mismatch, and let
+            // hiding the chrome flip the layout on windows near the compact-height line.
+            val wide = editorPaneMode(
+                maxWidth.value,
+                maxHeight.value,
+                foldPosture(
+                    foldingFeature?.toHinge(editorRootOrigin.x, editorRootOrigin.y, LocalDensity.current.density),
+                    maxWidth.value,
+                    maxHeight.value,
+                ),
+            ) == EditorPaneMode.SIDE_PANE
             // --- TOP BAR ---
             if (!viewerUi.chromeHidden) EditorTopBar(
                 canUndo = editHistory.canUndo,
@@ -2222,7 +2238,7 @@ internal fun MainActivity.EditorScreen(
                 } else {
                     StockCatalog.displayName(ctx, state.printProfile)
                 },
-                wide = paneWide,
+                wide = wide,
                 // Hidden, not disabled, when there is nothing to export; a render in flight
                 // only defers the tap (see openExportSheetIfAllowed).
                 exportVisible = engine != null && sourceRenderAllowed,
@@ -2235,7 +2251,6 @@ internal fun MainActivity.EditorScreen(
             // desktop windows, unfolded foldables): the active panel docks as a side column
             // beside the preview + category bar. Neither branch touches PreviewRegion or the
             // GPU/CPU render paths; only where the panel body is hosted differs.
-            val foldingFeature by rememberFoldingFeature()
             var editorBoxOrigin by remember { mutableStateOf(Offset.Zero) }
             BoxWithConstraints(
                 Modifier
@@ -2252,8 +2267,8 @@ internal fun MainActivity.EditorScreen(
                     maxWidth.value,
                     maxHeight.value,
                 )
-                val wide = editorPaneMode(maxWidth.value, maxHeight.value, posture) == EditorPaneMode.SIDE_PANE
-                SideEffect { paneWide = wide }
+                // `posture` here is in this box's coordinates (under the top bar) and only
+                // drives pane geometry; the pane MODE (`wide`) was decided above.
                 val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
                 val sidePaneWidth = sidePaneWidthDp(maxWidth.value, posture, rtl).dp
                 val bookHingeGap = bookHingeGapDp(posture, maxWidth.value, rtl).dp
