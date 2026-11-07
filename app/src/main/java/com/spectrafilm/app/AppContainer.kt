@@ -67,6 +67,7 @@ internal class AppViewModelFactory(
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()
             EditorToolViewModel::class.java -> EditorToolViewModel()
+            EditorViewerViewModel::class.java -> EditorViewerViewModel()
             else -> throw IllegalArgumentException("unknown ViewModel $modelClass")
         }
         @Suppress("UNCHECKED_CAST")
