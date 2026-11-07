@@ -284,6 +284,11 @@ fun ZoomableImage(
     fun clampOffset(raw: Offset, s: Float): Offset =
         clampPanOffset(raw, viewSize, s, aspect)
 
+    // The viewport shrinks and grows as the editor's panel opens and closes (the photo fits
+    // above it). A pan that was legal in the taller view can overshoot the shorter one, so
+    // re-clamp whenever the size changes rather than waiting for the next gesture.
+    LaunchedEffect(viewSize) { offset = clampOffset(offset, scale) }
+
     Box(
         modifier = modifier
             .clipToBounds()
