@@ -239,7 +239,7 @@ data class ContrastMaskParams(
     val active: Boolean = false,
     val highlights: Float = 1.0f,
     val shadows: Float = 0.5f,
-    val core: Float = 1.0f,
+    val core: Float = 0.25f,
     val scale: Float = 0.03f,
 )
 

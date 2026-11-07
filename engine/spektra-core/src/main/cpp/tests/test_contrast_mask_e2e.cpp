@@ -25,6 +25,7 @@
  *      alone gives warm == fresh != on.
  *   G. It also engages on the enlarger-LUT route (the one previews use).
  *   H. THREAD INVARIANCE: SPK_NUM_THREADS 1 vs 8, fresh engines, byte-identical.
+ *   I. NO HALO: next to a hard edge the shadow is lifted like the rest of it.
  *
  * Run: /tmp/test_contrast_mask_e2e <asset_dir> <scan_portra_golden_dir> <input.f64>
  */
@@ -183,6 +184,40 @@ void unit_pass() {
     expect(k > 1.0 && worst < 1e-9, "C uniform frame gets 2^delta on A, pre-flash unscaled");
 }
 
+// I. NO HALO at a hard edge. A frame half print-highlight (x = -1.5) and half
+//    print-shadow (x = +2): with the shadows branch on, the shadow pixel right
+//    at the edge is lifted nearly as much as one far from it. A plain Gaussian
+//    base mixes the bright half in near the edge and leaves a dark band there
+//    one blur radius wide (found on the phone, 2026-11-07); the guided base
+//    follows the edge.
+void unit_edge() {
+    spk::ContrastMaskParams m;
+    m.active = true;
+    m.highlights = 0.0;
+    m.shadows = 2.0;
+    m.core = 0.25;
+    m.scale = 0.05;
+    const int W = 256, H = 64;
+    const double pf[3] = {0.0, 0.0, 0.0};
+    std::vector<double> y(size_t(W) * H * 3), y0;
+    for (int py = 0; py < H; ++py)
+        for (int px = 0; px < W; ++px)
+            for (int c = 0; c < 3; ++c)
+                y[(size_t(py) * W + px) * 3 + c] = std::exp2(px < W / 2 ? -1.5 : 2.0) + 1e-10;
+    y0 = y;
+    spk::contrast_mask_apply(y.data(), W, H, pf, 1.0, m);
+    auto lift = [&](int px) {  // stops moved, mid row, green
+        const size_t i = (size_t(H / 2) * W + px) * 3 + 1;
+        return std::log2(y0[i] / y[i]);
+    };
+    double at_edge = lift(W / 2);  // the least-lifted shadow pixel, wherever the band is
+    for (int px = W / 2; px < W; ++px) at_edge = std::min(at_edge, lift(px));
+    const double far = lift(W - 4), bright = lift(W / 2 - 1);
+    std::printf("I shadow lift min %.3f, far %.3f; bright side %.3f\n", at_edge, far, bright);
+    expect(far > 0.2 && at_edge > 0.8 * far, "I the shadow next to a hard edge is lifted like the rest");
+    expect(std::fabs(bright) < 0.05, "I the highlight side is not darkened by the shadow branch");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -195,6 +230,7 @@ int main(int argc, char** argv) {
 
     unit_curve();
     unit_pass();
+    unit_edge();
 
     spkvec::Array gold_rgb = spkvec::read(golden_dir + "/final_rgb.spkvec");
     const int height = int(gold_rgb.shape[0]), width = int(gold_rgb.shape[1]);

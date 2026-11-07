@@ -518,13 +518,13 @@
     <string name="editor_preflash_m_shift">M filter shift</string>
     <string name="editor_preflash_m_shift_tooltip">Shift the M filter from neutral for the preflash (Kodak CC)</string>
     <string name="editor_contrast_mask_title">Contrast mask</string>
-    <string name="editor_contrast_mask_desc">Works on the print route only (no effect in Slide mode / scan-film). Edges and texture keep their contrast.</string>
+    <string name="editor_contrast_mask_desc">Works on the print route only (no effect in Slide mode / scan-film). Edges and texture keep their contrast, and hard edges get no halo.</string>
     <string name="editor_contrast_mask_highlights">Highlights</string>
-    <string name="editor_contrast_mask_highlights_tooltip">Stops a large bright area is pulled down toward the middle, to bring back sky and highlight detail</string>
+    <string name="editor_contrast_mask_highlights_tooltip">How strongly large bright areas are pulled down toward the middle, to bring back sky and highlight detail. 3 is a full mask</string>
     <string name="editor_contrast_mask_shadows">Shadows</string>
-    <string name="editor_contrast_mask_shadows_tooltip">Stops a large dark area is lifted toward the middle, to open up shadow detail</string>
+    <string name="editor_contrast_mask_shadows_tooltip">How strongly large dark areas are lifted toward the middle, to open up shadow detail. 3 is a full mask</string>
     <string name="editor_contrast_mask_core">Untouched midtones</string>
-    <string name="editor_contrast_mask_core_tooltip">How many stops either side of mid-grey the mask leaves completely alone</string>
+    <string name="editor_contrast_mask_core_tooltip">How many stops of print exposure either side of mid-grey the mask leaves completely alone</string>
     <string name="editor_contrast_mask_size">Softness (% of frame)</string>
     <string name="editor_contrast_mask_size_tooltip">Blur of the mask as a percentage of the long edge. Smaller follows shapes more tightly; larger is gentler</string>
 
