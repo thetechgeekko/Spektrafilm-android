@@ -712,7 +712,7 @@ fun MagnifierOverlay(
                 Modifier
                     .size(magnifierSide)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(SpektraBrand.canvasMagnifier),
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest),
                 contentAlignment = Alignment.Center,
             ) {
                 val c = crop

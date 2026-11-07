@@ -159,11 +159,11 @@ internal fun MainActivity.AppRoot(
     val startup = startupRead
     if (startup == null) {
         Box(
-            Modifier.fillMaxSize().background(SpectraIcons.nearBlackCanvas),
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
             SpectraLoadingIndicator(
-                color = SpektraBrand.onCanvas,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
             )
         }
@@ -442,7 +442,7 @@ internal fun MainActivity.AppRoot(
     Box(
         Modifier
             .fillMaxSize()
-            .background(SpectraIcons.nearBlackCanvas),
+            .background(MaterialTheme.colorScheme.surface),
     ) {
         // NavDisplay gives each entry its own rememberSaveable bucket, so EditorScreen's
         // source identity and rotation survive a trip to Settings and back (without that
@@ -477,7 +477,7 @@ internal fun MainActivity.AppRoot(
                     if (!editorAuthorityReady || backStack.lastOrNull() != EditorRoute) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             SpectraLoadingIndicator(
-                                color = SpektraBrand.onCanvas,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.semantics {
                                     contentDescription = res.getString(R.string.editor_loading)
                                 },

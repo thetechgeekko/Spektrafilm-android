@@ -2149,7 +2149,7 @@ internal fun MainActivity.EditorScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(SpectraIcons.nearBlackCanvas)
+            .background(MaterialTheme.colorScheme.surface)
             .dragAndDropTarget(
                 shouldStartDragAndDrop = { event -> acceptDrop && isDroppableImage(event.mimeTypes()) },
                 target = imageDropTarget,

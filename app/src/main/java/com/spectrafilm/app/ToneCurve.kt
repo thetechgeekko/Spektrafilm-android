@@ -229,9 +229,9 @@ fun ToneCurveEditor(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val gridColor = SpektraBrand.onCanvas.copy(alpha = 0.13f)
-    val identityColor = SpektraBrand.onCanvas.copy(alpha = 0.22f)
-    val canvasBg = SpektraBrand.canvasCurve
+    val gridColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)
+    val identityColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+    val canvasBg = MaterialTheme.colorScheme.surfaceContainerLowest
     val latestPoints by rememberUpdatedState(points)
     val latestOnChange by rememberUpdatedState(onChange)
     var dragIndex by remember { mutableIntStateOf(-1) }
@@ -246,7 +246,7 @@ fun ToneCurveEditor(
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
             .background(canvasBg)
-            .border(1.dp, SpektraBrand.onCanvas.copy(alpha = 0.14f), RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
             .semantics {
                 contentDescription = editorDesc
                 stateDescription = pointsState
@@ -413,7 +413,7 @@ fun ToneCurveSection(s: ParamsState, preview: Bitmap?) {
         1 -> { histo = hist?.r; curveColor = SpektraBrand.curveRed }
         2 -> { histo = hist?.g; curveColor = SpektraBrand.curveGreen }
         3 -> { histo = hist?.b; curveColor = SpektraBrand.curveBlue }
-        else -> { histo = hist?.luma; curveColor = SpektraBrand.curveLuma }
+        else -> { histo = hist?.luma; curveColor = MaterialTheme.colorScheme.onSurface }
     }
 
     SectionCard(

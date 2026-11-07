@@ -111,6 +111,15 @@ This software is based in part on the work of the Independent JPEG Group.
   upstream `LICENSE.md` and `README.ijg`. Only the libjpeg API is linked; the
   TurboJPEG API is not built.
 
+## Icons: Material Symbols
+
+The app's icons are Google's **Material Symbols** (Outlined, weight 400, 24 px), built into
+`app/src/main/java/com/spectrafilm/app/MaterialSymbols.kt` as vector paths from the upstream
+SVGs, unmodified.
+
+- Upstream: https://github.com/google/material-design-icons
+- License: Apache License 2.0
+
 ## Translations
 
 - **Simplified Chinese (zh-CN):** translated by

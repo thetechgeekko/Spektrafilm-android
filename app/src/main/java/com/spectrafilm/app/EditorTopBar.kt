@@ -70,7 +70,7 @@ internal fun MainActivity.EditorTopBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
+                    listOf(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), Color.Transparent),
                 )
             )
             .windowInsetsPadding(WindowInsets.statusBars)
@@ -89,7 +89,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onOpenLibrary) {
                     Icon(
                         SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
-                        tint = SpektraBrand.onCanvas,
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -106,7 +106,7 @@ internal fun MainActivity.EditorTopBar(
                     title,
                     // Emphasized title (M3 Expressive type): the one heading on the editor.
                     style = MaterialTheme.typography.titleMediumEmphasized,
-                    color = SpektraBrand.onCanvas,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -114,7 +114,7 @@ internal fun MainActivity.EditorTopBar(
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = SpektraBrand.onCanvas.copy(alpha = 0.72f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -127,7 +127,7 @@ internal fun MainActivity.EditorTopBar(
                     PressIconButton(onClick = onCrop, enabled = hasPhoto) {
                         Icon(
                             SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform),
-                            tint = if (hasPhoto) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
+                            tint = if (hasPhoto) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         )
                     }
                 }
@@ -138,7 +138,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onUndo, enabled = canUndo) {
                     Icon(
                         SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
-                        tint = if (canUndo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
+                        tint = if (canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -146,7 +146,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onRedo, enabled = canRedo) {
                     Icon(
                         SpectraIcons.Redo, contentDescription = stringResource(R.string.editor_action_redo),
-                        tint = if (canRedo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
+                        tint = if (canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -162,7 +162,7 @@ internal fun MainActivity.EditorTopBar(
                         Icon(
                             SpectraIcons.More,
                             contentDescription = stringResource(R.string.editor_action_more),
-                            tint = SpektraBrand.onCanvas,
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -188,7 +188,7 @@ internal fun MainActivity.EditorTopBar(
                     // (m3-design-language, Menus: selected items get a checkmark). Each acts
                     // at once on the photo, so the menu closes after a tap. Compare also
                     // works without the menu: touch and hold the photo.
-                    ViewToggleItem(stringResource(R.string.editor_compare), SpectraIcons.Display, compare, hasPhoto) {
+                    ViewToggleItem(stringResource(R.string.editor_compare), SpectraIcons.Compare, compare, hasPhoto) {
                         menuOpen = false; onToggleCompare()
                     }
                     ViewToggleItem(stringResource(R.string.editor_histogram), SpectraIcons.Histogram, histogram, hasPhoto) {

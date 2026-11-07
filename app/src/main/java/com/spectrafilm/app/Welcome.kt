@@ -138,9 +138,9 @@ fun WelcomeFlow(
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        SpektraBrand.canvasOnboarding,
+                        MaterialTheme.colorScheme.surface,
                         SPECTRUM[(shift * SPECTRUM.size).toInt() % SPECTRUM.size].copy(alpha = 0.30f),
-                        SpektraBrand.canvasOnboarding,
+                        MaterialTheme.colorScheme.surface,
                     ),
                     start = Offset(0f, shift * 1200f),
                     end = Offset(1200f, (1f - shift) * 1200f),
@@ -154,7 +154,7 @@ fun WelcomeFlow(
                     TextButton(onClick = onFinish) {
                         Text(
                             stringResource(R.string.screen_welcome_skip),
-                            color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         )
                     }
                 } else {
@@ -201,7 +201,7 @@ fun WelcomeFlow(
                             .size(if (active) 10.dp else 8.dp)
                             .clip(CircleShape)
                             .alpha(dotAlpha)
-                            .background(if (active) PAGES[i].accent else SpektraBrand.onCanvas),
+                            .background(if (active) PAGES[i].accent else MaterialTheme.colorScheme.onSurface),
                     )
                 }
             }
@@ -260,7 +260,7 @@ private fun OnboardingPageContent(
             stringResource(page.titleRes),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = SpektraBrand.onCanvas,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
@@ -268,7 +268,7 @@ private fun OnboardingPageContent(
         Text(
             stringResource(page.bodyRes),
             style = MaterialTheme.typography.bodyLarge,
-            color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
             textAlign = TextAlign.Center,
         )
         if (isLast) {
@@ -276,7 +276,7 @@ private fun OnboardingPageContent(
             Text(
                 stringResource(R.string.screen_welcome_author_links),
                 style = MaterialTheme.typography.bodySmall,
-                color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
             // "Get started" below is this page's one primary action (M3: one filled button per
@@ -292,7 +292,7 @@ private fun OnboardingPageContent(
                 TextButton(onClick = onOpenSettings) {
                     Text(
                         stringResource(R.string.screen_welcome_open_settings),
-                        color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                     )
                 }
                 TextButton(
@@ -302,7 +302,7 @@ private fun OnboardingPageContent(
                 ) {
                     Text(
                         stringResource(R.string.screen_report_issue),
-                        color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                     )
                 }
             }
