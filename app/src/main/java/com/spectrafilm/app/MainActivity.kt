@@ -688,11 +688,13 @@ class MainActivity : ComponentActivity() {
     private var editorShortcutHandler: ((EditorShortcut) -> Boolean)? = null
 
     /**
-     * Read access to a photo dragged in from another app (ImageDrop.kt). Held, not released,
-     * while that photo is the source: export re-reads it at full resolution long after the
-     * drop. Replaced by the next drop; the platform also drops it with the Activity.
+     * Read access to photos dragged in from other apps (ImageDrop.kt). Never released early:
+     * export re-reads the source at full resolution long after the drop, and adoption is
+     * asynchronous and may refuse a new drop, in which case the PREVIOUS dropped photo stays
+     * the source and still needs its grant. The platform revokes them all with the Activity;
+     * a session holds one small token per drop.
      */
-    private var heldDropPermissions: android.view.DragAndDropPermissions? = null
+    private val heldDropPermissions = mutableListOf<android.view.DragAndDropPermissions>()
 
     /**
      * Only reached for keys the focused view did NOT consume, so a text field keeps its own
@@ -3857,9 +3859,7 @@ class MainActivity : ComponentActivity() {
                 false
             } else {
                 // Null when the drag came from this app; a cross-app drop needs the grant.
-                val granted = requestDragAndDropPermissions(dragEvent)
-                heldDropPermissions?.release()
-                heldDropPermissions = granted
+                requestDragAndDropPermissions(dragEvent)?.let { heldDropPermissions += it }
                 adoptIncomingImage(uri)
                 true
             }
