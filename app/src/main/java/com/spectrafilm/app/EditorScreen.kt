@@ -10,6 +10,7 @@ package com.spectrafilm.app
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import androidx.activity.OnBackPressedDispatcher
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -45,6 +46,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SpektraEngine
@@ -73,15 +75,42 @@ private var editorRestoredInThisProcess = false
  * binding (ownership, not publication — a revoked source still tracks its own run).
  * Called once from a keyless remember at EditorScreen entry.
  */
-internal fun MainActivity.authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Long? =
+internal fun authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Long? =
     (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
         ?.takeIf { running ->
             exportRunOwnedByEditor(running.sourceIdentity, editorIdentity)
         }
         ?.runId
 
+/**
+ * The editor screen. It used to be a MainActivity extension; everything it took from the
+ * Activity is now a parameter, passed by [AppRoot] (#452):
+ *  - [dispatchers] and the editor's ViewModels (Activity-scoped, see MainActivity);
+ *  - [incomingImageIntent], the unconsumed VIEW/SEND intent (#162);
+ *  - [setEditorShortcutHandler], which installs or clears the hardware keyboard handler;
+ *  - [heldDropPermissions] and [requestDragAndDropPermissions] for cross-app drops;
+ *  - [lifecycle], the Activity lifecycle whose ON_STOP checkpoints the session, and
+ *    [onBackPressedDispatcher] for the Esc shortcut.
+ */
 @Composable
-internal fun MainActivity.EditorScreen(
+internal fun EditorScreen(
+    dispatchers: AppDispatchers,
+    editorVm: EditorViewModel,
+    exportVm: ExportViewModel,
+    exportPresetVm: ExportPresetViewModel,
+    filmPreviewVm: StockPreviewViewModel,
+    printPreviewVm: StockPreviewViewModel,
+    presetPreviewVm: StockPreviewViewModel,
+    presetVm: PresetViewModel,
+    toolVm: EditorToolViewModel,
+    versionsVm: VersionsViewModel,
+    viewerVm: EditorViewerViewModel,
+    incomingImageIntent: MutableState<Intent?>,
+    setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
+    heldDropPermissions: MutableList<android.view.DragAndDropPermissions>,
+    requestDragAndDropPermissions: (android.view.DragEvent) -> android.view.DragAndDropPermissions?,
+    lifecycle: Lifecycle,
+    onBackPressedDispatcher: OnBackPressedDispatcher,
     settings: AppSettings,
     restoration: EditorRestoration,
     sessionRestoreNotice: String?,
@@ -593,7 +622,13 @@ internal fun MainActivity.EditorScreen(
     val snackbarHost = remember { SnackbarHostState() }
     val recipeRepo = remember(ctx) { ctx.appContainer.recipes }
     val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
-    val exportRuntimeStateState = ExportWorkRuntime.state.collectAsState()
+    // Lifecycle-aware like every other collector here, but kept active down to CREATED on
+    // purpose: an export that finishes while the app is in the background must still be
+    // claimed by this editor. ExportWorkRuntime retains a Finished outcome for only five
+    // minutes, so pausing at STARTED (the default) could let it expire unseen.
+    val exportRuntimeStateState = ExportWorkRuntime.state.collectAsStateWithLifecycle(
+        minActiveState = Lifecycle.State.CREATED,
+    )
     val exportRuntimeState by exportRuntimeStateState
     val lastHandledExportRunState = remember { mutableLongStateOf(0L) }
     var lastHandledExportRun by lastHandledExportRunState
@@ -612,7 +647,8 @@ internal fun MainActivity.EditorScreen(
         onSessionCheckpoint,
     ) {
         runExportRuntimeObserver(
-            this@EditorScreen,
+            dispatchers,
+            exportVm,
             ctx = ctx,
             exportSourceIdentity = exportSourceIdentity,
             publicationGate = publicationGate,
@@ -1226,7 +1262,7 @@ internal fun MainActivity.EditorScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            startBatchExport(ctx, scope, state, engine, uris, snackbarHost) { status = it }
+            startBatchExport(dispatchers, exportVm, ctx, scope, state, engine, uris, snackbarHost) { status = it }
         }
     }
     // Half-frame pair: this photo and one more on one picture (HalfFramePair.kt).
@@ -1235,6 +1271,7 @@ internal fun MainActivity.EditorScreen(
     ) { uri ->
         if (uri != null) {
             startHalfFramePair(
+                dispatchers, exportVm,
                 ctx, scope, state, engine, sourceUri, sourceName, sourceKind, rotation, uri, snackbarHost,
             ) { status = it }
         }
@@ -1255,6 +1292,13 @@ internal fun MainActivity.EditorScreen(
             return@LaunchedEffect
         }
         adoptIncomingImage(incoming)
+    }
+    // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
+    val pendingShortcut by launcherShortcut
+    LaunchedEffect(pendingShortcut) {
+        if (pendingShortcut != LauncherShortcut.OPEN_PHOTO) return@LaunchedEffect
+        launcherShortcut.value = null
+        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
     val presetImporter = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1689,6 +1733,7 @@ internal fun MainActivity.EditorScreen(
     // of writing it, so a superseded render can never leak or land on screen.
     fun openMagnifier(nx: Float, ny: Float) {
         startMagnifierRender(
+            dispatchers = dispatchers,
             nx = nx,
             ny = ny,
             ctx = ctx,
@@ -1716,6 +1761,8 @@ internal fun MainActivity.EditorScreen(
     // while cropping or comparing (those branches own the gestures / have no zoom).
     fun renderRoi(roi: RoiRect) {
         startRoiPatchRender(
+            dispatchers = dispatchers,
+            patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
             roi = roi,
             scope = scope,
             state = state,
@@ -1907,7 +1954,8 @@ internal fun MainActivity.EditorScreen(
         exportRuntimeStateState.value is ExportRuntimeState.Running,
     ) {
         runSpeculativePrerender(
-            this@EditorScreen,
+            dispatchers,
+            exportVm,
             ctx = ctx,
             state = state,
             sourceRenderAllowed = sourceRenderAllowed,
@@ -2085,8 +2133,8 @@ internal fun MainActivity.EditorScreen(
         }
     }
     DisposableEffect(Unit) {
-        editorShortcutHandler = { shortcutHandler(it) }
-        onDispose { editorShortcutHandler = null }
+        setEditorShortcutHandler { shortcutHandler(it) }
+        onDispose { setEditorShortcutHandler(null) }
     }
 
     // --- back handling on the root editor ---
@@ -2377,6 +2425,9 @@ internal fun MainActivity.EditorScreen(
                         )
                         Category.DISPLAY -> DisplaySection(state)
                         Category.PRESETS -> EditorPresetPanel(
+                            dispatchers = dispatchers,
+                            presetVm = presetVm,
+                            versionsVm = versionsVm,
                             ctx = ctx,
                             scope = scope,
                             state = state,
@@ -2688,6 +2739,8 @@ internal fun MainActivity.EditorScreen(
         // is open (see the PredictiveBackHandler above).
         Box(Modifier.fillMaxSize().predictiveBackShrink(overlayBackProgress)) {
             EditorToolOverlays(
+                dispatchers = dispatchers,
+                toolVm = toolVm,
                 ctx = ctx,
                 scope = scope,
                 state = state,
@@ -2819,7 +2872,7 @@ internal fun MainActivity.EditorScreen(
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                 previewBitmap = preview,
                 onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                    { requestBatchExport(ctx, legacyStoragePermission, batchPicker) { status = it } }
+                    { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
                 } else {
                     null
                 },
@@ -2827,12 +2880,15 @@ internal fun MainActivity.EditorScreen(
                     engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
                     halfFramePairSupports(exportUi.options)
                 ) {
-                    { requestHalfFramePair(ctx, legacyStoragePermission, pairPicker) { status = it } }
+                    { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
                 } else {
                     null
                 },
                 onExport = {
                     startEditorExport(
+                        dispatchers = dispatchers,
+                        exportVm = exportVm,
+                        exportPresetVm = exportPresetVm,
                         ctx = ctx,
                         scope = scope,
                         state = state,

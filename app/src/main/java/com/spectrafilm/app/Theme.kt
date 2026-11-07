@@ -8,9 +8,9 @@
  *
  * ## Material 3 Expressive
  *
- * `MaterialExpressiveTheme` + `MotionScheme.expressive()`, on `material3:1.5.0-alpha28` pinned
- * above the Compose BOM (owner decision, 2026-09-10). These are `internal` in 1.4.0 — the latest
- * STABLE — and only become public in 1.5.0, which has no beta yet.
+ * `MaterialExpressiveTheme` + `MotionScheme.expressive()`, on `material3:1.5.0-rc01` pinned
+ * above the Compose BOM (owner decision, 2026-09-10, first on 1.5.0-alpha28; #292, #384 moved it
+ * to the release candidate). These are `internal` in 1.4.0 and only become public in 1.5.0.
  *
  * The motion scheme is the highest-leverage line here: every M3 component reads its spring specs
  * from it, so setting it once changes how the whole app feels without touching a call site. The

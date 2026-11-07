@@ -96,6 +96,13 @@ class MainActivity : ComponentActivity() {
     internal val incomingImageIntent = androidx.compose.runtime.mutableStateOf<Intent?>(null)
 
     /**
+     * #467: a launcher shortcut waiting to be acted on. AppRoot takes LIBRARY (opens the
+     * Library); OPEN_PHOTO pops to the editor, which consumes it by opening its photo picker.
+     * Set from the launching intent like [incomingImageIntent], never on Activity recreation.
+     */
+    internal val launcherShortcut = androidx.compose.runtime.mutableStateOf<LauncherShortcut?>(null)
+
+    /**
      * Hardware keyboard shortcuts (DeX, ChromeOS, keyboard covers). Set by the live editor
      * composition and cleared when it leaves, so a shortcut can never act on an editor that
      * is not on screen. Returns true when the shortcut was handled.
@@ -135,6 +142,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingImageIntent.value = intent
+        LauncherShortcut.fromAction(intent.action)?.let { launcherShortcut.value = it }
     }
 
     /**
@@ -156,6 +164,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         incomingImageIntent.value = intent
+        // Only on a fresh launch: a recreated Activity still holds the shortcut intent, and
+        // reopening the picker or the Library on every rotation would be wrong.
+        if (savedInstanceState == null) launcherShortcut.value = LauncherShortcut.fromAction(intent?.action)
         // Wide-gamut compositing so the color-managed preview bitmaps (tagged Adobe/ProPhoto/Rec2020
         // per the output space) are not clamped to sRGB at composition on wide-gamut panels. No-op on
         // sRGB displays. API 26+; minSdk is 24.

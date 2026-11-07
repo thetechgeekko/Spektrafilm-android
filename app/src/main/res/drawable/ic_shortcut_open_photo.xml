@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher shortcut icon (#467): Material Symbols "add_photo_alternate" on a round brand tile, sized
+     like a legacy shortcut icon (48dp, glyph on the inner 24dp). Fixed colours: launchers
+     draw shortcut icons outside the app's theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FFFFDDB6"
+        android:pathData="M24,0a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <group
+        android:scaleX="0.025"
+        android:scaleY="0.025"
+        android:translateX="12"
+        android:translateY="36">
+        <path
+            android:fillColor="#FF643F00"
+            android:pathData="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h360v80H200v560h560v-360h80v360q0 33-23.5 56.5T760-120H200Zm480-480v-80h-80v-80h80v-80h80v80h80v80h-80v80h-80ZM240-280h480L570-480 450-320l-90-120-120 160Zm-40-480v560-560Z" />
+    </group>
+</vector>

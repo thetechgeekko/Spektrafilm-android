@@ -256,7 +256,10 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   So the real failure mode is a **silently wrong image**, which is worse than a crash because
   nothing announces it. `tools/r8_check/check_release_dex.sh` now reads the shrunk dex and
   fails if any JNI-resolved member is gone (wired into `release.yml` and `r8-smoke.yml`; validated against both
-  a good and a deliberately shrunk dex). Still smoke-test a release build
+  a good and a deliberately shrunk dex). Since #463 the list of native-resolved members is generated from the four
+  `*_jni.cpp` sources by `tools/r8_check/jni_inventory.py` (FindClass/Get*ID literals, the engine's
+  getter-by-name param readers, every exported native method); it exits 1 on any JNI literal it
+  cannot attribute, so a new by-name lookup has to be taught to it, not silently skipped. Still smoke-test a release build
   on a device before tagging. Later exact candidate/device evidence and the mandatory commands live
   in `docs/RELEASE_CHECKLIST.md`; dated audit sections are not current release evidence.
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).

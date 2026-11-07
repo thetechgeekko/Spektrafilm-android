@@ -92,6 +92,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- #467 static launcher shortcuts (Open photo, Library). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
             <!-- #162 inbound import. content:// only — a file:// path is never adopted
                  (no path trust, no pre-scoped-storage semantics). MIME is advisory here;
                  the actual decode route is content-sniffed fail-closed (#190). -->

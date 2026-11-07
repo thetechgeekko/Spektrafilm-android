@@ -295,4 +295,10 @@
         <item quantity="one">Look auf %1$d übertragen. %2$d Foto wurde übersprungen, weil seine Bearbeitung nicht lesbar war.</item>
         <item quantity="other">Look auf %1$d übertragen. %2$d Fotos wurden übersprungen, weil ihre Bearbeitungen nicht lesbar waren.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">Foto öffnen</string>
+    <string name="shortcut_open_photo_long">Ein Foto öffnen</string>
+    <string name="shortcut_library_short">Bibliothek</string>
+    <string name="shortcut_library_long">Bibliothek öffnen</string>
 </resources>

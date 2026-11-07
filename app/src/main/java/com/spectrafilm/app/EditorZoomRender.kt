@@ -28,7 +28,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Opens the 1:1 magnifier at (nx, ny) and renders its crop. Body of EditorScreen.openMagnifier. */
-internal fun MainActivity.startMagnifierRender(
+internal fun startMagnifierRender(
+    dispatchers: AppDispatchers,
     nx: Float, ny: Float,
     ctx: Context,
     scope: CoroutineScope,
@@ -133,7 +134,10 @@ internal fun MainActivity.startMagnifierRender(
 }
 
 /** Renders the sharp zoom patch for the visible region. Body of EditorScreen.renderRoi. */
-internal fun MainActivity.startRoiPatchRender(
+internal fun startRoiPatchRender(
+    dispatchers: AppDispatchers,
+    /** True while an on-photo tool or before/after compare is up: no patch render then. */
+    patchSuppressed: () -> Boolean,
     roi: RoiRect,
     scope: CoroutineScope,
     state: ParamsState,
@@ -154,7 +158,7 @@ internal fun MainActivity.startRoiPatchRender(
     val latestRoiRenderKey by latestRoiRenderKeyState
     if (!sourceRenderAllowed) return
     val e = engine ?: return
-    if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
+    if (patchSuppressed()) return
     // A settle inside the patch already on screen (or already rendering) at the same edit
     // and sharpness needs no new render: keep it rather than cancel and redo it.
     roiPatchTracker.reuseReason(

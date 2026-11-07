@@ -23,7 +23,9 @@ import kotlinx.coroutines.withContext
  * Moved verbatim out of EditorScreen (#273); the caller keeps the predictive-back wrapper.
  */
 @Composable
-internal fun MainActivity.EditorToolOverlays(
+internal fun EditorToolOverlays(
+    dispatchers: AppDispatchers,
+    toolVm: EditorToolViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,

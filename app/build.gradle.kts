@@ -29,8 +29,10 @@ android {
     // (libspektra.so 0.9 MB -> 11.6 MB). Pin the same NDK as the native modules (r28c since
     // #187; r27 before that).
     ndkVersion = "28.2.13676358"
-    // 37 for the toolchain only: material3 1.5.0-alpha28 (Material 3 Expressive) and the
-    // Compose 1.13 alphas it pulls require compiling against android-37. targetSdk stays 36 --
+    // 37 for the toolchain only: set when material3 1.5.0-alpha28 (Material 3 Expressive) and
+    // the Compose 1.13 alphas it pulled required compiling against android-37. material3 is now
+    // 1.5.0-rc01 on stable Compose 1.12 (#292, #384); whether 36 would do again is untested,
+    // so 37 stays until a build proves otherwise. targetSdk stays 36 --
     // that is the Play-policy surface validated by #171, and compileSdk does not change runtime
     // behaviour, only which APIs are visible at compile time.
     compileSdk = 37

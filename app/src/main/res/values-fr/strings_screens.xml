@@ -300,4 +300,10 @@
         <item quantity="many">Rendu collé sur %1$d. %2$d photos ont été ignorées, leurs retouches étant illisibles.</item>
         <item quantity="other">Rendu collé sur %1$d. %2$d photos ont été ignorées, leurs retouches étant illisibles.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">Ouvrir photo</string>
+    <string name="shortcut_open_photo_long">Ouvrir une photo</string>
+    <string name="shortcut_library_short">Bibliothèque</string>
+    <string name="shortcut_library_long">Ouvrir la bibliothèque</string>
 </resources>

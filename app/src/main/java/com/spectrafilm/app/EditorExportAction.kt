@@ -27,7 +27,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal fun MainActivity.startEditorExport(
+internal fun startEditorExport(
+    dispatchers: AppDispatchers,
+    exportVm: ExportViewModel,
+    exportPresetVm: ExportPresetViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,
@@ -351,6 +354,7 @@ internal fun MainActivity.startEditorExport(
                         }
                         if (restored != null && outputDescriptor.metadata.hdrGainMap != null) {
                             sceneTap = restoredSceneTap(
+                                dispatchers,
                                 exportContext, ctx, exportPrerenderKey, exportDecodeRequest,
                                 exportParams, res, outputDescriptor,
                             )
@@ -631,7 +635,8 @@ internal fun MainActivity.startEditorExport(
  * format was selected, or before the tap existed) the source is decoded once more just for the
  * tap, because without it the gain map is flat: the film render itself never exceeds SDR white.
  */
-private suspend fun MainActivity.restoredSceneTap(
+private suspend fun restoredSceneTap(
+    dispatchers: AppDispatchers,
     exportContext: android.content.Context,
     ctx: android.content.Context,
     prerenderKey: String?,
