@@ -2101,7 +2101,7 @@ internal fun MainActivity.EditorScreen(
                     // Paste edit in the Library reads this photo's recipe.
                     flushRecipeBeforeLeaving(
                         state, recipeKey, recipeReady, recipeAccess, defaultsJson,
-                        rotation, sourceName, recipeRepo,
+                        rotation, sourceName, hasRecipe, recipeRepo,
                     )
                     onOpenLibrary()
                 },

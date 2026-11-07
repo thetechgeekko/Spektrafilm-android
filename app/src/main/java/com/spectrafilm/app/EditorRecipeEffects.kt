@@ -265,8 +265,10 @@ internal suspend fun CoroutineScope.runRecipeAutosave(
  * recipe file only when the editor came back -- too late for anything that reads the recipe
  * meanwhile, such as the Library's Paste edit ([LookSync]), which runs on the same FIFO and so
  * sees this save. Serializes on the calling (main) thread; never waits. Applies the same gates as
- * the auto-save (recipe ready, writable generation) and leaves a pristine state to it, since
- * clearing a recipe moves the generation the editor holds.
+ * the auto-save (recipe ready, writable generation). A pristine state over an existing recipe
+ * (say, undone back to defaults) is SAVED as the defaults rather than deleted: deleting moves the
+ * generation the editor holds, and leaving the old file would let Paste edit spread a look the
+ * user discarded. The auto-save deletes it when the editor comes back.
  */
 internal fun flushRecipeBeforeLeaving(
     state: ParamsState,
@@ -276,12 +278,13 @@ internal fun flushRecipeBeforeLeaving(
     defaultsJson: String?,
     rotation: SourceRotation,
     sourceName: String,
+    hasRecipe: Boolean,
     recipeRepo: RecipeRepository,
 ) {
     if (!recipeReady || recipeKey == null) return
     val writableGeneration = recipeAccess.writableGenerationFor(recipeKey) ?: return
     val current = runCatching { Presets.toJsonString(state) }.getOrNull() ?: return
-    if (current == defaultsJson && rotation == SourceRotation.NONE) return
+    if (current == defaultsJson && rotation == SourceRotation.NONE && !hasRecipe) return
     val degrees = rotation.degrees
     RecipeWorkRuntime.submit {
         runCatching { recipeRepo.saveJson(recipeKey, current, sourceName, degrees, writableGeneration) }
