@@ -380,10 +380,9 @@ internal fun ExportMask(
     onCancel: () -> Unit,
 ) {
     // This overlay swallows every pointer event, so Back is the only system gesture that
-    // can reach anything while it is up. Without a handler of its own it fell through to
-    // the root double-back-to-exit -- so the escape from a finished export was "press Back
-    // twice and quit the app", and a stray Back during a render could take the whole
-    // session down mid-export. Always enabled: dismisses when done, inert while rendering,
+    // can reach anything while it is up. Without a handler of its own it would fall
+    // through to the editor root, where Back leaves the app -- so a stray Back during a
+    // render could send the app away mid-export. Always enabled: dismisses when done, inert while rendering,
     // because Cancel is a deliberate press and not a reflex.
     BackHandler(enabled = true) { if (done) onDismiss() }
     Box(
