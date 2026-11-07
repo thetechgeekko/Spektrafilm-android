@@ -61,12 +61,14 @@ internal fun SettingsDestination(
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val title = stringResource(R.string.editor_action_settings)
+        // Read here: inside Row the BoxWithConstraints receiver is not implicitly reachable.
+        val windowWidthDp = maxWidth.value
         // Held across a fold/unfold so the wide layout comes back on the page it showed.
         var detail by rememberSaveable { mutableStateOf(SettingsDetail.ABOUT) }
-        if (!settingsTwoPane(maxWidth.value)) {
+        if (!settingsTwoPane(windowWidthDp)) {
             NavScaffold(title, onBack = onBack) { settings(null, onOpenDetail) }
         } else Row(Modifier.fillMaxSize()) {
-            Box(Modifier.width(sidePaneWidthDp(maxWidth.value).dp).fillMaxHeight()) {
+            Box(Modifier.width(sidePaneWidthDp(windowWidthDp).dp).fillMaxHeight()) {
                 NavScaffold(title, onBack = onBack) { settings(detail) { detail = it } }
             }
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
