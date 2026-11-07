@@ -24,6 +24,7 @@ import com.spectrafilm.libraw.RawFormats
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -145,7 +146,15 @@ internal class LibraryViewModel(
     private val pasteLook: suspend (sourceUri: String, targets: List<LookSync.Target>) -> LookSync.Result =
         { _, _ -> LookSync.Result(0, 0, noSource = true) },
     private val sidecars: LibrarySidecarPort = LibrarySidecarPort.None,
+    /**
+     * Where writes run: look pastes, sidecar saves and grant releases (#453). The Library's
+     * ViewModel is scoped to its navigation entry and cleared when the user leaves, which
+     * must not cut a write to their photos short, so the app passes a process-wide scope.
+     * Null (tests) keeps them on [viewModelScope].
+     */
+    writes: CoroutineScope? = null,
 ) : ViewModel() {
+    private val writeScope: CoroutineScope = writes ?: viewModelScope
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
     private var lastRows: List<LibraryEntry> = emptyList()
 
@@ -170,7 +179,7 @@ internal class LibraryViewModel(
         if (_sidecarSave.value is LibrarySidecarState.Running) return
         val picked = only
         _sidecarSave.value = LibrarySidecarState.Running
-        viewModelScope.launch {
+        writeScope.launch {
             // A paste in flight changes which frames are edited and what their edits are:
             // save after it and the listing refresh it triggers, not from the state before.
             _paste.first { it !is LibraryPasteState.Running }
@@ -252,7 +261,7 @@ internal class LibraryViewModel(
         }
         if (targets.isEmpty()) return
         _paste.value = LibraryPasteState.Running(targets.size)
-        viewModelScope.launch {
+        writeScope.launch {
             val result = try {
                 withContext(io) { pasteLook(sourceUri, targets) }
             } catch (cancelled: CancellationException) {
@@ -341,7 +350,7 @@ internal class LibraryViewModel(
         if (retry != null && treeUri == previous) {
             // The user chose the folder again to let Spektrafilm write to it: finish the save
             // they asked for, once the listing it needs has landed.
-            viewModelScope.launch {
+            writeScope.launch {
                 loadJob?.join()
                 saveEditsBesidePhotos(retry)
             }
@@ -359,7 +368,7 @@ internal class LibraryViewModel(
     }
 
     private fun releaseUnused() {
-        viewModelScope.launch(io) {
+        writeScope.launch(io) {
             runCatching { store.releaseUnusedGrants() }
                 .onFailure { Diag.w("library grant release failed: ${it.message}") }
         }
