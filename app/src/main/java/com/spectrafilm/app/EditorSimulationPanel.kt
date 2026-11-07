@@ -16,7 +16,9 @@ import kotlinx.coroutines.CoroutineScope
  * profile-curve browser. Moved verbatim out of EditorScreen (#273).
  */
 @Composable
-internal fun MainActivity.EditorSimulationPanel(
+internal fun EditorSimulationPanel(
+    filmPreviewVm: StockPreviewViewModel,
+    printPreviewVm: StockPreviewViewModel,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,

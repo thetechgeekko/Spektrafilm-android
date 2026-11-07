@@ -30,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun MainActivity.EditorTopBar(
+internal fun EditorTopBar(
     canUndo: Boolean,
     canRedo: Boolean,
     onUndo: () -> Unit,
