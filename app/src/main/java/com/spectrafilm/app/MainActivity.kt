@@ -1551,6 +1551,9 @@ class MainActivity : ComponentActivity() {
         // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Zoom step 4: background decode of the zoom source after an idle settle (ZoomPrewarm).
+        val zoomPrewarmJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        val zoomPrewarmEligible = remember { ZoomPrewarm.eligible(ctx) }
         fun closeMagnifier() {
             // Cancel any in-flight crop render so it doesn't resurrect the overlay
             // state or leak its bitmap (a cancelled job recycles its own result).
@@ -1590,6 +1593,7 @@ class MainActivity : ComponentActivity() {
             gpuLut = null
             gpuGain = 1f
 
+            zoomPrewarmJobRef.value?.cancel()
             roiPublicationGate.invalidate()
             roiJobRef.value?.cancel()
             roiOverlay = null
@@ -1612,6 +1616,8 @@ class MainActivity : ComponentActivity() {
         // Invalidate an old edit generation before its next main-thread publication, cancel its
         // remaining native work, and retire its overlay while the replacement preview is pending.
         LaunchedEffect(previewTick) {
+            // An edit is under way: don't let the idle zoom-source decode compete with it.
+            zoomPrewarmJobRef.value?.cancel()
             roiPublicationGate.invalidate()
             roiJobRef.value?.cancel()
             roiOverlay = null
@@ -1629,6 +1635,7 @@ class MainActivity : ComponentActivity() {
             onDispose {
                 magnifierJobRef.value?.cancel()
                 roiJobRef.value?.cancel()
+                zoomPrewarmJobRef.value?.cancel()
             }
         }
         // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
@@ -2773,6 +2780,26 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        // Zoom step 4: once the fit preview has settled and the editor stays idle, decode the
+        // zoom source into zoomSourceCache so the first pinch starts from a cache hit (see
+        // ZoomPrewarm). Cancelled by the next edit; a zoom during the decode joins its flight.
+        fun scheduleZoomPrewarm() {
+            if (!sourceRenderAllowed) return
+            zoomPrewarmJobRef.value?.cancel()
+            zoomPrewarmJobRef.value = scope.launch {
+                delay(ZoomPrewarm.IDLE_DELAY_MS)
+                val start = System.nanoTime()
+                runCatching { loadSourceCachedForZoom(MAX_EDGE_PX).close() }
+                    .onSuccess {
+                        Diag.i("zoom prewarm ready ms=${(System.nanoTime() - start) / 1_000_000L}")
+                    }
+                    .onFailure { t ->
+                        if (t is CancellationException) throw t
+                        Diag.w("zoom prewarm failed: ${t.message}")
+                    }
+            }
+        }
+
         // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
         //
         // PERF/RACE: each tap previously launched an independent coroutine with no
@@ -3380,6 +3407,7 @@ class MainActivity : ComponentActivity() {
                     Ticket139EditorProbe.publishLivePreview(previewProbeLabel)
                     lastRenderMs = System.currentTimeMillis() - renderStart
                     Diag.i("render mode=preview ${after.width}x${after.height} ${after.width * after.height}px ${lastRenderMs}ms")
+                    if (zoomPrewarmEligible) scheduleZoomPrewarm()
                     renderErr = null
                     status = ctx.getString(R.string.editor_status_preview_ready)
                 }.onFailure {
