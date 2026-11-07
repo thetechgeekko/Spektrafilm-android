@@ -674,6 +674,23 @@ class MainActivity : ComponentActivity() {
      */
     private val incomingImageIntent = androidx.compose.runtime.mutableStateOf<Intent?>(null)
 
+    /**
+     * Hardware keyboard shortcuts (DeX, ChromeOS, keyboard covers). Set by the live editor
+     * composition and cleared when it leaves, so a shortcut can never act on an editor that
+     * is not on screen. Returns true when the shortcut was handled.
+     */
+    private var editorShortcutHandler: ((EditorShortcut) -> Boolean)? = null
+
+    /**
+     * Only reached for keys the focused view did NOT consume, so a text field keeps its own
+     * Ctrl+Z and typed characters. Dialogs and sheets are separate windows and never get here.
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        val shortcut = editorShortcutFor(event)
+        if (shortcut != null && editorShortcutHandler?.invoke(shortcut) == true) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -3695,6 +3712,36 @@ class MainActivity : ComponentActivity() {
                     exportVm.current.sheetOpen,
                 )
             }
+        }
+
+        // --- hardware keyboard shortcuts (EditorShortcuts.kt) ---
+        // Every shortcut calls the SAME action as its on-screen control. Esc goes through the
+        // back dispatcher, so it closes exactly what Back would (and in the same order), but
+        // only when something is open: at the root it must not arm double-back-to-exit.
+        val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
+            val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible
+            when (shortcut) {
+                EditorShortcut.CLOSE -> {
+                    val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
+                    if (closable) onBackPressedDispatcher.onBackPressed()
+                    closable
+                }
+                EditorShortcut.UNDO -> !overlayOpen && editHistory.canUndo && run { doUndo(); true }
+                EditorShortcut.REDO -> !overlayOpen && editHistory.canRedo && run { doRedo(); true }
+                EditorShortcut.OPEN -> !overlayOpen && run {
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    true
+                }
+                EditorShortcut.EXPORT -> !overlayOpen && run { requestExport(); true }
+                EditorShortcut.TOGGLE_COMPARE -> !overlayOpen && run {
+                    viewerVm.onAction(EditorViewerAction.ToggleCompare)
+                    true
+                }
+            }
+        }
+        DisposableEffect(Unit) {
+            editorShortcutHandler = { shortcutHandler(it) }
+            onDispose { editorShortcutHandler = null }
         }
 
         // --- back handling on the root editor ---
