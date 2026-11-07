@@ -592,6 +592,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
     }
 
+    /** Viewer modes: compare, histogram, hidden chrome (#272). */
+    private val viewerVm: EditorViewerViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewerViewModel::class.java]
+    }
+
     /** On-photo tool overlays and mask selection for the editor (#272). */
     private val toolVm: EditorToolViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[EditorToolViewModel::class.java]
@@ -1313,9 +1318,10 @@ class MainActivity : ComponentActivity() {
         var bakingLut by remember { mutableStateOf(false) }
         var pendingLutText by remember { mutableStateOf<String?>(null) }
 
-        // viewer modes
-        var compareMode by remember { mutableStateOf(false) }
-        var showHistogram by remember { mutableStateOf(false) }
+        // Viewer modes (compare, histogram, hidden chrome) live in EditorViewerViewModel (#272).
+        // Not journalled: every editor composition starts with them off, as before.
+        remember { viewerVm.reset(); true }
+        val viewerUi by viewerVm.uiState.collectAsStateWithLifecycle()
 
         // Experimental GPU LUT preview (Settings → Experimental, default OFF). When on we
         // keep the latest linear proxy + a baked 3D LUT of the current look; PreviewRegion
@@ -1346,12 +1352,11 @@ class MainActivity : ComponentActivity() {
 
         // 100% grain magnifier
         var magnifierOpen by remember { mutableStateOf(false) }
-        // Lightroom's single tap on the photo: everything but the picture gets out of the way.
-        // Deliberately NOT animated. Hiding the top bar and the rail changes the preview's
-        // height, and the preview is a weight(1f) sibling — animating that would remeasure it
-        // every frame, which is the churn documented on PanelOverlay. A one-shot layout change
-        // is a different thing and is what this is.
-        var chromeHidden by remember { mutableStateOf(false) }
+        // Lightroom's single tap on the photo: everything but the picture gets out of the way
+        // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
+        // changes the preview's height, and the preview is a weight(1f) sibling — animating
+        // that would remeasure it every frame, which is the churn documented on PanelOverlay.
+        // A one-shot layout change is a different thing and is what this is.
         var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
         var magnifierRendering by remember { mutableStateOf(false) }
         var magnifierStatus by remember { mutableStateOf("") }
@@ -2662,7 +2667,7 @@ class MainActivity : ComponentActivity() {
         fun renderRoi(roi: RoiRect) {
             if (!sourceRenderAllowed) return
             val e = engine ?: return
-            if (toolVm.current.anyOverlayOpen || compareMode) return
+            if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
             roiJobRef.value?.cancel()
             val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
             val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
@@ -2812,7 +2817,7 @@ class MainActivity : ComponentActivity() {
                     RenderPublicationPriority.DRAFT,
                 )
                 val e = engine ?: return@LaunchedEffect
-                if (toolVm.current.anyOverlayOpen || compareMode) return@LaunchedEffect
+                if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return@LaunchedEffect
                 // Lightroom's ICBSliderTrackingBegin/End gate. `interacting` has been
                 // written by SliderInteraction since the widget shipped but was never
                 // read, so the draft pass fired on EVERY edit — including discrete ones
@@ -3534,7 +3539,7 @@ class MainActivity : ComponentActivity() {
         // 2) else double-back-to-exit with one-time hint.
         // Above every other rung: with the chrome hidden there is no visible control at
         // all, so Back has to mean "give me the app back" before it means anything else.
-        BackHandler(enabled = chromeHidden) { chromeHidden = false }
+        BackHandler(enabled = viewerUi.chromeHidden) { viewerVm.onAction(EditorViewerAction.ShowChrome) }
         BackHandler(enabled = toolUi.cropOpen) { toolVm.onAction(EditorToolAction.CloseCrop) }
         BackHandler(enabled = toolUi.maskGeometryOpen) { toolVm.onAction(EditorToolAction.CloseMaskGeometry) }
         BackHandler(enabled = toolUi.sampleOpen) { toolVm.onAction(EditorToolAction.CloseSample) }
@@ -3583,7 +3588,7 @@ class MainActivity : ComponentActivity() {
                     .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
             ) {
                 // --- TOP BAR ---
-                if (!chromeHidden) EditorTopBar(
+                if (!viewerUi.chromeHidden) EditorTopBar(
                     canExport = engine != null && sourceRenderAllowed && !previewBusy && !exportInFlight,
                     exporting = exportInFlight,
                     canUndo = editHistory.canUndo,
@@ -3922,8 +3927,8 @@ class MainActivity : ComponentActivity() {
                             Category.SOURCE -> SourcePanel(
                                 sourceName = sourceName,
                                 status = status,
-                                showHistogram = showHistogram,
-                                onToggleHistogram = { showHistogram = !showHistogram },
+                                showHistogram = viewerUi.histogram,
+                                onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
                                 hasRecipe = hasRecipe,
                                 needsAuthorization = sourceAuthorizationRequired,
                                 onReauthorize = {
@@ -4045,21 +4050,21 @@ class MainActivity : ComponentActivity() {
                             exporting = exportInFlight,
                             lastRenderMs = lastRenderMs,
                             renderErr = renderErr,
-                            compareMode = compareMode,
-                            showHistogram = showHistogram,
+                            compareMode = viewerUi.compare,
+                            showHistogram = viewerUi.histogram,
                             gpuEnabled = gpuEnabled,
                             gpuProxy = gpuProxy,
                             gpuLut = gpuLut,
                             gpuGain = gpuGain,
-                            onToggleCompare = { compareMode = !compareMode },
-                            onToggleHistogram = { showHistogram = !showHistogram },
+                            onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
+                            onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
                             onRotate = { rotation = rotation.next() },
                             onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
                             // Single tap on the photo = show/hide the chrome. The point is
                             // ignored: this is a toggle, not a pick. The magnifier that used to
                             // own this gesture now has the button below, which is the affordance
                             // the in-app guide already claimed existed.
-                            onPointPicked = { _, _ -> chromeHidden = !chromeHidden },
+                            onPointPicked = { _, _ -> viewerVm.onAction(EditorViewerAction.ToggleChrome) },
                             onOpenMagnifier = { openMagnifier(0.5f, 0.5f) },
                             renderKey = previewTick,
                             roiOverlay = roiOverlay,
@@ -4110,7 +4115,7 @@ class MainActivity : ComponentActivity() {
                                         .heightIn(min = 220.dp),
                                 ) { previewRegion() }
                                 // --- CATEGORY BAR (under the preview column) ---
-                                if (!chromeHidden) categoryBar()
+                                if (!viewerUi.chromeHidden) categoryBar()
                             }
                             // --- ADJUSTMENT PANEL (docked side column) ---
                             // A Row sibling, deliberately not animated: the preview keeps its
@@ -4144,7 +4149,7 @@ class MainActivity : ComponentActivity() {
                                 // forced GPU preview off) and jolted the CPU preview too; a
                                 // constant-height preview fixes both and unblocks GPU.
                                 PanelOverlay(
-                                    visible = activeCategory != null && !chromeHidden,
+                                    visible = activeCategory != null && !viewerUi.chromeHidden,
                                     dimming = interacting,
                                 ) {
                                     AdjustmentPanel(
@@ -4177,7 +4182,7 @@ class MainActivity : ComponentActivity() {
                             }
 
                             // --- BOTTOM CATEGORY BAR ---
-                            if (!chromeHidden) categoryBar()
+                            if (!viewerUi.chromeHidden) categoryBar()
                         }
                     }
                 }

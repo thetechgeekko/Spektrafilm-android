@@ -37,6 +37,7 @@ class AppViewModelFactoryTest {
         assertTrue(create(ExportViewModel::class.java) is ExportViewModel)
         assertTrue(create(PresetViewModel::class.java) is PresetViewModel)
         assertTrue(create(EditorToolViewModel::class.java) is EditorToolViewModel)
+        assertTrue(create(EditorViewerViewModel::class.java) is EditorViewerViewModel)
     }
 
     @Test fun settingsComeFromTheInjectedBuilder() {
