@@ -66,6 +66,11 @@ data class HdrGainMapContract(
     val epsilonSdr: Float,
     val epsilonHdr: Float,
     val minDisplayRatioForHdrTransition: Float,
+    /**
+     * One gain per colour channel instead of one shared max gain. A shared map pushes coloured
+     * highlights (halation glow, warm sunsets) toward white; per-channel gains keep their hue.
+     */
+    val multichannel: Boolean = false,
 ) {
     val isSpatial: Boolean get() = downsample >= 1
 }
@@ -231,13 +236,16 @@ class OutputDescriptor private constructor(
                             // no display reconstructs.
                             downsample = 4,
                             ratioMin = 1.0f,
-                            // +3 stops. A handful of overshooting pixels must not be able to
-                            // stretch the whole map's scale and flatten the real detail.
-                            ratioMaxCeiling = 8.0f,
+                            // +4 stops, the headroom current HDR phone panels reach. The ceiling
+                            // still stops a handful of overshooting pixels from stretching the
+                            // whole map's scale and flattening the real detail; the map's own
+                            // ratioMax is measured per render and is usually far lower.
+                            ratioMaxCeiling = 16.0f,
                             gamma = 1.0f,
                             epsilonSdr = 0.015625f,
                             epsilonHdr = 0.015625f,
                             minDisplayRatioForHdrTransition = 1.0f,
+                            multichannel = true,
                         )
                     } else {
                         null

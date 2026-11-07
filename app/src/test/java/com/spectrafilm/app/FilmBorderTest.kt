@@ -216,4 +216,22 @@ class FilmBorderTest {
         }
         assertEquals(mw * mh, nonZero)
     }
+
+    @Test
+    fun `a three-channel gain map pads with every channel kept together`() {
+        val mw = 20
+        val mh = 15
+        val alpha = ByteArray(mw * mh * 3) { (1 + it % 250).toByte() }
+        val map = HdrGainMap.Result(alpha, mw, mh, 1.5f, 1.6f, 7, channels = 3)
+        val layout = FilmBorderGeometry.layout(FilmBorder.PRINT_WHITE, 40, 30)!! // margin 2 px
+        val padded = HdrGainMap.padForBorder(map, layout)
+        assertEquals(3, padded.channels)
+        assertEquals(22 * 17 * 3, padded.alpha.size)
+        for (y in 0 until padded.height) for (x in 0 until padded.width) for (c in 0 until 3) {
+            val v = padded.alpha[(y * padded.width + x) * 3 + c]
+            val inPhoto = x in 1 until 1 + mw && y in 1 until 1 + mh
+            val want = if (inPhoto) alpha[((y - 1) * mw + (x - 1)) * 3 + c] else 0.toByte()
+            assertEquals("cell $x,$y channel $c", want, v)
+        }
+    }
 }

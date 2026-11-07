@@ -23,6 +23,7 @@ class HdrGainMapTest {
         height: Int,
         downsample: Int = 1,
         ceiling: Float = 4f,
+        multichannel: Boolean = false,
     ) = HdrGainMap.compute(
         rgb = java.nio.FloatBuffer.wrap(rgb),
         width = width,
@@ -33,6 +34,7 @@ class HdrGainMapTest {
         ratioMaxCeiling = ceiling,
         epsilonSdr = 0.015625f,
         epsilonHdr = 0.015625f,
+        multichannel = multichannel,
     )
 
     private fun flat(value: Float, width: Int, height: Int) =
@@ -168,5 +170,38 @@ class HdrGainMapTest {
         val result = compute(flat(-0.5f, 2, 2), 2, 2)
         assertFalse(result.hasHeadroom)
         assertEquals(0, result.gainedPixels)
+    }
+
+    @Test
+    fun `a multichannel map stores three interleaved gains per cell`() {
+        val result = compute(flat(1.5f, 4, 2), 4, 2, multichannel = true)
+        assertEquals(3, result.channels)
+        assertEquals(4 * 2 * 3, result.alpha.size)
+        assertTrue(result.hasHeadroom)
+        assertTrue("a neutral highlight gains equally in R, G and B", result.alpha.all { it.toInt() and 0xFF == 255 })
+    }
+
+    @Test
+    fun `a red-only highlight gains only in the red channel`() {
+        // R above white, G and B below: a halation-style coloured glow.
+        val rgb = floatArrayOf(1.8f, 0.4f, 0.3f)
+        val multi = compute(rgb, 1, 1, multichannel = true)
+        assertTrue(multi.hasHeadroom)
+        assertEquals(255, multi.alpha[0].toInt() and 0xFF)
+        assertEquals("green must not be pushed toward white", 0, multi.alpha[1].toInt() and 0xFF)
+        assertEquals("blue must not be pushed toward white", 0, multi.alpha[2].toInt() and 0xFF)
+        // The single-channel map, by contrast, has one shared gain that lifts every channel.
+        val single = compute(rgb, 1, 1)
+        assertEquals(1, single.channels)
+        assertEquals(255, single.alpha[0].toInt() and 0xFF)
+    }
+
+    @Test
+    fun `multichannel and single channel claim the same headroom`() {
+        val rgb = floatArrayOf(1.2f, 0.5f, 0.5f, 0.5f, 1.6f, 0.5f)
+        val multi = compute(rgb, 2, 1, multichannel = true)
+        val single = compute(rgb, 2, 1)
+        assertEquals(single.ratioMax, multi.ratioMax, 1e-6f)
+        assertEquals(single.gainedPixels, multi.gainedPixels)
     }
 }

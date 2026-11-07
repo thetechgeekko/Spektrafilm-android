@@ -21,9 +21,16 @@
  *     g = log2((hdr + epsilonHdr) / (sdr + epsilonSdr)) / log2(ratioMax)
  *
  * Two details matter for correctness. The ratio is computed in LINEAR light, decoding the
- * CCTF first, because a ratio of gamma-encoded values is not a ratio of luminances. And the
- * per-pixel gain is the maximum across channels rather than a luminance, so recovering a blown
- * highlight cannot leave one channel still clipped.
+ * CCTF first, because a ratio of gamma-encoded values is not a ratio of luminances. And a
+ * single-channel map takes the maximum across channels rather than a luminance, so recovering a
+ * blown highlight cannot leave one channel still clipped.
+ *
+ * MULTICHANNEL (the default for Ultra HDR export): one gain per colour channel. A single max-gain
+ * map multiplies the channels that were NOT clipped by the gain of the one that was, so a
+ * coloured highlight -- a red halation glow, a warm sunset -- is restored brighter but shifted
+ * toward white. Per-channel gains restore each channel's own above-white value, which is what the
+ * film rendered. The scene-referred highlight gain is a luminance, so it applies equally to all
+ * three channels.
  */
 package com.spectrafilm.app
 
@@ -47,6 +54,7 @@ internal object HdrGainMap {
      * all rather than leaving it to be assumed.
      */
     class Result(
+        /** [channels] bytes per map cell, interleaved (1 = one shared gain, 3 = R,G,B). */
         val alpha: ByteArray,
         val width: Int,
         val height: Int,
@@ -57,6 +65,7 @@ internal object HdrGainMap {
         val sceneCells: Int = 0,
         /** Scene-to-render exposure factor, or NaN when no scene was used. */
         val exposureMatch: Float = Float.NaN,
+        val channels: Int = 1,
     ) {
         /** True when the render genuinely exceeded SDR white somewhere. */
         val hasHeadroom: Boolean get() = ratioMax > 1.0001f
@@ -77,13 +86,16 @@ internal object HdrGainMap {
         val top = (layout.image.top * sy).roundToInt()
         val outW = max(left + map.width, (layout.outWidth * sx).roundToInt())
         val outH = max(top + map.height, (layout.outHeight * sy).roundToInt())
-        val alpha = ByteArray(outW * outH)
+        val n = map.channels
+        val alpha = ByteArray(outW * outH * n)
         for (y in 0 until map.height) {
-            System.arraycopy(map.alpha, y * map.width, alpha, (top + y) * outW + left, map.width)
+            System.arraycopy(
+                map.alpha, y * map.width * n, alpha, ((top + y) * outW + left) * n, map.width * n,
+            )
         }
         return Result(
             alpha, outW, outH, map.ratioMax, map.maxRatio, map.gainedPixels,
-            map.sceneCells, map.exposureMatch,
+            map.sceneCells, map.exposureMatch, n,
         )
     }
 
@@ -111,15 +123,17 @@ internal object HdrGainMap {
         epsilonSdr: Float,
         epsilonHdr: Float,
         scene: SceneLuma? = null,
+        multichannel: Boolean = false,
     ): Result {
         require(width > 0 && height > 0) { "gain map needs a non-empty image" }
         require(downsample >= 1) { "downsample must be >= 1" }
         val mapW = max(1, (width + downsample - 1) / downsample)
         val mapH = max(1, (height + downsample - 1) / downsample)
+        val n = if (multichannel) 3 else 1
         if (scene != null && scene.width == mapW && scene.height == mapH) {
             computeWithScene(
                 rgb, width, height, colorSpace, cctfEncoded, downsample, mapW, mapH,
-                ratioMaxCeiling, epsilonSdr, epsilonHdr, scene,
+                ratioMaxCeiling, epsilonSdr, epsilonHdr, scene, n,
             )?.let { return it }
         }
 
@@ -137,11 +151,11 @@ internal object HdrGainMap {
         }
         val ratioMax = min(max(maxRatio, 1f), ratioMaxCeiling)
 
-        val alpha = ByteArray(mapW * mapH)
+        val alpha = ByteArray(mapW * mapH * n)
         if (ratioMax <= 1.0001f) {
             // No headroom: a zero map is a correct, no-op gain map. The container stays valid and
             // truthfully claims nothing.
-            return Result(alpha, mapW, mapH, 1f, maxRatio, gained)
+            return Result(alpha, mapW, mapH, 1f, maxRatio, gained, channels = n)
         }
 
         val logRatioMax = ln(ratioMax.toDouble()) / LOG2
@@ -153,24 +167,29 @@ internal object HdrGainMap {
                 val x1 = min(x0 + downsample, width)
                 // Average the gain over the block rather than point-sampling, so a single bright
                 // pixel does not become a hard edge in the map.
-                var sum = 0.0
-                var count = 0
-                for (y in y0 until y1) {
-                    val row = y * width
-                    for (x in x0 until x1) {
-                        val ratio = pixelRatio(
-                            rgb, (row + x) * 3, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr,
-                        )
-                        val g = (ln(ratio.toDouble()) / LOG2) / logRatioMax
-                        sum += if (g < 0.0) 0.0 else if (g > 1.0) 1.0 else g
-                        count++
+                for (c in 0 until n) {
+                    var sum = 0.0
+                    var count = 0
+                    for (y in y0 until y1) {
+                        val row = y * width
+                        for (x in x0 until x1) {
+                            val o = (row + x) * 3
+                            val ratio = if (n == 1) {
+                                pixelRatio(rgb, o, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
+                            } else {
+                                channelRatio(rgb, o, c, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
+                            }
+                            val g = (ln(ratio.toDouble()) / LOG2) / logRatioMax
+                            sum += if (g < 0.0) 0.0 else if (g > 1.0) 1.0 else g
+                            count++
+                        }
                     }
+                    val g = if (count == 0) 0.0 else sum / count
+                    alpha[(my * mapW + mx) * n + c] = (g * 255.0).roundToInt().coerceIn(0, 255).toByte()
                 }
-                val g = if (count == 0) 0.0 else sum / count
-                alpha[my * mapW + mx] = (g * 255.0).roundToInt().coerceIn(0, 255).toByte()
             }
         }
-        return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained)
+        return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained, channels = n)
     }
 
     /** Midtone band used to match the scene's exposure to the render's. */
@@ -207,6 +226,7 @@ internal object HdrGainMap {
         epsilonSdr: Float,
         epsilonHdr: Float,
         scene: SceneLuma,
+        n: Int,
     ): Result? {
         val cells = mapW * mapH
         // One CCTF decode per channel per pixel is ~36M pow() calls at 12 MP; a LUT over the
@@ -215,7 +235,8 @@ internal object HdrGainMap {
             OutputCctf.decode(colorSpace, i / (LUT_SIZE - 1f), cctfEncoded)
         }
         val sdrY = FloatArray(cells)
-        val renderLog = FloatArray(cells)
+        val renderLog = FloatArray(cells * n)
+        val logSum = DoubleArray(n)
         var maxRatio = 1f
         var gained = 0
         for (my in 0 until mapH) {
@@ -225,7 +246,7 @@ internal object HdrGainMap {
                 val x0 = mx * downsample
                 val x1 = min(x0 + downsample, width)
                 var lumSum = 0.0
-                var logSum = 0.0
+                logSum.fill(0.0)
                 var count = 0
                 for (y in y0 until y1) {
                     val row = y * width
@@ -234,7 +255,14 @@ internal object HdrGainMap {
                         val ratio = pixelRatio(rgb, o, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
                         if (ratio > 1.0001f) gained++
                         if (ratio > maxRatio) maxRatio = ratio
-                        if (ratio > 1f) logSum += ln(ratio.toDouble()) / LOG2
+                        if (n == 1) {
+                            if (ratio > 1f) logSum[0] += ln(ratio.toDouble()) / LOG2
+                        } else if (ratio > 1f) {
+                            for (ch in 0 until 3) {
+                                val r = channelRatio(rgb, o, ch, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
+                                if (r > 1f) logSum[ch] += ln(r.toDouble()) / LOG2
+                            }
+                        }
                         lumSum += sdrLuminance(rgb, o, decodeLut)
                         count++
                     }
@@ -242,7 +270,7 @@ internal object HdrGainMap {
                 val c = my * mapW + mx
                 if (count > 0) {
                     sdrY[c] = (lumSum / count).toFloat()
-                    renderLog[c] = (logSum / count).toFloat()
+                    for (ch in 0 until n) renderLog[c * n + ch] = (logSum[ch] / count).toFloat()
                 }
             }
         }
@@ -258,7 +286,7 @@ internal object HdrGainMap {
         val k = ratios[ratios.size / 2]
         if (!(k > 0f) || !k.isFinite()) return null
 
-        val logs = FloatArray(cells)
+        val logs = FloatArray(cells * n)
         var maxLog = 0f
         var sceneGained = 0
         for (c in 0 until cells) {
@@ -270,22 +298,24 @@ internal object HdrGainMap {
                 if (g > 1f) sceneLog = w * (ln(g.toDouble()) / LOG2).toFloat()
             }
             if (sceneLog > 0.001f) sceneGained++
-            val l = max(renderLog[c], sceneLog)
-            logs[c] = l
-            if (l > maxLog) maxLog = l
+            for (ch in 0 until n) {
+                val l = max(renderLog[c * n + ch], sceneLog)
+                logs[c * n + ch] = l
+                if (l > maxLog) maxLog = l
+            }
         }
         val logCeiling = (ln(ratioMaxCeiling.toDouble()) / LOG2).toFloat()
         val logRatioMax = min(maxLog, logCeiling)
-        val alpha = ByteArray(cells)
+        val alpha = ByteArray(cells * n)
         if (logRatioMax <= 0.0001f) {
-            return Result(alpha, mapW, mapH, 1f, maxRatio, gained, sceneCells = 0, exposureMatch = k)
+            return Result(alpha, mapW, mapH, 1f, maxRatio, gained, sceneCells = 0, exposureMatch = k, channels = n)
         }
-        for (c in 0 until cells) {
-            val g = (logs[c] / logRatioMax).coerceIn(0f, 1f)
-            alpha[c] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
+        for (i in 0 until cells * n) {
+            val g = (logs[i] / logRatioMax).coerceIn(0f, 1f)
+            alpha[i] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
         }
         val ratioMax = Math.pow(2.0, logRatioMax.toDouble()).toFloat()
-        return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained, sceneGained, k)
+        return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained, sceneGained, k, n)
     }
 
     private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
@@ -321,14 +351,27 @@ internal object HdrGainMap {
     ): Float {
         var worst = 1f
         for (channel in 0 until 3) {
-            val encoded = rgb.get(offset + channel)
-            if (encoded.isNaN()) continue
-            if (encoded <= 1f) continue // at or below white: this channel needs no gain
-            val hdrLinear = OutputCctf.decode(colorSpace, encoded, cctfEncoded)
-            val sdrLinear = OutputCctf.decode(colorSpace, 1f, cctfEncoded)
-            val ratio = (hdrLinear + epsilonHdr) / (sdrLinear + epsilonSdr)
+            val ratio = channelRatio(rgb, offset, channel, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
             if (ratio > worst) worst = ratio
         }
         return worst
+    }
+
+    /** Linear-light HDR-to-SDR ratio of one channel of one pixel (1 at or below white). */
+    private fun channelRatio(
+        rgb: FloatBuffer,
+        offset: Int,
+        channel: Int,
+        colorSpace: ColorSpace,
+        cctfEncoded: Boolean,
+        epsilonSdr: Float,
+        epsilonHdr: Float,
+    ): Float {
+        val encoded = rgb.get(offset + channel)
+        if (encoded.isNaN()) return 1f
+        if (encoded <= 1f) return 1f // at or below white: this channel needs no gain
+        val hdrLinear = OutputCctf.decode(colorSpace, encoded, cctfEncoded)
+        val sdrLinear = OutputCctf.decode(colorSpace, 1f, cctfEncoded)
+        return (hdrLinear + epsilonHdr) / (sdrLinear + epsilonSdr)
     }
 }
