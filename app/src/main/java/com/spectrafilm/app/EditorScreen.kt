@@ -4407,6 +4407,16 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
+            // The Library sits beside Open: both are ways to open a photo, and working
+            // through a shoot frame by frame should be one tap away.
+            TextTooltip(stringResource(R.string.library_title)) {
+                PressIconButton(onClick = onOpenLibrary) {
+                    Icon(
+                        SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
+                        tint = SpektraBrand.onCanvas,
+                    )
+                }
+            }
             // weight(1f): the title yields to the 48dp actions, so at 200% font it
             // ellipsizes instead of pushing the menu off the right edge (#181).
             Text(
@@ -4456,13 +4466,6 @@ internal fun MainActivity.EditorTopBar(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {
-                    // The Library (a folder of RAWs and photos) comes first: it is where a
-                    // shoot is worked through frame by frame.
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(stringResource(R.string.library_title)) },
-                        leadingIcon = { Icon(SpectraIcons.SourceImage, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenLibrary() },
-                    )
                     androidx.compose.material3.DropdownMenuItem(
                         text = { Text(stringResource(R.string.editor_action_settings)) },
                         leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },

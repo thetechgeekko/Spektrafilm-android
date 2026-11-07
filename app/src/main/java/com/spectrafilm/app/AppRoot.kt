@@ -513,10 +513,12 @@ internal fun MainActivity.AppRoot(
                 entry<LibraryRoute> {
                     LibraryDestination(
                         vm = libraryVm,
+                        currentUri = activeRestoration.source.uri,
                         onBack = { pop() },
                         onOpen = { uri ->
                             // The same dispatch as a shared or picked file: the editor
-                            // consumes it once it is the top entry again.
+                            // consumes it once it is the top entry again. Popping (not
+                            // pushing) the editor keeps Back from reopening the Library.
                             incomingImageIntent.value = Intent(Intent.ACTION_VIEW, uri)
                             popToEditor()
                         },

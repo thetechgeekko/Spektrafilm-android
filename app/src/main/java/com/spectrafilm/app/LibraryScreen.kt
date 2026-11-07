@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,13 +22,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -54,9 +55,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.withContext
@@ -69,7 +70,13 @@ private val thumbnailLane = ProcessDispatchers.io.limitedParallelism(3)
  * of a tapped frame.
  */
 @Composable
-internal fun LibraryDestination(vm: LibraryViewModel, onBack: () -> Unit, onOpen: (Uri) -> Unit) {
+internal fun LibraryDestination(
+    vm: LibraryViewModel,
+    /** The source open in the editor, outlined and scrolled to when it is in this folder. */
+    currentUri: String?,
+    onBack: () -> Unit,
+    onOpen: (Uri) -> Unit,
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     // Re-read on every visit, so frames shot since the last one appear.
     LaunchedEffect(Unit) { vm.refresh() }
@@ -105,7 +112,7 @@ internal fun LibraryDestination(vm: LibraryViewModel, onBack: () -> Unit, onOpen
             }
         },
     ) {
-        LibraryScreen(state, onChooseFolder = choose, onOpen = onOpen)
+        LibraryScreen(state, currentUri = currentUri, onChooseFolder = choose, onOpen = onOpen)
     }
 }
 
@@ -113,6 +120,7 @@ internal fun LibraryDestination(vm: LibraryViewModel, onBack: () -> Unit, onOpen
 @Composable
 internal fun LibraryScreen(
     state: LibraryUiState,
+    currentUri: String?,
     onChooseFolder: () -> Unit,
     onOpen: (Uri) -> Unit,
 ) {
@@ -143,27 +151,48 @@ internal fun LibraryScreen(
             action = stringResource(R.string.library_change_folder),
             onAction = choose,
         )
-        else -> LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 112.dp),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 4.dp,
-                end = 4.dp,
-                top = 4.dp,
-                bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-            ),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(state.entries, key = { it.documentUri }) { entry ->
-                LibraryCell(entry, onClick = { onOpen(Uri.parse(entry.documentUri)) })
-            }
+        else -> LibraryGrid(state.entries, currentUri, onOpen)
+    }
+}
+
+@Composable
+private fun LibraryGrid(entries: List<LibraryEntry>, currentUri: String?, onOpen: (Uri) -> Unit) {
+    val gridState = rememberLazyGridState()
+    // Find the user's place in the shoot: scroll to the frame open in the editor, once per
+    // visit, so a Refresh does not yank the grid back.
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(entries, currentUri) {
+        if (placed) return@LaunchedEffect
+        val index = entries.indexOfFirst { it.documentUri == currentUri }
+        if (index < 0) return@LaunchedEffect
+        gridState.scrollToItem(index)
+        placed = true
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 112.dp),
+        state = gridState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 4.dp,
+            end = 4.dp,
+            top = 4.dp,
+            bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        ),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items(entries, key = { it.documentUri }) { entry ->
+            LibraryCell(
+                entry,
+                current = entry.documentUri == currentUri,
+                onClick = { onOpen(Uri.parse(entry.documentUri)) },
+            )
         }
     }
 }
 
 @Composable
-private fun LibraryCell(entry: LibraryEntry, onClick: () -> Unit) {
+private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Unit) {
     val ctx = LocalContext.current
     val thumb by produceState<Bitmap?>(LibraryThumbnails.cached(entry.documentUri), entry.documentUri) {
         if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri) }
@@ -172,11 +201,19 @@ private fun LibraryCell(entry: LibraryEntry, onClick: () -> Unit) {
         Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(4.dp))
+            .then(
+                if (current) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
+                } else {
+                    Modifier
+                },
+            )
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = entry.name
+                selected = current
             },
     ) {
         thumb?.let {
@@ -205,19 +242,6 @@ private fun LibraryCell(entry: LibraryEntry, onClick: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                 )
             }
-        }
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-        ) {
-            Text(
-                entry.name,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            )
         }
     }
 }
