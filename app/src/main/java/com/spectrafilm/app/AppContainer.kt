@@ -19,11 +19,12 @@ import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
-/** Injected dispatchers. Tests pass a StandardTestDispatcher for all three. */
+/** Injected dispatchers (#277). Tests pass a StandardTestDispatcher for each. */
 internal data class AppDispatchers(
     val io: CoroutineDispatcher = Dispatchers.IO,
     val default: CoroutineDispatcher = Dispatchers.Default,
     val main: CoroutineDispatcher = Dispatchers.Main,
+    val mainImmediate: CoroutineDispatcher = Dispatchers.Main.immediate,
 )
 
 internal class AppContainer(context: Context) {
