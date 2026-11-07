@@ -161,7 +161,16 @@ class ExportForegroundService : Service() {
         val startedAt = intent?.getLongExtra(EXTRA_STARTED_AT, 0L) ?: 0L
         // Must reach startForeground within ~5 s of startForegroundService or the
         // system throws; doing it first thing in onStartCommand is well inside that.
-        if (!enterForeground(buildNotification(runId, startedAt))) {
+        // Building the notification touches NotificationManager (channel creation), which can
+        // throw too; keep it inside the same failure boundary so it never crashes the process
+        // that owns the export.
+        val notification = try {
+            buildNotification(runId, startedAt)
+        } catch (t: Throwable) {
+            Diag.w("export foreground notification could not be built: ${t.message}")
+            null
+        }
+        if (notification == null || !enterForeground(notification)) {
             // API 31+ can refuse a background start, and OEM policies vary. The export
             // still runs — just at background priority, i.e. how it behaved before.
             stopSelf(startId)

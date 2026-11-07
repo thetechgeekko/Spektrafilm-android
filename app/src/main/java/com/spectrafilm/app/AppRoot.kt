@@ -519,6 +519,7 @@ internal fun MainActivity.AppRoot(
                             versionsVm = versionsVm,
                             viewerVm = viewerVm,
                             incomingImageIntent = incomingImageIntent,
+                            launcherShortcut = launcherShortcut,
                             setEditorShortcutHandler = { editorShortcutHandler = it },
                             heldDropPermissions = heldDropPermissions,
                             requestDragAndDropPermissions = { requestDragAndDropPermissions(it) },
