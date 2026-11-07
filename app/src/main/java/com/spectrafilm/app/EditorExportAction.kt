@@ -229,6 +229,13 @@ internal fun MainActivity.startEditorExport(
                             exportContract,
                         )
                     }
+                    // #270: an idle pre-render of this very edit is joined, so its
+                    // payload is read below instead of rendered a second time; one
+                    // of any other edit is cancelled and waited out, so the two never
+                    // render at once.
+                    if (RenderPayloads.flight.settle(exportPrerenderKey)) {
+                        Diag.i("export joined the in-flight pre-render")
+                    }
                     val cached = exportCacheKey?.let {
                         ExportCaches.of(exportContext).get(it)
                     }

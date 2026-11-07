@@ -297,7 +297,10 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
             )
             if (store.holds(key) || !RenderPayloads.shouldPrerender(app)) return
             val startedMs = System.currentTimeMillis()
-            runCatching {
+            // #270: the render runs as a tracked flight, not as this effect's child, so an
+            // export of this very edit can join it instead of throwing it away (see
+            // PrerenderFlight). Any other cancellation of this effect cancels it as before.
+            val flight = RenderPayloads.flight.launch(key) {
                 withContext(dispatchers.default) {
                     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, dispatchers.io).image
                     val rendered = try {
@@ -324,6 +327,16 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
                         )
                         stored
                     }
+                }
+            }
+            runCatching {
+                try {
+                    flight.await()
+                } catch (cancelled: CancellationException) {
+                    // An export start cancels this effect (it is one of its keys); the export
+                    // then settles the flight itself. Anything else ends the speculation here.
+                    if (!exportVm.current.inFlight) flight.cancel()
+                    throw cancelled
                 }
             }.onSuccess { stored ->
                 if (stored) {
