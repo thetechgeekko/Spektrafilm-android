@@ -353,7 +353,8 @@ internal object EditorSessionDocumentCodec {
     private const val MAX_SOURCE_URI_CHARS = 16 * 1024
     private const val MAX_SOURCE_NAME_CHARS = 512
     private const val MAX_EXPORT_NAME_CHARS = 4_096
-    private const val FIXED_ROOT_NODES = 30L
+    // +1 for export.options.border (film border, #360).
+    private const val FIXED_ROOT_NODES = 31L
     private const val FIXED_ROOT_MAX_DEPTH = 4
     private const val DIRECT_PARAMS_DEPTH_OFFSET = 2
     private const val HISTORY_PARAMS_DEPTH_OFFSET = 4
