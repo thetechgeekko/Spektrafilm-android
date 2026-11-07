@@ -55,6 +55,7 @@ internal object OpenPlaceholder {
         uri: Uri,
         userRotation: SourceRotation,
         io: CoroutineDispatcher,
+        rawSource: Boolean,
         publish: (Bitmap) -> Unit,
     ) {
         val startNs = System.nanoTime()
@@ -65,7 +66,7 @@ internal object OpenPlaceholder {
             if (max(embedded.width, embedded.height) >= GOOD_ENOUGH_EDGE_PX) return
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val provided = loadProviderThumbnail(ctx, uri, userRotation, io) ?: return
+        val provided = loadProviderThumbnail(ctx, uri, userRotation, io, rawSource) ?: return
         Diag.i("open placeholder provider ${provided.width}x${provided.height} ms=${elapsedMs(startNs)}")
         publish(provided)
     }
@@ -86,8 +87,10 @@ internal object OpenPlaceholder {
         }.getOrNull()
 
     /**
-     * The provider thumbnail is returned upright (MediaStore applies the EXIF orientation), so
-     * only the user's manual step is applied here.
+     * MediaStore returns JPEG thumbnails upright but, measured on the test phone (One UI, DNG
+     * with orientation 90), RAW/DNG thumbnails come back in sensor orientation. So the file's
+     * own orientation is read here and [providerTransform] decides whether the provider
+     * already applied it.
      */
     @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun loadProviderThumbnail(
@@ -95,7 +98,9 @@ internal object OpenPlaceholder {
         uri: Uri,
         userRotation: SourceRotation,
         io: CoroutineDispatcher,
+        rawSource: Boolean,
     ): Bitmap? = coroutineScope {
+        val meta = withContext(io) { readOrientationMeta(ctx, uri) }
         val signal = CancellationSignal()
         // Cancels the binder call on timeout AND when this coroutine is cancelled (the render
         // arrived, or the source changed): a child is cancelled with its parent.
@@ -111,13 +116,39 @@ internal object OpenPlaceholder {
                 runCatching {
                     ctx.contentResolver.loadThumbnail(uri, Size(TARGET_EDGE_PX, TARGET_EDGE_PX), signal)
                 }.getOrNull()?.let {
-                    transform(it, placeholderTransform(ExifOrientation.NONE, userRotation))
+                    transform(
+                        it,
+                        providerTransform(
+                            exif = meta.orientation,
+                            sourceW = meta.width,
+                            sourceH = meta.height,
+                            thumbW = it.width,
+                            thumbH = it.height,
+                            rawSource = rawSource,
+                            user = userRotation,
+                        ),
+                    )
                 }
             }
         } finally {
             watchdog.cancel()
         }
     }
+
+    private class OrientationMeta(val orientation: ExifOrientation, val width: Int, val height: Int)
+
+    private fun readOrientationMeta(ctx: Context, uri: Uri): OrientationMeta = runCatching {
+        ctx.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+            val exif = ExifInterface(pfd.fileDescriptor)
+            OrientationMeta(
+                ExifOrientation.fromExif(
+                    exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL),
+                ),
+                exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0),
+                exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0),
+            )
+        }
+    }.getOrNull() ?: OrientationMeta(ExifOrientation.NONE, 0, 0)
 
     /** Applies [t] and the [TARGET_EDGE_PX] cap in one pass; recycles [src] if it was copied. */
     private fun transform(src: Bitmap, t: PlaceholderTransform): Bitmap {
@@ -145,3 +176,33 @@ internal data class PlaceholderTransform(val flipH: Boolean, val degrees: Int) {
  */
 internal fun placeholderTransform(exif: ExifOrientation, user: SourceRotation): PlaceholderTransform =
     PlaceholderTransform(exif.flipH, exif.rotation.then(user).degrees)
+
+/**
+ * Transform for a provider thumbnail of a source whose stored orientation is [exif] and stored
+ * (unrotated) size is [sourceW]x[sourceH].
+ *
+ * For a quarter turn the aspect tells whether the provider already rotated it: a thumbnail whose
+ * landscape/portrait shape still matches the stored frame was not rotated, so the EXIF turn is
+ * applied here. When the stored size is unknown or square, or the orientation is a half turn or a
+ * mirror (which keep the aspect), the aspect cannot tell, and RAW sources get the EXIF transform
+ * while other sources are trusted to be upright (MediaStore's behaviour for JPEG/HEIC).
+ */
+internal fun providerTransform(
+    exif: ExifOrientation,
+    sourceW: Int,
+    sourceH: Int,
+    thumbW: Int,
+    thumbH: Int,
+    rawSource: Boolean,
+    user: SourceRotation,
+): PlaceholderTransform {
+    if (exif.isIdentity) return placeholderTransform(ExifOrientation.NONE, user)
+    val quarterTurn = exif.rotation == SourceRotation.CW90 || exif.rotation == SourceRotation.CW270
+    val aspectKnown = sourceW > 0 && sourceH > 0 && sourceW != sourceH && thumbW != thumbH
+    val providerApplied = if (quarterTurn && aspectKnown) {
+        (sourceW > sourceH) != (thumbW > thumbH)
+    } else {
+        !rawSource
+    }
+    return placeholderTransform(if (providerApplied) ExifOrientation.NONE else exif, user)
+}
