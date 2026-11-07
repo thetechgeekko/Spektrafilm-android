@@ -38,6 +38,17 @@ class PhotoVersionsTest {
         assertEquals(-0.5, JSONObject(fresh[0].paramsJson).getDouble("exposureEv"), 0.0)
     }
 
+    @Test fun rotationIsKeptWithTheVersion() {
+        val r = repo()
+        val v = r.add(key, "turned", params(0.0), rotationDegrees = 90)
+        assertEquals(90, loaded(repo()).single().rotationDegrees)
+        r.replaceParams(key, v.id, params(0.0), rotationDegrees = 270)
+        assertEquals(270, loaded(r).single().rotationDegrees)
+        // Anything that is not a quarter turn normalises to none.
+        r.add(key, "odd", params(0.0), rotationDegrees = 45)
+        assertEquals(0, loaded(r).first().rotationDegrees)
+    }
+
     @Test fun aBlankNameGetsTheNextFreeDefault() {
         val r = repo()
         r.add(key, "Version 2", params(0.0))

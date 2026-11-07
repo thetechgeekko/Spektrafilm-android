@@ -4142,7 +4142,7 @@ class MainActivity : ComponentActivity() {
                                         ui = versionsUi,
                                         onSave = { name ->
                                             runCatching { Presets.toJsonString(state) }
-                                                .onSuccess { versionsVm.save(name, it) }
+                                                .onSuccess { versionsVm.save(name, it, rotation.degrees) }
                                                 .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
                                         },
                                         onApply = { version ->
@@ -4151,6 +4151,9 @@ class MainActivity : ComponentActivity() {
                                             runCatching { Presets.decode(org.json.JSONObject(version.paramsJson), state) }
                                                 .onSuccess {
                                                     presetVm.onAction(PresetAction.ClearAmount)
+                                                    // Crop and masks were saved against this
+                                                    // orientation, so it comes back with them.
+                                                    rotation = SourceRotation.fromDegrees(version.rotationDegrees)
                                                     status = ctx.getString(R.string.editor_status_version_applied, version.name)
                                                     previewTick++
                                                 }
@@ -4158,7 +4161,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onReplaceWithCurrent = { version ->
                                             runCatching { Presets.toJsonString(state) }
-                                                .onSuccess { versionsVm.replaceWithCurrent(version, it) }
+                                                .onSuccess { versionsVm.replaceWithCurrent(version, it, rotation.degrees) }
                                                 .onFailure { status = ctx.getString(R.string.editor_status_copy_failed) }
                                         },
                                         onRename = { version, name -> versionsVm.rename(version.id, name) },

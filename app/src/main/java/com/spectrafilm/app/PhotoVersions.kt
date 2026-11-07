@@ -39,6 +39,8 @@ internal data class PhotoVersion(
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
     val paramsJson: String,
+    /** The photo's manual rotation when saved (0/90/180/270): crop and masks are relative to it. */
+    val rotationDegrees: Int = 0,
 )
 
 /** The on-disk document: `{"schema":..., "version":1, "sourceKey":..., "versions":[...]}`. */
@@ -57,7 +59,8 @@ internal object PhotoVersionCodec {
                     .put("name", v.name)
                     .put("createdAt", v.createdAtMillis)
                     .put("updatedAt", v.updatedAtMillis)
-                    .put("params", JSONObject(v.paramsJson)),
+                    .put("params", JSONObject(v.paramsJson))
+                    .put("rotation", v.rotationDegrees),
             )
         }
         return JSONObject()
@@ -84,6 +87,7 @@ internal object PhotoVersionCodec {
                 createdAtMillis = o.getLong("createdAt"),
                 updatedAtMillis = o.optLong("updatedAt", o.getLong("createdAt")),
                 paramsJson = o.getJSONObject("params").toString(),
+                rotationDegrees = SourceRotation.fromDegrees(o.optInt("rotation", 0)).degrees,
             )
         }
     }
@@ -117,12 +121,12 @@ internal interface VersionRepository {
     fun list(key: String): VersionListResult
 
     /** Saves [paramsJson] as a new version (newest first). Fails when the photo is full. */
-    fun add(key: String, name: String, paramsJson: String): PhotoVersion
+    fun add(key: String, name: String, paramsJson: String, rotationDegrees: Int = 0): PhotoVersion
 
     fun rename(key: String, id: String, name: String)
 
-    /** Overwrites a version's look with [paramsJson], keeping its name. */
-    fun replaceParams(key: String, id: String, paramsJson: String)
+    /** Overwrites a version's look with [paramsJson] and [rotationDegrees], keeping its name. */
+    fun replaceParams(key: String, id: String, paramsJson: String, rotationDegrees: Int = 0)
 
     /** Removes a version and returns it (for Undo), or null when it was already gone. */
     fun delete(key: String, id: String): PhotoVersion?
@@ -162,7 +166,7 @@ internal class FileVersionRepository(
         }
     }
 
-    override fun add(key: String, name: String, paramsJson: String): PhotoVersion {
+    override fun add(key: String, name: String, paramsJson: String, rotationDegrees: Int): PhotoVersion {
         // Parse now so a malformed payload fails here, not on the next read of the document.
         JSONObject(paramsJson)
         return mutate(key) { current ->
@@ -177,6 +181,7 @@ internal class FileVersionRepository(
                 createdAtMillis = now,
                 updatedAtMillis = now,
                 paramsJson = paramsJson,
+                rotationDegrees = SourceRotation.fromDegrees(rotationDegrees).degrees,
             )
             (listOf(created) + current) to created
         }
@@ -190,11 +195,16 @@ internal class FileVersionRepository(
         }
     }
 
-    override fun replaceParams(key: String, id: String, paramsJson: String) {
+    override fun replaceParams(key: String, id: String, paramsJson: String, rotationDegrees: Int) {
         JSONObject(paramsJson)
+        val rotation = SourceRotation.fromDegrees(rotationDegrees).degrees
         mutate(key) { current ->
             current.map {
-                if (it.id == id) it.copy(paramsJson = paramsJson, updatedAtMillis = clock()) else it
+                if (it.id == id) {
+                    it.copy(paramsJson = paramsJson, rotationDegrees = rotation, updatedAtMillis = clock())
+                } else {
+                    it
+                }
             } to Unit
         }
     }
@@ -314,14 +324,14 @@ internal class VersionsViewModel(
         }
     }
 
-    fun save(name: String, paramsJson: String) = run { key ->
-        VersionEvent.Saved(repository.add(key, name, paramsJson))
+    fun save(name: String, paramsJson: String, rotationDegrees: Int) = run { key ->
+        VersionEvent.Saved(repository.add(key, name, paramsJson, rotationDegrees))
     }
 
     fun rename(id: String, name: String) = run { key -> repository.rename(key, id, name); null }
 
-    fun replaceWithCurrent(version: PhotoVersion, paramsJson: String) = run { key ->
-        repository.replaceParams(key, version.id, paramsJson)
+    fun replaceWithCurrent(version: PhotoVersion, paramsJson: String, rotationDegrees: Int) = run { key ->
+        repository.replaceParams(key, version.id, paramsJson, rotationDegrees)
         VersionEvent.Updated(version.name)
     }
 
