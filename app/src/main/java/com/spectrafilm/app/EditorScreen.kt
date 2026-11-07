@@ -810,39 +810,20 @@ internal fun EditorScreen(
         val list = loaded.profiles
         engine = loaded.engine
         profiles = list
-        settings.applyDefaultsTo(state, list)
-        if (list.isNotEmpty()) {
-            if (state.filmProfile !in list) state.filmProfile = list.first()
-            if (state.printProfile !in list) state.printProfile = list.first()
-        }
-        val freshDefaults = Presets.toJsonString(state)
-        initialRestoredSession?.takeIf { restored ->
-            sourceUri?.toString() == restored.source.uri &&
-                sourceKind == restored.source.kind
-        }?.current?.let { restored ->
-            val removedProfileReference = initialRestoredSession
-                ?.referencesUnavailableProfiles(list.toSet()) == true
-            Presets.decode(AtomicJsonStore.parseObject(restored.paramsJson), state)
-            // A catalog update can remove a profile named by an older session. Keep the
-            // source and valid edits, but use a real installed profile and re-baseline
-            // history instead of leaving an undo branch that cannot render.
-            var migratedProfile = false
-            if (list.isNotEmpty() && state.filmProfile !in list) {
-                state.filmProfile = list.first()
-                migratedProfile = true
-            }
-            if (list.isNotEmpty() && state.printProfile !in list) {
-                state.printProfile = list.first()
-                migratedProfile = true
-            }
-            toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
-            if (migratedProfile || removedProfileReference) {
-                editHistory.clear()
-                committedSnapshot = null
-                presetVm.onAction(PresetAction.ClearAmount)
-                presetVm.onAction(PresetAction.SetClipboard(null))
-                status = ctx.getString(R.string.editor_status_session_migrated)
-            }
+        val restore = session.applyCatalog(
+            profiles = list,
+            applyDefaults = settings::applyDefaultsTo,
+            restored = initialRestoredSession?.takeIf { restored ->
+                sourceUri?.toString() == restored.source.uri &&
+                    sourceKind == restored.source.kind
+            },
+        )
+        val freshDefaults = restore.freshDefaults
+        if (restore.restored) toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
+        if (restore.rebaselined) {
+            presetVm.onAction(PresetAction.ClearAmount)
+            presetVm.onAction(PresetAction.SetClipboard(null))
+            status = ctx.getString(R.string.editor_status_session_migrated)
         }
         builtInGroups = loaded.builtInGroups
         catalogReady = true
