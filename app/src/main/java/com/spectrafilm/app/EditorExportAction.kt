@@ -193,6 +193,7 @@ internal fun startEditorExport(
                     // IPC round trip and the coroutine dispatch hops.
                     val tDecode0 = System.currentTimeMillis()
                     phSetup = tDecode0 - exportStartMs
+                    ExportWorkRuntime.reportStage(ExportStage.DECODE)
 
                     // #179: a complete-key hit publishes the exact bytes a
                     // previous export produced, skipping decode, engine,
@@ -283,6 +284,7 @@ internal fun startEditorExport(
                     if (exportFmt == ExportFormat.SCENE_LINEAR_TIFF) {
                         // Export the decoded scene-linear INPUT (before the film
                         // engine) as a 32-bit float TIFF; the engine is skipped.
+                        ExportWorkRuntime.reportStage(ExportStage.ENCODE)
                         val tEnc0 = System.currentTimeMillis()
                         try {
                             publishedUri = withContext(dispatchers.io) {
@@ -306,6 +308,7 @@ internal fun startEditorExport(
                         // Copy source EXIF; GPS only when opted in.
                         // A full EXIF read of a ~25 MB RAW plus two thread-pool
                         // hops — its own phase, not silently between two others.
+                        ExportWorkRuntime.reportStage(ExportStage.EXIF)
                         val tExif0 = System.currentTimeMillis()
                         val srcExif = withContext(dispatchers.io) {
                             readSourceExif(exportContext, exportSourceUri, keepGps = keepGps)
@@ -316,6 +319,7 @@ internal fun startEditorExport(
                         // timing now covers that whole boundary; this Kotlin phase
                         // additionally includes the input close below and dispatch
                         // bookkeeping, so a small positive gap remains expected.
+                        ExportWorkRuntime.reportStage(ExportStage.SIMULATE)
                         val tSim0 = System.currentTimeMillis()
                         // Ultra HDR: the scene's highlight light, sampled while the
                         // decode is still open (SceneHighlightTap). Null otherwise.
@@ -367,6 +371,7 @@ internal fun startEditorExport(
                             check(res.colorSpace == outputDescriptor.engineColorSpace) {
                                 "Engine result color space disagrees with output contract"
                             }
+                            ExportWorkRuntime.reportStage(ExportStage.GRADE)
                             val tGrade0 = System.currentTimeMillis()
                             val bitmapEncoder = when (outputDescriptor.encoder) {
                                 OutputEncoder.ANDROID_BITMAP_PNG,
@@ -470,6 +475,7 @@ internal fun startEditorExport(
                             }
                             previewCandidate = bmp
                             phGrade = System.currentTimeMillis() - tGrade0
+                            ExportWorkRuntime.reportStage(ExportStage.ENCODE)
                             val tEnc0 = System.currentTimeMillis()
                             publishedUri = withContext(dispatchers.io) {
                                 when (outputDescriptor.encoder) {
