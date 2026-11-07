@@ -37,6 +37,16 @@ internal data class InteractiveRenderSnapshot(
                 // (and its size would follow the crop), so these partial renders omit it.
                 dateStamp = params.camera.dateStamp.copy(active = false),
             ),
+            // The contrast mask's blur is a fraction of the long edge the engine sees. On
+            // a crop that edge is shorter, so the fraction grows by 1/cropFraction to keep
+            // the mask the same physical size as on the whole frame. (The cropped render
+            // still cannot see the mask's context beyond the crop; close is the best a
+            // partial render can do, and it is far closer than dropping the mask.)
+            printRender = params.printRender.copy(
+                contrastMask = params.printRender.contrastMask.copy(
+                    scale = params.printRender.contrastMask.scale / cropFraction,
+                ),
+            ),
             settings = settings,
         )
     }

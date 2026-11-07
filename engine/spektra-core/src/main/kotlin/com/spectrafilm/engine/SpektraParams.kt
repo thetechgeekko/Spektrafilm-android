@@ -224,10 +224,30 @@ data class PrintCurvesMorphParams(
     val developerExhaustion: Float = 0.0f,
 )
 
+/**
+ * OPT-IN virtual contrast mask at the print (Android-only, not an upstream
+ * spektrafilm stage). An unsharp mask of the paper exposure, like a darkroom
+ * contrast mask sandwiched with the negative: big bright and dark areas move
+ * toward mid-grey while edges and texture keep their contrast. Print route only.
+ * Idea from SpektraLab RFC-024 (GPL-3.0-or-later); independent implementation.
+ *
+ * [highlights] / [shadows]: stops a print highlight / shadow far from mid-grey
+ * is pulled in (0..3). [core]: stops around mid-grey left alone (0..3).
+ * [scale]: blur radius as a fraction of the frame's long edge (0.002..0.12).
+ */
+data class ContrastMaskParams(
+    val active: Boolean = false,
+    val highlights: Float = 1.0f,
+    val shadows: Float = 0.5f,
+    val core: Float = 1.0f,
+    val scale: Float = 0.03f,
+)
+
 data class PrintRenderingParams(
     val densityCurveGamma: Float = 1.0f,
     val glare: GlareParams = GlareParams(),
     val densityCurvesMorph: PrintCurvesMorphParams = PrintCurvesMorphParams(),
+    val contrastMask: ContrastMaskParams = ContrastMaskParams(),
 )
 
 data class IoParams(

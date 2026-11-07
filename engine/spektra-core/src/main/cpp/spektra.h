@@ -400,6 +400,21 @@ typedef struct {
     float date_stamp_margin;            /* inset, fraction of short edge */
     float date_stamp_exposure_ev;       /* LED brightness, stops above mid-grey */
     float date_stamp_color[3];          /* LED colour, linear ProPhoto */
+
+    /* --- virtual contrast mask (opt-in, Android-only; NOT an oracle stage) ---
+     * model/contrast_mask.h. An unsharp mask of the print exposure, as a darkroom
+     * contrast mask sandwiched with the negative: large bright and dark areas of
+     * the print move toward mid-grey, local contrast stays. Print route only.
+     * contrast_mask_active = 0 (the default) runs nothing. Idea from SpektraLab
+     * RFC-024 (GPL-3.0-or-later); independent implementation. */
+    int32_t contrast_mask_active;       /* bool */
+    float contrast_mask_highlights;     /* stops, 0..3: print highlights darkened */
+    float contrast_mask_shadows;        /* stops, 0..3: print shadows lightened */
+    float contrast_mask_core;           /* stops around mid-grey left alone, 0..3 */
+    float contrast_mask_scale;          /* blur sigma, fraction of long edge */
+    /* Explicit tail pad so the last named field ends at sizeof(spk_params) on
+     * LP64 (pointer alignment) and 32-bit alike. Always 0; never read. */
+    int32_t reserved_tail_pad1;
 } spk_params;
 
 /* Initialise `p` to the physical defaults that mirror a default-constructed

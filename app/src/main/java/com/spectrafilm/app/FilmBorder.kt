@@ -13,6 +13,7 @@
 package com.spectrafilm.app
 
 import androidx.annotation.StringRes
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -83,6 +84,20 @@ object FilmBorderGeometry {
 
     /** Generic edge label. Not a maker's name. */
     const val EDGE_LABEL = "SPEKTRAFILM"
+
+    // Edge-text metrics shared with FilmBorderRenderer. BorderText.size is the cap height;
+    // monospace caps are ~0.72 of the em, glyphs advance 0.6 em, plus the paint's tracking.
+    const val TEXT_CAP_HEIGHT_EM = 0.72f
+    const val TEXT_LETTER_SPACING_EM = 0.08f
+    private const val TEXT_ADVANCE_EM = 0.6f
+
+    /**
+     * Upper bound, in pixels, of how far a run of edge text extends along its baseline.
+     * Padded 5 % so a font whose advance is a little wider than 0.6 em still cannot overlap.
+     */
+    fun textRunLength(text: String, capHeight: Int): Int =
+        ceil(text.length * capHeight * (TEXT_ADVANCE_EM + TEXT_LETTER_SPACING_EM) / TEXT_CAP_HEIGHT_EM * 1.05)
+            .toInt()
 
     // Print margin as a fraction of the short edge; filed carrier edge likewise.
     private const val PRINT_MARGIN = 0.06
@@ -200,17 +215,34 @@ object FilmBorderGeometry {
         }
 
         // Edge text sits on the far rebate: between the film edge and the holes on 135, centred
-        // on the rebate on 120. Cap height is ~70 % of the space it lives in.
+        // on the rebate on 120. Cap height is ~60 % of the space it lives in (about 1 mm on 135).
         val textBand = if (is135) mm(S135_HOLE_OUTER) else rebate
-        val textSize = max(1, (textBand * 0.7).roundToInt())
+        val textSize = max(1, (textBand * 0.6).roundToInt())
         val baselineAcross = outAcross - (textBand - textSize) / 2
         val n = frameNumber.coerceIn(1, 99)
-        val label = "$EDGE_LABEL  ${if (is135) "135" else "120"}"
-        val runs = listOf(
-            (gap + along * 0.08).roundToInt() to "▸$n",
-            (gap + along * 0.34).roundToInt() to label,
-            (gap + along * 0.72).roundToInt() to "${n}A",
-        )
+        val label = "$EDGE_LABEL ${if (is135) "135" else "120"}"
+        // Each run starts at its preferred spot, pushed along when the run before it is still
+        // there (the label is long next to a short frame number). If the set does not fit on
+        // the strip that way it is packed tight from the start; if it still does not fit, the
+        // frame marker and then the frame number are left off. Text is never drawn past the
+        // end of the strip or on top of a neighbour.
+        val spacing = 2 * textSize
+        fun place(wanted: List<Pair<Double, String>>, packed: Boolean): List<Pair<Int, String>>? {
+            var free = gap + spacing
+            return wanted.map { (at, t) ->
+                val a = if (packed) free else max((gap + along * at).roundToInt(), free)
+                val end = a + textRunLength(t, textSize)
+                if (end > outAlong - gap) return null
+                free = end + spacing
+                a to t
+            }
+        }
+        val marker = 0.06 to "▸$n"
+        val labelRun = 0.22 to label
+        val number = 0.72 to "${n}A"
+        val runs = listOf(listOf(marker, labelRun, number), listOf(labelRun, number), listOf(labelRun))
+            .firstNotNullOfOrNull { set -> place(set, packed = false) ?: place(set, packed = true) }
+            .orEmpty()
 
         fun rect(r: AC) = if (landscape) {
             BorderRect(r.a0, r.c0, r.a1, r.c1)

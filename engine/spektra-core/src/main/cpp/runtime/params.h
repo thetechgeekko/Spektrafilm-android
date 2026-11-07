@@ -19,6 +19,7 @@
 #ifndef SPK_RUNTIME_PARAMS_H
 #define SPK_RUNTIME_PARAMS_H
 
+#include "model/contrast_mask.h"
 #include "model/couplers.h"
 #include "model/diffusion.h"
 #include "model/grain.h"
@@ -288,6 +289,11 @@ struct PrintingParams {
     // table is used and the print parity goldens stay byte-identical; the active
     // path is gated by its own oracle golden (test_print_curves_morph_e2e).
     PrintCurvesMorphParams morph;
+
+    // Opt-in virtual contrast mask (model/contrast_mask.h; Android-only, no
+    // oracle). Applied in print_expose to the paper's image exposure before the
+    // print_exposure multiplier. Inactive by default; never run unless engaged.
+    ContrastMaskParams contrast_mask;
 };
 
 // Enlarger illuminant on the 81-band working shape for a given illuminant id.

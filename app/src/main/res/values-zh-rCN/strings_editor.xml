@@ -24,6 +24,7 @@
     <string name="editor_category_glare">眩光</string>
     <string name="editor_category_couplers">成色剂</string>
     <string name="editor_category_preflash">预闪</string>
+    <string name="editor_category_contrast_mask">反差蒙版</string>
     <string name="editor_category_experimental">实验功能</string>
     <string name="editor_category_tone_curve">色调曲线</string>
     <string name="editor_category_masks">蒙版</string>
@@ -194,6 +195,7 @@
     <string name="editor_hint_glare">冲印眩光（随机效果；默认关闭）</string>
     <string name="editor_hint_couplers">胶片色彩特性 — DIR 成色剂（化学色彩串扰）。常规饱和度位于输出中。</string>
     <string name="editor_hint_preflash">放大机预闪曝光与滤色</string>
+    <string name="editor_hint_contrast_mask">柔和放大机蒙版：保留大面积亮部与暗部的细节</string>
     <string name="editor_hint_experimental">胶片和相纸密度曲线的伽马系数</string>
     <string name="editor_hint_tone_curve">最终 RGB 的点曲线 — 总体与各通道</string>
     <string name="editor_hint_masks">局部调整 — 将曝光、饱和度和对比度限制于径向区域</string>
@@ -397,6 +399,16 @@
     <string name="editor_preflash_y_shift_tooltip">预闪 Y 滤镜相对中性的偏移（Kodak CC）</string>
     <string name="editor_preflash_m_shift">M 滤镜偏移</string>
     <string name="editor_preflash_m_shift_tooltip">预闪 M 滤镜相对中性的偏移（Kodak CC）</string>
+    <string name="editor_contrast_mask_title">反差蒙版</string>
+    <string name="editor_contrast_mask_desc">仅适用于冲印流程（在反转片模式或胶片扫描中无效）。边缘与纹理的反差保持不变。</string>
+    <string name="editor_contrast_mask_highlights">高光</string>
+    <string name="editor_contrast_mask_highlights_tooltip">大面积亮部向中间调压暗的档数，用于找回天空与高光细节</string>
+    <string name="editor_contrast_mask_shadows">阴影</string>
+    <string name="editor_contrast_mask_shadows_tooltip">大面积暗部向中间调提亮的档数，用于打开阴影细节</string>
+    <string name="editor_contrast_mask_core">不受影响的中间调</string>
+    <string name="editor_contrast_mask_core_tooltip">中灰两侧完全不处理的档数范围</string>
+    <string name="editor_contrast_mask_size">柔和度（画幅 %）</string>
+    <string name="editor_contrast_mask_size_tooltip">蒙版模糊量，占长边的百分比。越小越贴合形状；越大越柔和</string>
     <string name="editor_hal_title">光晕</string>
     <string name="editor_hal_amount">光晕量</string>
     <string name="editor_hal_amount_tooltip">整体光晕强度倍数。</string>

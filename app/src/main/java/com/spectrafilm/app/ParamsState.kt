@@ -33,6 +33,7 @@ import com.spectrafilm.engine.HalationParams
 import com.spectrafilm.engine.InputGamutCompress
 import com.spectrafilm.engine.IoParams
 import com.spectrafilm.engine.OutputGamutCompress
+import com.spectrafilm.engine.ContrastMaskParams
 import com.spectrafilm.engine.PrintCurvesMorphParams
 import com.spectrafilm.engine.PrintRenderingParams
 import com.spectrafilm.engine.Rgb2Raw
@@ -248,6 +249,14 @@ class ParamsState {
     var morphGammaFactorBlue by mutableFloatStateOf(1f)
     var morphDeveloperExhaustion by mutableFloatStateOf(0f)
 
+    // --- Contrast mask (print, opt-in) — a soft unsharp mask in the enlarger
+    // that pulls large bright/dark areas toward the middle. Off = no-op. ---
+    var contrastMaskActive by mutableStateOf(false)
+    var contrastMaskHighlights by mutableFloatStateOf(1.0f)
+    var contrastMaskShadows by mutableFloatStateOf(0.5f)
+    var contrastMaskCore by mutableFloatStateOf(1.0f)
+    var contrastMaskScale by mutableFloatStateOf(0.03f)
+
     // --- Tone curve (Lightroom-style, applied to final display RGB) ---
     // Points are (x, y) in [0,1], x increasing; < 2 points = identity. Inactive by
     // default => the engine skips the stage (bit-exact with no curve).
@@ -427,6 +436,13 @@ class ParamsState {
         morphGammaFactorBlue = pm.gammaFactorBlue
         morphDeveloperExhaustion = pm.developerExhaustion
 
+        val cm = p.printRender.contrastMask
+        contrastMaskActive = cm.active
+        contrastMaskHighlights = cm.highlights
+        contrastMaskShadows = cm.shadows
+        contrastMaskCore = cm.core
+        contrastMaskScale = cm.scale
+
         val tc = p.toneCurve
         toneCurveActive = tc.active
         toneCurveMaster = tc.master.points
@@ -588,6 +604,13 @@ class ParamsState {
                 gammaFactorGreen = morphGammaFactorGreen,
                 gammaFactorBlue = morphGammaFactorBlue,
                 developerExhaustion = morphDeveloperExhaustion,
+            ),
+            contrastMask = ContrastMaskParams(
+                active = contrastMaskActive,
+                highlights = contrastMaskHighlights,
+                shadows = contrastMaskShadows,
+                core = contrastMaskCore,
+                scale = contrastMaskScale,
             ),
             glare = GlareParams(
                 active = glareActive,

@@ -173,6 +173,51 @@ class PresetsRoundTripTest {
     }
 
     @Test
+    fun roundTrip_preservesContrastMask_andReachesEngineParams() {
+        val src = ParamsState().apply {
+            contrastMaskActive = true
+            contrastMaskHighlights = 1.6f
+            contrastMaskShadows = 0.35f
+            contrastMaskCore = 0.6f
+            contrastMaskScale = 0.05f
+        }
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(src)), dst)
+
+        val cm = dst.toParams().printRender.contrastMask
+        assertTrue(cm.active)
+        assertEquals(1.6f, cm.highlights, 1e-6f)
+        assertEquals(0.35f, cm.shadows, 1e-6f)
+        assertEquals(0.6f, cm.core, 1e-6f)
+        assertEquals(0.05f, cm.scale, 1e-6f)
+    }
+
+    @Test
+    fun contrastMask_defaultsOff_andMatchEngineDefaults() {
+        val dst = ParamsState()
+        Presets.decode(JSONObject("""{"version":1}"""), dst)
+        assertFalse(dst.contrastMaskActive)
+        assertEquals(com.spectrafilm.engine.ContrastMaskParams(), dst.toParams().printRender.contrastMask)
+    }
+
+    @Test
+    fun contrastMask_rejectsOutOfRangeValues() {
+        for (bad in listOf(
+            """{"active":true,"highlights":4}""",
+            """{"active":true,"shadows":-0.5}""",
+            """{"active":true,"core":5}""",
+            """{"active":true,"scale":0}""",
+            """{"active":true,"scale":0.5}""",
+        )) {
+            val dst = ParamsState()
+            assertThrows(IllegalArgumentException::class.java) {
+                Presets.decode(JSONObject("""{"version":1,"contrastMask":$bad}"""), dst)
+            }
+            assertFalse(dst.contrastMaskActive)
+        }
+    }
+
+    @Test
     fun decode_missingKeys_keepDefaults() {
         val dst = ParamsState()
         val defFilm = dst.filmProfile

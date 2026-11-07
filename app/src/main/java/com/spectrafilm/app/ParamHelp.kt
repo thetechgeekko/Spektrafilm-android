@@ -36,6 +36,7 @@ object ParamHelpText {
     const val PRINT_GAMMA = "print_gamma"
     const val PREFLASH = "preflash"
     const val GLARE = "glare"
+    const val CONTRAST_MASK = "contrast_mask"
 
     val sections: Map<String, ParamHelp> = mapOf(
         GRAIN to ParamHelp(
@@ -67,6 +68,11 @@ object ParamHelpText {
             title = R.string.help_glare_title,
             summary = R.string.help_glare_summary,
             body = R.string.help_glare_body,
+        ),
+        CONTRAST_MASK to ParamHelp(
+            title = R.string.help_contrast_mask_title,
+            summary = R.string.help_contrast_mask_summary,
+            body = R.string.help_contrast_mask_body,
         ),
     )
 

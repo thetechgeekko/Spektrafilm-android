@@ -53,6 +53,9 @@ internal object OperationalParamLimits {
     val DATE_STAMP_MARGIN = 0f..0.3f
     val DATE_STAMP_EV = -2f..8f
     val DATE_STAMP_COLOR = 0f..1f
+    val CONTRAST_MASK_AMOUNT = 0f..3f
+    val CONTRAST_MASK_CORE = 0f..3f
+    val CONTRAST_MASK_SCALE = 0.002f..0.12f
     const val DATE_STAMP_TEXT_MAX = 24
     /** Characters the engine's seven-segment font draws (model/date_stamp.cpp). */
     val DATE_STAMP_TEXT = Regex("[0-9 '\\-.:/]*")
@@ -117,6 +120,18 @@ internal object OperationalParamLimits {
         }
         require(state.halNBounces in HALATION_BOUNCES) {
             "halation.nBounces must be in $HALATION_BOUNCES"
+        }
+        require(state.contrastMaskHighlights in CONTRAST_MASK_AMOUNT) {
+            "contrastMask.highlights must be in $CONTRAST_MASK_AMOUNT"
+        }
+        require(state.contrastMaskShadows in CONTRAST_MASK_AMOUNT) {
+            "contrastMask.shadows must be in $CONTRAST_MASK_AMOUNT"
+        }
+        require(state.contrastMaskCore in CONTRAST_MASK_CORE) {
+            "contrastMask.core must be in $CONTRAST_MASK_CORE"
+        }
+        require(state.contrastMaskScale in CONTRAST_MASK_SCALE) {
+            "contrastMask.scale must be in $CONTRAST_MASK_SCALE"
         }
     }
 
@@ -590,6 +605,14 @@ object Presets {
             put("blur", s.glareBlur.toDouble())
         })
 
+        put("contrastMask", JSONObject().apply {
+            put("active", s.contrastMaskActive)
+            put("highlights", s.contrastMaskHighlights.toDouble())
+            put("shadows", s.contrastMaskShadows.toDouble())
+            put("core", s.contrastMaskCore.toDouble())
+            put("scale", s.contrastMaskScale.toDouble())
+        })
+
         put("experimental", JSONObject().apply {
             put("filmGammaFactor", s.filmGammaFactor.toDouble())
             put("printGammaFactor", s.printGammaFactor.toDouble())
@@ -822,6 +845,14 @@ object Presets {
             s.glarePercent = gl.f("percent", s.glarePercent)
             s.glareRoughness = gl.f("roughness", s.glareRoughness)
             s.glareBlur = gl.f("blur", s.glareBlur)
+        }
+
+        o.optJSONObject("contrastMask")?.let { cm ->
+            s.contrastMaskActive = cm.optBoolean("active", s.contrastMaskActive)
+            s.contrastMaskHighlights = cm.f("highlights", s.contrastMaskHighlights)
+            s.contrastMaskShadows = cm.f("shadows", s.contrastMaskShadows)
+            s.contrastMaskCore = cm.f("core", s.contrastMaskCore)
+            s.contrastMaskScale = cm.f("scale", s.contrastMaskScale)
         }
 
         o.optJSONObject("experimental")?.let { ex ->

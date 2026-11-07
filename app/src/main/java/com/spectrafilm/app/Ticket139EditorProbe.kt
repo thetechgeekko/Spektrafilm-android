@@ -221,6 +221,11 @@ internal object Ticket139EditorProbe {
         "glare.percent",
         "glare.roughness",
         "glare.blur",
+        "contrastMask.active",
+        "contrastMask.highlights",
+        "contrastMask.shadows",
+        "contrastMask.core",
+        "contrastMask.scale",
         "experimental.filmGammaFactor",
         "experimental.printGammaFactor",
         "experimental.morphActive",
@@ -401,6 +406,11 @@ internal object Ticket139EditorProbe {
         "glare.percent" to number("0.04"),
         "glare.roughness" to number("0.62"),
         "glare.blur" to number("0.45"),
+        "contrastMask.active" to flag(false),
+        "contrastMask.highlights" to number("1.25"),
+        "contrastMask.shadows" to number("0.75"),
+        "contrastMask.core" to number("0.8"),
+        "contrastMask.scale" to number("0.04"),
         "experimental.filmGammaFactor" to number("1.03"),
         "experimental.printGammaFactor" to number("0.97"),
         "experimental.morphActive" to flag(false),
@@ -1665,6 +1675,11 @@ internal object Ticket139EditorProbe {
         glarePercent = 0.04f
         glareRoughness = 0.62f
         glareBlur = 0.45f
+        contrastMaskActive = false
+        contrastMaskHighlights = 1.25f
+        contrastMaskShadows = 0.75f
+        contrastMaskCore = 0.8f
+        contrastMaskScale = 0.04f
 
         filmGammaFactor = 1.03f
         printGammaFactor = 0.97f

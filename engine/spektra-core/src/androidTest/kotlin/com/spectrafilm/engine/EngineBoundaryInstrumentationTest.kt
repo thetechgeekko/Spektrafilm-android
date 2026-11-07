@@ -227,6 +227,13 @@ class EngineBoundaryInstrumentation : Instrumentation() {
                     gammaFactorBlue = 1.16f,
                     developerExhaustion = 0.17f,
                 ),
+                contrastMask = ContrastMaskParams(
+                    active = true,
+                    highlights = 1.18f,
+                    shadows = 0.19f,
+                    core = 0.91f,
+                    scale = 0.021f,
+                ),
             ),
             io = IoParams(
                 inputColorSpace = "Adobe RGB",
@@ -651,6 +658,13 @@ class EngineBoundaryInstrumentation : Instrumentation() {
             "date_stamp_color",
             listOf(dateStamp.color.first, dateStamp.color.second, dateStamp.color.third),
         )
+        val contrastMask = print.contrastMask
+        putBool("contrast_mask_active", contrastMask.active)
+        putF32("contrast_mask_highlights", contrastMask.highlights)
+        putF32("contrast_mask_shadows", contrastMask.shadows)
+        putF32("contrast_mask_core", contrastMask.core)
+        putF32("contrast_mask_scale", contrastMask.scale)
+        putI32("reserved_tail_pad1", 0)
     }
 
     private fun MutableMap<String, String>.putToneChannel(

@@ -939,6 +939,17 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
                        &out->print_morph_developer_exhaustion);
             env->DeleteLocalRef(pmorph);
         }
+        // OPT-IN virtual contrast mask. Absent -> spk_default_params (off).
+        jobject cmask = call_obj(env, printR, "getContrastMask",
+            "()Lcom/spectrafilm/engine/ContrastMaskParams;");
+        if (cmask) {
+            read_bool_i32(env, cmask, "getActive", &out->contrast_mask_active);
+            read_float(env, cmask, "getHighlights", &out->contrast_mask_highlights);
+            read_float(env, cmask, "getShadows", &out->contrast_mask_shadows);
+            read_float(env, cmask, "getCore", &out->contrast_mask_core);
+            read_float(env, cmask, "getScale", &out->contrast_mask_scale);
+            env->DeleteLocalRef(cmask);
+        }
     }
 
     // ---- io ----

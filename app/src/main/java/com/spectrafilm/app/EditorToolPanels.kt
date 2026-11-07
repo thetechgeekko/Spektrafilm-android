@@ -253,6 +253,42 @@ internal fun PreflashSection(s: ParamsState) {
 }
 
 @Composable
+internal fun ContrastMaskSection(s: ParamsState) {
+    var expanded by remember { mutableStateOf(true) }
+    SectionCard(stringResource(R.string.editor_contrast_mask_title), expanded, { expanded = it },
+        enabledSwitch = s.contrastMaskActive, onEnabledChange = { s.contrastMaskActive = it },
+        help = ParamHelpText.forKey(ParamHelpText.CONTRAST_MASK)) {
+        Text(
+            stringResource(R.string.editor_contrast_mask_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        EnhancedSlider(stringResource(R.string.editor_contrast_mask_highlights), s.contrastMaskHighlights,
+            OperationalParamLimits.CONTRAST_MASK_AMOUNT, { s.contrastMaskHighlights = it },
+            step = 0.05f, decimals = 2,
+            tooltip = stringResource(R.string.editor_contrast_mask_highlights_tooltip),
+            default = PARAM_DEFAULTS.contrastMaskHighlights)
+        EnhancedSlider(stringResource(R.string.editor_contrast_mask_shadows), s.contrastMaskShadows,
+            OperationalParamLimits.CONTRAST_MASK_AMOUNT, { s.contrastMaskShadows = it },
+            step = 0.05f, decimals = 2,
+            tooltip = stringResource(R.string.editor_contrast_mask_shadows_tooltip),
+            default = PARAM_DEFAULTS.contrastMaskShadows)
+        EnhancedSlider(stringResource(R.string.editor_contrast_mask_core), s.contrastMaskCore,
+            OperationalParamLimits.CONTRAST_MASK_CORE, { s.contrastMaskCore = it },
+            step = 0.05f, decimals = 2,
+            tooltip = stringResource(R.string.editor_contrast_mask_core_tooltip),
+            default = PARAM_DEFAULTS.contrastMaskCore)
+        // Shown in percent of the long edge; stored as a fraction.
+        val scaleRange = OperationalParamLimits.CONTRAST_MASK_SCALE
+        EnhancedSlider(stringResource(R.string.editor_contrast_mask_size), s.contrastMaskScale * 100f,
+            scaleRange.start * 100f..scaleRange.endInclusive * 100f, { s.contrastMaskScale = it / 100f },
+            step = 0.1f, decimals = 1,
+            tooltip = stringResource(R.string.editor_contrast_mask_size_tooltip),
+            default = PARAM_DEFAULTS.contrastMaskScale * 100f)
+    }
+}
+
+@Composable
 internal fun HalationSection(s: ParamsState) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_hal_title), expanded, { expanded = it }, enabledSwitch = s.halationActive,

@@ -111,6 +111,8 @@
     <string name="screen_howto_cat_couplers_desc">DIR dye-coupler diffusion</string>
     <string name="screen_howto_cat_preflash">Preflash</string>
     <string name="screen_howto_cat_preflash_desc">base-fog preflash amount</string>
+    <string name="screen_howto_cat_contrast_mask">Contrast mask</string>
+    <string name="screen_howto_cat_contrast_mask_desc">darkroom unsharp mask for big highlights and shadows (print path, off by default)</string>
     <string name="screen_howto_cat_experimental">Experimental</string>
     <string name="screen_howto_cat_experimental_desc">developer options and advanced engine flags</string>
     <string name="screen_howto_cat_tone_curve">Tone Curve</string>

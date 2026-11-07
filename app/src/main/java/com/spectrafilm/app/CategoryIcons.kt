@@ -210,6 +210,19 @@ object SpectraIcons {
     }
 
     // -----------------------------------------------------------------------
+    // Contrast mask — a soft mask sandwiched with the negative
+    // A frame (the print) holding a circle that is half filled: the classic
+    // "contrast" glyph, read here as light held back on one side only.
+    // -----------------------------------------------------------------------
+    val ContrastMask: ImageVector by lazy {
+        icon("ContrastMask") {
+            strokePath("M 3 4 L 21 4 L 21 20 L 3 20 Z")
+            strokePath("M 12 6.5 C 15.04 6.5 17.5 8.96 17.5 12 C 17.5 15.04 15.04 17.5 12 17.5 C 8.96 17.5 6.5 15.04 6.5 12 C 6.5 8.96 8.96 6.5 12 6.5 Z")
+            fillPath("M 12 6.5 C 15.04 6.5 17.5 8.96 17.5 12 C 17.5 15.04 15.04 17.5 12 17.5 Z")
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Halation — glow / halo around a highlight
     // Two concentric rings (outer halo, inner bloom) with a filled bright-
     // source dot at the centre — the classic halation diagram.

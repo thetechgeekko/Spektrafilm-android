@@ -295,6 +295,7 @@ private fun categoryHowtoName(c: Category): Int = when (c) {
     Category.GLARE -> R.string.screen_howto_cat_glare
     Category.COUPLERS -> R.string.screen_howto_cat_couplers
     Category.PREFLASH -> R.string.screen_howto_cat_preflash
+    Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask
     Category.EXPERIMENTAL -> R.string.screen_howto_cat_experimental
     Category.TONE_CURVE -> R.string.screen_howto_cat_tone_curve
     Category.MASKS -> R.string.screen_howto_cat_masks
@@ -313,6 +314,7 @@ private fun categoryHowtoDesc(c: Category): Int = when (c) {
     Category.GLARE -> R.string.screen_howto_cat_glare_desc
     Category.COUPLERS -> R.string.screen_howto_cat_couplers_desc
     Category.PREFLASH -> R.string.screen_howto_cat_preflash_desc
+    Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask_desc
     Category.EXPERIMENTAL -> R.string.screen_howto_cat_experimental_desc
     Category.TONE_CURVE -> R.string.screen_howto_cat_tone_curve_desc
     Category.MASKS -> R.string.screen_howto_cat_masks_desc

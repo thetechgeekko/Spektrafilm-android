@@ -267,6 +267,13 @@ inline std::string named_inventory(const spk_params& p) {
     SPK_MANIFEST_F32(date_stamp_exposure_ev);
     SPK_MANIFEST_F32_ARRAY(date_stamp_color, 3);
 
+    SPK_MANIFEST_I32(contrast_mask_active);
+    SPK_MANIFEST_F32(contrast_mask_highlights);
+    SPK_MANIFEST_F32(contrast_mask_shadows);
+    SPK_MANIFEST_F32(contrast_mask_core);
+    SPK_MANIFEST_F32(contrast_mask_scale);
+    SPK_MANIFEST_I32(reserved_tail_pad1);
+
 #undef SPK_MANIFEST_I32
 #undef SPK_MANIFEST_F32
 #undef SPK_MANIFEST_STR
@@ -278,8 +285,8 @@ inline std::string named_inventory(const spk_params& p) {
 
 // The manifest intentionally ends at the ABI tail. Appending a field without
 // extending named_inventory must make every native build fail loudly.
-static_assert(offsetof(spk_params, date_stamp_color) +
-                  sizeof(((spk_params*)nullptr)->date_stamp_color) ==
+static_assert(offsetof(spk_params, reserved_tail_pad1) +
+                  sizeof(((spk_params*)nullptr)->reserved_tail_pad1) ==
               sizeof(spk_params));
 
 }  // namespace spk::params_manifest

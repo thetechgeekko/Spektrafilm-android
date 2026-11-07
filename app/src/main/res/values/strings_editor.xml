@@ -30,6 +30,7 @@
     <string name="editor_category_glare">Glare</string>
     <string name="editor_category_couplers">Couplers</string>
     <string name="editor_category_preflash">Preflash</string>
+    <string name="editor_category_contrast_mask">Contrast mask</string>
     <string name="editor_category_experimental">Experimental</string>
     <string name="editor_category_tone_curve">Tone Curve</string>
     <string name="editor_category_masks">Masks</string>
@@ -247,6 +248,7 @@
     <string name="editor_hint_glare">Print glare (stochastic; off by default)</string>
     <string name="editor_hint_couplers">Film color character — DIR couplers (chemical color crosstalk). Plain saturation lives in Output.</string>
     <string name="editor_hint_preflash">Enlarger pre-flash exposure and filtration</string>
+    <string name="editor_hint_contrast_mask">Soft enlarger mask: detail in big bright and dark areas</string>
     <string name="editor_hint_experimental">Film and print density-curve gamma factors</string>
     <string name="editor_hint_tone_curve">Point tone curve on the final RGB — master + per-channel</string>
     <string name="editor_hint_masks">Local adjustments — limit Exposure/Saturation/Contrast to a radial area</string>
@@ -509,6 +511,16 @@
     <string name="editor_preflash_y_shift_tooltip">Shift the Y filter from neutral for the preflash (Kodak CC)</string>
     <string name="editor_preflash_m_shift">M filter shift</string>
     <string name="editor_preflash_m_shift_tooltip">Shift the M filter from neutral for the preflash (Kodak CC)</string>
+    <string name="editor_contrast_mask_title">Contrast mask</string>
+    <string name="editor_contrast_mask_desc">Works on the print route only (no effect in Slide mode / scan-film). Edges and texture keep their contrast.</string>
+    <string name="editor_contrast_mask_highlights">Highlights</string>
+    <string name="editor_contrast_mask_highlights_tooltip">Stops a large bright area is pulled down toward the middle, to bring back sky and highlight detail</string>
+    <string name="editor_contrast_mask_shadows">Shadows</string>
+    <string name="editor_contrast_mask_shadows_tooltip">Stops a large dark area is lifted toward the middle, to open up shadow detail</string>
+    <string name="editor_contrast_mask_core">Untouched midtones</string>
+    <string name="editor_contrast_mask_core_tooltip">How many stops either side of mid-grey the mask leaves completely alone</string>
+    <string name="editor_contrast_mask_size">Softness (% of frame)</string>
+    <string name="editor_contrast_mask_size_tooltip">Blur of the mask as a percentage of the long edge. Smaller follows shapes more tightly; larger is gentler</string>
 
     <!-- Halation section -->
     <string name="editor_hal_title">Halation</string>
