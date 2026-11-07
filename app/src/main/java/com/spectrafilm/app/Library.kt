@@ -29,9 +29,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -156,11 +156,12 @@ internal class LibraryViewModel(
      */
     writes: CoroutineScope? = null,
     /**
-     * Look pastes in flight across every Library entry (#453). A paste outlives the entry that
-     * started it, so a save asked for from a later entry must still wait for it and list the
-     * folder again before choosing frames. The app passes one process-wide counter.
+     * Held by every look paste and sidecar save for its whole run, across every Library entry
+     * (#453). A write outlives the entry that started it, so a save asked for from a later
+     * entry waits here for earlier writes and then lists the folder again, choosing frames
+     * and sidecar pairings from what those writes left. The app passes one process-wide lock.
      */
-    private val pastesInFlight: MutableStateFlow<Int> = MutableStateFlow(0),
+    private val writeLock: Mutex = Mutex(),
 ) : ViewModel() {
     private val writeScope: CoroutineScope = writes ?: viewModelScope
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
@@ -188,43 +189,51 @@ internal class LibraryViewModel(
         val picked = only
         _sidecarSave.value = LibrarySidecarState.Running
         writeScope.launch {
-            // A paste in flight changes which frames are edited and what their edits are:
-            // save after it and the listing refresh it triggers, not from the state before.
-            // The paste may belong to an earlier Library entry whose refresh never reaches
-            // this one, so after waiting on any paste, list the folder again here.
-            if (pastesInFlight.value > 0) {
-                pastesInFlight.first { it == 0 }
-                refresh()
+            // An earlier paste changes which frames are edited, and an earlier save creates the
+            // sidecars this one must update rather than create again. Either may belong to an
+            // earlier Library entry whose refresh never reaches this one, so after waiting on
+            // one, list the folder again here before choosing frames and rows.
+            val waited = !writeLock.tryLock()
+            if (waited) writeLock.lock()
+            try {
+                if (waited) refresh()
+                saveLocked(tree, picked)
+            } finally {
+                writeLock.unlock()
             }
-            // A refresh can start while we wait on another: settle on the latest one.
-            while (true) {
-                val job = loadJob ?: break
-                job.join()
-                if (loadJob === job) break
-            }
-            // The folder may have changed while we waited. Frames, rows and destination must
-            // all come from the folder the save was asked for, or nothing is written.
-            if (store.treeUri != tree || _state.value.treeUri != tree || lastRowsTree != tree) {
-                _sidecarSave.value = LibrarySidecarState.Idle
-                return@launch
-            }
-            val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
-            val rows = lastRows
-            val result = try {
-                withContext(io) { sidecars.save(tree, frames, rows) }
-            } catch (cancelled: CancellationException) {
-                _sidecarSave.value = LibrarySidecarState.Idle
-                throw cancelled
-            } catch (failure: Exception) {
-                Diag.w("sidecar save failed: ${failure.message}")
-                LibrarySidecars.SaveResult(saved = 0, failed = frames.size)
-            }
-            saveAfterGrant = if (result.needsWriteAccess) picked else null
-            _sidecarSave.value = LibrarySidecarState.Done(result)
-            if (result.saved > 0) {
-                _selection.value = emptySet()
-                refresh()
-            }
+        }
+    }
+
+    /** The save itself, under [writeLock]: frames and rows from the settled listing. */
+    private suspend fun saveLocked(tree: String, picked: Set<String>) {
+        // A refresh can start while we wait on another: settle on the latest one.
+        while (true) {
+            val job = loadJob ?: break
+            job.join()
+            if (loadJob === job) break
+        }
+        // The folder may have changed while we waited. Frames, rows and destination must
+        // all come from the folder the save was asked for, or nothing is written.
+        if (store.treeUri != tree || _state.value.treeUri != tree || lastRowsTree != tree) {
+            _sidecarSave.value = LibrarySidecarState.Idle
+            return
+        }
+        val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
+        val rows = lastRows
+        val result = try {
+            withContext(io) { sidecars.save(tree, frames, rows) }
+        } catch (cancelled: CancellationException) {
+            _sidecarSave.value = LibrarySidecarState.Idle
+            throw cancelled
+        } catch (failure: Exception) {
+            Diag.w("sidecar save failed: ${failure.message}")
+            LibrarySidecars.SaveResult(saved = 0, failed = frames.size)
+        }
+        saveAfterGrant = if (result.needsWriteAccess) picked else null
+        _sidecarSave.value = LibrarySidecarState.Done(result)
+        if (result.saved > 0) {
+            _selection.value = emptySet()
+            refresh()
         }
     }
 
@@ -274,9 +283,8 @@ internal class LibraryViewModel(
         }
         if (targets.isEmpty()) return
         _paste.value = LibraryPasteState.Running(targets.size)
-        pastesInFlight.update { it + 1 }
         writeScope.launch {
-            try {
+            writeLock.withLock {
                 val result = try {
                     withContext(io) { pasteLook(sourceUri, targets) }
                 } catch (cancelled: CancellationException) {
@@ -289,8 +297,6 @@ internal class LibraryViewModel(
                 if (!result.noSource) _selection.value = emptySet()
                 _paste.value = LibraryPasteState.Done(result)
                 if (result.applied > 0) refresh()
-            } finally {
-                pastesInFlight.update { it - 1 }
             }
         }
     }

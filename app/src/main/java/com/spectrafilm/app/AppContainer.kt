@@ -23,7 +23,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * Background dispatchers for the process-owned singletons (export, checkpoint, source and recipe
@@ -62,8 +62,8 @@ internal class AppContainer(context: Context) {
      */
     val processScope: CoroutineScope = CoroutineScope(SupervisorJob() + dispatchers.mainImmediate)
 
-    /** Library look pastes in flight, shared by every Library entry (see [LibraryViewModel]). */
-    private val libraryPastesInFlight = MutableStateFlow(0)
+    /** Serializes Library pastes and sidecar saves across every Library entry (see [LibraryViewModel]). */
+    private val libraryWriteLock = Mutex()
 
     /** The settings store (Preferences DataStore since #276). */
     val settings: AppSettings get() = AppSettings.from(app)
@@ -117,7 +117,7 @@ internal class AppContainer(context: Context) {
                 LibraryViewModel.androidLookPaste(recipes),
                 LibraryViewModel.androidSidecars(app, recipes),
                 writes = processScope,
-                pastesInFlight = libraryPastesInFlight,
+                writeLock = libraryWriteLock,
             )
         },
     )

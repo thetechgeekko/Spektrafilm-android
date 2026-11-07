@@ -3,7 +3,7 @@ package com.spectrafilm.app
 import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -291,7 +291,7 @@ class LibraryViewModelTest {
         val sidecars = FakeSidecars(writable = true)
         val edited = mutableSetOf("content://doc/a.jpg")
         val pasted = CompletableDeferred<LookSync.Result>()
-        val shared = MutableStateFlow(0)
+        val shared = Mutex()
         fun entryVm() = LibraryViewModel(
             FakeStore("tree://a"),
             { LibraryListing("A", rows) },
@@ -299,7 +299,7 @@ class LibraryViewModelTest {
             { it in edited },
             { _, _ -> pasted.await() },
             sidecars,
-            pastesInFlight = shared,
+            writeLock = shared,
         )
         // The first Library entry starts a paste onto b.jpg, then the user leaves.
         val first = entryVm()
@@ -315,5 +315,41 @@ class LibraryViewModelTest {
         edited += "content://doc/b.jpg"
         pasted.complete(LookSync.Result(applied = 1, skipped = 0)); idle()
         assertEquals(setOf("a.jpg", "b.jpg"), sidecars.saves.single().toSet())
+    }
+
+    @Test fun aSaveFromALaterEntryWaitsForAnEarlierSaveAndListsItsSidecars() {
+        val rows = mutableListOf(entry("a.jpg", "image/jpeg", 1))
+        val released = CompletableDeferred<Unit>()
+        val rowsSeen = mutableListOf<List<String>>()
+        val sidecars = object : LibrarySidecarPort {
+            override fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>) = 0
+            override suspend fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult {
+                rowsSeen += rows.map { it.name }
+                if (rowsSeen.size == 1) released.await()
+                return LibrarySidecars.SaveResult(frames.size, 0)
+            }
+        }
+        val shared = Mutex()
+        fun entryVm() = LibraryViewModel(
+            FakeStore("tree://a"),
+            { LibraryListing("A", rows.toList()) },
+            Dispatchers.Unconfined,
+            { true },
+            { _, _ -> error("no paste") },
+            sidecars,
+            writeLock = shared,
+        )
+        val first = entryVm()
+        first.refresh(); idle()
+        first.saveEditsBesidePhotos(); idle()
+        // The user leaves and saves again from a new entry before the first save is done.
+        val second = entryVm()
+        second.refresh(); idle()
+        second.saveEditsBesidePhotos(); idle()
+        assertEquals(1, rowsSeen.size)
+        // The first save writes a.jpg's sidecar; the second must see it, not create another.
+        rows += entry("a.jpg.spektra.json", "application/json", 2)
+        released.complete(Unit); idle()
+        assertEquals(listOf(listOf("a.jpg"), listOf("a.jpg", "a.jpg.spektra.json")), rowsSeen)
     }
 }
