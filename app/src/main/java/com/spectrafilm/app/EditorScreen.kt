@@ -4056,6 +4056,9 @@ internal fun MainActivity.EditorScreen(
                                         // additionally includes the input close below and dispatch
                                         // bookkeeping, so a small positive gap remains expected.
                                         val tSim0 = System.currentTimeMillis()
+                                        // Ultra HDR: the scene's highlight light, sampled while the
+                                        // decode is still open (SceneHighlightTap). Null otherwise.
+                                        var sceneTap: SceneLuma? = null
                                         val res = restored ?: try {
                                             runCancellableNative(
                                                 onLateResult = { late ->
@@ -4069,7 +4072,19 @@ internal fun MainActivity.EditorScreen(
                                                     RenderKind.EXPORT,
                                                     cancellation,
                                                 )
-                                            }.also { renderId = it.renderId }
+                                            }.also { rendered ->
+                                                renderId = rendered.renderId
+                                                sceneTap = image?.let { source ->
+                                                    runCatching {
+                                                        captureSceneTapForGainmap(
+                                                            source, exportParams, rendered.width,
+                                                            rendered.height, outputDescriptor,
+                                                        )
+                                                    }.onFailure {
+                                                        Diag.w("gain map scene tap failed: $it")
+                                                    }.getOrNull()
+                                                }
+                                            }
                                         } finally {
                                             image?.close()
                                         }
@@ -4149,7 +4164,7 @@ internal fun MainActivity.EditorScreen(
                                                 if (outputDescriptor.metadata.hdrGainMap != null) {
                                                     runCatching {
                                                         attachRenderedGainmap(
-                                                            res, framed, outputDescriptor, borderLayout,
+                                                            res, framed, outputDescriptor, borderLayout, sceneTap,
                                                         )
                                                     }.onFailure {
                                                         Diag.w("gain map failed; exporting SDR base: $it")

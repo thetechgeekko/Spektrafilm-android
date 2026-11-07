@@ -753,6 +753,40 @@ private fun writeExifToPath(
  * Bitmap.compress(JPEG, ...) is called. This is the documented Android 14 behaviour for
  * gainmap-bearing bitmaps. It has NOT been verified on a physical device in this environment.
  */
+/**
+ * Scene-linear luminance of the export [source] on the gain map grid of a [renderW]x[renderH]
+ * render (see [SceneHighlightTap]), or null when the export carries no gain map. Must run while
+ * the decoded source is still open, i.e. before the export closes it after simulate.
+ */
+internal fun captureSceneTapForGainmap(
+    source: LinearImage,
+    params: com.spectrafilm.engine.SpektraParams,
+    renderW: Int,
+    renderH: Int,
+    descriptor: OutputDescriptor,
+): SceneLuma? {
+    val contract = descriptor.metadata.hdrGainMap ?: return null
+    if (Build.VERSION.SDK_INT < 34) return null
+    val box = if (params.io.crop) {
+        engineCropBox(source.width, source.height, params.io.cropCenter, params.io.cropSize)
+            .takeIf { it.width >= 1 && it.height >= 1 }
+    } else {
+        null
+    }
+    val mapW = maxOf(1, (renderW + contract.downsample - 1) / contract.downsample)
+    val mapH = maxOf(1, (renderH + contract.downsample - 1) / contract.downsample)
+    return source.acquireDataLease().use { lease ->
+        SceneHighlightTap.capture(
+            src = lease.data.duplicate().order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer(),
+            srcW = source.width,
+            srcH = source.height,
+            box = box,
+            mapW = mapW,
+            mapH = mapH,
+        )
+    }
+}
+
 internal fun attachRenderedGainmap(
     result: SimResult,
     base: Bitmap,
@@ -762,6 +796,7 @@ internal fun attachRenderedGainmap(
      * for the photo and padded with neutral gain to cover the border, so it stays aligned.
      */
     border: BorderLayout? = null,
+    scene: SceneLuma? = null,
 ): HdrGainMap.Result? {
     val contract = descriptor.metadata.hdrGainMap ?: return null
     if (Build.VERSION.SDK_INT < 34) return null
@@ -778,6 +813,7 @@ internal fun attachRenderedGainmap(
             ratioMaxCeiling = contract.ratioMaxCeiling,
             epsilonSdr = contract.epsilonSdr,
             epsilonHdr = contract.epsilonHdr,
+            scene = scene,
         )
     }.let { map ->
         border?.let { HdrGainMap.padForBorder(map, it) } ?: map
@@ -807,7 +843,8 @@ internal fun attachRenderedGainmap(
     Diag.i(
         "gainmap ${computed.width}x${computed.height} ratioMax=${computed.ratioMax} " +
             "trueMax=${computed.maxRatio} gained=${computed.gainedPixels} " +
-            "headroom=${computed.hasHeadroom}",
+            "headroom=${computed.hasHeadroom} scene=${scene != null} " +
+            "sceneCells=${computed.sceneCells} k=${computed.exposureMatch}",
     )
     return computed
 }
