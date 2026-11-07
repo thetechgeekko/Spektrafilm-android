@@ -56,11 +56,51 @@ internal class StockPreviewSession(
     val key: Any,
     /** A small linear copy of the photo, owned (and closed) by the caller of this lambda. */
     val source: suspend () -> LinearImage?,
-    /** The params a tap on [stockId] would render. */
+    /** The params a tap on [stockId] would render. Called on the view model's main thread. */
     val paramsFor: (stockId: String) -> SpektraParams,
     /** The editor's own display step (saturation, vibrance, gamut, local adjustments). */
     val toBitmap: (SimResult) -> Bitmap,
+    /**
+     * Source-level work a tap on [stockId] would redo, applied to a copy of the shared
+     * source before that tile renders: "Balance to film stock" adapts the decoded photo to
+     * the film, so a tile for another film needs the shared source re-targeted. Null when
+     * the tile renders the shared source as is.
+     */
+    val retarget: ((stockId: String) -> FloatArray?)? = null,
 )
+
+/**
+ * The 3x3 that turns a source balanced to [fromFilm] into one balanced to [toFilm]
+ * (FilmStockBalance; "" = not balanced), or null when the two are the same.
+ */
+internal fun filmBalanceRetarget(from: FloatArray?, to: FloatArray?): FloatArray? {
+    if (from == null && to == null) return null
+    if (from != null && to != null && from.contentEquals(to)) return null
+    val inv = from?.let { invert3x3(it) } ?: IDENTITY_3X3
+    return multiply3x3(to ?: IDENTITY_3X3, inv)
+}
+
+private val IDENTITY_3X3 = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+
+internal fun multiply3x3(a: FloatArray, b: FloatArray): FloatArray = FloatArray(9) { i ->
+    val r = i / 3
+    val c = i % 3
+    a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]
+}
+
+internal fun invert3x3(m: FloatArray): FloatArray {
+    val a = m[0].toDouble(); val b = m[1].toDouble(); val c = m[2].toDouble()
+    val d = m[3].toDouble(); val e = m[4].toDouble(); val f = m[5].toDouble()
+    val g = m[6].toDouble(); val h = m[7].toDouble(); val k = m[8].toDouble()
+    val det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g)
+    require(kotlin.math.abs(det) > 1e-12) { "singular white-balance matrix" }
+    val inv = 1.0 / det
+    return floatArrayOf(
+        ((e * k - f * h) * inv).toFloat(), ((c * h - b * k) * inv).toFloat(), ((b * f - c * e) * inv).toFloat(),
+        ((f * g - d * k) * inv).toFloat(), ((a * k - c * g) * inv).toFloat(), ((c * d - a * f) * inv).toFloat(),
+        ((d * h - e * g) * inv).toFloat(), ((b * g - a * h) * inv).toFloat(), ((a * e - b * d) * inv).toFloat(),
+    )
+}
 
 /**
  * The pure scheduling core: which stock to render next, and whether a finished render still
@@ -230,7 +270,26 @@ internal class StockPreviewViewModel(
                     break
                 }
                 val result = runCatching {
-                    withContext(worker) { renderer.render(image, current.paramsFor(work.stockId), current.toBitmap) }
+                    // Params are built here, on the main thread: the Look strip's builder
+                    // decodes into a scratch ParamsState (Compose state), which must not be
+                    // written from the render worker.
+                    val params = current.paramsFor(work.stockId)
+                    val retarget = current.retarget?.invoke(work.stockId)
+                    withContext(worker) {
+                        if (retarget == null) {
+                            renderer.render(image, params, current.toBitmap)
+                        } else {
+                            // A copy, so the shared source stays as decoded for the next tile.
+                            downsampleLinearBox(image, maxOf(image.width, image.height)).use { copy ->
+                                copy.acquireDataLease().use { lease ->
+                                    CreativeWhiteBalance.applyInPlace(
+                                        lease.data, copy.width * copy.height, retarget,
+                                    )
+                                }
+                                renderer.render(copy, params, current.toBitmap)
+                            }
+                        }
+                    }
                 }
                 result.onSuccess { queue.complete(work, it) }
                     .onFailure {

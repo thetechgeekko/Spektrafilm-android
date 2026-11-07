@@ -209,7 +209,6 @@
     <string name="editor_hint_display">Espace colorimétrique de sortie, encodage CCTF et taille d’aperçu</string>
     <string name="editor_preset_builtin_heading">Looks intégrés</string>
     <string name="editor_preset_builtin_label">Préréglage intégré</string>
-    <string name="editor_preset_apply_builtin">Appliquer le préréglage intégré</string>
     <string name="editor_preset_yours_heading">Vos préréglages</string>
     <string name="editor_preset_amount">Intensité du préréglage</string>
     <string name="editor_preset_amount_tooltip" formatted="false">Mélange le préréglage appliqué au look précédent (0 % = avant, 100 % = complet).</string>

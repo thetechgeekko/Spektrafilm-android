@@ -69,6 +69,10 @@ class MainActivity : ComponentActivity() {
     internal val printPreviewVm: StockPreviewViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)["print", StockPreviewViewModel::class.java]
     }
+    /** Previews of the photo through each built-in look (the Look stage strip). */
+    internal val presetPreviewVm: StockPreviewViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)["presets", StockPreviewViewModel::class.java]
+    }
 
     /** Named versions of the open photo. */
     internal val libraryVm: LibraryViewModel by lazy {

@@ -205,7 +205,6 @@
     <string name="editor_hint_display">出力色空間、CCTFエンコード、プレビューサイズ</string>
     <string name="editor_preset_builtin_heading">内蔵のルック</string>
     <string name="editor_preset_builtin_label">内蔵プリセット</string>
-    <string name="editor_preset_apply_builtin">内蔵プリセットを適用</string>
     <string name="editor_preset_yours_heading">マイプリセット</string>
     <string name="editor_preset_amount">プリセットの適用量</string>
     <string name="editor_preset_amount_tooltip" formatted="false">適用したプリセットを前のルックに混ぜます（0% = 適用前、100% = 完全に適用）。</string>

@@ -11,7 +11,6 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import org.json.JSONObject
 import androidx.compose.animation.core.tween
 
@@ -78,7 +77,6 @@ internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: 
  */
 internal val RAIL_PRESS = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
 internal val RAIL_PAINT = tween<Color>(durationMillis = 180)
-internal val RAIL_PILL = spring<Dp>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
 
 /** Which stage each existing category belongs to. Every Category must appear exactly once. */
 internal val Category.stage: Stage

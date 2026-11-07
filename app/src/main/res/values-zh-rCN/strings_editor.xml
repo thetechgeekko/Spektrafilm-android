@@ -204,7 +204,6 @@
     <string name="editor_hint_display">输出色彩空间、CCTF 编码与预览尺寸</string>
     <string name="editor_preset_builtin_heading">内置风格</string>
     <string name="editor_preset_builtin_label">内置预设</string>
-    <string name="editor_preset_apply_builtin">应用内置预设</string>
     <string name="editor_preset_yours_heading">我的预设</string>
     <string name="editor_preset_amount">预设强度</string>
     <string name="editor_preset_amount_tooltip" formatted="false">将已应用预设与先前风格混合（0% = 应用前，100% = 完整效果）。</string>

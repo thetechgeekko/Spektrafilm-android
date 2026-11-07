@@ -205,7 +205,6 @@
     <string name="editor_hint_display">출력 색 공간, CCTF 인코딩, 미리보기 크기</string>
     <string name="editor_preset_builtin_heading">내장 룩</string>
     <string name="editor_preset_builtin_label">내장 프리셋</string>
-    <string name="editor_preset_apply_builtin">내장 프리셋 적용</string>
     <string name="editor_preset_yours_heading">내 프리셋</string>
     <string name="editor_preset_amount">프리셋 적용량</string>
     <string name="editor_preset_amount_tooltip" formatted="false">적용한 프리셋을 이전 룩 위에 섞습니다(0% = 적용 전, 100% = 완전 적용).</string>

@@ -207,7 +207,6 @@
     <string name="editor_hint_display">Ausgabefarbraum, CCTF-Kodierung und Vorschaugröße</string>
     <string name="editor_preset_builtin_heading">Eingebaute Looks</string>
     <string name="editor_preset_builtin_label">Eingebaute Vorgabe</string>
-    <string name="editor_preset_apply_builtin">Eingebaute Vorgabe anwenden</string>
     <string name="editor_preset_yours_heading">Deine Vorgaben</string>
     <string name="editor_preset_amount">Stärke der Vorgabe</string>
     <string name="editor_preset_amount_tooltip" formatted="false">Mischt die angewendete Vorgabe über den vorherigen Look (0 % = vorher, 100 % = voll).</string>
