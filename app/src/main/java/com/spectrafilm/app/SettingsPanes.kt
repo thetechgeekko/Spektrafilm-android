@@ -57,6 +57,8 @@ internal fun settingsTwoPane(widthDp: Float): Boolean = widthDp >= EXPANDED_WIDT
 internal fun SettingsDestination(
     onBack: () -> Unit,
     onOpenDetail: (SettingsDetail) -> Unit,
+    detailContent: @Composable (SettingsDetail, open: (SettingsDetail) -> Unit) -> Unit =
+        { detail, open -> SettingsDetailContent(detail, open) },
     settings: @Composable (selected: SettingsDetail?, open: (SettingsDetail) -> Unit) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -74,7 +76,7 @@ internal fun SettingsDestination(
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 DetailPane(stringResource(detail.titleRes)) {
-                    SettingsDetailContent(detail, onOpen = { detail = it })
+                    detailContent(detail) { detail = it }
                 }
             }
         }

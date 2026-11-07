@@ -22,6 +22,14 @@ class EditorShortcutsTest {
         assertEquals(EditorShortcut.REDO, map(KeyEvent.KEYCODE_Y, primary = true))
         assertEquals(EditorShortcut.OPEN, map(KeyEvent.KEYCODE_O, primary = true))
         assertEquals(EditorShortcut.EXPORT, map(KeyEvent.KEYCODE_E, primary = true))
+        assertEquals(EditorShortcut.APPLY_PREVIOUS, map(KeyEvent.KEYCODE_V, primary = true, shift = true))
+    }
+
+    @Test
+    fun ctrlVAloneStaysTheSystemPaste() {
+        assertNull(map(KeyEvent.KEYCODE_V, primary = true))
+        assertNull(map(KeyEvent.KEYCODE_V))
+        assertNull(map(KeyEvent.KEYCODE_V, shift = true))
     }
 
     @Test

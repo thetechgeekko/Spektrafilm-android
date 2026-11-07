@@ -50,6 +50,8 @@ internal fun MainActivity.EditorPresetPanel(
     previewTickState: MutableIntState,
     engineState: State<SpektraEngine?>,
     applyWithAmountFn: (baseOverride: String?, apply: () -> Unit) -> Unit,
+    previousEdit: PreviousEdit?,
+    onApplyPrevious: () -> Unit,
 ) {
     var presetList by presetListState
     var presetBaselineJson by presetBaselineJsonState
@@ -218,6 +220,8 @@ internal fun MainActivity.EditorPresetPanel(
                     .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
             }
         },
+        previousEditName = previousEdit?.let { previousEditDisplayName(ctx, it) },
+        onApplyPrevious = onApplyPrevious,
         onExportLut = { size, clf ->
             val e = engine ?: return@PresetPanel
             bakingLut = true; status = ctx.getString(R.string.editor_status_baking_lut, if (clf) "CLF" else ".cube")

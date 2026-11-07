@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -57,6 +58,9 @@ internal fun PresetPanel(
     onCopySettings: () -> Unit,
     canPasteSettings: Boolean,
     onPasteSettings: () -> Unit,
+    /** Display name of the photo whose edit "Apply previous edit" would use; null when none. */
+    previousEditName: String?,
+    onApplyPrevious: () -> Unit,
     onExportLut: (size: Int, clf: Boolean) -> Unit,
     bakingLut: Boolean,
     // Versions of the open photo, under the copy/paste row (see VersionsSection).
@@ -232,6 +236,20 @@ internal fun PresetPanel(
             modifier = Modifier.weight(1f),
         ) { Text(stringResource(R.string.editor_preset_paste_settings)) }
     }
+    // The previous photo's look without a Copy first: the same whole-look replace as Paste.
+    OutlinedButton(
+        onClick = onApplyPrevious,
+        enabled = previousEditName != null,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(stringResource(R.string.editor_preset_apply_previous)) }
+    Text(
+        if (previousEditName != null) stringResource(R.string.editor_preset_previous_from, previousEditName)
+        else stringResource(R.string.editor_preset_previous_none),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
     Divider()
     versionsContent()
     Divider()
