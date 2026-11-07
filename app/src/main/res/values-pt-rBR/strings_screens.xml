@@ -268,4 +268,23 @@
     <string name="library_loading">Carregando pasta</string>
     <string name="library_badge_edited">Editada</string>
     <string name="library_cell_edited_desc">%1$s, editada</string>
+    <string name="library_select_action">Selecionar</string>
+    <string name="library_select_all">Selecionar tudo</string>
+    <string name="library_paste_edit">Colar edição</string>
+    <string name="library_paste_no_source">Edite uma foto primeiro. Colar edição aplica aos quadros selecionados o visual da foto aberta no editor.</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%1$d selecionada</item>
+        <item quantity="many">%1$d selecionadas</item>
+        <item quantity="other">%1$d selecionadas</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="one">Visual colado em %1$d foto. O recorte e as máscaras foram mantidos.</item>
+        <item quantity="many">Visual colado em %1$d fotos. Os recortes e as máscaras foram mantidos.</item>
+        <item quantity="other">Visual colado em %1$d fotos. Os recortes e as máscaras foram mantidos.</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="one">Visual colado em %1$d. %2$d foto foi ignorada porque a edição não pôde ser lida.</item>
+        <item quantity="many">Visual colado em %1$d. %2$d fotos foram ignoradas porque as edições não puderam ser lidas.</item>
+        <item quantity="other">Visual colado em %1$d. %2$d fotos foram ignoradas porque as edições não puderam ser lidas.</item>
+    </plurals>
 </resources>

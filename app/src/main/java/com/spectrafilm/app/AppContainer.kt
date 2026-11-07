@@ -101,6 +101,7 @@ internal class AppContainer(context: Context) {
                 LibraryViewModel.androidLister(app),
                 dispatchers.io,
                 LibraryViewModel.androidEditLookup(app),
+                LibraryViewModel.androidLookPaste(recipes),
             )
         },
     )

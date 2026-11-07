@@ -138,4 +138,61 @@ class LibraryViewModelTest {
         assertTrue(state.entries.isEmpty())
         assertEquals(null, state.folderName)
     }
+
+    private fun pasteVm(
+        rows: List<LibraryEntry>,
+        paste: suspend (String, List<LookSync.Target>) -> LookSync.Result,
+    ) = LibraryViewModel(FakeStore("tree://a"), { LibraryListing("A", rows) }, Dispatchers.Unconfined, { false }, paste)
+
+    @Test fun longPressSelectionTogglesAndSelectAllTakesEveryFrame() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2))
+        val model = pasteVm(rows) { _, _ -> error("no paste") }
+        model.refresh(); idle()
+        model.toggleSelected("content://doc/a.jpg")
+        assertEquals(setOf("content://doc/a.jpg"), model.selection.value)
+        model.toggleSelected("content://doc/a.jpg")
+        assertTrue(model.selection.value.isEmpty())
+        model.selectAll()
+        assertEquals(2, model.selection.value.size)
+        model.clearSelection()
+        assertTrue(model.selection.value.isEmpty())
+    }
+
+    @Test fun pasteSendsTheSelectionMinusTheSourceAndEndsSelecting() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2))
+        var sent: Pair<String, List<LookSync.Target>>? = null
+        val model = pasteVm(rows) { source, targets ->
+            sent = source to targets
+            LookSync.Result(applied = targets.size, skipped = 0)
+        }
+        model.refresh(); idle()
+        model.selectAll()
+        model.pasteLookFrom("content://doc/a.jpg"); idle()
+        assertEquals("content://doc/a.jpg", sent!!.first)
+        assertEquals(listOf("b.jpg"), sent!!.second.map { it.name })
+        assertTrue(model.selection.value.isEmpty())
+        assertEquals(LibraryPasteState.Done(LookSync.Result(1, 0)), model.paste.value)
+        model.pasteShown()
+        assertEquals(LibraryPasteState.Idle, model.paste.value)
+    }
+
+    @Test fun pasteWithNoOpenPhotoKeepsTheSelectionAndSaysWhy() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1))
+        val model = pasteVm(rows) { _, _ -> error("must not paste") }
+        model.refresh(); idle()
+        model.selectAll()
+        model.pasteLookFrom(null); idle()
+        assertEquals(1, model.selection.value.size)
+        assertEquals(LibraryPasteState.Done(LookSync.Result(0, 0, noSource = true)), model.paste.value)
+    }
+
+    @Test fun aFrameThatLeftTheFolderLeavesTheSelection() {
+        var rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2))
+        val model = LibraryViewModel(FakeStore("tree://a"), { LibraryListing("A", rows) }, Dispatchers.Unconfined)
+        model.refresh(); idle()
+        model.selectAll()
+        rows = rows.take(1)
+        model.refresh(); idle()
+        assertEquals(setOf("content://doc/a.jpg"), model.selection.value)
+    }
 }

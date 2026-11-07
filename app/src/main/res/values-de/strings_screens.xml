@@ -268,4 +268,20 @@
     <string name="library_loading">Ordner wird geladen</string>
     <string name="library_badge_edited">Bearbeitet</string>
     <string name="library_cell_edited_desc">%1$s, bearbeitet</string>
+    <string name="library_select_action">Auswählen</string>
+    <string name="library_select_all">Alle auswählen</string>
+    <string name="library_paste_edit">Bearbeitung einfügen</string>
+    <string name="library_paste_no_source">Bearbeite zuerst ein Foto. „Bearbeitung einfügen“ überträgt den Look des im Editor geöffneten Fotos auf die ausgewählten Bilder.</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%1$d ausgewählt</item>
+        <item quantity="other">%1$d ausgewählt</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="one">Look auf %1$d Foto übertragen. Zuschnitt und Masken blieben erhalten.</item>
+        <item quantity="other">Look auf %1$d Fotos übertragen. Zuschnitte und Masken blieben erhalten.</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="one">Look auf %1$d übertragen. %2$d Foto wurde übersprungen, weil seine Bearbeitung nicht lesbar war.</item>
+        <item quantity="other">Look auf %1$d übertragen. %2$d Fotos wurden übersprungen, weil ihre Bearbeitungen nicht lesbar waren.</item>
+    </plurals>
 </resources>
