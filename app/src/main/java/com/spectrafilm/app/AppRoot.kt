@@ -488,6 +488,23 @@ internal fun MainActivity.AppRoot(
                         // and come back on any other screen.
                         ImmersiveSystemBars(enabled = settingsUi.fullScreenEditing)
                         EditorScreen(
+                            dispatchers = dispatchers,
+                            editorVm = editorVm,
+                            exportVm = exportVm,
+                            exportPresetVm = exportPresetVm,
+                            filmPreviewVm = filmPreviewVm,
+                            printPreviewVm = printPreviewVm,
+                            presetPreviewVm = presetPreviewVm,
+                            presetVm = presetVm,
+                            toolVm = toolVm,
+                            versionsVm = versionsVm,
+                            viewerVm = viewerVm,
+                            incomingImageIntent = incomingImageIntent,
+                            setEditorShortcutHandler = { editorShortcutHandler = it },
+                            heldDropPermissions = heldDropPermissions,
+                            requestDragAndDropPermissions = { requestDragAndDropPermissions(it) },
+                            lifecycle = this@AppRoot.lifecycle,
+                            onBackPressedDispatcher = onBackPressedDispatcher,
                             settings = settings,
                             restoration = activeRestoration,
                             sessionRestoreNotice = pendingSessionRestoreNotice,
