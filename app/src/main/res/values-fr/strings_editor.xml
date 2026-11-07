@@ -178,8 +178,6 @@
     <string name="editor_pill_rendered_in">Rendu en %1$d ms</string>
     <string name="editor_pill_rendered_in_text">Rendu en %1$d ms</string>
     <string name="editor_pill_error">Erreur : %1$s</string>
-    <string name="editor_state_on">Activé</string>
-    <string name="editor_state_off">Désactivé</string>
     <string name="editor_panel_title">Panneau %1$s</string>
     <string name="editor_close_panel_named">Fermer le panneau %1$s</string>
     <string name="editor_panel_expand">Agrandir le panneau</string>

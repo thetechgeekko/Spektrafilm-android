@@ -176,8 +176,6 @@
     <string name="editor_pill_rendered_in">Gerendert in %1$d ms</string>
     <string name="editor_pill_rendered_in_text">Gerendert in %1$d ms</string>
     <string name="editor_pill_error">Fehler: %1$s</string>
-    <string name="editor_state_on">An</string>
-    <string name="editor_state_off">Aus</string>
     <string name="editor_panel_title">Panel %1$s</string>
     <string name="editor_close_panel_named">Panel %1$s schließen</string>
     <string name="editor_panel_expand">Panel höher machen</string>

@@ -174,8 +174,6 @@
     <string name="editor_pill_rendered_in">%1$d msでレンダリング</string>
     <string name="editor_pill_rendered_in_text">%1$d msでレンダリング</string>
     <string name="editor_pill_error">エラー：%1$s</string>
-    <string name="editor_state_on">オン</string>
-    <string name="editor_state_off">オフ</string>
     <string name="editor_panel_title">%1$sパネル</string>
     <string name="editor_close_panel_named">%1$sパネルを閉じる</string>
     <string name="editor_panel_expand">パネルを高くする</string>
