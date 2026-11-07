@@ -42,10 +42,10 @@ internal suspend fun CoroutineScope.runDraftPreviewPass(
     sourceCache: DecodedSourceCache,
     gradeCacheKey: (Int) -> GradeCache.Key,
     cachedSourceDecodeRequest: suspend (DecodedSourceCache, Int) -> CachedSourceDecodeRequest,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     previewState: MutableState<Bitmap?>,
 ) {
-    var engine by engineState
+    val engine by engineState
     var preview by previewState
     if (!sourceRenderAllowed) return
     val publicationTicket = publicationGate.begin(
@@ -179,7 +179,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     loadSourceCachedForPreview: suspend (Int) -> DecodedSourceCache.Lease,
     retireSourceResources: () -> Unit,
     scheduleZoomPrewarm: () -> Unit,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     previewState: MutableState<Bitmap?>,
     beforePreviewState: MutableState<Bitmap?>,
     decodingState: MutableState<Boolean>,
@@ -190,7 +190,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     sourceState: State<EditorSourceState>,
     requireSourceAuthorization: () -> Unit,
 ) {
-    var engine by engineState
+    val engine by engineState
     var preview by previewState
     var beforePreview by beforePreviewState
     var decoding by decodingState
@@ -418,12 +418,12 @@ internal suspend fun CoroutineScope.runGpuPreviewFeed(
     sourceRenderAllowed: Boolean,
     gpuEnabled: Boolean,
     loadSourceCachedForPreview: suspend (Int) -> DecodedSourceCache.Lease,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     gpuGainState: MutableFloatState,
     gpuLutState: MutableState<CubeLut?>,
     gpuProxyLeaseState: MutableState<DecodedSourceCache.Lease?>,
 ) {
-    var engine by engineState
+    val engine by engineState
     var gpuGain by gpuGainState
     var gpuLut by gpuLutState
     var gpuProxyLease by gpuProxyLeaseState

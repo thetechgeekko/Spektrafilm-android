@@ -105,6 +105,23 @@ internal class EditorSession(
 
     private val sourceState = mutableStateOf(source)
 
+    private val appliedCatalogState = mutableStateOf<EditorCatalog?>(null)
+
+    /**
+     * The catalog this session has applied ([adoptCatalog]); null until then. The screen reads
+     * the engine, profile ids and built-in looks from here instead of keeping its own copies,
+     * and treats non-null as "catalog ready".
+     */
+    val appliedCatalog: State<EditorCatalog?> get() = appliedCatalogState
+
+    /**
+     * Publishes [catalog] to the screen. Called right after [applyCatalog] in the same
+     * main-thread step, so nothing can render with the engine before the restore is decoded.
+     */
+    fun adoptCatalog(catalog: EditorCatalog) {
+        appliedCatalogState.value = catalog
+    }
+
     /**
      * The photo the editor shows, as one immutable value (#452): uri, kind, display name and
      * whether access must be re-granted before it can render. Read-only here; it changes only

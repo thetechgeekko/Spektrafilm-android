@@ -254,13 +254,13 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     state: ParamsState,
     sourceRenderAllowed: Boolean,
     currentSourceDecodeRequest: () -> SourceDecodeRequest,
-    engineState: MutableState<SpektraEngine?>,
+    engineState: State<SpektraEngine?>,
     previewBusyState: MutableState<Boolean>,
     sourceState: State<EditorSourceState>,
     prerenderDigestState: MutableState<Pair<String, Long>?>,
     prerenderOutOfMemoryState: MutableState<Boolean>,
 ) {
-    var engine by engineState
+    val engine by engineState
     var previewBusy by previewBusyState
     var prerenderDigest by prerenderDigestState
     var prerenderOutOfMemory by prerenderOutOfMemoryState
