@@ -6,6 +6,8 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    // @Serializable navigation routes (#274).
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Optional local release signing is read from keystore.properties in the project root.
@@ -147,6 +149,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
 
     testImplementation(libs.junit)
     // Real org.json on the unit-test classpath (the android.jar stub throws "not
