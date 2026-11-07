@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -89,6 +90,7 @@ import kotlinx.coroutines.withContext
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -99,6 +101,46 @@ import androidx.compose.ui.platform.LocalDensity
 private const val MIN_ZOOM = 1f
 private const val MAX_ZOOM = 8f
 private const val DOUBLE_TAP_MIN_ZOOM = 2f
+
+/** Zoom factor per mouse-wheel notch (scrollDelta.y of 1). */
+private const val WHEEL_ZOOM_STEP = 1.25f
+
+/**
+ * Mouse wheel / trackpad scroll over the preview (DeX, ChromeOS, desktop windows, tablets with
+ * a mouse). Delivers each scroll event's delta and pointer position, then consumes it so a
+ * scrollable parent does not also move. Plain pointer-event plumbing: touch is untouched.
+ */
+private fun Modifier.onPointerScroll(onScroll: (delta: Offset, position: Offset) -> Unit): Modifier =
+    pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type != PointerEventType.Scroll) continue
+                val change = event.changes.firstOrNull() ?: continue
+                onScroll(change.scrollDelta, change.position)
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }
+
+/**
+ * New (scale, offset) for one scroll event, before pan clamping. Vertical wheel zooms about
+ * [pointerFromCentre] (the pointer relative to the view centre, so the pixel under the cursor
+ * stays put, same anchoring as the pinch centroid); wheel up (negative y) zooms in. Horizontal
+ * scroll (trackpad, tilt wheel) pans while zoomed. Pure so it is unit-tested.
+ */
+internal fun wheelZoomTransform(
+    scale: Float,
+    offset: Offset,
+    pointerFromCentre: Offset,
+    scrollDelta: Offset,
+    panPxPerUnit: Float,
+): Pair<Float, Offset> {
+    val newScale = (scale * WHEEL_ZOOM_STEP.pow(-scrollDelta.y)).coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val zoomed = (offset - pointerFromCentre) * (newScale / scale) + pointerFromCentre
+    val pan = if (newScale > MIN_ZOOM) Offset(-scrollDelta.x * panPxPerUnit, 0f) else Offset.Zero
+    return newScale to (if (newScale <= MIN_ZOOM) Offset.Zero else zoomed + pan)
+}
 
 /**
  * GPU LUT preview surface for the FIT view. Shows the current look INSTANTLY — the engine's
@@ -138,6 +180,7 @@ fun GpuPreviewSurface(
                     if (kotlin.math.abs(zoom - 1f) > 0.001f) onZoomStart()
                 }
             }
+            .onPointerScroll { delta, _ -> if (delta.y < 0f) onZoomIn() }
             .pointerInput(onPointPicked) {
                 detectTapGestures(
                     onDoubleTap = { onZoomStart() },
@@ -309,6 +352,14 @@ fun ZoomableImage(
                     scale = newScale
                     offset = clampOffset(newOffset, newScale)
                 }
+            }
+            .onPointerScroll { delta, position ->
+                val c = Offset(viewSize.width / 2f, viewSize.height / 2f)
+                val (ns, no) = wheelZoomTransform(
+                    scale, offset, position - c, delta, panPxPerUnit = viewSize.width / 10f,
+                )
+                scale = ns
+                offset = clampOffset(no, ns)
             }
             .pointerInput(onPointPicked, peekImage != null) {
                 detectTapGestures(

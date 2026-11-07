@@ -674,6 +674,23 @@ class MainActivity : ComponentActivity() {
      */
     private val incomingImageIntent = androidx.compose.runtime.mutableStateOf<Intent?>(null)
 
+    /**
+     * Hardware keyboard shortcuts (DeX, ChromeOS, keyboard covers). Set by the live editor
+     * composition and cleared when it leaves, so a shortcut can never act on an editor that
+     * is not on screen. Returns true when the shortcut was handled.
+     */
+    private var editorShortcutHandler: ((EditorShortcut) -> Boolean)? = null
+
+    /**
+     * Only reached for keys the focused view did NOT consume, so a text field keeps its own
+     * Ctrl+Z and typed characters. Dialogs and sheets are separate windows and never get here.
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        val shortcut = editorShortcutFor(event)
+        if (shortcut != null && editorShortcutHandler?.invoke(shortcut) == true) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -1514,6 +1531,14 @@ class MainActivity : ComponentActivity() {
         // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
         // Held in a remember box (not Compose state — we never read it during composition).
         val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        fun closeMagnifier() {
+            // Cancel any in-flight crop render so it doesn't resurrect the overlay
+            // state or leak its bitmap (a cancelled job recycles its own result).
+            magnifierJobRef.value?.cancel()
+            magnifierRendering = false
+            magnifierOpen = false
+            magnifierBitmap = null
+        }
         val magnifierPublicationGate = remember { RoiRenderPublicationGate() }
 
         // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
@@ -3714,6 +3739,38 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // --- hardware keyboard shortcuts (EditorShortcuts.kt) ---
+        // Every shortcut calls the SAME action as its on-screen control. Esc goes through the
+        // back dispatcher, so it closes exactly what Back would (and in the same order), but
+        // only when something is open: at the root it must not arm double-back-to-exit.
+        val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
+            // The magnifier is a full-screen overlay in this window (not a dialog), so it
+            // has to block shortcuts too; an undo behind it would invalidate its crop.
+            val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
+            when (shortcut) {
+                EditorShortcut.CLOSE -> {
+                    val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
+                    if (closable) onBackPressedDispatcher.onBackPressed()
+                    closable
+                }
+                EditorShortcut.UNDO -> !overlayOpen && editHistory.canUndo && run { doUndo(); true }
+                EditorShortcut.REDO -> !overlayOpen && editHistory.canRedo && run { doRedo(); true }
+                EditorShortcut.OPEN -> !overlayOpen && run {
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    true
+                }
+                EditorShortcut.EXPORT -> !overlayOpen && run { requestExport(); true }
+                EditorShortcut.TOGGLE_COMPARE -> !overlayOpen && run {
+                    viewerVm.onAction(EditorViewerAction.ToggleCompare)
+                    true
+                }
+            }
+        }
+        DisposableEffect(Unit) {
+            editorShortcutHandler = { shortcutHandler(it) }
+            onDispose { editorShortcutHandler = null }
+        }
+
         // --- back handling on the root editor ---
         // 0) crop overlay open -> close it; 1) panel open -> close panel;
         // 2) else double-back-to-exit with one-time hint.
@@ -3755,6 +3812,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Registered last so it wins: the full-screen grain magnifier sits over everything
+        // above, and Back (or Esc) must close IT, not the panel or overlay hidden beneath.
+        BackHandler(enabled = magnifierOpen) { closeMagnifier() }
 
         // ============================ LAYOUT ============================
         // Overlay predicates, shared with the overlay branches below the chrome.
@@ -4427,14 +4487,7 @@ class MainActivity : ComponentActivity() {
                     crop = magnifierBitmap,
                     rendering = magnifierRendering,
                     status = magnifierStatus,
-                    onClose = {
-                        // Cancel any in-flight crop render so it doesn't resurrect the overlay
-                        // state or leak its bitmap (a cancelled job recycles its own result).
-                        magnifierJobRef.value?.cancel()
-                        magnifierRendering = false
-                        magnifierOpen = false
-                        magnifierBitmap = null
-                    },
+                    onClose = { closeMagnifier() },
                 )
             }
 
