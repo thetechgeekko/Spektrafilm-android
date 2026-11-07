@@ -3,6 +3,7 @@ package com.spectrafilm.app
 import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
@@ -29,15 +30,22 @@ class EditorViewModelTest {
         val defaults = Presets.toJsonString(ParamsState())
 
         val first = vm.beginSession()
-        assertSame(first, vm.params)
-        first.filmProfile = "some_other_film"
-        first.exposureCompensationEv = 1.5f
-        assertNotEquals(defaults, Presets.toJsonString(first))
+        assertSame(first.params, vm.params)
+        first.params.filmProfile = "some_other_film"
+        first.params.exposureCompensationEv = 1.5f
+        first.rotation.value = SourceRotation.fromDegrees(90)
+        first.history.push(EditSnapshot("{}", 0))
+        first.restoring.value = true
+        assertNotEquals(defaults, Presets.toJsonString(first.params))
 
         val second = vm.beginSession()
         assertNotSame(first, second)
-        assertSame(second, vm.params)
-        assertEquals(defaults, Presets.toJsonString(second))
+        assertSame(second.params, vm.params)
+        assertEquals(defaults, Presets.toJsonString(second.params))
+        assertEquals(SourceRotation.NONE, second.rotation.value)
+        assertFalse(second.history.canUndo)
+        assertNull(second.committedSnapshot.value)
+        assertFalse(second.restoring.value)
     }
 
     @Test fun theCatalogLoadsOncePerViewModelAndIsNullUntilItArrives() {
