@@ -147,6 +147,11 @@ internal class AppViewModelFactory(
 /** Owns the process's [AppContainer]. Registered as `android:name` in the manifest. */
 class SpektraApplication : Application() {
     internal val container: AppContainer by lazy { AppContainer(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        DebugStrictMode.installIfDebuggable(this)
+    }
 }
 
 private val fallbackContainerLock = Any()
