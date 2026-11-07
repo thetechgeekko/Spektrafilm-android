@@ -11,9 +11,7 @@ package com.spectrafilm.app
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.CreationExtras
 import java.io.File
 import kotlinx.coroutines.flow.StateFlow
 
@@ -72,16 +70,4 @@ internal class UpdateViewModel(backend: UpdateBackend, prefs: UpdatePrefs) : Vie
     val uiState: StateFlow<UpdateUiState> = controller.state
 
     fun onAction(action: UpdateAction) = controller.onAction(action)
-
-    companion object {
-        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                require(modelClass.isAssignableFrom(UpdateViewModel::class.java)) { "unknown $modelClass" }
-                val app = context.applicationContext
-                val prefs = SharedUpdatePrefs(app.getSharedPreferences(SharedUpdatePrefs.FILE, Context.MODE_PRIVATE))
-                @Suppress("UNCHECKED_CAST")
-                return UpdateViewModel(AndroidUpdateBackend(app), prefs) as T
-            }
-        }
-    }
 }

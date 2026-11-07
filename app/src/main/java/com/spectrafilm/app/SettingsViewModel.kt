@@ -13,8 +13,6 @@
 package com.spectrafilm.app
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.CreationExtras
 import com.spectrafilm.engine.ColorSpace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -114,14 +112,4 @@ internal class SettingsViewModel(
         exportQuality = store.exportQuality,
         keepGps = store.exportKeepGps,
     )
-
-    companion object {
-        fun factory(settings: AppSettings): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                require(modelClass.isAssignableFrom(SettingsViewModel::class.java)) { "unknown $modelClass" }
-                @Suppress("UNCHECKED_CAST")
-                return SettingsViewModel(settings, settings.autoPreviewEdges()) as T
-            }
-        }
-    }
 }

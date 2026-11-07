@@ -589,17 +589,17 @@ internal fun categoryDefaults(category: Category): JSONObject? {
 class MainActivity : ComponentActivity() {
     /** Export sheet + export phase state for the editor (#272). Activity-scoped. */
     private val exportVm: ExportViewModel by lazy {
-        ViewModelProvider(this, ExportViewModel.factory)[ExportViewModel::class.java]
+        ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
     }
 
     /** On-photo tool overlays and mask selection for the editor (#272). */
     private val toolVm: EditorToolViewModel by lazy {
-        ViewModelProvider(this, EditorToolViewModel.factory)[EditorToolViewModel::class.java]
+        ViewModelProvider(this, appContainer.viewModelFactory)[EditorToolViewModel::class.java]
     }
 
     /** Preset panel, amount blend and settings clipboard state for the editor (#272). */
     private val presetVm: PresetViewModel by lazy {
-        ViewModelProvider(this, PresetViewModel.factory)[PresetViewModel::class.java]
+        ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
     }
 
     /**
@@ -657,9 +657,9 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure { Diag.w("export recovery failed: ${it.message}") }
         }
-        val settings = AppSettings.from(this)
-        val settingsVm = ViewModelProvider(this, SettingsViewModel.factory(settings))[SettingsViewModel::class.java]
-        val updateVm = ViewModelProvider(this, UpdateViewModel.factory(this))[UpdateViewModel::class.java]
+        val settings = appContainer.settings
+        val settingsVm = ViewModelProvider(this, appContainer.viewModelFactory)[SettingsViewModel::class.java]
+        val updateVm = ViewModelProvider(this, appContainer.viewModelFactory)[UpdateViewModel::class.java]
         setContent {
             // Theme follows the saved settings state, so a Settings edit re-themes at once.
             val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
