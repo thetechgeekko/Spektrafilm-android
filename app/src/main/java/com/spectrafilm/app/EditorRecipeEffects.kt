@@ -13,6 +13,7 @@ import android.content.Context
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
@@ -184,7 +185,7 @@ internal suspend fun CoroutineScope.runRecipeAutosave(
     recipeAccessState: MutableState<EditorRecipeAccess>,
     recipeReadyState: MutableState<Boolean>,
     rotationState: MutableState<SourceRotation>,
-    sourceNameState: MutableState<String>,
+    sourceState: State<EditorSourceState>,
     statusState: MutableState<String>,
 ) {
     var defaultsJson by defaultsJsonState
@@ -192,7 +193,6 @@ internal suspend fun CoroutineScope.runRecipeAutosave(
     var recipeAccess by recipeAccessState
     var recipeReady by recipeReadyState
     var rotation by rotationState
-    var sourceName by sourceNameState
     var status by statusState
     if (!recipeReady || recipeKey == null) return
     val writableGeneration = recipeAccess.writableGenerationFor(recipeKey)
@@ -232,7 +232,7 @@ internal suspend fun CoroutineScope.runRecipeAutosave(
         // Reuse the main-thread serialization from above (torn-snapshot safety);
         // only the envelope build + file write cross to IO.
         val paramsJson = current ?: Presets.toJsonString(state)
-        val savedSourceName = sourceName
+        val savedSourceName = sourceState.value.displayName
         val savedRotationDegrees = rotation.degrees
         val pendingSave = RecipeWorkRuntime.submit {
             recipeRepo.saveJson(

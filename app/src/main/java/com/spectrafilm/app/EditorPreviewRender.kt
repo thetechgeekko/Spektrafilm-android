@@ -12,9 +12,9 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.spectrafilm.engine.AppRenderOutcome
@@ -186,10 +186,9 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     lastRenderMsState: MutableState<Long?>,
     previewBusyState: MutableState<Boolean>,
     renderErrState: MutableState<String?>,
-    sourceAuthorizationRequiredState: MutableState<Boolean>,
     statusState: MutableState<String>,
-    sourceKindState: MutableState<SourceKind>,
-    sourceUriState: MutableState<Uri?>,
+    sourceState: State<EditorSourceState>,
+    requireSourceAuthorization: () -> Unit,
 ) {
     var engine by engineState
     var preview by previewState
@@ -198,13 +197,10 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     var lastRenderMs by lastRenderMsState
     var previewBusy by previewBusyState
     var renderErr by renderErrState
-    var sourceAuthorizationRequired by sourceAuthorizationRequiredState
     var status by statusState
-    var sourceKind by sourceKindState
-    var sourceUri by sourceUriState
     if (!sourceRenderAllowed) return
     val e = engine ?: return
-    val previewProbeLabel = editorProbe.sourceProbeLabel(sourceUri?.toString())
+    val previewProbeLabel = editorProbe.sourceProbeLabel(sourceState.value.uri)
     // Settle debounce, raised from 350ms. Each preview render maxes all CPU cores for
     // ~1s, so waiting a bit longer for the user to pause means fewer renders that start
     // then get cancelled mid-flight on the next edit ("coroutine scope left the
@@ -393,9 +389,9 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
         }.onFailure {
             SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
             Diag.w("render mode=preview failed after ${System.currentTimeMillis() - renderStart}ms: ${it.message}")
-            if (sourceKind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
+            if (sourceState.value.kind != SourceKind.DEMO && it.isSourceAuthorizationFailure()) {
                 retireSourceResources()
-                sourceAuthorizationRequired = true
+                requireSourceAuthorization()
                 renderErr = ctx.getString(R.string.editor_render_error_auth_required)
                 status = ctx.getString(R.string.editor_status_source_expired)
             } else {

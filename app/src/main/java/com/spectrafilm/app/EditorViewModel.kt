@@ -5,8 +5,9 @@
  * The editor's own ViewModel (audit A2). It owns two things that used to be `remember`ed
  * inside EditorScreen:
  *
- *  - the per-composition [EditorSession]: editing state [ParamsState], manual rotation, the
- *    undo/redo history and its settle bookkeeping, and
+ *  - the per-composition [EditorSession]: editing state [ParamsState], the visible photo
+ *    ([EditorSourceState], one immutable value changed only through session transitions),
+ *    manual rotation, the undo/redo history and its settle bookkeeping, and
  *  - the editor catalog (native engine, installed profile ids, built-in looks), loaded once
  *    per ViewModel in [viewModelScope] instead of once per editor composition.
  *
@@ -29,6 +30,7 @@ package com.spectrafilm.app
 import android.content.Context
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -83,6 +85,7 @@ internal class EditorViewModel(
         EditorSession(
             document = restoration?.document,
             rotationDegrees = restoration?.rotationDegrees ?: 0,
+            source = restoration?.source ?: EditorSession.NO_SOURCE,
         ).also { session = it }
 }
 
@@ -92,9 +95,59 @@ internal class EditorViewModel(
  * screen and the helpers it passes them to observe them unchanged.
  */
 @Stable
-internal class EditorSession(document: EditorSessionDocument?, rotationDegrees: Int) {
+internal class EditorSession(
+    document: EditorSessionDocument?,
+    rotationDegrees: Int,
+    source: EditorSourceState = NO_SOURCE,
+) {
     /** Live editing parameters, Settings defaults until the checkpoint is decoded. */
     val params = ParamsState()
+
+    private val sourceState = mutableStateOf(source)
+
+    /**
+     * The photo the editor shows, as one immutable value (#452): uri, kind, display name and
+     * whether access must be re-granted before it can render. Read-only here; it changes only
+     * through [showSource], [showDemo] and the two authorization transitions below, so the four
+     * fields can never be observed half-updated.
+     */
+    val source: State<EditorSourceState> get() = sourceState
+
+    /** Shows [uri] as the editor's photo. */
+    fun showSource(
+        uri: String,
+        kind: SourceKind,
+        displayName: String,
+        authorizationRequired: Boolean = false,
+    ) {
+        sourceState.value = EditorSourceState(uri, kind, displayName, authorizationRequired)
+    }
+
+    /** Shows the built-in demo image ([displayName] is its localized label). */
+    fun showDemo(displayName: String) {
+        sourceState.value = EditorSourceState(null, SourceKind.DEMO, displayName, false)
+    }
+
+    /** The current photo's access was lost (a render or restore hit a permission failure). */
+    fun requireSourceAuthorization() {
+        sourceState.value = sourceState.value.copy(authorizationRequired = true)
+    }
+
+    /**
+     * Source state could not be confirmed: a real photo now needs re-authorization, the demo
+     * never does. Returns whether authorization is now required.
+     */
+    fun requireAuthorizationIfRealSource(): Boolean {
+        val current = sourceState.value
+        val required = current.uri != null && current.kind != SourceKind.DEMO
+        sourceState.value = current.copy(authorizationRequired = required)
+        return required
+    }
+
+    companion object {
+        /** Placeholder before the first composition (and in tests): the demo, unlabelled. */
+        val NO_SOURCE = EditorSourceState(null, SourceKind.DEMO, "", false)
+    }
 
     /**
      * The user's MANUAL rotation step (applied to the decoded image for preview and export).
