@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
 
 /**
  * A one-of-N picker as an M3 connected button group: equal-width [ConnectedToggle] segments
@@ -26,7 +25,7 @@ internal fun <T> ConnectedChoiceRow(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier.fillMaxWidth().semantics { selectableGroup() },
+        modifier.fillMaxWidth().selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
     ) {
         options.forEachIndexed { index, (value, label) ->
