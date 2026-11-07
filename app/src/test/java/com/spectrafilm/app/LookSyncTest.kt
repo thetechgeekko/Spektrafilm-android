@@ -33,7 +33,7 @@ class LookSyncTest {
         assertEquals(1.5, merged.getJSONObject("camera").getDouble("exposureCompensationEv"), 0.0)
         assertTrue(merged.getJSONObject("input").getBoolean("crop"))
         assertEquals(0.3, merged.getJSONObject("input").getJSONArray("cropCenter").getDouble(0), 0.0)
-        assertTrue(merged.getJSONArray("masks").similar(targetMasks))
+        assertEquals(targetMasks.toString(), merged.getJSONArray("masks").toString())
         // Neither input changed.
         assertEquals("fujifilm_c200", target.getString("filmProfile"))
         assertFalse(source.getJSONObject("input").getBoolean("crop"))
