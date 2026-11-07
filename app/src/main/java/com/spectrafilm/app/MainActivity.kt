@@ -114,8 +114,8 @@ import com.spectrafilm.libraw.RawDecodeException
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.WhiteBalance
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -223,8 +223,9 @@ internal fun rawFallbackSupported(status: DecodeStatus): Boolean =
 private suspend fun decodeSourceRequest(
     request: SourceDecodeRequest,
     maxEdge: Int,
+    io: CoroutineDispatcher,
 ): SourceDecodeResult = withOwnedContext(
-    context = Dispatchers.IO,
+    context = io,
     dispose = { decoded -> decoded.image.close() },
 ) {
     val decodeJob = currentCoroutineContext()[Job]
@@ -587,6 +588,9 @@ internal fun categoryDefaults(category: Category): JSONObject? {
 }
 
 class MainActivity : ComponentActivity() {
+    /** Injected coroutine dispatchers (#277); no `Dispatchers.*` literal in this file. */
+    private val dispatchers: AppDispatchers by lazy { appContainer.dispatchers }
+
     /** Export sheet + export phase state for the editor (#272). Activity-scoped. */
     private val exportVm: ExportViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
@@ -640,7 +644,7 @@ class MainActivity : ComponentActivity() {
         )
         // Reconcile export journal entries left by process death before a new export can start.
         // Once-per-process guarding prevents Activity recreation from racing a live transaction.
-        lifecycleScope.launch(Dispatchers.IO) {
+        lifecycleScope.launch(dispatchers.io) {
             runCatching {
                 recoverPendingMediaStoreExportsOnce(
                     applicationContext,
@@ -714,7 +718,7 @@ class MainActivity : ComponentActivity() {
             mutableStateOf(EditorSavedFallback.Empty)
         }
         LaunchedEffect(appContext) {
-            val sessionRead = withContext(Dispatchers.IO) {
+            val sessionRead = withContext(dispatchers.io) {
                 EditorSessionCheckpointRuntime.read(appContext)
             }
             startupRead = EditorStartupRead(sessionRead, restoreLatestSourceAccess(appContext))
@@ -775,7 +779,7 @@ class MainActivity : ComponentActivity() {
             if (sessionWriteAccess != EditorSessionWriteAccess.RECOVERING) return@LaunchedEffect
             val recovered = awaitEditorSessionWriteRecovery(
                 read = {
-                    withContext(Dispatchers.IO) {
+                    withContext(dispatchers.io) {
                         EditorSessionCheckpointRuntime.read(appContext)
                     }
                 },
@@ -1582,7 +1586,7 @@ class MainActivity : ComponentActivity() {
                     val durableTerminal = awaitDurableEditorSessionCheckpoint(
                         checkpoint = { sessionCheckpointAction[0]?.invoke() == true },
                         flush = {
-                            withContext(Dispatchers.IO) {
+                            withContext(dispatchers.io) {
                                 EditorSessionCheckpointRuntime.flush()
                             }
                         },
@@ -1854,12 +1858,12 @@ class MainActivity : ComponentActivity() {
         // configuration change. EngineHolder also handles the AAssetManager-then-extract
         // fallback. Created off the main thread (asset wiring is heavy on first call).
         LaunchedEffect(Unit) {
-            withContext(Dispatchers.IO) {
+            withContext(dispatchers.io) {
                 val e = EngineHolder.get(ctx)
                 val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
                 StockCatalog.stocks(ctx) // warm the catalog cache
                 val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())
-                withContext(Dispatchers.Main) {
+                withContext(dispatchers.main) {
                     engine = e
                     profiles = list
                     settings.applyDefaultsTo(state, list)
@@ -2354,7 +2358,7 @@ class MainActivity : ComponentActivity() {
             if (uri != null) {
                 // Read the SAF stream off-main; decode (Compose-state write) on main.
                 scope.launch {
-                    val text = withContext(Dispatchers.IO) {
+                    val text = withContext(dispatchers.io) {
                         runCatching { Presets.readUri(ctx, uri) }.getOrNull()
                     }
                     if (text == null) { status = ctx.getString(R.string.editor_status_preset_import_failed); return@launch }
@@ -2379,7 +2383,7 @@ class MainActivity : ComponentActivity() {
                     // Serialize on main (live Compose-state read); write off-main.
                     val json = runCatching { Presets.toJsonString(state) }.getOrNull()
                     if (json == null) { status = ctx.getString(R.string.editor_status_preset_export_failed); return@launch }
-                    val r = withContext(Dispatchers.IO) { runCatching { Presets.exportJson(ctx, uri, json) } }
+                    val r = withContext(dispatchers.io) { runCatching { Presets.exportJson(ctx, uri, json) } }
                     r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
                         .onFailure { status = ctx.getString(R.string.editor_status_preset_export_failed_reason, it.message) }
                 }
@@ -2396,7 +2400,7 @@ class MainActivity : ComponentActivity() {
             pendingPresetExport = null
             if (uri != null && name != null) {
                 scope.launch {
-                    val r = withContext(Dispatchers.IO) {
+                    val r = withContext(dispatchers.io) {
                         runCatching { Presets.exportJson(ctx, uri, Presets.read(ctx, name)) }
                     }
                     r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
@@ -2415,7 +2419,7 @@ class MainActivity : ComponentActivity() {
             if (uri != null && text != null) {
                 scope.launch {
                     // SAF write off-main; status (Compose state) lands back on main.
-                    val r = withContext(Dispatchers.IO) { runCatching { saveTextToUri(ctx, uri, text) } }
+                    val r = withContext(dispatchers.io) { runCatching { saveTextToUri(ctx, uri, text) } }
                     r.onSuccess { status = ctx.getString(R.string.editor_status_lut_saved) }
                         .onFailure { status = ctx.getString(R.string.editor_status_lut_save_failed, it.message) }
                 }
@@ -2474,7 +2478,7 @@ class MainActivity : ComponentActivity() {
             cache: DecodedSourceCache,
             maxEdge: Int,
         ): CachedSourceDecodeRequest =
-            withContext(Dispatchers.Main.immediate) {
+            withContext(dispatchers.mainImmediate) {
                 val decode = currentSourceDecodeRequest()
                 val filmBalance = if (
                     decode.balanceToFilmStock &&
@@ -2518,12 +2522,12 @@ class MainActivity : ComponentActivity() {
                 if (existing != null) {
                     existing.close()
                 } else {
-                    val decoded = decodeSourceRequest(snapshot.decode, maxEdge)
+                    val decoded = decodeSourceRequest(snapshot.decode, maxEdge, dispatchers.io)
                     // publish() consumes the image even when this ticket became stale. An old
                     // detached decode therefore cannot evict the newest source generation.
                     val accepted = cache.publish(ticket, decoded.image)
                     if (accepted && decoded.usedPlatformFallback) {
-                        withContext(Dispatchers.Main.immediate) {
+                        withContext(dispatchers.mainImmediate) {
                             if (cache.isCurrent(ticket)) dngFallbackNotice = true
                         }
                     }
@@ -2591,7 +2595,7 @@ class MainActivity : ComponentActivity() {
                 var renderId = 0L
                 val result = runCatching {
                     withOwnedContext(
-                        context = Dispatchers.Default,
+                        context = dispatchers.default,
                         dispose = { bitmap: Bitmap ->
                             if (!bitmap.isRecycled) bitmap.recycle()
                         },
@@ -2679,7 +2683,7 @@ class MainActivity : ComponentActivity() {
                         val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
                         val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
                         withOwnedContext(
-                            context = Dispatchers.Default,
+                            context = dispatchers.default,
                             dispose = LinearImage::close,
                         ) {
                             cropLinearImageRect(full, roi.cxN, roi.cyN, cw, ch)
@@ -2691,7 +2695,7 @@ class MainActivity : ComponentActivity() {
                                 maxOf(full.width, full.height).coerceAtLeast(1)
                             suspend fun renderAt(edge: Int): Pair<Bitmap, Long> =
                                 withOwnedContext(
-                                    context = Dispatchers.Default,
+                                    context = dispatchers.default,
                                     dispose = { rendered: Pair<Bitmap, Long> ->
                                         if (!rendered.first.isRecycled) rendered.first.recycle()
                                     },
@@ -2835,7 +2839,7 @@ class MainActivity : ComponentActivity() {
                     val gradeResult = try {
                         runCatching {
                             withOwnedContext(
-                                context = Dispatchers.Default,
+                                context = dispatchers.default,
                                 dispose = { bitmap: Bitmap ->
                                     if (!bitmap.isRecycled) bitmap.recycle()
                                 },
@@ -2852,7 +2856,7 @@ class MainActivity : ComponentActivity() {
                         pristine.close()
                     }
                     gradeResult.onSuccess { bmp ->
-                        withContext(Dispatchers.Main) {
+                        withContext(dispatchers.main) {
                             if (publicationGate.tryClaim(publicationTicket)) {
                                 preview = bmp
                             } else if (!bmp.isRecycled) {
@@ -2878,7 +2882,7 @@ class MainActivity : ComponentActivity() {
                 val draftResult = proxyLease.use { lease ->
                     runCatching {
                         withOwnedContext(
-                            context = Dispatchers.Default,
+                            context = dispatchers.default,
                             dispose = { bitmap: Bitmap ->
                                 if (!bitmap.isRecycled) bitmap.recycle()
                             },
@@ -2916,7 +2920,7 @@ class MainActivity : ComponentActivity() {
                 }
                 draftResult.onSuccess { bmp ->
                     try {
-                        withContext(Dispatchers.Main) { preview = bmp }
+                        withContext(dispatchers.main) { preview = bmp }
                         SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
                     } catch (cancelled: CancellationException) {
                         SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
@@ -2974,7 +2978,7 @@ class MainActivity : ComponentActivity() {
                 val result = try {
                     runCatching {
                         withOwnedContext(
-                            context = Dispatchers.Default,
+                            context = dispatchers.default,
                             dispose = { submission: Triple<Bitmap, Bitmap, Boolean> ->
                                 if (!submission.second.isRecycled) submission.second.recycle()
                                 if (submission.third && !submission.first.isRecycled) {
@@ -3167,7 +3171,7 @@ class MainActivity : ComponentActivity() {
             var lutRenderId = 0L
             val bakeResult = runCatching {
                 withOwnedContext(
-                    context = Dispatchers.Default,
+                    context = dispatchers.default,
                     dispose = { submission: Triple<DecodedSourceCache.Lease, CubeLut?, Float> ->
                         submission.first.close()
                     },
@@ -3311,7 +3315,7 @@ class MainActivity : ComponentActivity() {
                 ?: return@LaunchedEffect
             // The source cannot change under a stable Uri, so hash it once per source, not once
             // per idle: it is a full read of the file (~37 MB on the bench corpus).
-            val digest = prerenderDigest ?: withContext(Dispatchers.IO) {
+            val digest = prerenderDigest ?: withContext(dispatchers.io) {
                 ExportCacheKey.digestSource { app.contentResolver.openInputStream(activeUri) }
             }?.also { prerenderDigest = it } ?: return@LaunchedEffect
             val store = RenderPayloads.of(app)
@@ -3326,8 +3330,8 @@ class MainActivity : ComponentActivity() {
             if (store.holds(key) || !RenderPayloads.shouldPrerender(app)) return@LaunchedEffect
             val startedMs = System.currentTimeMillis()
             runCatching {
-                withContext(Dispatchers.Default) {
-                    val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX).image
+                withContext(dispatchers.default) {
+                    val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, dispatchers.io).image
                     val rendered = try {
                         runCancellableNative(
                             onLateResult = { late ->
@@ -3628,7 +3632,7 @@ class MainActivity : ComponentActivity() {
                     // read off the main thread once per source.
                     val photoDateStamp by produceState<String?>(null, sourceUri) {
                         value = sourceUri?.let { uri ->
-                            withContext(Dispatchers.IO) { DateStampText.readCaptureDate(ctx, uri) }
+                            withContext(dispatchers.io) { DateStampText.readCaptureDate(ctx, uri) }
                         }
                     }
                     // The active panel body, shared by both branches so the per-category
@@ -3760,7 +3764,7 @@ class MainActivity : ComponentActivity() {
                                         // only the file write + listing cross to IO.
                                         scope.launch {
                                             val json = Presets.toJsonString(state)
-                                            val names = withContext(Dispatchers.IO) {
+                                            val names = withContext(dispatchers.io) {
                                                 Presets.saveJson(ctx, name, json); Presets.list(ctx)
                                             }
                                             presetList = names
@@ -3787,7 +3791,7 @@ class MainActivity : ComponentActivity() {
                                         // Read the JSON off-main; decode (Compose-state write)
                                         // + applyWithAmount run back on the main thread.
                                         scope.launch {
-                                            val text = withContext(Dispatchers.IO) {
+                                            val text = withContext(dispatchers.io) {
                                                 runCatching { Presets.read(ctx, name) }.getOrNull()
                                             }
                                             if (text == null) { status = ctx.getString(R.string.editor_status_preset_apply_failed); return@launch }
@@ -3808,10 +3812,10 @@ class MainActivity : ComponentActivity() {
                                             // the JSON is what lets Undo put it back byte-for-byte
                                             // (— read and saveJson round-trip through the same
                                             // parsePersistentJson normalisation).
-                                            val backup = withContext(Dispatchers.IO) {
+                                            val backup = withContext(dispatchers.io) {
                                                 runCatching { Presets.read(ctx, name) }.getOrNull()
                                             }
-                                            val names = withContext(Dispatchers.IO) {
+                                            val names = withContext(dispatchers.io) {
                                                 Presets.delete(ctx, name); Presets.list(ctx)
                                             }
                                             presetList = names
@@ -3825,7 +3829,7 @@ class MainActivity : ComponentActivity() {
                                                     ctx.getString(R.string.editor_action_undo),
                                                 ) {
                                                     scope.launch {
-                                                        val restored = withContext(Dispatchers.IO) {
+                                                        val restored = withContext(dispatchers.io) {
                                                             runCatching { Presets.saveJson(ctx, name, backup) }
                                                             Presets.list(ctx)
                                                         }
@@ -3872,7 +3876,7 @@ class MainActivity : ComponentActivity() {
                                     scope.launch {
                                         var lutRenderId = 0L
                                         val r = runCatching {
-                                            withContext(Dispatchers.Default) {
+                                            withContext(dispatchers.default) {
                                                 // UNSHAPED, deliberately: this file goes to
                                                 // other software, and a .cube carries no
                                                 // shaper metadata — it must stay in the
@@ -4281,7 +4285,7 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 runCatching {
                                     val avg = loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                                        withContext(Dispatchers.Default) {
+                                        withContext(dispatchers.default) {
                                             val crop = cropLinearImageRect(fullLease.image, nx, ny, 5, 5)
                                             try { avgRgb(crop) } finally { crop.close() }
                                         }
@@ -4508,7 +4512,7 @@ class MainActivity : ComponentActivity() {
                                 var publishedUri: Uri? = null
                                 try {
                                     val bitmap =
-                                    withContext(Dispatchers.Default) {
+                                    withContext(dispatchers.default) {
                                         // Full-res off-heap buffers (the OOM fix) — close input/result promptly.
                                         // Phase breadcrumbs: the engine's own `stage timings` line
                                         // accounts for only ~61% of an export (8819 ms of 14476 on a
@@ -4568,7 +4572,7 @@ class MainActivity : ComponentActivity() {
                                             ExportCaches.of(exportContext).get(it)
                                         }
                                         if (cached != null) {
-                                            publishedUri = withContext(Dispatchers.IO) {
+                                            publishedUri = withContext(dispatchers.io) {
                                                 publishCachedExport(
                                                     exportContext,
                                                     cached,
@@ -4594,6 +4598,7 @@ class MainActivity : ComponentActivity() {
                                             decodeSourceRequest(
                                                 exportDecodeRequest,
                                                 EXPORT_MAX_EDGE_PX,
+                                                dispatchers.io,
                                             ).image
                                         }
                                         phDecode = System.currentTimeMillis() - tDecode0
@@ -4602,7 +4607,7 @@ class MainActivity : ComponentActivity() {
                                             // engine) as a 32-bit float TIFF; the engine is skipped.
                                             val tEnc0 = System.currentTimeMillis()
                                             try {
-                                                publishedUri = withContext(Dispatchers.IO) {
+                                                publishedUri = withContext(dispatchers.io) {
                                                     saveLinearInputAsTiff32f(
                                                         exportContext,
                                                         // Scene-linear exports the DECODE, never the
@@ -4624,7 +4629,7 @@ class MainActivity : ComponentActivity() {
                                             // A full EXIF read of a ~25 MB RAW plus two thread-pool
                                             // hops — its own phase, not silently between two others.
                                             val tExif0 = System.currentTimeMillis()
-                                            val srcExif = withContext(Dispatchers.IO) {
+                                            val srcExif = withContext(dispatchers.io) {
                                                 readSourceExif(exportContext, exportSourceUri, keepGps = keepGps)
                                             }
                                             phExif = System.currentTimeMillis() - tExif0
@@ -4726,7 +4731,7 @@ class MainActivity : ComponentActivity() {
                                                 previewCandidate = bmp
                                                 phGrade = System.currentTimeMillis() - tGrade0
                                                 val tEnc0 = System.currentTimeMillis()
-                                                publishedUri = withContext(Dispatchers.IO) {
+                                                publishedUri = withContext(dispatchers.io) {
                                                     when (outputDescriptor.encoder) {
                                                         OutputEncoder.NATIVE_TIFF_UINT16,
                                                         OutputEncoder.NATIVE_TIFF_FLOAT32 -> saveSimResultAsTiff(
