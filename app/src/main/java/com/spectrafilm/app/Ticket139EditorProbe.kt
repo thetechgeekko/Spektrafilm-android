@@ -133,6 +133,13 @@ internal object Ticket139EditorProbe {
         "camera.diffusion.haloSize",
         "camera.diffusion.bloomIntensity",
         "camera.diffusion.bloomSize",
+        "camera.sceneLatitude.active",
+        "camera.sceneLatitude.highlightKnee",
+        "camera.sceneLatitude.highlightRoom",
+        "camera.sceneLatitude.shadowKnee",
+        "camera.sceneLatitude.shadowRoom",
+        "camera.sceneLatitude.rolloff",
+        "camera.sceneLatitude.maxLift",
         "enlarger.illuminant",
         "enlarger.printExposure",
         "enlarger.printExposureCompensation",
@@ -297,6 +304,13 @@ internal object Ticket139EditorProbe {
         "camera.diffusion.haloSize" to number("0.75"),
         "camera.diffusion.bloomIntensity" to number("0.73"),
         "camera.diffusion.bloomSize" to number("1.2"),
+        "camera.sceneLatitude.active" to flag(true),
+        "camera.sceneLatitude.highlightKnee" to number("1.75"),
+        "camera.sceneLatitude.highlightRoom" to number("2.5"),
+        "camera.sceneLatitude.shadowKnee" to number("-1.5"),
+        "camera.sceneLatitude.shadowRoom" to number("1.25"),
+        "camera.sceneLatitude.rolloff" to number("2.5"),
+        "camera.sceneLatitude.maxLift" to number("3.5"),
         "enlarger.illuminant" to text("TH-KG3"),
         "enlarger.printExposure" to number("1.05"),
         "enlarger.printExposureCompensation" to flag(false),
@@ -1526,6 +1540,13 @@ internal object Ticket139EditorProbe {
         autoExposureMethod = "matrix"
         filmFormatMm = 33f
         cameraLensBlurUm = 0.15f
+        sceneLatitudeActive = true
+        sceneLatitudeHighlightKnee = 1.75f
+        sceneLatitudeHighlightRoom = 2.5f
+        sceneLatitudeShadowKnee = -1.5f
+        sceneLatitudeShadowRoom = 1.25f
+        sceneLatitudeRolloff = 2.5f
+        sceneLatitudeMaxLift = 3.5f
         cameraDiffusionState.apply {
             family = "glimmerglass"
             strength = 0.41f
