@@ -5,9 +5,11 @@ explicit, recipient-controlled `LIBRAW_SOURCE_DIR`. It intentionally does not
 use the production resolver or patched-tree hash: a recipient may change the
 bundled LibRaw source and relink the JNI wrapper while preserving its Java ABI.
 
-The output keeps the `libsfraw.so` filename/SONAME, zlib support, `NO_JPEG`
-fallback policy, security allocation ceilings, and 16 KiB ELF segment
-alignment. It also exports `sfraw_recipient_relink_marker()` and contains a
+The output keeps the `libsfraw.so` filename/SONAME, zlib support, lossy-JPEG
+DNG support through the pinned libjpeg-turbo release (downloaded and verified
+by `lib/libraw/cmake/LibJpegTurboVendor.cmake`, or supplied offline with
+`-DSFRAW_LIBJPEG_TURBO_ARCHIVE=<path>`), security allocation ceilings, and
+16 KiB ELF segment alignment. It also exports `sfraw_recipient_relink_marker()` and contains a
 plain-text `UNOFFICIAL RECIPIENT RELINK` marker so it cannot be confused with an
 official release binary.
 

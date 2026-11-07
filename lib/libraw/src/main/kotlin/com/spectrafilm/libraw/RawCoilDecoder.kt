@@ -6,31 +6,19 @@
  *
  * This is the "full-res RAW in the gallery" integration point from docs/RAW_DNG.md:
  * a Coil 3 Decoder.Factory that decodes camera RAW / DNG sensor data rather than
- * relying only on an embedded preview (ImageToolbox's existing NefDecoder stays
- * available for fast thumbnails).
+ * relying only on an embedded preview.
  *
  * It reuses RawDecoder for the sensor decode, then makes an unmanaged 8-bit
  * channel-wise preview for Coil. The engine path keeps the float32 linear ProPhoto
  * buffer; this preview path is not a color-managed ProPhoto-to-sRGB conversion.
  *
- * --------------------------------------------------------------------------------
- * WHERE TO REGISTER (host app)
- * --------------------------------------------------------------------------------
- * In ImageToolbox:
- *   core/data/src/main/java/.../core/data/di/ImageLoaderModule.kt
- *   -> provideComponentRegistry(...): ComponentRegistry.Builder()
- *        ...
- *        add(NefDecoder.Factory())          // existing: NEF preview (thumbnails)
- *        add(RawCoilDecoder.Factory())      // ADD: full-res LibRaw RAW/DNG open
- *        ...
- * Register it *before* generic bitmap decoders so RAW extensions are claimed here.
- * The class would live alongside NefDecoder in core/data/.../coil/ in the host;
- * this copy in lib:libraw is the reference sketch the host wires up.
- * --------------------------------------------------------------------------------
+ * Not registered anywhere today: :app decodes through RawDecoder directly. A Coil 3
+ * host that wants full-res RAW thumbnails adds RawCoilDecoder.Factory() to its
+ * ImageLoader's ComponentRegistry, ahead of the generic bitmap decoders so RAW
+ * extensions are claimed here.
  *
- * NOTE: imports are written against Coil 3's API. They resolve once this module
- * (or the host) depends on coil3 (already present in ImageToolbox). Marked with
- * TODO where host-side tone-mapping choices are made.
+ * NOTE: imports are written against Coil 3's API, which this module declares
+ * compileOnly. Marked with TODO where host-side tone-mapping choices are made.
  */
 package com.spectrafilm.libraw
 

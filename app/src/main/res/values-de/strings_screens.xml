@@ -14,9 +14,9 @@
     <string name="screen_welcome_page2_title">So funktioniert es</string>
     <string name="screen_welcome_page2_body">Wähle ein Foto oder RAW/DNG → such einen Film und ein Fotopapier aus → stimme den Look ab (Korn, Lichthof, Kuppler, Streulicht) → exportiere in voller Auflösung.</string>
     <string name="screen_welcome_page3_title">Unter der Haube</string>
-    <string name="screen_welcome_page3_body">Eine bitgenaue Portierung der spektralen Pipeline von spektrafilm, RAW-Dekodierung mit LibRaw und eine von Image Toolbox inspirierte Compose-Oberfläche. Vorschauen werden für Tempo verkleinert; Exporte werden in voller Auflösung gerendert.</string>
+    <string name="screen_welcome_page3_body">Eine bitgenaue Portierung der spektralen Pipeline von spektrafilm, RAW-Dekodierung mit LibRaw und eine Compose-Oberfläche mit Material 3. Vorschauen werden für Tempo verkleinert; Exporte werden in voller Auflösung gerendert.</string>
     <string name="screen_welcome_page4_title">Danksagung</string>
-    <string name="screen_welcome_page4_body">Der pixls.us-Community gewidmet. Film modeling powered by spektrafilm (Andrea Volpato). Dank an Image Toolbox (T8RIN), colour-science und LibRaw. Freie Software unter der GPLv3.</string>
+    <string name="screen_welcome_page4_body">Der pixls.us-Community gewidmet. Film modeling powered by spektrafilm (Andrea Volpato). Dank an colour-science und LibRaw. Freie Software unter der GPLv3.</string>
     <string name="screen_welcome_skip">Überspringen</string>
     <string name="screen_welcome_next">Weiter</string>
     <string name="screen_welcome_get_started">Los geht’s</string>
@@ -27,7 +27,7 @@
     <string name="screen_about_tagline">Spektrale Filmsimulation auf deinem Smartphone. Film modeling powered by spektrafilm.</string>
     <string name="screen_about_dedication_heading">Widmung</string>
     <string name="screen_about_thanks_heading">Dank</string>
-    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). Oberfläche inspiriert von Image Toolbox (T8RIN). Farbmathematik von colour-science. RAW-Dekodierung mit LibRaw.</string>
+    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). Farbmathematik von colour-science. RAW-Dekodierung mit LibRaw.</string>
     <string name="screen_about_author_heading">Autor</string>
     <string name="screen_about_license_heading">Lizenz und Quellcode</string>
     <string name="screen_about_license_body">Der App-Code ist freie Software unter GPL-3.0-only.</string>
@@ -141,7 +141,7 @@
     <string name="screen_howto_s9_step5">Korn ist stochastisch (zufällig). Die Vorschau kann bei jedem Rendering etwas anders aussehen; der Export ist immer die maßgebliche Version in voller Auflösung.</string>
     <string name="screen_howto_s10_title">Danksagung</string>
     <string name="screen_howto_s10_p1">Film modeling powered by spektrafilm (Andrea Volpato). Die Wissenschaft, die Filmprofile und die spektralen LUTs sind Andreas Arbeit; Spektrafilm ist eine native Android-Portierung dieser Engine, bitgenau gegen das Original geprüft.</string>
-    <string name="screen_howto_s10_p2">Oberfläche inspiriert von Image Toolbox (T8RIN). Farbmathematik von colour-science. RAW-Dekodierung mit LibRaw. Freie Software unter der GPLv3.</string>
+    <string name="screen_howto_s10_p2">Farbmathematik von colour-science. RAW-Dekodierung mit LibRaw. Freie Software unter der GPLv3.</string>
     <string name="screen_settings_title">Einstellungen</string>
     <string name="screen_settings_appearance">Darstellung</string>
     <string name="screen_settings_theme">Design</string>

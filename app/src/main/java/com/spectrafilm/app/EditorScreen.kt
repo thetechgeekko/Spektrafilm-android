@@ -1364,7 +1364,8 @@ internal fun MainActivity.EditorScreen(
     // EXIF orientation baseline THEN the user's manual rotate steps so imports appear
     // upright in both the preview and the export. The demo image has no EXIF.
     //
-    // RAW/DNG: a compressed (lossy-JPEG / JPEG-XL) Samsung/Pixel Expert-RAW DNG makes
+    // RAW/DNG: a JPEG-XL Samsung/Pixel Expert-RAW DNG, or a lossy-JPEG one outside the
+    // qualified libjpeg-turbo route (corrupt or progressive tiles, Compression 6), makes
     // LibRaw throw RawDecodeException; we fall back to the platform ImageDecoder
     // (display-referred) and flag a one-shot snackbar. EXIF is then applied to the
     // fallback bitmap too.

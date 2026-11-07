@@ -22,7 +22,6 @@ object Links {
     const val AUTHOR_INSTAGRAM = "https://www.instagram.com/akshay.pool/"
     const val AUTHOR_YOUTUBE = "https://www.youtube.com/@Akshayishere/videos"
     const val SPEKTRAFILM = "https://github.com/Spektrafilm"
-    const val IMAGE_TOOLBOX = "https://github.com/T8RIN/ImageToolbox"
     const val COLOUR_SCIENCE = "https://www.colour-science.org/"
     const val LIBRAW = "https://www.libraw.org/"
     const val LIBRAW_SOURCE = "https://github.com/LibRaw/LibRaw"

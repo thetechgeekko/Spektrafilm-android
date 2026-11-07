@@ -14,9 +14,9 @@
     <string name="screen_welcome_page2_title">작동 방식</string>
     <string name="screen_welcome_page2_body">사진 또는 RAW/DNG 선택 → 필름과 인화지 선택 → 룩 조정(그레인, 할레이션, 커플러, 글레어) → 전체 해상도로 내보내기.</string>
     <string name="screen_welcome_page3_title">내부 구조</string>
-    <string name="screen_welcome_page3_body">spektrafilm 스펙트럼 파이프라인을 비트 단위로 정확하게 이식했고, RAW 디코딩은 LibRaw로, UI는 Image Toolbox에서 영감을 받은 Compose로 만들었습니다. 미리보기는 속도를 위해 축소되며, 내보내기는 전체 해상도로 렌더링됩니다.</string>
+    <string name="screen_welcome_page3_body">spektrafilm 스펙트럼 파이프라인을 비트 단위로 정확하게 이식했고, RAW 디코딩은 LibRaw로, UI는 Material 3 Compose로 만들었습니다. 미리보기는 속도를 위해 축소되며, 내보내기는 전체 해상도로 렌더링됩니다.</string>
     <string name="screen_welcome_page4_title">크레딧</string>
-    <string name="screen_welcome_page4_body">pixls.us 커뮤니티에 바칩니다. Film modeling powered by spektrafilm (Andrea Volpato). Image Toolbox(T8RIN), colour-science, LibRaw에 감사드립니다. GPLv3 자유 소프트웨어입니다.</string>
+    <string name="screen_welcome_page4_body">pixls.us 커뮤니티에 바칩니다. Film modeling powered by spektrafilm (Andrea Volpato). colour-science, LibRaw에 감사드립니다. GPLv3 자유 소프트웨어입니다.</string>
     <string name="screen_welcome_skip">건너뛰기</string>
     <string name="screen_welcome_next">다음</string>
     <string name="screen_welcome_get_started">시작하기</string>
@@ -27,7 +27,7 @@
     <string name="screen_about_tagline">휴대폰에서 즐기는 스펙트럼 필름 시뮬레이션 — Film modeling powered by spektrafilm.</string>
     <string name="screen_about_dedication_heading">헌사</string>
     <string name="screen_about_thanks_heading">감사의 말</string>
-    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). UI는 Image Toolbox(T8RIN)에서 영감을 받았습니다. 색 계산은 colour-science, RAW 디코딩은 LibRaw를 사용합니다.</string>
+    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). 색 계산은 colour-science, RAW 디코딩은 LibRaw를 사용합니다.</string>
     <string name="screen_about_author_heading">제작자</string>
     <string name="screen_about_license_heading">라이선스 및 소스</string>
     <string name="screen_about_license_body">앱 코드는 GPL-3.0-only로 배포되는 자유 소프트웨어입니다.</string>
@@ -141,7 +141,7 @@
     <string name="screen_howto_s9_step5">그레인은 확률적(무작위)입니다. 미리보기는 렌더링할 때마다 조금씩 다를 수 있지만, 내보내기는 언제나 최종 전체 해상도 버전입니다.</string>
     <string name="screen_howto_s10_title">크레딧</string>
     <string name="screen_howto_s10_p1">Film modeling powered by spektrafilm (Andrea Volpato). 과학, 필름 프로필, 스펙트럼 LUT는 Andrea의 작업입니다. Spektrafilm은 그 엔진을 Android로 네이티브 이식한 것으로, 원본과 비트 단위로 일치하는지 검증했습니다.</string>
-    <string name="screen_howto_s10_p2">UI는 Image Toolbox(T8RIN)에서 영감을 받았습니다. 색 계산은 colour-science, RAW 디코딩은 LibRaw를 사용합니다. GPLv3 자유 소프트웨어입니다.</string>
+    <string name="screen_howto_s10_p2">색 계산은 colour-science, RAW 디코딩은 LibRaw를 사용합니다. GPLv3 자유 소프트웨어입니다.</string>
     <string name="screen_settings_title">설정</string>
     <string name="screen_settings_appearance">모양</string>
     <string name="screen_settings_theme">테마</string>

@@ -78,15 +78,6 @@ Color-matching functions, illuminants, chromatic adaptation, and color-space tra
 - Upstream: https://www.colour-science.org / https://github.com/colour-science/colour
 - License: BSD-3-Clause
 
-## Android architecture reference: Image Toolbox
-
-The Android app design is informed by **Image Toolbox** by T8RIN (Malik Mukhametzyanov) — its
-modular Compose architecture informed this project's early design; the standalone `:app` is the
-shipping host.
-
-- Upstream: https://github.com/T8RIN/ImageToolbox
-- License: Apache License 2.0 (one-way compatible with GPLv3)
-
 ## RAW decoding: LibRaw
 
 <!-- libraw-license-route: LGPL-2.1-only -->
@@ -104,6 +95,21 @@ Full-resolution RAW/DNG decoding uses **LibRaw**.
   The route marker cannot be changed alone: the canonical decision record also
   identifies the human approval and confirms rights to license the local patch
   contributions under the elected route.
+
+## Lossy-JPEG DNG decoding: libjpeg-turbo
+
+Lossy-JPEG DNG files (for example Samsung and Pixel "Expert RAW") are decoded by
+LibRaw through **libjpeg-turbo** 3.1.4, statically linked into the RAW library and
+built unmodified from its official release archive (SHA-256 pinned in
+`lib/libraw/cmake/LibJpegTurboVendor.cmake`).
+
+This software is based in part on the work of the Independent JPEG Group.
+
+- Upstream: https://libjpeg-turbo.org / https://github.com/libjpeg-turbo/libjpeg-turbo
+- License: the IJG License (libjpeg API library), the Modified (3-clause) BSD
+  License (build system), and the zlib License (SIMD extensions); see the
+  upstream `LICENSE.md` and `README.ijg`. Only the libjpeg API is linked; the
+  TurboJPEG API is not built.
 
 ## Translations
 

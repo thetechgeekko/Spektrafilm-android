@@ -198,6 +198,68 @@ class RawPrecisionDescriptorTest {
         }
     }
 
+    @Test
+    fun `lossy-JPEG LinearRaw crosses JNI as LOSSY_COMPRESSED in the 16-bit decoder domain`() {
+        val descriptor = RawPrecisionDescriptor.fromNative(
+            lossyWords(),
+            floatArrayOf(-0.5f, 0.75f),
+        )
+        assertEquals(RawPacking.LOSSY_COMPRESSED, descriptor.packing)
+        assertTrue(descriptor.isLossy)
+        assertEquals(0x884C, descriptor.containerCompression)
+        assertEquals(16, descriptor.declaredBitsPerSample)
+        assertEquals(16, descriptor.effectiveBitsPerSample)
+        assertEquals(RawPixelLayout.LINEAR, descriptor.pixelLayout)
+        assertEquals(listOf(65535L, 65535L, 65535L), descriptor.whiteLevels)
+        assertEquals(RawLevelProvenance.DECODER_METADATA, descriptor.whiteLevelProvenance)
+        assertEquals(false, RawPrecisionDescriptor.fromNative(validWords(), floatArrayOf(-0.5f, 0.75f)).isLossy)
+    }
+
+    @Test
+    fun `lossy packing is refused outside its exact contract`() {
+        val reals = floatArrayOf(-0.5f, 0.75f)
+        val violations = listOf<IntArray.() -> Unit>(
+            { this[131] = 7 },                                       // not 0x884C
+            { this[2] = 8; this[3] = 8; repeat(3) { this[88 + it] = 255 } }, // container bits
+            { this[13] = RawLevelProvenance.DNG_METADATA.code },     // white not decoder's
+            { this[16] = 16; this[3] = 16 },                         // non-zero black
+            { this[6] = RawPacking.LOSSLESS_COMPRESSED.code; this[131] = 1 }, // mismatch
+        )
+        violations.forEach { mutate ->
+            assertThrows(IllegalArgumentException::class.java) {
+                RawPrecisionDescriptor.fromNative(lossyWords().apply(mutate), reals)
+            }
+        }
+        // 0x884C may never be labelled lossless.
+        assertThrows(IllegalArgumentException::class.java) {
+            RawPrecisionDescriptor.fromNative(
+                validWords().apply {
+                    this[6] = RawPacking.TIFF_PACKED_BITS.code
+                    this[131] = 0x884C
+                },
+                reals,
+            )
+        }
+    }
+
+    private fun lossyWords(): IntArray = validWords().apply {
+        this[2] = 16
+        this[3] = 16
+        this[6] = RawPacking.LOSSY_COMPRESSED.code
+        this[7] = RawPixelLayout.LINEAR.code
+        this[8] = 3
+        this[9] = 0
+        this[13] = RawLevelProvenance.DECODER_METADATA.code
+        this[14] = RawLevelProvenance.DECLARED_BITS_DEFAULT.code
+        this[16] = 0
+        repeat(4) { channel -> this[88 + channel] = if (channel < 3) 65535 else 0 }
+        this[92] = 0
+        repeat(4) { this[93 + it] = 0 }
+        this[131] = 0x884C
+        this[134] = 0
+        this[135] = 0
+    }
+
     private fun validWords(): IntArray = IntArray(136).apply {
         this[0] = RawPrecisionDescriptor.CURRENT_VERSION
         this[1] = RawSampleFormat.UNSIGNED_INTEGER.code

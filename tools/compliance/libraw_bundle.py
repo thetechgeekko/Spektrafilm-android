@@ -37,6 +37,8 @@ SPDX_CREATED_REPOSITORY_PATH = Path("lib/libraw/compliance/spdx-created-at.txt")
 SPDX_CREATED_BUNDLE_PATH = "relink/lib/libraw/compliance/spdx-created-at.txt"
 RESOLVER_REPOSITORY_PATH = Path("lib/libraw/cmake/LibRawVendor.cmake")
 RESOLVER_BUNDLE_PATH = "relink/lib/libraw/cmake/LibRawVendor.cmake"
+JPEG_VENDOR_REPOSITORY_PATH = Path("lib/libraw/cmake/LibJpegTurboVendor.cmake")
+JPEG_VENDOR_BUNDLE_PATH = "relink/lib/libraw/cmake/LibJpegTurboVendor.cmake"
 PATCH_REPOSITORY_DIR = Path("lib/libraw/patches")
 PATCH_BUNDLE_DIR = PurePosixPath("relink/lib/libraw/patches")
 PATCH_README_REPOSITORY_PATH = PATCH_REPOSITORY_DIR / "README.md"
@@ -160,6 +162,9 @@ class Pins:
     patched_tree_sha256: str
     patches: tuple[str, ...]
     patch_sha256: Mapping[str, str]
+    libjpeg_turbo_version: str
+    libjpeg_turbo_url: str
+    libjpeg_turbo_sha256: str
 
 
 @dataclass(frozen=True)
@@ -282,6 +287,24 @@ def _load_pins(repo_root: Path) -> Pins:
             f"patch SHA pins disagree with ordered manifest; missing={missing}, extra={extra}"
         )
 
+    jpeg_vendor = repo_root / JPEG_VENDOR_REPOSITORY_PATH
+    try:
+        jpeg_text = jpeg_vendor.read_text(encoding="utf-8")
+    except OSError as error:
+        raise BundleError(f"cannot read pinned libjpeg-turbo resolver {jpeg_vendor}: {error}") from error
+    libjpeg_turbo_version = _extract_single_quoted_set(
+        jpeg_text, "SFRAW_PINNED_LIBJPEG_TURBO_VERSION"
+    )
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", libjpeg_turbo_version):
+        raise BundleError(f"unsafe pinned libjpeg-turbo version: {libjpeg_turbo_version!r}")
+    libjpeg_turbo_url = _extract_single_quoted_set(jpeg_text, "SFRAW_PINNED_LIBJPEG_TURBO_URL")
+    if not libjpeg_turbo_url.startswith("https://"):
+        raise BundleError("pinned libjpeg-turbo URL must use HTTPS")
+    libjpeg_turbo_sha256 = _extract_single_quoted_set(
+        jpeg_text, "SFRAW_PINNED_LIBJPEG_TURBO_SHA256"
+    )
+    _validate_digest(libjpeg_turbo_sha256, "pinned libjpeg-turbo archive SHA-256")
+
     return Pins(
         version=version,
         url=url,
@@ -292,6 +315,9 @@ def _load_pins(repo_root: Path) -> Pins:
         patched_tree_sha256=patched_tree_sha256,
         patches=patches,
         patch_sha256=patch_sha256,
+        libjpeg_turbo_version=libjpeg_turbo_version,
+        libjpeg_turbo_url=libjpeg_turbo_url,
+        libjpeg_turbo_sha256=libjpeg_turbo_sha256,
     )
 
 
@@ -977,6 +1003,12 @@ cmake -S relink/lib/libraw/compliance/relink -B out/arm64-v8a -G Ninja \\
 cmake --build out/arm64-v8a --parallel
 ```
 
+The build also compiles the unmodified libjpeg-turbo release used for lossy-JPEG
+DNG. `relink/lib/libraw/cmake/LibJpegTurboVendor.cmake` downloads it from its
+pinned HTTPS URL and refuses it unless its SHA-256 matches; to build offline, add
+`-DSFRAW_LIBJPEG_TURBO_ARCHIVE=/path/to/libjpeg-turbo-<version>.tar.gz` (the
+same archive, still hash-checked).
+
 Repeat with `armeabi-v7a` or `x86_64` as needed. Repackage the resulting
 `libsfraw.so` into a source-built APK and sign that APK with your own key; the
 production signing key is neither necessary nor included in this bundle.
@@ -1085,6 +1117,7 @@ def _spdx_document(
             "SPDXRef-Package-LibRaw-Pristine",
             "SPDXRef-Package-LibRaw-Patched",
             "SPDXRef-Package-sfraw-wrapper",
+            "SPDXRef-Package-libjpeg-turbo",
         )
     ]
     relationships.extend(
@@ -1096,6 +1129,11 @@ def _spdx_document(
             },
             {
                 "relatedSpdxElement": "SPDXRef-Package-LibRaw-Patched",
+                "relationshipType": "STATIC_LINK",
+                "spdxElementId": "SPDXRef-Package-sfraw-wrapper",
+            },
+            {
+                "relatedSpdxElement": "SPDXRef-Package-libjpeg-turbo",
                 "relationshipType": "STATIC_LINK",
                 "spdxElementId": "SPDXRef-Package-sfraw-wrapper",
             },
@@ -1172,6 +1210,25 @@ def _spdx_document(
                 "sourceInfo": (
                     "Exact bundled JNI wrapper and standalone recipient relink source files"
                 ),
+            },
+            {
+                "SPDXID": "SPDXRef-Package-libjpeg-turbo",
+                "checksums": [
+                    {
+                        "algorithm": "SHA256",
+                        "checksumValue": pins.libjpeg_turbo_sha256,
+                    }
+                ],
+                "downloadLocation": pins.libjpeg_turbo_url,
+                "filesAnalyzed": False,
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "IJG AND BSD-3-Clause AND Zlib",
+                "name": "libjpeg-turbo release archive",
+                "sourceInfo": (
+                    "Unmodified upstream release, built static by "
+                    "lib/libraw/cmake/LibJpegTurboVendor.cmake for lossy-JPEG DNG"
+                ),
+                "versionInfo": pins.libjpeg_turbo_version,
             },
         ],
         "relationships": relationships,
@@ -1270,6 +1327,7 @@ def _collect_payload(
 
     resolver = repo_root / RESOLVER_REPOSITORY_PATH
     payload[RESOLVER_BUNDLE_PATH] = resolver.read_bytes()
+    payload[JPEG_VENDOR_BUNDLE_PATH] = (repo_root / JPEG_VENDOR_REPOSITORY_PATH).read_bytes()
     for patch in pins.patches:
         path = repo_root / PATCH_REPOSITORY_DIR / patch
         payload[(PATCH_BUNDLE_DIR / patch).as_posix()] = path.read_bytes()
@@ -1361,7 +1419,10 @@ def _verify_relink_project_contract(repo_root: Path) -> None:
         "raw_preview.cpp",
         "raw_result_publication.cpp",
         "unofficial_relink_marker.cpp",
-        "NO_JPEG",
+        "USE_JPEG",
+        "LIBRAW_NO_KODAK_JPEG",
+        "LibJpegTurboVendor.cmake",
+        "sfraw_add_libjpeg_turbo(",
         "USE_ZLIB",
         "LIBRAW_NODLL",
         "OUTPUT_NAME sfraw",
@@ -1373,6 +1434,11 @@ def _verify_relink_project_contract(repo_root: Path) -> None:
         raise BundleError(
             "standalone recipient relink project is missing required ABI/build "
             f"contract tokens: {missing}"
+        )
+    if re.search(r"(?<![A-Za-z0-9_])NO_JPEG(?![A-Za-z0-9_])", active_cmake):
+        raise BundleError(
+            "standalone recipient relink project must keep lossy-JPEG DNG (USE_JPEG), "
+            "not NO_JPEG"
         )
     forbidden_cmake_tokens = (
         "LibRawVendor.cmake",
@@ -1656,6 +1722,7 @@ def _verify_bundled_source_tree(
 def _expected_fixed_payload_names(pins: Pins) -> set[str]:
     names = {
         RESOLVER_BUNDLE_PATH,
+        JPEG_VENDOR_BUNDLE_PATH,
         PATCH_README_BUNDLE_PATH,
         ROUTE_BUNDLE_PATH,
         DECISION_BUNDLE_PATH,
@@ -1815,6 +1882,13 @@ def _verify_bundle(repo_root: Path, bundle_path: Path, require_resolved: bool) -
         repo_root,
         RESOLVER_REPOSITORY_PATH,
         "LibRaw resolver",
+    )
+    _expect_repository_member(
+        members,
+        JPEG_VENDOR_BUNDLE_PATH,
+        repo_root,
+        JPEG_VENDOR_REPOSITORY_PATH,
+        "libjpeg-turbo resolver",
     )
     for patch in pins.patches:
         member = (PATCH_BUNDLE_DIR / patch).as_posix()

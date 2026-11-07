@@ -18,6 +18,10 @@ set(SFRAW_LIBRAW_SOURCE_DIR "" CACHE PATH
 
 set(_SFRAW_LIBRAW_PATCH_DIR "${CMAKE_CURRENT_LIST_DIR}/../patches")
 set(_SFRAW_LIBRAW_PATCHED_TREE_SHA256
+    "29be40072fe3b05cba3e7768e4d8cacafbc2c18e5d962a13cbba855ff0b3745d")
+# Exact aggregate shipped by the immediately preceding 25-patch resolver.
+# It is accepted only as a migration source for the lossy-DNG loader patch.
+set(_SFRAW_LIBRAW_PATCHED_TREE_SHA256_25
     "bc463c30e414781d2455a47b99c30741830798b5941a049782b560fbb3abc74c")
 # Exact aggregate shipped by the immediately preceding 24-patch resolver.
 # It is accepted only as a migration source for the ICC conversion patch.
@@ -61,7 +65,8 @@ set(_SFRAW_LIBRAW_PATCHES
     "${_SFRAW_LIBRAW_PATCH_DIR}/0022-bound-fixed-header-string-reads.patch"
     "${_SFRAW_LIBRAW_PATCH_DIR}/0023-record-local-modification-notices.patch"
     "${_SFRAW_LIBRAW_PATCH_DIR}/0024-define-xtrans-negative-index-arithmetic.patch"
-    "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
+    "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch"
+    "${_SFRAW_LIBRAW_PATCH_DIR}/0026-harden-lossy-dng-jpeg-loader.patch")
 
 # Multi-config generators can emit a shipping configuration even though
 # CMAKE_BUILD_TYPE is empty. Treat them as shipping-capable and normalize the
@@ -321,6 +326,10 @@ function(sfraw_resolve_libraw out_var)
         "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch"
         "895b644886247bb3853002c27aa5d56475429c05f62ec556360a036dc8f3a9a4"
         "defined ICC s15Fixed16 conversion patch")
+    _sfraw_verify_file_sha256(
+        "${_SFRAW_LIBRAW_PATCH_DIR}/0026-harden-lossy-dng-jpeg-loader.patch"
+        "2a885e77d6a2d509a6975e8a492f70620f84426fdffd6b0c16765d0f9cd8bed2"
+        "lossy-DNG JPEG loader hardening patch")
 
     sfraw_is_shipping_config(_shipping_config)
     if (_shipping_config)
@@ -382,37 +391,28 @@ function(sfraw_resolve_libraw out_var)
         message(STATUS "sfraw: existing LibRaw tree matches the audited aggregate")
     else ()
         _sfraw_tree_has_expected_aggregate(
-            "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_24}"
-            _is_exact_24_patch_tree)
-        if (_is_exact_24_patch_tree)
+            "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_25}"
+            _is_exact_25_patch_tree)
+        if (_is_exact_25_patch_tree)
             message(STATUS
-                "sfraw: migrating exact audited 24-patch tree to patch 25")
-            _sfraw_apply_patch(
-                "${_source_dir}"
-                "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
+                "sfraw: migrating exact audited 25-patch tree to patch 26")
         else ()
             _sfraw_tree_has_expected_aggregate(
-                "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_23}"
-                _is_exact_23_patch_tree)
-            if (_is_exact_23_patch_tree)
+                "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_24}"
+                _is_exact_24_patch_tree)
+            if (_is_exact_24_patch_tree)
                 message(STATUS
-                    "sfraw: migrating exact audited 23-patch tree to patches 24-25")
-                _sfraw_apply_patch(
-                    "${_source_dir}"
-                    "${_SFRAW_LIBRAW_PATCH_DIR}/0024-define-xtrans-negative-index-arithmetic.patch")
+                    "sfraw: migrating exact audited 24-patch tree to patch 25")
                 _sfraw_apply_patch(
                     "${_source_dir}"
                     "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
             else ()
                 _sfraw_tree_has_expected_aggregate(
-                    "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_22}"
-                    _is_exact_22_patch_tree)
-                if (_is_exact_22_patch_tree)
+                    "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_23}"
+                    _is_exact_23_patch_tree)
+                if (_is_exact_23_patch_tree)
                     message(STATUS
-                        "sfraw: migrating exact audited 22-patch tree to patches 23-25")
-                    _sfraw_apply_patch(
-                        "${_source_dir}"
-                        "${_SFRAW_LIBRAW_PATCH_DIR}/0023-record-local-modification-notices.patch")
+                        "sfraw: migrating exact audited 23-patch tree to patches 24-25")
                     _sfraw_apply_patch(
                         "${_source_dir}"
                         "${_SFRAW_LIBRAW_PATCH_DIR}/0024-define-xtrans-negative-index-arithmetic.patch")
@@ -421,14 +421,11 @@ function(sfraw_resolve_libraw out_var)
                         "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
                 else ()
                     _sfraw_tree_has_expected_aggregate(
-                        "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_21}"
-                        _is_exact_21_patch_tree)
-                    if (_is_exact_21_patch_tree)
+                        "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_22}"
+                        _is_exact_22_patch_tree)
+                    if (_is_exact_22_patch_tree)
                         message(STATUS
-                            "sfraw: migrating exact audited 21-patch tree to patches 22-25")
-                        _sfraw_apply_patch(
-                            "${_source_dir}"
-                            "${_SFRAW_LIBRAW_PATCH_DIR}/0022-bound-fixed-header-string-reads.patch")
+                            "sfraw: migrating exact audited 22-patch tree to patches 23-25")
                         _sfraw_apply_patch(
                             "${_source_dir}"
                             "${_SFRAW_LIBRAW_PATCH_DIR}/0023-record-local-modification-notices.patch")
@@ -439,17 +436,43 @@ function(sfraw_resolve_libraw out_var)
                             "${_source_dir}"
                             "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
                     else ()
-                        foreach (_patch IN LISTS _SFRAW_LIBRAW_PATCHES)
-                            if (NOT EXISTS "${_patch}")
-                                message(FATAL_ERROR
-                                    "sfraw: required local patch is missing: ${_patch}")
-                            endif ()
-                            _sfraw_apply_patch("${_source_dir}" "${_patch}")
-                        endforeach ()
+                        _sfraw_tree_has_expected_aggregate(
+                            "${_source_dir}" "${_SFRAW_LIBRAW_PATCHED_TREE_SHA256_21}"
+                            _is_exact_21_patch_tree)
+                        if (_is_exact_21_patch_tree)
+                            message(STATUS
+                                "sfraw: migrating exact audited 21-patch tree to patches 22-25")
+                            _sfraw_apply_patch(
+                                "${_source_dir}"
+                                "${_SFRAW_LIBRAW_PATCH_DIR}/0022-bound-fixed-header-string-reads.patch")
+                            _sfraw_apply_patch(
+                                "${_source_dir}"
+                                "${_SFRAW_LIBRAW_PATCH_DIR}/0023-record-local-modification-notices.patch")
+                            _sfraw_apply_patch(
+                                "${_source_dir}"
+                                "${_SFRAW_LIBRAW_PATCH_DIR}/0024-define-xtrans-negative-index-arithmetic.patch")
+                            _sfraw_apply_patch(
+                                "${_source_dir}"
+                                "${_SFRAW_LIBRAW_PATCH_DIR}/0025-define-icc-s15fixed16-conversion.patch")
+                        else ()
+                            foreach (_patch IN LISTS _SFRAW_LIBRAW_PATCHES)
+                                if (NOT EXISTS "${_patch}")
+                                    message(FATAL_ERROR
+                                        "sfraw: required local patch is missing: ${_patch}")
+                                endif ()
+                                _sfraw_apply_patch("${_source_dir}" "${_patch}")
+                            endforeach ()
+                        endif ()
                     endif ()
                 endif ()
             endif ()
         endif ()
+        # Every route above ends at the audited 25-patch tree (or, for a fresh
+        # tree, has already applied the whole list); the lossy-DNG loader patch
+        # is idempotent through _sfraw_apply_patch's forward/reverse probe.
+        _sfraw_apply_patch(
+            "${_source_dir}"
+            "${_SFRAW_LIBRAW_PATCH_DIR}/0026-harden-lossy-dng-jpeg-loader.patch")
     endif ()
 
     file(GLOB_RECURSE _patch_artifacts
@@ -491,6 +514,14 @@ function(sfraw_resolve_libraw out_var)
         "${_source_dir}/src/decoders/dng.cpp"
         "jpeg_samples > remaining_ljpeg_samples"
         "lossless-DNG cumulative decoded-sample work budget")
+    _sfraw_assert_contains(
+        "${_source_dir}/src/decoders/dng.cpp"
+        "jpeg_has_multiple_scans\\(&cinfo\\)"
+        "lossy-DNG single-scan baseline JPEG gate")
+    _sfraw_assert_contains(
+        "${_source_dir}/src/metadata/identify.cpp"
+        "#elif defined\\(LIBRAW_NO_KODAK_JPEG\\)"
+        "Kodak JPEG loader gate")
     _sfraw_assert_contains(
         "${_source_dir}/src/metadata/identify.cpp"
         "tiff_bps >= 16 [?] 0xffffU"
