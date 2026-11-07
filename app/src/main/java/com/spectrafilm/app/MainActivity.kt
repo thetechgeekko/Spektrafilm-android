@@ -155,6 +155,8 @@ private data class SourceDecodeRequest(
 private data class SourceDecodeResult(
     val image: LinearImage,
     val usedPlatformFallback: Boolean,
+    /** The RAW OOM ladder returned a smaller decode than requested (#288: never persist it). */
+    val memoryDegraded: Boolean = false,
 )
 
 private data class CachedSourceDecodeRequest(
@@ -242,6 +244,7 @@ private suspend fun decodeSourceRequest(
     }
     var applyExifBaseline = request.kind != SourceKind.RAW
     var usedPlatformFallback = false
+    val rawMemoryDegraded = java.util.concurrent.atomic.AtomicBoolean(false)
     val image = when (request.kind) {
         SourceKind.RAW -> try {
             runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
@@ -253,6 +256,7 @@ private suspend fun decodeSourceRequest(
                     request.rawTint.toDouble(),
                     maxEdge,
                     cancellation,
+                    rawMemoryDegraded,
                 )
             }
         } catch (failure: RawDecodeException) {
@@ -326,7 +330,7 @@ private suspend fun decodeSourceRequest(
         }
         if (isCancelled()) throw CancellationException("source decode cancelled")
         Diag.i("decode kind=${request.kind.name} ${rotated.width}x${rotated.height} maxEdge=$maxEdge")
-        val decoded = SourceDecodeResult(rotated, usedPlatformFallback)
+        val decoded = SourceDecodeResult(rotated, usedPlatformFallback, rawMemoryDegraded.get())
         ownedImage = null
         decoded
     } catch (failure: Throwable) {
@@ -367,7 +371,11 @@ private suspend fun decodeSourceRequestDiskCached(
         } else {
             val decoded = decodeSourceRequest(request, maxEdge, io)
             // Blocking and non-throwing: no cancellation point between the decode and return.
-            if (key != null) ProxyDiskCache.write(ctx, key, decoded.image, decoded.usedPlatformFallback)
+            // A memory-degraded RAW decode is smaller than its key promises; storing it would
+            // pin the low-resolution proxy for every later open, so it is used but not kept.
+            if (key != null && !decoded.memoryDegraded) {
+                ProxyDiskCache.write(ctx, key, decoded.image, decoded.usedPlatformFallback)
+            }
             decoded
         }
     }
