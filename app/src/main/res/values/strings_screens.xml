@@ -9,7 +9,6 @@
     <string name="screen_opens_in_browser">Opens in browser</string>
     <string name="screen_dedication_pixls">Dedicated to the pixls.us community.</string>
     <string name="screen_link_spektrafilm" translatable="false">spektrafilm</string>
-    <string name="screen_link_image_toolbox" translatable="false">Image Toolbox</string>
     <string name="screen_link_colour_science" translatable="false">colour-science</string>
     <string name="screen_link_libraw" translatable="false">LibRaw</string>
     <string name="screen_link_pixls" translatable="false">pixls.us</string>
@@ -21,9 +20,9 @@
     <string name="screen_welcome_page2_title">How it works</string>
     <string name="screen_welcome_page2_body">Pick a photo or RAW/DNG → choose a film stock and a print paper → tune the look (grain, halation, couplers, glare) → export at full resolution.</string>
     <string name="screen_welcome_page3_title">Under the hood</string>
-    <string name="screen_welcome_page3_body">A bit-exact port of the spektrafilm spectral pipeline, RAW decoding via LibRaw, and an Image-Toolbox-inspired Compose UI. Previews are downscaled for speed; exports render at full resolution.</string>
+    <string name="screen_welcome_page3_body">A bit-exact port of the spektrafilm spectral pipeline, RAW decoding via LibRaw and a Material 3 Compose UI. Previews are downscaled for speed; exports render at full resolution.</string>
     <string name="screen_welcome_page4_title">Credits</string>
-    <string name="screen_welcome_page4_body">Dedicated to the pixls.us community. Film modeling powered by spektrafilm (Andrea Volpato). Thanks to Image Toolbox (T8RIN), colour-science and LibRaw. Free software under the GPLv3.</string>
+    <string name="screen_welcome_page4_body">Dedicated to the pixls.us community. Film modeling powered by spektrafilm (Andrea Volpato). Thanks to colour-science and LibRaw. Free software under the GPLv3.</string>
     <string name="screen_welcome_skip">Skip</string>
     <string name="screen_welcome_next">Next</string>
     <string name="screen_welcome_get_started">Get started</string>
@@ -37,7 +36,7 @@
     <string name="screen_about_tagline">Spectral film simulation on your phone — film modeling powered by spektrafilm.</string>
     <string name="screen_about_dedication_heading">Dedication</string>
     <string name="screen_about_thanks_heading">Thanks</string>
-    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). UI inspired by Image Toolbox (T8RIN). Colour math from colour-science. RAW decoding via LibRaw.</string>
+    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato). Colour math from colour-science. RAW decoding via LibRaw.</string>
     <string name="screen_about_author_heading">Author</string>
     <string name="screen_about_author_name" translatable="false">Akshay</string>
     <string name="screen_link_instagram" translatable="false">Instagram</string>
@@ -161,7 +160,7 @@
     <string name="screen_howto_s9_step5">Grain is stochastic (random). The preview may look slightly different each time you render; the export is always the definitive full-resolution version.</string>
     <string name="screen_howto_s10_title">Credits</string>
     <string name="screen_howto_s10_p1">Film modeling powered by spektrafilm (Andrea Volpato). The science, the film-stock profiles, and the spectral LUTs are Andrea\'s work — Spektrafilm is a native Android port of that engine, verified bit-exact against the original.</string>
-    <string name="screen_howto_s10_p2">UI inspired by Image Toolbox (T8RIN). Colour math from colour-science. RAW decoding via LibRaw. Free software under the GPLv3.</string>
+    <string name="screen_howto_s10_p2">Colour math from colour-science. RAW decoding via LibRaw. Free software under the GPLv3.</string>
 
     <!-- Settings -->
     <string name="screen_settings_title">Settings</string>

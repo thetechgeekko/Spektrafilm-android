@@ -13,9 +13,9 @@
     <string name="screen_welcome_page2_title">工作原理</string>
     <string name="screen_welcome_page2_body">选择照片或 RAW/DNG → 选择胶片与相纸 → 调整风格（颗粒、光晕、成色剂、眩光）→ 以完整分辨率导出。</string>
     <string name="screen_welcome_page3_title">技术原理</string>
-    <string name="screen_welcome_page3_body">逐比特一致地移植 spektrafilm 光谱处理流程，通过 LibRaw 解码 RAW，并采用受 Image Toolbox 启发的 Compose 界面。预览会缩小以加快速度；导出则以完整分辨率渲染。</string>
+    <string name="screen_welcome_page3_body">逐比特一致地移植 spektrafilm 光谱处理流程，通过 LibRaw 解码 RAW，并采用 Material 3 Compose 界面。预览会缩小以加快速度；导出则以完整分辨率渲染。</string>
     <string name="screen_welcome_page4_title">致谢</string>
-    <string name="screen_welcome_page4_body">谨献给 pixls.us 社区。胶片建模由 spektrafilm（Andrea Volpato）提供。感谢 Image Toolbox（T8RIN）、colour-science 和 LibRaw。本应用是基于 GPLv3 的自由软件。</string>
+    <string name="screen_welcome_page4_body">谨献给 pixls.us 社区。胶片建模由 spektrafilm（Andrea Volpato）提供。感谢 colour-science 和 LibRaw。本应用是基于 GPLv3 的自由软件。</string>
     <string name="screen_welcome_skip">跳过</string>
     <string name="screen_welcome_next">下一步</string>
     <string name="screen_welcome_get_started">开始使用</string>
@@ -26,7 +26,7 @@
     <string name="screen_about_tagline">手机上的光谱胶片模拟 — 胶片建模由 spektrafilm 提供。</string>
     <string name="screen_about_dedication_heading">献辞</string>
     <string name="screen_about_thanks_heading">致谢</string>
-    <string name="screen_about_thanks_body">胶片建模由 spektrafilm（Andrea Volpato）提供。界面灵感来自 Image Toolbox（T8RIN）。色彩计算来自 colour-science。RAW 解码使用 LibRaw。</string>
+    <string name="screen_about_thanks_body">胶片建模由 spektrafilm（Andrea Volpato）提供。色彩计算来自 colour-science。RAW 解码使用 LibRaw。</string>
     <string name="screen_about_author_heading">作者</string>
     <string name="screen_about_license_heading">许可与源代码</string>
     <string name="screen_about_license_body">应用代码是以 GPL-3.0-only 发布的自由软件。</string>
@@ -140,7 +140,7 @@
     <string name="screen_howto_s9_step5">颗粒具有随机性。每次渲染的预览可能略有不同；导出文件始终是最终的全分辨率版本。</string>
     <string name="screen_howto_s10_title">致谢</string>
     <string name="screen_howto_s10_p1">Film modeling powered by spektrafilm (Andrea Volpato). 科学原理、胶片配置和光谱 LUT 均为 Andrea 的作品 — Spektrafilm 是该引擎的原生 Android 移植版，已验证与原版逐比特一致。</string>
-    <string name="screen_howto_s10_p2">界面灵感来自 Image Toolbox（T8RIN）。色彩计算来自 colour-science。RAW 解码使用 LibRaw。本应用是基于 GPLv3 的自由软件。</string>
+    <string name="screen_howto_s10_p2">色彩计算来自 colour-science。RAW 解码使用 LibRaw。本应用是基于 GPLv3 的自由软件。</string>
     <string name="screen_settings_title">设置</string>
     <string name="screen_settings_appearance">外观</string>
     <string name="screen_settings_theme">主题</string>

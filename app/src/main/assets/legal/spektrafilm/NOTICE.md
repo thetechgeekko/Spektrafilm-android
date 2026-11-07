@@ -78,15 +78,6 @@ Color-matching functions, illuminants, chromatic adaptation, and color-space tra
 - Upstream: https://www.colour-science.org / https://github.com/colour-science/colour
 - License: BSD-3-Clause
 
-## Android architecture reference: Image Toolbox
-
-The Android app design is informed by **Image Toolbox** by T8RIN (Malik Mukhametzyanov) — its
-modular Compose architecture informed this project's early design; the standalone `:app` is the
-shipping host.
-
-- Upstream: https://github.com/T8RIN/ImageToolbox
-- License: Apache License 2.0 (one-way compatible with GPLv3)
-
 ## RAW decoding: LibRaw
 
 <!-- libraw-license-route: LGPL-2.1-only -->

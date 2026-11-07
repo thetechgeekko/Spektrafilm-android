@@ -14,9 +14,9 @@
     <string name="screen_welcome_page2_title">しくみ</string>
     <string name="screen_welcome_page2_body">写真またはRAW/DNGを選ぶ → フィルムと印画紙を選ぶ → 表現を調整する（粒状、ハレーション、カプラー、グレア）→ フル解像度で書き出す。</string>
     <string name="screen_welcome_page3_title">内部のしくみ</string>
-    <string name="screen_welcome_page3_body">spektrafilmのスペクトルパイプラインをビット単位で正確に移植し、RAWのデコードにはLibRawを、UIにはImage Toolboxに着想を得たComposeを使っています。プレビューは速度のため縮小され、書き出しはフル解像度でレンダリングされます。</string>
+    <string name="screen_welcome_page3_body">spektrafilmのスペクトルパイプラインをビット単位で正確に移植し、RAWのデコードにはLibRawを、UIにはMaterial 3のComposeを使っています。プレビューは速度のため縮小され、書き出しはフル解像度でレンダリングされます。</string>
     <string name="screen_welcome_page4_title">クレジット</string>
-    <string name="screen_welcome_page4_body">pixls.usコミュニティに捧げます。Film modeling powered by spektrafilm (Andrea Volpato)。Image Toolbox（T8RIN）、colour-science、LibRawに感謝します。GPLv3のフリーソフトウェアです。</string>
+    <string name="screen_welcome_page4_body">pixls.usコミュニティに捧げます。Film modeling powered by spektrafilm (Andrea Volpato)。colour-science、LibRawに感謝します。GPLv3のフリーソフトウェアです。</string>
     <string name="screen_welcome_skip">スキップ</string>
     <string name="screen_welcome_next">次へ</string>
     <string name="screen_welcome_get_started">はじめる</string>
@@ -27,7 +27,7 @@
     <string name="screen_about_tagline">スマートフォンでスペクトルによるフィルムシミュレーション。Film modeling powered by spektrafilm.</string>
     <string name="screen_about_dedication_heading">献辞</string>
     <string name="screen_about_thanks_heading">謝辞</string>
-    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato)。UIはImage Toolbox（T8RIN）に着想を得ています。色の計算はcolour-science、RAWのデコードはLibRawによります。</string>
+    <string name="screen_about_thanks_body">Film modeling powered by spektrafilm (Andrea Volpato)。色の計算はcolour-science、RAWのデコードはLibRawによります。</string>
     <string name="screen_about_author_heading">作者</string>
     <string name="screen_about_license_heading">ライセンスとソース</string>
     <string name="screen_about_license_body">アプリのコードはGPL-3.0-onlyで公開されているフリーソフトウェアです。</string>
@@ -141,7 +141,7 @@
     <string name="screen_howto_s9_step5">粒状は確率的（ランダム）です。プレビューはレンダリングのたびにわずかに異なることがありますが、書き出しは常に最終的なフル解像度版です。</string>
     <string name="screen_howto_s10_title">クレジット</string>
     <string name="screen_howto_s10_p1">Film modeling powered by spektrafilm (Andrea Volpato)。科学、フィルムのプロファイル、スペクトルLUTはAndreaの成果です。SpektrafilmはそのエンジンをAndroidにネイティブ移植したもので、オリジナルとビット単位で一致することを検証しています。</string>
-    <string name="screen_howto_s10_p2">UIはImage Toolbox（T8RIN）に着想を得ています。色の計算はcolour-science、RAWのデコードはLibRawによります。GPLv3のフリーソフトウェアです。</string>
+    <string name="screen_howto_s10_p2">色の計算はcolour-science、RAWのデコードはLibRawによります。GPLv3のフリーソフトウェアです。</string>
     <string name="screen_settings_title">設定</string>
     <string name="screen_settings_appearance">外観</string>
     <string name="screen_settings_theme">テーマ</string>

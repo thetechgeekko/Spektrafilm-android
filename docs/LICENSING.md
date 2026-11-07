@@ -20,7 +20,6 @@ grant of the GPL "or any later version" option has been identified.
 |-----------|------------------|---------------|
 | spektrafilm (engine we port) | **GPL-3.0** | Defines the floor: any derivative must be GPLv3. |
 | spektrafilm OFX selective Vulkan adaptations | **GPL-3.0-only** | Directly compatible with this GPL-3.0-only application; preserve provenance and mark modifications. |
-| ImageToolbox (originally planned host; never vendored — row kept in case its code is ever incorporated) | **Apache-2.0** | Apache-2.0 → GPLv3 is **one-way compatible**; Apache code may be incorporated into a GPLv3 work. |
 | LibRaw (RAW decode) | Offered under a choice of **LGPL-2.1-only** or **CDDL-1.0**; **LGPL-2.1-only** elected | LGPL-2.1 section 3 permits the combination with GPLv3. CDDL-1.0 is not generally treated as GPL-compatible and was therefore declined. Section 6 relink materials, corresponding source, notices and SBOM ship with each release. |
 | libjpeg-turbo 3.1.4 (lossy-JPEG DNG, statically linked into `libsfraw.so`) | **IJG** (libjpeg API), **BSD-3-Clause** (build system), **Zlib** (SIMD) | Permissive and GPL-compatible. Binary redistribution needs the IJG acknowledgement in the documentation, carried by `NOTICE.md` (shown in the app). Built unmodified from the SHA-256-pinned release; listed in the LibRaw bundle SBOM. |
 
