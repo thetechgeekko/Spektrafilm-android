@@ -476,6 +476,7 @@ fun lutFileName(film: String, print: String, size: Int, clf: Boolean): String {
  * the decoded source is still open, i.e. before the export closes it after simulate.
  */
 internal fun captureSceneTapForGainmap(
+    context: android.content.Context,
     source: LinearImage,
     params: com.spectrafilm.engine.SpektraParams,
     renderW: Int,
@@ -503,7 +504,7 @@ internal fun captureSceneTapForGainmap(
         )
     }
     return withFilmHalationGlow(
-        tap, params, maxOf(source.width, source.height), box?.width ?: source.width, renderW,
+        tap, params, FilmHalationPreset.forProfile(context, params.filmProfile), maxOf(source.width, source.height), box?.width ?: source.width, renderW,
         contract.downsample,
     )
 }

@@ -270,7 +270,7 @@ private suspend fun exportBatchPhoto(
             engine.simulate(image, params, RenderKind.EXPORT, cancellation)
         }.also { rendered ->
             sceneTap = runCatching {
-                captureSceneTapForGainmap(image, params, rendered.width, rendered.height, descriptor)
+                captureSceneTapForGainmap(context, image, params, rendered.width, rendered.height, descriptor)
             }.getOrNull()
         }
     } finally {
