@@ -60,7 +60,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -457,7 +456,7 @@ private fun LibraryCell(
                         } else {
                             Modifier
                                 .background(SpektraBrand.scrim.copy(alpha = 0.3f))
-                                .border(2.dp, Color.White, CircleShape)
+                                .border(2.dp, SpektraBrand.onCanvas, CircleShape)
                         },
                     ),
                 contentAlignment = Alignment.Center,
