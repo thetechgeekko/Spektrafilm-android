@@ -72,6 +72,7 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -421,7 +422,7 @@ private fun Modifier.clickableImpl(onClickLabel: String?, role: Role?, onClick: 
  * An enhanced single-value slider: a labelled row with the current value shown in a
  * pill, snapping to [step] and clamped to [range]. [tooltip] is rendered as helper text.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun EnhancedSlider(
     label: String,
@@ -509,8 +510,15 @@ fun EnhancedSlider(
         val endExclusionPx = with(LocalDensity.current) { SLIDER_END_EXCLUSION.toPx() }
         // Lightroom-style tactile feedback: a light tick when a drag settles, so an
         // adjustment "lands" physically. Fired on release (not per-frame) to stay subtle.
+        // The state-based Slider is the overload that takes a custom track. Its value is
+        // driven from [value] every composition; with onValueChange set, a drag reports
+        // through the callback instead of moving the state itself, so the parameter stays
+        // the single source of truth (as with the value-based overload).
+        val clamped = value.coerceIn(range.start, range.endInclusive)
+        val sliderState = remember(range, steps) { SliderState(value = clamped, steps = steps, valueRange = range) }
+        if (sliderState.value != clamped) sliderState.value = clamped
         Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
+            state = sliderState,
             onValueChange = {
                 // Report the SNAPPED value, not the raw track position: the readout has to say
                 // what the engine will actually receive.
@@ -522,14 +530,12 @@ fun EnhancedSlider(
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 interaction.onFinished()
             },
-            valueRange = range,
-            steps = steps,
             // M3 Expressive track: the fill grows from the parameter's neutral point, so a
             // +/- control (exposure, tint, saturation) reads as "how far from neutral and in
             // which direction" instead of a bar that is half full at zero.
             track = {
                 AnchoredSliderTrack(
-                    value = value.coerceIn(range.start, range.endInclusive),
+                    value = clamped,
                     range = range,
                     anchor = sliderAnchor(default, range),
                 )
@@ -1718,8 +1724,11 @@ private fun AnchoredSliderTrack(
         val h = size.height
         val r = CornerRadius(h / 2f)
         drawRoundRect(color = inactive, cornerRadius = r)
-        val a = sliderFraction(anchor, range) * size.width
-        val v = sliderFraction(value, range) * size.width
+        // The Slider mirrors thumb and drag in RTL, so the track must mirror too.
+        val rtl = layoutDirection == LayoutDirection.Rtl
+        fun x(f: Float) = (if (rtl) 1f - f else f) * size.width
+        val a = x(sliderFraction(anchor, range))
+        val v = x(sliderFraction(value, range))
         val left = minOf(a, v)
         val right = maxOf(a, v)
         if (right - left > 0.5f) {
