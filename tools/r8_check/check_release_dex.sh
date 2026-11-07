@@ -366,6 +366,37 @@ do
     check_class "$d"
 done
 
+# #463: every app-owned class/member the four native libraries resolve BY NAME
+# (FindClass, Get*MethodID/Get*FieldID, the engine's getter-by-name param readers,
+# and every JNI-exported native method), generated from the C++ sources by
+# jni_inventory.py so the list cannot drift. The hand-written Pair/Triple lines
+# above stay as the documented origin of this check. Today these all survive only
+# because proguard-rules.pro keeps com.spectrafilm.** wholesale; this is what
+# makes narrowing that rule safe.
+echo "checking every member native code resolves by name (jni_inventory.py)"
+PY=""
+for cand in python3 python; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        PY="$cand"; break
+    fi
+done
+# A missing interpreter must fail, not skip: a skipped inventory is a silent pass.
+[ -n "$PY" ] || { echo "FAIL: python 3.9+ not found — cannot generate the JNI inventory"; exit 2; }
+INVENTORY="$WORK/jni_inventory.tsv"
+"$PY" "$(dirname "${BASH_SOURCE[0]}")/jni_inventory.py" > "$INVENTORY" \
+    || { echo "FAIL: jni_inventory.py could not attribute every JNI literal (see above)"; exit 1; }
+[ -s "$INVENTORY" ] || { echo "FAIL: jni_inventory.py produced no requirements — the check would be vacuous"; exit 2; }
+inventory_rows=0
+while IFS=$'\t' read -r inv_desc inv_kind inv_name inv_sig; do
+    inventory_rows=$((inventory_rows + 1))
+    if [ "$inv_kind" = "class" ]; then
+        check_class "$inv_desc"
+    else
+        check_member "$inv_desc" "$inv_kind" "$inv_name" "$inv_sig"
+    fi
+done < "$INVENTORY"
+echo "  ($inventory_rows native-resolved requirements checked)"
+
 if [ "$rc" -ne 0 ]; then
     echo
     echo "release-dex: FAILED — the minified APK is missing a required JNI/test boundary member."
