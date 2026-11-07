@@ -6,10 +6,13 @@ package com.spectrafilm.app
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -34,7 +37,9 @@ class PrerenderFlightTest {
             true
         }
         withTimeout(5_000) { started.await() }
-        val settling = async { f.settle("edit-a") }
+        // UNDISPATCHED: settle runs until it suspends in join() before the render is released,
+        // so the render cannot finish (and stop being tracked) before settle has seen it.
+        val settling = async(start = CoroutineStart.UNDISPATCHED) { f.settle("edit-a") }
         assertFalse("settle must wait for the render", settling.isCompleted)
         release.complete(Unit)
         assertTrue("the same key is joined", withTimeout(5_000) { settling.await() })
@@ -83,6 +88,22 @@ class PrerenderFlightTest {
         assertTrue(withTimeout(5_000) { second.await() })
         withTimeout(5_000) { first.join() }
         assertTrue(first.isCancelled)
+    }
+
+    @Test
+    fun aCancelledExportCancelsTheFlightItWasJoining() = runBlocking {
+        val f = flight()
+        val started = CompletableDeferred<Unit>()
+        val render = f.launch("edit-a") {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        withTimeout(5_000) { started.await() }
+        val export = launch(start = CoroutineStart.UNDISPATCHED) { f.settle("edit-a") }
+        assertFalse(render.isCancelled)
+        withTimeout(5_000) { export.cancelAndJoin() }
+        assertTrue("the joined render is cancelled with the export", render.isCancelled)
+        assertTrue("and has finished its cleanup", render.isCompleted)
     }
 
     @Test

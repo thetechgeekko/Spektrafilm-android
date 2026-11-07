@@ -16,11 +16,14 @@
  */
 package com.spectrafilm.app
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 
 internal class PrerenderFlight(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + ProcessDispatchers.default),
@@ -54,13 +57,22 @@ internal class PrerenderFlight(
      * Called by an export before it reads the payload store. A flight for [key] is joined, so
      * the payload it is writing is there to read; any other flight (or every flight, for a null
      * key) is cancelled and waited out, so the export never renders alongside it. Returns true
-     * when a flight for [key] was joined.
+     * when a flight for [key] was joined. A cancelled export cancels the flight it was joining.
      */
     suspend fun settle(key: String?): Boolean {
         val flight = synchronized(lock) { current } ?: return false
         val joining = key != null && flight.key == key
         if (!joining) flight.deferred.cancel()
-        flight.deferred.join()
+        try {
+            flight.deferred.join()
+        } catch (cancelled: CancellationException) {
+            // The export was cancelled while joining. The editor effect has already left this
+            // flight to it, so nothing else would stop the render: cancel it here and wait for
+            // its cleanup, so a cancelled export leaves no full-resolution render behind.
+            flight.deferred.cancel()
+            withContext(NonCancellable) { flight.deferred.join() }
+            throw cancelled
+        }
         return joining
     }
 
