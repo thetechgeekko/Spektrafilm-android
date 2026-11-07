@@ -2098,6 +2098,11 @@ internal fun MainActivity.EditorScreen(
                 },
                 onOpenLibrary = {
                     checkpointEditorSession()
+                    // Paste edit in the Library reads this photo's recipe.
+                    flushRecipeBeforeLeaving(
+                        state, recipeKey, recipeReady, recipeAccess, defaultsJson,
+                        rotation, sourceName, recipeRepo,
+                    )
                     onOpenLibrary()
                 },
                 onPhotoInfo = sourceUri?.let { { openPhotoInfo() } },
