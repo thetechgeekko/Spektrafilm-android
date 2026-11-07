@@ -585,6 +585,9 @@ internal fun NavScaffold(
     title: String,
     onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    // A contextual (selection) app bar leads with Close, not Back: it ends the mode and stays
+    // on the screen (m3-design-language, components-navigation "Contextual selection mode").
+    closeNavigation: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -599,8 +602,10 @@ internal fun NavScaffold(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            SpectraIcons.Back,
-                            contentDescription = stringResource(R.string.editor_nav_back),
+                            if (closeNavigation) SpectraIcons.Cancel else SpectraIcons.Back,
+                            contentDescription = stringResource(
+                                if (closeNavigation) R.string.screen_close else R.string.editor_nav_back,
+                            ),
                         )
                     }
                 },
