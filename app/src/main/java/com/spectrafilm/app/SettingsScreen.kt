@@ -42,6 +42,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -619,13 +621,19 @@ private fun SavedOnReleaseSlider(
     onCommit: (Int) -> Unit,
     tooltip: String? = null,
 ) {
-    var draft by remember(value) { mutableIntStateOf(value) }
+    // One draft state for the slider's lifetime, so every callback the slider holds (some
+    // outlive recomposition) writes the draft that is on screen. It follows the saved value
+    // when that changes from outside, for example the export sheet saving a new quality.
+    val draft = remember { mutableIntStateOf(value) }
+    LaunchedEffect(value) { draft.intValue = value }
+    val saved by rememberUpdatedState(value)
+    val commit by rememberUpdatedState(onCommit)
     IntSlider(
         label = label,
-        value = draft,
+        value = draft.intValue,
         range = range,
-        onValueChange = { draft = it },
+        onValueChange = { draft.intValue = it },
         tooltip = tooltip,
-        onValueChangeFinished = { if (draft != value) onCommit(draft) },
+        onValueChangeFinished = { if (draft.intValue != saved) commit(draft.intValue) },
     )
 }
