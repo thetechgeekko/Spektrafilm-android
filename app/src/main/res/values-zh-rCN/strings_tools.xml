@@ -136,10 +136,6 @@
     <string name="tool_crop_aspect_group">宽高比</string>
     <string name="tool_crop_aspect_free">自由</string>
     <string name="tool_crop_aspect_original">原始比例</string>
-    <string name="tool_crop_aspect_square">1:1</string>
-    <string name="tool_crop_aspect_4_3">4:3</string>
-    <string name="tool_crop_aspect_3_2">3:2</string>
-    <string name="tool_crop_aspect_16_9">16:9</string>
     <string name="tool_crop_canvas_desc">照片上的裁剪矩形。拖动角点或边缘调整大小，拖动内部移动。</string>
     <string name="tool_crop_reset">重置裁剪为完整照片</string>
     <string name="tool_mask_geometry_title">定位蒙版</string>
