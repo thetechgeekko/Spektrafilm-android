@@ -107,12 +107,18 @@ internal object LibrarySidecars {
             val sidecar = sidecarOf[frame.documentUri] ?: continue
             val key = keyOf(frame.documentUri) ?: continue
             runCatching {
+                // Cheap checks first, then the provider read OUTSIDE the key's gate: a slow or
+                // stalled provider must never hold the gate the editor takes on the main thread.
+                if (repo.wasCleared(key) || repo.readResult(key) != RecipeReadResult.Missing) {
+                    return@runCatching false
+                }
+                val edit = decode(readText(sidecar))
                 repo.atomically(key) {
+                    // Re-check under the gate: an edit or reset may have landed meanwhile.
                     val generation = repo.generation(key)
                     if (repo.readResult(key) != RecipeReadResult.Missing) return@atomically false
                     // A reset here is a decision, not a gap: never undo it from a sidecar.
                     if (repo.wasCleared(key)) return@atomically false
-                    val edit = decode(readText(sidecar))
                     repo.saveJson(key, edit.params.toString(), frame.name, edit.manualRotationDeg, generation)
                 }
             }.onFailure { Diag.w("sidecar import skipped for ${frame.name}: ${it.message}") }

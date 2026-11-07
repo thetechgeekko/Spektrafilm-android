@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -98,11 +99,12 @@ internal interface LibrarySidecarPort {
     /** Imports sidecars of frames that have no edit yet; returns how many. */
     fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>): Int
 
-    fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult
+    /** Not blocking: production runs it on the recipe FIFO, behind any queued paste or save. */
+    suspend fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult
 
     object None : LibrarySidecarPort {
         override fun importMissing(frames: List<LibraryEntry>, rows: List<LibraryEntry>) = 0
-        override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
+        override suspend fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
             LibrarySidecars.SaveResult(0, 0)
     }
 }
@@ -171,10 +173,14 @@ internal class LibraryViewModel(
         val tree = store.treeUri ?: return
         if (_sidecarSave.value is LibrarySidecarState.Running) return
         val picked = only
-        val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
-        val rows = lastRows
         _sidecarSave.value = LibrarySidecarState.Running
         viewModelScope.launch {
+            // A paste in flight changes which frames are edited and what their edits are:
+            // save after it and the listing refresh it triggers, not from the state before.
+            _paste.first { it !is LibraryPasteState.Running }
+            loadJob?.join()
+            val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
+            val rows = lastRows
             val result = try {
                 withContext(io) { sidecars.save(tree, frames, rows) }
             } catch (cancelled: CancellationException) {
@@ -403,14 +409,16 @@ internal class LibraryViewModel(
                         keyOf,
                     ) { LibrarySidecars.readDocument(resolver, it) }
 
-                override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
-                    LibrarySidecars.saveAll(
-                        recipes,
-                        LibrarySidecars.androidFolder(resolver, treeUri),
-                        frames,
-                        LibrarySidecars.pair(frames, rows),
-                        keyOf,
-                    )
+                override suspend fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>) =
+                    RecipeWorkRuntime.submit {
+                        LibrarySidecars.saveAll(
+                            recipes,
+                            LibrarySidecars.androidFolder(resolver, treeUri),
+                            frames,
+                            LibrarySidecars.pair(frames, rows),
+                            keyOf,
+                        )
+                    }.await()
             }
         }
 

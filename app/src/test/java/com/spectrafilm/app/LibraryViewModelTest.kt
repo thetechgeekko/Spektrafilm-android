@@ -203,7 +203,7 @@ class LibraryViewModelTest {
             imports += rows.map { it.name }
             return 0
         }
-        override fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult {
+        override suspend fun save(treeUri: String, frames: List<LibraryEntry>, rows: List<LibraryEntry>): LibrarySidecars.SaveResult {
             if (!writable) return LibrarySidecars.SaveResult(0, 0, needsWriteAccess = true)
             saves += frames.map { it.name }
             return LibrarySidecars.SaveResult(frames.size, 0)
