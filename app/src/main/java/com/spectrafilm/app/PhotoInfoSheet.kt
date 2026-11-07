@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -55,7 +56,11 @@ internal fun PhotoInfoSheet(info: PhotoInfo, onDismiss: () -> Unit) {
         locationText = { if (it) present else absent },
     )
     val hasCameraFacts = info.values.keys.any { it.group != PhotoInfoGroup.FILE }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // Fully expanded or hidden, no half-height stop: Back (and a swipe down) then closes the
+    // sheet in one step, as M3 expects of a short read-only sheet, instead of first
+    // collapsing it to a partial height.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
                 .widthIn(max = 640.dp)
