@@ -75,6 +75,13 @@ internal class LatestSourceMutationGate {
     }
 }
 
+/**
+ * True when [document] was built from [tree] by `DocumentsContract.buildDocumentUriUsingTree`
+ * (`content://<authority>/tree/<id>/document/<id>`), i.e. it is read through [tree]'s grant.
+ */
+internal fun isDocumentInTree(tree: String, document: String): Boolean =
+    tree.contains("/tree/") && document.startsWith("$tree/document/")
+
 /** Pure policy/controller; Android grant and persistence APIs sit behind ports for JVM tests. */
 internal class SourceAccessCoordinator(
     private val backend: UriGrantBackend,
@@ -209,8 +216,13 @@ internal class SourceAccessCoordinator(
         var released = 0
         // Unknown retained set: release nothing rather than risk revoking the Library folder.
         val retained = runCatching { retainedGrants() }.getOrElse { return 0 }
+        // A frame opened from a Library folder holds no grant of its own (it is TRANSIENT) and
+        // reads through its folder's tree grant, so that tree stays while it is the source,
+        // even after the Library moved to another folder.
+        val source = runCatching { store.load()?.uri }.getOrElse { return 0 }
         for (uri in backend.persistedReads()) {
             if (uri == expectedUri || uri in retained) continue
+            if (source != null && isDocumentInTree(uri, source)) continue
             runCatching { backend.releasePersistableRead(uri) }
                 .onSuccess { released++ }
         }

@@ -86,7 +86,11 @@ internal interface LibraryFolderStore {
     var treeUri: String?
     /** Take a persisted read grant on [treeUri]; false when the provider refuses. */
     fun takeGrant(treeUri: String): Boolean
-    fun releaseGrant(treeUri: String)
+    /**
+     * Release grants no longer needed after the folder changed: the old folder's, unless the
+     * frame open in the editor still reads through it. Blocking; call off the main thread.
+     */
+    fun releaseUnusedGrants()
 }
 
 /** Lists a folder tree. Throws when the folder cannot be read. */
@@ -146,18 +150,25 @@ internal class LibraryViewModel(
             // show it for this session rather than refusing the pick outright.
             Diag.w("library folder grant not persistable")
         }
-        if (previous != null && previous != treeUri) runCatching { store.releaseGrant(previous) }
+        if (previous != null && previous != treeUri) releaseUnused()
         _state.value = LibraryUiState(treeUri = treeUri)
         refresh()
     }
 
     /** Forget the folder and its grant. */
     fun forgetFolder() {
-        val previous = store.treeUri ?: return
+        store.treeUri ?: return
         loadJob?.cancel()
         store.treeUri = null
-        runCatching { store.releaseGrant(previous) }
+        releaseUnused()
         _state.value = LibraryUiState()
+    }
+
+    private fun releaseUnused() {
+        viewModelScope.launch(io) {
+            runCatching { store.releaseUnusedGrants() }
+                .onFailure { Diag.w("library grant release failed: ${it.message}") }
+        }
     }
 
     companion object {
@@ -173,8 +184,10 @@ internal class LibraryViewModel(
                     true
                 }.getOrDefault(false)
 
-                override fun releaseGrant(treeUri: String) {
-                    resolver.releasePersistableUriPermission(Uri.parse(treeUri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // The source runtime owns every persisted grant: it keeps the editor's source,
+                // the Library folder, and the folder the current source was opened from.
+                override fun releaseUnusedGrants() {
+                    sourceAccessRuntime(context).coordinator.reconcilePersistedGrants()
                 }
             }
         }

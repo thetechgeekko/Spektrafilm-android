@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -82,6 +83,37 @@ class SourceAccessTest {
 
         assertTrue(backend.releasedUris.isEmpty())
         assertEquals(SourceAccessMode.TRANSIENT, store.stored?.accessMode)
+    }
+
+    @Test
+    fun reconcile_keepsTheFolderTheOpenFrameReadsThrough() {
+        val oldTree = "content://com.android.externalstorage.documents/tree/primary%3ADCIM"
+        val newTree = "content://com.android.externalstorage.documents/tree/primary%3APictures"
+        val child = "$oldTree/document/primary%3ADCIM%2FIMG_1.dng"
+        val backend = FakeUriGrantBackend(
+            takeSucceeds = false,
+            persistedUris = mutableSetOf(oldTree, newTree),
+            readableUris = mutableSetOf(child),
+        )
+        val store = FakeSourceRefStore()
+        val coordinator = SourceAccessCoordinator(backend, store) { setOf(newTree) }
+        coordinator.acquire(child, "RAW", "IMG_1.dng")
+
+        // The Library moved to another folder while IMG_1 is still open.
+        coordinator.reconcilePersistedGrants()
+        assertTrue(backend.releasedUris.isEmpty())
+
+        // Once the editor leaves that frame, the old folder's grant goes.
+        coordinator.clear()
+        assertEquals(listOf(oldTree), backend.releasedUris)
+    }
+
+    @Test
+    fun documentInTree_matchesOnlyDocumentsBuiltFromThatTree() {
+        val tree = "content://a/tree/primary%3ADCIM"
+        assertTrue(isDocumentInTree(tree, "$tree/document/primary%3ADCIM%2Fx.dng"))
+        assertFalse(isDocumentInTree(tree, "content://a/tree/primary%3ADCIM2/document/y"))
+        assertFalse(isDocumentInTree("content://photos/42", "content://photos/42/document/1"))
     }
 
     @Test
