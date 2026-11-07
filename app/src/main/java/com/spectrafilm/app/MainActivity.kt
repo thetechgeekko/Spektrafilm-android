@@ -6838,7 +6838,7 @@ class MainActivity : ComponentActivity() {
                 stringResource(R.string.editor_sim_scene_latitude_tooltip))
             if (s.sceneLatitudeActive) {
                 EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_highlight_knee),
-                    s.sceneLatitudeHighlightKnee, 0f..6f, { s.sceneLatitudeHighlightKnee = it },
+                    s.sceneLatitudeHighlightKnee, 0.5f..6f, { s.sceneLatitudeHighlightKnee = it },
                     step = 0.25f, decimals = 2,
                     tooltip = stringResource(R.string.editor_sim_scene_latitude_highlight_knee_tooltip),
                     default = PARAM_DEFAULTS.sceneLatitudeHighlightKnee)
@@ -6862,6 +6862,13 @@ class MainActivity : ComponentActivity() {
                     step = 0.25f, decimals = 2,
                     tooltip = stringResource(R.string.editor_sim_scene_latitude_rolloff_tooltip),
                     default = PARAM_DEFAULTS.sceneLatitudeRolloff)
+                if (s.sceneLatitudeShadowRoom > 0f) {
+                    EnhancedSlider(stringResource(R.string.editor_sim_scene_latitude_max_lift),
+                        s.sceneLatitudeMaxLift, 0.5f..8f, { s.sceneLatitudeMaxLift = it },
+                        step = 0.25f, decimals = 2,
+                        tooltip = stringResource(R.string.editor_sim_scene_latitude_max_lift_tooltip),
+                        default = PARAM_DEFAULTS.sceneLatitudeMaxLift)
+                }
             }
         }
     }

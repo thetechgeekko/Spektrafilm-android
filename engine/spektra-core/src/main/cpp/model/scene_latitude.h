@@ -24,12 +24,19 @@
  *   below the shadow knee K_s:     D = K_s - E
  *        E' = K_s - D * H_s / (H_s^m + D^m)^(1/m)       -> K_s - H_s as E -> -inf
  *   d  = E' - E  (a positive shadow lift is softly bounded by L: d L / sqrt(L^2+d^2))
- *   RGB' = 2^d * RGB
+ *   k  = 2^d
+ *   shadows (k >= 1):     RGB' = k * RGB
+ *   highlights (k < 1):   RGB' = k * (Y + k * (RGB - Y))
  *
- * One scalar gain per pixel, so chromaticity (and the Hanatos tc lookup) is
- * untouched; only the brightness moves. Between the knees the gain is exactly
- * 1.0. A room H of 0 switches that side off exactly. A non-finite or
- * non-positive luminance passes through with gain 1.
+ * Shadows get one scalar gain, so their chromaticity (and the Hanatos tc
+ * lookup) is untouched. Compressed highlights ALSO lose saturation in step with
+ * the compression (the chroma RGB - Y, Y being the neutral (Y,Y,Y) in ProPhoto
+ * D50, is scaled by k once more): the film's own shoulder would have
+ * desaturated those pixels, and pulling them down into the film's mid-tones
+ * without this exposed the clipped highlight's raw tint as a flat coloured
+ * patch with a coloured fringe (phone test, 2026-11-07). Luminance is still
+ * exactly k*Y. Between the knees nothing changes. A room H of 0 switches that
+ * side off exactly. A non-finite or non-positive luminance passes through.
  */
 #ifndef SPK_MODEL_SCENE_LATITUDE_H
 #define SPK_MODEL_SCENE_LATITUDE_H
@@ -38,8 +45,8 @@ namespace spk {
 
 struct SceneLatitudeParams {
     bool active = false;
-    double highlight_knee = 2.0;   // K_h, stops above mid-grey
-    double highlight_room = 3.0;   // H_h, stops; 0 = highlight side off
+    double highlight_knee = 1.0;   // K_h, stops above mid-grey
+    double highlight_room = 2.5;   // H_h, stops; 0 = highlight side off
     double shadow_knee = -2.0;     // K_s, stops relative to mid-grey
     double shadow_room = 0.0;      // H_s, stops; 0 = shadow side off
     double rolloff = 2.0;          // m, the knee's order (1 = soft .. 4 = hard)
@@ -53,6 +60,10 @@ struct SceneLatitudeParams {
 // The gain 2^d for one scene-linear ProPhoto RGB triple. Pure function of the
 // triple and the params; 1.0 inside the core and for degenerate pixels.
 double scene_latitude_gain(const SceneLatitudeParams& p, const double rgb[3]);
+
+// Applies the mapping to one triple in place (gain, plus the highlight
+// desaturation described above). What the filming stage runs.
+void scene_latitude_apply(const SceneLatitudeParams& p, double rgb[3]);
 
 // The stop mapping alone (E -> E'), for tests and the UI's curve preview.
 double scene_latitude_map_stops(const SceneLatitudeParams& p, double stops);

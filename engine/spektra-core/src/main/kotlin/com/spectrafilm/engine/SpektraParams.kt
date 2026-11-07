@@ -75,8 +75,8 @@ data class CameraParams(
  */
 data class SceneLatitudeParams(
     val active: Boolean = false,
-    val highlightKnee: Float = 2.0f,
-    val highlightRoom: Float = 3.0f,
+    val highlightKnee: Float = 1.0f,
+    val highlightRoom: Float = 2.5f,
     val shadowKnee: Float = -2.0f,
     val shadowRoom: Float = 0.0f,
     val rolloff: Float = 2.0f,

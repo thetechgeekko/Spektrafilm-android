@@ -3395,8 +3395,8 @@ void spk_default_params(spk_params* p) {
 
     // scene latitude (opt-in; off => byte-identical)
     p->scene_latitude_active = 0;
-    p->scene_latitude_highlight_knee = 2.0f;
-    p->scene_latitude_highlight_room = 3.0f;
+    p->scene_latitude_highlight_knee = 1.0f;
+    p->scene_latitude_highlight_room = 2.5f;
     p->scene_latitude_shadow_knee = -2.0f;
     p->scene_latitude_shadow_room = 0.0f;
     p->scene_latitude_rolloff = 2.0f;
