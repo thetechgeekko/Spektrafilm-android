@@ -13,7 +13,14 @@
  *    file ends up with the edits in the order they were made.
  *  - This process is the only writer, so the snapshot is never refreshed from the file,
  *    except once if the first read failed (see [reconcile]).
+ *  - Edits are saved as they are made, not at onStop: the writer starts on each edit at
+ *    once, and edits that pile up while a write is in progress go out together as one
+ *    file write. Callers save a value when it is committed (a slider on release, not every
+ *    drag frame), so by the time the app is backgrounded the queue is normally empty.
  *  - [flush] waits for queued edits to reach the file; the activity calls it from onStop.
+ *    It returns at once when nothing is queued, which is the normal case; the bounded wait
+ *    is a backstop for an edit made moments before backgrounding (durability over a few
+ *    ms of onStop latency in that rare case).
  *
  * [data] is the snapshot as a StateFlow, for callers that want to observe settings.
  */
@@ -62,11 +69,16 @@ internal class SettingsDataStore(
     init {
         scope.launch {
             reconcile()
-            for (write in writes) {
+            for (first in writes) {
+                // Take every edit already waiting and write them as ONE DataStore edit, in
+                // order: a burst of edits costs one file write instead of one each, so the
+                // queue drains quickly and flush() usually finds it empty.
+                val batch = mutableListOf(first)
+                while (true) batch += writes.tryReceive().getOrNull() ?: break
                 reconcile()
-                runCatching { dataStore.edit { write(it) } }
+                runCatching { dataStore.edit { prefs -> batch.forEach { it(prefs) } } }
                     .onFailure { Diag.e("settings write failed: ${it.message}") }
-                done.value += 1
+                done.value += batch.size
             }
         }
     }

@@ -85,6 +85,7 @@ fun EnhancedSlider(
     decimals: Int = 2,
     tooltip: String? = null,
     default: Float? = null,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -105,6 +106,7 @@ fun EnhancedSlider(
             val reset: (() -> Unit)? = resetDefault?.let { dv ->
                 {
                     onValueChange(snap(dv, range, step))
+                    onValueChangeFinished?.invoke()
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
@@ -135,6 +137,7 @@ fun EnhancedSlider(
                             interaction.onChange(SliderReadout(label, formatValue(it, decimals)))
                         },
                         onSettled = {
+                            onValueChangeFinished?.invoke()
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             interaction.onFinished()
                         },
@@ -178,6 +181,7 @@ fun EnhancedSlider(
                 interaction.onChange(SliderReadout(label, formatValue(snapped, decimals)))
             },
             onValueChangeFinished = {
+                onValueChangeFinished?.invoke()
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 interaction.onFinished()
             },
@@ -216,6 +220,7 @@ fun EnhancedSlider(
                 onDismiss = { editing = false },
                 onConfirm = {
                     onValueChange(it)
+                    onValueChangeFinished?.invoke()
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 },
             )
@@ -338,6 +343,7 @@ fun IntSlider(
     onValueChange: (Int) -> Unit,
     tooltip: String? = null,
     default: Int? = null,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     EnhancedSlider(
         label = label,
@@ -348,6 +354,7 @@ fun IntSlider(
         tooltip = tooltip,
         default = default?.toFloat(),
         onValueChange = { onValueChange(it.roundToInt()) },
+        onValueChangeFinished = onValueChangeFinished,
     )
 }
 
@@ -405,6 +412,11 @@ private fun Modifier.fineDragValue(
     // Where the drag started, so a CANCELLED drag can be put back.
     val origin = remember { mutableFloatStateOf(0f) }
     val latest = rememberUpdatedState(value)
+    // The gesture block below outlives recompositions (it restarts only on range, step or
+    // density), so read the callbacks through state: a caller that swaps its lambdas, such
+    // as a settings slider whose draft state is replaced after a save, must get the new ones.
+    val latestOnValueChange = rememberUpdatedState(onValueChange)
+    val latestOnSettled = rememberUpdatedState(onSettled)
     return this.pointerInput(range, step, density) {
         if (span <= 0f) return@pointerInput
         detectHorizontalDragGestures(
@@ -412,14 +424,14 @@ private fun Modifier.fineDragValue(
                 pending.floatValue = latest.value
                 origin.floatValue = latest.value
             },
-            onDragEnd = { onSettled() },
+            onDragEnd = { latestOnSettled.value() },
             // A cancel means something else took the gesture — most often the panel's own
             // vertical scroll claiming a diagonal drag. The value has already been moved by
             // every frame up to that point, so committing it silently sets a parameter the
             // user was not adjusting. Put it back.
             onDragCancel = {
-                onValueChange(snap(origin.floatValue, range, step))
-                onSettled()
+                latestOnValueChange.value(snap(origin.floatValue, range, step))
+                latestOnSettled.value()
             },
         ) { change, dragAmount ->
             change.consume()
@@ -427,7 +439,7 @@ private fun Modifier.fineDragValue(
             pending.floatValue = fineDragAdvance(
                 pending.floatValue, dragAmount, span, trackPx, range,
             )
-            onValueChange(snap(pending.floatValue, range, step))
+            latestOnValueChange.value(snap(pending.floatValue, range, step))
         }
     }
 }
