@@ -68,13 +68,20 @@ internal class AppContainer(context: Context) {
     /** Per-source recipes (#276). */
     val recipes: RecipeRepository = FileRecipeRepository(app)
 
+    /**
+     * The durable source reference and its URI grant (#276). The process-wide runtime that
+     * orders every acquire, clear and restore; see docs/adr/0002-storage-boundaries.md for
+     * why it stays on SharedPreferences.commit().
+     */
+    val sources: SourceAccessRuntime get() = sourceAccessRuntime(app)
+
     /** Builds every app ViewModel from this container. */
     val viewModelFactory: ViewModelProvider.Factory = AppViewModelFactory(
         settingsViewModel = { SettingsViewModel(settings, settings.autoPreviewEdges()) },
         updateViewModel = {
             UpdateViewModel(
                 AndroidUpdateBackend(app, dispatchers.io),
-                SharedUpdatePrefs(app.getSharedPreferences(SharedUpdatePrefs.FILE, Context.MODE_PRIVATE)),
+                SharedUpdatePrefs.create(app),
             )
         },
     )
