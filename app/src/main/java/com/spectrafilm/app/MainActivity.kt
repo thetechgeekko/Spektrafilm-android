@@ -335,6 +335,44 @@ private suspend fun decodeSourceRequest(
     }
 }
 
+/**
+ * [decodeSourceRequest] behind the on-disk proxy cache (#288): a hit returns the stored decode
+ * without touching LibRaw or the platform codec; a miss decodes and stores the result. Only the
+ * preview and zoom proxies come through here; export decodes stay uncached.
+ */
+private suspend fun decodeSourceRequestDiskCached(
+    request: SourceDecodeRequest,
+    cacheRequest: DecodedSourceCache.Request,
+    maxEdge: Int,
+    io: CoroutineDispatcher,
+): SourceDecodeResult {
+    val uri = request.uri
+    if (uri == null || request.kind == SourceKind.DEMO) return decodeSourceRequest(request, maxEdge, io)
+    val ctx = request.context.applicationContext
+    // One owned context: whatever image the block produces is closed if the caller is
+    // cancelled before taking it, hit or fresh decode alike.
+    return withOwnedContext(
+        context = io,
+        dispose = { result: SourceDecodeResult -> result.image.close() },
+    ) {
+        val key = ProxyDiskCache.keyFor(ctx, uri, cacheRequest)
+        val startNs = System.nanoTime()
+        val hit = key?.let { ProxyDiskCache.read(ctx, it) }
+        if (hit != null) {
+            Diag.i(
+                "proxy disk cache hit ${hit.image.width}x${hit.image.height} " +
+                    "ms=${(System.nanoTime() - startNs) / 1_000_000L}",
+            )
+            SourceDecodeResult(hit.image, hit.usedPlatformFallback)
+        } else {
+            val decoded = decodeSourceRequest(request, maxEdge, io)
+            // Blocking and non-throwing: no cancellation point between the decode and return.
+            if (key != null) ProxyDiskCache.write(ctx, key, decoded.image, decoded.usedPlatformFallback)
+            decoded
+        }
+    }
+}
+
 /** Top-level navigation destinations. */
 internal enum class Screen { EDITOR, SETTINGS, ABOUT, HOWTO, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS }
 
@@ -2534,7 +2572,12 @@ class MainActivity : ComponentActivity() {
                 if (existing != null) {
                     existing.close()
                 } else {
-                    val decoded = decodeSourceRequest(snapshot.decode, maxEdge, dispatchers.io)
+                    val decoded = decodeSourceRequestDiskCached(
+                        snapshot.decode,
+                        ticket.request,
+                        maxEdge,
+                        dispatchers.io,
+                    )
                     // publish() consumes the image even when this ticket became stale. An old
                     // detached decode therefore cannot evict the newest source generation.
                     val accepted = cache.publish(ticket, decoded.image)
