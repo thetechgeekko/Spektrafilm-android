@@ -92,19 +92,28 @@ jobs:
 
       # Dependency locking is STRICT, so a version bump needs fresh lockfiles, and
       # writing them needs Google Maven, which agent sandboxes cannot reach. Label a
-      # PR `write-locks` to regenerate :app's lockfile here and print the diff to the
-      # log; copy it into the PR, then remove the label. The steps below then build
-      # against the rewritten locks.
-      - name: Rewrite :app dependency locks (write-locks label only)
+      # PR `write-locks` to regenerate every module's lockfile here, print the diff and
+      # each rewritten file to the log; copy them into the PR, then remove the label.
+      # The steps below then build against the rewritten locks.
+      - name: Rewrite dependency locks (write-locks label only)
         if: >-
           github.event_name == 'pull_request' &&
           contains(github.event.pull_request.labels.*.name, 'write-locks')
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:dependencies --write-locks -q > /dev/null
+          # Every module's lockfile: a plugin bump (AGP, Kotlin) changes the
+          # build-tool configurations locked in all of them, not only :app's.
+          ./gradlew :app:dependencies :engine:spektra-core:dependencies \
+            :lib:libraw:dependencies :lib:tiffwriter:dependencies \
+            :lib:pngwriter:dependencies --write-locks -q > /dev/null
           echo "----- BEGIN LOCKFILE DIFF -----"
-          git diff -- app/gradle.lockfile
+          git diff --stat -- '*.lockfile'
           echo "----- END LOCKFILE DIFF -----"
+          for f in $(git diff --name-only -- '*.lockfile'); do
+            echo "===== BEGIN $f ====="
+            cat "$f"
+            echo "===== END $f ====="
+          done
 
       - name: Unit tests
         run: |

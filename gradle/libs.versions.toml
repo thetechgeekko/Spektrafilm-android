@@ -1,16 +1,16 @@
 [versions]
-agp = "9.3.2"
-kotlin = "2.2.10"
-coreKtx = "1.17.0"
-lifecycle = "2.10.0"
+agp = "9.5.0"
+kotlin = "2.4.21"
+coreKtx = "1.19.1"
+lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-composeBom = "2026.06.01"
+composeBom = "2026.09.00"
 # Owner decision (2026-09-10): take Material 3 Expressive now. MaterialExpressiveTheme,
 # MotionScheme and ExperimentalMaterial3ExpressiveApi are `internal` in 1.4.0 (the latest
 # stable) and only become public in 1.5.0, which has no beta yet. Pinned ABOVE the BOM.
 material3 = "1.5.0-rc01"
 junit = "4.13.2"
-datastore = "1.1.1"
+datastore = "1.3.0"
 exifinterface = "1.3.7"
 orgJson = "20231013"
 # Navigation 3 (#274). Check the stable channel before bumping.
@@ -19,7 +19,7 @@ navigation3 = "1.2.1"
 robolectric = "4.17"
 # Jetpack WindowManager: fold posture for the editor layout (#293). Already on the runtime
 # classpath transitively at this version; declared so the app can compile against it.
-window = "1.5.0"
+window = "1.5.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

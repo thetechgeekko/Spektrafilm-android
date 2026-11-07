@@ -27,7 +27,7 @@ for the protocol and [`docs/agents/triage-labels.md`](docs/agents/triage-labels.
 | Tool | Pinned version |
 |---|---|
 | JDK | 21 (use Android Studio's JBR; a PATH JDK 26 breaks Gradle) |
-| Gradle / AGP | 9.5.1 / 9.3.2 (Kotlin 2.2.10 built in) |
+| Gradle / AGP | 9.6.1 / 9.5.0 (Kotlin 2.4.21 built in) |
 | NDK | r28c (`28.2.13676358`) |
 | CMake | 3.22.1 |
 | Build tools | 36.0.0 |
