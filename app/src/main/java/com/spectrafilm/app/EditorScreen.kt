@@ -2253,112 +2253,36 @@ internal fun MainActivity.EditorScreen(
                             previousEdit = previousEdit,
                             onApplyPrevious = { previousEdit?.let { applyPreviousEdit(it) } },
                         )
-                        Category.SOURCE -> SourcePanel(
-                            sourceName = sourceName,
-                            status = status,
+                        Category.SOURCE -> EditorSourcePanel(
+                            ctx = ctx,
+                            scope = scope,
+                            state = state,
+                            settings = settings,
+                            snackbarHost = snackbarHost,
+                            sourceRuntime = sourceRuntime,
+                            recipeRepo = recipeRepo,
+                            recipeKey = recipeKey,
+                            recipeEditEpoch = recipeEditEpoch,
+                            editHistory = editHistory,
+                            photoPicker = photoPicker,
+                            rawPicker = rawPicker,
                             showHistogram = viewerUi.histogram,
-                            onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
-                            hasRecipe = hasRecipe,
-                            needsAuthorization = sourceAuthorizationRequired,
-                            onReauthorize = {
-                                if (sourceKind == SourceKind.RAW) {
-                                    rawPicker.launch(arrayOf("*/*"))
-                                } else {
-                                    photoPicker.launch(
-                                        PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
-                                        ),
-                                    )
-                                }
-                            },
-                            onPickPhoto = {
-                                photoPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
-                            onUseDemo = {
-                                val selectionGeneration = sourceMutationGate.begin()
-                                // Commit an explicit demo tombstone before changing either the
-                                // visible source or its session checkpoint. A process kill at
-                                // any later instruction restores demo, never the older URI.
-                                val pendingDemo = sourceRuntime.submitReconciled(selectionGeneration) {
-                                    sourceAccess.selectDemo()
-                                }
-                                scope.launch {
-                                    val outcome = pendingDemo.await() ?: return@launch
-                                    if (!sourceMutationGate.isCurrent(selectionGeneration)) {
-                                        return@launch
-                                    }
-                                    when (outcome) {
-                                        is ReconciledSourceMutation.Applied -> {
-                                            if (sourceUri != null || sourceKind != SourceKind.DEMO) {
-                                                retireSourceResources()
-                                                resetEditorCursorForSourceChange()
-                                            }
-                                            sourceUri = null
-                                            sourceKind = SourceKind.DEMO
-                                            sourceName = ctx.getString(R.string.editor_source_demo_name)
-                                            rotation = SourceRotation.NONE
-                                            sourceAuthorizationRequired = false
-                                            checkpointEditorSession()
-                                            previewTick++
-                                            status = ctx.getString(R.string.editor_status_demo_image)
-                                        }
-                                        is ReconciledSourceMutation.Rejected -> {
-                                            Diag.w("demo selection failed: ${outcome.failure.message}")
-                                            reconcileVisibleSourceAfterFailure(outcome.durableState)
-                                            snackbarHost.currentSnackbarData?.dismiss()
-                                            snackbarHost.showSnackbar(
-                                                ctx.getString(R.string.editor_snack_demo_failed),
-                                                withDismissAction = true,
-                                            )
-                                        }
-                                    }
-                                }
-                            },
-                            onResetEdits = {
-                                // Invalidate every pre-reset debounce synchronously. A save that
-                                // was already submitted is FIFO-before delete; one not submitted
-                                // yet sees this epoch change and cannot queue behind delete.
-                                recipeEditEpoch.invalidate()
-                                // Submit before attaching a UI waiter: recreation can cancel the
-                                // waiter, never the durable delete or its position before restore.
-                                val pendingDelete = RecipeWorkRuntime.submit {
-                                    recipeRepo.delete(recipeKey)
-                                }
-                                scope.launch {
-                                    try {
-                                        pendingDelete.await()
-                                    } catch (cancelled: CancellationException) {
-                                        throw cancelled
-                                    } catch (failure: Throwable) {
-                                        Diag.w("explicit recipe reset delete failed: ${failure.message}")
-                                        status = ctx.getString(R.string.editor_status_recipe_clear_failed)
-                                        snackbarHost.currentSnackbarData?.dismiss()
-                                        snackbarHost.showSnackbar(
-                                            ctx.getString(R.string.editor_snack_recipe_clear_failed),
-                                        )
-                                        return@launch
-                                    }
-                                    recipeAccess = recipeKey?.let {
-                                        EditorRecipeAccess.Writable(
-                                            it,
-                                            recipeRepo.generation(it),
-                                        )
-                                    } ?: EditorRecipeAccess.None
-                                    Recipes.resetToDefaults(state, settings, profiles)
-                                    presetVm.onAction(PresetAction.ClearAmount)
-                                    hasRecipe = false; rotation = SourceRotation.NONE
-                                    // Reset clears history: the defaults become the new
-                                    // empty-history baseline (you can't undo back across a
-                                    // reset). `restoring` makes the next settle adopt it.
-                                    editHistory.clear(); committedSnapshot = null; restoring = true
-                                    status = ctx.getString(R.string.editor_status_edits_reset); previewTick++
-                                    snackbarHost.currentSnackbarData?.dismiss()
-                                    snackbarHost.showSnackbar(ctx.getString(R.string.editor_snack_edits_reset))
-                                }
-                            },
+                            sourceUriState = sourceUriState,
+                            sourceKindState = sourceKindState,
+                            sourceNameState = sourceNameState,
+                            sourceAuthorizationRequiredState = sourceAuthorizationRequiredState,
+                            statusState = statusState,
+                            previewTickState = previewTickState,
+                            rotationState = rotationState,
+                            hasRecipeState = hasRecipeState,
+                            recipeAccessState = recipeAccessState,
+                            committedSnapshotState = committedSnapshotState,
+                            restoringState = restoringState,
+                            profilesState = profilesState,
+                            checkpointEditorSessionFn = ::checkpointEditorSession,
+                            retireSourceResourcesFn = ::retireSourceResources,
+                            resetEditorCursorForSourceChangeFn = ::resetEditorCursorForSourceChange,
+                            reconcileVisibleSourceAfterFailureFn = ::reconcileVisibleSourceAfterFailure,
                         )
                         null -> {}
                     }
