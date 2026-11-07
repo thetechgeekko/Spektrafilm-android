@@ -629,6 +629,7 @@ class EngineBoundaryInstrumentation : Instrumentation() {
         putF32("scene_latitude_shadow_room", sceneLatitude.shadowRoom)
         putF32("scene_latitude_rolloff", sceneLatitude.rolloff)
         putF32("scene_latitude_max_lift", sceneLatitude.maxLift)
+        putI32("reserved_tail_pad0", 0)
     }
 
     private fun MutableMap<String, String>.putToneChannel(

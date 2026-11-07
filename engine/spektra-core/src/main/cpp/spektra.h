@@ -383,6 +383,10 @@ typedef struct {
     float scene_latitude_shadow_room;       /* stops, 0 = side off, default 0 */
     float scene_latitude_rolloff;           /* knee order [1,4], default 2 */
     float scene_latitude_max_lift;          /* shadow lift bound, stops, default 4 */
+    /* Explicit padding so the struct ends on its 8-byte (LP64) alignment with no
+     * implicit tail padding: params_manifest.h asserts the last named field ends
+     * exactly at sizeof(spk_params). Always 0; never read. */
+    int32_t reserved_tail_pad0;
 } spk_params;
 
 /* Initialise `p` to the physical defaults that mirror a default-constructed

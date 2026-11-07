@@ -257,6 +257,7 @@ inline std::string named_inventory(const spk_params& p) {
     SPK_MANIFEST_F32(scene_latitude_shadow_room);
     SPK_MANIFEST_F32(scene_latitude_rolloff);
     SPK_MANIFEST_F32(scene_latitude_max_lift);
+    SPK_MANIFEST_I32(reserved_tail_pad0);
 
 #undef SPK_MANIFEST_I32
 #undef SPK_MANIFEST_F32
@@ -269,8 +270,8 @@ inline std::string named_inventory(const spk_params& p) {
 
 // The manifest intentionally ends at the ABI tail. Appending a field without
 // extending named_inventory must make every native build fail loudly.
-static_assert(offsetof(spk_params, scene_latitude_max_lift) +
-                  sizeof(((spk_params*)nullptr)->scene_latitude_max_lift) ==
+static_assert(offsetof(spk_params, reserved_tail_pad0) +
+                  sizeof(((spk_params*)nullptr)->reserved_tail_pad0) ==
               sizeof(spk_params));
 
 }  // namespace spk::params_manifest

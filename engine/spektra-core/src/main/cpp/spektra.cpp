@@ -3374,6 +3374,7 @@ void spk_default_params(spk_params* p) {
     p->scene_latitude_shadow_room = 0.0f;
     p->scene_latitude_rolloff = 2.0f;
     p->scene_latitude_max_lift = 4.0f;
+    p->reserved_tail_pad0 = 0;
     p->enlarger_diffusion_strength = 0.5f;
     p->enlarger_diffusion_spatial_scale = 1.0f;
     p->enlarger_diffusion_halo_warmth = 0.0f;
