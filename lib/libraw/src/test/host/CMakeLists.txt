@@ -217,6 +217,14 @@ target_include_directories(sfraw_raw_cleanup_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
 target_link_libraries(sfraw_raw_cleanup_test PRIVATE sfraw_host_sanitizers)
 
+add_executable(sfraw_raw_preview_test
+               test_raw_preview.cpp
+               "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp/raw_preview.cpp")
+target_include_directories(sfraw_raw_preview_test PRIVATE
+                           "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
+target_link_libraries(sfraw_raw_preview_test PRIVATE sfraw_host_libraw
+                      sfraw_host_sanitizers)
+
 add_executable(sfraw_fd_read_all_test test_fd_read_all.cpp)
 target_include_directories(sfraw_fd_read_all_test PRIVATE
                            "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
@@ -231,6 +239,14 @@ if(BUILD_TESTING)
       TIMEOUT 30
       ENVIRONMENT
         "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+  add_test(NAME sfraw.raw-preview.contract
+           COMMAND sfraw_raw_preview_test)
+  set_tests_properties(
+    sfraw.raw-preview.contract
+    PROPERTIES
+      TIMEOUT 60
+      ENVIRONMENT
+        "ASAN_OPTIONS=abort_on_error=1:detect_leaks=1:strict_string_checks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
   add_test(NAME sfraw.fd-read-all.contract
            COMMAND sfraw_fd_read_all_test)
   set_tests_properties(
@@ -351,6 +367,16 @@ if(SFRAW_HOST_BUILD_FUZZER)
   target_compile_options(sfraw_libraw_fuzzer PRIVATE -fsanitize=fuzzer)
   target_link_options(sfraw_libraw_fuzzer PRIVATE -fsanitize=fuzzer)
   add_dependencies(sfraw_libraw_fuzzer sfraw_libraw_fuzz_corpus)
+
+  add_executable(sfraw_raw_preview_fuzzer
+                 fuzz_raw_preview.cpp
+                 "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp/raw_preview.cpp")
+  target_include_directories(sfraw_raw_preview_fuzzer PRIVATE
+                             "${CMAKE_CURRENT_LIST_DIR}/../../main/cpp")
+  target_link_libraries(sfraw_raw_preview_fuzzer PRIVATE sfraw_host_libraw)
+  target_compile_options(sfraw_raw_preview_fuzzer PRIVATE -fsanitize=fuzzer)
+  target_link_options(sfraw_raw_preview_fuzzer PRIVATE -fsanitize=fuzzer)
+  add_dependencies(sfraw_raw_preview_fuzzer sfraw_libraw_fuzz_corpus)
 
   add_executable(sfraw_dng_sniffer_fuzzer
                  "${CMAKE_CURRENT_LIST_DIR}/../cpp/fuzz_dng_sniffer.cpp")

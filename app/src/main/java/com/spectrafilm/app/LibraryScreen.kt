@@ -338,7 +338,7 @@ private fun LibraryCell(
     }
     val selectLabel = stringResource(R.string.library_select_action)
     val thumb by produceState<Bitmap?>(LibraryThumbnails.cached(entry.documentUri), entry.documentUri) {
-        if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri) }
+        if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri, entry.isRaw) }
     }
     Box(
         Modifier

@@ -20,6 +20,7 @@ import android.provider.DocumentsContract
 import android.util.LruCache
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
+import com.spectrafilm.libraw.RawFormats
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -46,17 +47,6 @@ internal data class LibraryEntry(
 }
 
 /**
- * Camera RAW containers LibRaw opens. Listing is stricter than opening: an unknown file opened
- * on purpose goes to the RAW path (see [detectSourceKind]), but a folder also holds sidecars,
- * .xmp, .txt and the like, which must not show up as frames.
- */
-private val LIBRARY_RAW_EXTENSIONS = setOf(
-    "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "raw",
-    "pef", "ptx", "srw", "x3f", "3fr", "fff", "iiq", "mos", "mef", "mrw", "erf", "kdc", "dcr",
-    "rwl", "gpr",
-)
-
-/**
  * Keeps what the editor can open (stills and camera RAW; never video, .mcraw, folders or
  * sidecars) and orders it newest first, like a camera roll. Ties fall back to the name so the
  * grid does not reshuffle between refreshes.
@@ -66,8 +56,11 @@ internal fun libraryEntriesOf(rows: List<LibraryEntry>): List<LibraryEntry> = ro
         if (row.mimeType == "vnd.android.document/directory") return@filter false
         when (detectSourceKind(row.name, row.mimeType)) {
             SourceFileKind.PHOTO -> true
-            SourceFileKind.RAW -> row.name.substringAfterLast('.', "").lowercase(Locale.ROOT) in
-                LIBRARY_RAW_EXTENSIONS
+            // Listing is stricter than opening: an unknown file opened on purpose goes to the
+            // RAW path (see detectSourceKind), but a folder also holds sidecars, .xmp, .txt and
+            // the like, which must not show up as frames. So a RAW frame needs a known RAW
+            // extension or a RAW MIME type (a provider may hide the extension).
+            SourceFileKind.RAW -> RawFormats.isRawFileName(row.name) || RawFormats.isRawMimeType(row.mimeType)
             SourceFileKind.VIDEO, SourceFileKind.MCRAW -> false
         }
     }
@@ -493,13 +486,28 @@ internal object LibraryThumbnails {
 
     fun cached(uri: String): Bitmap? = cache.get(uri)
 
-    /** Blocking; call on an IO dispatcher. */
-    fun load(context: Context, uri: String): Bitmap? {
+    /**
+     * Blocking; call on an IO dispatcher. A RAW tries the camera's own embedded JPEG first: it
+     * is sharper than the 160 px EXIF thumbnail, and for CR3, 3FR, IIQ and other containers
+     * ExifInterface cannot read it is the only embedded image there is.
+     */
+    fun load(context: Context, uri: String, raw: Boolean): Bitmap? {
         cache.get(uri)?.let { return it }
         val parsed = Uri.parse(uri)
-        val bitmap = embedded(context, parsed) ?: provided(context, parsed) ?: return null
+        val bitmap = (if (raw) camera(context, parsed) else null)
+            ?: embedded(context, parsed)
+            ?: provided(context, parsed)
+            ?: return null
         cache.put(uri, bitmap)
         return bitmap
+    }
+
+    private fun camera(context: Context, uri: Uri): Bitmap? {
+        val loaded = RawCameraPreview.load(context, uri, EDGE_PX) ?: return null
+        return OpenPlaceholder.applyTransform(
+            loaded.bitmap,
+            placeholderTransform(loaded.orientation, SourceRotation.NONE),
+        )
     }
 
     private fun embedded(context: Context, uri: Uri): Bitmap? = runCatching {

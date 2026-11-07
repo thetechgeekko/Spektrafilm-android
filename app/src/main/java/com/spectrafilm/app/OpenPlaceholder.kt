@@ -28,6 +28,8 @@ import kotlin.math.max
  * Two sources, cheapest first:
  *  1. The file's embedded EXIF thumbnail (JPEG IFD1, or the preview a RAW/DNG carries), read
  *     with [ExifInterface] from the file descriptor. No pixel decode of the photo itself.
+ *  1b. For a RAW, the camera's own embedded JPEG found by LibRaw ([RawCameraPreview]), when it
+ *     is larger than step 1's (it is the only embedded image in CR3, 3FR, IIQ and the like).
  *  2. On API 29+, the provider's own thumbnail ([android.content.ContentResolver.loadThumbnail]),
  *     which for MediaStore items is usually already cached. Bounded by [PROVIDER_TIMEOUT_MS]
  *     because a provider without a cached thumbnail may decode the whole file.
@@ -64,6 +66,22 @@ internal object OpenPlaceholder {
             Diag.i("open placeholder exif ${embedded.width}x${embedded.height} ms=${elapsedMs(startNs)}")
             publish(embedded)
             if (max(embedded.width, embedded.height) >= GOOD_ENOUGH_EDGE_PX) return
+        }
+        if (rawSource) {
+            // The camera's own JPEG inside the RAW: usually 1-2 k px and the only embedded
+            // image at all in containers ExifInterface cannot parse (CR3, 3FR, IIQ ...).
+            val camera = withContext(io) {
+                RawCameraPreview.load(ctx, uri, TARGET_EDGE_PX)?.let {
+                    applyTransform(it.bitmap, placeholderTransform(it.orientation, userRotation))
+                }
+            }
+            if (camera != null && max(camera.width, camera.height) > max(embedded?.width ?: 0, embedded?.height ?: 0)) {
+                Diag.i("open placeholder camera ${camera.width}x${camera.height} ms=${elapsedMs(startNs)}")
+                publish(camera)
+                if (max(camera.width, camera.height) >= GOOD_ENOUGH_EDGE_PX) return
+            } else {
+                camera?.recycle()
+            }
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val provided = loadProviderThumbnail(ctx, uri, userRotation, io, rawSource) ?: return

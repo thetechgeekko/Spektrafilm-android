@@ -31,6 +31,33 @@ class LibraryTest {
         assertEquals(setOf("a.dng", "b.CR3", "c.jpg", "d.heic"), kept)
     }
 
+    @Test fun listsEveryDecodableRawContainerAndNothingTheDecoderCannotOpen() {
+        val kept = libraryEntriesOf(
+            listOf(
+                row("a.PEF"), row("b.srw"), row("c.3fr"), row("d.iiq"), row("e.orf"),
+                row("f.rw2"), row("g.raf"), row("h.nrw"), row("i.rwl"), row("j.kdc"),
+                // Built without X3F tools / the GoPro SDK: never offered as frames.
+                row("k.x3f"), row("l.gpr"),
+            ),
+        ).map { it.name }.toSet()
+        assertEquals(
+            setOf("a.PEF", "b.srw", "c.3fr", "d.iiq", "e.orf", "f.rw2", "g.raf", "h.nrw", "i.rwl", "j.kdc"),
+            kept,
+        )
+    }
+
+    @Test fun aRawMimeTypeListsAFrameWhoseNameHasNoExtension() {
+        val kept = libraryEntriesOf(
+            listOf(
+                row("IMG_0001", "image/x-canon-cr3"),
+                row("DSC_0002", "image/x-sony-arw"),
+                // octet-stream says nothing: a nameless binary is not a frame.
+                row("blob", "application/octet-stream"),
+            ),
+        ).map { it.name }.toSet()
+        assertEquals(setOf("IMG_0001", "DSC_0002"), kept)
+    }
+
     @Test fun newestFirstThenByName() {
         val order = libraryEntriesOf(
             listOf(

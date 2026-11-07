@@ -6,6 +6,7 @@
  */
 #include <jni.h>
 
+#include <algorithm>
 #include <chrono>
 #include <array>
 #include <cstdint>
@@ -20,6 +21,7 @@
 #include "native_allocation_registry.h"
 #include "raw_decoder.h"
 #include "raw_decoder_jni_safety.h"
+#include "raw_preview.h"
 #include "raw_result_publication.h"
 
 #ifdef __ANDROID__
@@ -738,4 +740,34 @@ JNI(jobject, nativeDecodeFd)(JNIEnv* env, jobject, jint fd, jint wbMode,
         throwCaught(env, false);
     }
     return nullptr;
+}
+
+// Embedded camera JPEG for thumbnails/placeholders (raw_preview.h). Never
+// throws a RawDecodeException: every outcome is a status in outMeta[0]
+// (outMeta = {status, width, height, flip}); the JPEG bytes are returned only
+// for SFRAW_PREVIEW_OK. A failed Java allocation leaves the VM's pending
+// OutOfMemoryError for the caller.
+JNI(jbyteArray, nativeExtractPreview)(JNIEnv* env, jobject, jint fd,
+                                      jint minLongEdge, jintArray outMeta) {
+    if (outMeta == nullptr || env->GetArrayLength(outMeta) < 4) return nullptr;
+    spectrafilm::EmbeddedPreview preview =
+        spectrafilm::extractEmbeddedPreview(fd, minLongEdge);
+    if (preview.status == spectrafilm::SFRAW_PREVIEW_OK &&
+        preview.jpeg.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+        preview.status = spectrafilm::SFRAW_PREVIEW_NO_MEMORY;
+    }
+    const jint meta[4] = {
+        preview.status,
+        static_cast<jint>(std::min<uint32_t>(preview.width, 0xFFFFU)),
+        static_cast<jint>(std::min<uint32_t>(preview.height, 0xFFFFU)),
+        preview.flip,
+    };
+    env->SetIntArrayRegion(outMeta, 0, 4, meta);
+    if (preview.status != spectrafilm::SFRAW_PREVIEW_OK) return nullptr;
+    const auto length = static_cast<jsize>(preview.jpeg.size());
+    jbyteArray array = env->NewByteArray(length);
+    if (array == nullptr) return nullptr;
+    env->SetByteArrayRegion(array, 0, length,
+                            reinterpret_cast<const jbyte*>(preview.jpeg.data()));
+    return array;
 }

@@ -405,6 +405,15 @@ jobs:
             -rss_limit_mb=1024 \
             -timeout=10 \
             build/libraw-sniffer-fuzz-corpus
+          mkdir -p build/libraw-preview-fuzz-corpus
+          cp build/libraw-fuzz-corpus/* build/libraw-preview-fuzz-corpus/
+          build/libraw-host-ci/sfraw_raw_preview_fuzzer \
+            -runs=1000 \
+            -max_total_time=60 \
+            -max_len=16777216 \
+            -rss_limit_mb=1024 \
+            -timeout=10 \
+            build/libraw-preview-fuzz-corpus
 
       - name: Build and verify route-neutral LibRaw compliance bundle
         run: |

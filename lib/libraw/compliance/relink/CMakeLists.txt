@@ -39,6 +39,9 @@ foreach (_wrapper_file IN ITEMS
         raw_decoder.h
         raw_decoder_jni.cpp
         raw_decoder_jni_safety.h
+        pread_datastream.h
+        raw_preview.cpp
+        raw_preview.h
         raw_result_publication.cpp
         raw_result_publication.h)
     if (NOT EXISTS "${SFRAW_WRAPPER_SOURCE_DIR}/${_wrapper_file}")
@@ -90,6 +93,7 @@ add_library(sfraw SHARED
     "${SFRAW_WRAPPER_SOURCE_DIR}/native_allocation_registry.cpp"
     "${SFRAW_WRAPPER_SOURCE_DIR}/raw_decoder.cpp"
     "${SFRAW_WRAPPER_SOURCE_DIR}/raw_decoder_jni.cpp"
+    "${SFRAW_WRAPPER_SOURCE_DIR}/raw_preview.cpp"
     "${SFRAW_WRAPPER_SOURCE_DIR}/raw_result_publication.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/unofficial_relink_marker.cpp")
 set_target_properties(sfraw PROPERTIES OUTPUT_NAME sfraw)

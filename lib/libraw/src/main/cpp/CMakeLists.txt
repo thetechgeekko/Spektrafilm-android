@@ -268,6 +268,7 @@ add_library(sfraw SHARED
         native_allocation_registry.cpp
         raw_decoder.cpp
         raw_decoder_jni.cpp
+        raw_preview.cpp
         raw_result_publication.cpp
 )
 

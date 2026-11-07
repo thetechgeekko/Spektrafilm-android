@@ -24,7 +24,6 @@ import java.io.File
 import android.os.ParcelFileDescriptor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -272,17 +271,31 @@ object RawDecoder {
             RawPrecisionDescriptor.fromNative(descriptorWords, descriptorReals)
     }
 
-    private val RAW_EXTENSIONS = setOf(
-        "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2",
-    )
-
-    /** True if [extension] (with or without a leading dot) is a supported RAW type. */
-    fun isRawFile(extension: String): Boolean =
-        extension.trimStart('.').lowercase(Locale.ROOT) in RAW_EXTENSIONS
+    /** True if [extension] (with or without a leading dot) is a supported RAW type ([RawFormats]). */
+    fun isRawFile(extension: String): Boolean = RawFormats.isRawExtension(extension)
 
     /** Convenience for full file names / paths / Uris ending in a RAW extension. */
-    fun isRawFileName(name: String): Boolean =
-        isRawFile(name.substringAfterLast('.', missingDelimiterValue = ""))
+    fun isRawFileName(name: String): Boolean = RawFormats.isRawFileName(name)
+
+    /**
+     * The JPEG the camera embedded in a RAW, for thumbnails and open placeholders: the smallest
+     * one whose long edge reaches [minLongEdge] (or the largest, if none does). Null when the
+     * file has none, LibRaw does not recognise it, or [fd] is not a seekable regular file.
+     *
+     * Only LibRaw's metadata parse runs (no unpack, no demosaic) and the file is read lazily, so
+     * this costs milliseconds even for a 100 MB RAW. The caller keeps ownership of [fd]. The
+     * result is display-only camera rendering: it must never reach the engine or an export.
+     */
+    fun extractEmbeddedPreview(fd: Int, minLongEdge: Int): EmbeddedRawPreview? {
+        val meta = IntArray(4)
+        val jpeg = try {
+            nativeExtractPreview(fd, minLongEdge, meta)
+        } catch (_: OutOfMemoryError) {
+            return null
+        } ?: return null
+        if (meta[0] != PREVIEW_OK) return null
+        return EmbeddedRawPreview(jpeg, width = meta[1], height = meta[2], libRawFlip = meta[3])
+    }
 
     /** Decode a fully-read RAW/DNG byte array to linear ProPhoto RGB (via ACES2065-1). */
     fun decodeToLinear(
@@ -505,6 +518,11 @@ object RawDecoder {
         halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
         cancellationToken: Long, scratchFd: Int,
     ): NativeResult
+
+    /** Embedded camera JPEG; outMeta = {status, width, height, flip}. See raw_preview.h. */
+    private external fun nativeExtractPreview(fd: Int, minLongEdge: Int, outMeta: IntArray): ByteArray?
+
+    private const val PREVIEW_OK = 0
 
     /** Release an exact token/base/capacity match from the native registry. */
     private external fun nativeRelease(allocationToken: Long, buffer: ByteBuffer): Int
