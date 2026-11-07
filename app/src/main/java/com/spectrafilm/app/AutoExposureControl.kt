@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -235,10 +234,11 @@ fun AutoExposureControl(
                                 },
                             )
                         },
-                    shape = RoundedCornerShape(16.dp),
-                    tonalElevation = 4.dp,
-                    shadowElevation = 6.dp,
-                    color = MaterialTheme.colorScheme.surface,
+                    // An M3 menu surface: surfaceContainer at elevation level 2 (3dp shadow), no
+                    // tonal tint (m3-design-language, components-selection-input "Menus").
+                    shape = CARD_SHAPE,
+                    shadowElevation = 3.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                 ) {
                     Column(
                         modifier = Modifier.wrapContentSize(),
@@ -286,13 +286,15 @@ fun AutoExposureControl(
                                 },
                             )
 
+                            // One divider separates "Off" from the metering methods (a menu
+                            // group divider); the methods themselves are not divided.
                             HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
                             )
 
                             // All metering methods.
-                            methods.forEachIndexed { index, method ->
+                            methods.forEach { method ->
                                 MeteringMethodRow(
                                     label = meteringMethodLabel(method),
                                     isSelected = autoExposure && autoExposureMethod == method,
@@ -303,12 +305,6 @@ fun AutoExposureControl(
                                         // Dismissed via swipe, tap-outside, or back-press.
                                     },
                                 )
-                                if (index < methods.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                                    )
-                                }
                             }
                         }
 

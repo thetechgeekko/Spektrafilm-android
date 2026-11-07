@@ -19,7 +19,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -162,24 +161,9 @@ fun ProfileCurvesScreen(
         loading = false
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // --- Top bar ---
-        @OptIn(ExperimentalMaterial3Api::class)
-        TopAppBar(
-            title = {
-                Text(
-                    stringResource(R.string.screen_curves_title, displayName),
-                    modifier = Modifier.semantics { heading() },
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(SpectraIcons.Back, contentDescription = stringResource(R.string.screen_back))
-                }
-            },
-        )
-
-        Box(Modifier.weight(1f)) {
+    // The same sub-screen frame as Settings / About: medium app bar that folds on scroll.
+    NavScaffold(stringResource(R.string.screen_curves_title, displayName), onBack = onBack) {
+        Box(Modifier.fillMaxSize()) {
             // Status shown by a spinner / colour is also announced as text.
             val statusModifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             when {
@@ -223,7 +207,7 @@ private fun CurveContent(data: ProfileCurveData, displayName: String) {
         // Meta chip
         if (data.profileType.isNotBlank()) {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.secondaryContainer,
             ) {
                 Text(
@@ -327,29 +311,16 @@ private fun ChartCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        ),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.semantics { heading() },
-            )
-            Text(subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            content()
-        }
+    ContentCard(modifier = modifier) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        Text(subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        content()
     }
 }
 
@@ -367,8 +338,8 @@ private fun chartDescription(
 @Composable
 private fun MissingDataNote(text: String) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        shape = CARD_SHAPE,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(

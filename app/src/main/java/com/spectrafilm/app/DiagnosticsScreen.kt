@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -131,7 +130,8 @@ fun DiagnosticsScreen() {
 
         // --- logcat snapshot ---
         SectionHeading(stringResource(R.string.screen_diag_logcat_heading))
-        Button(onClick = {
+        // Outlined: "Share report" below is the screen's one filled (primary) action.
+        OutlinedButton(onClick = {
             scope.launch { val l = withContext(dispatchers.io) { Diagnostics.captureLogcat() }; log = l }
         }, modifier = Modifier.fillMaxWidth()) {
             val labelRes =
@@ -156,14 +156,19 @@ fun DiagnosticsScreen() {
 
 @Composable
 private fun SectionHeading(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+    )
 }
 
 @Composable
 private fun MonoBlock(text: String) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
@@ -171,7 +176,7 @@ private fun MonoBlock(text: String) {
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(10.dp),
+                .padding(12.dp),
         )
     }
 }

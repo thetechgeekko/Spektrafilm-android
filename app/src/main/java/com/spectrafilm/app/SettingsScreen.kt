@@ -116,6 +116,14 @@ internal fun SettingsScreen(
                         onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
                     )
                 }
+                add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_full_screen),
+                        note = stringResource(R.string.screen_settings_full_screen_note),
+                        checked = state.fullScreenEditing,
+                        onCheckedChange = { onAction(SettingsAction.SetFullScreenEditing(it)) },
+                    )
+                }
                 // Per-app language lives in the system (Android 13+); this row only opens it.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && appLanguageChoiceAvailable(ctx)) add {
                     NavRow(

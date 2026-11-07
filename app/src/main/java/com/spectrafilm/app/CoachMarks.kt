@@ -18,13 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -59,19 +56,20 @@ fun EditorCoachOverlay(onDismiss: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
+        // Drawn as an M3 basic dialog: extra-large (28dp) corners on surfaceContainerHigh, 24dp
+        // padding, headline-small title and a text-button action at the end
+        // (m3-design-language, components-communication "Dialogs").
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
-                .widthIn(max = 360.dp)
-                .padding(28.dp),
+                .widthIn(min = 280.dp, max = 560.dp)
+                .padding(24.dp),
         ) {
-            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
                     stringResource(R.string.tool_coach_title),
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.semantics { heading() },
                 )
                 CoachTip(
@@ -90,11 +88,9 @@ fun EditorCoachOverlay(onDismiss: () -> Unit) {
                     stringResource(R.string.tool_coach_zoom_title),
                     stringResource(R.string.tool_coach_zoom_body),
                 )
-                Button(
+                TextButton(
                     onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
+                    modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
                 ) { Text(stringResource(R.string.tool_coach_got_it)) }
             }
         }
@@ -113,7 +109,7 @@ private fun CoachTip(title: String, body: String) {
                 .background(MaterialTheme.colorScheme.primary),
         )
         Column {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
                 body,
                 style = MaterialTheme.typography.bodyMedium,

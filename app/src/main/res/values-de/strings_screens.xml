@@ -147,6 +147,8 @@
     <string name="screen_settings_theme">Design</string>
     <string name="screen_settings_dynamic_color">Material-You-Farben</string>
     <string name="screen_settings_dynamic_color_note">Palette aus deinem Hintergrundbild ableiten. Aus nutzt das eingebaute Schema.</string>
+    <string name="screen_settings_full_screen">Vollbild beim Bearbeiten</string>
+    <string name="screen_settings_full_screen_note">Status- und Navigationsleiste beim Bearbeiten ausblenden. Vom Rand wischen, um sie einzublenden.</string>
     <string name="screen_settings_language">App-Sprache</string>
     <string name="screen_settings_language_note">Aktuell: %1$s. Öffnet die System-Spracheinstellung für diese App.</string>
     <string name="screen_settings_render_defaults">Render-Standards</string>

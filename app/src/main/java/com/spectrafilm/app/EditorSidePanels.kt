@@ -8,7 +8,10 @@
 package com.spectrafilm.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +19,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -225,7 +230,9 @@ internal fun PresetPanel(
             onSelect = onSelect,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onApply, modifier = Modifier.weight(1f)) {
+            // Tonal: Save above is the panel's one filled action (m3-design-language,
+            // "one high-emphasis action per screen").
+            FilledTonalButton(onClick = onApply, modifier = Modifier.weight(1f)) {
                 ButtonIcon(SpectraIcons.Confirm)
                 Text(stringResource(R.string.editor_preset_apply))
             }
@@ -281,7 +288,7 @@ internal fun PresetPanel(
         selected = lutClf,
         onSelect = { lutClf = it },
     )
-    Button(
+    FilledTonalButton(
         onClick = { onExportLut(lutSize, lutClf) },
         enabled = !bakingLut,
         modifier = Modifier.fillMaxWidth(),
@@ -289,7 +296,7 @@ internal fun PresetPanel(
         if (bakingLut) {
             CircularProgressIndicator(
                 modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Spacer(Modifier.width(10.dp))
             Text(stringResource(R.string.editor_lut_baking))
@@ -337,7 +344,9 @@ internal fun SourcePanel(
             ButtonIcon(SpectraIcons.OpenPhoto)
             Text(stringResource(R.string.editor_source_pick_photo))
         }
-        Button(onClick = onOpenRaw, modifier = Modifier.weight(1f)) {
+        // Tonal beside the filled Pick photo: two filled buttons side by side read as two
+        // equal primaries.
+        FilledTonalButton(onClick = onOpenRaw, modifier = Modifier.weight(1f)) {
             ButtonIcon(SpectraIcons.ImportRaw)
             Text(stringResource(R.string.editor_source_open_raw))
         }
@@ -405,6 +414,7 @@ internal fun SourcePanel(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ExportMask(
     done: Boolean,
@@ -427,7 +437,12 @@ internal fun ExportMask(
             },
         contentAlignment = Alignment.Center,
     ) {
+        // Scrolls so Share and Done stay reachable in short windows (landscape, split screen,
+        // large text) under the hero and the display headline.
         Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -442,10 +457,13 @@ internal fun ExportMask(
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             } else {
+                // One of the app's two hero moments (Pen board, "Export saved"): a morphing
+                // shape with a check and an emphasized display headline.
+                ExportSavedHero()
                 Text(
                     stringResource(R.string.editor_export_saved),
                     color = SpektraBrand.onCanvas,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.displaySmallEmphasized,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics {
                         heading()
@@ -457,11 +475,54 @@ internal fun ExportMask(
                     color = SpektraBrand.onCanvas.copy(alpha = 0.8f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Button(onClick = onDismiss) { Text(stringResource(R.string.editor_export_done)) }
+                // Share leads when there is something to share; Done is then the quiet way out.
                 if (onShare != null) {
-                    Button(onClick = onShare) { Text(stringResource(R.string.editor_export_share)) }
+                    Button(onClick = onShare, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.editor_export_share))
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.editor_export_done), color = SpektraBrand.onCanvas)
+                    }
+                } else {
+                    Button(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.editor_export_done))
+                    }
                 }
             }
         }
+    }
+}
+
+/** The "Export saved" hero: a cookie shape springs in and settles, holding a check. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExportSavedHero() {
+    val motion = MaterialTheme.motionScheme
+    val scale = remember { Animatable(0.4f) }
+    val spin = remember { Animatable(-90f) }
+    LaunchedEffect(Unit) {
+        launch { scale.animateTo(1f, motion.slowSpatialSpec()) }
+        spin.animateTo(0f, motion.slowSpatialSpec())
+    }
+    Box(
+        Modifier
+            .size(112.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                rotationZ = spin.value
+            }
+            .clip(MaterialShapes.Cookie9Sided.toShape())
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            SpectraIcons.Check,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier
+                .size(48.dp)
+                .graphicsLayer { rotationZ = -spin.value },
+        )
     }
 }

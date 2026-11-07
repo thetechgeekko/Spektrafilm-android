@@ -41,7 +41,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -90,7 +89,7 @@ internal fun StockPickerField(
 
     OutlinedButton(
         onClick = { browsing = true },
-        shape = RoundedCornerShape(12.dp),
+        shape = CARD_SHAPE,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
@@ -158,7 +157,7 @@ private fun StockBrowserSheet(
             buildList {
                 for (g in groups) {
                     if (g.title.isNotBlank()) add(StockRow.Header(g.title))
-                    for (o in g.options) add(StockRow.Item(o))
+                    g.options.forEachIndexed { i, o -> add(StockRow.Item(o, i, g.options.size)) }
                 }
             }
         }
@@ -174,7 +173,9 @@ private fun StockBrowserSheet(
                 end = 16.dp,
                 bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
             ),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            // Stocks of one family are one grouped list (2dp seams, 16dp outer corners), the
+            // same segmented list as Settings and Photo info.
+            verticalArrangement = Arrangement.spacedBy(SEGMENT_GAP),
         ) {
             items(rows) { row ->
                 when (row) {
@@ -183,7 +184,7 @@ private fun StockBrowserSheet(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .padding(top = 14.dp, bottom = 2.dp, start = 4.dp)
+                            .padding(top = 16.dp, bottom = 8.dp, start = 4.dp)
                             .semantics { heading() },
                     )
                     is StockRow.Item -> {
@@ -196,6 +197,7 @@ private fun StockBrowserSheet(
                             option = row.option,
                             selected = row.option.id == selectedId,
                             onClick = { onSelect(row.option.id) },
+                            shape = segmentShape(row.index, row.count),
                             showPreview = previewHost != null,
                             preview = previews?.value?.get(row.option.id),
                         )
@@ -208,7 +210,7 @@ private fun StockBrowserSheet(
 
 private sealed interface StockRow {
     data class Header(val title: String) : StockRow
-    data class Item(val option: DropdownOption) : StockRow
+    data class Item(val option: DropdownOption, val index: Int, val count: Int) : StockRow
 }
 
 @Composable
@@ -216,20 +218,22 @@ private fun StockCard(
     option: DropdownOption,
     selected: Boolean,
     onClick: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
     showPreview: Boolean = false,
     preview: ImageBitmap? = null,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val selectedLabel = stringResource(R.string.stock_browser_selected)
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = shape,
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            MaterialTheme.colorScheme.surfaceContainerHigh
         },
         modifier = Modifier
             .fillMaxWidth()
+            .clip(shape)
             .clickable(onClick = onClick)
             // One node per stock: name, spec and character note read as a single item, and the
             // selection is exposed as state rather than only as a fill colour.
@@ -239,13 +243,13 @@ private fun StockCard(
             },
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (showPreview) StockPreviewTile(preview)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(option.label, style = MaterialTheme.typography.titleSmall)
+                Text(option.label, style = MaterialTheme.typography.bodyLarge)
                 if (option.spec.isNotBlank()) {
                     Text(option.spec, style = MaterialTheme.typography.labelSmall, color = accent)
                 }
@@ -276,7 +280,7 @@ private fun StockCard(
  */
 @Composable
 private fun StockPreviewTile(preview: ImageBitmap?) {
-    val shape = RoundedCornerShape(8.dp)
+    val shape = MaterialTheme.shapes.medium
     Box(
         Modifier
             .size(72.dp)

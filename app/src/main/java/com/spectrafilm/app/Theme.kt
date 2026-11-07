@@ -37,7 +37,11 @@ import android.os.Build
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.MotionScheme
+import androidx.compose.runtime.remember
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -147,9 +151,27 @@ internal fun SpektraTheme(
         dark -> spektraDarkScheme()
         else -> spektraLightScheme()
     }
+    // Reduced motion (Developer options / Accessibility "Remove animations" sets the animator
+    // scale to 0): slides, morphs and bounces become short fades (Pen board, "Reduced motion").
+    val reduceMotion = remember(context) {
+        android.provider.Settings.Global.getFloat(
+            context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+        ) == 0f
+    }
     MaterialExpressiveTheme(
         colorScheme = scheme,
-        motionScheme = MotionScheme.expressive(),
+        motionScheme = if (reduceMotion) ReducedMotionScheme else MotionScheme.expressive(),
         content = content,
     )
+}
+
+/** Spatial motion snaps; effects (colour, alpha) keep a short fade. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private object ReducedMotionScheme : MotionScheme {
+    override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = tween(150)
+    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = tween(100)
+    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = tween(200)
 }

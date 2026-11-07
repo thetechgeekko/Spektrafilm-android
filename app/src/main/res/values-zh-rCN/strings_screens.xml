@@ -146,6 +146,8 @@
     <string name="screen_settings_theme">主题</string>
     <string name="screen_settings_dynamic_color">Material You 配色</string>
     <string name="screen_settings_dynamic_color_note">根据壁纸生成配色。关闭后使用内置配色。</string>
+    <string name="screen_settings_full_screen">全屏编辑</string>
+    <string name="screen_settings_full_screen_note">编辑时隐藏状态栏和导航栏。从屏幕边缘滑动即可显示。</string>
     <string name="screen_settings_render_defaults">渲染默认值</string>
     <string name="screen_settings_render_defaults_note">在应用启动时应用。单张图像的编辑和预设仍会覆盖这些值。</string>
     <string name="screen_settings_default_output_cs">默认输出色彩空间</string>

@@ -15,13 +15,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -71,7 +72,8 @@ internal fun VersionsSection(
     val prefix = stringResource(R.string.editor_versions_default_prefix)
     var naming by remember { mutableStateOf<String?>(null) }
     val full = ui.versions.size >= PhotoVersionCodec.MAX_VERSIONS
-    Button(
+    // Tonal: this sits in the Presets panel under its filled "Save preset".
+    FilledTonalButton(
         onClick = { naming = PhotoVersionCodec.defaultName(ui.versions, prefix) },
         enabled = !full && !ui.loading,
         modifier = Modifier.fillMaxWidth(),
@@ -86,14 +88,18 @@ internal fun VersionsSection(
         )
     }
 
-    for (version in ui.versions) {
+    // One grouped list, the same segmented rows as Settings and Photo info.
+    Column(verticalArrangement = Arrangement.spacedBy(SEGMENT_GAP)) {
+    ui.versions.forEachIndexed { i, version ->
         VersionRow(
             version = version,
+            shape = segmentShape(i, ui.versions.size),
             onApply = { onApply(version) },
             onReplaceWithCurrent = { onReplaceWithCurrent(version) },
             onRename = { name -> onRename(version, name) },
             onDelete = { onDelete(version) },
         )
+    }
     }
 
     naming?.let { initial ->
@@ -110,6 +116,7 @@ internal fun VersionsSection(
 @Composable
 private fun VersionRow(
     version: PhotoVersion,
+    shape: androidx.compose.ui.graphics.Shape,
     onApply: () -> Unit,
     onReplaceWithCurrent: () -> Unit,
     onRename: (String) -> Unit,
@@ -120,15 +127,16 @@ private fun VersionRow(
     val when_ = remember(version.updatedAtMillis) {
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(version.updatedAtMillis))
     }
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 version.name,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -163,6 +171,7 @@ private fun VersionRow(
                 )
             }
         }
+    }
     }
     if (renaming) {
         NameDialog(

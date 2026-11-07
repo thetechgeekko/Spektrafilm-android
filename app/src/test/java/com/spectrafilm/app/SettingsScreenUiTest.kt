@@ -32,6 +32,7 @@ class SettingsScreenUiTest {
     private val base = SettingsUiState(
         theme = ThemeMode.SYSTEM,
         dynamicColor = false,
+        fullScreenEditing = true,
         outputColorSpace = ColorSpace.SRGB,
         previewMaxSize = 640,
         previewAuto = true,

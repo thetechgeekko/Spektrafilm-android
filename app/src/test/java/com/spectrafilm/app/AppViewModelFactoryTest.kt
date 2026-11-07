@@ -12,6 +12,7 @@ class AppViewModelFactoryTest {
     private object Store : SettingsStore {
         override var theme = ThemeMode.SYSTEM
         override var dynamicColor = true
+        override var fullScreenEditing = true
         override var defaultOutputColorSpace = ColorSpace.SRGB
         override var previewMaxSize = 640
         override var previewMaxSizeAuto = true

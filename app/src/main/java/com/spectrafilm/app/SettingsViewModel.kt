@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.asStateFlow
 interface SettingsStore {
     var theme: ThemeMode
     var dynamicColor: Boolean
+    /** Hide the status and navigation bars while editing (swipe from an edge shows them). */
+    var fullScreenEditing: Boolean
     var defaultOutputColorSpace: ColorSpace
     var previewMaxSize: Int
     var previewMaxSizeAuto: Boolean
@@ -39,6 +41,7 @@ interface SettingsStore {
 internal data class SettingsUiState(
     val theme: ThemeMode,
     val dynamicColor: Boolean,
+    val fullScreenEditing: Boolean,
     val outputColorSpace: ColorSpace,
     val previewMaxSize: Int,
     val previewAuto: Boolean,
@@ -61,6 +64,7 @@ internal data class SettingsUiState(
 internal sealed interface SettingsAction {
     data class SetTheme(val value: ThemeMode) : SettingsAction
     data class SetDynamicColor(val value: Boolean) : SettingsAction
+    data class SetFullScreenEditing(val value: Boolean) : SettingsAction
     data class SetOutputColorSpace(val value: ColorSpace) : SettingsAction
     data class SetPreviewAuto(val value: Boolean) : SettingsAction
     data class SetPreviewMaxSize(val value: Int) : SettingsAction
@@ -85,6 +89,7 @@ internal class SettingsViewModel(
         when (action) {
             is SettingsAction.SetTheme -> store.theme = action.value
             is SettingsAction.SetDynamicColor -> store.dynamicColor = action.value
+            is SettingsAction.SetFullScreenEditing -> store.fullScreenEditing = action.value
             is SettingsAction.SetOutputColorSpace -> store.defaultOutputColorSpace = action.value
             is SettingsAction.SetPreviewAuto -> store.previewMaxSizeAuto = action.value
             is SettingsAction.SetPreviewMaxSize -> store.previewMaxSize = action.value
@@ -105,6 +110,7 @@ internal class SettingsViewModel(
     private fun read() = SettingsUiState(
         theme = store.theme,
         dynamicColor = store.dynamicColor,
+        fullScreenEditing = store.fullScreenEditing,
         outputColorSpace = store.defaultOutputColorSpace,
         previewMaxSize = store.previewMaxSize,
         previewAuto = store.previewMaxSizeAuto,
