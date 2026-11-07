@@ -25,6 +25,9 @@ internal enum class EditorShortcut {
     ZOOM_OUT,
     ZOOM_FIT,
 
+    /** Ctrl+Shift+V: apply the previous photo's edit, the Presets panel's "Apply previous edit". */
+    APPLY_PREVIOUS,
+
     /** Esc: the same as system Back, but only while something is open to close. */
     CLOSE,
     ;
@@ -50,6 +53,8 @@ internal fun editorShortcutFor(
             KeyEvent.KEYCODE_Y -> if (shift) null else EditorShortcut.REDO
             KeyEvent.KEYCODE_O -> if (shift) null else EditorShortcut.OPEN
             KeyEvent.KEYCODE_E -> if (shift) null else EditorShortcut.EXPORT
+            // Ctrl+V alone is left free: it is the system paste chord inside text fields.
+            KeyEvent.KEYCODE_V -> if (shift) EditorShortcut.APPLY_PREVIOUS else null
             // '+' is Shift+'=' on most layouts, so Ctrl+Shift+= is zoom in too.
             KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_NUMPAD_ADD -> EditorShortcut.ZOOM_IN
             KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_NUMPAD_SUBTRACT -> if (shift) null else EditorShortcut.ZOOM_OUT
@@ -89,6 +94,7 @@ internal val editorShortcutListings: List<ShortcutListing> = listOf(
     ShortcutListing(R.string.shortcut_redo, KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, EditorShortcut.REDO),
     ShortcutListing(R.string.shortcut_open, KeyEvent.KEYCODE_O, KeyEvent.META_CTRL_ON, EditorShortcut.OPEN),
     ShortcutListing(R.string.shortcut_export, KeyEvent.KEYCODE_E, KeyEvent.META_CTRL_ON, EditorShortcut.EXPORT),
+    ShortcutListing(R.string.shortcut_apply_previous, KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, EditorShortcut.APPLY_PREVIOUS),
     ShortcutListing(R.string.shortcut_compare, KeyEvent.KEYCODE_BACKSLASH, 0, EditorShortcut.TOGGLE_COMPARE),
     ShortcutListing(R.string.shortcut_zoom_in, KeyEvent.KEYCODE_EQUALS, KeyEvent.META_CTRL_ON, EditorShortcut.ZOOM_IN),
     ShortcutListing(R.string.shortcut_zoom_out, KeyEvent.KEYCODE_MINUS, KeyEvent.META_CTRL_ON, EditorShortcut.ZOOM_OUT),

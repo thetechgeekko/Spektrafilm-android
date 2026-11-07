@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Restores the photo's recipe when the source changes; see the comment at its LaunchedEffect in EditorScreen. */
 internal suspend fun CoroutineScope.runRecipeRestore(
@@ -40,6 +41,7 @@ internal suspend fun CoroutineScope.runRecipeRestore(
     restoringState: MutableState<Boolean>,
     rotationState: MutableState<SourceRotation>,
     statusState: MutableState<String>,
+    offerPreviousEdit: suspend () -> Unit = {},
 ) {
     var committedSnapshot by committedSnapshotState
     var hasRecipe by hasRecipeState
@@ -129,6 +131,10 @@ internal suspend fun CoroutineScope.runRecipeRestore(
                         rotation = SourceRotation.NONE
                         previewTick++
                     }
+                    // A photo opened for the first time: offer the previous photo's look once.
+                    // Launched so the snackbar's wait doesn't hold up the restore; a new source
+                    // restarts this effect, which cancels a stale offer with it.
+                    if (sourceChanged && !preserveSessionCursor) launch { offerPreviousEdit() }
                 }
                 is RecipeReadResult.Unsupported -> {
                     hasRecipe = true
