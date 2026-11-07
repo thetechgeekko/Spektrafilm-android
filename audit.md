@@ -276,11 +276,18 @@ updater.
 there is no product flavor that does so. Play treats it as a restricted permission. Add a
 `play` flavor with `tools:node="remove"` and the updater compiled out, before any Play upload.
 
-**H2. R8 keep rules are broad — P2.** `-dontobfuscate`, `-keep class com.spectrafilm.engine.**
+**H2. R8 keep rules are broad — P3.** `-dontobfuscate`, `-keep class com.spectrafilm.engine.**
 { *; }` and ~40 class-wide keeps (`proguard-rules.pro`); checklist #59. Context matters here:
 the `kotlin.Triple` incident in CLAUDE.md shows why the team chose safety, and
-`check_release_dex.sh` now guards JNI members. Narrowing to `-keepclassmembers` for exactly the
-JNI-touched members is still the target; obfuscation is optional for a GPL app.
+`check_release_dex.sh` now guards JNI members. Also, most of the `com.spectrafilm.app.*`
+class-wide keeps are **not** about JNI: they are the ABI the separately packaged release
+instrumentation APK calls into (for example `DecodeTimings`, whose keep exists because R8
+otherwise deletes a constructor only `Ticket177BenchmarkChecks` uses, and the export
+transaction types that `StorageReliabilityChecks` drives). So the safe scope is narrow:
+tighten only the JNI rules (`com.spectrafilm.engine.**` and the native writer/decoder classes)
+to `-keepclassmembers` on the members `check_release_dex.sh` already lists, and leave the
+release-test keeps alone unless a dex check that covers the test APK's references replaces
+them first. Obfuscation is optional for a GPL app. Severity is P3 given those constraints.
 
 **H3. Good already:** photo picker, no `READ_MEDIA_*`; `ACCESS_MEDIA_LOCATION` requested only
 when the user turns GPS export on; every component's `exported` is explicit; `FLAG_IMMUTABLE`
