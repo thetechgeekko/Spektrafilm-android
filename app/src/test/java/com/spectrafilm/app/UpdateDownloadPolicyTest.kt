@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
+import kotlinx.coroutines.async
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -74,5 +75,45 @@ class UpdateDownloadPolicyTest {
             override fun read(b: ByteArray, off: Int, len: Int): Int = 0
         }
         assertNull(UpdateDownloadPolicy.copyExact(stalled, ByteArrayOutputStream(), 10))
+    }
+
+    @Test
+    fun aCancelledAttemptStillReadingCannotDeleteTheAttemptThatReplacedIt() = kotlinx.coroutines.runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("updater").toFile()
+        val bytes = ByteArray(10) { it.toByte() }
+        val firstReading = java.util.concurrent.CountDownLatch(1)
+        val releaseFirst = java.util.concurrent.CountDownLatch(1)
+        var calls = 0
+        val downloader = UpdateDownloader(dir) { uri ->
+            val first = calls++ == 0
+            object : java.net.HttpURLConnection(uri.toURL()) {
+                override fun connect() {}
+                override fun disconnect() {}
+                override fun usingProxy() = false
+                override fun getResponseCode() = 200
+                override fun getContentLengthLong() = -1L
+                override fun getInputStream(): InputStream =
+                    if (!first) ByteArrayInputStream(bytes)
+                    else object : InputStream() {
+                        // The stale attempt: blocks mid-read, then returns a short body.
+                        override fun read(): Int = -1
+                        override fun read(b: ByteArray, off: Int, len: Int): Int {
+                            firstReading.countDown()
+                            releaseFirst.await()
+                            return -1
+                        }
+                    }
+            }
+        }
+        val stale = async(kotlinx.coroutines.Dispatchers.IO) { downloader.download(tag, asset) {} }
+        firstReading.await()
+        val fresh = downloader.download(tag, asset) {}
+        releaseFirst.countDown()
+        assertEquals(DownloadResult.Failed, stale.await())
+        val file = (fresh as DownloadResult.Ok).file
+        assertTrue("the replacement download survives the stale attempt's cleanup", file.isFile)
+        assertTrue(bytes.contentEquals(file.readBytes()))
+        dir.deleteRecursively()
+        Unit
     }
 }

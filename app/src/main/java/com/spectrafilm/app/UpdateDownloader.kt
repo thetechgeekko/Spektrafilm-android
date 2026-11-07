@@ -108,6 +108,8 @@ internal class UpdateDownloader(
         uri.toURL().openConnection() as HttpURLConnection
     },
 ) {
+    private val attemptCounter = java.util.concurrent.atomic.AtomicLong(System.nanoTime())
+
     /** Remove every partial or finished download. Safe to call at any time. */
     fun clear() {
         directory.listFiles()?.forEach { it.delete() }
@@ -121,8 +123,11 @@ internal class UpdateDownloader(
         if (!UpdateDownloadPolicy.isAllowedStart(asset, tag)) return@withContext DownloadResult.Failed
         clear()
         if (!directory.isDirectory && !directory.mkdirs()) return@withContext DownloadResult.Failed
-        val partial = File(directory, "${asset.name}.part")
-        val target = File(directory, asset.name)
+        // Unique per attempt: a cancelled attempt whose blocking read has not returned yet
+        // must not overwrite, or later delete, the files of the attempt that replaced it.
+        val attempt = attemptCounter.incrementAndGet()
+        val partial = File(directory, "$attempt-${asset.name}.part")
+        val target = File(directory, "$attempt-${asset.name}")
         val context = coroutineContext
         val ok = runCatching {
             var uri = URI(asset.downloadUrl)
