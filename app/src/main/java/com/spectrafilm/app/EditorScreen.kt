@@ -112,6 +112,7 @@ internal fun MainActivity.EditorScreen(
     activeCategoryState: MutableState<Category?>,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenLibrary: () -> Unit,
     onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
     onOpenFilmCurves: (id: String, name: String) -> Unit,
     onOpenPrintCurves: (id: String, name: String) -> Unit,
@@ -2937,6 +2938,10 @@ internal fun MainActivity.EditorScreen(
                     checkpointEditorSession()
                     onOpenAbout()
                 },
+                onOpenLibrary = {
+                    checkpointEditorSession()
+                    onOpenLibrary()
+                },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
@@ -4442,6 +4447,7 @@ internal fun MainActivity.EditorTopBar(
     onOpenSource: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenLibrary: () -> Unit,
 ) {
     Box(
         Modifier
@@ -4465,6 +4471,16 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onOpenSource) {
                     Icon(
                         SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
+                        tint = SpektraBrand.onCanvas,
+                    )
+                }
+            }
+            // The Library sits beside Open: both are ways to open a photo, and working
+            // through a shoot frame by frame should be one tap away.
+            TextTooltip(stringResource(R.string.library_title)) {
+                PressIconButton(onClick = onOpenLibrary) {
+                    Icon(
+                        SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
                         tint = SpektraBrand.onCanvas,
                     )
                 }

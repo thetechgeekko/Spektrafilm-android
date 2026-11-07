@@ -21,6 +21,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable internal data object HowToRoute : NavKey
 
+@Serializable internal data object LibraryRoute : NavKey
+
 @Serializable internal data class FilmCurvesRoute(val profileId: String, val displayName: String) : NavKey
 
 @Serializable internal data class PrintCurvesRoute(val profileId: String, val displayName: String) : NavKey
@@ -33,6 +35,7 @@ internal val NavKey.screen: Screen
         DiagnosticsRoute -> Screen.DIAGNOSTICS
         AboutRoute -> Screen.ABOUT
         HowToRoute -> Screen.HOWTO
+        LibraryRoute -> Screen.LIBRARY
         is FilmCurvesRoute -> Screen.CURVES_FILM
         is PrintCurvesRoute -> Screen.CURVES_PRINT
         else -> error("unknown route $this")

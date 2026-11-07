@@ -278,4 +278,18 @@
     <string name="export_format_png16">16-bit PNG</string>
     <string name="export_format_tiff32f">32-bit float TIFF</string>
     <string name="export_format_scene_linear_tiff">Scene-linear input (32-bit TIFF)</string>
+    <!-- Library (folder of RAWs and photos; idea from the rikiros fork) -->
+    <string name="library_title">Library</string>
+    <string name="library_empty_title">Pick a folder to browse</string>
+    <string name="library_empty_body">Choose a folder of RAW files or photos, such as your camera\'s DCIM folder or an SD card. Spektrafilm only reads it.</string>
+    <string name="library_choose_folder">Choose folder</string>
+    <string name="library_change_folder">Change folder</string>
+    <string name="library_refresh">Refresh</string>
+    <string name="library_forget_folder">Forget folder</string>
+    <string name="library_unreadable_title">This folder can\'t be read</string>
+    <string name="library_unreadable_body">The folder may have moved, or its card was removed. Choose it again to keep browsing.</string>
+    <string name="library_no_photos_title">No photos here</string>
+    <string name="library_no_photos_body">%1$s has no RAW files or photos. Subfolders are not shown yet.</string>
+    <string name="library_badge_raw" translatable="false">RAW</string>
+    <string name="library_loading">Loading folder</string>
 </resources>

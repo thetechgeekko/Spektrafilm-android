@@ -75,10 +75,23 @@ internal class LatestSourceMutationGate {
     }
 }
 
+/**
+ * True when [document] was built from [tree] by `DocumentsContract.buildDocumentUriUsingTree`
+ * (`content://<authority>/tree/<id>/document/<id>`), i.e. it is read through [tree]'s grant.
+ */
+internal fun isDocumentInTree(tree: String, document: String): Boolean =
+    tree.contains("/tree/") && document.startsWith("$tree/document/")
+
 /** Pure policy/controller; Android grant and persistence APIs sit behind ports for JVM tests. */
 internal class SourceAccessCoordinator(
     private val backend: UriGrantBackend,
     private val store: SourceRefStore,
+    /**
+     * Persisted grants the app holds for something other than the editor's source -- the
+     * Library's folder tree. Reconciliation releases every grant it does not expect, so
+     * without this the folder would be revoked on the next restore.
+     */
+    private val retainedGrants: () -> Set<String> = { emptySet() },
 ) {
     private val mutationLock = Any()
 
@@ -201,8 +214,15 @@ internal class SourceAccessCoordinator(
 
     private fun reconcilePersistedGrantsLocked(expectedUri: String?): Int {
         var released = 0
+        // Unknown retained set: release nothing rather than risk revoking the Library folder.
+        val retained = runCatching { retainedGrants() }.getOrElse { return 0 }
+        // A frame opened from a Library folder holds no grant of its own (it is TRANSIENT) and
+        // reads through its folder's tree grant, so that tree stays while it is the source,
+        // even after the Library moved to another folder.
+        val source = runCatching { store.load()?.uri }.getOrElse { return 0 }
         for (uri in backend.persistedReads()) {
-            if (uri == expectedUri) continue
+            if (uri == expectedUri || uri in retained) continue
+            if (source != null && isDocumentInTree(uri, source)) continue
             runCatching { backend.releasePersistableRead(uri) }
                 .onSuccess { released++ }
         }
@@ -365,6 +385,9 @@ internal object SourceAccessRuntimeHolder {
             coordinator = SourceAccessCoordinator(
                 AndroidUriGrantBackend(context.applicationContext),
                 SharedPreferencesSourceRefStore(context.applicationContext),
+                retainedGrants = {
+                    setOfNotNull(AppSettings.from(context.applicationContext).libraryTreeUri)
+                },
             ),
             mutations = LatestSourceMutationGate(),
         ).also { runtime = it }

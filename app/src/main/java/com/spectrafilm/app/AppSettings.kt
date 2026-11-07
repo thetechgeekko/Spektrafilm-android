@@ -199,6 +199,16 @@ class AppSettings private constructor(
         if (after != before) Diag.i("auto draft edge $before -> $after (draft ${elapsedMs}ms at $edge)")
     }
 
+    /**
+     * The folder the Library shows (an OpenDocumentTree URI), or null when none was chosen.
+     * Its persisted read grant is kept by [SourceAccessCoordinator]'s reconciliation.
+     */
+    var libraryTreeUri: String?
+        get() = store[KEY_LIBRARY_TREE]
+        set(v) {
+            store.edit { if (v == null) it.remove(KEY_LIBRARY_TREE) else it[KEY_LIBRARY_TREE] = v }
+        }
+
     override var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(store[KEY_THEME] ?: ThemeMode.SYSTEM.name) }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -306,6 +316,7 @@ class AppSettings private constructor(
         private const val KEY_BIG_CORES = "big_cores_experiment"
         private const val LEGACY_KEY_BIG_CORES = "big_cores"
         private val KEY_THEME = stringPreferencesKey("theme")
+        private val KEY_LIBRARY_TREE = stringPreferencesKey("library_tree_uri")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_OUTPUT_CS = stringPreferencesKey("output_color_space")
         private val KEY_PREVIEW_MAX = intPreferencesKey("preview_max_size")

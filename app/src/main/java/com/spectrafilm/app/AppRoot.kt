@@ -8,6 +8,7 @@
 package com.spectrafilm.app
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -36,7 +37,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-internal enum class Screen { EDITOR, SETTINGS, ABOUT, HOWTO, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS }
+internal enum class Screen { EDITOR, SETTINGS, ABOUT, HOWTO, CURVES_FILM, CURVES_PRINT, DIAGNOSTICS, LIBRARY }
 
 private data class EditorStartupRead(
     val session: EditorSessionReadResult,
@@ -380,6 +381,7 @@ internal fun MainActivity.AppRoot(
                 Screen.DIAGNOSTICS -> DiagnosticsRoute
                 Screen.ABOUT -> AboutRoute
                 Screen.HOWTO -> HowToRoute
+                Screen.LIBRARY -> LibraryRoute
                 Screen.CURVES_FILM -> lastFilmCurves
                 Screen.CURVES_PRINT -> lastPrintCurves
             }
@@ -464,6 +466,7 @@ internal fun MainActivity.AppRoot(
                             activeCategoryState = editorCategory,
                             onOpenSettings = { push(SettingsRoute) },
                             onOpenAbout = { push(AboutRoute) },
+                            onOpenLibrary = { push(LibraryRoute) },
                             onProfileGroups = { f, p -> settingsFilmGroups = f; settingsPrintGroups = p },
                             onOpenFilmCurves = { id, name ->
                                 FilmCurvesRoute(id, name).let { lastFilmCurves = it; push(it) }
@@ -507,6 +510,20 @@ internal fun MainActivity.AppRoot(
                         HowToUseScreen(onBack = null)
                     }
                 }
+                entry<LibraryRoute> {
+                    LibraryDestination(
+                        vm = libraryVm,
+                        currentUri = activeRestoration.source.uri,
+                        onBack = { pop() },
+                        onOpen = { uri ->
+                            // The same dispatch as a shared or picked file: the editor
+                            // consumes it once it is the top entry again. Popping (not
+                            // pushing) the editor keeps Back from reopening the Library.
+                            incomingImageIntent.value = Intent(Intent.ACTION_VIEW, uri)
+                            popToEditor()
+                        },
+                    )
+                }
                 entry<FilmCurvesRoute> { route ->
                     ProfileCurvesScreen(
                         profileId = route.profileId,
@@ -546,7 +563,12 @@ internal fun MainActivity.AppRoot(
 /** A simple back-arrow top bar wrapping a sub-screen (inset for status bar). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NavScaffold(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+internal fun NavScaffold(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable () -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -563,6 +585,7 @@ internal fun NavScaffold(title: String, onBack: () -> Unit, content: @Composable
                         )
                     }
                 },
+                actions = actions,
             )
             Box(Modifier.weight(1f)) { content() }
         }

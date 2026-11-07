@@ -122,4 +122,17 @@
     <string name="shortcut_zoom_out">缩小</string>
     <string name="shortcut_zoom_fit">适合屏幕</string>
     <string name="shortcut_close">关闭面板或工具</string>
+    <!-- strings_screens.xml: Library -->
+    <string name="library_title">图库</string>
+    <string name="library_empty_title">选择要浏览的文件夹</string>
+    <string name="library_empty_body">选择一个存放 RAW 文件或照片的文件夹，例如相机的 DCIM 文件夹或 SD 卡。Spektrafilm 只会读取它。</string>
+    <string name="library_choose_folder">选择文件夹</string>
+    <string name="library_change_folder">更换文件夹</string>
+    <string name="library_refresh">刷新</string>
+    <string name="library_forget_folder">移除文件夹</string>
+    <string name="library_unreadable_title">无法读取此文件夹</string>
+    <string name="library_unreadable_body">文件夹可能已被移动，或存储卡已移除。请重新选择以继续浏览。</string>
+    <string name="library_no_photos_title">这里没有照片</string>
+    <string name="library_no_photos_body">%1$s 中没有 RAW 文件或照片。暂不显示子文件夹。</string>
+    <string name="library_loading">正在加载文件夹</string>
 </resources>

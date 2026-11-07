@@ -71,6 +71,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Named versions of the open photo. */
+    internal val libraryVm: LibraryViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[LibraryViewModel::class.java]
+    }
     internal val versionsVm: VersionsViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[VersionsViewModel::class.java]
     }
