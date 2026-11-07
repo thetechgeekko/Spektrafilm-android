@@ -1500,7 +1500,8 @@ class MainActivity : ComponentActivity() {
         // survives navigation to Settings/About and back.
         var activeCategory by activeCategoryState
 
-        fun refreshPresets() { presetList = Presets.list(ctx) }
+        val presetRepo = remember(ctx) { ctx.appContainer.presets }
+        fun refreshPresets() { presetList = presetRepo.list() }
 
         // --- non-destructive recipe (sidecar) layer ---
         var recipeReady by remember { mutableStateOf(false) }
@@ -2369,7 +2370,7 @@ class MainActivity : ComponentActivity() {
                 // Read the SAF stream off-main; decode (Compose-state write) on main.
                 scope.launch {
                     val text = withContext(dispatchers.io) {
-                        runCatching { Presets.readUri(ctx, uri) }.getOrNull()
+                        runCatching { presetRepo.readUri(uri) }.getOrNull()
                     }
                     if (text == null) { status = ctx.getString(R.string.editor_status_preset_import_failed); return@launch }
                     runCatching {
@@ -2393,7 +2394,7 @@ class MainActivity : ComponentActivity() {
                     // Serialize on main (live Compose-state read); write off-main.
                     val json = runCatching { Presets.toJsonString(state) }.getOrNull()
                     if (json == null) { status = ctx.getString(R.string.editor_status_preset_export_failed); return@launch }
-                    val r = withContext(dispatchers.io) { runCatching { Presets.exportJson(ctx, uri, json) } }
+                    val r = withContext(dispatchers.io) { runCatching { presetRepo.exportJson(uri, json) } }
                     r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
                         .onFailure { status = ctx.getString(R.string.editor_status_preset_export_failed_reason, it.message) }
                 }
@@ -2411,7 +2412,7 @@ class MainActivity : ComponentActivity() {
             if (uri != null && name != null) {
                 scope.launch {
                     val r = withContext(dispatchers.io) {
-                        runCatching { Presets.exportJson(ctx, uri, Presets.read(ctx, name)) }
+                        runCatching { presetRepo.exportJson(uri, presetRepo.read(name)) }
                     }
                     r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
                         .onFailure {
@@ -3775,19 +3776,19 @@ class MainActivity : ComponentActivity() {
                                         scope.launch {
                                             val json = Presets.toJsonString(state)
                                             val names = withContext(dispatchers.io) {
-                                                Presets.saveJson(ctx, name, json); Presets.list(ctx)
+                                                presetRepo.saveJson(name, json); presetRepo.list()
                                             }
                                             presetList = names
                                             // Report the name on disk, not the typed one:
                                             // safeName may have rewritten it.
-                                            val stored = Presets.resolveName(name)
+                                            val stored = presetRepo.resolveName(name)
                                             presetVm.onAction(PresetAction.Select(stored))
                                             status = ctx.getString(R.string.editor_status_preset_saved, stored)
                                         }
                                     }
                                 },
-                                nameExists = { Presets.exists(ctx, it) },
-                                resolveName = { Presets.resolveName(it) },
+                                nameExists = { presetRepo.exists(it) },
+                                resolveName = { presetRepo.resolveName(it) },
                                 onExportSelected = {
                                     val selectedPreset = presetVm.current.selected
                                     if (selectedPreset.isNotBlank()) {
@@ -3802,7 +3803,7 @@ class MainActivity : ComponentActivity() {
                                         // + applyWithAmount run back on the main thread.
                                         scope.launch {
                                             val text = withContext(dispatchers.io) {
-                                                runCatching { Presets.read(ctx, name) }.getOrNull()
+                                                runCatching { presetRepo.read(name) }.getOrNull()
                                             }
                                             if (text == null) { status = ctx.getString(R.string.editor_status_preset_apply_failed); return@launch }
                                             runCatching {
@@ -3823,10 +3824,10 @@ class MainActivity : ComponentActivity() {
                                             // (— read and saveJson round-trip through the same
                                             // parsePersistentJson normalisation).
                                             val backup = withContext(dispatchers.io) {
-                                                runCatching { Presets.read(ctx, name) }.getOrNull()
+                                                runCatching { presetRepo.read(name) }.getOrNull()
                                             }
                                             val names = withContext(dispatchers.io) {
-                                                Presets.delete(ctx, name); Presets.list(ctx)
+                                                presetRepo.delete(name); presetRepo.list()
                                             }
                                             presetList = names
                                             status = ctx.getString(R.string.editor_status_preset_deleted, name)
@@ -3840,8 +3841,8 @@ class MainActivity : ComponentActivity() {
                                                 ) {
                                                     scope.launch {
                                                         val restored = withContext(dispatchers.io) {
-                                                            runCatching { Presets.saveJson(ctx, name, backup) }
-                                                            Presets.list(ctx)
+                                                            runCatching { presetRepo.saveJson(name, backup) }
+                                                            presetRepo.list()
                                                         }
                                                         presetList = restored
                                                         if (name in restored) {
