@@ -532,7 +532,21 @@ internal fun SidePanel(
                     }
                 }
             }
-            if (tabs.size > 1) {
+            if (tabs.size > 1 && localConfigurationHeightDp() < SIDE_PANE_LIST_MIN_HEIGHT_DP) {
+                // Short window (a landscape phone): six 48dp list rows would leave the
+                // controls no height at all, so the tools go in one scrolling row instead.
+                ToolRow(
+                    tools = tabs,
+                    active = category,
+                    dirty = dirty,
+                    onSelect = onSelectTab,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            } else if (tabs.size > 1) {
                 ToolList(
                     tools = tabs,
                     active = category,
@@ -568,6 +582,12 @@ internal fun SidePanel(
         }
     }
 }
+
+/**
+ * Below this window height the side pane lists its tools as a row, not a column: the Film
+ * stage's six list rows alone are 288dp.
+ */
+private const val SIDE_PANE_LIST_MIN_HEIGHT_DP = 600
 
 /** Compact adjustment-panel height, as a fraction of the screen: most of the photo stays visible. */
 private const val PANEL_COMPACT_FRACTION = 0.38f

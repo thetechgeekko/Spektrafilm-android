@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -203,6 +204,13 @@ internal fun StageRail(
             Spacer(Modifier.height(12.dp))
         },
     ) {
+        // Scrolls: on a landscape phone (under 480dp tall, still routed to this layout) the
+        // FAB and five labelled items can be taller than the window.
+        Column(
+            Modifier.verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
         Stage.entries.forEach { stage ->
             val modified = categoriesOf(stage).any { it in dirty }
             NavigationRailItem(
@@ -216,6 +224,7 @@ internal fun StageRail(
                 label = { Text(stringResource(stage.labelRes), maxLines = 1) },
                 modifier = if (modified) Modifier.semantics { stateDescription = modifiedState } else Modifier,
             )
+        }
         }
     }
 }
