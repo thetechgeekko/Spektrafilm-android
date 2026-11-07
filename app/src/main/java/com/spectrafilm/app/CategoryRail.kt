@@ -49,7 +49,7 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
             modifier = Modifier.semantics { contentDescription = if (exporting) busyLabel else label },
         ) {
             if (exporting) {
-                SpectraLoadingIndicator(
+                ExportProgressIndicator(
                     Modifier.size(28.dp),
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )

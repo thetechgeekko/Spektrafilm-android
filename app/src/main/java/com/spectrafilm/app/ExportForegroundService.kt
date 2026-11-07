@@ -3,6 +3,7 @@
  */
 package com.spectrafilm.app
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,10 +11,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -112,6 +115,10 @@ class ExportForegroundService : Service() {
     // attached, after property initialisers run.
     private val scope by lazy { CoroutineScope(SupervisorJob() + appContainer.dispatchers.mainImmediate) }
     private var observer: Job? = null
+    private var progressObserver: Job? = null
+    // The run the notification currently describes, so a progress update rebuilds it intact.
+    private var notifiedRunId = INVALID_RUN_ID
+    private var notifiedStartedAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -159,6 +166,8 @@ class ExportForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 if (runId > INVALID_RUN_ID) generationGate.recordStart(runId)
+                notifiedRunId = runId
+                notifiedStartedAt = startedAt
                 ensureRuntimeObserver()
             }
             ACTION_CANCEL -> {
@@ -198,9 +207,37 @@ class ExportForegroundService : Service() {
                 }
             }
         }
+        ensureProgressObserver()
     }
 
-    private fun buildNotification(runId: Long, startedAtMillis: Long): Notification {
+    /**
+     * #466: re-posts the ongoing notification with the stage-weighted fraction. Progress only
+     * moves when a stage starts (a handful of updates per export), so this needs no throttle.
+     * Without the notification permission (API 33+) the update is skipped; the service stays
+     * foreground either way.
+     */
+    private fun ensureProgressObserver() {
+        if (progressObserver?.isActive == true) return
+        progressObserver = scope.launch {
+            ExportWorkRuntime.progress.collect { fraction ->
+                if (fraction <= 0f || ExportWorkRuntime.state.value !is ExportRuntimeState.Running) return@collect
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(this@ExportForegroundService, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    return@collect
+                }
+                try {
+                    NotificationManagerCompat.from(this@ExportForegroundService)
+                        .notify(NOTIFICATION_ID, buildNotification(notifiedRunId, notifiedStartedAt, fraction))
+                } catch (t: Throwable) {
+                    Diag.w("export progress notification update failed: ${t.message}")
+                }
+            }
+        }
+    }
+
+    private fun buildNotification(runId: Long, startedAtMillis: Long, fraction: Float = 0f): Notification {
         ensureChannel(this)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
@@ -208,10 +245,18 @@ class ExportForegroundService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
-            // Indeterminate: the engine reports stage timings, not a monotonic
-            // fraction, so a percentage here would be invented. The chronometer shows
-            // honest elapsed time instead.
-            .setProgress(0, 0, true)
+            .setOnlyAlertOnce(true)
+            // Determinate once a stage has been reported (#466, ExportProgress.kt): the
+            // fraction is the summed weight of the stages already started, so it never
+            // claims work inside a stage. Indeterminate before that, and for exports that
+            // report no stages (batch, half-frame pair). The chronometer shows elapsed time.
+            .apply {
+                if (fraction > 0f) {
+                    setProgress(PROGRESS_MAX, (fraction * PROGRESS_MAX).toInt().coerceIn(0, PROGRESS_MAX), false)
+                } else {
+                    setProgress(0, 0, true)
+                }
+            }
         if (startedAtMillis > 0L) {
             builder.setWhen(startedAtMillis).setShowWhen(false).setUsesChronometer(true)
         }
@@ -243,6 +288,7 @@ class ExportForegroundService : Service() {
             else -> 0
         }
 
+        private const val PROGRESS_MAX = 100
         private const val CHANNEL_ID = "export"
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_START = "com.spectrafilm.app.action.START_EXPORT_FOREGROUND"

@@ -10,6 +10,7 @@
  */
 package com.spectrafilm.app
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
@@ -592,6 +593,27 @@ internal fun SpectraLoadingIndicator(
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
     androidx.compose.material3.LoadingIndicator(modifier = modifier, color = color)
+}
+
+/**
+ * #466: the in-flight export indicator for the Export button / FAB. Determinate (the M3
+ * Expressive loading indicator morphing with the stage-weighted fraction, ExportProgress.kt)
+ * once the running export has reported a stage; the indeterminate indicator before that and
+ * for exports that report no stages. Reads the process-owned runtime directly, like the
+ * foreground notification, so both always show the same number.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun ExportProgressIndicator(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+) {
+    val fraction by ExportWorkRuntime.progress.collectAsStateWithLifecycle()
+    if (fraction > 0f) {
+        androidx.compose.material3.LoadingIndicator(progress = { fraction }, modifier = modifier, color = color)
+    } else {
+        SpectraLoadingIndicator(modifier, color)
+    }
 }
 
 /** Gap between the segments of an M3 connected button group. */
