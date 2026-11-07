@@ -686,4 +686,8 @@
     <string name="editor_preset_previous_unnamed">the previous photo</string>
     <string name="editor_snack_apply_previous_action">Apply</string>
     <string name="shortcut_photo_info">Photo info</string>
+    <string name="editor_snack_pair_running">Exporting half-frame pair</string>
+    <string name="editor_snack_pair_done">Half-frame pair exported</string>
+    <string name="editor_snack_pair_failed">The half-frame pair could not be exported</string>
+    <string name="editor_snack_pair_cancelled">Half-frame pair export stopped</string>
 </resources>

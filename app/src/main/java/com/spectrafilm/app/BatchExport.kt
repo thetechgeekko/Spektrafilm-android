@@ -50,6 +50,8 @@ internal data class BatchExportProgress(
     val current: String?,
     val finished: Boolean,
     val cancelled: Boolean = false,
+    /** A half-frame pair export (HalfFramePair.kt): one picture made of two photos. */
+    val pair: Boolean = false,
 ) {
     /** 1-based position of the photo being rendered now. */
     val position: Int get() = (done + failed + 1).coerceAtMost(total)

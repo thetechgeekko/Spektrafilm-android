@@ -85,6 +85,11 @@ fun ExportSheet(
      * that is not possible right now. The sheet only offers it; the caller picks the photos.
      */
     onBatchExport: (() -> Unit)? = null,
+    /**
+     * Export the open photo and one more as a half-frame pair (HalfFramePair.kt), or null when
+     * that is not possible right now. The caller picks the second photo.
+     */
+    onHalfFramePair: (() -> Unit)? = null,
 ) {
     var savingPreset by remember { mutableStateOf(false) }
     var managingPresets by remember { mutableStateOf(false) }
@@ -310,6 +315,12 @@ fun ExportSheet(
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.tool_export_batch)) },
                                     onClick = { menu = false; onBatchExport() },
+                                )
+                            }
+                            if (onHalfFramePair != null) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tool_export_half_frame_pair)) },
+                                    onClick = { menu = false; onHalfFramePair() },
                                 )
                             }
                         }

@@ -596,4 +596,8 @@
     <string name="photo_info_location_present">Incluída no arquivo</string>
     <string name="photo_info_location_absent">Nenhuma</string>
     <string name="photo_info_empty">Este arquivo não tem dados da câmera.</string>
+    <string name="editor_snack_pair_running">Exportando par de meio quadro</string>
+    <string name="editor_snack_pair_done">Par de meio quadro exportado</string>
+    <string name="editor_snack_pair_failed">Não foi possível exportar o par de meio quadro</string>
+    <string name="editor_snack_pair_cancelled">Exportação do par de meio quadro interrompida</string>
 </resources>

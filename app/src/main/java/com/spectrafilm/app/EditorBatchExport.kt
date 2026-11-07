@@ -56,6 +56,89 @@ internal fun MainActivity.requestBatchExport(
 }
 
 /**
+ * The sheet's "Export as a half-frame pair…" item: the same storage check as a batch, then
+ * the picker for the second frame. The photo open in the editor is the first.
+ */
+internal fun MainActivity.requestHalfFramePair(
+    ctx: Context,
+    legacyStoragePermission: ManagedActivityResultLauncher<String, Boolean>,
+    pairPicker: ManagedActivityResultLauncher<Array<String>, Uri?>,
+    setStatus: (String) -> Unit,
+) {
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+        ContextCompat.checkSelfPermission(
+            ctx,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        ) != PackageManager.PERMISSION_GRANTED
+    ) {
+        runCatching {
+            legacyStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        setStatus(ctx.getString(R.string.editor_status_grant_storage))
+        return
+    }
+    exportVm.onAction(ExportAction.CloseSheet)
+    runCatching { pairPicker.launch(arrayOf("image/*", "*/*")) }
+}
+
+/**
+ * Submit a half-frame pair: the editor's photo with its whole edit and turn, and [picked] with
+ * its own saved edit (or this look). Edit and options are captured now, as for a batch.
+ */
+internal fun MainActivity.startHalfFramePair(
+    ctx: Context,
+    scope: CoroutineScope,
+    state: ParamsState,
+    engine: SpektraEngine?,
+    sourceUri: Uri?,
+    sourceName: String?,
+    sourceKind: SourceKind,
+    rotation: SourceRotation,
+    picked: Uri,
+    snackbarHost: SnackbarHostState,
+    setStatus: (String) -> Unit,
+) {
+    val e = engine ?: return
+    val uri = sourceUri ?: return
+    if (sourceKind == SourceKind.DEMO) return
+    val options = exportVm.current.options
+    val keepGps = exportVm.current.keepGps
+    val params = runCatching { Presets.encode(state) }.getOrElse {
+        setStatus(ctx.getString(R.string.editor_status_unsupported_export))
+        return
+    }
+    val first = HalfFrameSource(
+        uri = uri,
+        name = sourceName?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "photo",
+        kind = sourceKind,
+        params = params,
+        rotationDegrees = rotation.degrees,
+    )
+    val recipes = ctx.appContainer.recipes
+    scope.launch {
+        val second = withContext(dispatchers.io) {
+            resolveBatchSources(ctx, listOf(picked)).firstOrNull()?.let { halfFrameSecondSource(recipes, it, first) }
+        }
+        if (second == null) {
+            snackbarHost.currentSnackbarData?.dismiss()
+            snackbarHost.showSnackbar(ctx.getString(R.string.editor_snack_batch_nothing))
+            return@launch
+        }
+        val started = System.currentTimeMillis()
+        val app = ctx.applicationContext
+        Diag.i("half-frame pair export start format=${options.format.name}")
+        val launched = ExportWorkRuntime.launch(app, options.format, started) {
+            runHalfFramePairExport(app, e, first, second, options, keepGps, started)
+        }
+        if (launched == null) {
+            setStatus(ctx.getString(R.string.editor_status_export_running))
+        } else {
+            BatchExportTracker.publish(BatchExportProgress(1, 0, 0, first.name, finished = false, pair = true))
+        }
+    }
+}
+
+/**
  * Submit the batch for the photos the picker returned. The look and the export options are
  * captured now, which is what the sheet showed when the action was chosen; editing during the
  * batch does not change it.
@@ -114,12 +197,22 @@ internal fun BatchExportProgressEffect(
     LaunchedEffect(batchProgress) {
         val p = batchProgress ?: return@LaunchedEffect
         if (!p.finished) {
-            setStatus(ctx.getString(R.string.editor_status_batch_progress, p.position, p.total))
+            setStatus(
+                if (p.pair) {
+                    ctx.getString(R.string.editor_snack_pair_running)
+                } else {
+                    ctx.getString(R.string.editor_status_batch_progress, p.position, p.total)
+                },
+            )
             // Shown again after any other snackbar replaced it.
             if (cancelPrompt.value?.isActive != true && snackbarHost.currentSnackbarData == null) {
                 cancelPrompt.value = scope.launch {
                     val result = snackbarHost.showSnackbar(
-                        message = ctx.getString(R.string.editor_snack_batch_running, p.total),
+                        message = if (p.pair) {
+                            ctx.getString(R.string.editor_snack_pair_running)
+                        } else {
+                            ctx.getString(R.string.editor_snack_batch_running, p.total)
+                        },
                         actionLabel = ctx.getString(R.string.editor_cancel),
                         duration = SnackbarDuration.Indefinite,
                     )
@@ -134,6 +227,9 @@ internal fun BatchExportProgressEffect(
         cancelPrompt.value?.cancel()
         cancelPrompt.value = null
         val message = when {
+            p.pair && p.cancelled -> ctx.getString(R.string.editor_snack_pair_cancelled)
+            p.pair && p.done == 0 -> ctx.getString(R.string.editor_snack_pair_failed)
+            p.pair -> ctx.getString(R.string.editor_snack_pair_done)
             p.cancelled -> ctx.getString(R.string.editor_snack_batch_cancelled, p.done, p.total)
             p.failed > 0 ->
                 ctx.getString(R.string.editor_snack_batch_done_failed, p.done, p.total, p.failed)

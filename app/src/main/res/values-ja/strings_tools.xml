@@ -213,4 +213,5 @@
     <string name="tool_curve_reset_all">すべてリセット</string>
     <string name="tool_curve_editor_desc">トーンカーブエディター。タップで点を追加し、点をドラッグしてカーブを形づくり、点をダブルタップで削除します。カーブの操作はタッチのみです。スクリーンリーダーでは、コントラストスライダーと「チャンネルをリセット」を使ってください。</string>
     <string name="tool_curve_points_state">%1$d個の制御点</string>
+    <string name="tool_export_half_frame_pair">ハーフサイズのペアとして書き出す…</string>
 </resources>

@@ -592,4 +592,8 @@
     <string name="photo_info_location_present">ファイルに含まれています</string>
     <string name="photo_info_location_absent">なし</string>
     <string name="photo_info_empty">このファイルにはカメラ情報がありません。</string>
+    <string name="editor_snack_pair_running">ハーフサイズのペアを書き出し中</string>
+    <string name="editor_snack_pair_done">ハーフサイズのペアを書き出しました</string>
+    <string name="editor_snack_pair_failed">ハーフサイズのペアを書き出せませんでした</string>
+    <string name="editor_snack_pair_cancelled">ハーフサイズのペアの書き出しを中止しました</string>
 </resources>

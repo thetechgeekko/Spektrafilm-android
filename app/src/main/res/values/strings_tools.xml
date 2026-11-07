@@ -240,4 +240,5 @@
     <string name="tool_curve_reset_all">Reset all</string>
     <string name="tool_curve_editor_desc">Tone curve editor. Tap to add a point, drag a point to shape the curve, double-tap a point to remove it. Shaping the curve is touch-only; with a screen reader use the Contrast slider and Reset channel instead.</string>
     <string name="tool_curve_points_state">%1$d control points</string>
+    <string name="tool_export_half_frame_pair">Export as a half-frame pair…</string>
 </resources>

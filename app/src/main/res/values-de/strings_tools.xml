@@ -213,4 +213,5 @@
     <string name="tool_curve_reset_all">Alles zurücksetzen</string>
     <string name="tool_curve_editor_desc">Tonwertkurven-Editor. Tippen, um einen Punkt hinzuzufügen, einen Punkt ziehen, um die Kurve zu formen, und einen Punkt doppeltippen, um ihn zu entfernen. Das Formen der Kurve geht nur per Touch; mit einem Screenreader nutze stattdessen den Kontrastregler und „Kanal zurücksetzen“.</string>
     <string name="tool_curve_points_state">%1$d Kontrollpunkte</string>
+    <string name="tool_export_half_frame_pair">Als Halbformat-Paar exportieren…</string>
 </resources>

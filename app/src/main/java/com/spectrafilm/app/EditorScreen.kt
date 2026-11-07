@@ -1236,6 +1236,16 @@ internal fun MainActivity.EditorScreen(
             startBatchExport(ctx, scope, state, engine, uris, snackbarHost) { status = it }
         }
     }
+    // Half-frame pair: this photo and one more on one picture (HalfFramePair.kt).
+    val pairPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            startHalfFramePair(
+                ctx, scope, state, engine, sourceUri, sourceName, sourceKind, rotation, uri, snackbarHost,
+            ) { status = it }
+        }
+    }
     BatchExportProgressEffect(ctx, scope, snackbarHost) { status = it }
     // #162 inbound import: consume the Activity's pending VIEW/SEND exactly once and
     // route it through the same dispatch as a picked document. A rejected shape
@@ -2633,6 +2643,14 @@ internal fun MainActivity.EditorScreen(
                 previewBitmap = preview,
                 onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
                     { requestBatchExport(ctx, legacyStoragePermission, batchPicker) { status = it } }
+                } else {
+                    null
+                },
+                onHalfFramePair = if (
+                    engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
+                    halfFramePairSupports(exportUi.options)
+                ) {
+                    { requestHalfFramePair(ctx, legacyStoragePermission, pairPicker) { status = it } }
                 } else {
                     null
                 },

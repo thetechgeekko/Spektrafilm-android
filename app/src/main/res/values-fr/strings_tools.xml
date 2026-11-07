@@ -213,4 +213,5 @@
     <string name="tool_curve_reset_all">Tout rétablir</string>
     <string name="tool_curve_editor_desc">Éditeur de courbe de tonalité. Touchez pour ajouter un point, faites glisser un point pour façonner la courbe et touchez deux fois un point pour le supprimer. Le façonnage de la courbe se fait uniquement au toucher ; avec un lecteur d’écran, utilisez plutôt le curseur Contraste et « Rétablir le canal ».</string>
     <string name="tool_curve_points_state">%1$d points de contrôle</string>
+    <string name="tool_export_half_frame_pair">Exporter en paire demi-format…</string>
 </resources>
