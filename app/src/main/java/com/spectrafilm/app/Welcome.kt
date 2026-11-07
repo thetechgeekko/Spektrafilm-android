@@ -153,7 +153,7 @@ fun WelcomeFlow(
                     TextButton(onClick = onFinish) {
                         Text(
                             stringResource(R.string.screen_welcome_skip),
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
                         )
                     }
                 } else {
@@ -200,7 +200,7 @@ fun WelcomeFlow(
                             .size(if (active) 10.dp else 8.dp)
                             .clip(CircleShape)
                             .alpha(dotAlpha)
-                            .background(if (active) PAGES[i].accent else Color.White),
+                            .background(if (active) PAGES[i].accent else SpektraBrand.onCanvas),
                     )
                 }
             }
@@ -259,7 +259,7 @@ private fun OnboardingPageContent(
             stringResource(page.titleRes),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = Color.White,
+            color = SpektraBrand.onCanvas,
             textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
@@ -267,7 +267,7 @@ private fun OnboardingPageContent(
         Text(
             stringResource(page.bodyRes),
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.85f),
+            color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
             textAlign = TextAlign.Center,
         )
         if (isLast) {
@@ -275,7 +275,7 @@ private fun OnboardingPageContent(
             Text(
                 stringResource(R.string.screen_welcome_author_links),
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.7f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(16.dp))

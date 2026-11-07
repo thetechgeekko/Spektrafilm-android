@@ -31,9 +31,15 @@ class AppViewModelFactoryTest {
         settingsViewModel = { settingsBuilt++; settingsVm },
         updateViewModel = { error("not under test") },
         versionsViewModel = { versionsVm },
+        exportPresetViewModel = { exportPresetVm },
     )
     private val versionsVm = VersionsViewModel(
         FileVersionRepository(java.io.File(System.getProperty("java.io.tmpdir"), "versions-factory-test")),
+        kotlinx.coroutines.Dispatchers.Unconfined,
+    )
+
+    private val exportPresetVm = ExportPresetViewModel(
+        FileExportPresetRepository(java.io.File(System.getProperty("java.io.tmpdir"), "export-presets-factory-test.json")),
         kotlinx.coroutines.Dispatchers.Unconfined,
     )
 
@@ -53,6 +59,10 @@ class AppViewModelFactoryTest {
 
     @Test fun versionsComeFromTheInjectedBuilder() {
         assertSame(versionsVm, create(VersionsViewModel::class.java))
+    }
+
+    @Test fun exportPresetsComeFromTheInjectedBuilder() {
+        assertSame(exportPresetVm, create(ExportPresetViewModel::class.java))
     }
 
     @Test(expected = IllegalArgumentException::class)

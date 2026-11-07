@@ -12,15 +12,23 @@
  * stock belongs to except a header you have already scrolled past. This is the same content in
  * a sheet that can breathe — one card per stock, grouped, with the selected one marked.
  *
- * Deliberately NOT thumbnails of the user's photograph through each stock. That was the
- * ambitious version in the plan, and it is gated on a measurement nobody has taken: 28
- * simulate() runs would contend with the interactive renderer on the same cores. The research
- * pre-authorised this text-rich version as the fallback that still delivers the information
- * win, and it is what ships until the thumbnail cost is measured on a device.
+ * Each card also shows the user's own photo through that stock, rendered by
+ * [StockPreviewViewModel] while the sheet is open. Those tiles were held back until their
+ * cost was measured; StockPreviews.kt has the numbers and the rules that keep them off the
+ * interactive renderer. Without a [StockPreviewHost] (no photo yet) the cards stay text-only.
  */
 package com.spectrafilm.app
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,12 +72,13 @@ import androidx.compose.ui.unit.dp
  * press target that opens [StockBrowserSheet].
  */
 @Composable
-fun StockPickerField(
+internal fun StockPickerField(
     label: String,
     selectedId: String,
     groups: List<DropdownGroup>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    previewHost: StockPreviewHost? = null,
 ) {
     var browsing by remember { mutableStateOf(false) }
     val selected = remember(selectedId, groups) {
@@ -109,6 +119,7 @@ fun StockPickerField(
             groups = groups,
             onSelect = { onSelect(it); browsing = false },
             onDismiss = { browsing = false },
+            previewHost = previewHost,
         )
     }
 }
@@ -121,8 +132,17 @@ private fun StockBrowserSheet(
     groups: List<DropdownGroup>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
+    previewHost: StockPreviewHost?,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Tiles render only while this sheet is up: no slider can be dragged under a modal
+    // sheet, so the previews never compete with an interactive render.
+    // The host is rebuilt on every editor recomposition; key the session to the sheet's own
+    // lifetime and always talk to the latest host.
+    val host by rememberUpdatedState(previewHost)
+    LaunchedEffect(Unit) { host?.open() }
+    DisposableEffect(Unit) { onDispose { host?.close() } }
+    val previews = previewHost?.previews?.collectAsStateWithLifecycle()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Text(
             title,
@@ -165,11 +185,20 @@ private fun StockBrowserSheet(
                             .padding(top = 14.dp, bottom = 2.dp, start = 4.dp)
                             .semantics { heading() },
                     )
-                    is StockRow.Item -> StockCard(
-                        option = row.option,
-                        selected = row.option.id == selectedId,
-                        onClick = { onSelect(row.option.id) },
-                    )
+                    is StockRow.Item -> {
+                        if (previewHost != null) {
+                            // LazyColumn composes only cards on screen, so this asks for the
+                            // visible tiles, newest scroll position first.
+                            LaunchedEffect(row.option.id) { host?.request?.invoke(row.option.id) }
+                        }
+                        StockCard(
+                            option = row.option,
+                            selected = row.option.id == selectedId,
+                            onClick = { onSelect(row.option.id) },
+                            showPreview = previewHost != null,
+                            preview = previews?.value?.get(row.option.id),
+                        )
+                    }
                 }
             }
         }
@@ -182,7 +211,13 @@ private sealed interface StockRow {
 }
 
 @Composable
-private fun StockCard(option: DropdownOption, selected: Boolean, onClick: () -> Unit) {
+private fun StockCard(
+    option: DropdownOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+    showPreview: Boolean = false,
+    preview: ImageBitmap? = null,
+) {
     val accent = MaterialTheme.colorScheme.primary
     val selectedLabel = stringResource(R.string.stock_browser_selected)
     Surface(
@@ -207,6 +242,7 @@ private fun StockCard(option: DropdownOption, selected: Boolean, onClick: () -> 
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (showPreview) StockPreviewTile(preview)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(option.label, style = MaterialTheme.typography.titleSmall)
                 if (option.spec.isNotBlank()) {
@@ -228,6 +264,31 @@ private fun StockCard(option: DropdownOption, selected: Boolean, onClick: () -> 
                     modifier = Modifier.size(20.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * The photo through one stock. A fixed square, so cards never reflow when a tile lands; a
+ * plain themed tile while it renders, with no per-tile spinner (28 spinners read as broken).
+ * Decorative for accessibility: the card already reads the stock's name and note.
+ */
+@Composable
+private fun StockPreviewTile(preview: ImageBitmap?) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        Modifier
+            .size(72.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, shape),
+    ) {
+        if (preview != null) {
+            Image(
+                bitmap = preview,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
         }
     }
 }

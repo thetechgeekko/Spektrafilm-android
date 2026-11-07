@@ -635,6 +635,8 @@
     <string name="editor_status_version_failed">Versions: %1$s</string>
     <string name="editor_snack_version_deleted">Deleted version “%1$s”</string>
     <string name="editor_snack_versions_quarantined">This photo’s versions file was damaged and was set aside.</string>
+    <string name="editor_status_export_preset_saved">Saved export preset “%1$s”</string>
+    <string name="editor_status_export_preset_failed">Export presets: %1$s</string>
     <!-- Hardware keyboard shortcuts, as listed by the system shortcuts helper (Meta+/). -->
     <string name="shortcut_group_editor">Editor</string>
     <string name="shortcut_undo">Undo</string>

@@ -98,7 +98,7 @@
 -keep class com.spectrafilm.app.ExportOptions { *; }
 -keep class com.spectrafilm.app.ExportSize { *; }
 -keep class com.spectrafilm.app.ColorManagement { *; }
--keepclassmembers class com.spectrafilm.app.EngineHelpersKt {
+-keepclassmembers class com.spectrafilm.app.DisplayBitmapsKt {
     public static android.graphics.Bitmap simResultToBitmap(...);
 }
 
@@ -125,7 +125,7 @@
 -keep class com.spectrafilm.app.RenderPayloadCache** { *; }
 -keep class com.spectrafilm.app.RenderPayloads** { *; }
 -keep class com.spectrafilm.app.masks.MaskCompositor { *; }
--keepclassmembers class com.spectrafilm.app.EngineHelpersKt {
+-keepclassmembers class com.spectrafilm.app.DisplayBitmapsKt {
     public static android.graphics.Bitmap simResultToBitmapGraded(...);
 }
 

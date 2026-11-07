@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -292,22 +294,28 @@ internal class VersionsViewModel(
         if (key != null) refresh()
     }
 
+    // Reads and their publication run one at a time, in call order, so an older read of the
+    // file can never land after a newer one.
+    private val refreshes = Mutex()
+
     private fun refresh() {
         val key = _uiState.value.key ?: return
-        viewModelScope.launch {
-            val result = withContext(io) { repository.list(key) }
-            if (_uiState.value.key != key) return@launch
-            when (result) {
-                is VersionListResult.Loaded ->
-                    _uiState.update { it.copy(versions = result.versions, loading = false) }
-                is VersionListResult.CorruptQuarantined -> {
-                    _uiState.update { it.copy(versions = emptyList(), loading = false) }
-                    onEvent(VersionEvent.Quarantined(result.reason))
-                }
-                is VersionListResult.Failed -> {
-                    _uiState.update { it.copy(loading = false) }
-                    onEvent(VersionEvent.Failed(result.reason))
-                }
+        viewModelScope.launch { refreshes.withLock { refreshLocked(key) } }
+    }
+
+    private suspend fun refreshLocked(key: String) {
+        val result = withContext(io) { repository.list(key) }
+        if (_uiState.value.key != key) return
+        when (result) {
+            is VersionListResult.Loaded ->
+                _uiState.update { it.copy(versions = result.versions, loading = false) }
+            is VersionListResult.CorruptQuarantined -> {
+                _uiState.update { it.copy(versions = emptyList(), loading = false) }
+                onEvent(VersionEvent.Quarantined(result.reason))
+            }
+            is VersionListResult.Failed -> {
+                _uiState.update { it.copy(loading = false) }
+                onEvent(VersionEvent.Failed(result.reason))
             }
         }
     }

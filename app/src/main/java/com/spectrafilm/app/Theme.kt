@@ -69,6 +69,43 @@ internal object SpektraBrand {
     /** Onboarding gradient end stop. */
     val canvasOnboarding = Color(0xFF0A0A12)
 
+    // --- Content on the always-dark editor surfaces (preview, crop, mask, sampler, top bar) ---
+    // These sit on the photo or on a near-black canvas in every theme, so they are fixed rather
+    // than taken from the colour scheme: a light theme must not turn the photo chrome dark.
+
+    /** Icons, labels and outlines drawn on the editor canvas or over the photo. */
+    val onCanvas = Color.White
+
+    /** Scrims and translucent backings behind canvas content (always used with an alpha). */
+    val scrim = Color.Black
+
+    /** Text on a selected (white) segment of the crop's connected button group. */
+    val onCanvasSelected = Color(0xFF0B0B0D)
+
+    /** Histogram fills over the preview: luma, then R/G/B. */
+    val histLuma = Color(0x33FFFFFF)
+    val histRed = Color(0x88FF4040)
+    val histGreen = Color(0x8840FF40)
+    val histBlue = Color(0x884070FF)
+
+    /** Histogram clipping wedges: shadows (cool) and highlights (warm). */
+    val clipShadows = Color(0xCC6FA8FF)
+    val clipHighlights = Color(0xFFFF5A4D)
+
+    /** Tone-curve lines per channel, tuned for the dark curve canvas. */
+    val curveRed = Color(0xFFFF5A5A)
+    val curveGreen = Color(0xFF5AD46A)
+    val curveBlue = Color(0xFF5A93FF)
+    val curveLuma = Color(0xFFE6E6E6)
+
+    /** Film/paper characteristic-curve channels on the profile-curves screen. */
+    val profileRed = Color(0xFFE53935)
+    val profileGreen = Color(0xFF43A047)
+    val profileBlue = Color(0xFF1E88E5)
+
+    /** Draggable mask-geometry handles: a light accent readable on any photo. */
+    val maskHandle = Color(0xFF7FD1FF)
+
     /** Onboarding backdrop / film-strip emblem, violet -> red. */
     val spectrum = listOf(
         Color(0xFF7B2FF7),

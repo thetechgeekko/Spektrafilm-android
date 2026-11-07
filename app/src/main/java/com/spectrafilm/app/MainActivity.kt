@@ -42,6 +42,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
     }
 
+    /** Saved export presets for the export sheet. */
+    internal val exportPresetVm: ExportPresetViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[ExportPresetViewModel::class.java]
+    }
+
     /** Viewer modes: compare, histogram, hidden chrome (#272). */
     internal val viewerVm: EditorViewerViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewerViewModel::class.java]
@@ -55,6 +60,14 @@ class MainActivity : ComponentActivity() {
     /** Preset panel, amount blend and settings clipboard state for the editor (#272). */
     internal val presetVm: PresetViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
+    }
+
+    /** Previews of the photo through each film stock / print paper, one set per browser. */
+    internal val filmPreviewVm: StockPreviewViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)["film", StockPreviewViewModel::class.java]
+    }
+    internal val printPreviewVm: StockPreviewViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)["print", StockPreviewViewModel::class.java]
     }
 
     /** Named versions of the open photo. */
