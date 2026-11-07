@@ -89,6 +89,16 @@ class MainActivity : ComponentActivity() {
      * Only reached for keys the focused view did NOT consume, so a text field keeps its own
      * Ctrl+Z and typed characters. Dialogs and sheets are separate windows and never get here.
      */
+    /** Lists the editor's shortcuts in the system keyboard-shortcuts helper (Meta+/). */
+    override fun onProvideKeyboardShortcuts(
+        data: MutableList<android.view.KeyboardShortcutGroup>,
+        menu: android.view.Menu?,
+        deviceId: Int,
+    ) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        if (editorShortcutHandler != null) data += editorKeyboardShortcutGroup(resources)
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         val shortcut = editorShortcutFor(event)
         if (shortcut != null && editorShortcutHandler?.invoke(shortcut) == true) return true
