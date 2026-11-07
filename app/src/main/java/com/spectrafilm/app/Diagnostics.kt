@@ -28,6 +28,9 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** Privacy-safe breadcrumb logger for engine and IO lifecycle events. */
 object Diag {
@@ -166,16 +169,14 @@ object Diagnostics {
         actual.contentEquals(CRASH_HEADER_BYTES)
     }.getOrDefault(false)
 
+    /** Process-lifetime scope for the start-up retention sweep (#277: no raw thread). */
+    private val retentionScope = CoroutineScope(SupervisorJob() + ProcessDispatchers.io)
+
     /** Injectable scheduler keeps the process-start retention behavior unit-testable. */
     internal fun scheduleRetentionSweep(
         file: File,
         nowMillis: () -> Long = System::currentTimeMillis,
-        schedule: ((() -> Unit) -> Unit) = { task ->
-            Thread({ task() }, "Spektrafilm-diagnostics-retention").apply {
-                isDaemon = true
-                start()
-            }
-        },
+        schedule: ((() -> Unit) -> Unit) = { task -> retentionScope.launch { task() } },
     ) {
         schedule {
             runCatching { purgeInvalidPersistedCrash(file, nowMillis()) }
@@ -268,7 +269,13 @@ object Diagnostics {
         }
     }
 
-    /** Drain on a bounded worker so the deadline can stop a process that never closes stdout. */
+    /**
+     * Drain on a bounded worker so the deadline can stop a process that never closes stdout.
+     *
+     * A documented #277 exception to "no raw threads": the read blocks in native stdout and
+     * ignores coroutine cancellation, so the deadline has to own a thread it can abandon
+     * (close the stream, interrupt, `shutdownNow`) without parking a shared IO-pool worker.
+     */
     internal fun collectLogcatWithDeadline(
         input: InputStream,
         pid: String,
