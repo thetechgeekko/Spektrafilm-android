@@ -211,7 +211,9 @@ internal class StockPreviewViewModel(
                 val work = queue.next() ?: break
                 val image = sourceFor(current)
                 if (image == null) {
+                    // No photo copy: drop the placeholder rather than leave it spinning.
                     queue.fail(work)
+                    publish()
                     break
                 }
                 val result = runCatching {
