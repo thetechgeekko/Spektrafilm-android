@@ -91,10 +91,17 @@ internal fun FilmStockStrip(
     // The strip is one owner of the shared view model, so the browser sheet closing over it
     // does not stop its tiles; each open is paired with its own close.
     val owner = remember { Any() }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = stripSelectedIndex(stocks, selectedId))
     LaunchedEffect(sourceKey, paused) {
         if (paused) return@LaunchedEffect
         try {
             host.open(owner)
+            // Ask again for every tile on screen: a request made before the photo was decoded
+            // (the strip opens with a new photo, before its first render) was dropped, and
+            // the per-tile request below does not rerun for a tile that stayed composed.
+            for (item in listState.layoutInfo.visibleItemsInfo) {
+                stocks.getOrNull(item.index)?.let { host.request(it.id) }
+            }
             awaitCancellation()
         } finally {
             host.close(owner)
@@ -102,7 +109,6 @@ internal fun FilmStockStrip(
     }
     val previews by previewHost.previews.collectAsStateWithLifecycle()
 
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = stripSelectedIndex(stocks, selectedId))
     LaunchedEffect(selectedId) {
         val index = stripSelectedIndex(stocks, selectedId)
         val visible = listState.layoutInfo.visibleItemsInfo
