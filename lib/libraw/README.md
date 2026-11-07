@@ -94,12 +94,37 @@ lib/libraw/
     │   ├── CMakeLists.txt           # builds libsfraw.so from the verified resolver
     │   ├── raw_decoder.h            # decode API + WB math contract
     │   ├── raw_decoder.cpp          # LibRaw params + Von-Kries adaptation (guarded)
-    │   └── raw_decoder_jni.cpp      # JNI bridge -> direct float ByteBuffer + w/h/cs
+    │   ├── raw_decoder_jni.cpp      # JNI bridge -> direct float ByteBuffer + w/h/cs
+    │   ├── raw_preview.h/.cpp       # embedded camera-JPEG extraction (thumbnails only)
+    │   └── pread_datastream.h       # lazy pread() LibRaw datastream for raw_preview
     │       # (LibRaw sources are fetched at configure time, not committed)
     └── kotlin/com/spectrafilm/libraw/
         ├── RawDecoder.kt            # facade: decodeToLinear(bytes/buffer/fd/stream)
+        ├── RawFormats.kt            # the one list of RAW extensions/MIME types we offer
+        ├── EmbeddedRawPreview.kt    # camera JPEG from RawDecoder.extractEmbeddedPreview
         └── RawCoilDecoder.kt        # Coil 3 Decoder.Factory (gallery full-res open)
 ```
+
+## Supported containers and embedded previews
+
+`RawFormats.kt` is the single list of RAW extensions and MIME types the app offers (Library
+listing, gallery decoder, routing). It is grouped by maker and holds only what this LibRaw
+build decodes: CR3/CR2/CRW, NEF/NRW, ARW/SRF/SR2, RAF, ORF, RW2/RAW, RWL, PEF/PTX, SRW,
+3FR/FFF, IIQ, MOS, MEF, MRW, ERF, DCR/KDC and DNG. X3F (needs `USE_X3FTOOLS`), GPR (needs the
+GoPro SDK) and cinema RAW are deliberately absent. LibRaw identifies files by content, so an
+unlisted file opened on purpose still reaches the decoder.
+
+`RawDecoder.extractEmbeddedPreview(fd, minLongEdge)` returns the JPEG the camera embedded
+(CR3 THMB/PRVW, NEF/ARW/ORF preview IFDs, DNG preview IFDs ...), for thumbnails and the open
+placeholder only. It runs LibRaw's `open_datastream()` over `PreadDatastream` (lazy `pread`,
+no full read, no mmap that truncation could turn into SIGBUS) and never calls `unpack()` or
+`unpack_thumb()`. Only entries LibRaw classifies as JPEG are eligible; their offset/length are
+re-checked against the file size and a JPEG SOI before the bytes leave native code. Host
+gates: `sfraw.raw-preview.contract` (datastream differential vs `LibRaw_buffer_datastream`,
+`open_buffer` equivalence, selection, hostile/truncated inputs; set `SFRAW_PREVIEW_SAMPLES`
+to a folder of real camera files to also check those) and the `sfraw_raw_preview_fuzzer`
+libFuzzer target. The engine and every export still decode the sensor data at full
+resolution through the scene-linear path.
 
 ## Vendoring LibRaw
 

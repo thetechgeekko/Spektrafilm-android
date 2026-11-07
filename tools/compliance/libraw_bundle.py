@@ -126,6 +126,9 @@ REQUIRED_NATIVE_FILES = (
     "raw_decoder_jni.cpp",
     "raw_decoder_jni_safety.h",
     "raw_input_snapshot.h",
+    "pread_datastream.h",
+    "raw_preview.cpp",
+    "raw_preview.h",
     "raw_result_publication.cpp",
     "raw_result_publication.h",
 )
@@ -1355,6 +1358,7 @@ def _verify_relink_project_contract(repo_root: Path) -> None:
         "native_allocation_registry.cpp",
         "raw_decoder.cpp",
         "raw_decoder_jni.cpp",
+        "raw_preview.cpp",
         "raw_result_publication.cpp",
         "unofficial_relink_marker.cpp",
         "NO_JPEG",
