@@ -234,6 +234,70 @@ int main() {
     check(bandedOk && db.bands == static_cast<uint32_t>(h) && bytes_eq(gpu, gpuBanded),
           "one-row staging bands give the same bytes as the host-chosen band");
 
+    // BANDED ROUTE (#281): the X blurs over bands of whole rows and the Y
+    // accumulates over bands of whole columns must give the whole-frame route's
+    // very bytes -- every op is pointwise or walks one whole line. Three
+    // budgets: one band image of 37 rows / 59 columns (11 + 11 bands), of one
+    // row / one column (the extreme), and one large enough for a single band of
+    // each. The budget covers four work buffers plus a two-image staging buffer.
+    auto band_budget = [&](uint64_t bandPix) { return bandPix * 12u * 6u; };
+    struct BandCase { uint64_t pix; uint32_t bands; const char* label; };
+    const BandCase bandCases[] = {
+        {static_cast<uint64_t>(w) * 37u, static_cast<uint32_t>((h + 36) / 37 + (w + 58) / 59), "37-row/59-col bands"},
+        {static_cast<uint64_t>(w), static_cast<uint32_t>(h + w), "1-row/1-col bands"},
+        {static_cast<uint64_t>(w) * h, 2u, "one band each way"},
+    };
+    for (const BandCase& bc : bandCases) {
+        spk::gpu::HalationScatterRequest rb = r;
+        rb.band_bytes_override = band_budget(bc.pix);
+        std::vector<double> gb(raw.size(), -1.0);
+        spk::gpu::HalationScatterDiagnostics dbb{};
+        const bool okb = spk::gpu::halation_scatter(rb, gb.data(), &dbb);
+        std::printf("%s: ok=%d engaged=%d reason=%s bands=%u dispatches=%u\n", bc.label, okb ? 1 : 0,
+                    dbb.engaged ? 1 : 0, dbb.reason, dbb.bands, dbb.dispatches);
+        check(okb && dbb.engaged && std::strcmp(dbb.reason, "banded") == 0 && dbb.bands == bc.bands &&
+                  bytes_eq(gpu, gb),
+              "banded route gives the whole-frame route's bytes (scatter + IIR bounces)");
+    }
+    {
+        // Bounce-only (no scatter: the resolve reads the source, not out) and
+        // FIR-class bounces, each banded against its own whole-frame run.
+        spk::HalationParams variants[2] = {p, p};
+        variants[0].scatter_amount = 0.0;
+        for (int c = 0; c < 3; ++c) variants[1].halation_first_sigma_um[c] = 8.0;
+        const char* names[2] = {"bounce-only", "FIR-class bounces"};
+        for (int v = 0; v < 2; ++v) {
+            const spk::gpu::HalationScatterRequest rw = request_from(variants[v], raw, w, h, pixel_size_um);
+            spk::gpu::HalationScatterRequest rb = rw;
+            rb.band_bytes_override = band_budget(static_cast<uint64_t>(w) * 23u);
+            std::vector<double> whole(raw.size()), gb(raw.size());
+            spk::gpu::HalationScatterDiagnostics dw{}, dbb{};
+            const bool okw = spk::gpu::halation_scatter(rw, whole.data(), &dw);
+            const bool okb = spk::gpu::halation_scatter(rb, gb.data(), &dbb);
+            std::printf("%s banded: ok=%d/%d reason=%s/%s bands=%u\n", names[v], okw ? 1 : 0, okb ? 1 : 0,
+                        dw.reason, dbb.reason, dbb.bands);
+            check(okw && okb && dw.engaged && dbb.engaged && bytes_eq(whole, gb),
+                  "banded route gives the whole-frame route's bytes (variant)");
+        }
+    }
+    {
+        // A budget that cannot hold one whole row refuses before any device work.
+        spk::gpu::HalationScatterRequest rb = r;
+        rb.band_bytes_override = band_budget(static_cast<uint64_t>(w) - 1u);
+        std::vector<double> gb(raw.size(), -1.0);
+        spk::gpu::HalationScatterDiagnostics dbb{};
+        const bool okb = spk::gpu::halation_scatter(rb, gb.data(), &dbb);
+        bool untouched = true;
+        for (double v : gb) untouched = untouched && v == -1.0;
+        std::printf("sub-row band budget: ok=%d reason=%s\n", okb ? 1 : 0, dbb.reason);
+        check(!okb && !dbb.engaged && std::strcmp(dbb.reason, "budget-too-small") == 0 && untouched,
+              "a band budget below one row refuses (CPU fallback) and leaves out untouched");
+        // ...and the whole-frame route still works afterwards.
+        std::vector<double> again(raw.size());
+        check(spk::gpu::halation_scatter(r, again.data(), nullptr) && bytes_eq(gpu, again),
+              "whole-frame route byte-identical after banded runs");
+    }
+
     // FIR-class halation (sigma sqrt(3) < 3 px) against the CPU.
     spk::HalationParams fir = p;
     for (int c = 0; c < 3; ++c) fir.halation_first_sigma_um[c] = 8.0;

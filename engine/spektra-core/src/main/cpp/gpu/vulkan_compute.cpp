@@ -168,9 +168,12 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <initializer_list>
 #include <limits>
 #include <mutex>
 #include <new>
+#include <utility>
 #include <vector>
 
 #include "gpu/cctf_encode_spv.h"
@@ -3561,7 +3564,9 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
 // exactly as the CPU pass does; the earlier row slicing with a halo left an
 // IIR transient at slice joins and could not fit the DIR tail's 10-sigma halo
 // at export scale. Upload and readback go through a fixed staging band of
-// whole rows, which never touches the numbers (a test proves this).
+// whole rows, which never touches the numbers (a test proves this). When the
+// whole frame does not fit, the banded route (kHalBandBytes) runs the same ops
+// on bands of whole rows / whole columns and gives the same bytes.
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -3645,11 +3650,23 @@ constexpr uint32_t kHalSetCount = 11u;
 constexpr VkDeviceSize kHalPixelBytes = 12;      // three f32, packed
 constexpr uint32_t kHalWorkBuffers = 4u;         // src, sum, x, xT
 // Whole-frame residency ceiling for the four work buffers (48 B/px: ~22 MP).
-// Above it the pass refuses and the CPU runs; bringing back row bands with the
-// IIR state carried through host-side storage is the upgrade path if a larger
-// export ever needs the GPU pass.
+// Above it, or when the device refuses the whole-frame buffers, the pass takes
+// the banded route below (#281) rather than refusing; only a resident frame,
+// which has no host copy to band from, still refuses.
 constexpr VkDeviceSize kHalWorkBudgetBytes = 1024ull << 20;
 constexpr VkDeviceSize kHalStagingBytes = 64ull << 20;  // upload/readback band
+// BANDED ROUTE (#281). When the four whole-frame work buffers do not fit (over
+// the budget above, or refused by the device's admission), the pass runs the
+// same ops on sub-images instead: each X blur over bands of WHOLE ROWS, each Y
+// accumulate over bands of WHOLE COLUMNS, with the intermediate and the running
+// sum held host-side in f32 between them. Every op the shader has is either
+// pointwise or walks one whole line (an IIR recursion, a reflect-boundary FIR,
+// a transpose), and its result depends only on that line -- so a line processed
+// whole inside a smaller image gives the very same bytes, and the device keeps
+// f32 between passes exactly as the whole-frame route does. The lavapipe gate
+// compares the two byte for byte. This is the device footprint: four work
+// buffers plus a two-image staging buffer, one band image each.
+constexpr VkDeviceSize kHalBandBytes = 128ull << 20;
 constexpr uint32_t kHalGroupX = 32u, kHalGroupY = 8u;
 constexpr uint32_t kHalSrc = 0u, kHalSum = 1u, kHalX = 2u, kHalXT = 3u;
 
@@ -3883,45 +3900,101 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     const VkDeviceSize workBytes = frameBytes * kHalWorkBuffers;
     const VkPhysicalDeviceLimits& lim = c.properties.limits;
     const uint32_t maxDim = std::max(W, H);
-    if (workBytes > kHalWorkBudgetBytes || frameBytes > lim.maxStorageBufferRange ||
-        workBytes > c.largestHeapFor(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ||
-        (maxDim + kHalLineThreads - 1u) / kHalLineThreads > lim.maxComputeWorkGroupCount[0] ||
-        (maxDim + kHalTransposeTile - 1u) / kHalTransposeTile >
-            std::min(lim.maxComputeWorkGroupCount[0], lim.maxComputeWorkGroupCount[1]) ||
-        (W + kHalGroupX - 1u) / kHalGroupX > lim.maxComputeWorkGroupCount[0] ||
-        (H + kHalGroupY - 1u) / kHalGroupY > lim.maxComputeWorkGroupCount[1]) {
+    // Every op on a w x h image (and its h x w transpose) within the device's
+    // dispatch limits.
+    auto groups_ok = [&](uint32_t w, uint32_t h) {
+        const uint32_t m = std::max(w, h);
+        return (m + kHalLineThreads - 1u) / kHalLineThreads <= lim.maxComputeWorkGroupCount[0] &&
+               (m + kHalTransposeTile - 1u) / kHalTransposeTile <=
+                   std::min(lim.maxComputeWorkGroupCount[0], lim.maxComputeWorkGroupCount[1]) &&
+               (w + kHalGroupX - 1u) / kHalGroupX <= lim.maxComputeWorkGroupCount[0] &&
+               (h + kHalGroupY - 1u) / kHalGroupY <= lim.maxComputeWorkGroupCount[1];
+    };
+    const bool wholeFits = workBytes <= kHalWorkBudgetBytes && frameBytes <= lim.maxStorageBufferRange &&
+                           workBytes <= c.largestHeapFor(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+                           groups_ok(W, H);
+    // A resident frame (#220) is the device-side plane itself: there is no host
+    // copy to band from, so it keeps the whole-frame route or nothing.
+    const bool forceBands = !resident && r.band_bytes_override != 0;
+    if (!wholeFits && resident) {
         d.reason = "frame-too-large";
         return false;
     }
-    // Upload/readback go through one mapped staging band of whole rows; the
-    // band size never touches the numbers (a test proves it).
-    const VkDeviceSize rowBytes = static_cast<VkDeviceSize>(W) * kHalPixelBytes;
-    const VkDeviceSize bandCap = r.staging_bytes_override ? r.staging_bytes_override : kHalStagingBytes;
-    const uint32_t bandRows = static_cast<uint32_t>(
-        std::min<VkDeviceSize>(H, std::max<VkDeviceSize>(1, bandCap / rowBytes)));
-    const VkDeviceSize stagingBytes = static_cast<VkDeviceSize>(bandRows) * rowBytes;
+    // The banded route writes `out` band by band, so it must not alias the source.
+    const bool canBand = !resident && !(r.raw_rgb_f32 && out_f32 &&
+                                        static_cast<const void*>(r.raw_rgb_f32) == static_cast<const void*>(out_f32));
 
     Ctx::HalationKernel& k = c.halation;
     if (!k.pipelineReady && !build_halation_pipeline(c, k)) { d.reason = "pipeline-failed"; return false; }
-    if (!c.ensureBuf(k.staging, stagingBytes)) { d.reason = "allocation-failed"; return false; }
     if (!c.ensureBuf(k.frame, kHalFrameFloatCount * sizeof(float))) { d.reason = "allocation-failed"; return false; }
     PointwiseChainDiagnostics scratchDiagnostics{};
     // GPU-private if the device has such a type: these four are written and read
-    // only by the IIR/FIR sweeps, never by the host (the staging band above is
-    // what the host touches). Without the avoid mask, DEVICE_LOCAL on a
-    // unified-memory phone resolves to the first matching type, which is
-    // normally HOST_VISIBLE|HOST_COHERENT -- see findPreferredMemType.
-    for (ResidentBuf& b : k.work) {
-        if (!c.ensureResidentBuf(b, frameBytes,
-                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false,
-                                 scratchDiagnostics,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+    // only by the IIR/FIR sweeps, never by the host (the staging band is what the
+    // host touches). Without the avoid mask, DEVICE_LOCAL on a unified-memory
+    // phone resolves to the first matching type, which is normally
+    // HOST_VISIBLE|HOST_COHERENT -- see findPreferredMemType.
+    auto alloc_work = [&](VkDeviceSize bytes) {
+        for (ResidentBuf& b : k.work) {
+            if (!c.ensureResidentBuf(b, bytes,
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                     0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false,
+                                     scratchDiagnostics,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    bool banded = forceBands || !wholeFits;
+    if (!banded && !alloc_work(frameBytes)) {
+        if (!canBand) { d.reason = "allocation-failed"; return false; }
+        banded = true;  // refused at whole-frame size: try the bands
+    }
+    if (banded && !canBand) { d.reason = "bad-request"; return false; }
+
+    uint32_t bandRows = 0;         // whole-frame: rows per staging band; banded: rows per X band
+    uint32_t bandCols = 0;         // banded: columns per Y band
+    VkDeviceSize bandBytes = 0;    // banded: one band image
+    if (banded) {
+        // Free any whole-frame buffers first (a partial success above, or an
+        // earlier larger frame) so the bands are not sized against memory the
+        // pass is still holding.
+        for (ResidentBuf& b : k.work) c.destroyResidentBuf(b);
+        const VkDeviceSize first = forceBands ? static_cast<VkDeviceSize>(r.band_bytes_override) : kHalBandBytes;
+        VkDeviceSize cap = first;
+        for (;;) {
+            const VkDeviceSize perImage = cap / (kHalWorkBuffers + 2u);
+            const uint64_t bandPix = std::min<uint64_t>(npix64, perImage / kHalPixelBytes);
+            if (bandPix < maxDim) {
+                // A band must hold at least one whole row and one whole column.
+                d.reason = cap == first ? "budget-too-small" : "allocation-failed";
+                return false;
+            }
+            bandRows = static_cast<uint32_t>(std::min<uint64_t>(H, bandPix / W));
+            bandCols = static_cast<uint32_t>(std::min<uint64_t>(W, bandPix / H));
+            bandBytes = static_cast<VkDeviceSize>(bandPix) * kHalPixelBytes;
+            if (bandBytes > lim.maxStorageBufferRange || !groups_ok(W, bandRows) || !groups_ok(bandCols, H)) {
+                d.reason = "frame-too-large";
+                return false;
+            }
+            if (alloc_work(bandBytes) && c.ensureBuf(k.staging, 2u * bandBytes)) break;
+            for (ResidentBuf& b : k.work) c.destroyResidentBuf(b);
+            cap /= 2u;
+        }
+    } else {
+        // Upload/readback go through one mapped staging band of whole rows; the
+        // band size never touches the numbers (a test proves it).
+        const VkDeviceSize rowBytes = static_cast<VkDeviceSize>(W) * kHalPixelBytes;
+        const VkDeviceSize bandCap = r.staging_bytes_override ? r.staging_bytes_override : kHalStagingBytes;
+        bandRows = static_cast<uint32_t>(
+            std::min<VkDeviceSize>(H, std::max<VkDeviceSize>(1, bandCap / rowBytes)));
+        if (!c.ensureBuf(k.staging, static_cast<VkDeviceSize>(bandRows) * rowBytes)) {
             d.reason = "allocation-failed";
             return false;
         }
     }
+    const VkDeviceSize rowBytes = static_cast<VkDeviceSize>(W) * kHalPixelBytes;
 
     // Per-channel sigma in pixels of one blur, as apply_halation_um derives it
     // (model/diffusion.cpp): the scatter core, one of the three surrogate
@@ -4123,6 +4196,180 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         if (anyFir) dispatch(yAcc, kHalOpFirYAccumulate, sigmaMode, component, W, H);
         if (anyIir) dispatch(yAcc, kHalOpLineYAccumulate, sigmaMode, component, W, H);
     };
+
+    if (banded) {
+        // Host planes between the passes, f32 exactly as the device holds them:
+        // SUM is the running accumulation, T the X-blurred image of one blur.
+        // The scattered image, when the bounces need it, lives in the caller's
+        // output plane (f32 -> f64 -> f32 is exact).
+        std::vector<float> sum, xblur;
+        try {
+            sum.assign(total, 0.0f);
+            xblur.resize(total);
+        } catch (const std::bad_alloc&) {
+            d.reason = "host-allocation-failed";
+            return false;
+        }
+        float* stage0 = static_cast<float*>(k.staging.mapped);
+        float* stage1 = stage0 + bandBytes / sizeof(float);
+        struct Plane { const double* d; const float* f; };
+        const Plane srcPlane{r.raw_rgb, r.raw_rgb_f32};
+        const Plane outPlane{out, out_f32};
+        const size_t rowFloats = static_cast<size_t>(W) * 3u;
+        auto load_rows = [&](const Plane& p, uint32_t y0, uint32_t rows, float* dst) {
+            const size_t off = static_cast<size_t>(y0) * rowFloats, n = static_cast<size_t>(rows) * rowFloats;
+            if (p.f) {
+                std::memcpy(dst, p.f + off, n * sizeof(float));
+            } else {
+                const double* src = p.d + off;
+                parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) dst[i] = static_cast<float>(src[i]);
+                });
+            }
+        };
+        auto store_rows = [&](const float* src, uint32_t y0, uint32_t rows) {
+            const size_t off = static_cast<size_t>(y0) * rowFloats, n = static_cast<size_t>(rows) * rowFloats;
+            if (out_f32) {
+                std::memcpy(out_f32 + off, src, n * sizeof(float));
+            } else {
+                double* dst = out + off;
+                parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) dst[i] = static_cast<double>(src[i]);
+                });
+            }
+        };
+        // Columns [x0, x0 + cols) of a W x H plane <-> a packed cols x H image.
+        auto gather_cols = [&](const float* plane, uint32_t x0, uint32_t cols, float* dst) {
+            parallel_for(0, static_cast<int>(H), [&](int lo, int hi) {
+                for (int y = lo; y < hi; ++y)
+                    std::memcpy(dst + static_cast<size_t>(y) * cols * 3u,
+                                plane + static_cast<size_t>(y) * rowFloats + static_cast<size_t>(x0) * 3u,
+                                static_cast<size_t>(cols) * 3u * sizeof(float));
+            });
+        };
+        auto scatter_cols = [&](const float* src, uint32_t x0, uint32_t cols, float* plane) {
+            parallel_for(0, static_cast<int>(H), [&](int lo, int hi) {
+                for (int y = lo; y < hi; ++y)
+                    std::memcpy(plane + static_cast<size_t>(y) * rowFloats + static_cast<size_t>(x0) * 3u,
+                                src + static_cast<size_t>(y) * cols * 3u,
+                                static_cast<size_t>(cols) * 3u * sizeof(float));
+            });
+        };
+        auto copy = [&](VkBuffer from, VkDeviceSize fromOff, VkBuffer to, VkDeviceSize toOff, VkDeviceSize bytes) {
+            VkBufferCopy region{fromOff, toOff, bytes};
+            vkCmdCopyBuffer(k.cmd, from, to, 1, &region);
+        };
+        // One band, one submission: staged uploads, the ops, one readback into
+        // stage0. Barriers order host -> transfer -> compute -> transfer -> host;
+        // the readback's write to stage0 is ordered after the upload's read of it
+        // by that chain.
+        auto run_band = [&](std::initializer_list<std::pair<VkDeviceSize, VkBuffer>> uploads,
+                            VkDeviceSize uploadBytes, const std::function<void()>& ops,
+                            VkBuffer result, VkDeviceSize resultBytes) {
+            if (!begin()) return false;
+            barrier(VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_WRITE_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            for (const auto& u : uploads) copy(k.staging.buf, u.first, u.second, 0, uploadBytes);
+            barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+            ops();
+            barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+            copy(result, 0, k.staging.buf, 0, resultBytes);
+            barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_READ_BIT);
+            const auto t0 = std::chrono::steady_clock::now();
+            const bool ok = submit_wait();
+            d.gpu_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            return ok;
+        };
+        const VkBuffer S = k.work[kHalSrc].buf, SUMB = k.work[kHalSum].buf, X = k.work[kHalX].buf;
+        // One separable blur into `sum`: the X pass over row bands into T, then
+        // the Y accumulate over column bands. The same dispatches, on the same
+        // sets, as the whole-frame blur(..., false).
+        auto blur_banded = [&](uint32_t sigmaMode, uint32_t component, const Plane& input) {
+            const uint32_t iirMask = iir_mask(sigmaMode, component);
+            const bool anyFir = iirMask != 7u, anyIir = iirMask != 0u;
+            for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
+                const uint32_t rows = std::min(bandRows, H - y0);
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(rows) * rowBytes;
+                auto t0 = std::chrono::steady_clock::now();
+                load_rows(input, y0, rows, stage0);
+                d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                if (!run_band({{0, S}}, bytes, [&] {
+                        if (anyFir) dispatch(0, kHalOpFirX, sigmaMode, component, W, rows);
+                        if (anyIir) {
+                            dispatch(1, kHalOpTranspose, sigmaMode, 0, W, rows);
+                            dispatch(1, kHalOpLineInPlace, sigmaMode, component, rows, W);
+                            dispatch(2, kHalOpTranspose, sigmaMode, iirMask, rows, W);
+                        }
+                    }, X, bytes)) return false;
+                t0 = std::chrono::steady_clock::now();
+                std::memcpy(xblur.data() + static_cast<size_t>(y0) * rowFloats, stage0,
+                            static_cast<size_t>(rows) * rowFloats * sizeof(float));
+                d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            }
+            for (uint32_t x0 = 0; x0 < W; x0 += bandCols) {
+                const uint32_t cols = std::min(bandCols, W - x0);
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(cols) * H * kHalPixelBytes;
+                auto t0 = std::chrono::steady_clock::now();
+                gather_cols(xblur.data(), x0, cols, stage0);
+                gather_cols(sum.data(), x0, cols, stage1);
+                d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                if (!run_band({{0, X}, {bandBytes, SUMB}}, bytes, [&] {
+                        if (anyFir) dispatch(3, kHalOpFirYAccumulate, sigmaMode, component, cols, H);
+                        if (anyIir) dispatch(3, kHalOpLineYAccumulate, sigmaMode, component, cols, H);
+                    }, SUMB, bytes)) return false;
+                t0 = std::chrono::steady_clock::now();
+                scatter_cols(stage0, x0, cols, sum.data());
+                d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            }
+            return true;
+        };
+        // A pointwise resolve over row bands: (input, sum) -> out.
+        auto resolve_banded = [&](uint32_t op, const Plane& input) {
+            for (uint32_t y0 = 0; y0 < H; y0 += bandRows) {
+                const uint32_t rows = std::min(bandRows, H - y0);
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(rows) * rowBytes;
+                auto t0 = std::chrono::steady_clock::now();
+                load_rows(input, y0, rows, stage0);
+                std::memcpy(stage1, sum.data() + static_cast<size_t>(y0) * rowFloats,
+                            static_cast<size_t>(rows) * rowFloats * sizeof(float));
+                d.upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                if (!run_band({{0, S}, {bandBytes, SUMB}}, bytes,
+                              [&] { dispatch(5, op, 0, 0, W, rows); }, X, bytes)) return false;
+                t0 = std::chrono::steady_clock::now();
+                store_rows(stage0, y0, rows);
+                d.readback_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            }
+            return true;
+        };
+        bool ok = true;
+        if (scatterActive) {
+            if (ok && coreNeeded) ok = blur_banded(kHalSigmaCore, 0, srcPlane);
+            if (ok && tailNeeded) {
+                const uint32_t tailComps =
+                    r.mixture_count > 0 ? static_cast<uint32_t>(r.mixture_count) : 3u;
+                for (uint32_t comp = 0; ok && comp < tailComps; ++comp) ok = blur_banded(kHalSigmaTail, comp, srcPlane);
+            }
+            if (ok) ok = resolve_banded(kHalOpScatterResolve, srcPlane);  // scattered -> out
+        }
+        if (ok && bounceActive) {
+            std::fill(sum.begin(), sum.end(), 0.0f);
+            const Plane& bounceSrc = scatterActive ? outPlane : srcPlane;
+            for (uint32_t b = 0; ok && b < static_cast<uint32_t>(bounces); ++b)
+                ok = blur_banded(kHalSigmaBounce, b, bounceSrc);
+            // Reads each row band of `bounceSrc` before writing the same rows of out.
+            if (ok) ok = resolve_banded(kHalOpBounceResolveRaw, bounceSrc);
+        }
+        if (!ok) { d.reason = "dispatch-failed"; return false; }
+        d.engaged = true;
+        d.reason = "banded";
+        d.bands = (H + bandRows - 1u) / bandRows + (W + bandCols - 1u) / bandCols;
+        d.dispatches = dispatches;
+        d.resident = false;
+        return true;
+    }
 
     // Upload: rows [y0, y1) as packed f32 (the engine's deterministic parallel
     // chunks, disjoint writes), one copy per band -- unless the frame is
