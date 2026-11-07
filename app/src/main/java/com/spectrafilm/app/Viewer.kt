@@ -98,6 +98,7 @@ import androidx.compose.ui.platform.LocalDensity
 /** Zoom limits for [ZoomableImage]. */
 private const val MIN_ZOOM = 1f
 private const val MAX_ZOOM = 8f
+private const val DOUBLE_TAP_MIN_ZOOM = 2f
 
 /**
  * GPU LUT preview surface for the FIT view. Shows the current look INSTANTLY — the engine's
@@ -320,19 +321,18 @@ fun ZoomableImage(
                             scale = 1f
                             offset = Offset.Zero
                         } else {
-                            // One bitmap pixel per view pixel: the fitted content is
-                            // fitRect-wide on screen, so 1:1 is bitmap.width / fittedWidth.
-                            // Falls back to 2x only if the view has not measured yet.
+                            // One bitmap pixel per view pixel (bitmap.width / fittedWidth),
+                            // but never less than 2x. The preview bitmap is at most about the
+                            // screen width, so 1:1 alone came out at or below 1x and was
+                            // clamped to MIN_ZOOM: double-tap did nothing on a phone. The
+                            // settled zoom then renders its region at full resolution.
                             val fitted = if (viewSize.width > 0) {
                                 fitRect(viewSize, aspect)[2]
                             } else {
                                 0f
                             }
-                            val target = if (fitted > 0f) {
-                                (bitmap.width / fitted).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                            } else {
-                                2f
-                            }
+                            val oneToOne = if (fitted > 0f) bitmap.width / fitted else 0f
+                            val target = maxOf(DOUBLE_TAP_MIN_ZOOM, oneToOne).coerceIn(MIN_ZOOM, MAX_ZOOM)
                             val c = Offset(viewSize.width / 2f, viewSize.height / 2f)
                             scale = target
                             offset = clampOffset((c - tap) * target, target)
