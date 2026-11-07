@@ -4,20 +4,27 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -49,11 +56,12 @@ class ExportSavedMomentUiTest {
         var behindTaps = 0
     }
 
-    private fun show(startCollapsed: Boolean): Calls {
+    private fun show(startCollapsed: Boolean, fontScale: Float = 1f): Calls {
         val calls = Calls().apply { collapsed = startCollapsed }
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            MaterialTheme {
+            val base = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(base.density, fontScale)) { MaterialTheme {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -67,7 +75,7 @@ class ExportSavedMomentUiTest {
                     onShare = { calls.shares++ },
                     onOpen = { calls.opens++ },
                 )
-            }
+            } }
         }
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
@@ -106,6 +114,26 @@ class ExportSavedMomentUiTest {
         compose.mainClock.advanceTimeBy(EXPORT_SAVED_TOOLBAR_MS + 100)
         compose.waitForIdle()
         assertEquals(1, calls.dismissals)
+    }
+
+    /** Codex on #495: a long label must never squeeze the actions out of a narrow window. */
+    @Test @Config(qualifiers = "w320dp-h640dp")
+    fun actionsKeepFullSizeOnANarrowWindowAtLargeText() {
+        show(startCollapsed = true, fontScale = 2f)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        val root = compose.onRoot().getBoundsInRoot()
+        val close = compose.onNodeWithTag(EXPORT_SAVED_CLOSE_TAG).getBoundsInRoot()
+        assertTrue("close button clipped: $close in $root", close.right <= root.right)
+        assertTrue("close button squeezed: ${close.width}", close.width >= 48.dp)
+        for (label in listOf(R.string.editor_export_share, R.string.editor_export_open)) {
+            // Text button or labelled icon button: either way it is a whole 48dp target.
+            val b = compose.onNode(
+                (hasText(str(label)) or hasContentDescription(str(label))) and hasClickAction(),
+            ).getBoundsInRoot()
+            assertTrue("${str(label)} clipped: $b in $root", b.right <= root.right && b.left >= root.left)
+            assertTrue("${str(label)} squeezed: ${b.width}", b.width >= 40.dp)
+        }
     }
 
     @Test fun shareAndOpenActAndDismiss() {

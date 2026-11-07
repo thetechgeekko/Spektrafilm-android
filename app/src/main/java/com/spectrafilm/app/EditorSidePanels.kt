@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -469,6 +471,8 @@ internal fun ExportMask(onCancel: () -> Unit) {
 /** How long the "Saved to gallery" hero plays before it collapses into the toolbar. */
 internal const val EXPORT_SAVED_HERO_MS = 2_000L
 
+internal const val EXPORT_SAVED_CLOSE_TAG = "export-saved-close"
+
 /** How long the result toolbar stays before it goes away on its own. */
 internal const val EXPORT_SAVED_TOOLBAR_MS = 6_000L
 
@@ -572,7 +576,7 @@ private fun ExportSavedToolbar(
     val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
     // Sits where the editor's snackbars sit; the Box has no pointer handlers, so everything
     // around the toolbar still reaches the editor.
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .navigationBarsPadding()
@@ -584,6 +588,10 @@ private fun ExportSavedToolbar(
             enter = scaleIn(motion.fastSpatialSpec(), initialScale = 0.6f) + fadeIn(motion.fastEffectsSpec()),
             exit = scaleOut(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
         ) {
+            // Text actions need roughly 300dp of row at 1x text; below that (narrow window,
+            // large text, long translation) Share and Open become labelled icon buttons, so
+            // every control keeps its 48dp target instead of being squeezed off the toolbar.
+            val textActions = maxWidth >= 300.dp * LocalDensity.current.fontScale
             HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -599,19 +607,35 @@ private fun ExportSavedToolbar(
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 8.dp),
+                    // Weighted (not filling) so it is measured AFTER the actions: the label
+                    // ellipsizes and Share / Open / close keep their full size.
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
                 )
+                val share = stringResource(R.string.editor_export_share)
+                val open = stringResource(R.string.editor_export_open)
                 if (onShare != null) {
-                    FilledTonalButton(onClick = { onShare(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.editor_export_share))
+                    if (textActions) {
+                        FilledTonalButton(onClick = { onShare(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
+                            Text(share)
+                        }
+                    } else {
+                        FilledTonalIconButton(onClick = { onShare(); onDismiss() }) {
+                            Icon(MaterialSymbols.IosShare, contentDescription = share)
+                        }
                     }
                 }
                 if (onOpen != null) {
-                    TextButton(onClick = { onOpen(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.editor_export_open))
+                    if (textActions) {
+                        TextButton(onClick = { onOpen(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
+                            Text(open)
+                        }
+                    } else {
+                        IconButton(onClick = { onOpen(); onDismiss() }) {
+                            Icon(MaterialSymbols.OpenInNew, contentDescription = open)
+                        }
                     }
                 }
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = onDismiss, modifier = Modifier.testTag(EXPORT_SAVED_CLOSE_TAG)) {
                     Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.editor_export_done))
                 }
             }
