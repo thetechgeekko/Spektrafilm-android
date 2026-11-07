@@ -17,7 +17,13 @@ internal const val TARGET_PACKAGE = "com.spectrafilm.app"
 // English. The preview description is set only once a rendered preview is on screen
 // (EditorPreviewRegion), the same moment ReportDrawnWhen reports the editor fully drawn.
 private val PREVIEW_SHOWN: BySelector = By.descStartsWith("Film preview.")
+// Compact layouts show Export as a labelled button; expanded layouts (side pane) as an
+// icon-only FAB whose label is its content description. Either means "in the editor".
 private const val EXPORT_LABEL = "Export"
+// First-run overlays (AppSettings.seenOnboarding / seenEditorCoach): WelcomeFlow, then the
+// editor coach marks. Both persist once dismissed, so only a fresh install shows them.
+private const val WELCOME_SKIP_LABEL = "Skip"
+private const val COACH_DISMISS_LABEL = "Got it"
 private const val GRAIN_LABEL = "Grain"
 private const val MORE_LABEL = "More options"
 
@@ -36,6 +42,24 @@ internal fun MacrobenchmarkScope.openInEditor(image: Uri) {
     awaitPreview()
 }
 
+/**
+ * Unmeasured: open [image] once and dismiss the welcome flow and editor coach marks, so later
+ * measured launches start straight in an interactive editor. Safe to call when neither shows.
+ */
+internal fun MacrobenchmarkScope.dismissFirstRun(image: Uri) {
+    startActivityAndWait(viewIntent(image))
+    device.wait(Until.findObject(By.text(WELCOME_SKIP_LABEL)), UI_TIMEOUT_MS)?.click()
+    device.wait(Until.hasObject(PREVIEW_SHOWN), RENDER_TIMEOUT_MS)
+    device.wait(Until.findObject(By.text(COACH_DISMISS_LABEL)), UI_TIMEOUT_MS)?.click()
+    device.waitForIdle()
+    check(!device.hasObject(By.text(COACH_DISMISS_LABEL))) { "editor coach marks still showing" }
+    check(inEditor()) { "editor not reached after first-run setup" }
+    awaitPreview()
+}
+
+private fun MacrobenchmarkScope.inEditor(): Boolean =
+    device.hasObject(By.text(EXPORT_LABEL)) || device.hasObject(By.desc(EXPORT_LABEL))
+
 internal fun MacrobenchmarkScope.awaitPreview() {
     check(device.wait(Until.hasObject(PREVIEW_SHOWN), RENDER_TIMEOUT_MS)) {
         "no film preview within ${RENDER_TIMEOUT_MS} ms"
@@ -48,7 +72,7 @@ internal fun MacrobenchmarkScope.awaitPreview() {
  * menu and close it again. Never presses Export: on this app that writes to the gallery.
  */
 internal fun MacrobenchmarkScope.editJourney() {
-    check(device.hasObject(By.text(EXPORT_LABEL))) { "not in the editor" }
+    check(inEditor()) { "not in the editor" }
     findOnRail(GRAIN_LABEL).click()
     val slider = device.wait(
         Until.findObject(By.clazz("android.widget.SeekBar")),

@@ -29,6 +29,8 @@ class StartupBenchmark {
     fun coldOpenPhotoBaselineProfile() =
         coldOpenPhoto(CompilationMode.Partial(BaselineProfileMode.Require))
 
+    private var firstRun = true
+
     private fun coldOpenPhoto(compilation: CompilationMode) {
         val image = SampleImage.uri()
         rule.measureRepeated(
@@ -37,7 +39,14 @@ class StartupBenchmark {
             compilationMode = compilation,
             startupMode = StartupMode.COLD,
             iterations = 10,
-            setupBlock = { pressHome() },
+            setupBlock = {
+                // Unmeasured: COLD kills the process again before measuring.
+                if (firstRun) {
+                    dismissFirstRun(image)
+                    firstRun = false
+                }
+                pressHome()
+            },
         ) {
             openInEditor(image)
         }

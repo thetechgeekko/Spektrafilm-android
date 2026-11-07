@@ -23,6 +23,8 @@ class BaselineProfileGenerator {
     fun generate() {
         val image = SampleImage.uri()
         rule.collect(packageName = TARGET_PACKAGE, includeInStartupProfile = true) {
+            dismissFirstRun(image)
+            killProcess()
             pressHome()
             openInEditor(image)
             editJourney()
