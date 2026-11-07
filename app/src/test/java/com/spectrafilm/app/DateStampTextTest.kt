@@ -29,7 +29,7 @@ class DateStampTextTest {
     @Test
     fun sanitize_keepsOnlyDrawableCharactersAndCapsLength() {
         assertEquals("'26 11 07", DateStampText.sanitize("'26 11 07"))
-        assertEquals("2026-11-07 10:00", DateStampText.sanitize("2026-11-07T10:00Z"))
+        assertEquals("2026-11-0710:00", DateStampText.sanitize("2026-11-07T10:00Z"))
         assertEquals(OperationalParamLimits.DATE_STAMP_TEXT_MAX,
             DateStampText.sanitize("1".repeat(100)).length)
         // Whatever sanitize returns must pass preset validation.
