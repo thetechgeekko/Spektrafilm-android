@@ -22,6 +22,11 @@ private const val COACH_GOT_IT = "Got it"
 private const val STAGE_FILM = "Film"
 private const val TOOL_GRAIN = "Grain"
 private const val EXPORT = "Export"
+// Content description of the rendered film preview (editor_preview_desc_film). It replaces
+// the empty-canvas description once the first preview is on screen, the same moment the
+// editor's ReportDrawnWhen reports fully drawn.
+private const val FILM_PREVIEW_DESC_PREFIX = "Film preview."
+private const val PREVIEW_WAIT_MS = 30_000L
 
 private fun label(text: String): BySelector = By.text(text)
 private fun described(text: String): BySelector = By.desc(text)
@@ -41,11 +46,22 @@ fun MacrobenchmarkScope.dismissFirstRun() {
     device.waitForIdle()
 }
 
-/** Cold start ends when the editor reports fully drawn (first rendered preview). */
+/**
+ * Wait for the first rendered preview, so the editor has reported fully drawn (TTFD) before
+ * a measured block ends. Fails if it never appears.
+ */
+fun MacrobenchmarkScope.awaitFirstPreview() {
+    checkNotNull(
+        device.wait(Until.findObject(By.descStartsWith(FILM_PREVIEW_DESC_PREFIX)), PREVIEW_WAIT_MS),
+    ) { "First preview not drawn within ${PREVIEW_WAIT_MS} ms" }
+}
+
+/** Launch to the editor with its first preview drawn and any first-run screens dismissed. */
 fun MacrobenchmarkScope.startEditor() {
     pressHome()
     startActivityAndWait()
     dismissFirstRun()
+    awaitFirstPreview()
 }
 
 private val SLIDER: BySelector = By.clazz("android.widget.SeekBar")

@@ -1,7 +1,7 @@
 /*
  * Spektrafilm for Android — Baseline + Startup Profile generator (#459). GPLv3.
  *
- * ./gradlew :app:generateReleaseBaselineProfile records this on a connected device and
+ * ./gradlew :app:generateBaselineProfile records this on a connected device and
  * writes the profiles into app/src/main/generated/baselineProfiles/.
  */
 package com.spectrafilm.baselineprofile
@@ -18,11 +18,20 @@ class BaselineProfileGenerator {
     @get:Rule
     val rule = BaselineProfileRule()
 
+    /** Cold start to the first preview: also the Startup Profile used for DEX layout. */
     @Test
-    fun generate() = rule.collect(
+    fun startup() = rule.collect(
         packageName = TARGET_PACKAGE,
-        // Also emit startup-prof.txt for DEX layout (dexLayoutOptimization in :app).
         includeInStartupProfile = true,
+    ) {
+        startEditor()
+    }
+
+    /** The edit journey: Baseline Profile only, so the startup DEX stays small. */
+    @Test
+    fun edit() = rule.collect(
+        packageName = TARGET_PACKAGE,
+        includeInStartupProfile = false,
     ) {
         startEditor()
         editJourney()

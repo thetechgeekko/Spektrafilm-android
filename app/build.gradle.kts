@@ -161,7 +161,7 @@ android {
 }
 
 // Baseline Profile consumer (#459). Profiles are recorded on a device by
-// `./gradlew :app:generateReleaseBaselineProfile` and committed under
+// `./gradlew :app:generateBaselineProfile` and committed under
 // src/main/generated/baselineProfiles/; a normal build never needs a device.
 baselineProfile {
     mergeIntoMain = true

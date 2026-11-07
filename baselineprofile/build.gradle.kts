@@ -1,7 +1,7 @@
 // Spektrafilm for Android — Baseline Profile generator and Macrobenchmarks (#459). GPLv3.
 //
 // Record the profiles on a connected device (API 28+; no root needed on API 33+):
-//   ./gradlew :app:generateReleaseBaselineProfile
+//   ./gradlew :app:generateBaselineProfile
 // which writes app/src/main/generated/baselineProfiles/{baseline,startup}-prof.txt.
 // Measure startup and frames on the benchmarkRelease build:
 //   ./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest

@@ -53,6 +53,8 @@ class EditorBenchmarks {
     ) {
         pressHome()
         startActivityAndWait()
+        // Keep the trace open until the editor reports fully drawn, or TTFD is not reported.
+        awaitFirstPreview()
     }
 
     private fun edit(mode: CompilationMode) = rule.measureRepeated(
