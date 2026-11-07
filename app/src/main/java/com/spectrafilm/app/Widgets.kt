@@ -515,7 +515,7 @@ fun EnhancedSlider(
         // through the callback instead of moving the state itself, so the parameter stays
         // the single source of truth (as with the value-based overload).
         val clamped = value.coerceIn(range.start, range.endInclusive)
-        val sliderState = remember(range, steps) { SliderState(value = clamped, steps = steps, valueRange = range) }
+        val sliderState = remember(range, steps) { SliderState(clamped, steps, range) }
         if (sliderState.value != clamped) sliderState.value = clamped
         Slider(
             state = sliderState,
