@@ -18,9 +18,9 @@ class RawFallbackRoutingTest {
 
     @Test
     fun precisionMetadataFallsBackToThePlatformDecoder() {
-        // The real file: a well-formed uncompressed DNG 1.4 whose RATIONAL BlackLevel is
-        // 6406/100 = 64.06. The native preflight refuses it above open_buffer(); before this
-        // there was no second route, so the editor drew nothing and said nothing.
+        // Metadata the native route cannot model still gets the platform decoder rather than
+        // a dead editor. (The original trigger, a fractional RATIONAL BlackLevel such as
+        // GCam's 6406/100, is now rounded natively and no longer lands here: #271.)
         assertTrue(rawFallbackSupported(DecodeStatus.PRECISION_METADATA))
     }
 

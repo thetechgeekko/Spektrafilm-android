@@ -107,6 +107,13 @@ enum class RawLevelProvenance(val code: Int) {
     DNG_METADATA(1),
     DECLARED_BITS_DEFAULT(2),
     DECODER_METADATA(3),
+
+    /**
+     * DNG BlackLevel was a fractional RATIONAL (shipping GCam/Pixel DNGs write values such
+     * as 6406/100) and was rounded to the nearest integer code before decode, so the
+     * published black levels are within 0.5 DN of the file's.
+     */
+    DNG_METADATA_ROUNDED(4),
     ;
 
     internal companion object {

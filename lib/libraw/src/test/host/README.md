@@ -37,7 +37,9 @@ perturbed adjacent codes. Uniform black/white controls cancel demosaic/color-mat
 banded controls assert the expected `(code-black)/(white-black)` response,
 monotonicity, exact repeat float32 digests, descriptor provenance/layout/HDR
 fields, CFAPlaneColor/CFALayout defaults and hostile selected-IFD cases, every
-SHORT/LONG/RATIONAL BlackLevel value and bound, patterned BlackLevel,
+SHORT/LONG/RATIONAL BlackLevel value and bound, fractional RATIONAL
+BlackLevel rounded to its nearest code (bit-identical to the integral twin,
+buffer and fd paths, `DngMetadataRounded` provenance; #271), patterned BlackLevel,
 default-level absence, preview isolation, actual proxy reduction,
 malformed-level rejection, overflow-before-allocation, and cancellation. Its
 dependency pre-open matrix covers 17 hostile classes in both TIFF byte orders

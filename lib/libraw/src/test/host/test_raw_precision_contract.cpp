@@ -1633,7 +1633,10 @@ int main() {
       ordered32(&bytes, valuesAt + 4U, denominator);
       return bytes;
     };
-    const auto rationalLinearBlack = [&](bool makeSecondFractional) {
+    // Channel 1 carries secondNumerator/secondDenominator when they are set;
+    // otherwise every channel is the fixture's integral black as n/1.
+    const auto rationalLinearBlack = [&](std::uint32_t secondNumerator,
+                                         std::uint32_t secondDenominator) {
       std::vector<std::uint8_t> bytes =
           sfraw::hosttest::makePrecisionUncompressedDng(typedLinear);
       const std::size_t entry = findIfdEntry(bytes, 0xc61aU);
@@ -1644,12 +1647,11 @@ int main() {
       ordered32(&bytes, entry + 4U, 3U);
       ordered32(&bytes, entry + 8U, valuesAt);
       for (std::size_t channel = 0U; channel < 3U; ++channel) {
-        const std::uint32_t numerator = makeSecondFractional && channel == 1U
-            ? 161U
+        const bool override = secondDenominator != 0U && channel == 1U;
+        const std::uint32_t numerator = override
+            ? secondNumerator
             : typedLinear.blackPattern[channel];
-        const std::uint32_t denominator = makeSecondFractional && channel == 1U
-            ? 2U
-            : 1U;
+        const std::uint32_t denominator = override ? secondDenominator : 1U;
         ordered32(&bytes, valuesAt + channel * 8U, numerator);
         ordered32(&bytes, valuesAt + channel * 8U + 4U, denominator);
       }
@@ -1666,32 +1668,106 @@ int main() {
           describe(integralRational));
 
     const spectrafilm::DecodeResult integralRationalArray =
-        decodeBytes(rationalLinearBlack(false));
+        decodeBytes(rationalLinearBlack(0U, 0U));
     check(integralRationalArray.ok,
           endian +
               " external RATIONAL LinearRaw BlackLevel checks all channels",
           describe(integralRationalArray));
 
-    const spectrafilm::DecodeResult fractionalRationalArray =
-        decodeBytes(rationalLinearBlack(true));
-    check(!fractionalRationalArray.ok &&
-              fractionalRationalArray.status ==
+    // #271: shipping GCam/Pixel DNGs carry fractional RATIONAL BlackLevel
+    // (e.g. 6406/100). Such a value is rounded to its nearest integer code
+    // before LibRaw open, so the decode must be bit-identical to the same file
+    // written with that integer, and must say so through its provenance.
+    const auto sameDecode = [](const spectrafilm::DecodeResult& a,
+                               const spectrafilm::DecodeResult& b) {
+      return a.ok && b.ok && a.width == b.width && a.height == b.height &&
+          a.rgb.size() == b.rgb.size() &&
+          std::memcmp(a.rgb.data(), b.rgb.data(),
+                      a.rgb.size() * sizeof(float)) == 0;
+    };
+    const auto roundedProvenance = [](const spectrafilm::DecodeResult& r) {
+      return r.descriptor.blackLevelProvenance ==
+          spectrafilm::RawLevelProvenance::DngMetadataRounded;
+    };
+    {
+      const spectrafilm::DecodeResult fractionalRationalArray =
+          decodeBytes(rationalLinearBlack(161U, 2U));  // 80.5 -> 81
+      const spectrafilm::DecodeResult integralEquivalent =
+          decodeBytes(rationalLinearBlack(81U, 1U));
+      check(sameDecode(fractionalRationalArray, integralEquivalent) &&
+                roundedProvenance(fractionalRationalArray) &&
+                effectiveBlack(fractionalRationalArray.descriptor, 1U, 0U) ==
+                    81U &&
+                integralEquivalent.descriptor.blackLevelProvenance ==
+                    spectrafilm::RawLevelProvenance::DngMetadata,
+            endian +
+                " fractional non-first LinearRaw BlackLevel decodes as its nearest integer",
+            describe(fractionalRationalArray));
+    }
+    const struct {
+      std::uint32_t numerator;
+      std::uint32_t denominator;
+      std::uint32_t rounded;
+      const char* label;
+    } fractionalCases[] = {
+        {6406U, 100U, 64U, "6406/100 (a shipping GCam value)"},
+        {65U, 2U, 33U, "65/2 (a half rounds up)"},
+        {127U, 2U, 64U, "127/2"},
+        {40951U, 10U, 4095U, "40951/10 (rounds onto the declared maximum)"},
+    };
+    for (const auto& fractional : fractionalCases) {
+      const spectrafilm::DecodeResult fractionalResult = decodeBytes(
+          rationalBlack(fractional.numerator, fractional.denominator));
+      const spectrafilm::DecodeResult integralResult =
+          decodeBytes(rationalBlack(fractional.rounded, 1U));
+      const bool atWhite = fractional.rounded >= numeric.whiteLevel;
+      if (atWhite) {
+        // Rounded onto the white level: no code span remains, which the
+        // integral route already rejects. Both must fail the same way.
+        check(!fractionalResult.ok && !integralResult.ok &&
+                  fractionalResult.status == integralResult.status,
+              endian + " fractional RATIONAL BlackLevel " + fractional.label +
+                  " fails exactly like its integral twin",
+              describe(fractionalResult));
+        continue;
+      }
+      check(sameDecode(fractionalResult, integralResult) &&
+                roundedProvenance(fractionalResult) &&
+                effectiveBlack(fractionalResult.descriptor, 0U, 0U) ==
+                    fractional.rounded,
+            endian + " fractional RATIONAL BlackLevel " + fractional.label +
+                " decodes bit-identically to its nearest integer",
+            describe(fractionalResult));
+      // The fd path owns its bytes and rewrites them in place; it must agree.
+      const std::vector<std::uint8_t> bytes =
+          rationalBlack(fractional.numerator, fractional.denominator);
+      FILE* file = std::tmpfile();
+      bool fdAgrees = false;
+      if (file != nullptr &&
+          std::fwrite(bytes.data(), 1U, bytes.size(), file) == bytes.size() &&
+          std::fflush(file) == 0 && std::fseek(file, 0, SEEK_SET) == 0) {
+        const spectrafilm::DecodeResult fdResult =
+            spectrafilm::decodeFromFd(fileno(file), {});
+        fdAgrees = sameDecode(fdResult, fractionalResult) &&
+            roundedProvenance(fdResult);
+      }
+      if (file != nullptr) std::fclose(file);
+      check(fdAgrees,
+            endian + " fd path rounds fractional BlackLevel " +
+                fractional.label + " like the buffer path",
+            describe(fractionalResult));
+    }
+
+    const spectrafilm::DecodeResult fractionalAboveRange =
+        decodeBytes(rationalBlack(40961U, 10U));  // 4096.1 -> 4096 > 4095
+    check(!fractionalAboveRange.ok &&
+              fractionalAboveRange.status ==
                   spectrafilm::SFRAW_ERR_PRECISION_METADATA &&
-              fractionalRationalArray.error.find("before LibRaw open") !=
+              fractionalAboveRange.error.find("before LibRaw open") !=
                   std::string::npos,
           endian +
-              " external RATIONAL BlackLevel rejects a fractional non-first channel",
-          describe(fractionalRationalArray));
-
-    const spectrafilm::DecodeResult fractionalRational =
-        decodeBytes(rationalBlack(65U, 2U));
-    check(!fractionalRational.ok &&
-              fractionalRational.status ==
-                  spectrafilm::SFRAW_ERR_PRECISION_METADATA &&
-              fractionalRational.error.find("before LibRaw open") !=
-                  std::string::npos,
-          endian + " fractional RATIONAL BlackLevel fails before LibRaw open",
-          describe(fractionalRational));
+              " fractional RATIONAL BlackLevel rounding above range fails before LibRaw open",
+          describe(fractionalAboveRange));
 
     const spectrafilm::DecodeResult zeroDenominator =
         decodeBytes(rationalBlack(64U, 0U));
