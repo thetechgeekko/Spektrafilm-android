@@ -1,8 +1,27 @@
 # CI workflows
 
-## `ci.yml`
+CI is kept deliberately small to save Actions minutes. Pull requests are
+reviewed by Codex rather than CI by default.
 
-Runs on every push, PR, and manual dispatch. Eight jobs:
+## `build.yml` (everyday CI)
+
+One job, modelled on adityawarmanfw/rawr's `debug.yml`: `:app:testDebugUnitTest`
+plus `:app:assembleDebug`, with the debug APK uploaded as a 14-day artifact.
+When the change touches `engine/spektra-core/src/main/cpp/`, the engine assets
+or `tools/parity/`, the same job also runs `tools/parity/run_engine_parity.sh`
+(the 44-case `-O2` leg).
+
+| Trigger | Runs? |
+|---------|-------|
+| Push to `main` (every merge) | Yes |
+| Pull request | Only with the **`run-ci`** label (the fallback when Codex review is unavailable); later pushes to a labelled PR re-run it |
+| Manual dispatch | Yes, parity always included |
+
+## `ci.yml` (full gate set, manual only)
+
+Runs only on manual dispatch (Actions → CI → Run workflow, or
+`gh workflow run ci.yml --ref <branch>`). Use it for risky native, LibRaw or
+release-path changes. Eight jobs:
 
 | Job | What it gates |
 |-----|---------------|
@@ -13,7 +32,7 @@ Runs on every push, PR, and manual dispatch. Eight jobs:
 | **parity** | The standalone `.spkvec` comparator (`tools/parity`) builds via CMake and its `spkvec_selftest` ctest passes. |
 | **python-lint** | The parity harness, LibRaw compliance tools, release-policy tools, documentation consistency checker, and offline Wayfinder frontier tests byte-compile; deterministic bundle/relink, app-SPDX, exact gate-attestation, immutable-publisher, workflow-structure, repository-fact, common Markdown link/image, preset-inventory, and ticket-routing tests pass. |
 | **android** | JDK 21. Runs debug JVM unit tests for `:app`, `:lib:libraw`, `:engine:spektra-core`, `:lib:pngwriter`, and `:lib:tiffwriter`, then `:app:lint` (a hard gate — `abortOnError = true`, baseline at `app/lint-baseline.xml`), assembles the debug APK with the NDK-built `.so` for all 3 ABIs, and verifies the bundled app GPL/NOTICE plus the three pinned LibRaw legal assets. It extracts the generated source/relink bundle and performs a real NDK 27 x86_64 recipient build, checking SONAME, JNI/recipient marker exports, and every `PT_LOAD` alignment. Finally it runs the APK **16 KB-page gate** (`zipalign -c -P 16 4` plus `readelf -lW`). It uploads the app APK and standalone engine boundary Android-test APK as separate exact artifacts. |
-| **android-emulator** | Required on every CI run. A single pinned emulator action installs the standalone engine Android-test APK on the same API 35 x86_64 `google_apis` route used by release, runs the actual `EngineBoundaryInstrumentation` JNI bridge suite, and requires both `ENGINE_BOUNDARY_INSTRUMENTATION: PASS` and `INSTRUMENTATION_CODE: -1`. It then installs/launches the app and rejects fatal Java/JNI/native failures. |
+| **android-emulator** | Required on every `ci.yml` run. A single pinned emulator action installs the standalone engine Android-test APK on the same API 35 x86_64 `google_apis` route used by release, runs the actual `EngineBoundaryInstrumentation` JNI bridge suite, and requires both `ENGINE_BOUNDARY_INSTRUMENTATION: PASS` and `INSTRUMENTATION_CODE: -1`. It then installs/launches the app and rejects fatal Java/JNI/native failures. |
 
 `bash tools/release/run_native_safety.sh --list` prints the locked eight
 ASan+UBSan plus six TSan inventory. Running it without arguments compiles and

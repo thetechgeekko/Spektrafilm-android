@@ -1,0 +1,112 @@
+# Lean everyday CI, modelled on adityawarmanfw/rawr's single debug.yml job.
+#
+# When it runs (kept small to save Actions minutes):
+#   • push to main            — every merge gets one debug build.
+#   • pull request            — ONLY when the PR carries the `run-ci` label.
+#                               PRs are normally reviewed by Codex instead of CI;
+#                               add the label as the fallback when that review
+#                               is unavailable. Later pushes to a labelled PR
+#                               re-run it; remove the label to stop.
+#   • manual dispatch         — Actions → Build → Run workflow (any branch).
+#
+# What it runs: one job — JVM unit tests + debug APK for all ABIs, uploaded as
+# an artifact. The host engine-parity suite (-O2 leg, 44 cases, same table as
+# ci.yml) runs in the same job ONLY when the change touches the engine or the
+# parity tooling, or on manual dispatch, so app-only changes stay cheap.
+#
+# The exhaustive gate set (sanitizers, LibRaw fuzzing, both parity legs, lint,
+# 16 KB alignment, emulator) lives in ci.yml, which is manual-dispatch only,
+# and release.yml reruns the release-critical gates before any signing.
+#
+# Film modeling powered by spektrafilm (GPLv3).
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (unit tests + debug APK)
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'run-ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect engine changes
+        id: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) from="$BASE" ;;
+            push) from="$BEFORE" ;;
+            *) from="" ;;
+          esac
+          # Manual dispatch, a new ref, or an unreachable base (force push):
+          # run the suite rather than guess.
+          if [ -z "$from" ] || ! git cat-file -e "$from^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$from" HEAD \
+              | grep -qE '^(engine/spektra-core/src/main/cpp/|engine/spektra-core/src/main/assets/|tools/parity/)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Engine parity (-O2, 44 cases)
+        if: steps.engine.outputs.changed == 'true'
+        run: bash tools/parity/run_engine_parity.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Explicit packages: the action's default list names the removed `tools`
+      # package. Pins match app/build.gradle.kts and CLAUDE.md.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools ndk;28.2.13676358 cmake;3.22.1 build-tools;36.0.0 platforms;android-37.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spektrafilm-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
