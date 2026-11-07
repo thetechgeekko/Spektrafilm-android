@@ -43,4 +43,12 @@ class CropAspectTest {
             assertTrue("$it no longer reachable", it in reachable)
         }
     }
+
+    @Test
+    fun panoramicFilmGatesAreOffered() {
+        assertEquals(65f / 24f, CropAspect.R65_24.ratio(portrait = false)!!, 1e-6f)
+        assertEquals("24:65", CropAspect.R65_24.label(portrait = true))
+        assertEquals(3f, CropAspect.R3_1.ratio(portrait = false)!!, 1e-6f)
+        assertEquals("1:3", CropAspect.R3_1.label(portrait = true))
+    }
 }
