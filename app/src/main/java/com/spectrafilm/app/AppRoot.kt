@@ -34,7 +34,10 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.navigation3.runtime.NavKey
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import kotlinx.coroutines.CancellationException
@@ -477,6 +480,12 @@ internal fun MainActivity.AppRoot(
         NavDisplay(
             backStack = backStack,
             onBack = { pop() },
+            // Saveable state per entry (the default) plus a ViewModelStore per entry, so a
+            // ViewModel created inside an entry lives exactly as long as that entry (#453).
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
             transitionSpec = {
                 (slideInHorizontally(slideSpec) { it / 5 } + fadeIn(fadeSpec)) togetherWith fadeOut(fadeSpec)
             },
@@ -590,6 +599,10 @@ internal fun MainActivity.AppRoot(
                     }
                 }
                 entry<LibraryRoute> {
+                    // Scoped to this entry (#453): cleared when the Library is popped. Its
+                    // writes run on the app's process scope, so leaving never cuts one short.
+                    val libraryVm: LibraryViewModel =
+                        viewModel(factory = appContainer.viewModelFactory)
                     LibraryDestination(
                         vm = libraryVm,
                         currentUri = activeRestoration.source.uri,

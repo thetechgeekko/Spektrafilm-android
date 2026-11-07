@@ -24,12 +24,14 @@ import com.spectrafilm.libraw.RawFormats
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -145,7 +147,23 @@ internal class LibraryViewModel(
     private val pasteLook: suspend (sourceUri: String, targets: List<LookSync.Target>) -> LookSync.Result =
         { _, _ -> LookSync.Result(0, 0, noSource = true) },
     private val sidecars: LibrarySidecarPort = LibrarySidecarPort.None,
+    /**
+     * Where writes run: look pastes, sidecar saves and grant releases (#453). The Library's
+     * ViewModel is scoped to its navigation entry and cleared when the user leaves, which
+     * must not cut a write to their photos short, so the app passes a process-wide scope.
+     * Folder listings run there as well, since a pending save waits on one. Null (tests)
+     * keeps them on [viewModelScope].
+     */
+    writes: CoroutineScope? = null,
+    /**
+     * Held by every look paste and sidecar save for its whole run, across every Library entry
+     * (#453). A write outlives the entry that started it, so a save asked for from a later
+     * entry waits here for earlier writes and then lists the folder again, choosing frames
+     * and sidecar pairings from what those writes left. The app passes one process-wide lock.
+     */
+    private val writeLock: Mutex = Mutex(),
 ) : ViewModel() {
+    private val writeScope: CoroutineScope = writes ?: viewModelScope
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
     private var lastRows: List<LibraryEntry> = emptyList()
 
@@ -170,39 +188,52 @@ internal class LibraryViewModel(
         if (_sidecarSave.value is LibrarySidecarState.Running) return
         val picked = only
         _sidecarSave.value = LibrarySidecarState.Running
-        viewModelScope.launch {
-            // A paste in flight changes which frames are edited and what their edits are:
-            // save after it and the listing refresh it triggers, not from the state before.
-            _paste.first { it !is LibraryPasteState.Running }
-            // A refresh can start while we wait on another: settle on the latest one.
-            while (true) {
-                val job = loadJob ?: break
-                job.join()
-                if (loadJob === job) break
-            }
-            // The folder may have changed while we waited. Frames, rows and destination must
-            // all come from the folder the save was asked for, or nothing is written.
-            if (store.treeUri != tree || _state.value.treeUri != tree || lastRowsTree != tree) {
-                _sidecarSave.value = LibrarySidecarState.Idle
-                return@launch
-            }
-            val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
-            val rows = lastRows
-            val result = try {
-                withContext(io) { sidecars.save(tree, frames, rows) }
-            } catch (cancelled: CancellationException) {
-                _sidecarSave.value = LibrarySidecarState.Idle
-                throw cancelled
-            } catch (failure: Exception) {
-                Diag.w("sidecar save failed: ${failure.message}")
-                LibrarySidecars.SaveResult(saved = 0, failed = frames.size)
-            }
-            saveAfterGrant = if (result.needsWriteAccess) picked else null
-            _sidecarSave.value = LibrarySidecarState.Done(result)
-            if (result.saved > 0) {
-                _selection.value = emptySet()
+        writeScope.launch {
+            // An earlier paste changes which frames are edited, and an earlier save creates the
+            // sidecars this one must update rather than create again. Either may belong to an
+            // earlier Library entry whose refresh never reaches this one, and may have finished
+            // before this save was asked for, so always list the folder again under the lock
+            // before choosing frames and rows.
+            writeLock.lock()
+            try {
                 refresh()
+                saveLocked(tree, picked)
+            } finally {
+                writeLock.unlock()
             }
+        }
+    }
+
+    /** The save itself, under [writeLock]: frames and rows from the settled listing. */
+    private suspend fun saveLocked(tree: String, picked: Set<String>) {
+        // A refresh can start while we wait on another: settle on the latest one.
+        while (true) {
+            val job = loadJob ?: break
+            job.join()
+            if (loadJob === job) break
+        }
+        // The folder may have changed while we waited. Frames, rows and destination must
+        // all come from the folder the save was asked for, or nothing is written.
+        if (store.treeUri != tree || _state.value.treeUri != tree || lastRowsTree != tree) {
+            _sidecarSave.value = LibrarySidecarState.Idle
+            return
+        }
+        val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
+        val rows = lastRows
+        val result = try {
+            withContext(io) { sidecars.save(tree, frames, rows) }
+        } catch (cancelled: CancellationException) {
+            _sidecarSave.value = LibrarySidecarState.Idle
+            throw cancelled
+        } catch (failure: Exception) {
+            Diag.w("sidecar save failed: ${failure.message}")
+            LibrarySidecars.SaveResult(saved = 0, failed = frames.size)
+        }
+        saveAfterGrant = if (result.needsWriteAccess) picked else null
+        _sidecarSave.value = LibrarySidecarState.Done(result)
+        if (result.saved > 0) {
+            _selection.value = emptySet()
+            refresh()
         }
     }
 
@@ -252,19 +283,21 @@ internal class LibraryViewModel(
         }
         if (targets.isEmpty()) return
         _paste.value = LibraryPasteState.Running(targets.size)
-        viewModelScope.launch {
-            val result = try {
-                withContext(io) { pasteLook(sourceUri, targets) }
-            } catch (cancelled: CancellationException) {
-                _paste.value = LibraryPasteState.Idle
-                throw cancelled
-            } catch (failure: Exception) {
-                Diag.w("library paste failed: ${failure.message}")
-                LookSync.Result(applied = 0, skipped = targets.size)
+        writeScope.launch {
+            writeLock.withLock {
+                val result = try {
+                    withContext(io) { pasteLook(sourceUri, targets) }
+                } catch (cancelled: CancellationException) {
+                    _paste.value = LibraryPasteState.Idle
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Diag.w("library paste failed: ${failure.message}")
+                    LookSync.Result(applied = 0, skipped = targets.size)
+                }
+                if (!result.noSource) _selection.value = emptySet()
+                _paste.value = LibraryPasteState.Done(result)
+                if (result.applied > 0) refresh()
             }
-            if (!result.noSource) _selection.value = emptySet()
-            _paste.value = LibraryPasteState.Done(result)
-            if (result.applied > 0) refresh()
         }
     }
 
@@ -281,7 +314,10 @@ internal class LibraryViewModel(
         }
         loadJob?.cancel()
         _state.value = _state.value.copy(treeUri = tree, loading = true, unreadable = false)
-        loadJob = viewModelScope.launch {
+        // On the write scope too: a paste or save that outlives this entry joins this
+        // listing to pick its frames, and a listing cancelled with the entry would hand it
+        // the stale one (#503 review). A finished listing on a cleared entry is harmless.
+        loadJob = writeScope.launch {
             val result = try {
                 withContext(io) {
                     val listed = lister.list(tree)
@@ -341,7 +377,7 @@ internal class LibraryViewModel(
         if (retry != null && treeUri == previous) {
             // The user chose the folder again to let Spektrafilm write to it: finish the save
             // they asked for, once the listing it needs has landed.
-            viewModelScope.launch {
+            writeScope.launch {
                 loadJob?.join()
                 saveEditsBesidePhotos(retry)
             }
@@ -359,7 +395,7 @@ internal class LibraryViewModel(
     }
 
     private fun releaseUnused() {
-        viewModelScope.launch(io) {
+        writeScope.launch(io) {
             runCatching { store.releaseUnusedGrants() }
                 .onFailure { Diag.w("library grant release failed: ${it.message}") }
         }

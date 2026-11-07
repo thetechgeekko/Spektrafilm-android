@@ -20,7 +20,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * Background dispatchers for the process-owned singletons (export, checkpoint, source and recipe
@@ -52,6 +55,15 @@ internal class AppContainer(context: Context) {
     private val app: Context = context.applicationContext
 
     val dispatchers = AppDispatchers()
+
+    /**
+     * Process-lifetime scope for user-requested writes that must finish even after the screen
+     * that started them is gone (a Library paste or sidecar save when its entry is popped).
+     */
+    val processScope: CoroutineScope = CoroutineScope(SupervisorJob() + dispatchers.mainImmediate)
+
+    /** Serializes Library pastes and sidecar saves across every Library entry (see [LibraryViewModel]). */
+    private val libraryWriteLock = Mutex()
 
     /** The settings store (Preferences DataStore since #276). */
     val settings: AppSettings get() = AppSettings.from(app)
@@ -104,6 +116,8 @@ internal class AppContainer(context: Context) {
                 LibraryViewModel.androidEditLookup(app),
                 LibraryViewModel.androidLookPaste(recipes),
                 LibraryViewModel.androidSidecars(app, recipes),
+                writes = processScope,
+                writeLock = libraryWriteLock,
             )
         },
     )
