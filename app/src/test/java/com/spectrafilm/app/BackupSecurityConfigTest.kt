@@ -17,6 +17,7 @@ class BackupSecurityConfigTest {
     private val allowedBackupData = setOf(
         "sharedpref:spectrafilm_settings.xml",
         "file:datastore/back_exit_hint.preferences_pb",
+        "file:datastore/spectrafilm_settings.preferences_pb",
     )
     private val neverEligibleData = setOf(
         "sharedpref:source_access_v1.xml",

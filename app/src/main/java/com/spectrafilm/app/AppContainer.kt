@@ -53,7 +53,7 @@ internal class AppContainer(context: Context) {
 
     val dispatchers = AppDispatchers()
 
-    /** The settings store (SharedPreferences-backed today; #276 moves it to DataStore). */
+    /** The settings store (Preferences DataStore since #276). */
     val settings: AppSettings get() = AppSettings.from(app)
 
     /**
