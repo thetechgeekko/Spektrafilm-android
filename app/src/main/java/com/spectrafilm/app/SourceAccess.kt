@@ -261,11 +261,13 @@ internal class AndroidUriGrantBackend(context: Context) : UriGrantBackend {
         hasPersistedRead(uri)
     }.getOrDefault(false)
 
+    // A Library folder may also hold write (for sidecars): release the whole grant, or a
+    // write-only grant would outlive the folder, invisible to [persistedReads].
     override fun releasePersistableRead(uri: String) {
-        resolver.releasePersistableUriPermission(
-            Uri.parse(uri),
-            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-        )
+        val held = resolver.persistedUriPermissions.firstOrNull { it.uri.toString() == uri }
+        var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        if (held?.isWritePermission == true) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        resolver.releasePersistableUriPermission(Uri.parse(uri), flags)
     }
 
     override fun hasPersistedRead(uri: String): Boolean = resolver.persistedUriPermissions.any {
@@ -274,7 +276,8 @@ internal class AndroidUriGrantBackend(context: Context) : UriGrantBackend {
 
     override fun persistedReads(): Set<String> = resolver.persistedUriPermissions
         .asSequence()
-        .filter { it.isReadPermission }
+        // Write-only leftovers count too, so reconciliation can release them.
+        .filter { it.isReadPermission || it.isWritePermission }
         .map { it.uri.toString() }
         .toSet()
 

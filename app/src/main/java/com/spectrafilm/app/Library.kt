@@ -156,6 +156,9 @@ internal class LibraryViewModel(
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
     private var lastRows: List<LibraryEntry> = emptyList()
 
+    /** The folder [lastRows] was listed from. */
+    private var lastRowsTree: String? = null
+
     private val _sidecarSave = MutableStateFlow<LibrarySidecarState>(LibrarySidecarState.Idle)
     val sidecarSave: StateFlow<LibrarySidecarState> = _sidecarSave.asStateFlow()
 
@@ -178,7 +181,18 @@ internal class LibraryViewModel(
             // A paste in flight changes which frames are edited and what their edits are:
             // save after it and the listing refresh it triggers, not from the state before.
             _paste.first { it !is LibraryPasteState.Running }
-            loadJob?.join()
+            // A refresh can start while we wait on another: settle on the latest one.
+            while (true) {
+                val job = loadJob ?: break
+                job.join()
+                if (loadJob === job) break
+            }
+            // The folder may have changed while we waited. Frames, rows and destination must
+            // all come from the folder the save was asked for, or nothing is written.
+            if (store.treeUri != tree || _state.value.treeUri != tree || lastRowsTree != tree) {
+                _sidecarSave.value = LibrarySidecarState.Idle
+                return@launch
+            }
             val frames = _state.value.entries.filter { it.edited && (picked.isEmpty() || it.documentUri in picked) }
             val rows = lastRows
             val result = try {
@@ -293,7 +307,10 @@ internal class LibraryViewModel(
             }
             if (store.treeUri != tree) return@launch
             val listing = result?.first
-            if (result != null) lastRows = result.second
+            if (result != null) {
+                lastRows = result.second
+                lastRowsTree = tree
+            }
             if (listing != null) {
                 // A frame that left the folder cannot stay selected.
                 val present = listing.rows.mapTo(HashSet()) { it.documentUri }

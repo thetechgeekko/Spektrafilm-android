@@ -1,6 +1,7 @@
 package com.spectrafilm.app
 
 import android.os.Looper
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -258,5 +259,29 @@ class LibraryViewModelTest {
         sidecars.writable = true
         model.chooseFolder("tree://a"); idle()
         assertEquals(listOf("a.jpg"), sidecars.saves.single())
+    }
+
+    @Test fun aSaveWaitingWhileTheFolderChangesWritesNothing() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2))
+        val sidecars = FakeSidecars(writable = true)
+        val store = FakeStore("tree://a")
+        val pasted = CompletableDeferred<LookSync.Result>()
+        val model = LibraryViewModel(
+            store,
+            { LibraryListing("A", rows) },
+            Dispatchers.Unconfined,
+            { true },
+            { _, _ -> pasted.await() },
+            sidecars,
+        )
+        model.refresh(); idle()
+        model.toggleSelected("content://doc/b.jpg")
+        model.pasteLookFrom("content://doc/a.jpg"); idle()
+        // The save waits for the paste; meanwhile the user moves to another folder.
+        model.saveEditsBesidePhotos(); idle()
+        model.chooseFolder("tree://b"); idle()
+        pasted.complete(LookSync.Result(applied = 1, skipped = 0)); idle()
+        assertTrue(sidecars.saves.isEmpty())
+        assertEquals(LibrarySidecarState.Idle, model.sidecarSave.value)
     }
 }
