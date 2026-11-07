@@ -77,4 +77,19 @@ double scene_latitude_gain(const SceneLatitudeParams& p, const double rgb[3]) {
     return std::exp2(d);
 }
 
+void scene_latitude_apply(const SceneLatitudeParams& p, double rgb[3]) {
+    const double k = scene_latitude_gain(p, rgb);
+    if (k == 1.0) return;
+    if (k > 1.0) {
+        rgb[0] *= k;
+        rgb[1] *= k;
+        rgb[2] *= k;
+        return;
+    }
+    // Same Y as the gain (finite and positive, or the gain would be 1).
+    const double y = kYr * std::max(rgb[0], 0.0) + kYg * std::max(rgb[1], 0.0) +
+                     kYb * std::max(rgb[2], 0.0);
+    for (int c = 0; c < 3; ++c) rgb[c] = k * (y + k * (rgb[c] - y));
+}
+
 }  // namespace spk

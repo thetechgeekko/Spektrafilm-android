@@ -133,8 +133,8 @@ class ParamsState {
     // Opt-in scene latitude (engine model/scene_latitude.h): compresses a scene wider than the
     // film into it before exposure. Off by default, so existing edits render unchanged.
     var sceneLatitudeActive by mutableStateOf(false)
-    var sceneLatitudeHighlightKnee by mutableFloatStateOf(2f)
-    var sceneLatitudeHighlightRoom by mutableFloatStateOf(3f)
+    var sceneLatitudeHighlightKnee by mutableFloatStateOf(1f)
+    var sceneLatitudeHighlightRoom by mutableFloatStateOf(2.5f)
     var sceneLatitudeShadowKnee by mutableFloatStateOf(-2f)
     var sceneLatitudeShadowRoom by mutableFloatStateOf(0f)
     var sceneLatitudeRolloff by mutableFloatStateOf(2f)

@@ -13,9 +13,10 @@
  *   B. The stop mapping itself: identity in the core, slope 1 at the knee,
  *      strictly monotone, bounded by knee +/- room, shadow lift bounded.
  *   C. WIRING POSITION. With latitude on, the film_log_raw tap equals the tap of
- *      latitude OFF on an input pre-scaled by an INDEPENDENT in-test
- *      reimplementation of the gain -- i.e. the stage is a per-pixel scalar gain
- *      on the scene-linear RGB right before the film is exposed, and nothing else.
+ *      latitude OFF on an input pre-mapped by an INDEPENDENT in-test
+ *      reimplementation (gain, plus the highlight desaturation) -- i.e. the stage
+ *      is a per-pixel map of the scene-linear RGB right before the film is
+ *      exposed, and nothing else.
  *   D. It does something: highlights above the knee move down, shadows below
  *      the shadow knee move up, ordering is preserved.
  *   E. MEMO KEYS: on a warm engine off -> on -> off, `on` differs and the second
@@ -187,6 +188,29 @@ void unit_mapping() {
     expect(spk::scene_latitude_gain(s, nanpx) == 1.0 &&
                spk::scene_latitude_gain(s, zero) == 1.0,
            "B degenerate pixels pass through");
+    // Highlight desaturation: luminance is exactly k*Y, chroma shrinks by k
+    // relative to it, a neutral stays neutral, and shadows are a pure gain.
+    {
+        double px[3] = {40.0, 20.0, 60.0};
+        const double y0 = 0.2880402 * px[0] + 0.7118741 * px[1] + 0.0000857 * px[2];
+        const double k = spk::scene_latitude_gain(s, px);
+        spk::scene_latitude_apply(s, px);
+        const double y1 = 0.2880402 * px[0] + 0.7118741 * px[1] + 0.0000857 * px[2];
+        const double sat0 = (60.0 - 20.0) / y0, sat1 = (px[2] - px[1]) / y1;
+        expect(k < 1.0 && std::fabs(y1 - k * y0) < 1e-9 * y0 &&
+                   std::fabs(sat1 - k * sat0) < 1e-9,
+               "B highlight: luminance k*Y, saturation scaled by k");
+        double grey[3] = {30.0, 30.0, 30.0};
+        spk::scene_latitude_apply(s, grey);
+        expect(grey[0] == grey[1] && grey[1] == grey[2] && grey[0] < 30.0,
+               "B highlight: neutral stays neutral");
+        double dark[3] = {0.002, 0.001, 0.003};
+        const double kd = spk::scene_latitude_gain(s, dark);
+        const double d0 = dark[0], d2 = dark[2];
+        spk::scene_latitude_apply(s, dark);
+        expect(kd > 1.0 && dark[0] == d0 * kd && dark[2] == d2 * kd,
+               "B shadows: pure gain, chromaticity kept");
+    }
     spk::SceneLatitudeParams lift = s;
     lift.shadow_room = 20.0; lift.max_lift = 2.0;
     const double dark[3] = {1e-9, 1e-9, 1e-9};
@@ -260,7 +284,14 @@ int main(int argc, char** argv) {
         const double k = ref_gain(p_on, &rgb32[i]);
         if (k < 1.0) ++n_hi;
         if (k > 1.0) ++n_lo;
-        for (int c = 0; c < 3; ++c) scaled[i + c] = float(double(rgb32[i + c]) * k);
+        // Highlights (k < 1) also lose chroma: RGB' = k * (Y + k * (RGB - Y)).
+        const double y = 0.2880402 * std::max(double(rgb32[i]), 0.0) +
+                         0.7118741 * std::max(double(rgb32[i + 1]), 0.0) +
+                         0.0000857 * std::max(double(rgb32[i + 2]), 0.0);
+        for (int c = 0; c < 3; ++c) {
+            const double v = double(rgb32[i + c]);
+            scaled[i + c] = float(k < 1.0 ? k * (y + k * (v - y)) : v * k);
+        }
     }
     std::printf("C pixels compressed: %zu highlights, %zu shadows of %zu\n", n_hi, n_lo,
                 n / 3);
@@ -272,13 +303,20 @@ int main(int argc, char** argv) {
     const double dr = max_abs_diff(r_on.rgb.data(), r_ref.rgb.data(), n);
     std::printf("C on vs off(pre-scaled): film_log_raw max_abs=%.3e final_rgb max_abs=%.3e\n",
                 dl, dr);
-    expect(dl <= 1e-5 && dr <= 1e-4, "C stage == per-pixel gain before the film");
+    expect(dl <= 1e-5 && dr <= 1e-4,
+           "C stage == per-pixel gain (+ highlight desaturation) before the film");
 
     // ---- D: direction ----
+    // Total film exposure (sum of the three layers' linear raw). Not one layer:
+    // the highlight desaturation can raise a single layer while the total falls.
+    auto exposure = [](const std::vector<float>& lr, size_t i) {
+        return std::pow(10.0, double(lr[i])) + std::pow(10.0, double(lr[i + 1])) +
+               std::pow(10.0, double(lr[i + 2]));
+    };
     size_t down = 0, up = 0, wrong = 0;
     for (size_t i = 0; i < n; i += 3) {
         const double k = ref_gain(p_on, &rgb32[i]);
-        const double d = double(r_on.logr[i + 1]) - double(r_def.logr[i + 1]);
+        const double d = exposure(r_on.logr, i) - exposure(r_def.logr, i);
         if (k < 1.0) { if (d < 0.0) ++down; else if (d > 0.0) ++wrong; }
         if (k > 1.0) { if (d > 0.0) ++up; else if (d < 0.0) ++wrong; }
     }
