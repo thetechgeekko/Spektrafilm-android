@@ -147,6 +147,8 @@
     <string name="screen_settings_theme">テーマ</string>
     <string name="screen_settings_dynamic_color">Material Youのカラー</string>
     <string name="screen_settings_dynamic_color_note">壁紙から配色を作ります。オフにすると内蔵の配色を使います。</string>
+    <string name="screen_settings_full_screen">全画面で編集</string>
+    <string name="screen_settings_full_screen_note">編集中はステータスバーとナビゲーションバーを隠します。端からスワイプすると表示されます。</string>
     <string name="screen_settings_language">アプリの言語</string>
     <string name="screen_settings_language_note">現在：%1$s。このアプリのシステム言語設定を開きます。</string>
     <string name="screen_settings_render_defaults">レンダリングの既定値</string>

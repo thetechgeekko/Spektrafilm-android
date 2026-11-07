@@ -8,6 +8,7 @@
 package com.spectrafilm.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -16,6 +17,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -409,6 +412,7 @@ internal fun SourcePanel(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ExportMask(
     done: Boolean,
@@ -446,10 +450,13 @@ internal fun ExportMask(
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             } else {
+                // One of the app's two hero moments (Pen board, "Export saved"): a morphing
+                // shape with a check and an emphasized display headline.
+                ExportSavedHero()
                 Text(
                     stringResource(R.string.editor_export_saved),
                     color = SpektraBrand.onCanvas,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.displaySmallEmphasized,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.semantics {
                         heading()
@@ -461,11 +468,54 @@ internal fun ExportMask(
                     color = SpektraBrand.onCanvas.copy(alpha = 0.8f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Button(onClick = onDismiss) { Text(stringResource(R.string.editor_export_done)) }
+                // Share leads when there is something to share; Done is then the quiet way out.
                 if (onShare != null) {
-                    Button(onClick = onShare) { Text(stringResource(R.string.editor_export_share)) }
+                    Button(onClick = onShare, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.editor_export_share))
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.editor_export_done), color = SpektraBrand.onCanvas)
+                    }
+                } else {
+                    Button(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.editor_export_done))
+                    }
                 }
             }
         }
+    }
+}
+
+/** The "Export saved" hero: a cookie shape springs in and settles, holding a check. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExportSavedHero() {
+    val motion = MaterialTheme.motionScheme
+    val scale = remember { Animatable(0.4f) }
+    val spin = remember { Animatable(-90f) }
+    LaunchedEffect(Unit) {
+        launch { scale.animateTo(1f, motion.slowSpatialSpec()) }
+        spin.animateTo(0f, motion.slowSpatialSpec())
+    }
+    Box(
+        Modifier
+            .size(112.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                rotationZ = spin.value
+            }
+            .clip(MaterialShapes.Cookie9Sided.toShape())
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            SpectraIcons.Check,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier
+                .size(48.dp)
+                .graphicsLayer { rotationZ = -spin.value },
+        )
     }
 }

@@ -73,15 +73,17 @@ internal fun MainActivity.EditorTopBar(
                     listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
                 )
             )
-            .windowInsetsPadding(WindowInsets.statusBars),
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
     ) {
-        Row(
+        // In full screen the bar moves up into the status strip; CutoutAwareBarRow keeps every
+        // button clear of the front camera (Pen board, "Camera cutout" row).
+        CutoutAwareBarRow(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
                 .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+            navigation = {
             // The Library is the way back to the shoot: the bar's navigation slot.
             TextTooltip(stringResource(R.string.library_title)) {
                 PressIconButton(onClick = onOpenLibrary) {
@@ -91,17 +93,19 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
+            },
+            title = {
             // The kit's editor title: what this photo is being made with, the film stock,
             // with the print paper under it. Says something the photo itself cannot.
             Column(
                 Modifier
-                    .weight(1f)
                     .padding(horizontal = 4.dp)
                     .semantics(mergeDescendants = true) { heading() },
             ) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleMedium,
+                    // Emphasized title (M3 Expressive type): the one heading on the editor.
+                    style = MaterialTheme.typography.titleMediumEmphasized,
                     color = SpektraBrand.onCanvas,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -116,6 +120,8 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
+            },
+            actions = {
             if (wide) {
                 TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
                     PressIconButton(onClick = onCrop, enabled = hasPhoto) {
@@ -216,7 +222,8 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
-        }
+            },
+        )
     }
 }
 

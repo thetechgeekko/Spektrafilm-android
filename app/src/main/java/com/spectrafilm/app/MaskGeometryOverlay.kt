@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -104,7 +103,7 @@ fun MaskGeometryOverlay(
         Modifier
             .fillMaxSize()
             .background(SpektraBrand.scrim.copy(alpha = 0.92f))
-            .statusBarsPadding()
+            .topBarSafePadding()
             .navigationBarsPadding(),
     ) {
         Column(Modifier.fillMaxSize()) {

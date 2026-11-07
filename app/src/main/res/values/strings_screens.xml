@@ -168,6 +168,8 @@
     <string name="screen_settings_theme">Theme</string>
     <string name="screen_settings_dynamic_color">Material You colour</string>
     <string name="screen_settings_dynamic_color_note">Derive the palette from your wallpaper. Off uses the built-in scheme.</string>
+    <string name="screen_settings_full_screen">Full screen editing</string>
+    <string name="screen_settings_full_screen_note">Hide the status and navigation bars while editing. Swipe in from an edge to show them.</string>
     <string name="screen_settings_language">App language</string>
     <string name="screen_settings_language_note">Current: %1$s. Opens the system language setting for this app.</string>
     <string name="screen_settings_render_defaults">Render defaults</string>

@@ -18,6 +18,9 @@
 package com.spectrafilm.app
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -51,6 +54,7 @@ internal fun stageTapTarget(stage: Stage, active: Category?): Category? =
  * the name as tooltip and accessibility label. Tapping the open stage folds the panel away,
  * leaving the photo and this row.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun StageRow(
     active: Category?,
@@ -86,6 +90,8 @@ internal fun StageRow(
                 ) {
                     Row(
                         Modifier
+                            // The chosen stage grows to fit its label (fast spatial spring).
+                            .animateContentSize(MaterialTheme.motionScheme.fastSpatialSpec())
                             .heightIn(min = 48.dp)
                             .widthIn(min = 48.dp)
                             .clip(CircleShape)
@@ -110,7 +116,7 @@ internal fun StageRow(
                         if (selected) {
                             Text(
                                 label,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MaterialTheme.typography.labelLargeEmphasized,
                                 color = colors.onSecondaryContainer,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -129,6 +135,7 @@ internal fun StageRow(
  * option segments). Scrolls sideways when a stage has more groups, or longer translated
  * labels, than fit; a group holding edits carries a small badge.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ToolRow(
     tools: List<Category>,
@@ -151,6 +158,10 @@ internal fun ToolRow(
         tools.forEach { cat ->
             val selected = cat == active
             val modified = cat in dirty
+            // M3 Expressive toggle: round when off, square (16dp corners) when chosen.
+            val corner by animateDpAsState(
+                if (selected) 16.dp else 26.dp, MaterialTheme.motionScheme.fastSpatialSpec(), label = "toolShape",
+            )
             Column(
                 Modifier
                     .widthIn(min = 64.dp)
@@ -165,7 +176,7 @@ internal fun ToolRow(
                     Box(
                         Modifier
                             .size(52.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(corner))
                             .background(if (selected) colors.secondaryContainer else colors.surfaceContainerLowest),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -271,13 +282,16 @@ internal fun ToolList(
  * filled "Export" button). Hidden, not disabled, when there is nothing to export; shows the
  * loading indicator while an export runs and ignores taps.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ExportButton(exporting: Boolean, onClick: () -> Unit) {
     val label = stringResource(R.string.editor_action_export)
     val busyLabel = stringResource(R.string.editor_exporting)
     TextTooltip(stringResource(R.string.editor_tooltip_export_gallery)) {
+        // Press morph: full round at rest, squarer while pressed (M3 Expressive button shapes).
         Button(
             onClick = { if (!exporting) onClick() },
+            shapes = ButtonDefaults.shapes(),
             contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
             modifier = Modifier
                 .padding(horizontal = 4.dp)

@@ -147,6 +147,8 @@
     <string name="screen_settings_theme">Thème</string>
     <string name="screen_settings_dynamic_color">Couleurs Material You</string>
     <string name="screen_settings_dynamic_color_note">Déduit la palette de votre fond d’écran. Désactivé, le schéma intégré est utilisé.</string>
+    <string name="screen_settings_full_screen">Retouche en plein écran</string>
+    <string name="screen_settings_full_screen_note">Masque les barres d’état et de navigation pendant la retouche. Balayez depuis un bord pour les afficher.</string>
     <string name="screen_settings_language">Langue de l’app</string>
     <string name="screen_settings_language_note">Actuelle : %1$s. Ouvre le réglage de langue du système pour cette app.</string>
     <string name="screen_settings_render_defaults">Rendu par défaut</string>

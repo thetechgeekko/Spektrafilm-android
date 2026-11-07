@@ -14,6 +14,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -116,6 +122,7 @@ private val EditorSavedFallbackSaver = listSaver<EditorSavedFallback, Any>(
 
 /** Adjustment categories shown in the bottom bar; each maps to an existing section. */
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MainActivity.AppRoot(
     settings: AppSettings,
@@ -334,8 +341,10 @@ internal fun MainActivity.AppRoot(
             editorEntryGeneration++
         }
     }
-    fun push(route: NavKey) = navigate { backStack.add(route) }
-    fun pop() = navigate { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
+    // A photo opened from the Library grows into the editor instead of sliding back.
+    var growIntoEditor by remember { mutableStateOf(false) }
+    fun push(route: NavKey) = navigate { growIntoEditor = false; backStack.add(route) }
+    fun pop() = navigate { growIntoEditor = false; if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
     fun popToEditor() = navigate {
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
     }
@@ -440,9 +449,26 @@ internal fun MainActivity.AppRoot(
         // the editor came back on the synthetic demo image). System and predictive back
         // pop one entry; the editor root has nothing below it, so back there stays with
         // the editor's own BackHandlers.
+        // Expressive motion map (Pen board): screens move forward and back with a short slide
+        // and fade on the theme's springs; a photo from the Library grows into the editor.
+        val motion = MaterialTheme.motionScheme
+        val slideSpec = motion.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+        val growSpec = motion.slowSpatialSpec<Float>()
+        val fadeSpec = motion.defaultEffectsSpec<Float>()
         NavDisplay(
             backStack = backStack,
             onBack = { pop() },
+            transitionSpec = {
+                (slideInHorizontally(slideSpec) { it / 5 } + fadeIn(fadeSpec)) togetherWith fadeOut(fadeSpec)
+            },
+            popTransitionSpec = {
+                if (growIntoEditor) {
+                    (scaleIn(growSpec, initialScale = 0.9f) + fadeIn(fadeSpec)) togetherWith fadeOut(fadeSpec)
+                } else {
+                    (slideInHorizontally(slideSpec) { -it / 5 } + fadeIn(fadeSpec)) togetherWith
+                        (slideOutHorizontally(slideSpec) { it / 5 } + fadeOut(fadeSpec))
+                }
+            },
             entryProvider = entryProvider {
                 entry<EditorRoute> {
                     // Only the top entry may show the editor: a predictive-back preview
@@ -458,6 +484,9 @@ internal fun MainActivity.AppRoot(
                             )
                         }
                     } else key(editorCompositionGeneration) {
+                        // Full screen editing: system bars hide while the editor is on top
+                        // and come back on any other screen.
+                        ImmersiveSystemBars(enabled = settingsUi.fullScreenEditing)
                         EditorScreen(
                             settings = settings,
                             restoration = activeRestoration,
@@ -533,6 +562,7 @@ internal fun MainActivity.AppRoot(
                             // consumes it once it is the top entry again. Popping (not
                             // pushing) the editor keeps Back from reopening the Library.
                             incomingImageIntent.value = Intent(Intent.ACTION_VIEW, uri)
+                            growIntoEditor = true
                             popToEditor()
                         },
                     )
@@ -579,7 +609,7 @@ internal fun MainActivity.AppRoot(
  * it as the content scrolls (exit-until-collapsed), as the kit's list and gallery screens
  * do. Content is inset for the system bars by the Scaffold.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun NavScaffold(
     title: String,
@@ -599,7 +629,8 @@ internal fun NavScaffold(
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = floatingActionButton,
         topBar = {
-            MediumTopAppBar(
+            // M3 Expressive flexible bar: larger emphasized title that folds into the bar.
+            MediumFlexibleTopAppBar(
                 title = {
                     Text(
                         title,

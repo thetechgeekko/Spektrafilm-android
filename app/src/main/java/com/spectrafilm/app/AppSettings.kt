@@ -223,6 +223,14 @@ class AppSettings private constructor(
         get() = store[KEY_DYNAMIC_COLOR] ?: true
         set(v) { store.edit { it[KEY_DYNAMIC_COLOR] = v } }
 
+    /**
+     * Full screen editing: the editor hides the status and navigation bars so the photo gets
+     * the whole display; a swipe in from an edge shows them for a moment. Defaults ON.
+     */
+    override var fullScreenEditing: Boolean
+        get() = store[KEY_FULL_SCREEN] ?: true
+        set(v) { store.edit { it[KEY_FULL_SCREEN] = v } }
+
     override var defaultOutputColorSpace: ColorSpace
         get() = runCatching { ColorSpace.valueOf(store[KEY_OUTPUT_CS] ?: ColorSpace.SRGB.name) }
             .getOrDefault(ColorSpace.SRGB)
@@ -328,6 +336,7 @@ class AppSettings private constructor(
         private val KEY_EXPORT_KEEP_GPS = booleanPreferencesKey("export_keep_gps")
         // New in DataStore only; never lived in SharedPreferences, so not in MIGRATED_KEYS.
         private val KEY_EXPORT_BORDER = stringPreferencesKey("export_border")
+        private val KEY_FULL_SCREEN = booleanPreferencesKey("full_screen_editing")
 
         /** Every key that moves from SharedPreferences to DataStore (all but big cores). */
         private val MIGRATED_KEYS: Set<String> = setOf(

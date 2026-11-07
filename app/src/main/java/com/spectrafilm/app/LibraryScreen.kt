@@ -39,7 +39,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -130,6 +134,10 @@ internal fun LibraryDestination(
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) onOpen(uri)
     }
+    // RAW/DNG files are not in the photo picker; the document picker reaches them.
+    val rawPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onOpen(uri)
+    }
     val saved = (sidecarSave as? LibrarySidecarState.Done)?.result
     LaunchedEffect(saved) {
         if (saved == null) return@LaunchedEffect
@@ -173,15 +181,13 @@ internal fun LibraryDestination(
         closeNavigation = selecting,
         floatingActionButton = {
             if (!selecting) {
-                ExtendedFloatingActionButton(
-                    onClick = {
+                LibraryFabMenu(
+                    onOpenPhoto = {
                         photoPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
-                    icon = { Icon(SpectraIcons.OpenPhoto, contentDescription = null) },
-                    text = { Text(stringResource(R.string.editor_open_photo)) },
-                    modifier = Modifier.navigationBarsPadding(),
+                    onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
                 )
             }
         },
@@ -495,5 +501,47 @@ private fun LibraryMessage(title: String, body: String, action: String, onAction
             textAlign = TextAlign.Center,
         )
         Button(onClick = onAction) { Text(action) }
+    }
+}
+
+/**
+ * The Library's M3 Expressive FAB menu: the FAB morphs into a close button and lists the ways
+ * to open a photo (Pen board, "Library · FAB menu"). Back closes the open menu first.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LibraryFabMenu(onOpenPhoto: () -> Unit, onOpenRaw: () -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = expanded) { expanded = false }
+    val openLabel = stringResource(R.string.editor_open_photo)
+    val closeLabel = stringResource(R.string.screen_close)
+    FloatingActionButtonMenu(
+        expanded = expanded,
+        modifier = Modifier.navigationBarsPadding(),
+        button = {
+            ToggleFloatingActionButton(
+                checked = expanded,
+                onCheckedChange = { expanded = it },
+                modifier = Modifier.semantics {
+                    contentDescription = if (expanded) closeLabel else openLabel
+                },
+            ) {
+                Icon(
+                    if (checkedProgress > 0.5f) SpectraIcons.Cancel else SpectraIcons.OpenPhoto,
+                    contentDescription = null,
+                )
+            }
+        },
+    ) {
+        FloatingActionButtonMenuItem(
+            onClick = { expanded = false; onOpenPhoto() },
+            text = { Text(openLabel) },
+            icon = { Icon(SpectraIcons.OpenPhoto, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = { expanded = false; onOpenRaw() },
+            text = { Text(stringResource(R.string.editor_source_open_raw)) },
+            icon = { Icon(SpectraIcons.ImportRaw, contentDescription = null) },
+        )
     }
 }

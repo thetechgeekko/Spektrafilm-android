@@ -11,6 +11,7 @@ class SettingsViewModelTest {
     private class FakeStore : SettingsStore {
         override var theme = ThemeMode.SYSTEM
         override var dynamicColor = true
+        override var fullScreenEditing = true
         override var defaultOutputColorSpace = ColorSpace.SRGB
         override var previewMaxSize = 640
         override var previewMaxSizeAuto = true
@@ -43,6 +44,7 @@ class SettingsViewModelTest {
         val actions = listOf(
             SettingsAction.SetTheme(ThemeMode.LIGHT),
             SettingsAction.SetDynamicColor(false),
+            SettingsAction.SetFullScreenEditing(false),
             SettingsAction.SetOutputColorSpace(ColorSpace.entries.last()),
             SettingsAction.SetPreviewAuto(false),
             SettingsAction.SetPreviewMaxSize(896),
@@ -58,6 +60,7 @@ class SettingsViewModelTest {
         val s = vm.uiState.value
         assertEquals(ThemeMode.LIGHT, s.theme); assertEquals(ThemeMode.LIGHT, store.theme)
         assertFalse(s.dynamicColor); assertFalse(store.dynamicColor)
+        assertFalse(s.fullScreenEditing); assertFalse(store.fullScreenEditing)
         assertEquals(ColorSpace.entries.last(), s.outputColorSpace)
         assertFalse(s.previewAuto); assertEquals(896, s.previewMaxSize); assertEquals(896, store.previewMaxSize)
         assertFalse(s.draftAuto); assertEquals(256, s.draftMaxPx)

@@ -147,6 +147,8 @@
     <string name="screen_settings_theme">Tema</string>
     <string name="screen_settings_dynamic_color">Cores do Material You</string>
     <string name="screen_settings_dynamic_color_note">Usa a paleta do seu plano de fundo. Desligado usa o esquema embutido.</string>
+    <string name="screen_settings_full_screen">Edição em tela cheia</string>
+    <string name="screen_settings_full_screen_note">Oculta as barras de status e de navegação durante a edição. Deslize a partir de uma borda para mostrá-las.</string>
     <string name="screen_settings_language">Idioma do app</string>
     <string name="screen_settings_language_note">Atual: %1$s. Abre a configuração de idioma do sistema para este app.</string>
     <string name="screen_settings_render_defaults">Padrões de renderização</string>

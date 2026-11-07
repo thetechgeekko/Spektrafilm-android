@@ -147,6 +147,8 @@
     <string name="screen_settings_theme">테마</string>
     <string name="screen_settings_dynamic_color">Material You 색상</string>
     <string name="screen_settings_dynamic_color_note">배경화면에서 색상 팔레트를 가져옵니다. 끄면 내장 색 구성을 사용합니다.</string>
+    <string name="screen_settings_full_screen">전체 화면 편집</string>
+    <string name="screen_settings_full_screen_note">편집하는 동안 상태 표시줄과 탐색 메뉴를 숨깁니다. 가장자리에서 스와이프하면 표시됩니다.</string>
     <string name="screen_settings_language">앱 언어</string>
     <string name="screen_settings_language_note">현재: %1$s. 이 앱의 시스템 언어 설정을 엽니다.</string>
     <string name="screen_settings_render_defaults">렌더링 기본값</string>
