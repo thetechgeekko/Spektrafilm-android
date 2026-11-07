@@ -7,7 +7,7 @@
 #   (or: gh workflow run ci.yml --ref <branch>)
 # release.yml independently reruns the release-critical gates before signing.
 #
-# Eight jobs:
+# Nine jobs:
 #   • engine-native   — compiles C++ engine + JNI bridge into libspektra.so (host toolchain)
 #   • native-safety-writers — ordinary + ASan/UBSan + bounded fuzz gates for native
 #                        JSON/profile/neutral-filter hostile input; ASan/UBSan + TSan
@@ -30,6 +30,10 @@
 #                        (NDK-built .so for all ABIs)
 #   • android-emulator— runs actual engine JNI boundary instrumentation on a KVM
 #                        AVD, then smoke-tests MainActivity; required on every run
+#   • export-benchmark — #285: the #177 export harness on the R8 release candidate
+#                        (debug-key signed) on the API 35 AVD; uploads capture.json
+#                        with decode/simulate/grade/encode phases as a TREND artifact
+#                        (emulator numbers are not device numbers, never gated)
 #
 # Film modeling powered by spektrafilm (GPLv3).
 name: CI
@@ -1147,4 +1151,94 @@ jobs:
         with:
           name: emulator-smoke-artifacts
           path: emulator-artifacts/
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Export benchmark trace (#285). Runs the #177 harness (tools/baseline) through
+  # the shipping export path of the R8 release candidate and uploads its
+  # capture.json (phases_ms decode/simulate/grade/encode per format, plus the
+  # engine's stage-timing log) so a perf regression shows as a trend across runs.
+  # TREND ONLY: an x86_64 emulator is not a phone and a 1-run capture is a smoke
+  # capture, which bench_report.py never gates. build-type.txt in the artifact
+  # says so next to the numbers. The candidate is signed with the committed public
+  # debug key, exactly as r8-smoke.yml does; it is a test artifact, never a release.
+  # ---------------------------------------------------------------------------
+  export-benchmark:
+    name: Export benchmark trace (release candidate on API 35 AVD)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install NDK + CMake + build-tools
+        run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0" "platforms;android-37.0"
+
+      - name: Assemble release candidate + its instrumentation APK
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest --stacktrace
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
+
+      - name: Align and debug-sign both APKs
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          echo "6e54a211d3fc65cc07d2609a58f0e4af8beadac90b89a99b9f9f0572eb1fb519  debug.keystore" \
+            | sha256sum -c -
+          mkdir -p bench
+          sign() {
+            local in="$1" out="$2" aligned="$RUNNER_TEMP/$(basename "$2").aligned"
+            "$BT/zipalign" -f -P 16 4 "$in" "$aligned"
+            "$BT/apksigner" sign --ks debug.keystore --ks-key-alias androiddebugkey \
+              --ks-pass pass:android --key-pass pass:android --out "$out" "$aligned"
+            rm -f "$aligned"
+            "$BT/apksigner" verify "$out"
+          }
+          sign app/build/outputs/apk/release/app-release-unsigned.apk bench/app-release-bench.apk
+          sign app/build/outputs/apk/androidTest/release/app-release-androidTest.apk \
+            bench/app-release-androidTest-bench.apk
+
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Same adb warm-up as android-emulator: the emulator refuses the runner's
+      # preinstalled adb otherwise.
+      - name: Update platform-tools and warm the adb server
+        run: |
+          sdkmanager "platform-tools"
+          "$ANDROID_HOME/platform-tools/adb" start-server
+          "$ANDROID_HOME/platform-tools/adb" version
+
+      - name: Run the export benchmark
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swangle -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: bash tools/ci/emulator_bench.sh
+
+      - name: Upload benchmark capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: export-benchmark-capture
+          path: build/ticket177-bench/
           if-no-files-found: warn

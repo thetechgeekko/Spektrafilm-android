@@ -15,6 +15,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Debug
 import android.os.PowerManager
+import android.os.Trace
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.RenderCancellation
 import com.spectrafilm.engine.RenderKind
@@ -288,10 +289,17 @@ object Ticket177BenchmarkChecks {
         val decodeStart = System.currentTimeMillis()
         // #198: split the decode phase into codec, staging copy and conversion.
         val decodeTimings = DecodeTimings()
-        val image = decodeToLinearProPhoto(
-            context, Uri.fromFile(File(sourcePath)), maxEdge = EXPORT_MAX_EDGE_PX,
-            timings = decodeTimings,
-        )
+        // #285: each phase is also a platform trace section, so a Perfetto capture of the
+        // same run lines up with phases_ms without a second clock.
+        Trace.beginSection("spk:decode")
+        val image = try {
+            decodeToLinearProPhoto(
+                context, Uri.fromFile(File(sourcePath)), maxEdge = EXPORT_MAX_EDGE_PX,
+                timings = decodeTimings,
+            )
+        } finally {
+            Trace.endSection()
+        }
         val decodeMs = System.currentTimeMillis() - decodeStart
         val minfltAfterDecode = procStatMinflt()
 
@@ -309,9 +317,14 @@ object Ticket177BenchmarkChecks {
         val published: Uri
         val result = try {
             val simulateStart = System.currentTimeMillis()
-            engine.simulate(image, params, RenderKind.EXPORT, null).also {
-                simulateMs = System.currentTimeMillis() - simulateStart
-                renderId = it.renderId
+            Trace.beginSection("spk:simulate")
+            try {
+                engine.simulate(image, params, RenderKind.EXPORT, null).also {
+                    simulateMs = System.currentTimeMillis() - simulateStart
+                    renderId = it.renderId
+                }
+            } finally {
+                Trace.endSection()
             }
         } finally {
             image.close()
@@ -319,34 +332,45 @@ object Ticket177BenchmarkChecks {
         var totalMs: Long
         try {
             val gradeStart = System.currentTimeMillis()
-            val bitmap = gradedBitmapOrNull(result, descriptor, state)
-            if (bitmap != null && descriptor.metadata.hdrGainMap != null) {
-                attachRenderedGainmap(result, bitmap, descriptor)
+            Trace.beginSection("spk:grade")
+            val bitmap = try {
+                gradedBitmapOrNull(result, descriptor, state).also { b ->
+                    if (b != null && descriptor.metadata.hdrGainMap != null) {
+                        attachRenderedGainmap(result, b, descriptor)
+                    }
+                }
+            } finally {
+                Trace.endSection()
             }
             gradeMs = System.currentTimeMillis() - gradeStart
             val encodeStart = System.currentTimeMillis()
-            published = ExportClock.pinned(PINNED_CLOCK_MILLIS) {
-                runBlocking {
-                    when (descriptor.encoder) {
-                        OutputEncoder.NATIVE_TIFF_UINT16 ->
-                            saveSimResultAsTiff(
-                                context, result, descriptor, displayName = name,
-                                onStaged = adopt,
-                            )
-                        OutputEncoder.NATIVE_PNG16 ->
-                            saveSimResultAsPng16(
-                                context, result, descriptor, displayName = name,
-                                onStaged = adopt,
-                            )
-                        OutputEncoder.ANDROID_BITMAP_JPEG, OutputEncoder.ANDROID_BITMAP_PNG ->
-                            saveToGallery(
-                                context, requireNotNull(bitmap) { "bitmap encoder without bitmap" },
-                                descriptor, jpegQuality = 95, displayName = name,
-                                onStaged = adopt,
-                            )
-                        else -> error("unexpected encoder ${descriptor.encoder} for $formatId")
+            Trace.beginSection("spk:encode")
+            published = try {
+                ExportClock.pinned(PINNED_CLOCK_MILLIS) {
+                    runBlocking {
+                        when (descriptor.encoder) {
+                            OutputEncoder.NATIVE_TIFF_UINT16 ->
+                                saveSimResultAsTiff(
+                                    context, result, descriptor, displayName = name,
+                                    onStaged = adopt,
+                                )
+                            OutputEncoder.NATIVE_PNG16 ->
+                                saveSimResultAsPng16(
+                                    context, result, descriptor, displayName = name,
+                                    onStaged = adopt,
+                                )
+                            OutputEncoder.ANDROID_BITMAP_JPEG, OutputEncoder.ANDROID_BITMAP_PNG ->
+                                saveToGallery(
+                                    context, requireNotNull(bitmap) { "bitmap encoder without bitmap" },
+                                    descriptor, jpegQuality = 95, displayName = name,
+                                    onStaged = adopt,
+                                )
+                            else -> error("unexpected encoder ${descriptor.encoder} for $formatId")
+                        }
                     }
                 }
+            } finally {
+                Trace.endSection()
             }
             encodeMs = System.currentTimeMillis() - encodeStart
             bitmap?.recycle()
