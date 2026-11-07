@@ -4102,6 +4102,9 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     // the transposed frame for the IIR column pass of an X blur.
     auto dispatch = [&](uint32_t set, uint32_t op, uint32_t sigmaMode, uint32_t component,
                         uint32_t width, uint32_t height) {
+        // A failed mid-pass flush leaves no recording command buffer: record
+        // nothing more, and let the pass end report the CPU fallback.
+        if (inPass && !passFlushOk) return;
         push.operation = op;
         push.sigmaMode = sigmaMode;
         push.component = component;
@@ -4121,7 +4124,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
         ++dispatches;
-        if (!inPass || !passFlushOk) return;
+        if (!inPass) return;
         pendingPixels += static_cast<uint64_t>(width) * height;
         if (pendingPixels >= submitPixels) {
             // End this submission and open the next; the pass carries on in it.
