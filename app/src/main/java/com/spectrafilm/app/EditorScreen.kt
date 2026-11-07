@@ -1293,6 +1293,13 @@ internal fun EditorScreen(
         }
         adoptIncomingImage(incoming)
     }
+    // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
+    val pendingShortcut by launcherShortcut
+    LaunchedEffect(pendingShortcut) {
+        if (pendingShortcut != LauncherShortcut.OPEN_PHOTO) return@LaunchedEffect
+        launcherShortcut.value = null
+        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
     val presetImporter = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->

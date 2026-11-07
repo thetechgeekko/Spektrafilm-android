@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts (#467): long-press the app icon. Both open MainActivity with a
+     custom action that LauncherShortcut.fromAction maps to a destination; nothing here
+     carries data, so a shortcut can never adopt a file by itself. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="open_photo"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_open_photo"
+        android:shortcutShortLabel="@string/shortcut_open_photo_short"
+        android:shortcutLongLabel="@string/shortcut_open_photo_long">
+        <intent
+            android:action="com.spectrafilm.app.action.SHORTCUT_OPEN_PHOTO"
+            android:targetPackage="com.spectrafilm.app"
+            android:targetClass="com.spectrafilm.app.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="library"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_library"
+        android:shortcutShortLabel="@string/shortcut_library_short"
+        android:shortcutLongLabel="@string/shortcut_library_long">
+        <intent
+            android:action="com.spectrafilm.app.action.SHORTCUT_LIBRARY"
+            android:targetPackage="com.spectrafilm.app"
+            android:targetClass="com.spectrafilm.app.MainActivity" />
+    </shortcut>
+</shortcuts>

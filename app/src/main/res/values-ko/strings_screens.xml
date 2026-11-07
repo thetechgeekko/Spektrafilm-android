@@ -290,4 +290,10 @@
     <plurals name="library_paste_partial">
         <item quantity="other">%1$d장에 붙여넣었습니다. 편집을 읽을 수 없는 사진 %2$d장은 건너뛰었습니다.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">사진 열기</string>
+    <string name="shortcut_open_photo_long">사진 열기</string>
+    <string name="shortcut_library_short">라이브러리</string>
+    <string name="shortcut_library_long">라이브러리 열기</string>
 </resources>

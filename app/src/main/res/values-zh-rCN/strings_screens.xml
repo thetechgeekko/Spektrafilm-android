@@ -216,4 +216,10 @@
     <string name="screen_curves_axis_log_s">log S</string>
     <string name="screen_curves_axis_log_e">log E</string>
     <string name="screen_curves_axis_density">密度</string>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">打开照片</string>
+    <string name="shortcut_open_photo_long">打开一张照片</string>
+    <string name="shortcut_library_short">图库</string>
+    <string name="shortcut_library_long">打开图库</string>
 </resources>

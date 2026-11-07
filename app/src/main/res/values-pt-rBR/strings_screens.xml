@@ -300,4 +300,10 @@
         <item quantity="many">Visual colado em %1$d. %2$d fotos foram ignoradas porque as edições não puderam ser lidas.</item>
         <item quantity="other">Visual colado em %1$d. %2$d fotos foram ignoradas porque as edições não puderam ser lidas.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">Abrir foto</string>
+    <string name="shortcut_open_photo_long">Abrir uma foto</string>
+    <string name="shortcut_library_short">Biblioteca</string>
+    <string name="shortcut_library_long">Abrir a biblioteca</string>
 </resources>
