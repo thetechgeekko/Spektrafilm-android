@@ -238,10 +238,16 @@ internal object HdrGainMap {
         }
         val sdrY = FloatArray(cells)
         val renderLog = FloatArray(cells * n)
-        val logSum = DoubleArray(n)
-        var maxRatio = 1f
-        var gained = 0
-        for (my in 0 until mapH) {
+        // One map row per task, in parallel: this pass reads every pixel of the export (12-50 MP)
+        // and was ~0.8 s single-threaded on a phone. Every cell is computed by one task in a
+        // fixed order and the per-row tallies are reduced in row order afterwards, so the result
+        // does not depend on the thread count or scheduling.
+        val rowGained = IntArray(mapH)
+        val rowMax = FloatArray(mapH) { 1f }
+        java.util.stream.IntStream.range(0, mapH).parallel().forEach { my ->
+            val logSum = DoubleArray(n)
+            var gainedRow = 0
+            var maxRow = 1f
             val y0 = my * downsample
             val y1 = min(y0 + downsample, height)
             for (mx in 0 until mapW) {
@@ -255,8 +261,8 @@ internal object HdrGainMap {
                     for (x in x0 until x1) {
                         val o = (row + x) * 3
                         val ratio = pixelRatio(rgb, o, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
-                        if (ratio > 1.0001f) gained++
-                        if (ratio > maxRatio) maxRatio = ratio
+                        if (ratio > 1.0001f) gainedRow++
+                        if (ratio > maxRow) maxRow = ratio
                         if (n == 1) {
                             if (ratio > 1f) logSum[0] += ln(ratio.toDouble()) / LOG2
                         } else if (ratio > 1f) {
@@ -275,6 +281,14 @@ internal object HdrGainMap {
                     for (ch in 0 until n) renderLog[c * n + ch] = (logSum[ch] / count).toFloat()
                 }
             }
+            rowGained[my] = gainedRow
+            rowMax[my] = maxRow
+        }
+        var maxRatio = 1f
+        var gained = 0
+        for (my in 0 until mapH) {
+            gained += rowGained[my]
+            if (rowMax[my] > maxRatio) maxRatio = rowMax[my]
         }
 
         // Exposure match on the midtones.
