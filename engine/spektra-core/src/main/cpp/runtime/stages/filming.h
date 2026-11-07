@@ -29,6 +29,8 @@
 #ifndef SPK_RUNTIME_STAGES_FILMING_H
 #define SPK_RUNTIME_STAGES_FILMING_H
 
+#include <vector>
+
 #include "io/npy_lut.h"
 #include "model/gamut_compression.h"
 #include "profiles/profile.h"
@@ -129,8 +131,13 @@ void expose_f32_gain(const float* rgb, double gain, int width, int height,
 // params.spatial_effects is true the coupler inhibitor correction is spatially
 // diffused (Gaussian + exponential tail) using params.pixel_size_um and the
 // 2D geometry; otherwise the correction is pointwise. npix == width*height.
+//
+// `release_log_raw`, when given, must own `log_raw`; it is emptied right after
+// the DIR-coupler step, its last reader, so the grain step runs without it
+// (#300, export peak memory). Output is unaffected.
 void develop(const float* log_raw, int width, int height, const Profile& film,
-             const FilmingParams& params, float* density_cmy_out);
+             const FilmingParams& params, float* density_cmy_out,
+             std::vector<float>* release_log_raw = nullptr);
 
 }  // namespace spk
 
