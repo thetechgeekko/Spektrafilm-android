@@ -580,6 +580,11 @@ internal fun categoryDefaults(category: Category): JSONObject? {
 }
 
 class MainActivity : ComponentActivity() {
+    /** Export sheet + export phase state for the editor (#272). Activity-scoped. */
+    private val exportVm: ExportViewModel by lazy {
+        ViewModelProvider(this, ExportViewModel.factory)[ExportViewModel::class.java]
+    }
+
     /**
      * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
      * live editor observes delivery through onNewIntent (singleTask) as well as a cold
@@ -977,6 +982,7 @@ class MainActivity : ComponentActivity() {
                             onOpenPrintCurves = { id, name ->
                                 curvesPrintId = id; curvesPrintName = name; navigateTo(Screen.CURVES_PRINT)
                             },
+                            onSettingsAction = onSettingsAction,
                         )
                     }
                     Screen.SETTINGS -> NavScaffold(stringResource(R.string.editor_action_settings), onBack = { navigateTo(Screen.EDITOR) }) {
@@ -1088,6 +1094,7 @@ class MainActivity : ComponentActivity() {
         onProfileGroups: (List<DropdownGroup>, List<DropdownGroup>) -> Unit,
         onOpenFilmCurves: (id: String, name: String) -> Unit,
         onOpenPrintCurves: (id: String, name: String) -> Unit,
+        onSettingsAction: (SettingsAction) -> Unit,
     ) {
         val ctx = LocalContext.current.applicationContext
         // Editor-local UI waiters are cancelled when this destination leaves composition. Durable
@@ -1222,20 +1229,10 @@ class MainActivity : ComponentActivity() {
             EditorExportPhase.RECONCILING -> stringResource(R.string.editor_status_prev_export_reconciling)
         }
         var status by remember { mutableStateOf(initialEditorStatus) }
-        var exportPhase by remember { mutableStateOf(initialExportState.phase) }
-        var exportRuntimeRunId by remember { mutableStateOf(initialExportState.runtimeRunId) }
-        // #161: busy/done are DERIVED from the one export state machine, never parallel
-        // flags — the pill can no longer claim "Exporting…" over a finished export, and no
-        // path can forget to clear a boolean the phase transition already implies.
-        val exportInFlight = exportPhase == EditorExportPhase.RUNNING
-        val exportDone = exportPhase == EditorExportPhase.SUCCESS
-        val exportMaskVisible = exportInFlight || exportDone
-        // #162: content URI + OutputDescriptor MIME of the export this session claimed;
-        // drives the result mask's Share action. Session-local by design — a recreated
-        // Activity restoring SUCCESS still shows the result, just without one-tap share.
-        var lastExportShare by remember { mutableStateOf<Pair<String, String>?>(null) }
-        // Lightroom-style export sheet: per-export format / quality / size / colour / name, instead
-        // of the global Settings defaults. Seeded from Settings and remembered back on export.
+        // Lightroom-style export sheet (per-export format / quality / size / colour / name,
+        // seeded from Settings and remembered back on export) and the export phase machine
+        // live in ExportViewModel (#272). Each editor composition seeds it once from the
+        // reconciled checkpoint, so the session document stays the only restoration authority.
         // Process-lifetime, not remember: the FIRST editor restore in a process is a cold start,
         // every later one is an Activity recreation (which keeps the process).
         val coldStart = remember {
@@ -1243,21 +1240,26 @@ class MainActivity : ComponentActivity() {
             editorRestoredInThisProcess = true
             first
         }
-        var showExportSheet by remember {
-            mutableStateOf(
-                exportSheetVisibleAtRestore(
-                    initialExportState.sheetOpen, initialExportState.phase, coldStart,
+        remember {
+            exportVm.restore(
+                initialExportState.copy(
+                    sheetOpen = exportSheetVisibleAtRestore(
+                        initialExportState.sheetOpen, initialExportState.phase, coldStart,
+                    ),
                 ),
             )
+            true
         }
-        var exportOptions by remember {
-            mutableStateOf(
-                initialExportState.options,
-            )
-        }
-        var exportKeepGps by remember {
-            mutableStateOf(initialExportState.keepGps)
-        }
+        // Composition reads (UI and effect keys) use this collected copy. Effects and callbacks
+        // read exportVm.current: the collected copy trails a write by one dispatch, and a
+        // checkpoint taken right after an action must journal the new state.
+        val exportUi by exportVm.uiState.collectAsStateWithLifecycle()
+        // #161: busy/done are DERIVED from the one export state machine, never parallel
+        // flags — the pill can no longer claim "Exporting…" over a finished export, and no
+        // path can forget to clear a boolean the phase transition already implies.
+        val exportInFlight = exportUi.inFlight
+        val exportDone = exportUi.done
+        val exportMaskVisible = exportUi.maskVisible
         var previewTick by remember { mutableIntStateOf(0) }
         val publicationGate = remember { RenderPublicationGate() }
         val previewRevision = remember(previewTick) { publicationGate.nextRevision() }
@@ -1519,8 +1521,8 @@ class MainActivity : ComponentActivity() {
         ) {
             when (val runtime = exportRuntimeState) {
                 ExportRuntimeState.Idle -> {
-                    if (exportPhase == EditorExportPhase.RECONCILING) {
-                        exportRuntimeRunId = null
+                    if (exportVm.current.phase == EditorExportPhase.RECONCILING) {
+                        exportVm.onAction(ExportAction.RuntimeIdle)
                         status = ctx.getString(R.string.editor_status_prev_export_reconciling)
                     }
                 }
@@ -1530,10 +1532,7 @@ class MainActivity : ComponentActivity() {
                     // source and gates only the pixels. A revoked source still remembers its own
                     // in-flight run so process-death recovery can reconcile it (ticket #139).
                     if (!exportRunOwnedByEditor(runtime.sourceIdentity, exportSourceIdentity)) {
-                        if (exportRuntimeRunId == runtime.runId) {
-                            exportPhase = EditorExportPhase.RECONCILING
-                            exportRuntimeRunId = null
-                        }
+                        exportVm.onAction(ExportAction.RunDisowned(runtime.runId))
                         return@LaunchedEffect
                     }
                     if (
@@ -1545,8 +1544,7 @@ class MainActivity : ComponentActivity() {
                             RenderPublicationPriority.EXPORT,
                         )
                     }
-                    exportPhase = EditorExportPhase.RUNNING
-                    exportRuntimeRunId = runtime.runId
+                    exportVm.onAction(ExportAction.Running(runtime.runId))
                     status = ctx.getString(R.string.editor_status_rendering_full)
                     sessionCheckpointAction[0]?.invoke()
                 }
@@ -1557,10 +1555,7 @@ class MainActivity : ComponentActivity() {
                         recycleUnpublishedExport(discarded)
                         lastHandledExportRun = runtime.runId
                         exportPublication = null
-                        if (exportRuntimeRunId == runtime.runId) {
-                            exportRuntimeRunId = null
-                            exportPhase = EditorExportPhase.RECONCILING
-                        }
+                        exportVm.onAction(ExportAction.RunDisowned(runtime.runId))
                         return@LaunchedEffect
                     }
                     if (!recipeReady || sessionCheckpointAction[0] == null) return@LaunchedEffect
@@ -1569,21 +1564,24 @@ class MainActivity : ComponentActivity() {
                     // result. If recreation cancels this coroutine before/during the IO flush, the
                     // process runtime still owns the unclaimed result; if it cancels after the
                     // flush, the replacement UI can restore the terminal marker exactly once.
-                    exportRuntimeRunId = null
                     when (val pending = runtime.outcome) {
                         is ExportTerminalOutcome.Success -> {
-                            exportPhase = EditorExportPhase.SUCCESS
+                            exportVm.onAction(ExportAction.Terminal(EditorExportPhase.SUCCESS))
                             status = ctx.getString(R.string.editor_status_saved_to_gallery)
                         }
                         is ExportTerminalOutcome.Failure -> {
-                            exportPhase = if (pending.cause is ExportReconciliationPendingException) {
-                                EditorExportPhase.RECONCILING
-                            } else {
-                                EditorExportPhase.FAILURE
-                            }
+                            exportVm.onAction(
+                                ExportAction.Terminal(
+                                    if (pending.cause is ExportReconciliationPendingException) {
+                                        EditorExportPhase.RECONCILING
+                                    } else {
+                                        EditorExportPhase.FAILURE
+                                    },
+                                ),
+                            )
                         }
                         is ExportTerminalOutcome.Cancelled -> {
-                            exportPhase = EditorExportPhase.CANCELLED
+                            exportVm.onAction(ExportAction.Terminal(EditorExportPhase.CANCELLED))
                         }
                     }
                     val durableTerminal = awaitDurableEditorSessionCheckpoint(
@@ -1640,7 +1638,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             if (!identityAuthorized) {
-                                exportPhase = EditorExportPhase.RECONCILING
+                                exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
                                 status = ctx.getString(R.string.editor_status_export_stale_source)
                                 sessionCheckpointAction[0]?.invoke()
                                 return@LaunchedEffect
@@ -1655,10 +1653,14 @@ class MainActivity : ComponentActivity() {
                                     "residual=${outcome.totalMs - accounted} total=${outcome.totalMs}",
                             )
                             Diag.i("export format=${outcome.format.name} ok in ${outcome.totalMs}ms")
-                            lastExportShare = outcome.publishedUri?.let { published ->
-                                published to (outcome.publishedMimeType ?: "image/*")
-                            }
-                            exportPhase = EditorExportPhase.SUCCESS
+                            exportVm.onAction(
+                                ExportAction.SetShare(
+                                    outcome.publishedUri?.let { published ->
+                                        published to (outcome.publishedMimeType ?: "image/*")
+                                    },
+                                ),
+                            )
+                            exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.SUCCESS))
                             status = ctx.getString(R.string.editor_status_saved_to_gallery)
                         }
                         is ExportTerminalOutcome.Failure -> {
@@ -1667,7 +1669,7 @@ class MainActivity : ComponentActivity() {
                                     "${outcome.elapsedMs}ms: ${outcome.cause.message}",
                             )
                             if (outcome.cause is ExportReconciliationPendingException) {
-                                exportPhase = EditorExportPhase.RECONCILING
+                                exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.RECONCILING))
                                 status = ctx.getString(R.string.editor_status_export_pending_reconciliation)
                                 Toast.makeText(
                                     ctx,
@@ -1675,7 +1677,7 @@ class MainActivity : ComponentActivity() {
                                     Toast.LENGTH_LONG,
                                 ).show()
                             } else {
-                                exportPhase = EditorExportPhase.FAILURE
+                                exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.FAILURE))
                                 status = ctx.getString(R.string.editor_status_export_failed, outcome.cause.message)
                                 Toast.makeText(
                                     ctx,
@@ -1689,7 +1691,7 @@ class MainActivity : ComponentActivity() {
                                 "export format=${outcome.format.name} cancelled after " +
                                     "${outcome.elapsedMs}ms",
                             )
-                            exportPhase = EditorExportPhase.CANCELLED
+                            exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.CANCELLED))
                             status = ctx.getString(R.string.editor_status_export_cancelled)
                         }
                     }
@@ -1805,13 +1807,7 @@ class MainActivity : ComponentActivity() {
                         selectedPreset = AtomicJsonStore.truncateUtf16Safely(selectedPreset, 96),
                         presetName = AtomicJsonStore.truncateUtf16Safely(presetName, 96),
                     ),
-                    export = EditorExportState(
-                        sheetOpen = showExportSheet,
-                        options = exportOptions,
-                        keepGps = exportKeepGps,
-                        phase = exportPhase,
-                        runtimeRunId = exportRuntimeRunId,
-                ),
+                    export = exportVm.current.toSessionState(),
             )
         }
 
@@ -2106,7 +2102,7 @@ class MainActivity : ComponentActivity() {
         }
         fun mediaLocationPermissionMissing(): Boolean =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                exportKeepGps &&
+                exportVm.current.keepGps &&
                 requiresMediaLocationPermissionForGpsExport(sourceUri) &&
                 ContextCompat.checkSelfPermission(
                     ctx,
@@ -2459,7 +2455,7 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(sourceAuthorizationRequired, sourceKind) {
             if (!sourceAuthorizationRequired) return@LaunchedEffect
-            showExportSheet = false
+            exportVm.onAction(ExportAction.CloseSheet)
             snackbarHost.currentSnackbarData?.dismiss()
             val result = snackbarHost.showSnackbar(
                 message = ctx.getString(R.string.editor_snack_source_expired),
@@ -3316,7 +3312,7 @@ class MainActivity : ComponentActivity() {
         // sourceUri like the digest, so a different photo gets a fresh chance.
         var prerenderOutOfMemory by remember(sourceUri) { mutableStateOf(false) }
         LaunchedEffect(
-            previewTick, sourceRenderAllowed, sourceUri, exportOptions,
+            previewTick, sourceRenderAllowed, sourceUri, exportUi.options,
             state.outputColorSpace, state.savingCctfEncoding,
             // A real export must not compete with a speculative one for the same eight cores:
             // as a key, this cancels any pre-render in flight the moment an export starts.
@@ -3324,13 +3320,13 @@ class MainActivity : ComponentActivity() {
         ) {
             val activeEngine = engine ?: return@LaunchedEffect
             val activeUri = sourceUri ?: return@LaunchedEffect
-            if (!sourceRenderAllowed || exportInFlight) return@LaunchedEffect
+            if (!sourceRenderAllowed || exportVm.current.inFlight) return@LaunchedEffect
             if (prerenderOutOfMemory) return@LaunchedEffect
             delay(RenderPayloads.IDLE_DEBOUNCE_MS)
-            if (previewBusy || exportInFlight) return@LaunchedEffect
+            if (previewBusy || exportVm.current.inFlight) return@LaunchedEffect
             val app = ctx.applicationContext
             val descriptor = runCatching {
-                exportOptions.outputDescriptor(
+                exportVm.current.options.outputDescriptor(
                     state.outputColorSpace, state.savingCctfEncoding, Build.VERSION.SDK_INT,
                 )
             }.getOrNull() ?: return@LaunchedEffect
@@ -3543,11 +3539,7 @@ class MainActivity : ComponentActivity() {
             settingsClipboard,
             selectedPreset,
             presetName,
-            showExportSheet,
-            exportOptions,
-            exportKeepGps,
-            exportPhase,
-            exportRuntimeRunId,
+            exportUi,
         ) {
             if (!recipeReady) return@LaunchedEffect
             delay(250)
@@ -3567,8 +3559,8 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
         fun openExportSheetIfAllowed() {
-            if (engine != null && sourceRenderAllowed && !previewBusy && !exportInFlight) {
-                showExportSheet = true
+            if (engine != null && sourceRenderAllowed && !previewBusy && !exportVm.current.inFlight) {
+                exportVm.onAction(ExportAction.OpenSheet)
             }
         }
         LaunchedEffect(Unit) {
@@ -3577,7 +3569,7 @@ class MainActivity : ComponentActivity() {
                 openExportSheetIfAllowed()
                 Ticket139EditorProbe.publishExportProbeResult(
                     request.sequence,
-                    showExportSheet,
+                    exportVm.current.sheetOpen,
                 )
             }
         }
@@ -4365,12 +4357,10 @@ class MainActivity : ComponentActivity() {
                 ExportMask(
                     done = exportDone,
                     onDismiss = {
-                        lastExportShare = null
-                        exportPhase = EditorExportPhase.IDLE
-                        exportRuntimeRunId = null
+                        exportVm.onAction(ExportAction.DismissResult)
                         checkpointEditorSession()
                     },
-                    onShare = lastExportShare?.let { (published, mime) ->
+                    onShare = exportUi.lastShare?.let { (published, mime) ->
                         {
                             // Content URI + minimum read grant; the exported row's exact
                             // OutputDescriptor MIME — never a filesystem path (#162).
@@ -4402,7 +4392,8 @@ class MainActivity : ComponentActivity() {
             // the exact effect a whole session was spent characterising. Here the
             // dialog resolves while the user is still choosing options and nothing
             // is rendering, and it is still in context — they are about to export.
-            LaunchedEffect(showExportSheet) {
+            LaunchedEffect(exportUi.sheetOpen) {
+                val showExportSheet = exportUi.sheetOpen
                 if (showExportSheet && notificationPermissionMissing()) {
                     runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                 }
@@ -4422,27 +4413,29 @@ class MainActivity : ComponentActivity() {
             // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
             // and again if "Include location (GPS)" is switched on inside the open sheet. When
             // a notification request is about to run, its result callback asks instead.
-            LaunchedEffect(showExportSheet, exportKeepGps) {
-                if (showExportSheet && !notificationPermissionMissing()) {
+            LaunchedEffect(exportUi.sheetOpen, exportUi.keepGps) {
+                if (exportVm.current.sheetOpen && !notificationPermissionMissing()) {
                     requestMediaLocationIfMissing()
                 }
             }
 
             // --- Lightroom-style export options sheet ---
-            if (showExportSheet) {
+            if (exportUi.sheetOpen) {
                 ExportSheet(
-                    options = exportOptions,
-                    onOptionsChange = { exportOptions = it },
+                    options = exportUi.options,
+                    onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
                     colorSpace = state.outputColorSpace,
                     onColorSpaceChange = { state.outputColorSpace = it },
                     cctf = state.savingCctfEncoding,
                     onCctfChange = { state.savingCctfEncoding = it },
-                    keepGps = exportKeepGps,
-                    onKeepGpsChange = { exportKeepGps = it },
-                    onDismiss = { showExportSheet = false },
+                    keepGps = exportUi.keepGps,
+                    onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
+                    onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                     onExport = export@{
+                        val exportOptions = exportVm.current.options
+                        val exportKeepGps = exportVm.current.keepGps
                         if (!sourceRenderAllowed) {
-                            showExportSheet = false
+                            exportVm.onAction(ExportAction.CloseSheet)
                             status = ctx.getString(R.string.editor_status_source_access_required)
                             return@export
                         }
@@ -4486,11 +4479,12 @@ class MainActivity : ComponentActivity() {
                                 Toast.makeText(ctx, status, Toast.LENGTH_LONG).show()
                                 return@export
                             }
-                            showExportSheet = false
-                            // Remember the choices as the new Settings defaults.
-                            settings.exportFormat = exportOptions.format
-                            settings.exportQuality = exportOptions.jpegQuality
-                            settings.exportKeepGps = exportKeepGps
+                            exportVm.onAction(ExportAction.CloseSheet)
+                            // Remember the choices as the new Settings defaults, through the
+                            // settings ViewModel so an open Settings screen shows them at once.
+                            onSettingsAction(SettingsAction.SetExportFormat(exportOptions.format))
+                            onSettingsAction(SettingsAction.SetExportQuality(exportOptions.jpegQuality))
+                            onSettingsAction(SettingsAction.SetKeepGps(exportKeepGps))
                             val fmt = outputDescriptor.format
                             val exportFmt = fmt
                             val baseName = exportBaseName(exportOptions.customName, System.currentTimeMillis())
@@ -4916,8 +4910,7 @@ class MainActivity : ComponentActivity() {
                             if (launched == null) {
                                 status = ctx.getString(R.string.editor_status_export_running)
                             } else {
-                                exportPhase = EditorExportPhase.RUNNING
-                                exportRuntimeRunId = launched
+                                exportVm.onAction(ExportAction.Running(launched))
                                 checkpointEditorSession()
                             }
                         }
