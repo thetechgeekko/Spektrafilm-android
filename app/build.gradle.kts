@@ -180,12 +180,10 @@ androidComponents {
     // resources: without this, realizing all tasks (`./gradlew :app:tasks --all`) fails
     // with "Compose Preview failed for ':app' (variant 'nonMinifiedRelease')".
     beforeVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
-        @Suppress("DEPRECATION")
-        variant.enableUnitTest = true
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
     beforeVariants(selector().withBuildType("benchmarkRelease")) { variant ->
-        @Suppress("DEPRECATION")
-        variant.enableUnitTest = true
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
     onVariants(selector().withBuildType("nonMinifiedRelease")) { variant ->
         variant.signingConfig.setConfig(android.signingConfigs.getByName("debug"))
