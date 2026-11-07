@@ -9,6 +9,7 @@
  */
 package com.spectrafilm.app
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -80,6 +81,9 @@ class SpektraApplication : Application() {
 
 private val fallbackContainerLock = Any()
 
+// AppContainer only ever holds the application context (see its `app` field), which lives
+// as long as the process, so this static reference cannot leak an Activity.
+@SuppressLint("StaticFieldLeak")
 @Volatile private var fallbackContainer: AppContainer? = null
 
 /**
