@@ -679,4 +679,5 @@
     <string name="editor_snack_apply_previous">Apply edits from %1$s?</string>
     <string name="editor_preset_previous_unnamed">the previous photo</string>
     <string name="editor_snack_apply_previous_action">Apply</string>
+    <string name="shortcut_photo_info">Photo info</string>
 </resources>
