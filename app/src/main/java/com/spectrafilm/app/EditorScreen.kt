@@ -115,7 +115,8 @@ internal fun MainActivity.EditorScreen(
     var engine by engineState
     val profilesState = remember { mutableStateOf<List<String>>(emptyList()) }
     var profiles by profilesState
-    val state = remember { ParamsState() }
+    // Owned by EditorViewModel; fresh per composition (see EditorViewModel for why).
+    val state = remember { editorVm.beginSession() }
 
     // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
     // LinearImage across look/film param edits instead of re-running source decode (LibRaw
@@ -776,72 +777,66 @@ internal fun MainActivity.EditorScreen(
         }
     }
 
-    // One-time engine init. The engine is a process-scoped singleton (see
-    // EngineHolder): immutable + thread-safe after construction, so it is reused
-    // across Activity recreations instead of being re-created and leaked on every
-    // configuration change. EngineHolder also handles the AAssetManager-then-extract
-    // fallback. Created off the main thread (asset wiring is heavy on first call).
-    LaunchedEffect(Unit) {
-        withContext(dispatchers.io) {
-            val e = EngineHolder.get(ctx)
-            val list = runCatching { e.listProfiles() }.getOrDefault(emptyList())
-            StockCatalog.stocks(ctx) // warm the catalog cache
-            val presetGroups = runCatching { BuiltInPresets.grouped(ctx) }.getOrDefault(emptyMap())
-            withContext(dispatchers.main) {
-                engine = e
-                profiles = list
-                settings.applyDefaultsTo(state, list)
-                if (list.isNotEmpty()) {
-                    if (state.filmProfile !in list) state.filmProfile = list.first()
-                    if (state.printProfile !in list) state.printProfile = list.first()
-                }
-                val freshDefaults = Presets.toJsonString(state)
-                initialRestoredSession?.takeIf { restored ->
-                    sourceUri?.toString() == restored.source.uri &&
-                        sourceKind == restored.source.kind
-                }?.current?.let { restored ->
-                    val removedProfileReference = initialRestoredSession
-                        ?.referencesUnavailableProfiles(list.toSet()) == true
-                    Presets.decode(AtomicJsonStore.parseObject(restored.paramsJson), state)
-                    // A catalog update can remove a profile named by an older session. Keep the
-                    // source and valid edits, but use a real installed profile and re-baseline
-                    // history instead of leaving an undo branch that cannot render.
-                    var migratedProfile = false
-                    if (list.isNotEmpty() && state.filmProfile !in list) {
-                        state.filmProfile = list.first()
-                        migratedProfile = true
-                    }
-                    if (list.isNotEmpty() && state.printProfile !in list) {
-                        state.printProfile = list.first()
-                        migratedProfile = true
-                    }
-                    toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
-                    if (migratedProfile || removedProfileReference) {
-                        editHistory.clear()
-                        committedSnapshot = null
-                        presetVm.onAction(PresetAction.ClearAmount)
-                        presetVm.onAction(PresetAction.SetClipboard(null))
-                        status = ctx.getString(R.string.editor_status_session_migrated)
-                    }
-                }
-                builtInGroups = presetGroups
-                catalogReady = true
-                refreshPresets()
-                if (
-                    initialSessionRestoreNotice == null &&
-                    status == ctx.getString(R.string.editor_status_initializing)
-                ) {
-                    status = if (initialRestoredSession == null) {
-                        ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
-                    } else {
-                        ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
-                    }
-                }
-                defaultsJson = freshDefaults
-                recipeReady = true
-                previewTick++
+    // One-time engine init. EditorViewModel loads the catalog (process-wide engine from
+    // EngineHolder, profile ids, built-in looks) once, off the main thread. This effect
+    // applies it to the composition: engine, profiles and the checkpoint restore land in the
+    // same main-thread step, so no render can start with un-restored params.
+    val editorCatalog by editorVm.catalog.collectAsStateWithLifecycle()
+    LaunchedEffect(editorCatalog) {
+        val loaded = editorCatalog ?: return@LaunchedEffect
+        val list = loaded.profiles
+        engine = loaded.engine
+        profiles = list
+        settings.applyDefaultsTo(state, list)
+        if (list.isNotEmpty()) {
+            if (state.filmProfile !in list) state.filmProfile = list.first()
+            if (state.printProfile !in list) state.printProfile = list.first()
+        }
+        val freshDefaults = Presets.toJsonString(state)
+        initialRestoredSession?.takeIf { restored ->
+            sourceUri?.toString() == restored.source.uri &&
+                sourceKind == restored.source.kind
+        }?.current?.let { restored ->
+            val removedProfileReference = initialRestoredSession
+                ?.referencesUnavailableProfiles(list.toSet()) == true
+            Presets.decode(AtomicJsonStore.parseObject(restored.paramsJson), state)
+            // A catalog update can remove a profile named by an older session. Keep the
+            // source and valid edits, but use a real installed profile and re-baseline
+            // history instead of leaving an undo branch that cannot render.
+            var migratedProfile = false
+            if (list.isNotEmpty() && state.filmProfile !in list) {
+                state.filmProfile = list.first()
+                migratedProfile = true
+            }
+            if (list.isNotEmpty() && state.printProfile !in list) {
+                state.printProfile = list.first()
+                migratedProfile = true
+            }
+            toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
+            if (migratedProfile || removedProfileReference) {
+                editHistory.clear()
+                committedSnapshot = null
+                presetVm.onAction(PresetAction.ClearAmount)
+                presetVm.onAction(PresetAction.SetClipboard(null))
+                status = ctx.getString(R.string.editor_status_session_migrated)
             }
         }
+        builtInGroups = loaded.builtInGroups
+        catalogReady = true
+        refreshPresets()
+        if (
+            initialSessionRestoreNotice == null &&
+            status == ctx.getString(R.string.editor_status_initializing)
+        ) {
+            status = if (initialRestoredSession == null) {
+                ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
+            } else {
+                ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
+            }
+        }
+        defaultsJson = freshDefaults
+        recipeReady = true
+        previewTick++
     }
 
     // --- Non-destructive recipe: restore-on-open ---

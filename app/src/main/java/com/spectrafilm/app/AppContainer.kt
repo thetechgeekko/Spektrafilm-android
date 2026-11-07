@@ -95,6 +95,7 @@ internal class AppContainer(context: Context) {
         stockPreviewViewModel = {
             StockPreviewViewModel(StockPreviewViewModel.engineRenderer(app), dispatchers.default)
         },
+        editorViewModel = { EditorViewModel(loadEditorCatalog(app, dispatchers.io)) },
         libraryViewModel = {
             LibraryViewModel(
                 LibraryViewModel.androidStore(app, settings),
@@ -121,6 +122,7 @@ internal class AppViewModelFactory(
         error("stock previews not provided")
     },
     private val libraryViewModel: () -> LibraryViewModel = { error("library not provided") },
+    private val editorViewModel: () -> EditorViewModel = { error("editor not provided") },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
         val vm: ViewModel = when (modelClass) {
@@ -130,6 +132,7 @@ internal class AppViewModelFactory(
             ExportPresetViewModel::class.java -> exportPresetViewModel()
             StockPreviewViewModel::class.java -> stockPreviewViewModel()
             LibraryViewModel::class.java -> libraryViewModel()
+            EditorViewModel::class.java -> editorViewModel()
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()
             EditorToolViewModel::class.java -> EditorToolViewModel()

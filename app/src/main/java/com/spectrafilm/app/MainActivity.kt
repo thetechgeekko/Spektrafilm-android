@@ -37,6 +37,11 @@ class MainActivity : ComponentActivity() {
     /** Injected coroutine dispatchers (#277); no `Dispatchers.*` literal in this file. */
     internal val dispatchers: AppDispatchers by lazy { appContainer.dispatchers }
 
+    /** Editing state and the engine/profile catalog for the editor (audit A2). */
+    internal val editorVm: EditorViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewModel::class.java]
+    }
+
     /** Export sheet + export phase state for the editor (#272). Activity-scoped. */
     internal val exportVm: ExportViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
