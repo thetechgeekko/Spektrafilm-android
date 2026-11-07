@@ -81,6 +81,14 @@ class SettingsDataStoreTest {
         assertEquals(80, reopened[quality])
     }
 
+    @Test fun flushWaitsUntilEveryEditIsOnDisk() = runBlocking {
+        val (store, dataStore) = open()
+        assertTrue(store.flush())
+        for (q in 1..20) store.edit { it[quality] = q }
+        assertTrue(store.flush(timeoutMs = 10_000))
+        assertEquals(20, dataStore.data.first()[quality])
+    }
+
     @Test fun removingAKeyRestoresTheDefault() {
         val (store, _) = open()
         store.edit { it[gps] = true }

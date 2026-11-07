@@ -264,6 +264,9 @@ class AppSettings private constructor(
         get() = store[KEY_EXPORT_KEEP_GPS] ?: false
         set(v) { store.edit { it[KEY_EXPORT_KEEP_GPS] = v } }
 
+    /** Waits briefly for queued writes to reach disk; see [SettingsDataStore.flush]. */
+    fun flush(): Boolean = store.flush()
+
     /**
      * Seed a freshly constructed [state] with the saved app defaults. Profile defaults
      * are only applied when they appear in [availableProfiles] (so a stale id can't make

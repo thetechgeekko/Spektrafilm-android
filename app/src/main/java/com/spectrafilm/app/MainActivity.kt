@@ -624,6 +624,16 @@ class MainActivity : ComponentActivity() {
         incomingImageIntent.value = intent
     }
 
+    /**
+     * Settings writes are queued to DataStore (#276). Wait briefly for them here, where
+     * Android used to drain SharedPreferences.apply(), so a setting changed just before the
+     * app is backgrounded and killed is not lost.
+     */
+    override fun onStop() {
+        super.onStop()
+        appContainer.settings.flush()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
