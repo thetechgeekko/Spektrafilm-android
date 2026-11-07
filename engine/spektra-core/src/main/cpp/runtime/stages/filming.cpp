@@ -597,18 +597,15 @@ struct SrcF32Gain {
     }
 };
 
-// Scene latitude (opt-in): wraps any source and scales each loaded triple by
-// its scene_latitude_gain. Only constructed when the stage is engaged.
+// Scene latitude (opt-in): wraps any source and maps each loaded triple with
+// scene_latitude_apply. Only constructed when the stage is engaged.
 template <typename Src>
 struct SrcLatitude {
     const Src& src;
     const SceneLatitudeParams& sl;
     inline void load(int p, double out[3]) const {
         src.load(p, out);
-        const double k = scene_latitude_gain(sl, out);
-        out[0] *= k;
-        out[1] *= k;
-        out[2] *= k;
+        scene_latitude_apply(sl, out);
     }
 };
 

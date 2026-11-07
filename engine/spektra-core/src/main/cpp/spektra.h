@@ -377,8 +377,8 @@ typedef struct {
      * nothing, so every golden stays byte-identical. Idea from SpektraLab
      * RFC-023 (GPL-3.0-or-later); independent implementation. */
     int32_t scene_latitude_active;          /* bool */
-    float scene_latitude_highlight_knee;    /* stops above mid-grey, default 2 */
-    float scene_latitude_highlight_room;    /* stops, 0 = side off, default 3 */
+    float scene_latitude_highlight_knee;    /* stops above mid-grey, default 1 */
+    float scene_latitude_highlight_room;    /* stops, 0 = side off, default 2.5 */
     float scene_latitude_shadow_knee;       /* stops, default -2 */
     float scene_latitude_shadow_room;       /* stops, 0 = side off, default 0 */
     float scene_latitude_rolloff;           /* knee order [1,4], default 2 */
