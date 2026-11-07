@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -183,11 +185,17 @@ internal class ExportPresetViewModel(
     /** Errors for the editor's status line; set by the editor. */
     var onError: (String) -> Unit = {}
 
+    // One operation at a time, including its publication: two quick deletes must not land
+    // their documents out of order and bring a deleted preset back.
+    private val serial = Mutex()
+
     private fun launchIo(block: () -> ExportPresetDocument) {
         viewModelScope.launch {
-            withContext(io) { runCatching(block) }
-                .onSuccess { _uiState.value = it }
-                .onFailure { onError(it.message ?: it.javaClass.simpleName) }
+            serial.withLock {
+                withContext(io) { runCatching(block) }
+                    .onSuccess { _uiState.value = it }
+                    .onFailure { onError(it.message ?: it.javaClass.simpleName) }
+            }
         }
     }
 
