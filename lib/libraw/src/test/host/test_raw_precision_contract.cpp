@@ -1141,6 +1141,52 @@ int main() {
         "preview IFD CFA/precision/HDR tags cannot leak into the selected RAW SubIFD",
         describe(subIfdResult));
 
+  // #271 / Codex: rounded provenance belongs to the selected RAW image only.
+  // Give one IFD a fractional RATIONAL BlackLevel (appended payload) and keep
+  // the other integral; only the RAW SubIFD's own rounding may relabel it.
+  const auto withFractionalBlack = [&](std::size_t ifd, std::uint32_t numerator,
+                                       std::uint32_t denominator) {
+    std::vector<std::uint8_t> bytes = subIfd;
+    const std::size_t entry = findIfdEntryAt(bytes, ifd, 0xc61aU);
+    const std::uint32_t count = ordered32(bytes, entry + 4U);
+    const std::uint32_t valuesAt = static_cast<std::uint32_t>(bytes.size());
+    bytes.resize(bytes.size() + count * 8U, 0U);
+    ordered16(&bytes, entry + 2U, 5U);
+    ordered32(&bytes, entry + 8U, valuesAt);
+    for (std::uint32_t index = 0U; index < count; ++index) {
+      ordered32(&bytes, valuesAt + index * 8U, numerator);
+      ordered32(&bytes, valuesAt + index * 8U + 4U, denominator);
+    }
+    return bytes;
+  };
+  const std::size_t subIfdRoot = ordered32(subIfd, 4U);
+  const std::size_t rawSubIfd =
+      ordered32(subIfd, findIfdEntryAt(subIfd, subIfdRoot, 0x014aU) + 8U);
+  {
+    const std::vector<std::uint8_t> previewFractional =
+        withFractionalBlack(subIfdRoot, 3U, 2U);  // 8-bit preview: 1.5 -> 2
+    const spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
+        previewFractional.data(), previewFractional.size(), {});
+    check(result.ok &&
+              result.descriptor.blackLevelProvenance ==
+                  spectrafilm::RawLevelProvenance::DngMetadata &&
+              effectiveBlack(result.descriptor, 0U, 0U) == 64U,
+          "a fractional preview BlackLevel does not relabel the integral RAW SubIFD",
+          describe(result));
+  }
+  {
+    const std::vector<std::uint8_t> rawFractional =
+        withFractionalBlack(rawSubIfd, 6406U, 100U);  // 64.06 -> 64
+    const spectrafilm::DecodeResult result = spectrafilm::decodeFromBuffer(
+        rawFractional.data(), rawFractional.size(), {});
+    check(result.ok &&
+              result.descriptor.blackLevelProvenance ==
+                  spectrafilm::RawLevelProvenance::DngMetadataRounded &&
+              effectiveBlack(result.descriptor, 0U, 0U) == 64U,
+          "a fractional RAW SubIFD BlackLevel is reported as rounded",
+          describe(result));
+  }
+
   sfraw::hosttest::PrecisionDngOptions duplicateGeometryOptions;
   std::vector<std::uint8_t> duplicateGeometry =
       sfraw::hosttest::makePrecisionUncompressedDng(duplicateGeometryOptions);
