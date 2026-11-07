@@ -111,21 +111,12 @@ internal fun attachRenderedGainmap(
             epsilonSdr = contract.epsilonSdr,
             epsilonHdr = contract.epsilonHdr,
             scene = scene,
+            multichannel = contract.multichannel,
         )
     }.let { map ->
         border?.let { HdrGainMap.padForBorder(map, it) } ?: map
     }
-    val content = Bitmap.createBitmap(computed.width, computed.height, Bitmap.Config.ALPHA_8)
-    // ALPHA_8 rows can be padded, so copy row by row against the bitmap's own stride rather
-    // than assuming rowBytes == width.
-    val rowBytes = content.rowBytes
-    val staging = java.nio.ByteBuffer.allocate(rowBytes * computed.height)
-    for (y in 0 until computed.height) {
-        staging.position(y * rowBytes)
-        staging.put(computed.alpha, y * computed.width, computed.width)
-    }
-    staging.rewind()
-    content.copyPixelsFromBuffer(staging)
+    val content = gainmapContent(computed)
 
     val gainmap = Gainmap(content).apply {
         setRatioMin(contract.ratioMin, contract.ratioMin, contract.ratioMin)
@@ -141,9 +132,41 @@ internal fun attachRenderedGainmap(
         "gainmap ${computed.width}x${computed.height} ratioMax=${computed.ratioMax} " +
             "trueMax=${computed.maxRatio} gained=${computed.gainedPixels} " +
             "headroom=${computed.hasHeadroom} scene=${scene != null} " +
-            "sceneCells=${computed.sceneCells} k=${computed.exposureMatch}",
+            "sceneCells=${computed.sceneCells} k=${computed.exposureMatch} ch=${computed.channels}",
     )
     return computed
+}
+
+/**
+ * The gain map's pixels as a Bitmap: ALPHA_8 for a single shared gain, ARGB_8888 (R,G,B gains,
+ * opaque alpha) for a per-channel map -- the two layouts android.graphics.Gainmap accepts.
+ */
+private fun gainmapContent(computed: HdrGainMap.Result): Bitmap {
+    val w = computed.width
+    val h = computed.height
+    if (computed.channels == 3) {
+        val a = computed.alpha
+        val pixels = IntArray(w * h) { i ->
+            val o = i * 3
+            (0xFF shl 24) or ((a[o].toInt() and 0xFF) shl 16) or
+                ((a[o + 1].toInt() and 0xFF) shl 8) or (a[o + 2].toInt() and 0xFF)
+        }
+        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
+            setPixels(pixels, 0, w, 0, 0, w, h)
+        }
+    }
+    val content = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8)
+    // ALPHA_8 rows can be padded, so copy row by row against the bitmap's own stride rather
+    // than assuming rowBytes == width.
+    val rowBytes = content.rowBytes
+    val staging = java.nio.ByteBuffer.allocate(rowBytes * h)
+    for (y in 0 until h) {
+        staging.position(y * rowBytes)
+        staging.put(computed.alpha, y * w, w)
+    }
+    staging.rewind()
+    content.copyPixelsFromBuffer(staging)
+    return content
 }
 
 /**

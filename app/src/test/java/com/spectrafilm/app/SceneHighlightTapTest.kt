@@ -109,4 +109,34 @@ class SceneHighlightTapTest {
         val r = gain(rgb, 30, 10, SceneLuma(3, 1, floatArrayOf(1f, 1f, 1f)))
         assertEquals(1f, r.ratioMax, 1e-6f)
     }
+
+    private fun glow(scene: SceneLuma, strength: Float = 0.05f, sigma: Float = 2f) =
+        SceneHighlightTap.withHalationGlow(scene, strength, sigma, bounces = 3, decay = 0.5f, renormalize = true)
+
+    @Test
+    fun noHalationLeavesTheSceneTapUntouched() {
+        val scene = SceneLuma(3, 1, floatArrayOf(1f, 9f, 2f))
+        assertTrue(glow(scene, strength = 0f) === scene)
+        assertTrue(glow(scene, sigma = 0f) === scene)
+    }
+
+    @Test
+    fun aRenormalizedGlowLeavesAFlatSceneFlat() {
+        val out = glow(SceneLuma(8, 6, FloatArray(48) { 0.7f }))
+        for (v in out.y) assertEquals(0.7f, v, 1e-5f)
+    }
+
+    @Test
+    fun aBrightSourceSpreadsAHaloThatConservesLight() {
+        val w = 41
+        val h = 41
+        val y = FloatArray(w * h) { 0.1f }
+        val c = 20 * w + 20
+        y[c] = 64f
+        val out = glow(SceneLuma(w, h, y))
+        assertTrue("the source gives some light to its halo", out.y[c] < 64f)
+        assertTrue("a neighbour two cells away is lifted", out.y[c + 2] > 0.13f)
+        assertTrue("the halo fades with distance", out.y[c + 2] > out.y[c + 8])
+        assertEquals(y.sum(), out.y.sum(), y.sum() * 1e-4f)
+    }
 }

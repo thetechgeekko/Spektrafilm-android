@@ -324,7 +324,7 @@ internal fun MainActivity.startEditorExport(
                                 sceneTap = image?.let { source ->
                                     runCatching {
                                         captureSceneTapForGainmap(
-                                            source, exportParams, rendered.width,
+                                            ctx, source, exportParams, rendered.width,
                                             rendered.height, outputDescriptor,
                                         )
                                     }.onFailure {

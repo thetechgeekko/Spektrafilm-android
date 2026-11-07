@@ -5,8 +5,12 @@
 package com.spectrafilm.app
 
 import java.nio.FloatBuffer
+import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
  * Scene-linear luminance of the export's source, sampled on the gain map's grid.
@@ -71,5 +75,119 @@ internal object SceneHighlightTap {
             }
         }
         return SceneLuma(mapW, mapH, out)
+    }
+
+    /**
+     * The film's halation glow applied to the scene tap (rawr's "glow factor").
+     *
+     * Why: the scene tap restores a bright source above SDR white, but the halo the film drew
+     * around it is in the render only, at SDR level. On an HDR display the source then brightens
+     * while its halo does not, so the glow -- the look's signature -- reads weaker than on SDR.
+     * Running the scene through the same back-reflection model the engine uses (model/diffusion.cpp
+     * step 3: a decaying sum of Gaussians at sigma*sqrt(k), added with strength `a`, then divided by
+     * 1+a when renormalized) puts the halo into the scene light too, so it is lifted with its
+     * source. On the low-resolution map grid and on luminance only: an approximation of the
+     * render's halo, not a copy of it, which is all a low-frequency gain map can carry.
+     *
+     * [strength] is the luminance-weighted a_tot, [sigmaCells] the first-bounce sigma in map
+     * cells. Returns [scene] unchanged when there is nothing to apply.
+     */
+    fun withHalationGlow(
+        scene: SceneLuma,
+        strength: Float,
+        sigmaCells: Float,
+        bounces: Int,
+        decay: Float,
+        renormalize: Boolean,
+    ): SceneLuma {
+        if (!(strength > 0f) || !(sigmaCells > 0f) || bounces < 1) return scene
+        val w = scene.width
+        val h = scene.height
+        val weights = FloatArray(bounces) { k -> decay.toDouble().pow(k).toFloat() }
+        val wsum = weights.sum()
+        val glow = FloatArray(w * h)
+        val tmp = FloatArray(w * h)
+        val blurred = FloatArray(w * h)
+        for (k in 0 until bounces) {
+            val sigma = sigmaCells * sqrt((k + 1).toFloat())
+            blurSeparable(scene.y, tmp, blurred, w, h, sigma)
+            val wk = weights[k] / wsum
+            for (i in glow.indices) glow[i] += wk * blurred[i]
+        }
+        val norm = if (renormalize) 1f / (1f + strength) else 1f
+        val out = FloatArray(w * h) { i -> (scene.y[i] + strength * glow[i]) * norm }
+        return SceneLuma(w, h, out)
+    }
+
+    /**
+     * Clamp-to-edge Gaussian approximated by three successive box blurs per axis (the box sizes
+     * from Kutskir's "boxes for gauss", matching sigma's variance), each a running sum: cost is
+     * independent of sigma. Exactness does not matter here -- the result feeds a quarter-resolution,
+     * 8-bit gain map -- but cost does: this runs over a ~3 Mcell map for a 50 MP export, once per
+     * bounce, and a direct 3-sigma kernel took ~0.4 s for that on a desktop JVM.
+     */
+    private fun blurSeparable(src: FloatArray, tmp: FloatArray, dst: FloatArray, w: Int, h: Int, sigma: Float) {
+        val boxes = boxesForGauss(sigma)
+        val line = FloatArray(max(w, h))
+        val out = FloatArray(max(w, h))
+        // Horizontal: src -> tmp.
+        for (y in 0 until h) {
+            val row = y * w
+            System.arraycopy(src, row, line, 0, w)
+            for (r in boxes) { boxLine(line, out, w, r); System.arraycopy(out, 0, line, 0, w) }
+            System.arraycopy(line, 0, tmp, row, w)
+        }
+        // Vertical: tmp -> dst, three passes ping-ponging between them. A running sum per column,
+        // swept row by row so every access is sequential in memory.
+        var a = tmp
+        var b = dst
+        val acc = FloatArray(w)
+        for (r in boxes) {
+            if (r <= 0) { System.arraycopy(a, 0, b, 0, w * h) } else {
+                val inv = 1f / (2 * r + 1)
+                java.util.Arrays.fill(acc, 0f)
+                for (k in -r..r) {
+                    val o = k.coerceIn(0, h - 1) * w
+                    for (x in 0 until w) acc[x] += a[o + x]
+                }
+                for (y in 0 until h) {
+                    val o = y * w
+                    val add = min(y + r + 1, h - 1) * w
+                    val sub = max(y - r, 0) * w
+                    for (x in 0 until w) {
+                        b[o + x] = acc[x] * inv
+                        acc[x] += a[add + x] - a[sub + x]
+                    }
+                }
+            }
+            val t = a; a = b; b = t
+        }
+        // Three passes leave the result in tmp's buffer; dst must hold it.
+        if (a !== dst) System.arraycopy(a, 0, dst, 0, w * h)
+    }
+
+    /** Half-widths of three boxes whose successive convolution has variance sigma^2. */
+    private fun boxesForGauss(sigma: Float): IntArray {
+        val n = 3
+        val wIdeal = sqrt(12.0 * sigma * sigma / n + 1.0)
+        var wl = wIdeal.toInt()
+        if (wl % 2 == 0) wl--
+        if (wl < 1) wl = 1
+        val wu = wl + 2
+        val mIdeal = (12.0 * sigma * sigma - n * wl * wl - 4.0 * n * wl - 3.0 * n) / (-4.0 * wl - 4.0)
+        val m = Math.round(mIdeal).toInt()
+        return IntArray(n) { i -> ((if (i < m) wl else wu) - 1) / 2 }
+    }
+
+    /** Mean over [i - r, i + r] with clamp-to-edge, by running sum. */
+    private fun boxLine(src: FloatArray, dst: FloatArray, len: Int, r: Int) {
+        if (r <= 0) { System.arraycopy(src, 0, dst, 0, len); return }
+        val inv = 1f / (2 * r + 1)
+        var acc = 0f
+        for (k in -r..r) acc += src[k.coerceIn(0, len - 1)]
+        for (i in 0 until len) {
+            dst[i] = acc * inv
+            acc += src[min(i + r + 1, len - 1)] - src[max(i - r, 0)]
+        }
     }
 }
