@@ -60,7 +60,7 @@ public final class Ticket181AccessibilityChecks {
     /** String resource names, resolved by getIdentifier: R8 drops R$string from the release app. */
     private static final String STRING_EXPORT = "editor_action_export";
     private static final List<String> CRITICAL_ACTIONS = Arrays.asList(
-            STRING_EXPORT, "editor_action_undo", "editor_action_redo", "editor_action_settings");
+            STRING_EXPORT, "editor_action_undo", "editor_action_redo", "editor_action_more");
     private static final List<String> BRIDGE_DESTINATIONS =
             Arrays.asList("SETTINGS", "ABOUT", "DIAGNOSTICS", "CURVES_FILM", "CURVES_PRINT");
     private static final Set<String> CONTROL_CLASSES = new HashSet<>(Arrays.asList(

@@ -537,6 +537,9 @@ internal fun CategoryBar(
     active: Category?,
     dirty: Set<Category>,
     onSelect: (Category) -> Unit,
+    exportVisible: Boolean = false,
+    exporting: Boolean = false,
+    onExport: () -> Unit = {},
 ) {
     val activeStage = active?.stage
     val subItems = remember(activeStage) { activeStage?.let { categoriesOf(it) }.orEmpty() }
@@ -578,16 +581,43 @@ internal fun CategoryBar(
                 )
             }
 
+            // M3 floating toolbar: the five stages in a pill, with the screen's one primary
+            // action -- Export -- as the FAB paired beside it. The five stages share the
+            // pill's width equally, so none is squeezed. Where the FAB beside them would
+            // leave a stage under the 48dp touch target (very narrow windows, or a side
+            // column), the FAB moves to its own row at the trailing edge above the toolbar.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val fabBeside = !exportVisible ||
+                (maxWidth - TOOLBAR_SIDE_PADDING * 2 - TOOLBAR_GAP - EXPORT_FAB_SIZE - TOOLBAR_INNER_PADDING * 2) / Stage.entries.size >= 48.dp
+            Column(Modifier.fillMaxWidth()) {
+            if (exportVisible && !fabBeside) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(end = 16.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) { ExportFab(exporting = exporting, onClick = onExport) }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp, horizontal = 4.dp)
+                    .padding(start = TOOLBAR_SIDE_PADDING, end = TOOLBAR_SIDE_PADDING, top = 6.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(TOOLBAR_GAP, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .widthIn(max = 420.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .padding(TOOLBAR_INNER_PADDING)
                     .selectableGroup(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 Stage.entries.forEach { stage ->
                     val members = categoriesOf(stage)
                     StageItem(
+                        modifier = Modifier.weight(1f),
                         stage = stage,
                         selected = stage == activeStage,
                         // A stage is "doing something" when any group inside it is.
@@ -604,9 +634,18 @@ internal fun CategoryBar(
                     )
                 }
             }
+            if (exportVisible && fabBeside) ExportFab(exporting = exporting, onClick = onExport)
+            }
+            }
+            }
         }
     }
 }
+
+private val TOOLBAR_SIDE_PADDING = 12.dp
+private val TOOLBAR_GAP = 8.dp
+private val TOOLBAR_INNER_PADDING = 4.dp
+private val EXPORT_FAB_SIZE = 56.dp
 
 /** One of the five stage chips on the bottom row. */
 @Composable
@@ -615,6 +654,7 @@ internal fun StageItem(
     selected: Boolean,
     modified: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
@@ -635,10 +675,9 @@ internal fun StageItem(
     val pill by animateDpAsState(if (selected) 20.dp else 0.dp, RAIL_PILL, label = "stagePill")
     TextTooltip(stringResource(stage.hintRes)) {
         Column(
-            Modifier
-                .widthIn(min = 64.dp)
+            modifier
                 .scale(press)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(CircleShape)
                 .background(fill)
                 .clickableNoRipple(interaction, onClick)
                 .semantics(mergeDescendants = true) {
@@ -646,9 +685,9 @@ internal fun StageItem(
                     this.selected = isSelected
                     if (modified) stateDescription = modifiedState
                 }
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -683,6 +722,34 @@ internal fun StageItem(
                     .clip(RoundedCornerShape(2.dp))
                     .background(accent),
             )
+        }
+    }
+}
+
+/**
+ * The editor's one primary action. M3: a FAB is for the constructive main action, is hidden
+ * rather than disabled when unavailable, and may sit beside a floating toolbar. While an
+ * export runs it shows the loading indicator in place of its icon and ignores taps.
+ */
+@Composable
+internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
+    val label = stringResource(R.string.editor_action_export)
+    val busyLabel = stringResource(R.string.editor_exporting)
+    TextTooltip(stringResource(R.string.editor_tooltip_export_gallery)) {
+        FloatingActionButton(
+            onClick = { if (!exporting) onClick() },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.semantics { contentDescription = if (exporting) busyLabel else label },
+        ) {
+            if (exporting) {
+                SpectraLoadingIndicator(
+                    Modifier.size(28.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                Icon(SpectraIcons.Export, contentDescription = null)
+            }
         }
     }
 }
