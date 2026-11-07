@@ -10,6 +10,7 @@ package com.spectrafilm.app
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import androidx.activity.OnBackPressedDispatcher
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -81,8 +82,35 @@ internal fun authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Lo
         }
         ?.runId
 
+/**
+ * The editor screen. It used to be a MainActivity extension; everything it took from the
+ * Activity is now a parameter, passed by [AppRoot] (#452):
+ *  - [dispatchers] and the editor's ViewModels (Activity-scoped, see MainActivity);
+ *  - [incomingImageIntent], the unconsumed VIEW/SEND intent (#162);
+ *  - [setEditorShortcutHandler], which installs or clears the hardware keyboard handler;
+ *  - [heldDropPermissions] and [requestDragAndDropPermissions] for cross-app drops;
+ *  - [lifecycle], the Activity lifecycle whose ON_STOP checkpoints the session, and
+ *    [onBackPressedDispatcher] for the Esc shortcut.
+ */
 @Composable
-internal fun MainActivity.EditorScreen(
+internal fun EditorScreen(
+    dispatchers: AppDispatchers,
+    editorVm: EditorViewModel,
+    exportVm: ExportViewModel,
+    exportPresetVm: ExportPresetViewModel,
+    filmPreviewVm: StockPreviewViewModel,
+    printPreviewVm: StockPreviewViewModel,
+    presetPreviewVm: StockPreviewViewModel,
+    presetVm: PresetViewModel,
+    toolVm: EditorToolViewModel,
+    versionsVm: VersionsViewModel,
+    viewerVm: EditorViewerViewModel,
+    incomingImageIntent: MutableState<Intent?>,
+    setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
+    heldDropPermissions: MutableList<android.view.DragAndDropPermissions>,
+    requestDragAndDropPermissions: (android.view.DragEvent) -> android.view.DragAndDropPermissions?,
+    lifecycle: Lifecycle,
+    onBackPressedDispatcher: OnBackPressedDispatcher,
     settings: AppSettings,
     restoration: EditorRestoration,
     sessionRestoreNotice: String?,
@@ -2098,8 +2126,8 @@ internal fun MainActivity.EditorScreen(
         }
     }
     DisposableEffect(Unit) {
-        editorShortcutHandler = { shortcutHandler(it) }
-        onDispose { editorShortcutHandler = null }
+        setEditorShortcutHandler { shortcutHandler(it) }
+        onDispose { setEditorShortcutHandler(null) }
     }
 
     // --- back handling on the root editor ---
