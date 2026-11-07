@@ -64,7 +64,7 @@ class LibrarySidecarsTest {
             LibrarySidecars.decode(JSONObject(good.toString()).put("manualRotationDeg", 45).toString())
         }
         assertThrows(Exception::class.java) {
-            LibrarySidecars.decode(good.toString().replace("\"version\": 1", "\"version\": 1.5"))
+            LibrarySidecars.decode(JSONObject(good.toString()).put("version", 1.5).toString())
         }
         assertThrows(Exception::class.java) {
             LibrarySidecars.decode(JSONObject(good.toString()).put("manualRotationDeg", 4294967386L).toString())
