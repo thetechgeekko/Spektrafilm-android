@@ -171,7 +171,6 @@ private fun AboutContent() {
     )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LinkChip(stringResource(R.string.screen_link_spektrafilm), Links.SPEKTRAFILM)
-        LinkChip(stringResource(R.string.screen_link_image_toolbox), Links.IMAGE_TOOLBOX)
         LinkChip(stringResource(R.string.screen_link_colour_science), Links.COLOUR_SCIENCE)
         LinkChip(stringResource(R.string.screen_link_libraw), Links.LIBRAW)
         LinkChip(stringResource(R.string.screen_link_pixls), Links.PIXLS)

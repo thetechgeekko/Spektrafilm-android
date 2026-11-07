@@ -2,9 +2,9 @@
  * Spektrafilm for Android — UI widgets. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * Self-contained Material3 composables styled after Image Toolbox: rounded
- * "preference" setting cards, a collapsible section header, switch rows, sub-tabs,
- * help sheets and connected toggles. No external dependency on Image Toolbox.
+ * Self-contained Material 3 composables: rounded "preference" setting cards, a
+ * collapsible section header, switch rows, sub-tabs, help sheets and connected
+ * toggles.
  * Sliders live in Sliders.kt, dropdowns in Dropdowns.kt and the auto-exposure
  * control in AutoExposureControl.kt (#273).
  */
@@ -156,7 +156,7 @@ fun TextTooltip(
 }
 
 /**
- * An Image-Toolbox-style collapsible section: a rounded card with a header row
+ * A collapsible section: a rounded card with a header row
  * (title + optional enabled-switch + chevron) that expands/collapses its content.
  */
 @Composable

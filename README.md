@@ -132,8 +132,6 @@ below.
   this project ports — the spectral science, the film-stock profiles, and the LUTs are all his. If
   this is useful to you, please star spektrafilm and read his write-up on
   [discuss.pixls.us](https://discuss.pixls.us/t/spectral-film-simulations-from-scratch/48209).
-- **[Image Toolbox](https://github.com/T8RIN/ImageToolbox)** by **T8RIN (Malik Mukhametzyanov)** —
-  the Android image-editor architecture that shaped this app's design.
 - **[colour-science](https://www.colour-science.org/)** — the colour-science library whose colour
   matching functions, illuminants, and transforms define what "correct" means here.
 - **[LibRaw](https://www.libraw.org/)** — on-device RAW/DNG decoding.
