@@ -47,9 +47,13 @@
 #define MAX_RADIUS 3
 layout(local_size_x = WG) in;
 
-// density_cmy_layers, npix * ncells, index p * ncells + k. k is the flattened
-// (sublayer, channel) cell in the host's order. WHOLE FRAME, not a slice -- the
-// blur reads neighbours, so a sliced upload would need a halo.
+// density_cmy_layers for frame rows [in_row0, in_row0 + rows held), index
+// ((y - in_row0) * width + x) * ncells + k. k is the flattened (sublayer,
+// channel) cell in the host's order. A frame too big for the memory budget runs
+// in row bands (#282): the host uploads the band's output rows plus a halo of
+// the widest blur radius above and below. Seeds and the reflect() edges stay in
+// FRAME coordinates, so every pixel's arithmetic is identical to a whole-frame
+// run; the halo is the only thing banding needs.
 layout(std430, binding = 0) readonly  buffer InBuf  { float density[]; };
 // Accumulated grain, npix * 3. The host does the /n_sub, the -= density_min and
 // the final blur: those are frame-level parameters, not per-pixel work.
@@ -67,6 +71,8 @@ layout(push_constant) uniform Push {
     uint groups_x;      // 2D dispatch flattened to one pixel index
     uint width;
     uint height;
+    uint row0;          // first frame row of this band's output; npix is the band's
+    uint in_row0;       // first frame row held in `density`
 } pc;
 
 // PCG-RXS-M-XS, 32-bit (O'Neill). Counter-based: no state, so a sample depends
@@ -101,7 +107,8 @@ int reflect_idx(int i, int n) {
 // One particle draw for one cell at one pixel. `count` is false for the blur's
 // neighbour evaluations so the out-of-branch tally stays a count of PIXELS, not
 // of kernel taps.
-float sample_cell(uint k, uint gp, uint b, bool count, inout uint outside) {
+// gp: frame pixel index, seeds the draw. li: its index in this band's `density`.
+float sample_cell(uint k, uint gp, uint li, uint b, bool count, inout uint outside) {
     float dmin = cell[b + 0u];
     float dmax = cell[b + 1u];
     float n_ppp = cell[b + 2u];
@@ -112,7 +119,7 @@ float sample_cell(uint k, uint gp, uint b, bool count, inout uint outside) {
     // probability_of_development, clipped exactly as grain.py does. The clip
     // keeps p strictly inside (0,1), so the CPU's p<=0 and p>=1 early-outs are
     // unreachable and need no branch here.
-    float d = density[gp * pc.ncells + k] + dmin;
+    float d = density[li * pc.ncells + k] + dmin;
     float pr = clamp(d / dmax, 1e-6, 1.0 - 1e-6);
     float sat = 1.0 - pr * uni * (1.0 - 1e-6);
     float lam = n_ppp / sat;
@@ -150,7 +157,9 @@ void main() {
     int w = int(pc.width);
     int h = int(pc.height);
     int x = int(p % pc.width);
-    int y = int(p / pc.width);
+    int y = int(pc.row0) + int(p / pc.width);   // frame row
+    int in0 = int(pc.in_row0);
+    uint gp = uint(y) * pc.width + uint(x);
 
     float acc[3];
     acc[0] = 0.0; acc[1] = 0.0; acc[2] = 0.0;
@@ -163,7 +172,7 @@ void main() {
 
         float g;
         if (r <= 0) {
-            g = sample_cell(k, p, b, true, outside);
+            g = sample_cell(k, gp, uint(y - in0) * pc.width + uint(x), b, true, outside);
         } else {
             // Separable Gaussian as the outer product of the 1D kernel with
             // itself, with the two reflects taken independently -- which is
@@ -177,12 +186,13 @@ void main() {
                 for (int dx = -r; dx <= r; ++dx) {
                     int xx = reflect_idx(x + dx, w);
                     uint gq = uint(yy) * pc.width + uint(xx);
+                    uint lq = uint(yy - in0) * pc.width + uint(xx);
                     // The centre tap decides this pixel's branch tally; the
                     // neighbours deliberately do not count, so out_of_branch
                     // stays a count of PIXELS rather than of kernel taps.
                     bool centre = (dx == 0 && dy == 0);
                     row += cell[b + 8u + uint(dx + r)] *
-                           sample_cell(k, gq, b, centre, outside);
+                           sample_cell(k, gq, lq, b, centre, outside);
                 }
                 total += cell[b + 8u + uint(dy + r)] * row;
             }
