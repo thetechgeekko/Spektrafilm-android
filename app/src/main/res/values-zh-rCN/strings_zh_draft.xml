@@ -110,9 +110,5 @@
     <string name="export_format_scene_linear_tiff">场景线性输入（32 位 TIFF）</string>
 
     <!-- strings_tools.xml -->
-    <string name="tool_crop_aspect_4_5">4:5</string>
-    <string name="tool_crop_aspect_3_4">3:4</string>
-    <string name="tool_crop_aspect_2_3">2:3</string>
-    <string name="tool_crop_aspect_9_16">9:16</string>
     <string name="tool_viewer_magnifier_title" formatted="false">100% 局部</string>
 </resources>
