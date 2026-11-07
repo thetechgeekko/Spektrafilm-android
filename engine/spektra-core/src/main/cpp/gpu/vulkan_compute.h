@@ -700,6 +700,13 @@ struct HalationScatterRequest {
     // 0 = the host's staging band (64 MiB of whole rows); a test sets it small
     // to prove that the upload/readback banding never touches the numbers.
     uint32_t staging_bytes_override = 0;
+    // 0 = the host's per-submission work cap (#270). The pass is split into
+    // several queue submissions once the pixels its dispatches walked since
+    // the last one reach the cap, so no single submission holds the GPU long
+    // enough to starve the compositor. A test sets it to 1 (one dispatch per
+    // submission) and to UINT32_MAX (the old single submission) to prove the
+    // split never touches the numbers.
+    uint32_t submit_pixels_override = 0;
     // 0 = whole-frame residency when it fits, else the banded route (#281) at
     // the host's 128 MiB device budget. Non-zero forces the banded route at this
     // budget (four work buffers plus a two-image staging buffer); the lavapipe
@@ -718,6 +725,7 @@ struct HalationScatterDiagnostics {
     // Banded route (#281, reason "banded"): row bands + column bands of one blur.
     uint32_t bands = 0;
     uint32_t dispatches = 0;
+    uint32_t pass_submits = 0;  // queue submissions the compute pass was split into (#270)
     // Host-side wall clock: f64 -> f32 staging + upload copies, the pass's
     // submit-to-fence, readback copies + f32 -> f64. Observability for the
     // device A/B, nothing gates on it.
