@@ -48,4 +48,19 @@ class LibraryTest {
         assertTrue(row("x.dng", "image/tiff").isRaw)
         assertFalse(row("x.jpg", "image/jpeg").isRaw)
     }
+
+    @Test fun editedBadgeFollowsSavedRecipes() {
+        val rows = listOf(row("a.dng"), row("b.jpg", "image/jpeg"), row("c.nef"))
+        val marked = markEdited(rows) { it == "content://tree/b.jpg" }
+        assertEquals(listOf(false, true, false), marked.map { it.edited })
+        // Order and every other field are untouched.
+        assertEquals(rows.map { it.name }, marked.map { it.name })
+        assertEquals(rows[1].copy(edited = true), marked[1])
+    }
+
+    @Test fun aFailingRecipeLookupHidesNoFrame() {
+        val rows = listOf(row("a.dng"), row("b.dng"))
+        val marked = markEdited(rows) { if (it.endsWith("a.dng")) error("io") else true }
+        assertEquals(listOf(false, true), marked.map { it.edited })
+    }
 }
