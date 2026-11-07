@@ -162,7 +162,7 @@ fun GpuPreviewSurface(
             contentDescription = stringResource(R.string.tool_viewer_zoom_in),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 6.dp, bottom = controlsBottomInset),
+                .padding(end = 12.dp, bottom = controlsBottomInset),
         ) { onZoomIn() }
     }
 }
@@ -406,7 +406,7 @@ fun ZoomableImage(
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 6.dp, bottom = controlsBottomInset),
+                .padding(end = 12.dp, bottom = controlsBottomInset),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
