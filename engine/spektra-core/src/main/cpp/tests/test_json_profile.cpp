@@ -575,6 +575,13 @@ int main(int argc, char** argv) {
         check(false, "profile preserves upstream log-sensitivity nulls as NaN");
     }
 
+    // Every .json in the bundle must load, however many there are: the count
+    // grows with each added stock, and a hard-coded total went stale with the
+    // first one (CineStill 800T). 28 is the oracle's own set, a floor.
+    size_t bundled_profiles = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(argv[1])) {
+        if (entry.path().extension() == ".json") ++bundled_profiles;
+    }
     size_t loaded_profiles = 0;
     try {
         for (const auto& entry : std::filesystem::directory_iterator(argv[1])) {
@@ -586,7 +593,8 @@ int main(int argc, char** argv) {
     } catch (const std::exception& e) {
         std::fprintf(stderr, "bundled profile rejected: %s\n", e.what());
     }
-    check(loaded_profiles == 28, "all 28 bundled profiles load under V1 policy");
+    check(bundled_profiles >= 28 && loaded_profiles == bundled_profiles,
+          "every bundled profile loads under V1 policy");
 
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path bounded_profile =
