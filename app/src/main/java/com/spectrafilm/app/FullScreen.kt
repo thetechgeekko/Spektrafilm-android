@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -71,8 +70,9 @@ private fun android.content.Context.findActivity(): Activity? {
  * bar when it shows, and the camera cutout's band when it is hidden, so a control never sits
  * under the camera.
  */
-internal fun Modifier.topBarSafePadding(): Modifier =
-    windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
+@Composable
+internal fun topBarSafeInsets(): WindowInsets =
+    WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
 
 /**
  * An app bar row that keeps its buttons clear of a camera cutout in the band it occupies.

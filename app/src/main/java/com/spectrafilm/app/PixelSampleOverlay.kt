@@ -13,6 +13,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -85,7 +86,7 @@ fun PixelSampleOverlay(
         Modifier
             .fillMaxSize()
             .background(SpektraBrand.scrim.copy(alpha = 0.92f))
-            .topBarSafePadding()
+            .windowInsetsPadding(topBarSafeInsets())
             .navigationBarsPadding(),
     ) {
         Column(Modifier.fillMaxSize()) {

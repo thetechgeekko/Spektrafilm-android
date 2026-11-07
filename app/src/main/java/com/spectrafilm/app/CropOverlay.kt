@@ -199,7 +199,7 @@ fun CropOverlay(
         Modifier
             .fillMaxSize()
             .background(SpektraBrand.scrim.copy(alpha = 0.92f))
-            .topBarSafePadding()
+            .windowInsetsPadding(topBarSafeInsets())
             .navigationBarsPadding(),
     ) {
         Column(Modifier.fillMaxSize()) {
