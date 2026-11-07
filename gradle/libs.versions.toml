@@ -16,7 +16,7 @@ orgJson = "20231013"
 # Navigation 3 (#274). Check the stable channel before bumping.
 navigation3 = "1.2.1"
 # JVM Compose UI tests (#280). Check for the newest stable before bumping.
-robolectric = "4.16"
+robolectric = "4.17"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
