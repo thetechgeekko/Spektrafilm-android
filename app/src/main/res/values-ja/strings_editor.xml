@@ -57,8 +57,6 @@
     <string name="editor_status_export_stale_source">以前のソースまたは未許可のソースに対する書き出しが完了しました</string>
     <string name="editor_status_export_pending_reconciliation">書き出し結果を照合中 · 再試行の前に再起動してください</string>
     <string name="editor_toast_export_reconciling">書き出し結果を照合しています。再試行する前に再起動してください。</string>
-    <string name="editor_status_export_failed">書き出しに失敗しました：%1$s</string>
-    <string name="editor_toast_export_failed">書き出しに失敗しました：%1$s</string>
     <string name="editor_status_export_cancelled">書き出しをキャンセルしました</string>
     <string name="editor_status_undo">元に戻しました</string>
     <string name="editor_status_redo">やり直しました</string>
@@ -119,8 +117,6 @@
     <string name="editor_status_settings_pasted">設定を貼り付けました</string>
     <string name="editor_status_paste_failed">貼り付けに失敗しました：%1$s</string>
     <string name="editor_status_baking_lut">%1$sのLUTを生成中…</string>
-    <string name="editor_status_save_dialog_failed">保存ダイアログを開けませんでした：%1$s</string>
-    <string name="editor_status_lut_bake_failed">LUTの生成に失敗しました：%1$s</string>
     <string name="editor_magnifier_edit_changed">編集が変更されました · もう一度プレビューをタップしてください</string>
     <string name="editor_magnifier_rendering" formatted="false">100%の切り抜きをレンダリング中…</string>
     <string name="editor_magnifier_done">%1$d×%2$dpx · 等倍のフル解像度レンダリング</string>
@@ -147,7 +143,6 @@
     <string name="editor_sample_hint_tone">対象にしたいトーン（ハイライトやシャドウ）をタップしてから、適用してください。</string>
     <string name="editor_sample_hint_color">マスクで対象にしたい色（赤など）をタップしてから、適用してください。</string>
     <string name="editor_status_wb_set">ニュートラルからホワイトバランスを設定しました</string>
-    <string name="editor_toast_wb_sample_failed">ホワイトバランス用の色を取得できませんでした：%1$s</string>
     <string name="editor_share_export_title">書き出しを共有</string>
     <string name="editor_status_no_share_target">この画像を受け取れるアプリがインストールされていません</string>
     <string name="editor_status_cancelling_export">書き出しをキャンセル中</string>
@@ -596,4 +591,12 @@
     <string name="editor_hint_paper">印画紙、プリント露光、引き伸ばし機のフィルター、プリントのぼけ</string>
     <string name="editor_hint_scanner">スキャナーのシャープネスと白・黒点補正</string>
     <string name="editor_hint_output">出力色空間、色域圧縮、彩度、自然な彩度</string>
+    <string name="editor_msg_export_failed">この写真を書き出せませんでした。もう一度試すか、小さいサイズや別の形式を選んでください。</string>
+    <string name="editor_msg_export_failed_memory">このサイズで書き出すにはメモリが足りません。小さいサイズを選んでください。</string>
+    <string name="editor_msg_retry">再試行</string>
+    <string name="editor_msg_change_settings">設定を変更</string>
+    <string name="editor_msg_export_settings_unsupported">この書き出し設定の組み合わせは使えません。別の形式か色空間を選んでください。</string>
+    <string name="editor_msg_lut_bake_failed">LUT を作成できませんでした。もう一度お試しください。</string>
+    <string name="editor_msg_save_dialog_failed">保存ダイアログを開けませんでした。もう一度お試しください。</string>
+    <string name="editor_msg_wb_sample_failed">その場所ではホワイトバランスを測れませんでした。別の場所をタップしてください。</string>
 </resources>

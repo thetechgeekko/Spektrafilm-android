@@ -14,7 +14,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.material3.SnackbarHostState
 import androidx.core.content.ContextCompat
@@ -94,9 +93,17 @@ internal fun MainActivity.startEditorExport(
                 Build.VERSION.SDK_INT,
             ).also { ColorManagement.requireIccBytes(ctx, it) }
         }.getOrElse { failure ->
-            val message = failure.message ?: ctx.getString(R.string.editor_status_unsupported_export)
+            Diag.w("export settings rejected: ${failure.message}")
+            val message = ctx.getString(R.string.editor_msg_export_settings_unsupported)
             setStatus(message)
-            Toast.makeText(ctx, message, Toast.LENGTH_LONG).show()
+            // The snackbar host lives under the sheet, so close the sheet first or the
+            // message would show behind it; the action reopens it to change the choice.
+            exportVm.onAction(ExportAction.CloseSheet)
+            scope.showEditorMessage(
+                snackbarHost,
+                message,
+                actionLabel = ctx.getString(R.string.editor_msg_change_settings),
+            ) { exportVm.onAction(ExportAction.OpenSheet) }
             return
         }
         exportVm.onAction(ExportAction.CloseSheet)

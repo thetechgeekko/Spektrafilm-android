@@ -68,8 +68,6 @@
     <string name="editor_status_export_stale_source">export completed for a previous or unauthorized source</string>
     <string name="editor_status_export_pending_reconciliation">export outcome pending reconciliation · restart before retry</string>
     <string name="editor_toast_export_reconciling">Export outcome is being reconciled. Restart before retrying.</string>
-    <string name="editor_status_export_failed">export failed: %1$s</string>
-    <string name="editor_toast_export_failed">Export failed: %1$s</string>
     <string name="editor_status_export_cancelled">export cancelled</string>
     <string name="editor_status_undo">undo</string>
     <string name="editor_status_redo">redo</string>
@@ -139,8 +137,6 @@
     <string name="editor_status_settings_pasted">settings pasted</string>
     <string name="editor_status_paste_failed">paste failed: %1$s</string>
     <string name="editor_status_baking_lut">baking %1$s LUT…</string>
-    <string name="editor_status_save_dialog_failed">could not open save dialog: %1$s</string>
-    <string name="editor_status_lut_bake_failed">LUT bake failed: %1$s</string>
 
     <!-- Preview render status, magnifier, stock-switch suggestions -->
     <string name="editor_magnifier_edit_changed">edit changed · tap preview again</string>
@@ -173,7 +169,6 @@
     <string name="editor_sample_hint_tone">Tap a tone (a highlight or a shadow) to target it, then apply.</string>
     <string name="editor_sample_hint_color">Tap the color you want the mask to target (e.g. a red), then apply.</string>
     <string name="editor_status_wb_set">white balance set from neutral</string>
-    <string name="editor_toast_wb_sample_failed">Couldn\'t sample for white balance: %1$s</string>
     <string name="editor_share_export_title">Share export</string>
     <string name="editor_status_no_share_target">no installed app can receive this image</string>
     <string name="editor_status_cancelling_export">cancelling export</string>
@@ -690,4 +685,12 @@
     <string name="editor_hint_paper">Print paper, print exposure, enlarger filtration and print blur</string>
     <string name="editor_hint_scanner">Scanner sharpening and white and black point correction</string>
     <string name="editor_hint_output">Output colour space, gamut compression, saturation and vibrance</string>
+    <string name="editor_msg_export_failed">Couldn\'t export this photo. Try again, or pick a smaller size or another format.</string>
+    <string name="editor_msg_export_failed_memory">Not enough memory to export at this size. Try a smaller size.</string>
+    <string name="editor_msg_retry">Retry</string>
+    <string name="editor_msg_change_settings">Change settings</string>
+    <string name="editor_msg_export_settings_unsupported">These export settings don\'t work together. Try another format or color space.</string>
+    <string name="editor_msg_lut_bake_failed">Couldn\'t create the LUT. Try again.</string>
+    <string name="editor_msg_save_dialog_failed">Couldn\'t open the save dialog. Try again.</string>
+    <string name="editor_msg_wb_sample_failed">Couldn\'t read white balance there. Tap another spot.</string>
 </resources>

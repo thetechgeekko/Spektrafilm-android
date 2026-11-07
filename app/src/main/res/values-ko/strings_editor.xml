@@ -57,8 +57,6 @@
     <string name="editor_status_export_stale_source">이전 소스 또는 승인되지 않은 소스에 대한 내보내기가 완료되었습니다</string>
     <string name="editor_status_export_pending_reconciliation">내보내기 결과 확인 대기 중 · 다시 시도하기 전에 재시작하세요</string>
     <string name="editor_toast_export_reconciling">내보내기 결과를 확인하는 중입니다. 다시 시도하기 전에 재시작하세요.</string>
-    <string name="editor_status_export_failed">내보내기 실패: %1$s</string>
-    <string name="editor_toast_export_failed">내보내기 실패: %1$s</string>
     <string name="editor_status_export_cancelled">내보내기 취소됨</string>
     <string name="editor_status_undo">실행 취소됨</string>
     <string name="editor_status_redo">다시 실행됨</string>
@@ -119,8 +117,6 @@
     <string name="editor_status_settings_pasted">설정 붙여넣음</string>
     <string name="editor_status_paste_failed">붙여넣기 실패: %1$s</string>
     <string name="editor_status_baking_lut">%1$s LUT 생성 중…</string>
-    <string name="editor_status_save_dialog_failed">저장 대화상자를 열 수 없습니다: %1$s</string>
-    <string name="editor_status_lut_bake_failed">LUT 생성 실패: %1$s</string>
     <string name="editor_magnifier_edit_changed">편집이 변경됨 · 미리보기를 다시 탭하세요</string>
     <string name="editor_magnifier_rendering" formatted="false">100% 크롭 렌더링 중…</string>
     <string name="editor_magnifier_done">%1$d×%2$dpx · 1:1 전체 해상도 렌더링</string>
@@ -147,7 +143,6 @@
     <string name="editor_sample_hint_tone">대상으로 할 톤(하이라이트나 섀도)을 탭한 다음 적용하세요.</string>
     <string name="editor_sample_hint_color">마스크가 대상으로 할 색(예: 빨강)을 탭한 다음 적용하세요.</string>
     <string name="editor_status_wb_set">중성색으로 화이트 밸런스를 설정했습니다</string>
-    <string name="editor_toast_wb_sample_failed">화이트 밸런스용 샘플을 얻을 수 없습니다: %1$s</string>
     <string name="editor_share_export_title">내보낸 파일 공유</string>
     <string name="editor_status_no_share_target">이 이미지를 받을 수 있는 앱이 설치되어 있지 않습니다</string>
     <string name="editor_status_cancelling_export">내보내기 취소 중</string>
@@ -596,4 +591,12 @@
     <string name="editor_hint_paper">인화지, 인화 노출, 확대기 필터, 인화 흐림</string>
     <string name="editor_hint_scanner">스캐너 선명도와 흰색·검은색 점 보정</string>
     <string name="editor_hint_output">출력 색 공간, 색역 압축, 채도, 생동감</string>
+    <string name="editor_msg_export_failed">이 사진을 내보내지 못했습니다. 다시 시도하거나 더 작은 크기 또는 다른 형식을 선택하세요.</string>
+    <string name="editor_msg_export_failed_memory">이 크기로 내보내기에는 메모리가 부족합니다. 더 작은 크기를 선택하세요.</string>
+    <string name="editor_msg_retry">다시 시도</string>
+    <string name="editor_msg_change_settings">설정 변경</string>
+    <string name="editor_msg_export_settings_unsupported">이 내보내기 설정은 함께 사용할 수 없습니다. 다른 형식이나 색 공간을 선택하세요.</string>
+    <string name="editor_msg_lut_bake_failed">LUT를 만들지 못했습니다. 다시 시도하세요.</string>
+    <string name="editor_msg_save_dialog_failed">저장 대화상자를 열지 못했습니다. 다시 시도하세요.</string>
+    <string name="editor_msg_wb_sample_failed">그 위치에서 화이트 밸런스를 측정하지 못했습니다. 다른 곳을 탭하세요.</string>
 </resources>
