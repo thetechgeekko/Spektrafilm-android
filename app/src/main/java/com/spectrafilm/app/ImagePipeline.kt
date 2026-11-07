@@ -452,25 +452,6 @@ fun lutFileName(film: String, print: String, size: Int, clf: Boolean): String {
 }
 
 /**
- * Build a near-neutral Ultra HDR [Gainmap] for an SDR [base] bitmap and attach it (API 34+).
- *
- * The engine output is a display-referred SDR film look, so there is no real HDR headroom to
- * recover. We therefore attach a *near-neutral* gain map: a tiny single-pixel map whose values
- * encode a very gentle highlight lift. On an SDR display the base renders identically (gain map
- * ignored); on an HDR display the modest ratioMax gives a subtle, safe boost rather than a
- * fabricated tone-mapping. Metadata uses the android.graphics.Gainmap defaults adjusted for a
- * gentle global boost:
- *   - gain-map content: a 1x1 ALPHA_8 bitmap at 255 (full, uniform application of the ratios)
- *   - ratioMin = 1.0 (no shadow boost), ratioMax = ~1.6 (gentle highlight headroom, ~+0.7 stop)
- *   - gamma = 1.0, epsilonSdr/Hdr = small constants, displayRatioForFullHdr = ratioMax,
- *     minDisplayRatioForHdrTransition = 1.0
- *
- * NOTE (honest, not device-verified): on API 34+ the platform JPEG encoder embeds the attached
- * Gainmap into a valid Ultra HDR JPEG (base SDR primary + gain-map secondary + MPF) when
- * Bitmap.compress(JPEG, ...) is called. This is the documented Android 14 behaviour for
- * gainmap-bearing bitmaps. It has NOT been verified on a physical device in this environment.
- */
-/**
  * Scene-linear luminance of the export [source] on the gain map grid of a [renderW]x[renderH]
  * render (see [SceneHighlightTap]), or null when the export carries no gain map. Must run while
  * the decoded source is still open, i.e. before the export closes it after simulate.

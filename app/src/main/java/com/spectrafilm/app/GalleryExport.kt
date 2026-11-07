@@ -227,9 +227,9 @@ suspend fun saveToGallery(
     }
     ensureExportActive()
 
-    // Ultra HDR: attach a near-neutral gain map so the platform JPEG encoder emits a valid
-    // Ultra HDR JPEG (base SDR + gain map + MPF). No-op below API 34. setGainmap mutates
-    // [bmp] IN PLACE (the input bitmap carries the gain map); its pixel data is untouched.
+    // Ultra HDR: the per-pixel gain map (attachRenderedGainmap) is already on [bmp] when it
+    // reaches here; Bitmap.compress(JPEG) on API 34+ writes it as an Ultra HDR JPEG (SDR base +
+    // gain map + MPF). setGainmap mutated [bmp] in place; its pixel data is untouched.
 
     // EXIF is only writable (via androidx ExifInterface) for JPEG targets. The exported
     // dimensions are taken from the rendered bitmap (post crop/resize/rotate).

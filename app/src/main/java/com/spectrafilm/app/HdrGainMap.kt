@@ -36,6 +36,8 @@ package com.spectrafilm.app
 
 import com.spectrafilm.engine.ColorSpace
 import java.nio.FloatBuffer
+import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
@@ -185,7 +187,7 @@ internal object HdrGainMap {
                         }
                     }
                     val g = if (count == 0) 0.0 else sum / count
-                    alpha[(my * mapW + mx) * n + c] = (g * 255.0).roundToInt().coerceIn(0, 255).toByte()
+                    alpha[(my * mapW + mx) * n + c] = quantize(g.toFloat(), mx, my)
                 }
             }
         }
@@ -305,18 +307,59 @@ internal object HdrGainMap {
             }
         }
         val logCeiling = (ln(ratioMaxCeiling.toDouble()) / LOG2).toFloat()
-        val logRatioMax = min(maxLog, logCeiling)
+        val logRatioMax = min(min(maxLog, highlightPercentileLog(logs) + PERCENTILE_MARGIN_EV), logCeiling)
         val alpha = ByteArray(cells * n)
         if (logRatioMax <= 0.0001f) {
             return Result(alpha, mapW, mapH, 1f, maxRatio, gained, sceneCells = 0, exposureMatch = k, channels = n)
         }
+        // Anything the scale does not reach rolls off through a soft shoulder rather than
+        // clipping flat; with no such outliers (maxLog within the scale) the map is linear.
+        val shoulder = maxLog > logRatioMax + 0.0001f
+        val knee = SHOULDER_KNEE * logRatioMax
         for (i in 0 until cells * n) {
-            val g = (logs[i] / logRatioMax).coerceIn(0f, 1f)
-            alpha[i] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
+            var l = logs[i]
+            if (shoulder && l > knee) l = knee + (logRatioMax - knee) * (1f - exp(-(l - knee) / (logRatioMax - knee)))
+            val g = (l / logRatioMax).coerceIn(0f, 1f)
+            val c = i / n
+            alpha[i] = quantize(g, c % mapW, c / mapW)
         }
         val ratioMax = Math.pow(2.0, logRatioMax.toDouble()).toFloat()
         return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained, sceneGained, k, n)
     }
+
+    /**
+     * The headroom scale is fitted to the bright END of the highlights, not their single brightest
+     * cell: the 99.9th percentile of the cells that gain at all, plus [PERCENTILE_MARGIN_EV]. A
+     * sun or a specular glint then cannot stretch the scale and leave every other highlight in
+     * the bottom of the 8-bit range (and, on a panel with less headroom than the file claims,
+     * scaled down with it). Percentile over GAINED cells, not all cells, so a small light source
+     * in a dark frame still gets its headroom. rawr fits its ceiling the same way.
+     */
+    private fun highlightPercentileLog(logs: FloatArray): Float {
+        var count = 0
+        for (l in logs) if (l > 0.001f) count++
+        if (count == 0) return 0f
+        val gainedLogs = FloatArray(count)
+        var j = 0
+        for (l in logs) if (l > 0.001f) gainedLogs[j++] = l
+        gainedLogs.sort()
+        return gainedLogs[min(count - 1, (count * HIGHLIGHT_PERCENTILE).toInt())]
+    }
+
+    /**
+     * 8-bit code for a normalized gain [g], with a 4x4 ordered dither: a smooth HDR sky spans few
+     * codes at quarter resolution, and plain rounding bands it. Deterministic (no RNG), and exact
+     * at both ends, so a no-gain cell stays 0 and a full-gain cell stays 255.
+     */
+    private fun quantize(g: Float, x: Int, y: Int): Byte {
+        val t = (BAYER4[(y and 3) * 4 + (x and 3)] + 0.5f) / 16f
+        return floor(g.coerceIn(0f, 1f) * 255f + t).toInt().coerceIn(0, 255).toByte()
+    }
+
+    private val BAYER4 = intArrayOf(0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5)
+    private const val HIGHLIGHT_PERCENTILE = 0.999f
+    private const val PERCENTILE_MARGIN_EV = 0.25f
+    private const val SHOULDER_KNEE = 0.8f
 
     private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
         val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
