@@ -480,18 +480,30 @@ internal fun MainActivity.AppRoot(
                     }
                 }
                 entry<SettingsRoute> {
-                    NavScaffold(stringResource(R.string.editor_action_settings), onBack = { pop() }) {
+                    SettingsDestination(
+                        onBack = { pop() },
+                        onOpenDetail = { detail ->
+                            push(
+                                when (detail) {
+                                    SettingsDetail.ABOUT -> AboutRoute
+                                    SettingsDetail.HOW_TO -> HowToRoute
+                                    SettingsDetail.DIAGNOSTICS -> DiagnosticsRoute
+                                },
+                            )
+                        },
+                    ) { selected, open ->
                         SettingsScreen(
                             state = settingsUi,
                             onAction = onSettingsAction,
                             filmGroups = settingsFilmGroups,
                             printGroups = settingsPrintGroups,
                             onShowOnboarding = { showOnboarding = true; popToEditor() },
-                            onOpenDiagnostics = { push(DiagnosticsRoute) },
-                            onOpenAbout = { push(AboutRoute) },
-                            onOpenHowTo = { push(HowToRoute) },
+                            onOpenDiagnostics = { open(SettingsDetail.DIAGNOSTICS) },
+                            onOpenAbout = { open(SettingsDetail.ABOUT) },
+                            onOpenHowTo = { open(SettingsDetail.HOW_TO) },
                             updateUi = updateUi,
                             onUpdateAction = onUpdateAction,
+                            selectedDetail = selected,
                         )
                     }
                 }
