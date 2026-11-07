@@ -100,7 +100,11 @@ internal enum class CropAspect(val long: Int, val short: Int) {
     R5_4(5, 4),
     R4_3(4, 3),
     R3_2(3, 2),
-    R16_9(16, 9);
+    R16_9(16, 9),
+    // The panoramic film gates (upstream spektrafilm PR #38's film-format presets): the 24x65 mm
+    // 35 mm panorama camera frame, and 6x17 roll film (56x168 mm).
+    R65_24(65, 24),
+    R3_1(3, 1);
 
     val isFixed: Boolean get() = long > 0
 

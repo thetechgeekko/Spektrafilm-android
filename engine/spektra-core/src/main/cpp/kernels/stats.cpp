@@ -57,6 +57,19 @@ int64_t fast_poisson_one(double lam, StatsRng& rng) {
     return round_nonnegative_i64(sample);
 }
 
+int64_t fast_thinned_poisson_one(double lam, double p, StatsRng& rng) {
+    if (!(lam > 0.0) || !(p > 0.0)) return 0;  // non-positive and NaN
+    if (p >= 1.0) return fast_poisson_one(lam, rng);
+    const double mean = lam * p;
+    if (lam >= 30.0 && mean * (1.0 - p) > 10.0 && mean < 30.0) {
+        // Both oracle draws would have been Normal: N(lam, lam) then N(n p, n p (1-p)),
+        // whose composite is N(lam p, lam p (1-p) + p^2 lam) = N(mean, mean). Knuth
+        // would loop ~mean times here, so keep the oracle's one-normal cost.
+        return round_nonnegative_i64(mean + std::sqrt(mean) * rng.normal());
+    }
+    return fast_poisson_one(mean, rng);
+}
+
 int64_t fast_binomial_one(int64_t n, double p, StatsRng& rng) {
     // fast_binomial: p<=0 -> 0; p>=1 -> n; n<25 -> Bernoulli trials; else
     // var>10 -> Normal approx; else CDF inversion.

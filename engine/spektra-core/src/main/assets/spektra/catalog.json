@@ -129,6 +129,16 @@
       "order": 20,
       "summary": "A versatile consumer 400 with a fourth color layer for cleaner tones under mixed light."
     },
+    "cinestill_800t": {
+      "name": "CineStill 800T",
+      "manufacturer": "CineStill",
+      "group": "color_negative",
+      "kind": "film",
+      "iso": 800,
+      "balance": "tungsten",
+      "order": 21,
+      "summary": "Kodak Vision3 500T with its rem-jet backing removed for still cameras, so bright lights bloom into the red halos night photos are known for."
+    },
     "kodak_ektachrome_100": {
       "name": "Kodak Ektachrome E100",
       "manufacturer": "Kodak",

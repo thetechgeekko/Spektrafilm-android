@@ -313,6 +313,14 @@ static void crop_image(const double* in, int h, int w,
     // size is (x, y); np.flip -> (y, x). np.round then np.int64 (truncation).
     long long sz0 = static_cast<long long>(np_round(max_shape * size[1]));  // rows
     long long sz1 = static_cast<long long>(np_round(max_shape * size[0]));  // cols
+    // ANDROID DEVIATION from oracle c1d0e44 (adopts upstream PR #71, 2026-11-04):
+    // size is a fraction of the LONG side, so on the short side it can ask for more
+    // pixels than the image has. The oracle then sets x0 = dim - sz < 0 and NumPy's
+    // negative-start slice returns a thin strip (a full-height crop one row too tall
+    // came back a few rows high). Clip the extent to the image first. A crop that
+    // fits is untouched, so every parity golden stays byte-identical.
+    if (sz0 > h) sz0 = h;
+    if (sz1 > w) sz1 = w;
     long long x00 = static_cast<long long>(np_round(cn0 - sz0 / 2.0));
     long long x01 = static_cast<long long>(np_round(cn1 - sz1 / 2.0));
     if (x00 < 0) x00 = 0;
@@ -320,15 +328,10 @@ static void crop_image(const double* in, int h, int w,
     if (x00 + sz0 > h) x00 = h - sz0;
     if (x01 + sz1 > w) x01 = w - sz1;
 
-    // Resolve image[x0 : x0+sz] with NumPy slice semantics (positive step). When
-    // the crop is larger than the image (sz > dim), the oracle's "x0 = dim - sz"
-    // overflow adjustment above leaves x0 NEGATIVE; NumPy then interprets that
-    // negative START as an index from the end (start += dim), it does NOT clamp it
-    // to 0. (Earlier code clamped to 0 and read the whole axis — diverging from
-    // the oracle's degenerate single-row crop.) Each endpoint: add dim if
-    // negative, then clamp to [0, dim]; the extent is max(0, stop-start). For the
-    // normal in-bounds crop this is identical to before (no negatives), so the
-    // existing crop golden stays byte-identical.
+    // Resolve image[x0 : x0+sz] with NumPy slice semantics (positive step). With
+    // the extent clipped above, x0 can no longer go negative; the slice helper
+    // still mirrors NumPy (add dim to a negative endpoint, clamp to [0, dim]) so
+    // the indexing stays obviously in bounds.
     auto np_slice = [](long long start, long long sz, long long dim,
                        long long* off, int* extent) {
         long long stop = start + sz;

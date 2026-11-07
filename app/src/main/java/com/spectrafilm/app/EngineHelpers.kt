@@ -96,15 +96,16 @@ data class CropBox(val x0: Int, val y0: Int, val width: Int, val height: Int)
  * utils/crop_resize.py). Reproduced here so the compare viewer's and the press-and-hold peek's
  * BEFORE frame can be cut to the same pixels the engine renders (#254). `center` is (x, y) as
  * fractions of (W, H); `size` is (x, y) as fractions of the LONG side; NumPy's round is
- * half-to-even, which is Math.rint; a box larger than the image degenerates the way a NumPy
- * negative-start slice does rather than clamping to the whole axis.
+ * half-to-even, which is Math.rint. A box larger than the image is clipped to the image first,
+ * as the engine does (upstream PR #71): the oracle let it go to a NumPy negative-start slice,
+ * which returned a thin strip for a full-height crop measured one row too tall on the preview.
  */
 fun engineCropBox(w: Int, h: Int, center: Pair<Float, Float>, size: Pair<Float, Float>): CropBox {
     val maxDim = kotlin.math.max(w, h).toDouble()
     val cy = Math.rint(h * center.second.toDouble())
     val cx = Math.rint(w * center.first.toDouble())
-    val sh = Math.rint(maxDim * size.second.toDouble()).toLong()
-    val sw = Math.rint(maxDim * size.first.toDouble()).toLong()
+    val sh = Math.rint(maxDim * size.second.toDouble()).toLong().coerceAtMost(h.toLong())
+    val sw = Math.rint(maxDim * size.first.toDouble()).toLong().coerceAtMost(w.toLong())
     var y0 = Math.rint(cy - sh / 2.0).toLong()
     var x0 = Math.rint(cx - sw / 2.0).toLong()
     if (y0 < 0) y0 = 0

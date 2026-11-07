@@ -6,7 +6,7 @@
  * (runtime/stages/crop_resize.cpp::crop_image); it feeds the compare viewer's and the
  * press-and-hold peek's before frame (#254). Each case is hand-derived from that function's
  * arithmetic: NumPy round (half to even), the "shift back inside" overflow rule, and the
- * negative-start slice semantics for a box larger than the image.
+ * short-side clip for a box larger than the image (upstream PR #71).
  */
 package com.spectrafilm.app
 
@@ -43,14 +43,22 @@ class CropBoxTest {
     }
 
     @Test
-    fun `a box taller than the image degenerates the way a NumPy negative-start slice does`() {
-        // size 1.0 of the long side asks for 1000 rows of a 600-row image: the overflow rule sets
-        // y0 = 600 - 1000 = -400, which NumPy reads as row 200; [200:600] is 400 rows. The engine
-        // renders that degenerate crop, so the before frame must cut the same 400 rows.
-        val box = engineCropBox(1000, 600, 0.5f to 0.5f, 1f to 1f)
-        assertEquals(0, box.x0)
-        assertEquals(1000, box.width)
-        assertEquals(200, box.y0)
-        assertEquals(400, box.height)
+    fun `a box taller than the image is clipped to the full height`() {
+        // size 1.0 of the long side asks for 1000 rows of a 600-row image. The oracle let that go
+        // to a NumPy negative-start slice (rows 200..600, 400 rows); the engine now clips the
+        // extent to the image first (upstream PR #71), so the before frame is the whole height.
+        assertEquals(CropBox(0, 0, 1000, 600), engineCropBox(1000, 600, 0.5f to 0.5f, 1f to 1f))
+    }
+
+    @Test
+    fun `a full-height crop measured a few rows tall on the preview keeps the full height`() {
+        // A 1:1 crop of a 6000x4000 frame chosen on a 640x427 preview asks for 427/640 of the
+        // long side: round(6000 * 0.6671875) = 4003 rows of a 4000-row image. Unclipped, the
+        // overflow rule set y0 = -3 and NumPy cut rows 3997..4000, a 3-row strip.
+        val s = 427f / 640f
+        val box = engineCropBox(6000, 4000, 0.5f to 0.5f, s to s)
+        assertEquals(0, box.y0)
+        assertEquals(4000, box.height)
+        assertEquals(4003, box.width)
     }
 }
