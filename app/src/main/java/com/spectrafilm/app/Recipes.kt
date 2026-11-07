@@ -71,6 +71,9 @@ object Recipes {
     private fun dir(ctx: Context): File =
         File(ctx.filesDir, "recipes").apply { mkdirs() }
 
+    /** The recipes directory, for listing (see [PreviousEdits]). */
+    internal fun directory(ctx: Context): File = dir(ctx)
+
     /**
      * Stable key for a source. Returns null for sources that have no stable identity
      * (e.g. the synthetic demo image), which should not be persisted as recipes.
