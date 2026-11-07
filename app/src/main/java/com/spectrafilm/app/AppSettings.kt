@@ -2,11 +2,12 @@
  * Spektrafilm for Android — persisted app settings. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * A thin SharedPreferences-backed store for app-level preferences that are NOT part of
- * the per-image SpektraParams tree: the default output color space, preview resolution,
+ * A thin Preferences DataStore store (#276; migrated from SharedPreferences on first use)
+ * for app-level preferences that are NOT part of the per-image SpektraParams tree: the default output color space, preview resolution,
  * default film/print profiles, export format + quality, theme, and the onboarding
  * "seen" flag. ParamsState owns the render parameters; this owns the app's defaults and
- * chrome. Values are read/written eagerly (commit/apply) so they survive process death.
+ * chrome. Reads come from an in-memory snapshot; writes go to it at once and to disk in order
+ * (see [SettingsDataStore]).
  *
  * applyDefaultsTo() seeds a fresh ParamsState with the user's saved defaults on launch.
  */
@@ -14,7 +15,12 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.spectrafilm.engine.ColorSpace
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 
 /** App theme preference. */
 enum class ThemeMode(val display: String) {
@@ -25,21 +31,23 @@ enum class ThemeMode(val display: String) {
 
 /**
  * Persisted application settings. Construct lazily via [AppSettings.from] (which caches
- * a single instance per process). All setters write through to SharedPreferences.
+ * a single instance per process). All setters write through to [SettingsDataStore].
  */
 class AppSettings private constructor(
-    private val prefs: SharedPreferences,
+    private val store: SettingsDataStore,
+    /** Only the dev-only big-cores switch and its legacy key; see [bigCores]. */
+    private val experimentPrefs: SharedPreferences,
     private val appContext: Context,
 ) : SettingsStore {
 
     var seenOnboarding: Boolean
-        get() = prefs.getBoolean(KEY_SEEN_ONBOARDING, false)
-        set(v) { prefs.edit().putBoolean(KEY_SEEN_ONBOARDING, v).apply() }
+        get() = store[KEY_SEEN_ONBOARDING] ?: false
+        set(v) { store.edit { it[KEY_SEEN_ONBOARDING] = v } }
 
     /** Whether the one-time editor coach-mark overlay (tap-to-edit / compare / 100%) was shown. */
     var seenEditorCoach: Boolean
-        get() = prefs.getBoolean(KEY_SEEN_EDITOR_COACH, false)
-        set(v) { prefs.edit().putBoolean(KEY_SEEN_EDITOR_COACH, v).apply() }
+        get() = store[KEY_SEEN_EDITOR_COACH] ?: false
+        set(v) { store.edit { it[KEY_SEEN_EDITOR_COACH] = v } }
 
     /**
      * GPU LUT preview (default OFF — opt-in). When on, the FIT view renders the current
@@ -63,7 +71,7 @@ class AppSettings private constructor(
     // to answer. Restore the toggle when the TextureView rewrite lands.
     var gpuPreview: Boolean
         get() = false
-        set(v) { prefs.edit().putBoolean(KEY_GPU_PREVIEW, v).apply() }
+        set(v) { store.edit { it[KEY_GPU_PREVIEW] = v } }
 
     /**
      * Pin the render pool to the device's performance cores.
@@ -96,8 +104,8 @@ class AppSettings private constructor(
      * contract. That half held up. Default OFF, and it should stay off.
      */
     var bigCores: Boolean
-        get() = prefs.getBoolean(KEY_BIG_CORES, false)
-        set(v) { prefs.edit().putBoolean(KEY_BIG_CORES, v).apply() }
+        get() = experimentPrefs.getBoolean(KEY_BIG_CORES, false)
+        set(v) { experimentPrefs.edit().putBoolean(KEY_BIG_CORES, v).apply() }
 
     /**
      * One-time cleanup of the ORIGINAL `big_cores` key.
@@ -109,8 +117,8 @@ class AppSettings private constructor(
      * never be honoured again; this drops the old one so it does not linger.
      */
     fun clearLegacyBigCores() {
-        if (prefs.contains(LEGACY_KEY_BIG_CORES)) {
-            prefs.edit().remove(LEGACY_KEY_BIG_CORES).apply()
+        if (experimentPrefs.contains(LEGACY_KEY_BIG_CORES)) {
+            experimentPrefs.edit().remove(LEGACY_KEY_BIG_CORES).apply()
             Diag.i("cleared legacy big_cores pref (feature was measured 1.41x slower)")
         }
     }
@@ -128,7 +136,7 @@ class AppSettings private constructor(
      */
     var gpuEngine: Boolean
         get() = true
-        set(v) { prefs.edit().putBoolean(KEY_GPU_ENGINE, v).apply() }
+        set(v) { store.edit { it[KEY_GPU_ENGINE] = v } }
 
     /**
      * GPU export (Vulkan, #154 / #149): the film simulation runs on the GPU for
@@ -148,7 +156,7 @@ class AppSettings private constructor(
      */
     var gpuExportEngine: Boolean
         get() = true
-        set(v) { prefs.edit().putBoolean(KEY_GPU_EXPORT, v).apply() }
+        set(v) { store.edit { it[KEY_GPU_EXPORT] = v } }
 
     /**
      * PROGRESSIVE LADDER rung (perf lab). Longest edge of the live DRAFT render that
@@ -164,8 +172,8 @@ class AppSettings private constructor(
      * Defaults to [DRAFT_RENDER_MAX_PX], so an untouched install renders as before.
      */
     override var draftRenderMaxPx: Int
-        get() = prefs.getInt(KEY_DRAFT_MAX_PX, DRAFT_RENDER_MAX_PX).coerceIn(128, 512)
-        set(v) { prefs.edit().putInt(KEY_DRAFT_MAX_PX, v.coerceIn(128, 512)).apply() }
+        get() = (store[KEY_DRAFT_MAX_PX] ?: DRAFT_RENDER_MAX_PX).coerceIn(128, 512)
+        set(v) { store.edit { it[KEY_DRAFT_MAX_PX] = v.coerceIn(128, 512) } }
 
     /**
      * Auto draft size (#299): start from the device tier and let [DraftEdgeCalibrator]
@@ -174,8 +182,8 @@ class AppSettings private constructor(
      * turns Auto on.
      */
     override var draftRenderAuto: Boolean
-        get() = prefs.getBoolean(KEY_DRAFT_AUTO, !prefs.contains(KEY_DRAFT_MAX_PX))
-        set(v) { prefs.edit().putBoolean(KEY_DRAFT_AUTO, v).apply() }
+        get() = store[KEY_DRAFT_AUTO] ?: (KEY_DRAFT_MAX_PX !in store)
+        set(v) { store.edit { it[KEY_DRAFT_AUTO] = v } }
 
     /** Draft edge to render at right now: calibrated when Auto, else the manual value. */
     fun effectiveDraftEdge(): Int =
@@ -191,9 +199,9 @@ class AppSettings private constructor(
     }
 
     override var theme: ThemeMode
-        get() = runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)!!) }
+        get() = runCatching { ThemeMode.valueOf(store[KEY_THEME] ?: ThemeMode.SYSTEM.name) }
             .getOrDefault(ThemeMode.SYSTEM)
-        set(v) { prefs.edit().putString(KEY_THEME, v.name).apply() }
+        set(v) { store.edit { it[KEY_THEME] = v.name } }
 
     /**
      * Material You: derive the palette from the user's wallpaper (API 31+). Defaults ON, which is
@@ -201,17 +209,17 @@ class AppSettings private constructor(
      * cannot do it, so toggling it on an older phone is remembered rather than silently discarded.
      */
     override var dynamicColor: Boolean
-        get() = prefs.getBoolean(KEY_DYNAMIC_COLOR, true)
-        set(v) { prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, v).apply() }
+        get() = store[KEY_DYNAMIC_COLOR] ?: true
+        set(v) { store.edit { it[KEY_DYNAMIC_COLOR] = v } }
 
     override var defaultOutputColorSpace: ColorSpace
-        get() = runCatching { ColorSpace.valueOf(prefs.getString(KEY_OUTPUT_CS, ColorSpace.SRGB.name)!!) }
+        get() = runCatching { ColorSpace.valueOf(store[KEY_OUTPUT_CS] ?: ColorSpace.SRGB.name) }
             .getOrDefault(ColorSpace.SRGB)
-        set(v) { prefs.edit().putString(KEY_OUTPUT_CS, v.name).apply() }
+        set(v) { store.edit { it[KEY_OUTPUT_CS] = v.name } }
 
     override var previewMaxSize: Int
-        get() = prefs.getInt(KEY_PREVIEW_MAX, 640)
-        set(v) { prefs.edit().putInt(KEY_PREVIEW_MAX, v).apply() }
+        get() = store[KEY_PREVIEW_MAX] ?: 640
+        set(v) { store.edit { it[KEY_PREVIEW_MAX] = v } }
 
     /**
      * Auto preview size (#299): pick the settle-preview edge from device RAM, CPU and
@@ -219,8 +227,8 @@ class AppSettings private constructor(
      * install that already set one keeps it (auto off) until the user turns Auto on.
      */
     override var previewMaxSizeAuto: Boolean
-        get() = prefs.getBoolean(KEY_PREVIEW_AUTO, !prefs.contains(KEY_PREVIEW_MAX))
-        set(v) { prefs.edit().putBoolean(KEY_PREVIEW_AUTO, v).apply() }
+        get() = store[KEY_PREVIEW_AUTO] ?: (KEY_PREVIEW_MAX !in store)
+        set(v) { store.edit { it[KEY_PREVIEW_AUTO] = v } }
 
     /** The device's auto edges (cached per process). */
     internal fun autoPreviewEdges(): AutoPreviewEdges = AdaptivePreview.edges(appContext)
@@ -230,21 +238,21 @@ class AppSettings private constructor(
         if (previewMaxSizeAuto) autoPreviewEdges().previewEdge else previewMaxSize
 
     override var defaultFilmProfile: String
-        get() = prefs.getString(KEY_FILM, "") ?: ""
-        set(v) { prefs.edit().putString(KEY_FILM, v).apply() }
+        get() = store[KEY_FILM] ?: ""
+        set(v) { store.edit { it[KEY_FILM] = v } }
 
     override var defaultPrintProfile: String
-        get() = prefs.getString(KEY_PRINT, "") ?: ""
-        set(v) { prefs.edit().putString(KEY_PRINT, v).apply() }
+        get() = store[KEY_PRINT] ?: ""
+        set(v) { store.edit { it[KEY_PRINT] = v } }
 
     override var exportFormat: ExportFormat
-        get() = runCatching { ExportFormat.valueOf(prefs.getString(KEY_EXPORT_FMT, ExportFormat.PNG.name)!!) }
+        get() = runCatching { ExportFormat.valueOf(store[KEY_EXPORT_FMT] ?: ExportFormat.PNG.name) }
             .getOrDefault(ExportFormat.PNG)
-        set(v) { prefs.edit().putString(KEY_EXPORT_FMT, v.name).apply() }
+        set(v) { store.edit { it[KEY_EXPORT_FMT] = v.name } }
 
     override var exportQuality: Int
-        get() = prefs.getInt(KEY_EXPORT_Q, 95).coerceIn(1, 100)
-        set(v) { prefs.edit().putInt(KEY_EXPORT_Q, v.coerceIn(1, 100)).apply() }
+        get() = (store[KEY_EXPORT_Q] ?: 95).coerceIn(1, 100)
+        set(v) { store.edit { it[KEY_EXPORT_Q] = v.coerceIn(1, 100) } }
 
     /**
      * Whether to preserve GPS/location EXIF tags when copying source metadata into
@@ -253,8 +261,8 @@ class AppSettings private constructor(
      * exposure/date) is always copied; this toggle only governs the GPS block.
      */
     override var exportKeepGps: Boolean
-        get() = prefs.getBoolean(KEY_EXPORT_KEEP_GPS, false)
-        set(v) { prefs.edit().putBoolean(KEY_EXPORT_KEEP_GPS, v).apply() }
+        get() = store[KEY_EXPORT_KEEP_GPS] ?: false
+        set(v) { store.edit { it[KEY_EXPORT_KEEP_GPS] = v } }
 
     /**
      * Seed a freshly constructed [state] with the saved app defaults. Profile defaults
@@ -276,34 +284,49 @@ class AppSettings private constructor(
 
     companion object {
         private const val PREFS_NAME = "spectrafilm_settings"
-        private const val KEY_SEEN_ONBOARDING = "seen_onboarding"
-        private const val KEY_SEEN_EDITOR_COACH = "seen_editor_coach"
-        private const val KEY_GPU_PREVIEW = "gpu_preview"
-        private const val KEY_GPU_ENGINE = "gpu_engine_preview"
-        private const val KEY_GPU_EXPORT = "gpu_engine_export"
-        private const val KEY_DRAFT_MAX_PX = "draft_render_max_px"
-        private const val KEY_DRAFT_AUTO = "draft_render_auto"
+        private val KEY_SEEN_ONBOARDING = booleanPreferencesKey("seen_onboarding")
+        private val KEY_SEEN_EDITOR_COACH = booleanPreferencesKey("seen_editor_coach")
+        private val KEY_GPU_PREVIEW = booleanPreferencesKey("gpu_preview")
+        private val KEY_GPU_ENGINE = booleanPreferencesKey("gpu_engine_preview")
+        private val KEY_GPU_EXPORT = booleanPreferencesKey("gpu_engine_export")
+        private val KEY_DRAFT_MAX_PX = intPreferencesKey("draft_render_max_px")
+        private val KEY_DRAFT_AUTO = booleanPreferencesKey("draft_render_auto")
         // Renamed from "big_cores". The old key must never be read again — see
         // clearLegacyBigCores(). This one exists only so an A/B can still be driven
-        // from a shell without a UI; it is not a product setting.
+        // from a shell without a UI; it is not a product setting. Both stay in the
+        // SharedPreferences file (not migrated to DataStore) so a shell can still set it.
         private const val KEY_BIG_CORES = "big_cores_experiment"
         private const val LEGACY_KEY_BIG_CORES = "big_cores"
-        private const val KEY_THEME = "theme"
-        private const val KEY_DYNAMIC_COLOR = "dynamic_color"
-        private const val KEY_OUTPUT_CS = "output_color_space"
-        private const val KEY_PREVIEW_MAX = "preview_max_size"
-        private const val KEY_PREVIEW_AUTO = "preview_max_size_auto"
-        private const val KEY_FILM = "default_film_profile"
-        private const val KEY_PRINT = "default_print_profile"
-        private const val KEY_EXPORT_FMT = "export_format"
-        private const val KEY_EXPORT_Q = "export_quality"
-        private const val KEY_EXPORT_KEEP_GPS = "export_keep_gps"
+        private val KEY_THEME = stringPreferencesKey("theme")
+        private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        private val KEY_OUTPUT_CS = stringPreferencesKey("output_color_space")
+        private val KEY_PREVIEW_MAX = intPreferencesKey("preview_max_size")
+        private val KEY_PREVIEW_AUTO = booleanPreferencesKey("preview_max_size_auto")
+        private val KEY_FILM = stringPreferencesKey("default_film_profile")
+        private val KEY_PRINT = stringPreferencesKey("default_print_profile")
+        private val KEY_EXPORT_FMT = stringPreferencesKey("export_format")
+        private val KEY_EXPORT_Q = intPreferencesKey("export_quality")
+        private val KEY_EXPORT_KEEP_GPS = booleanPreferencesKey("export_keep_gps")
+
+        /** Every key that moves from SharedPreferences to DataStore (all but big cores). */
+        private val MIGRATED_KEYS: Set<String> = setOf(
+            KEY_SEEN_ONBOARDING, KEY_SEEN_EDITOR_COACH, KEY_GPU_PREVIEW, KEY_GPU_ENGINE,
+            KEY_GPU_EXPORT, KEY_DRAFT_MAX_PX, KEY_DRAFT_AUTO, KEY_THEME, KEY_DYNAMIC_COLOR,
+            KEY_OUTPUT_CS, KEY_PREVIEW_MAX, KEY_PREVIEW_AUTO, KEY_FILM, KEY_PRINT,
+            KEY_EXPORT_FMT, KEY_EXPORT_Q, KEY_EXPORT_KEEP_GPS,
+        ).mapTo(HashSet()) { it.name }
 
         @Volatile private var instance: AppSettings? = null
 
         fun from(ctx: Context): AppSettings =
             instance ?: synchronized(this) {
                 instance ?: AppSettings(
+                    SettingsDataStore.create(
+                        ctx,
+                        PREFS_NAME,
+                        MIGRATED_KEYS,
+                        CoroutineScope(SupervisorJob() + ProcessDispatchers.io),
+                    ),
                     ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
                     ctx.applicationContext,
                 ).also { instance = it }
