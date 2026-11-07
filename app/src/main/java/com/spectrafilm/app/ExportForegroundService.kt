@@ -136,22 +136,43 @@ class ExportForegroundService : Service() {
         onTimeout(startId, 0)
     }
 
+    /**
+     * Tries each type from [foregroundServiceTypesFor] in order and stops at the first the
+     * system accepts. A refused type throws without making the service foreground, so the
+     * next one can still be tried inside the same start window. Seen on device (#458): an
+     * API 37 Samsung build refused mediaProcessing ("Starting FGS with type ... has been
+     * prohibited") while the manifest and permissions were in order; dataSync is the
+     * fallback the service ran as before. Returns false when every type was refused.
+     */
+    private fun enterForeground(notification: Notification): Boolean {
+        for (type in foregroundServiceTypesFor(Build.VERSION.SDK_INT)) {
+            try {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+                return true
+            } catch (t: Throwable) {
+                Diag.w("export foreground service could not start as type=$type: ${t.message}")
+            }
+        }
+        return false
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val runId = intent?.getLongExtra(EXTRA_RUN_ID, INVALID_RUN_ID) ?: INVALID_RUN_ID
         val startedAt = intent?.getLongExtra(EXTRA_STARTED_AT, 0L) ?: 0L
         // Must reach startForeground within ~5 s of startForegroundService or the
         // system throws; doing it first thing in onStartCommand is well inside that.
-        try {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                buildNotification(runId, startedAt),
-                foregroundServiceTypeFor(Build.VERSION.SDK_INT),
-            )
+        // Building the notification touches NotificationManager (channel creation), which can
+        // throw too; keep it inside the same failure boundary so it never crashes the process
+        // that owns the export.
+        val notification = try {
+            buildNotification(runId, startedAt)
         } catch (t: Throwable) {
+            Diag.w("export foreground notification could not be built: ${t.message}")
+            null
+        }
+        if (notification == null || !enterForeground(notification)) {
             // API 31+ can refuse a background start, and OEM policies vary. The export
             // still runs — just at background priority, i.e. how it behaved before.
-            Diag.w("export foreground service could not start: ${t.message}")
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -237,10 +258,20 @@ class ExportForegroundService : Service() {
          * not exist, and none before 29, where startForeground takes no type. Must stay a
          * subset of the manifest's `android:foregroundServiceType`.
          */
-        internal fun foregroundServiceTypeFor(sdkInt: Int): Int = when {
-            sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-            sdkInt >= Build.VERSION_CODES.Q -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            else -> 0
+        internal fun foregroundServiceTypeFor(sdkInt: Int): Int = foregroundServiceTypesFor(sdkInt).first()
+
+        /**
+         * Every type to try on [sdkInt], preferred first: mediaProcessing then dataSync on
+         * API 35+ (some builds refuse mediaProcessing, #458), dataSync alone on 29-34, and
+         * untyped before 29.
+         */
+        internal fun foregroundServiceTypesFor(sdkInt: Int): List<Int> = when {
+            sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> listOf(
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+            sdkInt >= Build.VERSION_CODES.Q -> listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            else -> listOf(0)
         }
 
         private const val CHANNEL_ID = "export"

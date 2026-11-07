@@ -87,6 +87,7 @@ internal fun authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Lo
  * Activity is now a parameter, passed by [AppRoot] (#452):
  *  - [dispatchers] and the editor's ViewModels (Activity-scoped, see MainActivity);
  *  - [incomingImageIntent], the unconsumed VIEW/SEND intent (#162);
+ *  - [launcherShortcut], the unconsumed launcher shortcut (#467);
  *  - [setEditorShortcutHandler], which installs or clears the hardware keyboard handler;
  *  - [heldDropPermissions] and [requestDragAndDropPermissions] for cross-app drops;
  *  - [lifecycle], the Activity lifecycle whose ON_STOP checkpoints the session, and
@@ -106,6 +107,7 @@ internal fun EditorScreen(
     versionsVm: VersionsViewModel,
     viewerVm: EditorViewerViewModel,
     incomingImageIntent: MutableState<Intent?>,
+    launcherShortcut: MutableState<LauncherShortcut?>,
     setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
     heldDropPermissions: MutableList<android.view.DragAndDropPermissions>,
     requestDragAndDropPermissions: (android.view.DragEvent) -> android.view.DragAndDropPermissions?,
