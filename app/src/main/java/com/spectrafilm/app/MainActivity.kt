@@ -5138,7 +5138,7 @@ class MainActivity : ComponentActivity() {
                 when {
                     gpuActive -> Unit
                     bmp != null && compareMode && before != null ->
-                        CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
+                        CompareSlider(before = before, after = bmp)
                     bmp != null -> ZoomableImage(
                         bitmap = bmp,
                         modifier = Modifier.fillMaxSize(),

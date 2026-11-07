@@ -356,8 +356,11 @@ fun ZoomableImage(
                 stringResource(R.string.tool_viewer_preview_desc)
             },
             contentScale = ContentScale.Fit,
+            // aspectRatio alone, not after fillMaxWidth: a forced full width cannot shrink
+            // when the viewport is shorter than the width-fitted height (a portrait photo
+            // above an open panel), so the photo overflowed and was clipped instead of
+            // refitting, and fitRect's height-fit assumption no longer matched the pixels.
             modifier = Modifier
-                .fillMaxWidth()
                 .aspectRatio(aspect)
                 .graphicsLayer {
                     scaleX = scale
@@ -596,8 +599,8 @@ fun CompareSlider(
     val splitHalf = stringResource(R.string.tool_viewer_compare_split_half)
 
     Box(
+        // Fit both dimensions, as ZoomableImage's Image does (see the note there).
         modifier = modifier
-            .fillMaxWidth()
             .aspectRatio(aspect)
             .clipToBounds()
             .onSizeChanged { width = it.width }
