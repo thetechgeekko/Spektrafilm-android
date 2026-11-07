@@ -357,9 +357,15 @@ private fun decodeRawFromFd(
         ?: error("Could not open RAW file")
     var decoded: LinearResult? = null
     try {
-        decoded = RawDecoder.decodeToLinear(
-            descriptor.fd, settings, cancellation, scratchDirectory = ctx.cacheDir,
-        )
+        // Only a source too large for the in-memory read (or of unknown size) is
+        // snapshotted to the private cache; the common phone RAW skips that disk copy.
+        decoded = if (RawInputLimits.needsInputSnapshot(descriptor.statSize)) {
+            RawDecoder.decodeToLinear(
+                descriptor.fd, settings, cancellation, scratchDirectory = ctx.cacheDir,
+            )
+        } else {
+            RawDecoder.decodeToLinear(descriptor.fd, settings, cancellation)
+        }
         descriptor.close()
         return decoded
     } catch (failure: Throwable) {

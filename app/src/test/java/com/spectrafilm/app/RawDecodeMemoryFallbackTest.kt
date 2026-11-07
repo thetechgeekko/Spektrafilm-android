@@ -3,6 +3,7 @@ package com.spectrafilm.app
 import com.spectrafilm.libraw.DecodeStatus
 import com.spectrafilm.libraw.RawDecodeException
 import org.junit.Assert.*
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 
 class RawDecodeMemoryFallbackTest {
@@ -60,5 +61,25 @@ class RawDecodeMemoryFallbackTest {
         }
         assertEquals(42, result)
         assertEquals(listOf(false, true), attempts)
+    }
+
+    @Test fun everyReducedRetryMarksTheResultDegraded() {
+        val nativeDegraded = AtomicBoolean(false)
+        decodeRawWithMemoryFallback(16384, nativeDegraded) { _, half ->
+            if (!half) throw RawDecodeException("budget", DecodeStatus.NO_MEMORY.code, 0)
+            Unit
+        }
+        assertTrue("native NO_MEMORY retry is a reduced decode", nativeDegraded.get())
+
+        val managedDegraded = AtomicBoolean(false)
+        decodeRawWithMemoryFallback(16384, managedDegraded) { _, half ->
+            if (!half) throw OutOfMemoryError("test allocation")
+            Unit
+        }
+        assertTrue("managed OOM retry is a reduced decode", managedDegraded.get())
+
+        val clean = AtomicBoolean(false)
+        decodeRawWithMemoryFallback(16384, clean) { _, _ -> Unit }
+        assertFalse("a first-try decode is not degraded", clean.get())
     }
 }

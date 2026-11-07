@@ -257,9 +257,12 @@ those two exact instrumentation markers is a failed gate.
 
 ## Half-size (proxy) decode — memory and performance option
 
-The app's file-descriptor path snapshots encoded input into an unlinked private
-cache file and decodes a read-only mapping, with a 512 MiB input ceiling on
-64-bit and 64 MiB on 32-bit. The three-argument fd overload, InputStream,
+When a source's declared size is above 64 MiB or unknown
+(`RawInputLimits.needsInputSnapshot`), the app's file-descriptor path snapshots
+encoded input into an unlinked private cache file (1 MiB reads) and decodes a
+read-only mapping, with a 512 MiB input ceiling on 64-bit and 64 MiB on 32-bit.
+A source of known size within 64 MiB keeps the faster in-memory read and writes
+nothing to storage. The three-argument fd overload, InputStream,
 ByteArray, and ByteBuffer paths retain their 64 MiB in-memory ceiling.
 
 Native output admission is 8 MiPixels on 32-bit and 12/24/32 MiPixels on

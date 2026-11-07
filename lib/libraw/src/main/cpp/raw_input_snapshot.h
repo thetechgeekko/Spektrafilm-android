@@ -6,13 +6,13 @@
 
 #include "raw_decoder.h"
 
-#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace spectrafilm {
 
@@ -75,7 +75,12 @@ class RawInputSnapshot final {
             ::close(source);
             return fail("failed to reset RAW scratch fd");
         }
-        std::array<uint8_t, 64U * 1024U> chunk{};
+        // 1 MiB reads, as in fd_read_all.h (#287): on a MediaStore/SAF descriptor
+        // (FUSE) each read is a provider round trip, so small chunks dominate the copy.
+#if defined(POSIX_FADV_SEQUENTIAL)
+        (void)::posix_fadvise(source, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+        std::vector<uint8_t> chunk(1U << 20);
         for (;;) {
             if (options.cancelFlag != nullptr &&
                 options.cancelFlag->load(std::memory_order_acquire)) {
