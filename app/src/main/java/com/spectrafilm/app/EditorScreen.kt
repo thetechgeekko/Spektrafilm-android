@@ -294,7 +294,8 @@ internal fun MainActivity.EditorScreen(
     val exportInFlight = exportUi.inFlight
     val exportDone = exportUi.done
     val exportMaskVisible = exportUi.maskVisible
-    var previewTick by remember { mutableIntStateOf(0) }
+    val previewTickState = remember { mutableIntStateOf(0) }
+    var previewTick by previewTickState
     val publicationGate = remember { RenderPublicationGate() }
     val previewRevision = remember(previewTick) { publicationGate.nextRevision() }
     // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
@@ -397,15 +398,19 @@ internal fun MainActivity.EditorScreen(
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
     // 100% grain magnifier
-    var magnifierOpen by remember { mutableStateOf(false) }
+    val magnifierOpenState = remember { mutableStateOf(false) }
+    var magnifierOpen by magnifierOpenState
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
     // that would remeasure it every frame, which is the churn documented on PanelOverlay.
     // A one-shot layout change is a different thing and is what this is.
-    var magnifierBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var magnifierRendering by remember { mutableStateOf(false) }
-    var magnifierStatus by remember { mutableStateOf("") }
+    val magnifierBitmapState = remember { mutableStateOf<Bitmap?>(null) }
+    var magnifierBitmap by magnifierBitmapState
+    val magnifierRenderingState = remember { mutableStateOf(false) }
+    var magnifierRendering by magnifierRenderingState
+    val magnifierStatusState = remember { mutableStateOf("") }
+    var magnifierStatus by magnifierStatusState
     // Tracks the in-flight magnifier render so a rapid re-tap can cancel the previous
     // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
     // Held in a remember box (not Compose state — we never read it during composition).
@@ -425,7 +430,8 @@ internal fun MainActivity.EditorScreen(
 
     // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
     // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
-    var roiOverlay by remember { mutableStateOf<RoiOverlay?>(null) }
+    val roiOverlayState = remember { mutableStateOf<RoiOverlay?>(null) }
+    var roiOverlay by roiOverlayState
     val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val roiPatchTracker = remember { RoiPatchTracker() }
     // Zoom step 3: recent finished patch renders for the current edit (RoiPatchCache).
@@ -441,8 +447,10 @@ internal fun MainActivity.EditorScreen(
         )
     }
     val roiPublicationGate = remember { RoiRenderPublicationGate() }
-    val latestRoiRenderKey by rememberUpdatedState(previewTick)
-    val latestMagnifierRenderKey by rememberUpdatedState(previewTick)
+    val latestRoiRenderKeyState = rememberUpdatedState(previewTick)
+    val latestRoiRenderKey by latestRoiRenderKeyState
+    val latestMagnifierRenderKeyState = rememberUpdatedState(previewTick)
+    val latestMagnifierRenderKey by latestMagnifierRenderKeyState
 
     /** Retire every source-derived resource before committing a different source identity. */
     fun retireSourceResources() {
@@ -1751,84 +1759,24 @@ internal fun MainActivity.EditorScreen(
     // the coroutine is still active — a cancelled run recycles its own bitmap instead
     // of writing it, so a superseded render can never leak or land on screen.
     fun openMagnifier(nx: Float, ny: Float) {
-        if (!sourceRenderAllowed) return
-        val e = engine ?: return
-        magnifierJobRef.value?.cancel()
-        val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
-        val publicationTicket = magnifierPublicationGate.begin(renderSnapshot.renderKey)
-        magnifierOpen = true
-        magnifierBitmap = null
-        magnifierRendering = true
-        magnifierStatus = ctx.getString(R.string.editor_magnifier_rendering)
-        magnifierJobRef.value = scope.launch {
-            var renderId = 0L
-            val result = runCatching {
-                withOwnedContext(
-                    context = dispatchers.default,
-                    dispose = { bitmap: Bitmap ->
-                        if (!bitmap.isRecycled) bitmap.recycle()
-                    },
-                ) {
-                    loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                        val full = fullLease.image
-                        cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX).use { crop ->
-                            // Effective film format so the crop's pixel_size_um matches the proxy it was
-                            // cut from (the crop spans only cropFrac of the frame). Without it the engine
-                            // treats the crop as a whole 35mm frame and grain/halation (µm-based) render
-                            // too weak even at 1:1. See toParams(filmFormatMmOverride).
-                            val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                                maxOf(full.width, full.height).coerceAtLeast(1)
-                            // SimResult holds a native off-heap buffer; close() frees it once the
-                            // bitmap copy is made.
-                            runCancellableNative(
-                                onLateResult = { late ->
-                                    late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                    late.close()
-                                },
-                            ) { cancellation ->
-                                e.simulate(
-                                    crop,
-                                    renderSnapshot.paramsForCrop(cropFrac),
-                                    RenderKind.MAGNIFIER,
-                                    cancellation,
-                                )
-                            }.use { res ->
-                                renderId = res.renderId
-                                simResultToBitmapGraded(
-                                    res,
-                                    renderSnapshot.cctfEncoded,
-                                    renderSnapshot.saturation,
-                                    renderSnapshot.vibrance,
-                                    renderSnapshot.gamutCompress,
-                                    renderSnapshot.localAdjustments,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (
-                !isActive || !magnifierPublicationGate.canPublish(
-                    publicationTicket,
-                    latestMagnifierRenderKey,
-                )
-            ) {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.SUPERSEDED)
-                // Superseded by a newer tap (this job was cancelled): drop our render so
-                // it neither overwrites the latest request nor leaks an orphaned bitmap.
-                result.getOrNull()?.let { if (!it.isRecycled) it.recycle() }
-                return@launch
-            }
-            result.onSuccess {
-                magnifierBitmap = it
-                SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
-                magnifierStatus = ctx.getString(R.string.editor_magnifier_done, it.width, it.height)
-            }.onFailure {
-                SimResult.reportOutcome(renderId, AppRenderOutcome.FAILED)
-                magnifierStatus = ctx.getString(R.string.editor_magnifier_failed, it.message)
-            }
-            magnifierRendering = false
-        }
+        startMagnifierRender(
+            nx = nx,
+            ny = ny,
+            ctx = ctx,
+            scope = scope,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            magnifierJobRef = magnifierJobRef,
+            magnifierPublicationGate = magnifierPublicationGate,
+            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
+            engineState = engineState,
+            previewTickState = previewTickState,
+            magnifierBitmapState = magnifierBitmapState,
+            magnifierOpenState = magnifierOpenState,
+            magnifierRenderingState = magnifierRenderingState,
+            magnifierStatusState = magnifierStatusState,
+            latestMagnifierRenderKeyState = latestMagnifierRenderKeyState,
+        )
     }
 
     // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
@@ -1838,175 +1786,21 @@ internal fun MainActivity.EditorScreen(
     // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
     // while cropping or comparing (those branches own the gestures / have no zoom).
     fun renderRoi(roi: RoiRect) {
-        if (!sourceRenderAllowed) return
-        val e = engine ?: return
-        if (toolVm.current.anyOverlayOpen || viewerVm.current.compare) return
-        // A settle inside the patch already on screen (or already rendering) at the same edit
-        // and sharpness needs no new render: keep it rather than cancel and redo it.
-        roiPatchTracker.reuseReason(
-            roi, previewTick, roiOverlay, roiJobRef.value, ROI_RENDER_MAX_PX,
-        )?.let { reason ->
-            if (reason == RoiPatchTracker.REUSED_SHOWN) {
-                // The view came back inside the shown patch: any render still running for
-                // an intermediate viewport must not land over it (it would not cover this
-                // view, and no further settle would come to fix that).
-                roiPublicationGate.invalidate()
-                roiJobRef.value?.cancel()
-            }
-            Diag.i("zoom roi reused $reason")
-            return
-        }
-        // A finished patch for this edit that already covers the view (pan back, zoom back):
-        // show it now instead of rendering again.
-        roiPatchCache.find(roi, previewTick, ROI_RENDER_MAX_PX)?.let { (record, cached) ->
-            roiPublicationGate.invalidate()
-            roiJobRef.value?.cancel()
-            roiOverlay = cached
-            roiPatchTracker.shownOverlay = cached
-            roiPatchTracker.shown = record
-            Diag.i("zoom roi reused cache entries=${roiPatchCache.size}")
-            return
-        }
-        roiJobRef.value?.cancel()
-        val renderSnapshot = state.captureInteractiveRenderSnapshot(previewTick)
-        val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
-        roiJobRef.value = scope.launch {
-            val pendingOutcomes = PendingRenderOutcomes()
-            // Zoom timing (rawr study step 1): settle -> source -> draft -> final, all in ms
-            // from the settle. One line per completed or superseded ROI render.
-            val timing = RoiTiming()
-            val result = runCatching {
-                loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
-                    timing.sourceMs = timing.sinceStartMs()
-                    val full = fullLease.image
-                    // Render a grid-snapped patch around the viewport, not the viewport
-                    // itself (RoiPatch): the margin keeps halation/blur light from just off
-                    // screen, and a later pan inside the patch reuses this render.
-                    val box = RoiPatch.box(roi, full.width, full.height)
-                    val patchRect = RoiPatch.rectOf(box, full.width, full.height)
-                    val scale = RoiPatch.neededScale(
-                        roi, full.width, full.height, ROI_RENDER_MAX_PX,
-                    )
-                    val draftScale = RoiPatch.neededScale(
-                        roi, full.width, full.height, ROI_DRAFT_MAX_PX,
-                    )
-                    val patchRecord = RoiPatchRecord(
-                        renderKey = renderSnapshot.renderKey,
-                        srcW = full.width,
-                        srcH = full.height,
-                        box = box,
-                        scale = scale,
-                    )
-                    currentCoroutineContext()[Job]?.let { job ->
-                        roiPatchTracker.inFlightJob = job
-                        roiPatchTracker.inFlight = patchRecord
-                    }
-                    timing.cropW = box.width
-                    timing.cropH = box.height
-                    withOwnedContext(
-                        context = dispatchers.default,
-                        dispose = LinearImage::close,
-                    ) {
-                        cropLinearImageBox(full, box)
-                    }.use { crop ->
-                        // Effective film format so the crop's pixel_size_um matches the proxy (the crop
-                        // spans only cropFrac of the frame); keeps grain/halation at the right strength
-                        // when zoomed instead of treating the crop as a whole frame.
-                        val cropFrac = maxOf(crop.width, crop.height).toFloat() /
-                            maxOf(full.width, full.height).coerceAtLeast(1)
-                        suspend fun renderAt(edge: Int): Pair<Bitmap, Long> =
-                            withOwnedContext(
-                                context = dispatchers.default,
-                                dispose = { rendered: Pair<Bitmap, Long> ->
-                                    if (!rendered.first.isRecycled) rendered.first.recycle()
-                                },
-                            ) {
-                                runCancellableNative(
-                                    onLateResult = { late ->
-                                        late.reportOutcome(AppRenderOutcome.SUPERSEDED)
-                                        late.close()
-                                    },
-                                ) { cancellation ->
-                                    e.simulatePreview(
-                                        crop,
-                                        renderSnapshot.paramsForCrop(
-                                            cropFraction = cropFrac,
-                                            previewMaxSize = edge,
-                                        ),
-                                        RenderKind.ROI,
-                                        cancellation,
-                                    )
-                                }.use { res ->
-                                    pendingOutcomes.add(res.renderId)
-                                    simResultToBitmapGraded(
-                                        res,
-                                        renderSnapshot.cctfEncoded,
-                                        renderSnapshot.saturation,
-                                        renderSnapshot.vibrance,
-                                        renderSnapshot.gamutCompress,
-                                        renderSnapshot.localAdjustments,
-                                    ) to res.renderId
-                                }
-                            }
-                        // DRAFT pass: a fast low-res sharp crop so the zoomed region resolves ~5x sooner,
-                        // then refine to ROI_RENDER_MAX_PX. Every bitmap is published (then owned by the
-                        // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
-                        // so a cancel mid-flight never leaks one.
-                        val (draft, draftRenderId) =
-                            renderAt(RoiPatch.renderEdge(box, draftScale))
-                        timing.draftMs = timing.sinceStartMs()
-                        if (
-                            isActive && roiPublicationGate.canPublish(
-                                roiPublicationTicket,
-                                latestRoiRenderKey,
-                            )
-                        ) {
-                            roiOverlay = RoiOverlay(
-                                draft, patchRect.cxN, patchRect.cyN, patchRect.wN, patchRect.hN,
-                            )
-                            pendingOutcomes.resolve(draftRenderId, AppRenderOutcome.CONSUMED)
-                        } else {
-                            pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
-                            if (!draft.isRecycled) draft.recycle()
-                            return@runCatching null
-                        }
-                        renderAt(RoiPatch.renderEdge(box, scale)).also {
-                            timing.finalMs = timing.sinceStartMs()
-                        }.let { (bmp, id) -> Triple(bmp, id, patchRecord to patchRect) }
-                    }
-                }
-            }
-            if (
-                !isActive || !roiPublicationGate.canPublish(
-                    roiPublicationTicket,
-                    latestRoiRenderKey,
-                )
-            ) {
-                pendingOutcomes.resolveAll(AppRenderOutcome.SUPERSEDED)
-                // Superseded (cancelled): drop the final render (the draft, if published, stays
-                // and is recycled by the DisposableEffect when the next overlay replaces it).
-                result.getOrNull()?.first?.let { if (!it.isRecycled) it.recycle() }
-                Diag.i(timing.line("superseded"))
-                return@launch
-            }
-            // On success publish the sharp final; the prior overlay (the draft) is recycled by
-            // the DisposableEffect(roiOverlay) below. On failure keep the scaled proxy.
-            result.onSuccess { rendered ->
-                rendered?.let { (bmp, renderId, patch) ->
-                    val (record, rect) = patch
-                    val overlay = RoiOverlay(bmp, rect.cxN, rect.cyN, rect.wN, rect.hN)
-                    roiOverlay = overlay
-                    roiPatchTracker.shownOverlay = overlay
-                    roiPatchTracker.shown = record
-                    roiPatchCache.put(record, overlay)
-                    pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
-                }
-                Diag.i(timing.line("done"))
-            }.onFailure {
-                pendingOutcomes.resolveAll(AppRenderOutcome.FAILED)
-                Diag.i(timing.line("failed"))
-            }
-        }
+        startRoiPatchRender(
+            roi = roi,
+            scope = scope,
+            state = state,
+            sourceRenderAllowed = sourceRenderAllowed,
+            roiJobRef = roiJobRef,
+            roiPatchCache = roiPatchCache,
+            roiPatchTracker = roiPatchTracker,
+            roiPublicationGate = roiPublicationGate,
+            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
+            engineState = engineState,
+            previewTickState = previewTickState,
+            roiOverlayState = roiOverlayState,
+            latestRoiRenderKeyState = latestRoiRenderKeyState,
+        )
     }
 
     fun clearRoi() {
