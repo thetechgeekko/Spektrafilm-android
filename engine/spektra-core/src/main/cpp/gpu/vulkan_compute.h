@@ -707,6 +707,11 @@ struct HalationScatterRequest {
     // submission) and to UINT32_MAX (the old single submission) to prove the
     // split never touches the numbers.
     uint32_t submit_pixels_override = 0;
+    // 0 = whole-frame residency when it fits, else the banded route (#281) at
+    // the host's 128 MiB device budget. Non-zero forces the banded route at this
+    // budget (four work buffers plus a two-image staging buffer); the lavapipe
+    // gate uses it to prove the bands give the whole-frame route's very bytes.
+    uint64_t band_bytes_override = 0;
 };
 
 struct HalationScatterDiagnostics {
@@ -716,7 +721,9 @@ struct HalationScatterDiagnostics {
     // True when the pass read and wrote the resident frame (#220) and moved
     // nothing across the bus.
     bool resident = false;
-    uint32_t bands = 0;       // staging bands uploaded (transfer granularity only)
+    // Whole-frame route: staging bands uploaded (transfer granularity only).
+    // Banded route (#281, reason "banded"): row bands + column bands of one blur.
+    uint32_t bands = 0;
     uint32_t dispatches = 0;
     uint32_t pass_submits = 0;  // queue submissions the compute pass was split into (#270)
     // Host-side wall clock: f64 -> f32 staging + upload copies, the pass's
@@ -727,8 +734,10 @@ struct HalationScatterDiagnostics {
     double readback_ms = 0.0;
 };
 
-// Writes width*height*3 doubles to `out_rgb` (must not alias `raw_rgb`) only when
-// the whole pass succeeded; on any failure `out_rgb` is untouched, the function
+// Writes width*height*3 doubles to `out_rgb` (must not alias `raw_rgb`). On the
+// whole-frame route it is written only when the whole pass succeeded; the banded
+// route (#281) writes it band by band, so after a mid-way failure it may be
+// partly written -- every caller discards it on failure. On failure the function
 // returns false with the reason in `diagnostics`, and the caller runs the CPU
 // pass. Returns true with engaged=false when the parameters make the pass a
 // no-op (the CPU pass would also leave the image unchanged). Never throws.
