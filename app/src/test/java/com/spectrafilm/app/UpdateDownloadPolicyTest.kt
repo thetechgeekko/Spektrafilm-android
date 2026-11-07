@@ -84,7 +84,7 @@ class UpdateDownloadPolicyTest {
         val firstReading = java.util.concurrent.CountDownLatch(1)
         val releaseFirst = java.util.concurrent.CountDownLatch(1)
         var calls = 0
-        val downloader = UpdateDownloader(dir) { uri ->
+        val downloader = UpdateDownloader(dir, kotlinx.coroutines.Dispatchers.IO) { uri ->
             val first = calls++ == 0
             object : java.net.HttpURLConnection(uri.toURL()) {
                 override fun connect() {}

@@ -29,7 +29,7 @@ import android.content.pm.Signature
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,8 +66,8 @@ internal object UpdateInstaller {
         installer == PLAY_STORE
     }.getOrDefault(false)
 
-    suspend fun verify(context: Context, apk: File, tag: String): VerifyFailure? =
-        withContext(Dispatchers.IO) {
+    suspend fun verify(context: Context, apk: File, tag: String, io: CoroutineDispatcher): VerifyFailure? =
+        withContext(io) {
             val pm = context.packageManager
             val installed = runCatching { packageInfo(pm, context.packageName) }.getOrNull()
                 ?: return@withContext VerifyFailure.UNREADABLE
@@ -91,7 +91,7 @@ internal object UpdateInstaller {
         }
 
     /** Stream [apk] into a PackageInstaller session and commit it. False on any failure. */
-    suspend fun install(context: Context, apk: File): Boolean = withContext(Dispatchers.IO) {
+    suspend fun install(context: Context, apk: File, io: CoroutineDispatcher): Boolean = withContext(io) {
         val installer = context.packageManager.packageInstaller
         var sessionId = -1
         runCatching {
