@@ -215,4 +215,5 @@
     <string name="photo_info_location_present">已包含在文件中</string>
     <string name="photo_info_location_absent">无</string>
     <string name="photo_info_empty">此文件没有相机信息。</string>
+    <string name="tool_export_batch">用此编辑导出更多照片…</string>
 </resources>

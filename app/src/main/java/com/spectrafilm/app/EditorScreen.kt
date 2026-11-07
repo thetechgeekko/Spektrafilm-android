@@ -1162,6 +1162,16 @@ internal fun MainActivity.EditorScreen(
     ) { uri ->
         if (uri != null) adoptIncomingImage(uri)
     }
+    // Batch export: this edit and the export sheet's settings on more photos
+    // (EditorBatchExport.kt, BatchExport.kt).
+    val batchPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            startBatchExport(ctx, scope, state, engine, uris, snackbarHost) { status = it }
+        }
+    }
+    BatchExportProgressEffect(ctx, scope, snackbarHost) { status = it }
     // #162 inbound import: consume the Activity's pending VIEW/SEND exactly once and
     // route it through the same dispatch as a picked document. A rejected shape
     // (non-content scheme, missing stream) surfaces a status instead of adopting.
@@ -2700,6 +2710,11 @@ internal fun MainActivity.EditorScreen(
                 onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                 previewBitmap = preview,
+                onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
+                    { requestBatchExport(ctx, legacyStoragePermission, batchPicker) { status = it } }
+                } else {
+                    null
+                },
                 onExport = {
                     startEditorExport(
                         ctx = ctx,

@@ -183,6 +183,11 @@
     <string name="editor_status_media_location_denied">photo location access denied; exports will not include GPS</string>
     <string name="editor_status_unsupported_export">unsupported export combination</string>
     <string name="editor_status_export_running">an export is already running</string>
+    <string name="editor_status_batch_progress">Batch export: photo %1$d of %2$d…</string>
+    <string name="editor_snack_batch_done">Exported %1$d of %2$d photos</string>
+    <string name="editor_snack_batch_done_failed">Exported %1$d of %2$d photos; %3$d could not be exported</string>
+    <string name="editor_snack_batch_cancelled">Batch export stopped after %1$d of %2$d photos</string>
+    <string name="editor_snack_batch_nothing">None of those files can be exported here (videos aren\'t supported yet)</string>
 
     <!-- Editor top bar -->
     <string name="editor_open_photo">Open photo</string>
