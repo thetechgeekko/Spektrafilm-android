@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -154,6 +155,12 @@ internal class LibraryViewModel(
      * keeps them on [viewModelScope].
      */
     writes: CoroutineScope? = null,
+    /**
+     * Look pastes in flight across every Library entry (#453). A paste outlives the entry that
+     * started it, so a save asked for from a later entry must still wait for it and list the
+     * folder again before choosing frames. The app passes one process-wide counter.
+     */
+    private val pastesInFlight: MutableStateFlow<Int> = MutableStateFlow(0),
 ) : ViewModel() {
     private val writeScope: CoroutineScope = writes ?: viewModelScope
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
@@ -183,7 +190,12 @@ internal class LibraryViewModel(
         writeScope.launch {
             // A paste in flight changes which frames are edited and what their edits are:
             // save after it and the listing refresh it triggers, not from the state before.
-            _paste.first { it !is LibraryPasteState.Running }
+            // The paste may belong to an earlier Library entry whose refresh never reaches
+            // this one, so after waiting on any paste, list the folder again here.
+            if (pastesInFlight.value > 0) {
+                pastesInFlight.first { it == 0 }
+                refresh()
+            }
             // A refresh can start while we wait on another: settle on the latest one.
             while (true) {
                 val job = loadJob ?: break
@@ -262,19 +274,24 @@ internal class LibraryViewModel(
         }
         if (targets.isEmpty()) return
         _paste.value = LibraryPasteState.Running(targets.size)
+        pastesInFlight.update { it + 1 }
         writeScope.launch {
-            val result = try {
-                withContext(io) { pasteLook(sourceUri, targets) }
-            } catch (cancelled: CancellationException) {
-                _paste.value = LibraryPasteState.Idle
-                throw cancelled
-            } catch (failure: Exception) {
-                Diag.w("library paste failed: ${failure.message}")
-                LookSync.Result(applied = 0, skipped = targets.size)
+            try {
+                val result = try {
+                    withContext(io) { pasteLook(sourceUri, targets) }
+                } catch (cancelled: CancellationException) {
+                    _paste.value = LibraryPasteState.Idle
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Diag.w("library paste failed: ${failure.message}")
+                    LookSync.Result(applied = 0, skipped = targets.size)
+                }
+                if (!result.noSource) _selection.value = emptySet()
+                _paste.value = LibraryPasteState.Done(result)
+                if (result.applied > 0) refresh()
+            } finally {
+                pastesInFlight.update { it - 1 }
             }
-            if (!result.noSource) _selection.value = emptySet()
-            _paste.value = LibraryPasteState.Done(result)
-            if (result.applied > 0) refresh()
         }
     }
 

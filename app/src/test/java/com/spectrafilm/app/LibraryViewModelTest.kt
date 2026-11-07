@@ -3,6 +3,7 @@ package com.spectrafilm.app
 import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -283,5 +284,36 @@ class LibraryViewModelTest {
         pasted.complete(LookSync.Result(applied = 1, skipped = 0)); idle()
         assertTrue(sidecars.saves.isEmpty())
         assertEquals(LibrarySidecarState.Idle, model.sidecarSave.value)
+    }
+
+    @Test fun aSaveFromALaterEntryWaitsForAnEarlierEntrysPasteAndListsAgain() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 1), entry("b.jpg", "image/jpeg", 2))
+        val sidecars = FakeSidecars(writable = true)
+        val edited = mutableSetOf("content://doc/a.jpg")
+        val pasted = CompletableDeferred<LookSync.Result>()
+        val shared = MutableStateFlow(0)
+        fun entryVm() = LibraryViewModel(
+            FakeStore("tree://a"),
+            { LibraryListing("A", rows) },
+            Dispatchers.Unconfined,
+            { it in edited },
+            { _, _ -> pasted.await() },
+            sidecars,
+            pastesInFlight = shared,
+        )
+        // The first Library entry starts a paste onto b.jpg, then the user leaves.
+        val first = entryVm()
+        first.refresh(); idle()
+        first.toggleSelected("content://doc/b.jpg")
+        first.pasteLookFrom("content://doc/a.jpg"); idle()
+        // A new entry lists the folder before b.jpg is edited and asks to save.
+        val second = entryVm()
+        second.refresh(); idle()
+        second.saveEditsBesidePhotos(); idle()
+        assertTrue(sidecars.saves.isEmpty())
+        // The paste lands: the save lists again and includes b.jpg.
+        edited += "content://doc/b.jpg"
+        pasted.complete(LookSync.Result(applied = 1, skipped = 0)); idle()
+        assertEquals(setOf("a.jpg", "b.jpg"), sidecars.saves.single().toSet())
     }
 }
