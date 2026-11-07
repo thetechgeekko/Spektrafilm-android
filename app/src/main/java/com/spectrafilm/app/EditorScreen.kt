@@ -1578,6 +1578,52 @@ internal fun MainActivity.EditorScreen(
             CachedSourceDecodeRequest(decode, cache.beginRequest(cacheRequest))
         }
 
+    /**
+     * The stock browser's preview session (StockPreviews.kt). Built when the sheet opens, from a
+     * snapshot of the look with only the stock left free. It reads the proxy the settle render
+     * already cached -- the same request, so it never moves the cache's generation -- and never
+     * decodes: with no cached proxy the tiles simply stay dark.
+     */
+    fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
+        previews = vm.previews,
+        request = vm::request,
+        open = open@{
+            if (!sourceRenderAllowed || sourceUri == null) return@open
+            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
+            val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
+                .getOrNull() ?: return@open
+            val base = state.toParams(
+                previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
+                skipGrainHalation = true,
+            )
+            val free = if (forFilm) base.copy(filmProfile = "") else base.copy(printProfile = "")
+            val cctf = state.savingCctfEncoding
+            val saturation = state.saturation
+            val vibrance = state.vibrance
+            val gamut = state.gamutCompress
+            val local = state.localAdjustments.toList()
+            vm.open(
+                StockPreviewSession(
+                    key = listOf(snapshot.ticket.request, free, cctf, saturation, vibrance, gamut, local),
+                    source = {
+                        sourceCache.acquire(snapshot.ticket)?.use { lease ->
+                            withContext(dispatchers.default) {
+                                downsampleLinearBox(lease.image, STOCK_PREVIEW_SOURCE_EDGE)
+                            }
+                        }
+                    },
+                    paramsFor = { id ->
+                        if (forFilm) free.copy(filmProfile = id) else free.copy(printProfile = id)
+                    },
+                    toBitmap = { res ->
+                        simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                    },
+                ),
+            )
+        },
+        close = vm::close,
+    )
+
     suspend fun loadSourceCached(
         cache: DecodedSourceCache,
         flight: SingleFlight<Unit>,
@@ -2922,6 +2968,14 @@ internal fun MainActivity.EditorScreen(
                         Category.SIMULATION -> SimulationSection(
                             s = state,
                             photoDateStamp = photoDateStamp,
+                            filmPreviewHost = stockPreviewHost(filmPreviewVm, forFilm = true),
+                            // In slide mode the print stage is skipped, so every paper would
+                            // render the same tile: show the text-only cards instead.
+                            printPreviewHost = if (state.scanFilm) {
+                                null
+                            } else {
+                                stockPreviewHost(printPreviewVm, forFilm = false)
+                            },
                             filmGroups = filmGroups,
                             printGroups = printGroups,
                             onOpenFilmCurves = {
@@ -4051,6 +4105,9 @@ internal fun MainActivity.EditorScreen(
                                         // additionally includes the input close below and dispatch
                                         // bookkeeping, so a small positive gap remains expected.
                                         val tSim0 = System.currentTimeMillis()
+                                        // Ultra HDR: the scene's highlight light, sampled while the
+                                        // decode is still open (SceneHighlightTap). Null otherwise.
+                                        var sceneTap: SceneLuma? = null
                                         val res = restored ?: try {
                                             runCancellableNative(
                                                 onLateResult = { late ->
@@ -4064,7 +4121,19 @@ internal fun MainActivity.EditorScreen(
                                                     RenderKind.EXPORT,
                                                     cancellation,
                                                 )
-                                            }.also { renderId = it.renderId }
+                                            }.also { rendered ->
+                                                renderId = rendered.renderId
+                                                sceneTap = image?.let { source ->
+                                                    runCatching {
+                                                        captureSceneTapForGainmap(
+                                                            source, exportParams, rendered.width,
+                                                            rendered.height, outputDescriptor,
+                                                        )
+                                                    }.onFailure {
+                                                        Diag.w("gain map scene tap failed: $it")
+                                                    }.getOrNull()
+                                                }
+                                            }
                                         } finally {
                                             image?.close()
                                         }
@@ -4154,7 +4223,7 @@ internal fun MainActivity.EditorScreen(
                                                 if (outputDescriptor.metadata.hdrGainMap != null) {
                                                     runCatching {
                                                         attachRenderedGainmap(
-                                                            res, framed, outputDescriptor, borderLayout,
+                                                            res, framed, outputDescriptor, borderLayout, sceneTap,
                                                         )
                                                     }.onFailure {
                                                         Diag.w("gain map failed; exporting SDR base: $it")
@@ -4370,7 +4439,7 @@ internal fun MainActivity.EditorTopBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                    listOf(SpektraBrand.scrim.copy(alpha = 0.55f), Color.Transparent),
                 )
             )
             .windowInsetsPadding(WindowInsets.statusBars),
@@ -4387,7 +4456,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onOpenSource) {
                     Icon(
                         SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
-                        tint = Color.White,
+                        tint = SpektraBrand.onCanvas,
                     )
                 }
             }
@@ -4395,7 +4464,7 @@ internal fun MainActivity.EditorTopBar(
             // ellipsizes instead of pushing the menu off the right edge (#181).
             Text(
                 stringResource(R.string.app_name),
-                color = Color.White.copy(alpha = 0.92f),
+                color = SpektraBrand.onCanvas.copy(alpha = 0.92f),
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -4410,7 +4479,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onUndo, enabled = canUndo) {
                     Icon(
                         SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
-                        tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.4f),
+                        tint = if (canUndo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -4418,7 +4487,7 @@ internal fun MainActivity.EditorTopBar(
                 PressIconButton(onClick = onRedo, enabled = canRedo) {
                     Icon(
                         SpectraIcons.Redo, contentDescription = stringResource(R.string.editor_action_redo),
-                        tint = if (canRedo) Color.White else Color.White.copy(alpha = 0.4f),
+                        tint = if (canRedo) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
                     )
                 }
             }
@@ -4432,7 +4501,7 @@ internal fun MainActivity.EditorTopBar(
                         Icon(
                             SpectraIcons.More,
                             contentDescription = stringResource(R.string.editor_action_more),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4623,7 +4692,7 @@ internal fun MainActivity.PreviewRegion(
                     // No inset: this Box already stops at the panel's top edge.
                 )
                 placeholder != null -> Unit
-                else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
+                else -> Text(stringResource(R.string.editor_preview_none), color = SpektraBrand.onCanvas.copy(alpha = 0.7f))
             }
 
             // Compact translucent histogram overlaid at the TOP EDGE of the preview
@@ -4663,7 +4732,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
                         Icon(
                             SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4671,7 +4740,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleClipWarnings, active = clipWarnings, toggle = true) {
                         Icon(
                             SpectraIcons.Clipping, contentDescription = stringResource(R.string.editor_toggle_clipping),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4679,7 +4748,7 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onOpenMagnifier) {
                         Icon(
                             SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
@@ -4687,18 +4756,18 @@ internal fun MainActivity.PreviewRegion(
                     CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
                         Icon(
                             SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = Color.White,
+                            tint = SpektraBrand.onCanvas,
                         )
                     }
                 }
                 TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
                     CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = Color.White)
+                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = SpektraBrand.onCanvas)
                     }
                 }
                 TextTooltip(stringResource(R.string.editor_rotate_90)) {
                     CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = Color.White)
+                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = SpektraBrand.onCanvas)
                     }
                 }
             }

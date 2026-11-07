@@ -42,6 +42,16 @@ class RawPrecisionDescriptorTest {
     }
 
     @Test
+    fun `rounded fractional DNG black level provenance crosses JNI (#271)`() {
+        val descriptor = RawPrecisionDescriptor.fromNative(
+            validWords().apply { this[14] = 4 },
+            floatArrayOf(-0.5f, 0.75f),
+        )
+        assertEquals(RawLevelProvenance.DNG_METADATA_ROUNDED, descriptor.blackLevelProvenance)
+        assertEquals(64L, descriptor.blackLevelCommon)
+    }
+
+    @Test
     fun `three-plane LinearRaw derives levels from three active channels only`() {
         val descriptor = RawPrecisionDescriptor.fromNative(
             validWords().apply {

@@ -275,6 +275,8 @@ internal fun SimulationSection(
     onFilmProfileChange: (String) -> Unit,
     onPrintProfileChange: (String) -> Unit,
     photoDateStamp: String? = null,
+    filmPreviewHost: StockPreviewHost? = null,
+    printPreviewHost: StockPreviewHost? = null,
 ) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_sim_title), expanded, { expanded = it }) {
@@ -298,6 +300,7 @@ internal fun SimulationSection(
                     selectedId = s.filmProfile,
                     groups = filmGroups,
                     onSelect = onFilmProfileChange,
+                    previewHost = filmPreviewHost,
                 )
                 OutlinedButton(
                     onClick = onOpenFilmCurves,
@@ -332,6 +335,7 @@ internal fun SimulationSection(
                     selectedId = s.printProfile,
                     groups = printGroups,
                     onSelect = onPrintProfileChange,
+                    previewHost = printPreviewHost,
                 )
                 OutlinedButton(
                     onClick = onOpenPrintCurves,

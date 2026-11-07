@@ -195,6 +195,20 @@ struct PrimaryImageInfo {
     bool hasWhiteLevel = false;
     bool hasBaselineExposure = false;
     bool hasLinearResponseLimit = false;
+    // Fractional RATIONAL BlackLevel payloads found anywhere in the dependency
+    // walk (#271). Each is a (valuesAt, count) pair of RATIONALs that is
+    // otherwise well formed: non-zero denominators and a nearest-integer value
+    // inside the declared sample range. See normalizeFractionalBlackLevels().
+    static constexpr std::size_t kMaxFractionalBlackPayloads = 10U;
+    std::array<std::pair<std::uint32_t, std::uint32_t>,
+               kMaxFractionalBlackPayloads> fractionalBlackPayloads{};
+    std::size_t fractionalBlackPayloadCount = 0U;
+    // IFD offsets whose own BlackLevel was fractional. Only the selected RAW
+    // image's membership here decides the published provenance: a reduced
+    // preview's fractional level must not relabel an integral RAW plane.
+    std::array<std::uint32_t, kMaxFractionalBlackPayloads>
+        fractionalBlackIfds{};
+    std::size_t fractionalBlackIfdCount = 0U;
 };
 
 struct IfdCandidate {
@@ -257,6 +271,13 @@ struct ScanState {
     // reduced previews and otherwise malformed/non-RAW-looking children.
     bool dependencyHasBlackLevelDelta = false;
     bool nonRootDngVersion = false;
+    std::array<std::pair<std::uint32_t, std::uint32_t>,
+               PrimaryImageInfo::kMaxFractionalBlackPayloads>
+        fractionalBlackPayloads{};
+    std::size_t fractionalBlackPayloadCount = 0U;
+    std::array<std::uint32_t, PrimaryImageInfo::kMaxFractionalBlackPayloads>
+        fractionalBlackIfds{};
+    std::size_t fractionalBlackIfdCount = 0U;
 };
 
 struct IfdDecode {
@@ -360,9 +381,20 @@ inline bool entryPayloadInBounds(const Reader& r, size_t entry,
     return r.in(valuesAt, bytes);
 }
 
+// Nearest integer to numerator/denominator, halves rounding up. Exact in 64-bit.
+inline std::uint64_t roundedRational(std::uint32_t numerator,
+                                     std::uint32_t denominator) {
+    return (2U * static_cast<std::uint64_t>(numerator) + denominator) /
+           (2U * static_cast<std::uint64_t>(denominator));
+}
+
+// When `sawFractional` is non-null, a RATIONAL value that is not a whole number
+// is admitted if its nearest integer is in range, and *sawFractional is set.
+// Every other rule (types, bounds, zero denominators, range) is unchanged.
 inline bool integralUnsignedValuesInRange(const Reader& r, size_t entry,
                                           uint16_t type, uint32_t count,
-                                          uint32_t maximumValue) {
+                                          uint32_t maximumValue,
+                                          bool* sawFractional = nullptr) {
     if ((type != 3U && type != 4U && type != 5U) ||
         !entryPayloadInBounds(
             r, entry, type, count,
@@ -386,10 +418,17 @@ inline bool integralUnsignedValuesInRange(const Reader& r, size_t entry,
         } else {
             const uint32_t numerator = r.u32(at);
             const uint32_t denominator = r.u32(at + 4U);
-            if (denominator == 0U || numerator % denominator != 0U) {
-                return false;
+            if (denominator == 0U) return false;
+            if (numerator % denominator != 0U) {
+                if (sawFractional == nullptr) return false;
+                const std::uint64_t rounded =
+                    roundedRational(numerator, denominator);
+                if (rounded > maximumValue) return false;
+                *sawFractional = true;
+                value = static_cast<std::uint32_t>(rounded);
+            } else {
+                value = numerator / denominator;
             }
-            value = numerator / denominator;
         }
         if (value > maximumValue) {
             return false;
@@ -763,11 +802,50 @@ inline void evaluateDependencySafety(const Reader& r, IfdDecode& decoded,
         : (candidate.bitsPerSample == 16
                ? 65535U
                : ((1U << candidate.bitsPerSample) - 1U));
-    const bool blackValuesUnsafe = candidate.hasBlackLevel &&
+    bool fractionalBlack = false;
+    bool blackValuesUnsafe = candidate.hasBlackLevel &&
         (candidate.sampleFormat != 1 || !qualifiedBits ||
          !integralUnsignedValuesInRange(
              r, decoded.blackLevelEntry, decoded.blackLevelType,
-             decoded.blackLevelCount, declaredMaximum));
+             decoded.blackLevelCount, declaredMaximum, &fractionalBlack));
+    if (!blackValuesUnsafe && fractionalBlack) {
+        // A fractional RATIONAL BlackLevel (shipping GCam/Pixel DNGs write
+        // e.g. 6406/100) is recorded for normalization to its nearest integer
+        // before open_buffer(). Anything that cannot be recorded stays unsafe.
+        const std::uint32_t valuesAt = r.u32(decoded.blackLevelEntry + 8U);
+        bool recorded = false;
+        for (std::size_t index = 0U;
+             index < state.fractionalBlackPayloadCount; ++index) {
+            if (state.fractionalBlackPayloads[index].first == valuesAt) {
+                recorded =
+                    state.fractionalBlackPayloads[index].second ==
+                    decoded.blackLevelCount;
+                if (!recorded) blackValuesUnsafe = true;
+                break;
+            }
+        }
+        if (!recorded && !blackValuesUnsafe) {
+            if (state.fractionalBlackPayloadCount <
+                state.fractionalBlackPayloads.size()) {
+                state.fractionalBlackPayloads
+                    [state.fractionalBlackPayloadCount++] =
+                    {valuesAt, decoded.blackLevelCount};
+            } else {
+                blackValuesUnsafe = true;
+            }
+        }
+        if (!blackValuesUnsafe) {
+            // The visited set makes each IFD offset reach here at most once,
+            // and it holds at most kMaxDependencyIfds (== this capacity).
+            if (state.fractionalBlackIfdCount <
+                state.fractionalBlackIfds.size()) {
+                state.fractionalBlackIfds[state.fractionalBlackIfdCount++] =
+                    candidate.ifdOffset;
+            } else {
+                blackValuesUnsafe = true;
+            }
+        }
+    }
     if (blackValuesUnsafe) {
         state.unsafeIfdMetadataForLibRawOpen = true;
     }
@@ -919,6 +997,9 @@ inline void walkIfd(const Reader& r, uint32_t ifdOff, ScanState& state,
         decodeBoundedIfdEntry(r, e, containerIfd, state, decoded);
     }
 
+    // evaluateDependencySafety() records which IFD a fractional BlackLevel
+    // belongs to, so the offset must be known before aggregation sets it.
+    decoded.candidate.ifdOffset = ifdOff;
     evaluateDependencySafety(r, decoded, state);
     qualifySemanticCandidate(r, decoded);
     aggregateSemanticCandidate(decoded, ifdOff, state);
@@ -1018,6 +1099,10 @@ inline PrimaryImageInfo primaryImageInfoOf(const uint8_t* data, size_t len,
         state.walkIncomplete || state.unsafeIfdMetadataForLibRawOpen ||
         state.nonRootDngVersion;
     info.hasBlackLevelDelta = state.dependencyHasBlackLevelDelta;
+    info.fractionalBlackPayloads = state.fractionalBlackPayloads;
+    info.fractionalBlackPayloadCount = state.fractionalBlackPayloadCount;
+    info.fractionalBlackIfds = state.fractionalBlackIfds;
+    info.fractionalBlackIfdCount = state.fractionalBlackIfdCount;
 
     const CandidateSelection selection =
         selectCandidate(state, decodedRawWidth, decodedRawHeight);
@@ -1344,6 +1429,115 @@ bool preflightLibRawOpen(const uint8_t* data, size_t length,
         return false;
     }
     return true;
+}
+
+// Rewrites every recorded fractional RATIONAL BlackLevel to its nearest integer
+// (numerator = rounded value, denominator = 1) in the container's byte order,
+// then re-sniffs: the result must carry no fractional payload and must pass the
+// unchanged pre-open admission. LibRaw itself would otherwise truncate some of
+// these values and round others, depending on the tag shape (#271), so the
+// rewrite makes the black level LibRaw subtracts one well-defined integer.
+//
+// `*input`/`*inputLength` are replaced with the owned, rewritten copy only when
+// something was rewritten; `*rounded` reports that. `owned` may already hold
+// the input (the fd path), in which case it is rewritten in place.
+struct RoundedBlackIfds {
+    std::array<std::uint32_t,
+               dngsniff::PrimaryImageInfo::kMaxFractionalBlackPayloads>
+        offsets{};
+    std::size_t count = 0U;
+};
+
+bool prepareLibRawInput(const uint8_t** input, size_t* inputLength,
+                        std::vector<uint8_t>* owned, RoundedBlackIfds* rounded,
+                        DecodeResult* failure) {
+    *rounded = RoundedBlackIfds{};
+    const dngsniff::PrimaryImageInfo first =
+        dngsniff::primaryImageInfoOf(*input, *inputLength);
+    if (first.recognizedTiff && first.fractionalBlackPayloadCount != 0U) {
+        if (owned->data() != *input) {
+            owned->assign(*input, *input + *inputLength);
+        }
+        uint8_t* bytes = owned->data();
+        const size_t length = owned->size();
+        const bool bigEndian = length >= 2U && bytes[0] == 'M';
+        const auto put32 = [&](size_t at, std::uint32_t value) {
+            if (bigEndian) {
+                bytes[at] = static_cast<uint8_t>(value >> 24);
+                bytes[at + 1U] = static_cast<uint8_t>(value >> 16);
+                bytes[at + 2U] = static_cast<uint8_t>(value >> 8);
+                bytes[at + 3U] = static_cast<uint8_t>(value);
+            } else {
+                bytes[at] = static_cast<uint8_t>(value);
+                bytes[at + 1U] = static_cast<uint8_t>(value >> 8);
+                bytes[at + 2U] = static_cast<uint8_t>(value >> 16);
+                bytes[at + 3U] = static_cast<uint8_t>(value >> 24);
+            }
+        };
+        dngsniff::Reader reader;
+        reader.p = bytes;
+        reader.n = length;
+        reader.be = bigEndian;
+        for (std::size_t payload = 0U;
+             payload < first.fractionalBlackPayloadCount; ++payload) {
+            const size_t valuesAt = first.fractionalBlackPayloads[payload].first;
+            const std::uint32_t count =
+                first.fractionalBlackPayloads[payload].second;
+            if (!reader.in(valuesAt, static_cast<size_t>(count) * 8U)) {
+                *failure = precisionMetadataFailure(
+                    "DNG fractional BlackLevel payload is out of bounds before LibRaw open");
+                return false;
+            }
+            for (std::uint32_t index = 0U; index < count; ++index) {
+                const size_t at = valuesAt + static_cast<size_t>(index) * 8U;
+                const std::uint32_t numerator = reader.u32(at);
+                const std::uint32_t denominator = reader.u32(at + 4U);
+                if (denominator == 0U) {
+                    *failure = precisionMetadataFailure(
+                        "DNG fractional BlackLevel has a zero denominator before LibRaw open");
+                    return false;
+                }
+                const std::uint64_t value =
+                    dngsniff::roundedRational(numerator, denominator);
+                put32(at, static_cast<std::uint32_t>(value));
+                put32(at + 4U, 1U);
+            }
+        }
+        const dngsniff::PrimaryImageInfo second =
+            dngsniff::primaryImageInfoOf(bytes, length);
+        if (second.fractionalBlackPayloadCount != 0U) {
+            *failure = precisionMetadataFailure(
+                "DNG BlackLevel normalization did not converge before LibRaw open");
+            return false;
+        }
+        *input = bytes;
+        *inputLength = length;
+        rounded->offsets = first.fractionalBlackIfds;
+        rounded->count = first.fractionalBlackIfdCount;
+    }
+    return preflightLibRawOpen(*input, *inputLength, failure);
+}
+
+// Relabels the descriptor only when the RAW image LibRaw actually decoded is
+// one whose own BlackLevel was rounded; `data` is the (rewritten) input and the
+// selection uses the same decoded-geometry binding as finishDecode().
+// `rawWidth`/`rawHeight` must be captured before finishDecode(), which may
+// recycle the LibRaw object and clear its sizes.
+void markRoundedBlackProvenance(const RoundedBlackIfds& rounded,
+                                uint32_t rawWidth, uint32_t rawHeight,
+                                const uint8_t* data, size_t length,
+                                DecodeResult* result) {
+    if (rounded.count == 0U || !result->ok) return;
+    const dngsniff::PrimaryImageInfo selected = dngsniff::primaryImageInfoOf(
+        data, length, rawWidth, rawHeight);
+    const bool selectedWasRounded = std::find(
+        rounded.offsets.begin(), rounded.offsets.begin() + rounded.count,
+        selected.selectedIfdOffset) != rounded.offsets.begin() + rounded.count;
+    if (selectedWasRounded && result->descriptor.blackLevelProvenance ==
+                                  RawLevelProvenance::DngMetadata) {
+        result->descriptor.blackLevelProvenance =
+            RawLevelProvenance::DngMetadataRounded;
+    }
 }
 
 int bitsRequired(std::uint64_t distinctValues) {
@@ -2453,7 +2647,12 @@ DecodeResult decodeFromBuffer(const uint8_t* data, size_t length,
         result.error = "RAW input exceeds 64 MiB safety limit";
         return result;
     }
-    if (!preflightLibRawOpen(data, length, &result)) return result;
+    std::vector<uint8_t> normalizedInput;
+    RoundedBlackIfds blackRounded;
+    if (!prepareLibRawInput(&data, &length, &normalizedInput, &blackRounded,
+                            &result)) {
+        return result;
+    }
     LibRaw raw;
     applyInputLimits(raw);
     applyCancellationHandler(raw, options);
@@ -2481,8 +2680,14 @@ DecodeResult decodeFromBuffer(const uint8_t* data, size_t length,
         return dimensionLimitFailure(pixelLimit);
     }
     selectRawStoreLimit(raw, options, pixelLimit);
-    return finishDecode(raw, options, data, length, decodeStartedAt, 0.0,
-                        openMs, pixelLimit);
+    const uint32_t rawWidth = raw.imgdata.sizes.raw_width;
+    const uint32_t rawHeight = raw.imgdata.sizes.raw_height;
+    DecodeResult decoded = finishDecode(raw, options, data, length,
+                                        decodeStartedAt, 0.0, openMs,
+                                        pixelLimit);
+    markRoundedBlackProvenance(blackRounded, rawWidth, rawHeight, data, length,
+                               &decoded);
+    return decoded;
 } catch (const std::bad_alloc&) {
     DecodeResult result;
     result.status = SFRAW_ERR_NO_MEMORY;
@@ -2518,8 +2723,15 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
         const double inputIoMs = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - ioAt).count();
         const uint8_t* data = snapshot.data();
-        const size_t length = snapshot.size();
-        if (!preflightLibRawOpen(data, length, &result)) return result;
+        size_t length = snapshot.size();
+        // The mapped snapshot is read-only; a fractional BlackLevel (#271) is
+        // rewritten into an owned copy, which must outlive `raw` below.
+        std::vector<uint8_t> normalizedInput;
+        RoundedBlackIfds blackRounded;
+        if (!prepareLibRawInput(&data, &length, &normalizedInput,
+                                &blackRounded, &result)) {
+            return result;
+        }
         LibRaw raw;
         applyInputLimits(raw);
         applyCancellationHandler(raw, options);
@@ -2546,8 +2758,14 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
         if (decodeGeometryExceedsLimit(raw, options, pixelLimit, false))
             return dimensionLimitFailure(pixelLimit);
         selectRawStoreLimit(raw, options, pixelLimit);
-        return finishDecode(raw, options, data, length, decodeStartedAt,
-                            inputIoMs, openMs, pixelLimit);
+        const uint32_t rawWidth = raw.imgdata.sizes.raw_width;
+        const uint32_t rawHeight = raw.imgdata.sizes.raw_height;
+        DecodeResult decoded = finishDecode(raw, options, data, length,
+                                            decodeStartedAt, inputIoMs,
+                                            openMs, pixelLimit);
+        markRoundedBlackProvenance(blackRounded, rawWidth, rawHeight, data,
+                                   length, &decoded);
+        return decoded;
     }
     LibRaw raw;
     applyInputLimits(raw);
@@ -2581,7 +2799,13 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
         result.error = "failed to read RAW from fd";
         return result;
     }
-    if (!preflightLibRawOpen(bytes.data(), bytes.size(), &result)) return result;
+    const uint8_t* input = bytes.data();
+    size_t inputLength = bytes.size();
+    RoundedBlackIfds blackRounded;
+    if (!prepareLibRawInput(&input, &inputLength, &bytes, &blackRounded,
+                            &result)) {
+        return result;
+    }
     const auto openAt = std::chrono::steady_clock::now();
 #if defined(SFRAW_TESTING)
     sfraw::test::notifyLibRawOpenAttemptForTest();
@@ -2607,8 +2831,14 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
         return dimensionLimitFailure(pixelLimit);
     }
     selectRawStoreLimit(raw, options, pixelLimit);
-    return finishDecode(raw, options, bytes.data(), bytes.size(),
-                        decodeStartedAt, inputIoMs, openMs, pixelLimit);
+    const uint32_t rawWidth = raw.imgdata.sizes.raw_width;
+    const uint32_t rawHeight = raw.imgdata.sizes.raw_height;
+    DecodeResult decoded = finishDecode(raw, options, bytes.data(),
+                                        bytes.size(), decodeStartedAt,
+                                        inputIoMs, openMs, pixelLimit);
+    markRoundedBlackProvenance(blackRounded, rawWidth, rawHeight, bytes.data(),
+                               bytes.size(), &decoded);
+    return decoded;
 } catch (const std::bad_alloc&) {
     DecodeResult result;
     result.status = SFRAW_ERR_NO_MEMORY;

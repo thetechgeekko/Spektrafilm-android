@@ -154,7 +154,7 @@ internal fun MainActivity.AppRoot(
             contentAlignment = Alignment.Center,
         ) {
             SpectraLoadingIndicator(
-                color = Color.White,
+                color = SpektraBrand.onCanvas,
                 modifier = Modifier.semantics { contentDescription = res.getString(R.string.editor_loading) },
             )
         }
@@ -448,7 +448,7 @@ internal fun MainActivity.AppRoot(
                     if (!editorAuthorityReady || backStack.lastOrNull() != EditorRoute) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             SpectraLoadingIndicator(
-                                color = Color.White,
+                                color = SpektraBrand.onCanvas,
                                 modifier = Modifier.semantics {
                                     contentDescription = res.getString(R.string.editor_loading)
                                 },

@@ -62,6 +62,14 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
     }
 
+    /** Previews of the photo through each film stock / print paper, one set per browser. */
+    internal val filmPreviewVm: StockPreviewViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)["film", StockPreviewViewModel::class.java]
+    }
+    internal val printPreviewVm: StockPreviewViewModel by lazy {
+        ViewModelProvider(this, appContainer.viewModelFactory)["print", StockPreviewViewModel::class.java]
+    }
+
     /** Named versions of the open photo. */
     internal val versionsVm: VersionsViewModel by lazy {
         ViewModelProvider(this, appContainer.viewModelFactory)[VersionsViewModel::class.java]
