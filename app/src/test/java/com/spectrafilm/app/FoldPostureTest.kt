@@ -74,6 +74,18 @@ class FoldPostureTest {
     }
 
     @Test
+    fun book_leavesThePhysicalGapEmpty() {
+        // 864dp across two screens with a 24dp gap: pane 420 + gap 24 + photo 420.
+        val gapped = FoldPosture.Book(420f, 444f)
+        assertEquals(24f, bookHingeGapDp(gapped, 864f, rtl = false), 0f)
+        assertEquals(864f - 24f - sidePaneWidthDp(864f, gapped, rtl = false), 420f, 0f)
+        assertEquals(0f, bookHingeGapDp(FoldPosture.Book(420f, 420f), 840f, rtl = false), 0f)
+        assertEquals(0f, bookHingeGapDp(FoldPosture.Flat, 840f, rtl = false), 0f)
+        // Fallback width is not hinge-aligned, so no gap is reserved.
+        assertEquals(0f, bookHingeGapDp(FoldPosture.Book(700f, 724f), 900f, rtl = false), 0f)
+    }
+
+    @Test
     fun book_fallsBackWhenTheEndScreenIsTooNarrow() {
         assertEquals(sidePaneWidthDp(900f), sidePaneWidthDp(900f, FoldPosture.Book(700f, 700f), rtl = false), 0f)
     }

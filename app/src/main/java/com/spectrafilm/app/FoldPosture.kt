@@ -91,6 +91,17 @@ internal fun sidePaneWidthDp(widthDp: Float, posture: FoldPosture, rtl: Boolean)
 }
 
 /**
+ * Width of the physical hinge gap to leave empty between the photo and the side pane in book
+ * posture, so neither draws under it. Zero for a seamless fold, outside book posture, or when
+ * [sidePaneWidthDp] fell back to the size-class width (the pane is not hinge-aligned then).
+ */
+internal fun bookHingeGapDp(posture: FoldPosture, widthDp: Float, rtl: Boolean): Float {
+    if (posture !is FoldPosture.Book) return 0f
+    val endScreen = if (rtl) posture.left else widthDp - posture.right
+    return if (endScreen >= PANE_MIN_DP) (posture.right - posture.left).coerceAtLeast(0f) else 0f
+}
+
+/**
  * Panel height in tabletop posture: the whole lower half, so the photo above fills the upper
  * one. Null when not in tabletop (the panel keeps its compact/tall drag heights).
  */

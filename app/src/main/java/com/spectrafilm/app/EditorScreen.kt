@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.LinearImage
@@ -2056,11 +2057,9 @@ internal fun MainActivity.EditorScreen(
                     maxHeight.value,
                 )
                 val wide = editorPaneMode(maxWidth.value, maxHeight.value, posture) == EditorPaneMode.SIDE_PANE
-                val sidePaneWidth = sidePaneWidthDp(
-                    maxWidth.value,
-                    posture,
-                    rtl = LocalLayoutDirection.current == LayoutDirection.Rtl,
-                ).dp
+                val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+                val sidePaneWidth = sidePaneWidthDp(maxWidth.value, posture, rtl).dp
+                val bookHingeGap = bookHingeGapDp(posture, maxWidth.value, rtl).dp
 
                 // The photo's EXIF capture date for the date-back imprint's default text,
                 // read off the main thread once per source.
@@ -2304,7 +2303,10 @@ internal fun MainActivity.EditorScreen(
                 // part of the frame being judged. Animated so the photo eases up as the
                 // panel rises and back down as it closes (the panel's own height lags a
                 // closing panel, so the target drops to 0 straight away instead).
-                val panelShown = !wide && activeCategory != null && !viewerUi.chromeHidden
+                // Tabletop reserves the photo's upper-half box outright (below), so the panel
+                // never insets it there.
+                val panelShown = !wide && activeCategory != null && !viewerUi.chromeHidden &&
+                    posture !is FoldPosture.Tabletop
                 val panelTarget = if (panelShown) {
                     with(LocalDensity.current) { panelHeightPx.toDp() }
                 } else {
@@ -2403,6 +2405,9 @@ internal fun MainActivity.EditorScreen(
                         // per-frame GLSurfaceView resize the narrow branch guards against.
                         val sideCategory = activeCategory
                         if (sideCategory != null) {
+                            // Book posture on a device with a physical gap: keep the gap
+                            // empty so neither the photo nor the tools sit under it.
+                            if (bookHingeGap > 0.dp) Spacer(Modifier.width(bookHingeGap))
                             SidePanel(
                                 modifier = Modifier.predictiveBackShrink(panelBackProgress),
                                 category = sideCategory,
@@ -2426,7 +2431,17 @@ internal fun MainActivity.EditorScreen(
                             // (inset by the panel's height) fills the upper one. This box
                             // starts where the editor box does, so the hinge offsets apply.
                             val tabletopPanelHeight = tabletopPanelHeightDp(posture, maxHeight.value)?.dp
-                            previewRegion()
+                            if (tabletopPanelHeight != null) {
+                                // The photo keeps the upper half whether or not a panel is
+                                // open, so closing one never lays it back across the hinge.
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height((maxHeight - tabletopPanelHeight).coerceAtLeast(0.dp)),
+                                ) { previewRegion() }
+                            } else {
+                                previewRegion()
+                            }
 
                             // --- ADJUSTMENT PANEL (floating bottom overlay) ---
                             // Floated INSIDE the preview Box (aligned to its bottom) so
