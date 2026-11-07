@@ -1428,6 +1428,10 @@ internal fun MainActivity.EditorScreen(
      * already cached -- the same request, so it never moves the cache's generation -- and never
      * decodes: with no cached proxy the tiles simply stay dark.
      */
+    /** The film-balance matrix the decode applies for [film] when [balance] is on, else null. */
+    fun filmBalanceFor(balance: Boolean, film: String): FloatArray? =
+        if (balance && FilmStockBalance.isMeaningful(ctx, film)) FilmStockBalance.matrix(ctx, film) else null
+
     fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
         previews = vm.previews,
         request = vm::request,
@@ -1441,6 +1445,8 @@ internal fun MainActivity.EditorScreen(
                 skipGrainHalation = true,
             )
             val free = if (forFilm) base.copy(filmProfile = "") else base.copy(printProfile = "")
+            val balance = state.balanceToFilmStock
+            val currentFilm = state.filmProfile
             val cctf = state.savingCctfEncoding
             val saturation = state.saturation
             val vibrance = state.vibrance
@@ -1461,6 +1467,13 @@ internal fun MainActivity.EditorScreen(
                     },
                     toBitmap = { res ->
                         simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                    },
+                    // "Balance to film stock" adapts the decoded photo to the CURRENT film; a
+                    // tile for another film must show that film's adaptation, as a tap would.
+                    retarget = if (forFilm) {
+                        { id -> filmBalanceRetarget(filmBalanceFor(balance, currentFilm), filmBalanceFor(balance, id)) }
+                    } else {
+                        null
                     },
                 ),
                 owner,
@@ -1486,6 +1499,14 @@ internal fun MainActivity.EditorScreen(
             val now = runCatching { Presets.toJsonString(state) }.getOrNull() ?: return@open
             val baseline = presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson) ?: now
             val looks = builtInGroups.values.flatten().associateBy { it.id }
+            val balanceNow = state.balanceToFilmStock
+            val filmNow = state.filmProfile
+            // Called on the main thread (StockPreviewViewModel), so a scratch ParamsState
+            // is safe to build here.
+            fun lookFor(id: String): ParamsState = ParamsState().also { look ->
+                Presets.decode(JSONObject(baseline), look)
+                looks[id]?.let { BuiltInPresets.apply(it, look) }
+            }
             val cctf = state.savingCctfEncoding
             val saturation = state.saturation
             val vibrance = state.vibrance
@@ -1501,15 +1522,20 @@ internal fun MainActivity.EditorScreen(
                             }
                         }
                     },
-                    // Called on the main thread (StockPreviewViewModel), so a scratch
-                    // ParamsState is safe to build here.
                     paramsFor = { id ->
-                        val look = ParamsState()
-                        Presets.decode(JSONObject(baseline), look)
-                        looks[id]?.let { BuiltInPresets.apply(it, look) }
-                        look.toParams(
+                        lookFor(id).toParams(
                             previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
                             skipGrainHalation = true,
+                        )
+                    },
+                    // The shared source carries the current film's "Balance to film stock"
+                    // adaptation; a look on another film (or flipping the switch) gets that
+                    // look's own, as the decode after a tap would (Codex review on #435).
+                    retarget = { id ->
+                        val look = lookFor(id)
+                        filmBalanceRetarget(
+                            filmBalanceFor(balanceNow, filmNow),
+                            filmBalanceFor(look.balanceToFilmStock, look.filmProfile),
                         )
                     },
                     toBitmap = { res ->
@@ -2145,6 +2171,10 @@ internal fun MainActivity.EditorScreen(
                 .fillMaxSize()
                 .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
+            // Whether the editor below lays out as an expanded window (stage rail + side
+            // pane). Decided inside the BoxWithConstraints below, read here by the top bar,
+            // which puts Export in the bar only when the rail is not carrying it.
+            var paneWide by remember { mutableStateOf(false) }
             // --- TOP BAR ---
             if (!viewerUi.chromeHidden) EditorTopBar(
                 canUndo = editHistory.canUndo,
@@ -2185,6 +2215,18 @@ internal fun MainActivity.EditorScreen(
                 onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
                 onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
                 onOpenLoupe = { openMagnifier(0.5f, 0.5f) },
+                title = StockCatalog.displayName(ctx, state.filmProfile),
+                subtitle = if (state.scanFilm) {
+                    stringResource(R.string.editor_preset_scan_positive)
+                } else {
+                    StockCatalog.displayName(ctx, state.printProfile)
+                },
+                wide = paneWide,
+                // Hidden, not disabled, when there is nothing to export; a render in flight
+                // only defers the tap (see openExportSheetIfAllowed).
+                exportVisible = engine != null && sourceRenderAllowed,
+                exporting = exportInFlight,
+                onExport = { requestExport() },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
@@ -2210,6 +2252,7 @@ internal fun MainActivity.EditorScreen(
                     maxHeight.value,
                 )
                 val wide = editorPaneMode(maxWidth.value, maxHeight.value, posture) == EditorPaneMode.SIDE_PANE
+                SideEffect { paneWide = wide }
                 val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
                 val sidePaneWidth = sidePaneWidthDp(maxWidth.value, posture, rtl).dp
                 val bookHingeGap = bookHingeGapDp(posture, maxWidth.value, rtl).dp
@@ -2395,7 +2438,7 @@ internal fun MainActivity.EditorScreen(
                     )
                 }
                 // Re-encoded only when a parameter actually changes, not per frame.
-                // Hoisted out of the categoryBar lambda below because the panels need it too:
+                // Shared by the stage row/rail and the panels:
                 // the per-category reset is offered only for a category that actually holds
                 // edits, which is the same question the rail's dot asks.
                 val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
@@ -2412,23 +2455,19 @@ internal fun MainActivity.EditorScreen(
                             Unit
                         }
                     }
-                val categoryBar: @Composable () -> Unit = {
-                    CategoryBar(
-                        active = activeCategory,
-                        dirty = dirty,
-                        // The FAB is hidden, not disabled, when there is nothing to export;
-                        // a render in flight only defers the tap (see openExportSheetIfAllowed).
-                        exportVisible = engine != null && sourceRenderAllowed,
-                        exporting = exportInFlight,
-                        onExport = { requestExport() },
-                        onSelect = { cat ->
-                            activeCategory = if (activeCategory == cat) null else cat
-                        },
-                    )
-                }
-
                 if (wide) {
                     Row(Modifier.fillMaxSize()) {
+                        // --- STAGE RAIL (expanded windows), Export as its FAB ---
+                        if (!viewerUi.chromeHidden) {
+                            StageRail(
+                                active = activeCategory,
+                                dirty = dirty,
+                                onOpen = { activeCategory = it },
+                                exportVisible = engine != null && sourceRenderAllowed,
+                                exporting = exportInFlight,
+                                onExport = { requestExport() },
+                            )
+                        }
                         Column(
                             Modifier
                                 .weight(1f)
@@ -2441,8 +2480,6 @@ internal fun MainActivity.EditorScreen(
                                     .weight(1f)
                                     .heightIn(min = 220.dp),
                             ) { previewRegion() }
-                            // --- CATEGORY BAR (under the preview column) ---
-                            if (!viewerUi.chromeHidden) categoryBar()
                         }
                         // --- ADJUSTMENT PANEL (docked side column) ---
                         // A Row sibling, deliberately not animated: the preview keeps its
@@ -2549,8 +2586,15 @@ internal fun MainActivity.EditorScreen(
                             ) { SliderReadoutPill(sliderReadout) }
                         }
 
-                        // --- BOTTOM CATEGORY BAR ---
-                        if (!viewerUi.chromeHidden) categoryBar()
+                        // --- STAGE ROW (compact and medium windows) ---
+                        // Tapping the open stage folds the panel away: photo + this row.
+                        if (!viewerUi.chromeHidden) {
+                            StageRow(
+                                active = activeCategory,
+                                dirty = dirty,
+                                onOpen = { activeCategory = it },
+                            )
+                        }
                     }
                 }
             }

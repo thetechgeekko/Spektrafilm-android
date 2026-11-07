@@ -51,6 +51,19 @@ internal fun MainActivity.EditorTopBar(
     onToggleHistogram: () -> Unit,
     onToggleClipWarnings: () -> Unit,
     onOpenLoupe: () -> Unit,
+    /** The film stock in use, as the bar's title. */
+    title: String,
+    /** The print paper, or "scanned as positive"; null hides the line. */
+    subtitle: String?,
+    /**
+     * Expanded window: the stage rail carries Export as its FAB, so the bar keeps Crop
+     * instead. Compact and medium: Export is the bar's filled button and Crop moves into
+     * More, as in the kit's photo editor.
+     */
+    wide: Boolean,
+    exportVisible: Boolean,
+    exporting: Boolean,
+    onExport: () -> Unit,
 ) {
     Box(
         Modifier
@@ -65,21 +78,11 @@ internal fun MainActivity.EditorTopBar(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .heightIn(min = 64.dp)
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Open / pick a source photo (was an app-exit bug previously).
-            TextTooltip(stringResource(R.string.editor_open_photo)) {
-                PressIconButton(onClick = onOpenSource) {
-                    Icon(
-                        SpectraIcons.OpenPhoto, contentDescription = stringResource(R.string.editor_open_photo),
-                        tint = SpektraBrand.onCanvas,
-                    )
-                }
-            }
-            // The Library sits beside Open: both are ways to open a photo, and working
-            // through a shoot frame by frame should be one tap away.
+            // The Library is the way back to the shoot: the bar's navigation slot.
             TextTooltip(stringResource(R.string.library_title)) {
                 PressIconButton(onClick = onOpenLibrary) {
                     Icon(
@@ -88,17 +91,39 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
-            // No title. The editor is a canvas (m3-design-language, ux-flows §3, Map /
-            // canvas: full-bleed content), and the app name in the middle of the bar on
-            // every photo said nothing the launcher had not. The space holds Crop instead,
-            // which used to float on the photo itself.
-            Spacer(Modifier.weight(1f))
-            TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
-                PressIconButton(onClick = onCrop, enabled = hasPhoto) {
-                    Icon(
-                        SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform),
-                        tint = if (hasPhoto) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
+            // The kit's editor title: what this photo is being made with, the film stock,
+            // with the print paper under it. Says something the photo itself cannot.
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = 4.dp)
+                    .semantics(mergeDescendants = true) { heading() },
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = SpektraBrand.onCanvas,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SpektraBrand.onCanvas.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                }
+            }
+            if (wide) {
+                TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
+                    PressIconButton(onClick = onCrop, enabled = hasPhoto) {
+                        Icon(
+                            SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform),
+                            tint = if (hasPhoto) SpektraBrand.onCanvas else SpektraBrand.onCanvas.copy(alpha = 0.4f),
+                        )
+                    }
                 }
             }
             // Undo / redo — in-session edit history. Disabled (dimmed) when the
@@ -119,9 +144,11 @@ internal fun MainActivity.EditorTopBar(
                     )
                 }
             }
-            // M3 app bars carry one or two essential actions; Undo and Redo are this
-            // screen's. Export moved to the FAB beside the stage toolbar, and Settings /
-            // About live behind the overflow menu.
+            // Hidden, not disabled, when there is nothing to export.
+            if (!wide && exportVisible) ExportButton(exporting = exporting, onClick = onExport)
+            // M3 app bars carry one or two essential actions: Export, then Undo and Redo.
+            // Opening another photo, the view toggles, Settings and About live behind the
+            // overflow menu.
             var menuOpen by remember { mutableStateOf(false) }
             Box {
                 TextTooltip(stringResource(R.string.editor_action_more)) {
@@ -137,6 +164,20 @@ internal fun MainActivity.EditorTopBar(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(stringResource(R.string.editor_open_photo)) },
+                        leadingIcon = { Icon(SpectraIcons.OpenPhoto, contentDescription = null) },
+                        onClick = { menuOpen = false; onOpenSource() },
+                    )
+                    if (!wide) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.editor_crop_transform)) },
+                            leadingIcon = { Icon(SpectraIcons.Crop, contentDescription = null) },
+                            enabled = hasPhoto,
+                            onClick = { menuOpen = false; onCrop() },
+                        )
+                    }
+                    HorizontalDivider()
                     // View toggles, moved off the photo: checkable items with a tick when on
                     // (m3-design-language, Menus: selected items get a checkmark). Each acts
                     // at once on the photo, so the menu closes after a tap. Compare also

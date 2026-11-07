@@ -364,10 +364,10 @@ internal fun AdjustmentPanel(
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
     val closeAction = stringResource(R.string.editor_close)
-    // M3 standard bottom sheet: surfaceContainerLow, 28dp (extra-large) top corners.
+    // The kit's supporting panel: surfaceContainer (the stage row under it uses the same
+    // colour, so the two read as one panel), 28dp (extra-large) top corners.
     Surface(
-        shadowElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -441,14 +441,12 @@ internal fun AdjustmentPanel(
                     }
                 }
             }
-            // Outside the handle's merged semantics node, so each tab stays its own
-            // TalkBack stop rather than being swallowed by the "close panel" button.
-            if (tabs.size > 1 && category != null) {
-                StageTabs(tabs = tabs, active = category, dirty = dirty, onSelect = onSelectTab)
-            }
             Column(
                 Modifier
                     .fillMaxWidth()
+                    // fill = false: a short panel stays short, a long one scrolls while the
+                    // tool row below it stays in view.
+                    .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 12.dp),
@@ -466,6 +464,18 @@ internal fun AdjustmentPanel(
                     }
                 }
                 CompositionLocalProvider(LocalFlatSections provides true) { content() }
+            }
+            // The kit's supporting panel: the picked tool's controls, then the stage's tools
+            // as round buttons. Outside the handle's merged semantics node, so each tool
+            // stays its own TalkBack stop rather than being swallowed by "close panel".
+            if (tabs.size > 1 && category != null) {
+                ToolRow(
+                    tools = tabs,
+                    active = category,
+                    dirty = dirty,
+                    onSelect = onSelectTab,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                )
             }
         }
     }
@@ -490,6 +500,8 @@ internal fun SidePanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val title = stringResource(category.labelRes)
+    // The heading names the stage; the tool list under it names the group.
+    val heading = if (tabs.size > 1) stringResource(category.stage.labelRes) else title
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
     Surface(
@@ -507,7 +519,7 @@ internal fun SidePanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    title,
+                    heading,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
@@ -521,7 +533,17 @@ internal fun SidePanel(
                 }
             }
             if (tabs.size > 1) {
-                StageTabs(tabs = tabs, active = category, dirty = dirty, onSelect = onSelectTab)
+                ToolList(
+                    tools = tabs,
+                    active = category,
+                    dirty = dirty,
+                    onSelect = onSelectTab,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
             Column(
                 Modifier
@@ -543,47 +565,6 @@ internal fun SidePanel(
                 }
                 CompositionLocalProvider(LocalFlatSections provides true) { content() }
             }
-        }
-    }
-}
-
-/**
- * The open stage's groups as M3 scrollable primary tabs in the tool sheet's header.
- *
- * They replace a row of unlabelled round icons that sat between the sheet and the stage
- * toolbar: a fourth layer of navigation, identified by glyph alone. m3-design-language:
- * peers are tabs (ux-flows §2), icon-only controls need labels (foundations §1), and a
- * sheet is handle + content (containment, Bottom sheets). Scrollable, so a long
- * translated label is never truncated; a group holding edits carries a small badge.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun StageTabs(
-    tabs: List<Category>,
-    active: Category,
-    dirty: Set<Category>,
-    onSelect: (Category) -> Unit,
-) {
-    val index = tabs.indexOf(active).coerceAtLeast(0)
-    val modifiedState = stringResource(R.string.editor_category_modified)
-    PrimaryScrollableTabRow(
-        selectedTabIndex = index,
-        containerColor = Color.Transparent,
-        edgePadding = 16.dp,
-        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) },
-    ) {
-        tabs.forEach { cat ->
-            val modified = cat in dirty
-            Tab(
-                selected = cat == active,
-                onClick = { if (cat != active) onSelect(cat) },
-                modifier = if (modified) Modifier.semantics { stateDescription = modifiedState } else Modifier,
-                text = {
-                    BadgedBox(badge = { if (modified) Badge() }) {
-                        Text(stringResource(cat.labelRes), maxLines = 1)
-                    }
-                },
-            )
         }
     }
 }
