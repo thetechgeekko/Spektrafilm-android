@@ -1630,6 +1630,8 @@ class MainActivity : ComponentActivity() {
         // active adjustment category (null = panel closed); hoisted to AppRoot so it
         // survives navigation to Settings/About and back.
         var activeCategory by activeCategoryState
+        // 0..1 while a predictive-back swipe is closing the open panel; drives its shrink.
+        var panelBackProgress by remember { mutableFloatStateOf(0f) }
 
         val presetRepo = remember(ctx) { ctx.appContainer.presets }
         fun refreshPresets() { presetList = presetRepo.list() }
@@ -3706,7 +3708,21 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = toolUi.cropOpen) { toolVm.onAction(EditorToolAction.CloseCrop) }
         BackHandler(enabled = toolUi.maskGeometryOpen) { toolVm.onAction(EditorToolAction.CloseMaskGeometry) }
         BackHandler(enabled = toolUi.sampleOpen) { toolVm.onAction(EditorToolAction.CloseSample) }
-        BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null) { activeCategory = null }
+        // Predictive back on the open panel: while the back swipe is in progress the panel
+        // shrinks toward the bottom edge (M3 sheets), so the user sees what Back will do and
+        // can still cancel. Committing closes it; cancelling springs it back.
+        androidx.activity.compose.PredictiveBackHandler(
+            enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null,
+        ) { progress ->
+            try {
+                progress.collect { panelBackProgress = it.progress }
+                activeCategory = null
+            } catch (e: CancellationException) {
+                // Gesture cancelled: leave the panel open.
+            } finally {
+                panelBackProgress = 0f
+            }
+        }
         BackHandler(enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory == null) {
             if (backArmed) {
                 finish()
@@ -4303,6 +4319,7 @@ class MainActivity : ComponentActivity() {
                             val sideCategory = activeCategory
                             if (sideCategory != null) {
                                 SidePanel(
+                                    modifier = Modifier.predictiveBackShrink(panelBackProgress),
                                     category = sideCategory,
                                     onDismiss = { activeCategory = null },
                                     onResetCategory = resetActiveCategory,
@@ -4332,7 +4349,9 @@ class MainActivity : ComponentActivity() {
                                     dimming = interacting,
                                 ) {
                                     AdjustmentPanel(
-                                        modifier = Modifier.onSizeChanged { panelHeightPx = it.height },
+                                        modifier = Modifier
+                                            .onSizeChanged { panelHeightPx = it.height }
+                                            .predictiveBackShrink(panelBackProgress),
                                         category = activeCategory,
                                         onDismiss = { activeCategory = null },
                                         onResetCategory = resetActiveCategory,

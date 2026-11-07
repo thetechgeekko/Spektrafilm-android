@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
@@ -358,11 +360,11 @@ internal fun AdjustmentPanel(
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
     val closeAction = stringResource(R.string.editor_close)
+    // M3 standard bottom sheet: surfaceContainerLow, 28dp (extra-large) top corners.
     Surface(
-        tonalElevation = 3.dp,
         shadowElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         modifier = modifier
             .fillMaxWidth()
             .semantics { paneTitle = panelTitle },
@@ -395,6 +397,10 @@ internal fun AdjustmentPanel(
                             },
                         ) { _, dragAmount -> total += dragAmount }
                     }
+                    // M3: a sheet's drag handle must also work without dragging. A tap
+                    // cycles compact <-> tall; closing stays on drag-down, Back and the
+                    // accessibility click below.
+                    .pointerInput(tall) { detectTapGestures { onTallChange(!tall) } }
                     .semantics(mergeDescendants = true) {
                         role = Role.Button
                         contentDescription = closeLabel
@@ -460,6 +466,7 @@ internal fun AdjustmentPanel(
 internal fun SidePanel(
     category: Category,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
     onResetCategory: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -467,9 +474,8 @@ internal fun SidePanel(
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
     Surface(
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
             .width(360.dp)
             .fillMaxHeight()
             .semantics { paneTitle = panelTitle },
@@ -956,3 +962,21 @@ private const val PANEL_TALL_FRACTION = 0.66f
 
 /** How far the panel handle must travel before a drag counts as one height step. */
 private val PANEL_DRAG_STEP = 24.dp
+
+/**
+ * Predictive-back feedback for the tool sheet / side pane: while the Back gesture is in
+ * progress the panel shrinks slightly toward its bottom edge and drifts down, so the user
+ * sees what Back will close before committing (M3: sheets scale toward the gesture).
+ */
+internal fun Modifier.predictiveBackShrink(progress: Float): Modifier =
+    if (progress <= 0f) this else graphicsLayer {
+        val p = progress.coerceIn(0f, 1f)
+        val s = 1f - PREDICTIVE_BACK_SCALE * p
+        scaleX = s
+        scaleY = s
+        translationY = PREDICTIVE_BACK_DRIFT.toPx() * p
+        transformOrigin = TransformOrigin(0.5f, 1f)
+    }
+
+private const val PREDICTIVE_BACK_SCALE = 0.06f
+private val PREDICTIVE_BACK_DRIFT = 16.dp
