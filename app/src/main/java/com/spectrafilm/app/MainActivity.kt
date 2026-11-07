@@ -585,6 +585,11 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this, ExportViewModel.factory)[ExportViewModel::class.java]
     }
 
+    /** Preset panel, amount blend and settings clipboard state for the editor (#272). */
+    private val presetVm: PresetViewModel by lazy {
+        ViewModelProvider(this, PresetViewModel.factory)[PresetViewModel::class.java]
+    }
+
     /**
      * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
      * live editor observes delivery through onNewIntent (singleTask) as well as a cold
@@ -1438,22 +1443,14 @@ class MainActivity : ComponentActivity() {
         // presets
         val restoredPreset = initialRestoredSession?.preset
         var presetList by remember { mutableStateOf<List<String>>(emptyList()) }
-        var presetName by remember { mutableStateOf(restoredPreset?.presetName ?: "") }
-        var selectedPreset by remember { mutableStateOf(restoredPreset?.selectedPreset ?: "") }
-
-        // Preset "amount" (Lightroom-style): the look active just before a preset was
-        // applied (base) and the full applied preset, kept as flat-schema JSON so the
-        // amount slider can cross-fade between them. presetAmount is the live mix; null
-        // base/full means no preset has been applied since load (slider hidden).
-        var presetBaseJson by remember { mutableStateOf(restoredPreset?.baseJson) }
-        var presetFullJson by remember { mutableStateOf(restoredPreset?.fullJson) }
-        var presetAmount by remember { mutableFloatStateOf(restoredPreset?.amount ?: 1f) }
-
-        // Copy/paste settings (Lightroom-style, backlog #10): a session clipboard holding
-        // a full params snapshot, so a look dialed on one image can be pasted onto another.
-        // It is part of the bounded editor-session document, so navigation/recreation does not
-        // silently erase a deliberate Copy action; no pixels or source metadata are included.
-        var settingsClipboard by remember { mutableStateOf(restoredPreset?.clipboardJson) }
+        // Preset panel selection + name, the Lightroom-style amount blend anchors and the
+        // copy/paste settings clipboard (backlog #10) live in PresetViewModel (#272), seeded
+        // once per editor composition from the checkpoint. The clipboard is part of the
+        // bounded editor-session document, so navigation/recreation does not silently erase a
+        // deliberate Copy action; no pixels or source metadata are included.
+        remember { presetVm.restore(restoredPreset); true }
+        // Composition reads use the collected copy; effects and callbacks read presetVm.current.
+        val presetUi by presetVm.uiState.collectAsStateWithLifecycle()
 
         // Built-in presets are SPARSE overlays: each authors only the fields it means to
         // set and deliberately leaves everything else alone, so tapping one after another
@@ -1480,7 +1477,7 @@ class MainActivity : ComponentActivity() {
             apply()
             val full = runCatching { Presets.toJsonString(state) }.getOrNull()
             if (base != null && full != null) {
-                presetBaseJson = base; presetFullJson = full; presetAmount = 1f
+                presetVm.onAction(PresetAction.Applied(base, full))
             }
         }
 
@@ -1799,14 +1796,7 @@ class MainActivity : ComponentActivity() {
                         overlay = safeOverlay,
                         maskIndex = selectedMask,
                     ),
-                    preset = EditorPresetState(
-                        baseJson = presetBaseJson,
-                        fullJson = presetFullJson,
-                        amount = presetAmount,
-                        clipboardJson = settingsClipboard,
-                        selectedPreset = AtomicJsonStore.truncateUtf16Safely(selectedPreset, 96),
-                        presetName = AtomicJsonStore.truncateUtf16Safely(presetName, 96),
-                    ),
+                    preset = presetVm.current.toSessionState(),
                     export = exportVm.current.toSessionState(),
             )
         }
@@ -1860,9 +1850,7 @@ class MainActivity : ComponentActivity() {
             editHistory.clear()
             committedSnapshot = null
             restoring = true
-            presetBaseJson = null
-            presetFullJson = null
-            presetAmount = 1f
+            presetVm.onAction(PresetAction.ClearAmount)
             cropOverlayOpen = false
             maskOverlayOpen = false
             sampleOverlayOpen = false
@@ -1919,10 +1907,8 @@ class MainActivity : ComponentActivity() {
                         if (migratedProfile || removedProfileReference) {
                             editHistory.clear()
                             committedSnapshot = null
-                            presetBaseJson = null
-                            presetFullJson = null
-                            presetAmount = 1f
-                            settingsClipboard = null
+                            presetVm.onAction(PresetAction.ClearAmount)
+                            presetVm.onAction(PresetAction.SetClipboard(null))
                             status = ctx.getString(R.string.editor_status_session_migrated)
                         }
                     }
@@ -3533,12 +3519,7 @@ class MainActivity : ComponentActivity() {
             sampleOverlayOpen,
             sampleLuminanceMode,
             sampleWbMode,
-            presetBaseJson,
-            presetFullJson,
-            presetAmount,
-            settingsClipboard,
-            selectedPreset,
-            presetName,
+            presetUi,
             exportUi,
         ) {
             if (!recipeReady) return@LaunchedEffect
@@ -3769,11 +3750,11 @@ class MainActivity : ComponentActivity() {
                                     lastBuiltInOutput = runCatching { Presets.toJsonString(state) }.getOrNull()
                                     status = ctx.getString(R.string.editor_status_applied_builtin, p.name); previewTick++
                                 },
-                                amount = presetAmount,
-                                amountEnabled = presetFullJson != null,
+                                amount = presetUi.amount,
+                                amountEnabled = presetUi.amountEnabled,
                                 onAmountChange = { a ->
-                                    presetAmount = a
-                                    val base = presetBaseJson; val full = presetFullJson
+                                    presetVm.onAction(PresetAction.SetAmount(a))
+                                    val base = presetVm.current.baseJson; val full = presetVm.current.fullJson
                                     if (base != null && full != null) {
                                         runCatching {
                                             val blended = PresetAmount.blend(
@@ -3785,13 +3766,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 presets = presetList,
-                                selected = selectedPreset,
-                                name = presetName,
-                                onNameChange = { presetName = it },
-                                onSelect = { selectedPreset = it },
+                                selected = presetUi.selected,
+                                name = presetUi.name,
+                                onNameChange = { presetVm.onAction(PresetAction.SetName(it)) },
+                                onSelect = { presetVm.onAction(PresetAction.Select(it)) },
                                 onSave = {
-                                    if (presetName.isNotBlank()) {
-                                        val name = presetName
+                                    if (presetVm.current.name.isNotBlank()) {
+                                        val name = presetVm.current.name
                                         // Serialize on main (toJsonString reads live Compose
                                         // state field-by-field — a torn snapshot off-main);
                                         // only the file write + listing cross to IO.
@@ -3804,7 +3785,7 @@ class MainActivity : ComponentActivity() {
                                             // Report the name on disk, not the typed one:
                                             // safeName may have rewritten it.
                                             val stored = Presets.resolveName(name)
-                                            selectedPreset = stored
+                                            presetVm.onAction(PresetAction.Select(stored))
                                             status = ctx.getString(R.string.editor_status_preset_saved, stored)
                                         }
                                     }
@@ -3812,14 +3793,15 @@ class MainActivity : ComponentActivity() {
                                 nameExists = { Presets.exists(ctx, it) },
                                 resolveName = { Presets.resolveName(it) },
                                 onExportSelected = {
+                                    val selectedPreset = presetVm.current.selected
                                     if (selectedPreset.isNotBlank()) {
                                         pendingPresetExport = selectedPreset
                                         savedPresetExporter.launch("$selectedPreset.json")
                                     }
                                 },
                                 onApply = {
-                                    if (selectedPreset.isNotBlank()) {
-                                        val name = selectedPreset
+                                    if (presetVm.current.selected.isNotBlank()) {
+                                        val name = presetVm.current.selected
                                         // Read the JSON off-main; decode (Compose-state write)
                                         // + applyWithAmount run back on the main thread.
                                         scope.launch {
@@ -3836,8 +3818,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onDelete = {
-                                    if (selectedPreset.isNotBlank()) {
-                                        val name = selectedPreset
+                                    if (presetVm.current.selected.isNotBlank()) {
+                                        val name = presetVm.current.selected
                                         scope.launch {
                                             // Read the preset BEFORE deleting it. This was a single
                                             // tap with no confirmation and nothing to undo; holding
@@ -3851,7 +3833,8 @@ class MainActivity : ComponentActivity() {
                                                 Presets.delete(ctx, name); Presets.list(ctx)
                                             }
                                             presetList = names
-                                            status = ctx.getString(R.string.editor_status_preset_deleted, name); selectedPreset = ""
+                                            status = ctx.getString(R.string.editor_status_preset_deleted, name)
+                                            presetVm.onAction(PresetAction.Select(""))
                                             if (backup != null) {
                                                 offerSnackbarSuggestion(
                                                     scope,
@@ -3866,7 +3849,7 @@ class MainActivity : ComponentActivity() {
                                                         }
                                                         presetList = restored
                                                         if (name in restored) {
-                                                            selectedPreset = name
+                                                            presetVm.onAction(PresetAction.Select(name))
                                                             status = ctx.getString(
                                                                 R.string.editor_status_preset_restored, name,
                                                             )
@@ -3880,21 +3863,22 @@ class MainActivity : ComponentActivity() {
                                 onImport = { presetImporter.launch(arrayOf("application/json", "text/*", "*/*")) },
                                 onExport = { presetExporter.launch("spectrafilm_preset.json") },
                                 onCopySettings = {
-                                    settingsClipboard = runCatching { Presets.toJsonString(state) }.getOrNull()
+                                    val copied = runCatching { Presets.toJsonString(state) }.getOrNull()
+                                    presetVm.onAction(PresetAction.SetClipboard(copied))
                                     status = ctx.getString(
-                                        if (settingsClipboard != null) R.string.editor_status_settings_copied
+                                        if (copied != null) R.string.editor_status_settings_copied
                                         else R.string.editor_status_copy_failed,
                                     )
                                 },
-                                canPasteSettings = settingsClipboard != null,
+                                canPasteSettings = presetUi.canPaste,
                                 onPasteSettings = {
-                                    settingsClipboard?.let { clip ->
+                                    presetVm.current.clipboardJson?.let { clip ->
                                         runCatching { Presets.decode(org.json.JSONObject(clip), state) }
                                             .onSuccess {
                                                 // Pasting replaces the whole look, so the preset
                                                 // amount blend anchor is now stale — clear it so a
                                                 // later slider move can't overwrite the pasted look.
-                                                presetBaseJson = null; presetFullJson = null; presetAmount = 1f
+                                                presetVm.onAction(PresetAction.ClearAmount)
                                                 status = ctx.getString(R.string.editor_status_settings_pasted); previewTick++
                                             }
                                             .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
@@ -4053,7 +4037,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         } ?: EditorRecipeAccess.None
                                         Recipes.resetToDefaults(state, settings, profiles)
-                                        presetBaseJson = null; presetFullJson = null; presetAmount = 1f
+                                        presetVm.onAction(PresetAction.ClearAmount)
                                         hasRecipe = false; rotation = SourceRotation.NONE
                                         // Reset clears history: the defaults become the new
                                         // empty-history baseline (you can't undo back across a
