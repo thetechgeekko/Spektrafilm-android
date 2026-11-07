@@ -18,6 +18,8 @@
          holds the process in the foreground scheduling group while it renders. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- API 35+: export runs as mediaProcessing (ExportForegroundService.foregroundServiceTypeFor). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <!-- API 33+: without this the ongoing-export notification is not shown. The
          service still gets foreground priority either way, so no runtime prompt is
          raised for it — the speed-up does not depend on the user granting this. -->
@@ -105,11 +107,13 @@
         </activity>
 
         <!-- Runs no work of its own: it exists only to keep the process in the
-             foreground scheduling group for the duration of an export. -->
+             foreground scheduling group for the duration of an export. mediaProcessing on
+             API 35+ (the type for long media transcodes/renders); dataSync below 35, where
+             mediaProcessing does not exist. -->
         <service
             android:name=".ExportForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|mediaProcessing" />
 
         <!-- PackageInstaller session status for an in-app update. Not exported: only the
              explicit PendingIntent UpdateInstaller hands the system installer reaches it. -->

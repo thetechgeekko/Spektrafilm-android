@@ -121,8 +121,8 @@ class ExportForegroundService : Service() {
     }
 
     /**
-     * API 35+ caps a dataSync foreground service at roughly six hours per day and calls this
-     * when the budget is spent; the service must stop promptly or the process ANRs. The export
+     * API 35+ runs this service as mediaProcessing, which the system caps at roughly six hours
+     * per day and calls this when the budget is spent; the service must stop promptly or the process ANRs. The export
      * itself is process-owned by [ExportWorkRuntime] and keeps running exactly as it does when
      * [startForeground] is refused: at background priority, never failed by the service.
      */
@@ -146,11 +146,7 @@ class ExportForegroundService : Service() {
                 this,
                 NOTIFICATION_ID,
                 buildNotification(runId, startedAt),
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                } else {
-                    0
-                },
+                foregroundServiceTypeFor(Build.VERSION.SDK_INT),
             )
         } catch (t: Throwable) {
             // API 31+ can refuse a background start, and OEM policies vary. The export
@@ -235,6 +231,18 @@ class ExportForegroundService : Service() {
     }
 
     companion object {
+        /**
+         * The foreground-service type to start with on [sdkInt]: mediaProcessing on API 35+
+         * (the type meant for long media renders), dataSync on 29-34 where mediaProcessing does
+         * not exist, and none before 29, where startForeground takes no type. Must stay a
+         * subset of the manifest's `android:foregroundServiceType`.
+         */
+        internal fun foregroundServiceTypeFor(sdkInt: Int): Int = when {
+            sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+            sdkInt >= Build.VERSION_CODES.Q -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            else -> 0
+        }
+
         private const val CHANNEL_ID = "export"
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_START = "com.spectrafilm.app.action.START_EXPORT_FOREGROUND"
