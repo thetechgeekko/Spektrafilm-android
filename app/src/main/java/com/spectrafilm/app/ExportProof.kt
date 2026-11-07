@@ -62,6 +62,15 @@ internal fun countClipped(pixels: IntArray, count: Int = pixels.size): Int {
  */
 internal fun proofApplies(space: ColorSpace): Boolean = space != ColorSpace.ACES2065_1
 
+/**
+ * Whether the preview's clipping is the FILE's clipping: only for the 8-bit encoders, which
+ * quantise and clamp exactly as the preview does. 16-bit files keep values the 8-bit preview
+ * rounds to 0 or 255, a float TIFF keeps values outside [0, 1], and Ultra HDR keeps highlights
+ * above the SDR base in its gain map, so for those the count would overstate the loss.
+ */
+internal fun proofCountsFileClipping(format: ExportFormat): Boolean =
+    format == ExportFormat.JPEG || format == ExportFormat.PNG
+
 /** A space wider than sRGB: the file can hold colours the screen may not show. */
 internal fun proofWiderThanScreen(space: ColorSpace): Boolean =
     space == ColorSpace.ADOBE_RGB || space == ColorSpace.PROPHOTO || space == ColorSpace.REC2020
@@ -89,11 +98,18 @@ internal suspend fun computeProofStats(bmp: Bitmap, default: CoroutineDispatcher
 
 /** The proof lines under the export sheet's colour space. */
 @Composable
-internal fun ExportProofSection(previewBitmap: Bitmap?, colorSpace: ColorSpace, spaceName: String) {
+internal fun ExportProofSection(
+    previewBitmap: Bitmap?,
+    colorSpace: ColorSpace,
+    spaceName: String,
+    format: ExportFormat,
+) {
     if (!proofApplies(colorSpace)) return
-    var stats by remember(previewBitmap) { mutableStateOf<ProofStats?>(null) }
+    val counts = proofCountsFileClipping(format)
+    var stats by remember(previewBitmap, counts) { mutableStateOf<ProofStats?>(null) }
     val dispatchers = rememberAppDispatchers()
-    LaunchedEffect(previewBitmap) {
+    LaunchedEffect(previewBitmap, counts) {
+        if (!counts) return@LaunchedEffect
         val bmp = previewBitmap ?: return@LaunchedEffect
         if (bmp.isRecycled) return@LaunchedEffect
         stats = try {
@@ -107,7 +123,7 @@ internal fun ExportProofSection(previewBitmap: Bitmap?, colorSpace: ColorSpace, 
     }
     val style = MaterialTheme.typography.bodySmall
     val color = MaterialTheme.colorScheme.onSurfaceVariant
-    stats?.let { s ->
+    stats?.takeIf { counts }?.let { s ->
         val text = if (s.clipped == 0) {
             stringResource(R.string.tool_export_proof_none, spaceName)
         } else {

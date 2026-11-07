@@ -255,6 +255,7 @@ fun ExportSheet(
                     previewBitmap = previewBitmap,
                     colorSpace = colorSpace,
                     spaceName = resources.getString(colorSpace.labelRes()),
+                    format = options.format,
                 )
             }
 

@@ -47,4 +47,12 @@ class ExportProofTest {
         assertFalse(proofApplies(ColorSpace.ACES2065_1))
         assertTrue(proofApplies(ColorSpace.PROPHOTO))
     }
+
+    @Test fun onlyEightBitFilesClipLikeThePreview() {
+        assertTrue(proofCountsFileClipping(ExportFormat.JPEG))
+        assertTrue(proofCountsFileClipping(ExportFormat.PNG))
+        for (f in listOf(ExportFormat.ULTRA_HDR, ExportFormat.TIFF, ExportFormat.PNG16, ExportFormat.TIFF32F)) {
+            assertFalse(f.name, proofCountsFileClipping(f))
+        }
+    }
 }
