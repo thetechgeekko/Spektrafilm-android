@@ -8,6 +8,7 @@
  */
 package com.spectrafilm.app
 
+import android.content.Context
 import java.io.File
 
 /** One saved recipe file, as far as choosing the previous edit needs it. */
@@ -67,3 +68,7 @@ internal object PreviousEdits {
         return null
     }
 }
+
+/** The name shown for [edit]'s photo, or a generic phrase when the recipe has none. */
+internal fun previousEditDisplayName(ctx: Context, edit: PreviousEdit): String =
+    edit.sourceName.trim().ifEmpty { ctx.getString(R.string.editor_preset_previous_unnamed) }

@@ -852,6 +852,43 @@ internal fun MainActivity.EditorScreen(
         )
     }
     var recipeAccess by recipeAccessState
+    // --- Apply previous edit (PreviousEdit.kt) ---
+    // The newest OTHER photo's saved look, looked up on the recipe worker so it is ordered after
+    // any autosave of the photo just left. Applying it is exactly Paste settings: the whole look
+    // is replaced (rotation stays this photo's), and the settle effect below makes it undoable.
+    var previousEdit by remember(recipeKey) { mutableStateOf<PreviousEdit?>(null) }
+    suspend fun lookUpPreviousEdit(): PreviousEdit? {
+        val key = recipeKey
+        return RecipeWorkRuntime.submit { runCatching { recipeRepo.previousEdit(key) }.getOrNull() }
+            .await()
+            .also { previousEdit = it }
+    }
+    LaunchedEffect(recipeKey, recipeReady) {
+        if (recipeReady) lookUpPreviousEdit()
+    }
+    fun applyPreviousEdit(edit: PreviousEdit) {
+        // Accepted right after opening, the settle effect may not have taken this photo's
+        // baseline yet (it is debounced and was cleared by the source change); capture it now
+        // so settleDecision pushes it and the applied look stays one undo away.
+        if (committedSnapshot == null) committedSnapshot = snapshotNow()
+        runCatching { Presets.decode(JSONObject(edit.paramsJson), state) }
+            .onSuccess {
+                presetVm.onAction(PresetAction.ClearAmount)
+                status = ctx.getString(R.string.editor_status_previous_applied, previousEditDisplayName(ctx, edit))
+                previewTick++
+            }
+            .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
+    }
+    suspend fun offerPreviousEdit() {
+        val edit = lookUpPreviousEdit() ?: return
+        val result = snackbarHost.showSnackbar(
+            message = ctx.getString(R.string.editor_snack_apply_previous, previousEditDisplayName(ctx, edit)),
+            actionLabel = ctx.getString(R.string.editor_snack_apply_previous_action),
+            withDismissAction = true,
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) applyPreviousEdit(edit)
+    }
     val recipeEditEpoch = remember { RecipeEditEpoch() }
     LaunchedEffect(recipeKey, recipeReady) {
         runRecipeRestore(
@@ -874,6 +911,7 @@ internal fun MainActivity.EditorScreen(
             restoringState = restoringState,
             rotationState = rotationState,
             statusState = statusState,
+            offerPreviousEdit = { offerPreviousEdit() },
         )
     }
 
@@ -1162,6 +1200,16 @@ internal fun MainActivity.EditorScreen(
     ) { uri ->
         if (uri != null) adoptIncomingImage(uri)
     }
+    // Batch export: this edit and the export sheet's settings on more photos
+    // (EditorBatchExport.kt, BatchExport.kt).
+    val batchPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            startBatchExport(ctx, scope, state, engine, uris, snackbarHost) { status = it }
+        }
+    }
+    BatchExportProgressEffect(ctx, scope, snackbarHost) { status = it }
     // #162 inbound import: consume the Activity's pending VIEW/SEND exactly once and
     // route it through the same dispatch as a picked document. A rejected shape
     // (non-content scheme, missing stream) surfaces a status instead of adopting.
@@ -1698,6 +1746,8 @@ internal fun MainActivity.EditorScreen(
         // A real export must not compete with a speculative one for the same eight cores:
         // as a key, this cancels any pre-render in flight the moment an export starts.
         exportInFlight,
+        // Same for a run the editor does not own (a batch export): the runtime is busy.
+        exportRuntimeStateState.value is ExportRuntimeState.Running,
     ) {
         runSpeculativePrerender(
             this@EditorScreen,
@@ -1874,6 +1924,7 @@ internal fun MainActivity.EditorScreen(
             EditorShortcut.ZOOM_IN -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.IN); true }
             EditorShortcut.ZOOM_OUT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.OUT); true }
             EditorShortcut.ZOOM_FIT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.FIT); true }
+            EditorShortcut.APPLY_PREVIOUS -> !overlayOpen && previousEdit?.let { applyPreviousEdit(it); true } == true
         }
     }
     DisposableEffect(Unit) {
@@ -2162,6 +2213,8 @@ internal fun MainActivity.EditorScreen(
                             previewTickState = previewTickState,
                             engineState = engineState,
                             applyWithAmountFn = ::applyWithAmount,
+                            previousEdit = previousEdit,
+                            onApplyPrevious = { previousEdit?.let { applyPreviousEdit(it) } },
                         )
                         Category.SOURCE -> SourcePanel(
                             sourceName = sourceName,
@@ -2700,6 +2753,11 @@ internal fun MainActivity.EditorScreen(
                 onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                 previewBitmap = preview,
+                onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
+                    { requestBatchExport(ctx, legacyStoragePermission, batchPicker) { status = it } }
+                } else {
+                    null
+                },
                 onExport = {
                     startEditorExport(
                         ctx = ctx,

@@ -12,7 +12,7 @@
     <string name="editor_stage_print_hint">Der Vergrößerer und das Papier</string>
     <string name="editor_stage_scan">Scan</string>
     <string name="editor_stage_scan_hint">Den Abzug zurück in eine Datei bringen</string>
-    <string name="editor_stage_finish">Feinschliff</string>
+    <string name="editor_stage_finish">Schliff</string>
     <string name="editor_stage_finish_hint">Das Grading nach dem Scan, Masken und Anzeige</string>
     <string name="editor_category_modified">Geändert</string>
     <string name="editor_category_source">Quelle</string>

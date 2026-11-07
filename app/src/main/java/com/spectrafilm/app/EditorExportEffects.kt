@@ -258,10 +258,14 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     with(activity) {
             val activeEngine = engine ?: return
             val activeUri = sourceUri ?: return
-            if (!sourceRenderAllowed || exportVm.current.inFlight) return
+            if (!sourceRenderAllowed || exportVm.current.inFlight ||
+                ExportWorkRuntime.state.value is ExportRuntimeState.Running
+            ) return
             if (prerenderOutOfMemory) return
             delay(RenderPayloads.IDLE_DEBOUNCE_MS)
-            if (previewBusy || exportVm.current.inFlight) return
+            if (previewBusy || exportVm.current.inFlight ||
+                ExportWorkRuntime.state.value is ExportRuntimeState.Running
+            ) return
             val app = ctx.applicationContext
             val descriptor = runCatching {
                 exportVm.current.options.outputDescriptor(

@@ -80,6 +80,11 @@ fun ExportSheet(
     onDeletePreset: (String) -> Unit = {},
     /** Current editor preview, for the film-border thumbnail. Read only, never recycled here. */
     previewBitmap: Bitmap? = null,
+    /**
+     * Apply this edit and these export settings to more photos (batch export), or null when
+     * that is not possible right now. The sheet only offers it; the caller picks the photos.
+     */
+    onBatchExport: (() -> Unit)? = null,
 ) {
     var savingPreset by remember { mutableStateOf(false) }
     var managingPresets by remember { mutableStateOf(false) }
@@ -299,6 +304,12 @@ fun ExportSheet(
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.tool_export_preset_manage)) },
                                     onClick = { menu = false; managingPresets = true },
+                                )
+                            }
+                            if (onBatchExport != null && !isSceneLinear) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tool_export_batch)) },
+                                    onClick = { menu = false; onBatchExport() },
                                 )
                             }
                         }

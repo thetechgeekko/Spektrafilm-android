@@ -1,0 +1,141 @@
+package com.spectrafilm.app
+
+import android.os.Looper
+import kotlinx.coroutines.Dispatchers
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+
+/**
+ * State transitions of [LibraryViewModel] (#280): folder choice, listing, failure, forgetting the
+ * folder, and dropping a listing that finished after the folder changed. The store and lister
+ * are fakes; the IO dispatcher is Unconfined so every step lands before the assertion.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class LibraryViewModelTest {
+    private class FakeStore(initial: String? = null) : LibraryFolderStore {
+        val log = mutableListOf<String>()
+        var grantGranted = true
+        override var treeUri: String? = initial
+            set(value) { log += "set:$value"; field = value }
+
+        override fun takeGrant(treeUri: String): Boolean {
+            log += "grant:$treeUri:stored=${this.treeUri}"
+            return grantGranted
+        }
+
+        override fun releaseUnusedGrants() { log += "release" }
+    }
+
+    private fun entry(name: String, mime: String?, modified: Long) =
+        LibraryEntry("content://doc/$name", name, mime, modified, sizeBytes = 1L)
+
+    private fun vm(store: LibraryFolderStore, lister: LibraryLister) =
+        LibraryViewModel(store, lister, Dispatchers.Unconfined)
+
+    private fun idle() = shadowOf(Looper.getMainLooper()).idle()
+
+    @Test fun noFolderMeansAnEmptyStateAndNoListing() {
+        var listed = 0
+        val model = vm(FakeStore()) { listed++; error("must not list") }
+        model.refresh(); idle()
+        assertEquals(LibraryUiState(), model.state.value)
+        assertEquals(0, listed)
+    }
+
+    @Test fun refreshListsOnlyOpenableFramesNewestFirst() {
+        val rows = listOf(
+            entry("old.jpg", "image/jpeg", 10),
+            entry("new.dng", "image/x-adobe-dng", 30),
+            entry("clip.mp4", "video/mp4", 40),
+            entry("notes.xmp", "application/octet-stream", 50),
+            entry("sub", "vnd.android.document/directory", 60),
+        )
+        val model = vm(FakeStore("tree://a")) { LibraryListing("Roll 1", rows) }
+        model.refresh(); idle()
+        val state = model.state.value
+        assertEquals("tree://a", state.treeUri)
+        assertEquals("Roll 1", state.folderName)
+        assertFalse(state.loading)
+        assertFalse(state.unreadable)
+        assertEquals(listOf("new.dng", "old.jpg"), state.entries.map { it.name })
+    }
+
+    @Test fun unreadableFolderIsReportedAndKeepsItsName() {
+        var fail = false
+        val model = vm(FakeStore("tree://a")) {
+            if (fail) throw SecurityException("grant revoked")
+            LibraryListing("Roll 1", listOf(entry("a.jpg", "image/jpeg", 1)))
+        }
+        model.refresh(); idle()
+        fail = true
+        model.refresh(); idle()
+        val state = model.state.value
+        assertTrue(state.unreadable)
+        assertFalse(state.loading)
+        assertEquals("Roll 1", state.folderName)
+        assertTrue(state.entries.isEmpty())
+    }
+
+    @Test fun choosingAFolderStoresItBeforeTakingTheGrantAndReleasesTheOldOne() {
+        val store = FakeStore("tree://old")
+        val model = vm(store) { LibraryListing("New", emptyList()) }
+        model.chooseFolder("tree://new"); idle()
+        assertEquals("tree://new", store.treeUri)
+        // The folder is recorded first, so a concurrent source restore counts the grant as ours.
+        assertEquals(listOf("set:tree://new", "grant:tree://new:stored=tree://new", "release"), store.log)
+        assertEquals("New", model.state.value.folderName)
+    }
+
+    @Test fun choosingTheSameFolderAgainReleasesNothing() {
+        val store = FakeStore("tree://a")
+        val model = vm(store) { LibraryListing("A", emptyList()) }
+        model.chooseFolder("tree://a"); idle()
+        assertFalse("release" in store.log)
+    }
+
+    @Test fun aRefusedGrantStillShowsTheFolderForThisSession() {
+        val store = FakeStore().apply { grantGranted = false }
+        val model = vm(store) { LibraryListing("A", listOf(entry("a.jpg", "image/jpeg", 1))) }
+        model.chooseFolder("tree://a"); idle()
+        assertEquals("tree://a", model.state.value.treeUri)
+        assertEquals(listOf("a.jpg"), model.state.value.entries.map { it.name })
+    }
+
+    @Test fun forgettingTheFolderClearsStoreAndStateAndReleasesGrants() {
+        val store = FakeStore("tree://a")
+        val model = vm(store) { LibraryListing("A", listOf(entry("a.jpg", "image/jpeg", 1))) }
+        model.refresh(); idle()
+        model.forgetFolder(); idle()
+        assertNull(store.treeUri)
+        assertTrue("release" in store.log)
+        assertEquals(LibraryUiState(), model.state.value)
+    }
+
+    @Test fun forgettingWithNoFolderDoesNothing() {
+        val store = FakeStore()
+        val model = vm(store) { error("must not list") }
+        model.forgetFolder(); idle()
+        assertTrue(store.log.isEmpty())
+    }
+
+    @Test fun aListingThatFinishesAfterTheFolderChangedIsDropped() {
+        val store = FakeStore("tree://a")
+        val model = vm(store) { tree ->
+            // The folder changes while this listing is still running.
+            store.treeUri = "tree://b"
+            LibraryListing("Stale $tree", listOf(entry("a.jpg", "image/jpeg", 1)))
+        }
+        model.refresh(); idle()
+        val state = model.state.value
+        assertTrue(state.entries.isEmpty())
+        assertEquals(null, state.folderName)
+    }
+}
