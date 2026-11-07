@@ -163,6 +163,19 @@ class ParamsState {
     var enlargerLensBlur by mutableFloatStateOf(0f)
     val printDiffusionState = DiffusionState()
 
+    /**
+     * Multigrade contrast grade ("00".."5", [SilverPrint.GRADES]). Read only while the print is a
+     * silver paper; a colour print ignores it, so it never moves a colour render.
+     */
+    var paperGrade by mutableStateOf(SilverPrint.DEFAULT_GRADE)
+
+    /**
+     * The grade [toParams] sends, or null on a colour print. A silver paper takes its grade's
+     * filter pack and mid-grey exposure instead of the colour-pack table (database lookup off).
+     */
+    private val silverGrade: PaperGrade?
+        get() = if (SilverPrint.isSilverPaper(printProfile)) SilverPrint.grade(paperGrade) else null
+
     // --- Preflash ---
     var preflashExposure by mutableFloatStateOf(0f)
     var preflashYFilterShift by mutableFloatStateOf(0f)
@@ -355,6 +368,7 @@ class ParamsState {
         printMFilterShift = p.enlarger.mFilterShift
         enlargerLensBlur = p.enlarger.lensBlur
         printDiffusionState.loadFrom(p.enlarger.diffusionFilter)
+        paperGrade = SilverPrint.DEFAULT_GRADE
 
         preflashExposure = p.enlarger.preflashExposure
         preflashYFilterShift = p.enlarger.preflashYFilterShift
@@ -500,7 +514,10 @@ class ParamsState {
         ),
         enlarger = EnlargerParams(
             illuminant = printIlluminant,
-            printExposure = printExposure,
+            printExposure = printExposure * (silverGrade?.printExposure ?: 1f),
+            yFilterNeutral = silverGrade?.yFilter ?: DEFAULT_ENLARGER.yFilterNeutral,
+            mFilterNeutral = silverGrade?.mFilter ?: DEFAULT_ENLARGER.mFilterNeutral,
+            cFilterNeutral = if (silverGrade != null) 0f else DEFAULT_ENLARGER.cFilterNeutral,
             printExposureCompensation = printExposureCompensation,
             yFilterShift = printYFilterShift,
             mFilterShift = printMFilterShift,
@@ -539,12 +556,15 @@ class ParamsState {
             previewMaxSize = previewMaxSizeOverride ?: previewMaxSize,
             gpuPreview = gpuEngine,
             gpuExport = gpuExport,
+            neutralPrintFiltersFromDatabase = silverGrade == null,
         ),
         filmRender = FilmRenderingParams(
             densityCurveGamma = filmGammaFactor,
             grain = GrainParams(
                 active = grainActive && !skipGrainHalation,
-                sublayersActive = grainSublayersActive,
+                // The three grain sub-layers are the colour films' model; a silver film's
+                // datasheet supports no split, so its grain is always one layer.
+                sublayersActive = grainSublayersActive && !SilverPrint.isSilverFilm(filmProfile),
                 agxParticleAreaUm2 = grainParticleAreaUm2,
                 agxParticleScale = grainParticleScale,
                 agxParticleScaleLayers = grainParticleScaleLayers,
@@ -724,3 +744,6 @@ private fun Triple<Float, Float, Float>.times100() =
 
 private fun Triple<Float, Float, Float>.div100() =
     Triple(first / 100f, second / 100f, third / 100f)
+
+/** The engine's colour enlarger defaults, which a colour print keeps sending unchanged. */
+private val DEFAULT_ENLARGER = EnlargerParams()

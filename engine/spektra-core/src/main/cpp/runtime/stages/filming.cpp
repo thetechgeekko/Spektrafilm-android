@@ -466,7 +466,12 @@ NdArray build_filming_tc_lut(const Profile& film, const NdArray& spectra_lut_in,
     // preserving erf4 band-pass); otherwise it is the bare sensitivity. Mirrors
     // compute_hanatos2025_tc_lut's apply_window branch.
     std::vector<double> sw(static_cast<size_t>(S) * 3);
-    if (apply_window) {
+    // A profile with no fitted window (the black-and-white stocks ship none:
+    // their sensitivities are the datasheet's, with no Hanatos fit behind them)
+    // takes the bare-sensitivity branch, as if the window were switched off.
+    // Every colour profile carries the 4 erf4 parameters, so their path is
+    // unchanged.
+    if (apply_window && film.window_params.size() == 4) {
         // window (common across channels) via erf4, then per-channel white-balance
         // normalisation: window[s,c] /= norm[c].
         std::vector<double> window;

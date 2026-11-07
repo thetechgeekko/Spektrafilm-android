@@ -168,6 +168,7 @@ internal object Ticket139EditorProbe {
         "enlarger.preflashExposure",
         "enlarger.preflashYFilterShift",
         "enlarger.preflashMFilterShift",
+        "enlarger.paperGrade",
         "scanner.lensBlur",
         "scanner.whiteCorrection",
         "scanner.whiteLevel",
@@ -353,6 +354,7 @@ internal object Ticket139EditorProbe {
         "enlarger.preflashExposure" to number("0.04"),
         "enlarger.preflashYFilterShift" to number("-0.01"),
         "enlarger.preflashMFilterShift" to number("0.02"),
+        "enlarger.paperGrade" to text("4"),
         "scanner.lensBlur" to number("0.08"),
         "scanner.whiteCorrection" to flag(true),
         "scanner.whiteLevel" to number("0.97"),
@@ -1617,6 +1619,7 @@ internal object Ticket139EditorProbe {
         preflashExposure = 0.04f
         preflashYFilterShift = -0.01f
         preflashMFilterShift = 0.02f
+        paperGrade = "4"
 
         scanLensBlur = 0.08f
         scanWhiteCorrection = true

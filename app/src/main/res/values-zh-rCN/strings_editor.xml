@@ -312,6 +312,9 @@
     <string name="editor_sim_view_print_curves">查看冲印配置曲线</string>
     <string name="editor_sim_print_exposure">冲印曝光</string>
     <string name="editor_sim_print_exposure_tooltip">更改虚拟放大机设定的曝光时间</string>
+    <string name="editor_sim_paper_grade">相纸号数</string>
+    <string name="editor_sim_paper_grade_tooltip">放大机上的多级反差滤镜：00 最软，5 最硬。中灰保持不变，只改变反差。</string>
+    <string name="editor_snack_silver_paper">黑白胶片使用 %1$s 冲印</string>
     <string name="editor_sim_print_auto_comp">冲印自动补偿</string>
     <string name="editor_sim_print_auto_comp_tooltip">根据相机曝光补偿 EV 自动调整冲印曝光</string>
     <string name="editor_sim_print_y_shift">冲印 Y 滤镜偏移</string>

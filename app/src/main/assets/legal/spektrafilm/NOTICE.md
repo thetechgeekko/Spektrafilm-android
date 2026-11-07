@@ -139,6 +139,17 @@ SVGs, unmodified.
 The 28 film/paper JSON profiles and the spectral-upsampling LUT binaries originate from
 the spektrafilm project and are redistributed under GPLv3. See `docs/ASSETS.md`.
 
+CineStill 800T (`cinestill_800t.json`) is derived from spektrafilm's Kodak Vision3 500T profile
+with only its descriptive tags changed (`tools/upstream/derive_profiles.py`).
+
+The black-and-white profiles (Kodak Tri-X 400, Kodak T-Max 100, Ilford HP5 Plus 400,
+Fujifilm Neopan Acros 100 II and the Ilford Multigrade IV RC paper) and the Multigrade
+paper-grade table are by **Hanze Qiu** (https://github.com/JamesQiu2005), GPLv3, built from the
+manufacturers' published datasheets. They are redistributed unmodified under GPLv3; what each
+one takes from its sheet and what it assumes is recorded in the profile's `metadata`. Kodak,
+Tri-X, T-Max, Fujifilm, Neopan, Acros, Ilford, HP5 and Multigrade are trademarks of their
+respective owners and name only the published data each profile was built from.
+
 ## ICC color profiles
 
 The bundled ICC profiles under `engine/spektra-core/src/main/assets/spektra/icc/` are

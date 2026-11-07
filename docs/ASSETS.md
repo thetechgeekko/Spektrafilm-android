@@ -1,10 +1,10 @@
 # Bundled assets
 
 All ship under `engine/spektra-core/src/main/assets/spektra/`, sourced from spektrafilm's
-`src/spektrafilm/data/` (GPLv3). Total ≈ **13 MB** (the dominant items are the 5.7 MB spectral LUT
-and the 28 profile JSONs; the 4.1 MB coefficient `.lut` is **not** bundled — see below).
+`src/spektrafilm/data/` (GPLv3) except where noted below. Total ≈ **13 MB** (the dominant items are
+the 5.7 MB spectral LUT and the profile JSONs; the 4.1 MB coefficient `.lut` is **not** bundled — see below).
 
-## Film & paper profiles (`profiles/`, 28 JSON files)
+## Film & paper profiles (`profiles/`, 34 JSON files: 28 from spektrafilm, 1 derived, 5 black-and-white)
 
 Each profile is `{ "metadata": ..., "info": ..., "data": ... }` containing spectral log
 sensitivities, log-exposure axis, characteristic density curves (and per-sublayer curves),
@@ -22,6 +22,16 @@ fujifilm_velvia_100.
 
 **Print papers:** kodak_portra_endura, kodak_supra_endura, kodak_ultra_endura,
 kodak_endura_premier, kodak_ektacolor_edge, fujifilm_crystal_archive_typeii.
+
+**Derived:** cinestill_800t (kodak_vision3_500t's data, changed info tags;
+`tools/upstream/derive_profiles.py`).
+
+**Black-and-white** (`info.channel_model: "bw"`, GPLv3 datasheet builds by Hanze Qiu, see
+`NOTICE.md`): kodak_tri_x_400, kodak_tmax_100, ilford_hp5_plus_400,
+fujifilm_neopan_acros_100_ii, and the ilford_multigrade_iv_rc paper. Neutral silver in all three
+channels; no Hanatos2025 adaptation window (the engine skips it when absent). The Multigrade
+grade table lives in the app (`SilverPrint.kt`); its grade-2 pack is in
+`filters/neutral_print_filters.json`.
 
 ### Viewing-illuminant contract
 
@@ -65,7 +75,7 @@ header and mmaps the payload. The `.lut` binary is parsed per spektrafilm's
 > to `filesDir`; the extract path is kept only as a fallback.)
 
 ## Catalog & presets (loaded by the app, also under `spektra/`)
-- `catalog.json` — the 28-stock film/paper catalog (id, display name, group, ISO, era) the UI
+- `catalog.json` — the 34-stock film/paper catalog (id, display name, group, ISO, era) the UI
   stock-picker reads. 1:1 with the `profiles/*.json` files. See `docs/FILM_STOCKS.md`.
 - `presets.json` — the 27 built-in look presets (film/print pairing + param tweaks). See
   `docs/PRESETS.md`.

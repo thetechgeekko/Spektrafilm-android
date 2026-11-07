@@ -234,13 +234,17 @@ Profile load_profile_string(const std::string& json_text) {
         require_string(info, "support", "info.support");
     require_allowlisted(support, "info.support", {"film", "paper"});
 
-    // Upstream also defines a "bw" channel model, but this engine's fixed V1
-    // matrices and all downstream dye operations are explicitly three-channel
-    // CMY. Reject unsupported monochrome payloads instead of interpreting them
-    // as color data.
+    // "bw" is accepted only in the three-channel layout the black-and-white
+    // stocks ship in: one silver emulsion (or, on a variable-contrast paper,
+    // three silver emulsions) written into the schema's C/M/Y channels with
+    // spectrally flat neutral channel_density. Every matrix below is still read
+    // with its fixed three-channel shape, so an N-channel payload (upstream's
+    // unmerged dev-branch model) is rejected there exactly as before. The
+    // pipeline needs nothing else: neutral silver in every channel integrates
+    // to a neutral image, whatever the per-channel grain or halation does.
     const std::string channel_model =
         require_string(info, "channel_model", "info.channel_model");
-    require_allowlisted(channel_model, "info.channel_model", {"color"});
+    require_allowlisted(channel_model, "info.channel_model", {"color", "bw"});
 
     if (info.has("stock")) p.stock = require_string(info, "stock", "info.stock");
     if (info.has("use")) {

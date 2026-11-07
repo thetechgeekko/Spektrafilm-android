@@ -719,6 +719,11 @@ jobs:
           build_run test_scene_latitude_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_date_stamp_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
           build_run test_contrast_mask_e2e "$ASSET" "$G/scan_portra" tests/scan_portra_input_rgb.f64
+          # BLACK-AND-WHITE PRINT (no oracle: spektrafilm ships no bw profiles): the four
+          # silver films render on Multigrade without a Hanatos window, print neutral and
+          # rising, every Multigrade grade holds mid-grey with contrast rising 00 -> 5, grade 2
+          # by hand equals the database pack, grain-on 1-vs-8 thread identity.
+          build_run test_bw_print_e2e "$ASSET"
           # SPATIAL-EFFECT DECOUPLING: every spatial effect gates on its OWN params
           # (zero = inert), matching the oracle; halation_active gates ONLY the
           # halation/scatter block. Golden = camera lens blur ON (1650 µm) with the
@@ -968,7 +973,7 @@ jobs:
           verify_asset third_party/libraw/LICENSE.LGPL eea173a556abac0370461e57e12aab266894ea6be3874c2be05fd87871f75449
           verify_asset third_party/libraw/LICENSE.CDDL 0e3098d2d54a12434715f6679ea408d57da5e8d613c385c58ecc6fe5d30cc81f
           verify_asset legal/spektrafilm/LICENSE.GPL-3.0 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
-          verify_asset legal/spektrafilm/NOTICE.md 61ddf89c78bff46d435780a11b72eaf5075c7ecad3de7e0420bfae3cdd789e3e
+          verify_asset legal/spektrafilm/NOTICE.md 836e63904dc6efa4564688a4d39f330fe51ac25a5af5a39ee16dc20467fbcc3a
 
       - name: Smoke-test standalone LibRaw recipient relink (x86_64)
         run: |

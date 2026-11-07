@@ -348,6 +348,9 @@
     <string name="editor_sim_view_print_curves">인화 프로필 커브 보기</string>
     <string name="editor_sim_print_exposure">인화 노광</string>
     <string name="editor_sim_print_exposure_tooltip">가상 확대기에 설정된 노광 시간을 바꿉니다</string>
+    <string name="editor_sim_paper_grade">인화지 호수</string>
+    <string name="editor_sim_paper_grade_tooltip">확대기의 멀티그레이드 필터입니다. 00이 가장 연조, 5가 가장 경조입니다. 중간 회색은 유지되고 대비만 바뀝니다.</string>
+    <string name="editor_snack_silver_paper">흑백 필름은 %1$s에 인화합니다</string>
     <string name="editor_sim_print_auto_comp">인화 자동 보정</string>
     <string name="editor_sim_print_auto_comp_tooltip">카메라 노출 보정 EV에 맞춰 인화 노광을 자동 조정합니다</string>
     <string name="editor_sim_print_y_shift">인화 Y 필터 이동</string>

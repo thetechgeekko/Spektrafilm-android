@@ -352,6 +352,9 @@
     <string name="editor_sim_view_print_curves">Voir les courbes du profil de tirage</string>
     <string name="editor_sim_print_exposure">Exposition du tirage</string>
     <string name="editor_sim_print_exposure_tooltip">Modifie le temps d’exposition de l’agrandisseur virtuel</string>
+    <string name="editor_sim_paper_grade">Grade du papier</string>
+    <string name="editor_sim_paper_grade_tooltip">Filtration Multigrade sur l\u2019agrandisseur : 00 est le plus doux, 5 le plus dur. Le gris moyen reste fixe, seul le contraste change.</string>
+    <string name="editor_snack_silver_paper">Le film noir et blanc est tiré sur %1$s</string>
     <string name="editor_sim_print_auto_comp">Compensation automatique du tirage</string>
     <string name="editor_sim_print_auto_comp_tooltip">Ajuste automatiquement l’exposition du tirage selon la correction d’exposition de l’appareil (EV)</string>
     <string name="editor_sim_print_y_shift">Décalage du filtre Y (tirage)</string>

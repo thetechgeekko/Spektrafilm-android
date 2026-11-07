@@ -421,6 +421,7 @@ object Presets {
             put("preflashExposure", s.preflashExposure.toDouble())
             put("preflashYFilterShift", s.preflashYFilterShift.toDouble())
             put("preflashMFilterShift", s.preflashMFilterShift.toDouble())
+            put("paperGrade", s.paperGrade)
         })
 
         put("scanner", JSONObject().apply {
@@ -661,6 +662,7 @@ object Presets {
             s.preflashExposure = e.f("preflashExposure", s.preflashExposure)
             s.preflashYFilterShift = e.f("preflashYFilterShift", s.preflashYFilterShift)
             s.preflashMFilterShift = e.f("preflashMFilterShift", s.preflashMFilterShift)
+            s.paperGrade = e.optString("paperGrade", s.paperGrade)
         }
 
         o.optJSONObject("scanner")?.let { sc ->

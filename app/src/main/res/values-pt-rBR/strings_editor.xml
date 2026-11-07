@@ -352,6 +352,9 @@
     <string name="editor_sim_view_print_curves">Ver as curvas do perfil de cópia</string>
     <string name="editor_sim_print_exposure">Exposição da cópia</string>
     <string name="editor_sim_print_exposure_tooltip">Muda o tempo de exposição do ampliador virtual</string>
+    <string name="editor_sim_paper_grade">Grau do papel</string>
+    <string name="editor_sim_paper_grade_tooltip">Filtragem Multigrade no ampliador: 00 é o mais suave e 5 o mais duro. O cinza médio se mantém enquanto o contraste muda.</string>
+    <string name="editor_snack_silver_paper">Filme preto e branco é ampliado em %1$s</string>
     <string name="editor_sim_print_auto_comp">Compensação automática da cópia</string>
     <string name="editor_sim_print_auto_comp_tooltip">Ajusta automaticamente a exposição da cópia conforme a compensação de exposição da câmera (EV)</string>
     <string name="editor_sim_print_y_shift">Desvio do filtro Y da cópia</string>

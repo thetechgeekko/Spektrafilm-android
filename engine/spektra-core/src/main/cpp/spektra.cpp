@@ -2069,8 +2069,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         set_last_error_message(e.what());
         return SPK_ERR_PROFILE_INVALID;
     }
+    // The adaptation window is optional (0 or 4 params, enforced by the
+    // parser); build_filming_tc_lut skips it when absent.
     if (film.log_sensitivity.empty() || film.log_exposure.empty() ||
-        film.window_params.size() < 4) {
+        (!film.window_params.empty() && film.window_params.size() != 4)) {
         return SPK_ERR_INTERNAL;  // profile lacks filming fields
     }
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
@@ -2431,8 +2433,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         set_last_error_message(e.what());
         return SPK_ERR_PROFILE_INVALID;
     }
+    // The adaptation window is optional (0 or 4 params, enforced by the
+    // parser); build_filming_tc_lut skips it when absent.
     if (film.log_sensitivity.empty() || film.log_exposure.empty() ||
-        film.window_params.size() < 4) {
+        (!film.window_params.empty() && film.window_params.size() != 4)) {
         return SPK_ERR_INTERNAL;  // film profile lacks filming fields
     }
     if (prnt.log_sensitivity.empty() || prnt.log_exposure.empty() ||

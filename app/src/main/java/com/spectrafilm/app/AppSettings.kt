@@ -306,6 +306,12 @@ class AppSettings private constructor(
         if (defaultPrintProfile.isNotBlank() && defaultPrintProfile in availableProfiles) {
             state.printProfile = defaultPrintProfile
         }
+        // A black-and-white default film with a colour default paper would render orange.
+        if (SilverPrint.isMismatched(state.filmProfile, state.printProfile) &&
+            SilverPrint.MULTIGRADE in availableProfiles
+        ) {
+            state.printProfile = SilverPrint.MULTIGRADE
+        }
     }
 
     companion object {

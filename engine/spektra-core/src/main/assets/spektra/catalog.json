@@ -3,9 +3,11 @@
   "groups": [
     { "id": "color_negative", "title": "Color Negative (Still)", "order": 1 },
     { "id": "color_reversal", "title": "Color Reversal / Slide", "order": 2 },
-    { "id": "motion_picture_negative", "title": "Motion-Picture Negative", "order": 3 },
-    { "id": "print_film", "title": "Motion-Picture Print Film", "order": 4 },
-    { "id": "print_paper", "title": "RGB Print Paper", "order": 5 }
+    { "id": "black_and_white", "title": "Black & White Negative", "order": 3 },
+    { "id": "motion_picture_negative", "title": "Motion-Picture Negative", "order": 4 },
+    { "id": "print_film", "title": "Motion-Picture Print Film", "order": 5 },
+    { "id": "print_paper", "title": "RGB Print Paper", "order": 6 },
+    { "id": "silver_paper", "title": "Black & White Paper", "order": 7 }
   ],
   "stocks": {
     "kodak_portra_160": {
@@ -138,6 +140,46 @@
       "balance": "tungsten",
       "order": 21,
       "summary": "Kodak Vision3 500T with its rem-jet backing removed for still cameras, so bright lights bloom into the red halos night photos are known for."
+    },
+    "kodak_tri_x_400": {
+      "name": "Kodak Tri-X 400",
+      "manufacturer": "Kodak",
+      "group": "black_and_white",
+      "kind": "film",
+      "iso": 400,
+      "monochrome": true,
+      "order": 10,
+      "summary": "The classic high-speed black-and-white negative: gritty, punchy grain and deep blacks, modeled from Kodak's datasheet in D-76."
+    },
+    "ilford_hp5_plus_400": {
+      "name": "Ilford HP5 Plus 400",
+      "manufacturer": "Ilford",
+      "group": "black_and_white",
+      "kind": "film",
+      "iso": 400,
+      "monochrome": true,
+      "order": 11,
+      "summary": "A forgiving 400-speed black-and-white film with wide exposure latitude, modeled from Ilford's datasheet."
+    },
+    "kodak_tmax_100": {
+      "name": "Kodak T-Max 100",
+      "manufacturer": "Kodak",
+      "group": "black_and_white",
+      "kind": "film",
+      "iso": 100,
+      "monochrome": true,
+      "order": 12,
+      "summary": "A fine-grain tabular black-and-white film with crisp detail and smooth midtones, modeled from Kodak's datasheet in D-76."
+    },
+    "fujifilm_neopan_acros_100_ii": {
+      "name": "Fujifilm Neopan Acros 100 II",
+      "manufacturer": "Fujifilm",
+      "group": "black_and_white",
+      "kind": "film",
+      "iso": 100,
+      "monochrome": true,
+      "order": 13,
+      "summary": "Fuji's very fine-grained black-and-white film with clean, bright highlights, modeled from Fujifilm's datasheet."
     },
     "kodak_ektachrome_100": {
       "name": "Kodak Ektachrome E100",
@@ -311,6 +353,15 @@
       "year": "2005",
       "order": 15,
       "summary": "Fuji's benchmark RA-4 paper with rich gradation, vivid color, and outstanding color stability."
+    },
+    "ilford_multigrade_iv_rc": {
+      "name": "Ilford Multigrade IV RC",
+      "manufacturer": "Ilford",
+      "group": "silver_paper",
+      "kind": "print_paper",
+      "monochrome": true,
+      "order": 10,
+      "summary": "A variable-contrast silver paper: the enlarger's filter sets the grade, from soft 00 to hard 5. Fitted to Ilford's datasheet curves."
     }
   }
 }
