@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher shortcut icon (#467): Material Symbols "photo_library" on a round brand tile, sized
+     like a legacy shortcut icon (48dp, glyph on the inner 24dp). Fixed colours: launchers
+     draw shortcut icons outside the app's theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FFFFDDB6"
+        android:pathData="M24,0a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <group
+        android:scaleX="0.025"
+        android:scaleY="0.025"
+        android:translateX="12"
+        android:translateY="36">
+        <path
+            android:fillColor="#FF643F00"
+            android:pathData="M360-400h400L622-580l-92 120-62-80-108 140Zm-40 160q-33 0-56.5-23.5T240-320v-480q0-33 23.5-56.5T320-880h480q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H320Zm0-80h480v-480H320v480ZM160-80q-33 0-56.5-23.5T80-160v-560h80v560h560v80H160Zm160-720v480-480Z" />
+    </group>
+</vector>

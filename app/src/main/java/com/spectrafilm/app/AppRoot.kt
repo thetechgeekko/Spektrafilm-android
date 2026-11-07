@@ -349,6 +349,25 @@ internal fun MainActivity.AppRoot(
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
     }
 
+    // #467 launcher shortcuts. Library: the editor plus the Library on top, so Back returns
+    // to the editor. Open photo: back to the editor, which consumes the request itself (it
+    // owns the photo picker), so it is NOT cleared here.
+    val pendingShortcut by launcherShortcut
+    LaunchedEffect(pendingShortcut) {
+        when (pendingShortcut) {
+            LauncherShortcut.LIBRARY -> {
+                launcherShortcut.value = null
+                navigate {
+                    growIntoEditor = false
+                    while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+                    backStack.add(LibraryRoute)
+                }
+            }
+            LauncherShortcut.OPEN_PHOTO -> if (backStack.size > 1) popToEditor()
+            null -> Unit
+        }
+    }
+
     LaunchedEffect(editorEntryGeneration) {
         if (editorEntryGeneration == 0L) return@LaunchedEffect
         val source = restoreLatestSourceAccess(appContext)

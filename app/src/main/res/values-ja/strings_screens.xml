@@ -290,4 +290,10 @@
     <plurals name="library_paste_partial">
         <item quantity="other">%1$d 枚に貼り付けました。編集を読み込めなかった %2$d 枚はスキップしました。</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">写真を開く</string>
+    <string name="shortcut_open_photo_long">写真を開く</string>
+    <string name="shortcut_library_short">ライブラリ</string>
+    <string name="shortcut_library_long">ライブラリを開く</string>
 </resources>

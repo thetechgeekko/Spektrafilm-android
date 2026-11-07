@@ -322,4 +322,10 @@
         <item quantity="one">Look pasted onto %1$d. %2$d photo was skipped because its edit could not be read.</item>
         <item quantity="other">Look pasted onto %1$d. %2$d photos were skipped because their edits could not be read.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">Open photo</string>
+    <string name="shortcut_open_photo_long">Open a photo</string>
+    <string name="shortcut_library_short">Library</string>
+    <string name="shortcut_library_long">Open the Library</string>
 </resources>

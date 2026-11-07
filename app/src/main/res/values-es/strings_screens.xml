@@ -300,4 +300,10 @@
         <item quantity="many">Aspecto pegado en %1$d. Se omitieron %2$d fotos porque no se pudieron leer sus ediciones.</item>
         <item quantity="other">Aspecto pegado en %1$d. Se omitieron %2$d fotos porque no se pudieron leer sus ediciones.</item>
     </plurals>
+
+    <!-- Launcher shortcuts (res/xml/shortcuts.xml). Short labels must fit ~10 characters. -->
+    <string name="shortcut_open_photo_short">Abrir foto</string>
+    <string name="shortcut_open_photo_long">Abrir una foto</string>
+    <string name="shortcut_library_short">Biblioteca</string>
+    <string name="shortcut_library_long">Abrir la biblioteca</string>
 </resources>
