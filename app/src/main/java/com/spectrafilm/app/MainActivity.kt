@@ -4053,8 +4053,18 @@ class MainActivity : ComponentActivity() {
                     // Measured height of the floating adjustment panel (narrow layout only). The
                     // preview's zoom control is inset by it so it never sits under the panel.
                     var panelHeightPx by remember { mutableIntStateOf(0) }
-                    val panelInset = if (!wide && activeCategory != null)
-                        with(LocalDensity.current) { panelHeightPx.toDp() } else 0.dp
+                    // Preview-first: the photo fits into the space ABOVE the floating panel
+                    // instead of sitting underneath it, so opening a panel never hides the
+                    // part of the frame being judged. Animated so the photo eases up as the
+                    // panel rises and back down as it closes (the panel's own height lags a
+                    // closing panel, so the target drops to 0 straight away instead).
+                    val panelShown = !wide && activeCategory != null && !viewerUi.chromeHidden
+                    val panelTarget = if (panelShown) {
+                        with(LocalDensity.current) { panelHeightPx.toDp() }
+                    } else {
+                        0.dp
+                    }
+                    val panelInset by animateDpAsState(panelTarget, label = "previewPanelInset")
                     val previewRegion: @Composable () -> Unit = {
                         PreviewRegion(
                             controlsBottomInset = panelInset,
@@ -5100,114 +5110,127 @@ class MainActivity : ComponentActivity() {
             var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
             val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
                 !compareMode && !gpuBroken && !gpuZoomHandoff
-            when {
-                gpuActive -> GpuPreviewSurface(
-                    proxy = gpuProxy!!,
-                    lut = gpuLut!!,
-                    exposureGain = gpuGain,
-                    modifier = Modifier.fillMaxSize(),
-                    controlsBottomInset = controlsBottomInset,
-                    onPointPicked = onPointPicked,
-                    onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
-                    onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
-                    onUnavailable = {
-                        gpuBroken = true
-                        Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
-                    },
-                )
-                bmp != null && compareMode && before != null ->
-                    CompareSlider(before = before, after = bmp, modifier = Modifier.fillMaxWidth())
-                bmp != null -> ZoomableImage(
-                    bitmap = bmp,
-                    modifier = Modifier.fillMaxSize(),
-                    initialScale = gpuZoomInitial,
-                    onPointPicked = onPointPicked,
-                    // Press and hold the photo for the unedited frame. The bitmap already
-                    // exists for the latched CompareSlider above, so the gesture costs no
-                    // extra render.
-                    //
-                    // PreviewRegion.onPointPicked is NOT nullable -- it is always the
-                    // magnifier opener -- so there is no sampler to yield to here, and a
-                    // long press is otherwise unused on this surface. The colour/WB sampler
-                    // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
-                    peek = before,
-                    // Lightroom-style zoom: render the visible region at native resolution
-                    // (renderKey = previewTick so an edit while zoomed re-renders the crop).
-                    renderKey = renderKey,
-                    onRoiSettled = onRoiSettled,
-                    // Returning to fit also re-arms the GPU fit surface.
-                    onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
-                    roiOverlay = roiOverlay,
-                    controlsBottomInset = controlsBottomInset,
-                )
-                else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
-            }
-
-            // Compact translucent histogram overlaid at the TOP EDGE of the preview
-            // (Lightroom-style). Driven by the same `showHistogram` state as the
-            // Source-panel toggle. PreviewHistogramOverlay acquires an explicit read lease and
-            // samples off-main; preview retirement defers recycle until that lease closes.
-            if (showHistogram && bmp != null) {
-                PreviewHistogramOverlay(
-                    bitmap = bmp,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 4.dp),
-                )
-            }
-
-            // Status pill — top-start of the preview, over the canvas.
-            StatusPill(
-                exporting = exporting,
-                rendering = busy,
-                decoding = decoding,
-                lastRenderMs = lastRenderMs,
-                renderErr = renderErr,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 6.dp, top = 6.dp),
+            if (gpuActive) GpuPreviewSurface(
+                proxy = gpuProxy!!,
+                lut = gpuLut!!,
+                exposureGain = gpuGain,
+                modifier = Modifier.fillMaxSize(),
+                controlsBottomInset = controlsBottomInset,
+                onPointPicked = onPointPicked,
+                onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
+                onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
+                onUnavailable = {
+                    gpuBroken = true
+                    Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
+                },
             )
-
-            // bottom-center controls on a scrim: histogram + compare + crop + rotate
-            Row(
+            // Everything except the GPU surface lives in the part of the canvas ABOVE the
+            // floating panel ([controlsBottomInset]), so an open panel moves and fits the photo
+            // instead of covering it, and the canvas buttons ride on top of the panel. The GPU
+            // surface keeps the full box: resizing a GLSurfaceView every animation frame is
+            // the churn documented on PanelOverlay.
+            Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxSize()
+                    .padding(bottom = controlsBottomInset),
+                contentAlignment = Alignment.Center,
             ) {
-                TextTooltip(stringResource(R.string.editor_histogram)) {
-                    CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
-                        Icon(
-                            SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
-                            tint = Color.White,
-                        )
-                    }
+                when {
+                    gpuActive -> Unit
+                    bmp != null && compareMode && before != null ->
+                        CompareSlider(before = before, after = bmp)
+                    bmp != null -> ZoomableImage(
+                        bitmap = bmp,
+                        modifier = Modifier.fillMaxSize(),
+                        initialScale = gpuZoomInitial,
+                        onPointPicked = onPointPicked,
+                        // Press and hold the photo for the unedited frame. The bitmap already
+                        // exists for the latched CompareSlider above, so the gesture costs no
+                        // extra render.
+                        //
+                        // PreviewRegion.onPointPicked is NOT nullable -- it is always the
+                        // magnifier opener -- so there is no sampler to yield to here, and a
+                        // long press is otherwise unused on this surface. The colour/WB sampler
+                        // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
+                        peek = before,
+                        // Lightroom-style zoom: render the visible region at native resolution
+                        // (renderKey = previewTick so an edit while zoomed re-renders the crop).
+                        renderKey = renderKey,
+                        onRoiSettled = onRoiSettled,
+                        // Returning to fit also re-arms the GPU fit surface.
+                        onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
+                        roiOverlay = roiOverlay,
+                        // No inset: this Box already stops at the panel's top edge.
+                    )
+                    else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
                 }
-                TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
-                    CircleScrimButton(onClick = onOpenMagnifier) {
-                        Icon(
-                            SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
-                            tint = Color.White,
-                        )
-                    }
+
+                // Compact translucent histogram overlaid at the TOP EDGE of the preview
+                // (Lightroom-style). Driven by the same `showHistogram` state as the
+                // Source-panel toggle. PreviewHistogramOverlay acquires an explicit read lease and
+                // samples off-main; preview retirement defers recycle until that lease closes.
+                if (showHistogram && bmp != null) {
+                    PreviewHistogramOverlay(
+                        bitmap = bmp,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 4.dp),
+                    )
                 }
-                TextTooltip(stringResource(R.string.editor_compare)) {
-                    CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
-                        Icon(
-                            SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
-                            tint = Color.White,
-                        )
+
+                // Status pill — top-start of the preview, over the canvas.
+                StatusPill(
+                    exporting = exporting,
+                    rendering = busy,
+                    decoding = decoding,
+                    lastRenderMs = lastRenderMs,
+                    renderErr = renderErr,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 6.dp, top = 6.dp),
+                )
+
+                // bottom-center controls on a scrim: histogram + compare + crop + rotate
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextTooltip(stringResource(R.string.editor_histogram)) {
+                        CircleScrimButton(onClick = onToggleHistogram, active = showHistogram, toggle = true) {
+                            Icon(
+                                SpectraIcons.Histogram, contentDescription = stringResource(R.string.editor_toggle_histogram),
+                                tint = Color.White,
+                            )
+                        }
                     }
-                }
-                TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
-                    CircleScrimButton(onClick = onEditCrop) {
-                        Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = Color.White)
+                    TextTooltip(stringResource(R.string.editor_magnifier_tooltip)) {
+                        CircleScrimButton(onClick = onOpenMagnifier) {
+                            Icon(
+                                SpectraIcons.Loupe, contentDescription = stringResource(R.string.editor_magnifier),
+                                tint = Color.White,
+                            )
+                        }
                     }
-                }
-                TextTooltip(stringResource(R.string.editor_rotate_90)) {
-                    CircleScrimButton(onClick = onRotate) {
-                        Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = Color.White)
+                    TextTooltip(stringResource(R.string.editor_compare)) {
+                        CircleScrimButton(onClick = onToggleCompare, active = compareMode, toggle = true) {
+                            Icon(
+                                SpectraIcons.Display, contentDescription = stringResource(R.string.editor_compare),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                    TextTooltip(stringResource(R.string.editor_crop_transform_tooltip)) {
+                        CircleScrimButton(onClick = onEditCrop) {
+                            Icon(SpectraIcons.Crop, contentDescription = stringResource(R.string.editor_crop_transform), tint = Color.White)
+                        }
+                    }
+                    TextTooltip(stringResource(R.string.editor_rotate_90)) {
+                        CircleScrimButton(onClick = onRotate) {
+                            Icon(SpectraIcons.Rotate, contentDescription = stringResource(R.string.editor_rotate_90), tint = Color.White)
+                        }
                     }
                 }
             }

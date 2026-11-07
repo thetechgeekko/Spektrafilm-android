@@ -284,6 +284,11 @@ fun ZoomableImage(
     fun clampOffset(raw: Offset, s: Float): Offset =
         clampPanOffset(raw, viewSize, s, aspect)
 
+    // The viewport shrinks and grows as the editor's panel opens and closes (the photo fits
+    // above it). A pan that was legal in the taller view can overshoot the shorter one, so
+    // re-clamp whenever the size changes rather than waiting for the next gesture.
+    LaunchedEffect(viewSize) { offset = clampOffset(offset, scale) }
+
     Box(
         modifier = modifier
             .clipToBounds()
@@ -351,8 +356,11 @@ fun ZoomableImage(
                 stringResource(R.string.tool_viewer_preview_desc)
             },
             contentScale = ContentScale.Fit,
+            // aspectRatio alone, not after fillMaxWidth: a forced full width cannot shrink
+            // when the viewport is shorter than the width-fitted height (a portrait photo
+            // above an open panel), so the photo overflowed and was clipped instead of
+            // refitting, and fitRect's height-fit assumption no longer matched the pixels.
             modifier = Modifier
-                .fillMaxWidth()
                 .aspectRatio(aspect)
                 .graphicsLayer {
                     scaleX = scale
@@ -591,8 +599,8 @@ fun CompareSlider(
     val splitHalf = stringResource(R.string.tool_viewer_compare_split_half)
 
     Box(
+        // Fit both dimensions, as ZoomableImage's Image does (see the note there).
         modifier = modifier
-            .fillMaxWidth()
             .aspectRatio(aspect)
             .clipToBounds()
             .onSizeChanged { width = it.width }
