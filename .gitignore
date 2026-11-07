@@ -59,3 +59,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 /tools/baseline/.baseline.env
+
+# Merge/patch leftovers (#359 committed one by accident)
+*.orig
+*.rej
