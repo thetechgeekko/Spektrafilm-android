@@ -111,4 +111,15 @@
 
     <!-- strings_tools.xml -->
     <string name="tool_viewer_magnifier_title" formatted="false">100% 局部</string>
+    <!-- strings_editor.xml: keyboard shortcuts -->
+    <string name="shortcut_group_editor">编辑器</string>
+    <string name="shortcut_undo">撤销</string>
+    <string name="shortcut_redo">重做</string>
+    <string name="shortcut_open">打开照片</string>
+    <string name="shortcut_export">导出</string>
+    <string name="shortcut_compare">对比前后效果</string>
+    <string name="shortcut_zoom_in">放大</string>
+    <string name="shortcut_zoom_out">缩小</string>
+    <string name="shortcut_zoom_fit">适合屏幕</string>
+    <string name="shortcut_close">关闭面板或工具</string>
 </resources>

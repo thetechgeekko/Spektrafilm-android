@@ -45,11 +45,34 @@ class EditorShortcutsTest {
     }
 
     @Test
-    fun onlyUndoAndRedoAutoRepeat() {
-        assertTrue(EditorShortcut.UNDO.repeats)
-        assertTrue(EditorShortcut.REDO.repeats)
-        for (s in EditorShortcut.entries - setOf(EditorShortcut.UNDO, EditorShortcut.REDO)) {
+    fun zoomKeys() {
+        assertEquals(EditorShortcut.ZOOM_IN, map(KeyEvent.KEYCODE_EQUALS, primary = true))
+        assertEquals(EditorShortcut.ZOOM_IN, map(KeyEvent.KEYCODE_EQUALS, primary = true, shift = true)) // Ctrl+'+'
+        assertEquals(EditorShortcut.ZOOM_IN, map(KeyEvent.KEYCODE_NUMPAD_ADD, primary = true))
+        assertEquals(EditorShortcut.ZOOM_OUT, map(KeyEvent.KEYCODE_MINUS, primary = true))
+        assertEquals(EditorShortcut.ZOOM_OUT, map(KeyEvent.KEYCODE_NUMPAD_SUBTRACT, primary = true))
+        assertEquals(EditorShortcut.ZOOM_FIT, map(KeyEvent.KEYCODE_0, primary = true))
+        assertNull(map(KeyEvent.KEYCODE_0))
+        assertNull(map(KeyEvent.KEYCODE_MINUS))
+    }
+
+    @Test
+    fun onlyUndoRedoAndStepZoomAutoRepeat() {
+        val repeating = setOf(EditorShortcut.UNDO, EditorShortcut.REDO, EditorShortcut.ZOOM_IN, EditorShortcut.ZOOM_OUT)
+        for (s in repeating) assertTrue("$s should auto-repeat", s.repeats)
+        for (s in EditorShortcut.entries - repeating) {
             assertFalse("$s must not auto-repeat", s.repeats)
         }
+    }
+
+    @Test
+    fun theSystemShortcutListMatchesWhatTheKeysDo() {
+        for (listing in editorShortcutListings) {
+            val primary = listing.metaState and KeyEvent.META_CTRL_ON != 0
+            val shift = listing.metaState and KeyEvent.META_SHIFT_ON != 0
+            assertEquals(listing.toString(), listing.shortcut, map(listing.keyCode, primary = primary, shift = shift))
+        }
+        // Every shortcut the editor handles is discoverable.
+        assertEquals(EditorShortcut.entries.toSet(), editorShortcutListings.map { it.shortcut }.toSet())
     }
 }

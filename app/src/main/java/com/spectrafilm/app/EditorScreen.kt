@@ -2731,6 +2731,11 @@ internal fun MainActivity.EditorScreen(
                 viewerVm.onAction(EditorViewerAction.ToggleCompare)
                 true
             }
+            // Delivered to whichever preview is on screen (Viewer.kt), the same transform
+            // as its wheel / + / - controls.
+            EditorShortcut.ZOOM_IN -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.IN); true }
+            EditorShortcut.ZOOM_OUT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.OUT); true }
+            EditorShortcut.ZOOM_FIT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.FIT); true }
         }
     }
     DisposableEffect(Unit) {
@@ -4450,6 +4455,7 @@ internal fun MainActivity.PreviewRegion(
             onPointPicked = onPointPicked,
             onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
             onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
+            zoomRequests = viewerVm.zoomRequests,
             onUnavailable = {
                 gpuBroken = true
                 Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
@@ -4499,6 +4505,7 @@ internal fun MainActivity.PreviewRegion(
                         .fillMaxSize()
                         .graphicsLayer { alpha = revealAlpha.value },
                     initialScale = gpuZoomInitial,
+                    zoomRequests = viewerVm.zoomRequests,
                     onPointPicked = onPointPicked,
                     // Press and hold the photo for the unedited frame. The bitmap already
                     // exists for the latched CompareSlider above, so the gesture costs no

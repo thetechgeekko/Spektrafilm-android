@@ -10,7 +10,10 @@
  */
 package com.spectrafilm.app
 
+import android.content.res.Resources
 import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
 
 internal enum class EditorShortcut {
     UNDO,
@@ -18,13 +21,16 @@ internal enum class EditorShortcut {
     OPEN,
     EXPORT,
     TOGGLE_COMPARE,
+    ZOOM_IN,
+    ZOOM_OUT,
+    ZOOM_FIT,
 
     /** Esc: the same as system Back, but only while something is open to close. */
     CLOSE,
     ;
 
-    /** Undo/redo may auto-repeat while held; everything else fires once per press. */
-    val repeats: Boolean get() = this == UNDO || this == REDO
+    /** Undo/redo and zoom in/out may auto-repeat while held; the rest fire once per press. */
+    val repeats: Boolean get() = this == UNDO || this == REDO || this == ZOOM_IN || this == ZOOM_OUT
 }
 
 /**
@@ -44,6 +50,10 @@ internal fun editorShortcutFor(
             KeyEvent.KEYCODE_Y -> if (shift) null else EditorShortcut.REDO
             KeyEvent.KEYCODE_O -> if (shift) null else EditorShortcut.OPEN
             KeyEvent.KEYCODE_E -> if (shift) null else EditorShortcut.EXPORT
+            // '+' is Shift+'=' on most layouts, so Ctrl+Shift+= is zoom in too.
+            KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_NUMPAD_ADD -> EditorShortcut.ZOOM_IN
+            KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_NUMPAD_SUBTRACT -> if (shift) null else EditorShortcut.ZOOM_OUT
+            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> if (shift) null else EditorShortcut.ZOOM_FIT
             else -> null
         }
     }
@@ -65,3 +75,29 @@ internal fun editorShortcutFor(event: KeyEvent): EditorShortcut? {
     ) ?: return null
     return if (event.repeatCount > 0 && !shortcut.repeats) null else shortcut
 }
+
+/**
+ * What the system keyboard-shortcuts list (Meta+/ or Search+/) shows for the editor, so the
+ * shortcuts are discoverable the platform way rather than through an in-app cheat sheet.
+ * Must stay in step with [editorShortcutFor]; EditorShortcutsTest checks every listed chord
+ * maps to the shortcut it is labelled with.
+ */
+internal data class ShortcutListing(val labelRes: Int, val keyCode: Int, val metaState: Int, val shortcut: EditorShortcut)
+
+internal val editorShortcutListings: List<ShortcutListing> = listOf(
+    ShortcutListing(R.string.shortcut_undo, KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON, EditorShortcut.UNDO),
+    ShortcutListing(R.string.shortcut_redo, KeyEvent.KEYCODE_Z, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, EditorShortcut.REDO),
+    ShortcutListing(R.string.shortcut_open, KeyEvent.KEYCODE_O, KeyEvent.META_CTRL_ON, EditorShortcut.OPEN),
+    ShortcutListing(R.string.shortcut_export, KeyEvent.KEYCODE_E, KeyEvent.META_CTRL_ON, EditorShortcut.EXPORT),
+    ShortcutListing(R.string.shortcut_compare, KeyEvent.KEYCODE_BACKSLASH, 0, EditorShortcut.TOGGLE_COMPARE),
+    ShortcutListing(R.string.shortcut_zoom_in, KeyEvent.KEYCODE_EQUALS, KeyEvent.META_CTRL_ON, EditorShortcut.ZOOM_IN),
+    ShortcutListing(R.string.shortcut_zoom_out, KeyEvent.KEYCODE_MINUS, KeyEvent.META_CTRL_ON, EditorShortcut.ZOOM_OUT),
+    ShortcutListing(R.string.shortcut_zoom_fit, KeyEvent.KEYCODE_0, KeyEvent.META_CTRL_ON, EditorShortcut.ZOOM_FIT),
+    ShortcutListing(R.string.shortcut_close, KeyEvent.KEYCODE_ESCAPE, 0, EditorShortcut.CLOSE),
+)
+
+internal fun editorKeyboardShortcutGroup(res: Resources): KeyboardShortcutGroup =
+    KeyboardShortcutGroup(
+        res.getString(R.string.shortcut_group_editor),
+        editorShortcutListings.map { KeyboardShortcutInfo(res.getString(it.labelRes), it.keyCode, it.metaState) },
+    )
