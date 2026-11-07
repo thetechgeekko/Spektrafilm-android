@@ -852,6 +852,23 @@ internal fun MainActivity.EditorScreen(
         )
     }
     var recipeAccess by recipeAccessState
+    // --- Photo info (PhotoInfo.kt) ---
+    // Read on demand, off the main thread, for the photo on screen; a source change while it
+    // loads drops the result instead of showing the previous photo's facts.
+    var photoInfo by remember { mutableStateOf<PhotoInfo?>(null) }
+    fun openPhotoInfo() {
+        val uri = sourceUri ?: return
+        val name = sourceName
+        scope.launch {
+            val info = withContext(dispatchers.io) {
+                runCatching { readPhotoInfo(ctx, uri, name, null, null) }.getOrNull()
+            }
+            if (info != null && sourceUri == uri) photoInfo = info
+        }
+    }
+    LaunchedEffect(sourceUri) { photoInfo = null }
+    photoInfo?.let { info -> PhotoInfoSheet(info, onDismiss = { photoInfo = null }) }
+
     // --- Apply previous edit (PreviousEdit.kt) ---
     // The newest OTHER photo's saved look, looked up on the recipe worker so it is ordered after
     // any autosave of the photo just left. Applying it is exactly Paste settings: the whole look
@@ -1924,6 +1941,7 @@ internal fun MainActivity.EditorScreen(
             EditorShortcut.ZOOM_IN -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.IN); true }
             EditorShortcut.ZOOM_OUT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.OUT); true }
             EditorShortcut.ZOOM_FIT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.FIT); true }
+            EditorShortcut.PHOTO_INFO -> !overlayOpen && sourceUri != null && run { openPhotoInfo(); true }
             EditorShortcut.APPLY_PREVIOUS -> !overlayOpen && previousEdit?.let { applyPreviousEdit(it); true } == true
         }
     }
@@ -2077,6 +2095,7 @@ internal fun MainActivity.EditorScreen(
                     checkpointEditorSession()
                     onOpenLibrary()
                 },
+                onPhotoInfo = sourceUri?.let { { openPhotoInfo() } },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating

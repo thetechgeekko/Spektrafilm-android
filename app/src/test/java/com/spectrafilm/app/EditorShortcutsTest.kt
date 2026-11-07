@@ -23,6 +23,9 @@ class EditorShortcutsTest {
         assertEquals(EditorShortcut.OPEN, map(KeyEvent.KEYCODE_O, primary = true))
         assertEquals(EditorShortcut.EXPORT, map(KeyEvent.KEYCODE_E, primary = true))
         assertEquals(EditorShortcut.APPLY_PREVIOUS, map(KeyEvent.KEYCODE_V, primary = true, shift = true))
+        assertEquals(EditorShortcut.PHOTO_INFO, map(KeyEvent.KEYCODE_I, primary = true))
+        assertNull(map(KeyEvent.KEYCODE_I, primary = true, shift = true))
+        assertNull(map(KeyEvent.KEYCODE_I))
     }
 
     @Test

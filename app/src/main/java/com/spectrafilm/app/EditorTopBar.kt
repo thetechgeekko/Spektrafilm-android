@@ -35,6 +35,8 @@ internal fun MainActivity.EditorTopBar(
     onOpenSettings: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenLibrary: () -> Unit,
+    /** Opens the Photo info sheet; null while there is no photo to describe (the demo image). */
+    onPhotoInfo: (() -> Unit)?,
 ) {
     Box(
         Modifier
@@ -121,6 +123,12 @@ internal fun MainActivity.EditorTopBar(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(stringResource(R.string.photo_info_title)) },
+                        leadingIcon = { Icon(SpectraIcons.Info, contentDescription = null) },
+                        enabled = onPhotoInfo != null,
+                        onClick = { menuOpen = false; onPhotoInfo?.invoke() },
+                    )
                     androidx.compose.material3.DropdownMenuItem(
                         text = { Text(stringResource(R.string.editor_action_settings)) },
                         leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },
