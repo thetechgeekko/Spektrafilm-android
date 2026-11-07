@@ -127,3 +127,109 @@ class RoiPatchTest {
         assertEquals(null, t.reuseReason(roi, 7, Any(), null, 1600))
     }
 }
+
+class RoiPatchCacheTest {
+    private val w = 2048
+    private val h = 1536
+
+    private class Bmp(val bytes: Long) { var recycled = false }
+
+    private fun viewport(x0: Float, y0: Float, vw: Float, vh: Float) =
+        RoiRect((x0 + vw / 2f) / w, (y0 + vh / 2f) / h, vw / w, vh / h)
+
+    private fun record(roi: RoiRect, key: Int = 1) = RoiPatchRecord(
+        key, w, h, RoiPatch.box(roi, w, h), RoiPatch.neededScale(roi, w, h, 1600),
+    )
+
+    private var shown: Bmp? = null
+    private fun cache(max: Long) = RoiPatchCache<Bmp>(
+        maxBytes = max,
+        sizeOf = { it.bytes },
+        recycle = { it.recycled = true },
+        isShown = { it === shown },
+    )
+
+    private val a = viewport(0f, 0f, 512f, 384f)
+    private val b = viewport(1200f, 800f, 512f, 384f)
+    private val c = viewport(600f, 0f, 512f, 384f)
+
+    @Test
+    fun findsAnEntryThatCoversTheView() {
+        val cache = cache(100)
+        val bmp = Bmp(10)
+        cache.put(record(a), bmp)
+        assertTrue(cache.find(a, 1, 1600)?.second === bmp)
+        assertEquals(null, cache.find(b, 1, 1600))
+        assertEquals(null, cache.find(a, 2, 1600))
+    }
+
+    @Test
+    fun evictsTheLeastRecentlyUsedAndRecyclesIt() {
+        val cache = cache(25)
+        val ba = Bmp(10); val bb = Bmp(10); val bc = Bmp(10)
+        cache.put(record(a), ba)
+        cache.put(record(b), bb)
+        cache.find(a, 1, 1600) // a is now most recent
+        cache.put(record(c), bc)
+        assertTrue(bb.recycled)
+        assertFalse(ba.recycled)
+        assertEquals(2, cache.size)
+        assertEquals(20L, cache.totalBytes)
+    }
+
+    @Test
+    fun neverRecyclesTheShownBitmap() {
+        val cache = cache(15)
+        val ba = Bmp(10); val bb = Bmp(10)
+        cache.put(record(a), ba)
+        shown = ba
+        cache.put(record(b), bb)
+        assertFalse(ba.recycled)
+        assertFalse(cache.holds(ba))
+        assertTrue(cache.holds(bb))
+    }
+
+    @Test
+    fun retainDropsOtherEdits() {
+        val cache = cache(100)
+        val old = Bmp(10); val cur = Bmp(10)
+        cache.put(record(a, key = 1), old)
+        cache.put(record(b, key = 2), cur)
+        cache.retain(2)
+        assertTrue(old.recycled)
+        assertFalse(cur.recycled)
+        assertEquals(1, cache.size)
+    }
+
+    @Test
+    fun clearRecyclesAllButTheShown() {
+        val cache = cache(100)
+        val ba = Bmp(10); val bb = Bmp(10)
+        cache.put(record(a), ba)
+        cache.put(record(b), bb)
+        shown = bb
+        cache.clear()
+        assertTrue(ba.recycled)
+        assertFalse(bb.recycled)
+        assertEquals(0L, cache.totalBytes)
+    }
+
+    @Test
+    fun clearIncludingShownRecyclesEverything() {
+        val cache = cache(100)
+        val ba = Bmp(10)
+        cache.put(record(a), ba)
+        shown = ba
+        cache.clear(includeShown = true)
+        assertTrue(ba.recycled)
+    }
+
+    @Test
+    fun anOversizedValueIsNotCached() {
+        val cache = cache(5)
+        val big = Bmp(10)
+        cache.put(record(a), big)
+        assertEquals(0, cache.size)
+        assertFalse(big.recycled)
+    }
+}
