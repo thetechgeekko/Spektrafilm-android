@@ -77,7 +77,13 @@ internal fun StageRow(
                 val fill by animateColorAsState(
                     if (selected) colors.secondaryContainer else Color.Transparent, RAIL_PAINT, label = "stageFill",
                 )
-                TextTooltip(stringResource(stage.hintRes)) {
+                // The selected stage takes only what is left after the other four have their
+                // 48dp targets (weighted children measure last): a long or enlarged label
+                // ellipsizes instead of pushing Scan and Finish off the row.
+                TextTooltip(
+                    stringResource(stage.hintRes),
+                    modifier = if (selected) Modifier.weight(1f, fill = false) else Modifier,
+                ) {
                     Row(
                         Modifier
                             .heightIn(min = 48.dp)
@@ -107,6 +113,8 @@ internal fun StageRow(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = colors.onSecondaryContainer,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                         }
                     }
