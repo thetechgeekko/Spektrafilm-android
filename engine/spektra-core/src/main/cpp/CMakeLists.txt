@@ -45,6 +45,7 @@ add_library(spektra SHARED
         kernels/fft_convolve.cpp            # O(n log n) diffusion PSF convolution (#160)
         kernels/tonecurve.cpp               # optional 1D tone curve on final display RGB
         kernels/half.cpp                    # fp16 (NEON) <-> f32 conversion (preview proxy storage)
+        kernels/pack_display.cpp            # display float RGB -> RGBA8 Bitmap pack (#289)
         # LUT/asset loaders:
         io/npy_lut.cpp                       # .npy / .lut binary loaders (M3)
         # Model (photographic math):

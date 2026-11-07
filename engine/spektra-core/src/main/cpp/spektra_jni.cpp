@@ -27,6 +27,7 @@
 
 #ifdef __ANDROID__
 #include <android/asset_manager_jni.h>
+#include <android/bitmap.h>             // nativePackDisplayToBitmap (#289)
 #include <android/log.h>
 #include <sys/system_properties.h>   // debug.spektra.dumpparams (dump_marshalled_params)
 #endif
@@ -34,6 +35,7 @@
 #include <atomic>
 
 #include "jni_safety.h"
+#include "kernels/pack_display.h"
 #include "runtime/params_manifest.h"
 #include "runtime/stage_timer.h"
 #include "spektra.h"
@@ -1910,6 +1912,64 @@ JNI(void, nativeSetParallelChunksPerWorker)(JNIEnv* env, jclass /*clazz*/, jint 
 
 JNI(jboolean, nativeReleaseGpuResources)(JNIEnv* env, jclass /*clazz*/) try {
     return spk_gpu_release_resources() != 0 ? JNI_TRUE : JNI_FALSE;
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+    return JNI_FALSE;
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+    return JNI_FALSE;
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+    return JNI_FALSE;
+}
+
+// #289: pack the engine's display-referred float RGB straight into an
+// ARGB_8888 Bitmap's pixels. Replaces the Kotlin strip loop (packToArgb +
+// Bitmap.setPixels): no managed int/float scratch, and no per-frame JVM loop.
+// Bytes are identical to packToArgb (kernels/pack_display.h). Returns false,
+// never throws, for anything it does not handle (heap buffer, wrong bitmap
+// format or size, short buffer, lock failure, host build), so the caller keeps
+// the Kotlin path as the fallback.
+JNI(jboolean, nativePackDisplayToBitmap)(JNIEnv* env, jclass /*clazz*/,
+                                         jobject src, jint byteOffset,
+                                         jint width, jint height,
+                                         jobject bitmap) try {
+#ifdef __ANDROID__
+    if (src == nullptr || bitmap == nullptr || width <= 0 || height <= 0 ||
+        byteOffset < 0 || (byteOffset % 4) != 0) {
+        return JNI_FALSE;
+    }
+    auto* base = static_cast<std::uint8_t*>(env->GetDirectBufferAddress(src));
+    const jlong capacity = env->GetDirectBufferCapacity(src);
+    if (base == nullptr || capacity < 0) return JNI_FALSE;
+    const std::uint64_t need = static_cast<std::uint64_t>(byteOffset) +
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 3u * sizeof(float);
+    if (need > static_cast<std::uint64_t>(capacity)) return JNI_FALSE;
+
+    AndroidBitmapInfo info{};
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        info.width != static_cast<std::uint32_t>(width) ||
+        info.height != static_cast<std::uint32_t>(height) ||
+        info.stride < static_cast<std::uint32_t>(width) * 4u) {
+        return JNI_FALSE;
+    }
+    void* pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS ||
+        pixels == nullptr) {
+        return JNI_FALSE;
+    }
+    spk::pack_rgbf_to_rgba8(reinterpret_cast<const float*>(base + byteOffset),
+                            width, height, static_cast<std::uint8_t*>(pixels),
+                            info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return JNI_TRUE;
+#else
+    (void)env; (void)src; (void)byteOffset; (void)width; (void)height; (void)bitmap;
+    return JNI_FALSE;
+#endif
 } catch (const std::bad_alloc&) {
     throw_native_oom(env);
     return JNI_FALSE;

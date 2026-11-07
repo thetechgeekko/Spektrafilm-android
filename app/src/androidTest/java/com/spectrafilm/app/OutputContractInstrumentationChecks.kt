@@ -32,6 +32,7 @@ object OutputContractInstrumentationChecks {
         }
         ultraHdrContractIsClassifiedAndSpatial()
         bitmapTagsAndSdrEncodersRoundTrip(context)
+        nativeDisplayPackMatchesSetPixels()
 
         val descriptor = rendered(
             ExportFormat.TIFF,
@@ -280,6 +281,65 @@ object OutputContractInstrumentationChecks {
         outputCctfEncoding = space != ColorSpace.LINEAR_SRGB,
         bitDepth = depth,
     )
+
+    /**
+     * #289: the native pack must leave the same bytes in an sRGB Bitmap as the Kotlin
+     * packToArgb + setPixels path it replaces, on the real device Bitmap layout (stride,
+     * byte order), including NaN, negatives, values above 1 and a non-zero buffer offset.
+     */
+    private fun nativeDisplayPackMatchesSetPixels() {
+        val w = 37
+        val h = 11
+        val n = w * h
+        val samples = FloatArray(n * 3) { i ->
+            when (i % 11) {
+                0 -> Float.NaN
+                1 -> -0.25f
+                2 -> 1.75f
+                else -> ((i * 2654435761L) and 0xFFFFFL).toFloat() / 0xFFFFF.toFloat()
+            }
+        }
+        val offsetBytes = 16
+        val buffer = ByteBuffer.allocateDirect(offsetBytes + samples.size * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+        buffer.position(offsetBytes)
+        for (sample in samples) buffer.putFloat(sample)
+        buffer.position(offsetBytes)
+
+        val native = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val reference = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        try {
+            require(
+                com.spectrafilm.engine.SpektraEngine.packDisplayToBitmap(
+                    buffer, offsetBytes, w, h, native,
+                ),
+            ) { "native display pack declined a plain ARGB_8888 bitmap" }
+            val ints = IntArray(n)
+            packToArgb(samples, ints, n)
+            reference.setPixels(ints, 0, w, 0, 0, w, h)
+            val a = ByteBuffer.allocate(native.byteCount)
+            val b = ByteBuffer.allocate(reference.byteCount)
+            native.copyPixelsToBuffer(a)
+            reference.copyPixelsToBuffer(b)
+            require(Arrays.equals(a.array(), b.array())) {
+                "native display pack bytes differ from packToArgb + setPixels"
+            }
+            // simResultToBitmap must take the native route and land on the same bytes.
+            val viaHelper = simResultToBitmap(buffer.duplicate().apply { position(offsetBytes) }, w, h)
+            try {
+                val c = ByteBuffer.allocate(viaHelper.byteCount)
+                viaHelper.copyPixelsToBuffer(c)
+                require(Arrays.equals(c.array(), b.array())) {
+                    "simResultToBitmap bytes differ from packToArgb + setPixels"
+                }
+            } finally {
+                viaHelper.recycle()
+            }
+        } finally {
+            native.recycle()
+            reference.recycle()
+        }
+    }
 
     private fun bitmapFor(space: ColorSpace): Bitmap {
         val samples = floatArrayOf(0.1f, 0.5f, 0.9f, 1f, 0.25f, 0f)
