@@ -53,6 +53,10 @@ internal object HdrGainMap {
         val ratioMax: Float,
         val maxRatio: Float,
         val gainedPixels: Int,
+        /** Map cells where the scene tap raised the gain (0 when no scene was used). */
+        val sceneCells: Int = 0,
+        /** Scene-to-render exposure factor, or NaN when no scene was used. */
+        val exposureMatch: Float = Float.NaN,
     ) {
         /** True when the render genuinely exceeded SDR white somewhere. */
         val hasHeadroom: Boolean get() = ratioMax > 1.0001f
@@ -77,7 +81,10 @@ internal object HdrGainMap {
         for (y in 0 until map.height) {
             System.arraycopy(map.alpha, y * map.width, alpha, (top + y) * outW + left, map.width)
         }
-        return Result(alpha, outW, outH, map.ratioMax, map.maxRatio, map.gainedPixels)
+        return Result(
+            alpha, outW, outH, map.ratioMax, map.maxRatio, map.gainedPixels,
+            map.sceneCells, map.exposureMatch,
+        )
     }
 
     /**
@@ -103,11 +110,18 @@ internal object HdrGainMap {
         ratioMaxCeiling: Float,
         epsilonSdr: Float,
         epsilonHdr: Float,
+        scene: SceneLuma? = null,
     ): Result {
         require(width > 0 && height > 0) { "gain map needs a non-empty image" }
         require(downsample >= 1) { "downsample must be >= 1" }
         val mapW = max(1, (width + downsample - 1) / downsample)
         val mapH = max(1, (height + downsample - 1) / downsample)
+        if (scene != null && scene.width == mapW && scene.height == mapH) {
+            computeWithScene(
+                rgb, width, height, colorSpace, cctfEncoded, downsample, mapW, mapH,
+                ratioMaxCeiling, epsilonSdr, epsilonHdr, scene,
+            )?.let { return it }
+        }
 
         // Pass 1: the headroom actually present. Encoding against a fixed ceiling instead would
         // waste most of the 8-bit range on an image that only just exceeds white.
@@ -157,6 +171,140 @@ internal object HdrGainMap {
             }
         }
         return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained)
+    }
+
+    /** Midtone band used to match the scene's exposure to the render's. */
+    private const val MATCH_LO = 0.10f
+    private const val MATCH_HI = 0.50f
+    /** Fewest midtone cells for a trustworthy exposure match; fewer and the scene is ignored. */
+    private const val MIN_MATCH_CELLS = 64
+    private const val LUT_SIZE = 4096
+    /** The scene contributes only from here (SDR linear luminance) up, fully from [SCENE_FULL]. */
+    private const val SCENE_START = 0.55f
+    private const val SCENE_FULL = 0.90f
+
+    /**
+     * The render-derived gain combined with a scene-referred highlight gain.
+     *
+     * Per map cell: `sdr` = the render's linear luminance (clipped to SDR, as the 8-bit base
+     * holds it), `sceneY` = the source's scene-linear luminance. An exposure factor `k` (median
+     * of sdr/sceneY over midtone cells) puts the scene on the render's scale; the scene gain is
+     * then `k*sceneY/sdr`, applied only as the render rises into its highlights (smoothstep from
+     * [SCENE_START] to [SCENE_FULL]), so the film's tone below them is unchanged on any display.
+     * The cell's gain is the larger of that and the render's own above-white gain. Returns null
+     * when the midtones are too few to match exposure (the caller falls back to render-only).
+     */
+    private fun computeWithScene(
+        rgb: FloatBuffer,
+        width: Int,
+        height: Int,
+        colorSpace: ColorSpace,
+        cctfEncoded: Boolean,
+        downsample: Int,
+        mapW: Int,
+        mapH: Int,
+        ratioMaxCeiling: Float,
+        epsilonSdr: Float,
+        epsilonHdr: Float,
+        scene: SceneLuma,
+    ): Result? {
+        val cells = mapW * mapH
+        // One CCTF decode per channel per pixel is ~36M pow() calls at 12 MP; a LUT over the
+        // clipped [0,1] range is plenty for luminance that only gates and matches exposure.
+        val decodeLut = FloatArray(LUT_SIZE) { i ->
+            OutputCctf.decode(colorSpace, i / (LUT_SIZE - 1f), cctfEncoded)
+        }
+        val sdrY = FloatArray(cells)
+        val renderLog = FloatArray(cells)
+        var maxRatio = 1f
+        var gained = 0
+        for (my in 0 until mapH) {
+            val y0 = my * downsample
+            val y1 = min(y0 + downsample, height)
+            for (mx in 0 until mapW) {
+                val x0 = mx * downsample
+                val x1 = min(x0 + downsample, width)
+                var lumSum = 0.0
+                var logSum = 0.0
+                var count = 0
+                for (y in y0 until y1) {
+                    val row = y * width
+                    for (x in x0 until x1) {
+                        val o = (row + x) * 3
+                        val ratio = pixelRatio(rgb, o, colorSpace, cctfEncoded, epsilonSdr, epsilonHdr)
+                        if (ratio > 1.0001f) gained++
+                        if (ratio > maxRatio) maxRatio = ratio
+                        if (ratio > 1f) logSum += ln(ratio.toDouble()) / LOG2
+                        lumSum += sdrLuminance(rgb, o, decodeLut)
+                        count++
+                    }
+                }
+                val c = my * mapW + mx
+                if (count > 0) {
+                    sdrY[c] = (lumSum / count).toFloat()
+                    renderLog[c] = (logSum / count).toFloat()
+                }
+            }
+        }
+
+        // Exposure match on the midtones.
+        val ratios = ArrayList<Float>()
+        for (c in 0 until cells) {
+            val sy = scene.y[c]
+            if (sdrY[c] in MATCH_LO..MATCH_HI && sy > 1e-5f) ratios.add(sdrY[c] / sy)
+        }
+        if (ratios.size < MIN_MATCH_CELLS) return null
+        ratios.sort()
+        val k = ratios[ratios.size / 2]
+        if (!(k > 0f) || !k.isFinite()) return null
+
+        val logs = FloatArray(cells)
+        var maxLog = 0f
+        var sceneGained = 0
+        for (c in 0 until cells) {
+            val sdr = sdrY[c]
+            val w = smoothstep(SCENE_START, SCENE_FULL, sdr)
+            var sceneLog = 0f
+            if (w > 0f) {
+                val g = (k * scene.y[c] + epsilonHdr) / (sdr + epsilonSdr)
+                if (g > 1f) sceneLog = w * (ln(g.toDouble()) / LOG2).toFloat()
+            }
+            if (sceneLog > 0.001f) sceneGained++
+            val l = max(renderLog[c], sceneLog)
+            logs[c] = l
+            if (l > maxLog) maxLog = l
+        }
+        val logCeiling = (ln(ratioMaxCeiling.toDouble()) / LOG2).toFloat()
+        val logRatioMax = min(maxLog, logCeiling)
+        val alpha = ByteArray(cells)
+        if (logRatioMax <= 0.0001f) {
+            return Result(alpha, mapW, mapH, 1f, maxRatio, gained, sceneCells = 0, exposureMatch = k)
+        }
+        for (c in 0 until cells) {
+            val g = (logs[c] / logRatioMax).coerceIn(0f, 1f)
+            alpha[c] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
+        }
+        val ratioMax = Math.pow(2.0, logRatioMax.toDouble()).toFloat()
+        return Result(alpha, mapW, mapH, ratioMax, maxRatio, gained, sceneGained, k)
+    }
+
+    private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
+        val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /**
+     * Linear luminance of one pixel as the SDR base holds it (each channel clipped to white).
+     * Rec.709 weights for every output space: an approximation, but this only gates where the
+     * scene contributes and matches exposure, both of which are ratios within one image.
+     */
+    private fun sdrLuminance(rgb: FloatBuffer, offset: Int, decodeLut: FloatArray): Float {
+        fun ch(i: Int): Float {
+            val e = rgb.get(offset + i)
+            if (e.isNaN()) return 0f
+            return decodeLut[(e.coerceIn(0f, 1f) * (LUT_SIZE - 1) + 0.5f).toInt()]
+        }
+        return 0.2126f * ch(0) + 0.7152f * ch(1) + 0.0722f * ch(2)
     }
 
     /**
