@@ -43,6 +43,7 @@
     <string name="tool_export_preset_name">Preset name</string>
     <string name="tool_export_preset_overwrite">A preset with this name will be replaced.</string>
     <string name="tool_export_preset_manage">Manage presets</string>
+    <string name="tool_export_batch">Export more photos with this edit…</string>
     <string name="tool_export_preset_delete">Delete</string>
     <string name="tool_export_preset_none">No presets saved.</string>
     <string name="tool_done">Done</string>
