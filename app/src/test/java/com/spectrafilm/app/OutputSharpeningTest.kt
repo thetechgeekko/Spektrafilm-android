@@ -62,7 +62,7 @@ class OutputSharpeningTest {
     }
 
     @Test fun highBitDepthFormatsNeverSharpen() {
-        val o = ExportOptions(ExportFormat.TIFF, 95, ExportSize.FULL, 0, "", OutputSharpen.HIGH)
+        val o = ExportOptions(ExportFormat.TIFF, 95, ExportSize.FULL, 0, "", sharpen = OutputSharpen.HIGH)
         assertEquals(OutputSharpen.NONE, o.effectiveSharpen())
         val j = o.copy(format = ExportFormat.JPEG)
         assertEquals(OutputSharpen.HIGH, j.effectiveSharpen())

@@ -23,6 +23,7 @@ class SettingsViewModelTest {
         override var exportQuality = 95
             set(v) { field = v.coerceIn(1, 100) }
         override var exportKeepGps = false
+        override var exportBorder = FilmBorder.NONE
     }
 
     private val edges = AutoPreviewEdges(PreviewTier.MAX, 1024, 512)

@@ -3,7 +3,7 @@
  * Film modeling powered by spektrafilm (GPLv3).
  *
  * Saved export setups ("Instagram 2048 JPEG", "Print TIFF"): a name plus every choice the export
- * sheet makes for the file itself (format, quality, size, sharpening, file-name template, GPS).
+ * sheet makes for the file itself (format, quality, size, sharpening, film border, file-name template, GPS).
  * Colour space and transfer stay with the edit (they live in ParamsState), so a preset never
  * changes how a photo looks, only how it is written.
  *
@@ -63,6 +63,7 @@ internal object ExportPresetCodec {
                     .put("customLongEdge", p.options.customLongEdge)
                     .put("fileName", p.options.customName)
                     .put("sharpen", p.options.sharpen.name)
+                    .put("border", p.options.border.name)
                     .put("keepGps", p.keepGps),
             )
         }
@@ -93,6 +94,7 @@ internal object ExportPresetCodec {
                         customLongEdge = o.getInt("customLongEdge"),
                         customName = o.optString("fileName", ""),
                         sharpen = OutputSharpen.valueOf(o.optString("sharpen", OutputSharpen.NONE.name)),
+                        border = FilmBorder.valueOf(o.optString("border", FilmBorder.NONE.name)),
                     ),
                     keepGps = o.optBoolean("keepGps", false),
                 )

@@ -16,8 +16,11 @@ class ExportPresetsTest {
     private val file get() = tmp.root.resolve("export_presets.json")
     private fun repo() = FileExportPresetRepository(file)
 
-    private val insta = ExportOptions(ExportFormat.JPEG, 90, ExportSize.MEDIUM, 0, "{name}_{film}", OutputSharpen.STANDARD)
-    private val print = ExportOptions(ExportFormat.TIFF, 95, ExportSize.FULL, 0, "", OutputSharpen.NONE)
+    private val insta = ExportOptions(
+        ExportFormat.JPEG, 90, ExportSize.MEDIUM, 0, "{name}_{film}",
+        border = FilmBorder.entries.last(), sharpen = OutputSharpen.STANDARD,
+    )
+    private val print = ExportOptions(ExportFormat.TIFF, 95, ExportSize.FULL, 0, "", sharpen = OutputSharpen.NONE)
 
     @Test fun nothingSavedReadsEmpty() {
         val doc = repo().read()

@@ -234,6 +234,7 @@ internal fun MainActivity.EditorScreen(
                 ExportSize.FULL,
                 2048,
                 "",
+                settings.exportBorder,
             ),
             keepGps = settings.exportKeepGps,
             phase = EditorExportPhase.IDLE,
@@ -321,7 +322,13 @@ internal fun MainActivity.EditorScreen(
         openPlaceholder = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
-        OpenPlaceholder.load(ctx.applicationContext, uri, rotation, dispatchers.io) { bmp ->
+        OpenPlaceholder.load(
+            ctx.applicationContext,
+            uri,
+            rotation,
+            dispatchers.io,
+            rawSource = sourceKind == SourceKind.RAW,
+        ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
             if (preview == null) openPlaceholder = bmp
         }
@@ -3789,6 +3796,7 @@ internal fun MainActivity.EditorScreen(
                 keepGps = exportUi.keepGps,
                 onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
                 onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
+                previewBitmap = preview,
                 onExport = export@{
                     val exportOptions = exportVm.current.options
                     val exportKeepGps = exportVm.current.keepGps
@@ -3848,6 +3856,7 @@ internal fun MainActivity.EditorScreen(
                         onSettingsAction(SettingsAction.SetExportFormat(exportOptions.format))
                         onSettingsAction(SettingsAction.SetExportQuality(exportOptions.jpegQuality))
                         onSettingsAction(SettingsAction.SetKeepGps(exportKeepGps))
+                        onSettingsAction(SettingsAction.SetExportBorder(exportOptions.border))
                         val fmt = outputDescriptor.format
                         val exportFmt = fmt
                         val baseName = exportBaseName(
@@ -3860,6 +3869,7 @@ internal fun MainActivity.EditorScreen(
                             ),
                         )
                         val longEdge = exportOptions.targetLongEdge()
+                        val exportBorder = exportOptions.effectiveBorder()
                         val exportSharpen = exportOptions.effectiveSharpen()
                         val keepGps = exportKeepGps
                         // Wall-clock breadcrumbs for the on-device baseline capture
@@ -3954,6 +3964,7 @@ internal fun MainActivity.EditorScreen(
                                             longEdge,
                                             exportJpegQuality,
                                             keepGps,
+                                            exportBorder,
                                             exportContract,
                                             exportSharpen,
                                         )
@@ -4091,7 +4102,15 @@ internal fun MainActivity.EditorScreen(
                                                 // Post-render downscale for Bitmap encoders only. Native
                                                 // high-bit writers consume the float buffer without ever
                                                 // materialising a full-resolution ARGB_8888 Bitmap.
-                                                val sized = longEdge?.let { edge ->
+                                                // With a border, the requested long edge is the
+                                                // FINISHED image's, so a 2048 px export is still
+                                                // 2048 px wide: shrink the photo to leave room.
+                                                val photoEdge = longEdge?.let { edge ->
+                                                    FilmBorderGeometry.photoLongEdgeFor(
+                                                        exportBorder, full.width, full.height, edge,
+                                                    )
+                                                }
+                                                val sized = photoEdge?.let { edge ->
                                                     scaleBitmapToLongEdge(full, edge).also { scaled ->
                                                         if (scaled !== full) {
                                                             previewCandidate = scaled
@@ -4099,6 +4118,33 @@ internal fun MainActivity.EditorScreen(
                                                         }
                                                     }
                                                 } ?: full
+                                                // Output sharpening, once, on the final-size
+                                                // photo: after the resize (so it suits the size it
+                                                // is seen at) and before the border (so the frame
+                                                // edges stay clean). The gain map below is computed
+                                                // from the float render, not these pixels.
+                                                if (sized.isMutable) {
+                                                    sharpenBitmapInPlace(sized, exportSharpen)
+                                                } else if (exportSharpen != OutputSharpen.NONE) {
+                                                    Diag.w("export bitmap immutable; output sharpening skipped")
+                                                }
+                                                // Film border around the photo (output grows).
+                                                // Frame number is stable per source, so the
+                                                // cache key's source hash already covers it.
+                                                val borderLayout = FilmBorderGeometry.layout(
+                                                    exportBorder,
+                                                    sized.width,
+                                                    sized.height,
+                                                    FilmBorderGeometry.frameNumberFor(
+                                                        exportSource?.contentSha256,
+                                                    ),
+                                                )
+                                                val framed = borderLayout?.let { layout ->
+                                                    FilmBorderRenderer.render(sized, layout).also {
+                                                        previewCandidate = it
+                                                        runCatching { sized.recycle() }
+                                                    }
+                                                } ?: sized
                                                 // #140: derive the Ultra HDR gain map from the
                                                 // render itself, here, while the engine's float
                                                 // buffer is still alive — it holds the values
@@ -4107,21 +4153,14 @@ internal fun MainActivity.EditorScreen(
                                                 // this pipeline has.
                                                 if (outputDescriptor.metadata.hdrGainMap != null) {
                                                     runCatching {
-                                                        attachRenderedGainmap(res, sized, outputDescriptor)
+                                                        attachRenderedGainmap(
+                                                            res, framed, outputDescriptor, borderLayout,
+                                                        )
                                                     }.onFailure {
                                                         Diag.w("gain map failed; exporting SDR base: $it")
                                                     }
                                                 }
-                                                // Output sharpening, once, on the final-size
-                                                // image: after the resize (so it suits the size
-                                                // it is seen at) and after the gain map (which
-                                                // then lifts the sharpened base, not the soft one).
-                                                if (sized.isMutable) {
-                                                    sharpenBitmapInPlace(sized, exportSharpen)
-                                                } else if (exportSharpen != OutputSharpen.NONE) {
-                                                    Diag.w("export bitmap immutable; output sharpening skipped")
-                                                }
-                                                sized
+                                                framed
                                             } else {
                                                 // Preserve WYSIWYG grading in the writer's float source while
                                                 // avoiding the additional ~4 bytes/pixel full-res Bitmap.

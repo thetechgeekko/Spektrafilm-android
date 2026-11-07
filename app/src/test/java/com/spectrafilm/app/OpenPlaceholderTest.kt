@@ -54,4 +54,66 @@ class OpenPlaceholderTest {
             placeholderTransform(ExifOrientation.NONE, SourceRotation.CW270),
         )
     }
+
+    @Test
+    fun sidewaysDngProviderThumbnailIsRotated() {
+        // The phone case: DNG stored 4080x3060 landscape with ROTATE_90; provider returned a
+        // landscape 582x437 thumbnail, so the provider did not rotate it.
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 90),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_90), 4080, 3060, 582, 437,
+                rawSource = true, user = SourceRotation.NONE,
+            ),
+        )
+    }
+
+    @Test
+    fun alreadyUprightProviderThumbnailIsLeftAlone() {
+        // Portrait JPEG stored landscape + ROTATE_90; MediaStore returned it portrait.
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 0),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_90), 4000, 3000, 437, 582,
+                rawSource = false, user = SourceRotation.NONE,
+            ),
+        )
+        // Same for a RAW whose provider did rotate: the aspect decides, not the kind.
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 0),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_90), 4080, 3060, 437, 582,
+                rawSource = true, user = SourceRotation.NONE,
+            ),
+        )
+    }
+
+    @Test
+    fun unknownSizeFallsBackOnTheSourceKind() {
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 270),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_270), 0, 0, 582, 437,
+                rawSource = true, user = SourceRotation.NONE,
+            ),
+        )
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 0),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_180), 4000, 3000, 582, 437,
+                rawSource = false, user = SourceRotation.NONE,
+            ),
+        )
+    }
+
+    @Test
+    fun userStepStillAppliesOnTop() {
+        assertEquals(
+            PlaceholderTransform(flipH = false, degrees = 180),
+            providerTransform(
+                exif(ExifInterface.ORIENTATION_ROTATE_90), 4080, 3060, 582, 437,
+                rawSource = true, user = SourceRotation.CW90,
+            ),
+        )
+    }
 }

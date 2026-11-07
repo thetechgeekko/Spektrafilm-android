@@ -353,7 +353,8 @@ internal object EditorSessionDocumentCodec {
     private const val MAX_SOURCE_URI_CHARS = 16 * 1024
     private const val MAX_SOURCE_NAME_CHARS = 512
     private const val MAX_EXPORT_NAME_CHARS = 4_096
-    private const val FIXED_ROOT_NODES = 31L
+    // +1 for export.options.border (film border, #360), +1 for export.options.sharpen.
+    private const val FIXED_ROOT_NODES = 32L
     private const val FIXED_ROOT_MAX_DEPTH = 4
     private const val DIRECT_PARAMS_DEPTH_OFFSET = 2
     private const val HISTORY_PARAMS_DEPTH_OFFSET = 4
@@ -977,6 +978,7 @@ internal object EditorSessionDocumentCodec {
         put("size", options.size.name)
         put("customLongEdge", options.customLongEdge)
         put("customName", options.customName)
+        put("border", options.border.name)
         put("sharpen", options.sharpen.name)
     }
 
@@ -1007,6 +1009,8 @@ internal object EditorSessionDocumentCodec {
         size = strictEnum(value.requiredString("size"), "export size"),
         customLongEdge = exactInt(value.opt("customLongEdge"), "customLongEdge"),
         customName = value.requiredString("customName"),
+        // Optional: sessions written before film borders existed have no key.
+        border = FilmBorder.parse(value.optString("border", FilmBorder.NONE.name)),
         // Added after schema v1 shipped: absent in older journals, which meant no sharpening.
         sharpen = if (value.has("sharpen")) {
             strictEnum(value.requiredString("sharpen"), "export sharpening")

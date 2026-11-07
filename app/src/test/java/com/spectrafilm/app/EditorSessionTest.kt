@@ -216,7 +216,7 @@ class EditorSessionTest {
             ),
             export = EditorExportState(
                 sheetOpen = false,
-                options = ExportOptions(ExportFormat.TIFF32F, 97, ExportSize.FULL, 2048, "final", OutputSharpen.STANDARD),
+                options = ExportOptions(ExportFormat.TIFF32F, 97, ExportSize.FULL, 2048, "final", sharpen = OutputSharpen.STANDARD),
                 keepGps = false,
                 phase = EditorExportPhase.RUNNING,
                 runtimeRunId = 77L,
