@@ -129,9 +129,16 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 
 /** Which kind of source image is loaded. */
 internal enum class SourceKind { DEMO, PHOTO, RAW }
+
+/** #286: how long the open stand-in fades into the first render, and stays under it. */
+private const val OPEN_PLACEHOLDER_FADE_MS = 220
+private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
 
 private fun Throwable.isSourceAuthorizationFailure(): Boolean =
     generateSequence(this) { it.cause }
@@ -1368,6 +1375,28 @@ class MainActivity : ComponentActivity() {
         // (see loadSource) and is NOT persisted in the recipe.
         var rotation by remember {
             mutableStateOf(SourceRotation.fromDegrees(initialRestoration.rotationDegrees))
+        }
+
+        // #286: a display-only stand-in (the file's embedded thumbnail, else the provider's) shown
+        // from the moment a source is picked or restored until the first engine render lands.
+        // It never feeds the engine, an export or a cache. Keyed on the source identity only:
+        // a later rotate does not reload it, because by then the render is on screen.
+        var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
+        LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
+            openPlaceholder = null
+            val uri = sourceUri ?: return@LaunchedEffect
+            if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
+            OpenPlaceholder.load(ctx.applicationContext, uri, rotation, dispatchers.io) { bmp ->
+                // A render that already landed wins; a late thumbnail never covers it.
+                if (preview == null) openPlaceholder = bmp
+            }
+        }
+        // Keep the stand-in under the fading-in render briefly, then drop it.
+        LaunchedEffect(preview != null) {
+            if (preview != null && openPlaceholder != null) {
+                delay(OPEN_PLACEHOLDER_HOLD_MS)
+                if (preview != null) openPlaceholder = null
+            }
         }
 
         // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
@@ -4123,6 +4152,7 @@ class MainActivity : ComponentActivity() {
                         PreviewRegion(
                             controlsBottomInset = panelInset,
                             preview = preview,
+                            placeholder = openPlaceholder,
                             before = beforePreview,
                             busy = previewBusy,
                             decoding = decoding,
@@ -5090,6 +5120,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PreviewRegion(
         preview: Bitmap?,
+        placeholder: Bitmap?,
         before: Bitmap?,
         busy: Boolean,
         decoding: Boolean,
@@ -5182,6 +5213,17 @@ class MainActivity : ComponentActivity() {
                     Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
                 },
             )
+            // #286: the render fades in over the open stand-in instead of popping in. Starts
+            // transparent only while a stand-in is showing, so an ordinary re-render (no
+            // stand-in) is never faded.
+            val revealAlpha = remember { Animatable(1f) }
+            LaunchedEffect(placeholder != null, bmp != null) {
+                when {
+                    placeholder != null && bmp == null -> revealAlpha.snapTo(0f)
+                    placeholder != null -> revealAlpha.animateTo(1f, tween(OPEN_PLACEHOLDER_FADE_MS))
+                    else -> revealAlpha.snapTo(1f)
+                }
+            }
             // Everything except the GPU surface lives in the part of the canvas ABOVE the
             // floating panel ([controlsBottomInset]), so an open panel moves and fits the photo
             // instead of covering it, and the canvas buttons ride on top of the panel. The GPU
@@ -5193,13 +5235,23 @@ class MainActivity : ComponentActivity() {
                     .padding(bottom = controlsBottomInset),
                 contentAlignment = Alignment.Center,
             ) {
+                if (placeholder != null && !gpuActive) {
+                    Image(
+                        bitmap = placeholder.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 when {
                     gpuActive -> Unit
                     bmp != null && compareMode && before != null ->
                         CompareSlider(before = before, after = bmp)
                     bmp != null -> ZoomableImage(
                         bitmap = bmp,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = revealAlpha.value },
                         initialScale = gpuZoomInitial,
                         onPointPicked = onPointPicked,
                         // Press and hold the photo for the unedited frame. The bitmap already
@@ -5220,6 +5272,7 @@ class MainActivity : ComponentActivity() {
                         roiOverlay = roiOverlay,
                         // No inset: this Box already stops at the panel's top edge.
                     )
+                    placeholder != null -> Unit
                     else -> Text(stringResource(R.string.editor_preview_none), color = Color.White.copy(alpha = 0.7f))
                 }
 
