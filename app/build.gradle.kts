@@ -124,7 +124,22 @@ android {
     // externally signed, not AGP's default debug app.
     testBuildType = "release"
     // Robolectric Compose UI tests (#280) read real string resources.
-    testOptions { unitTests.isIncludeAndroidResources = true }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        // Screenshot tests of the shared UI (MAD audit fix 5), through AGP test suites
+        // (AGP 9.5+; the standalone com.android.compose.screenshot plugin is unmaintained).
+        // Sources: src/screenshotTest/kotlin. References: src/screenshotTestDefaultDebug/reference.
+        // Update: ./gradlew :app:updateScreenshotTestDefaultDebugTestSuite
+        // Check:  ./gradlew :app:testScreenshotTestDefaultDebugTestSuite
+        screenshotTests.create("screenshotTest") {
+            engineVersion = libs.versions.screenshotEngine.get()
+            targetVariants.add("debug")
+            dependencies {
+                implementation(libs.androidx.ui.tooling)
+                implementation(libs.screenshot.validation.api)
+            }
+        }
+    }
 
     lint {
         // A translation may trail English by a release: a missing string falls back to
@@ -161,6 +176,8 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
+    // Renders @Preview in Android Studio; debug only, never in the release APK.
+    debugImplementation(libs.androidx.ui.tooling)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
