@@ -36,6 +36,7 @@ import com.spectrafilm.engine.PrintCurvesMorphParams
 import com.spectrafilm.engine.PrintRenderingParams
 import com.spectrafilm.engine.Rgb2Raw
 import com.spectrafilm.engine.ScannerParams
+import com.spectrafilm.engine.SceneLatitudeParams
 import com.spectrafilm.engine.SettingsParams
 import com.spectrafilm.engine.SpektraParams
 import com.spectrafilm.engine.ToneCurveChannel
@@ -128,6 +129,15 @@ class ParamsState {
     var filmFormatMm by mutableFloatStateOf(35f)
     var cameraLensBlurUm by mutableFloatStateOf(0f)
     val cameraDiffusionState = DiffusionState()
+    // Opt-in scene latitude (engine model/scene_latitude.h): compresses a scene wider than the
+    // film into it before exposure. Off by default, so existing edits render unchanged.
+    var sceneLatitudeActive by mutableStateOf(false)
+    var sceneLatitudeHighlightKnee by mutableFloatStateOf(2f)
+    var sceneLatitudeHighlightRoom by mutableFloatStateOf(3f)
+    var sceneLatitudeShadowKnee by mutableFloatStateOf(-2f)
+    var sceneLatitudeShadowRoom by mutableFloatStateOf(0f)
+    var sceneLatitudeRolloff by mutableFloatStateOf(2f)
+    var sceneLatitudeMaxLift by mutableFloatStateOf(4f)
 
     // --- Simulation / enlarger (print) ---
     var printIlluminant by mutableStateOf("TH-KG3")
@@ -296,6 +306,15 @@ class ParamsState {
         filmFormatMm = p.camera.filmFormatMm
         cameraLensBlurUm = p.camera.lensBlurUm
         cameraDiffusionState.loadFrom(p.camera.diffusionFilter)
+        p.camera.sceneLatitude.let { sl ->
+            sceneLatitudeActive = sl.active
+            sceneLatitudeHighlightKnee = sl.highlightKnee
+            sceneLatitudeHighlightRoom = sl.highlightRoom
+            sceneLatitudeShadowKnee = sl.shadowKnee
+            sceneLatitudeShadowRoom = sl.shadowRoom
+            sceneLatitudeRolloff = sl.rolloff
+            sceneLatitudeMaxLift = sl.maxLift
+        }
 
         printIlluminant = p.enlarger.illuminant
         printExposure = p.enlarger.printExposure
@@ -421,6 +440,15 @@ class ParamsState {
             filterUv = filterUv,
             filterIr = filterIr,
             diffusionFilter = cameraDiffusionState.toParams(),
+            sceneLatitude = SceneLatitudeParams(
+                active = sceneLatitudeActive,
+                highlightKnee = sceneLatitudeHighlightKnee,
+                highlightRoom = sceneLatitudeHighlightRoom,
+                shadowKnee = sceneLatitudeShadowKnee,
+                shadowRoom = sceneLatitudeShadowRoom,
+                rolloff = sceneLatitudeRolloff,
+                maxLift = sceneLatitudeMaxLift,
+            ),
         ),
         enlarger = EnlargerParams(
             illuminant = printIlluminant,

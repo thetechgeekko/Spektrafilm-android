@@ -716,6 +716,20 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
     h = fnv1a64(h, &p->halation_boost_ev, sizeof(p->halation_boost_ev));
     h = fnv1a64(h, &p->halation_boost_range, sizeof(p->halation_boost_range));
     h = fnv1a64(h, &p->halation_protect_ev, sizeof(p->halation_protect_ev));
+    // Scene latitude scales the expose input per pixel BEFORE the tc lookup, so
+    // it changes film_density_cmy and MUST be in the key. Default off; fold ALWAYS
+    // so the digest is honest (a key change only forces a one-time recompute).
+    h = fnv1a64(h, &p->scene_latitude_active, sizeof(p->scene_latitude_active));
+    h = fnv1a64(h, &p->scene_latitude_highlight_knee,
+                sizeof(p->scene_latitude_highlight_knee));
+    h = fnv1a64(h, &p->scene_latitude_highlight_room,
+                sizeof(p->scene_latitude_highlight_room));
+    h = fnv1a64(h, &p->scene_latitude_shadow_knee,
+                sizeof(p->scene_latitude_shadow_knee));
+    h = fnv1a64(h, &p->scene_latitude_shadow_room,
+                sizeof(p->scene_latitude_shadow_room));
+    h = fnv1a64(h, &p->scene_latitude_rolloff, sizeof(p->scene_latitude_rolloff));
+    h = fnv1a64(h, &p->scene_latitude_max_lift, sizeof(p->scene_latitude_max_lift));
     // 5) DIR-coupler pointwise params.
     h = fnv1a64(h, &p->dir_couplers_active, sizeof(p->dir_couplers_active));
     h = fnv1a64(h, &p->dir_amount, sizeof(p->dir_amount));
@@ -914,6 +928,16 @@ void apply_user_dir_couplers(spk::DirCouplersParams& dc, const spk_params* p) {
 // digest_halation_params (mirroring _apply_halation_preset, which overwrites them
 // from the film's use/antihalation tags regardless of user input). Everything
 // else (scatter geometry, amounts, boost/protect, bounce model) is user-driven.
+void apply_user_scene_latitude(spk::SceneLatitudeParams& sl, const spk_params* p) {
+    sl.active = p->scene_latitude_active != 0;
+    sl.highlight_knee = p->scene_latitude_highlight_knee;
+    sl.highlight_room = p->scene_latitude_highlight_room;
+    sl.shadow_knee = p->scene_latitude_shadow_knee;
+    sl.shadow_room = p->scene_latitude_shadow_room;
+    sl.rolloff = p->scene_latitude_rolloff;
+    sl.max_lift = p->scene_latitude_max_lift;
+}
+
 void apply_user_halation(spk::HalationParams& h, const spk_params* p) {
     h.boost_ev = p->halation_boost_ev;
     h.boost_range = p->halation_boost_range;
@@ -1686,6 +1710,7 @@ const char* pointwise_route_ineligibility(
     if (fparams.grain.active) return "grain";
     if (fparams.halation.active) return "halation";
     if (fparams.halation.boost_ev > 0.0) return "highlight_boost";
+    if (fparams.scene_latitude.engaged()) return "scene_latitude";
     if (fparams.diffusion_filter.active) return "camera_diffusion";
     if (fparams.lens_blur_um > 0.0) return "camera_lens_blur";
     if (fparams.bw_exposure_correction != 1.0)
@@ -2028,6 +2053,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         film.is_negative(), /*spatial_effects=*/true,
         !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
+    apply_user_scene_latitude(fparams.scene_latitude, p);
     const float g = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
@@ -2585,6 +2611,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         film.is_negative(), /*spatial_effects=*/true,
         !film.stock.empty() ? film.stock.c_str() : p->film_profile);
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
+    apply_user_scene_latitude(fparams.scene_latitude, p);
     const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = fg;
     fparams.density_curve_gamma[1] = fg;
@@ -3338,6 +3365,15 @@ void spk_default_params(spk_params* p) {
     p->preflash_m_filter_shift = 0.0f;
     p->enlarger_diffusion_active = 0;
     p->enlarger_diffusion_family = SPK_DIFFUSION_BLACK_PRO_MIST;
+
+    // scene latitude (opt-in; off => byte-identical)
+    p->scene_latitude_active = 0;
+    p->scene_latitude_highlight_knee = 2.0f;
+    p->scene_latitude_highlight_room = 3.0f;
+    p->scene_latitude_shadow_knee = -2.0f;
+    p->scene_latitude_shadow_room = 0.0f;
+    p->scene_latitude_rolloff = 2.0f;
+    p->scene_latitude_max_lift = 4.0f;
     p->enlarger_diffusion_strength = 0.5f;
     p->enlarger_diffusion_spatial_scale = 1.0f;
     p->enlarger_diffusion_halo_warmth = 0.0f;

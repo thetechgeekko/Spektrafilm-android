@@ -101,10 +101,10 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 A test passes when its output contains no `FAIL` line. `tools/parity/run_engine_parity.sh`
 builds and runs the whole suite locally with the same argv as CI (it fails loudly if its table
 drifts from the workflow's `build_run` count). `engine-parity` is a **two-leg matrix** — the same
-44 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
+45 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
 APK's numerics were otherwise never gated. A plain local run reproduces the `-O2` leg only; for the
 other, prefix `SPK_PARITY_EXTRA_FLAGS="-O3 -ffast-math -fno-finite-math-only"`. CI `engine-parity`
-gates (44 tests):
+gates (45 tests):
 `simulate_e2e` (goldens + BOTH film-density memos + the print-density memo + per-param key
 completeness), `filming`, `spatial`, `crop_resize`, `downscale` (minification AA prefilter),
 `autoexposure`, `small_preview_aa` (AE metering downscale AA), `diffusion` (+`_e2e`),
@@ -122,6 +122,8 @@ compression), the spektral-param wiring gates
 `spectral_blur_e2e`, `hanatos_surface_e2e`, `camera_uvir_e2e`, `preflash_e2e`, `print_evcomp_e2e`,
 `scanner_bwcorr_e2e`, `provia_couplers_e2e` (the last gates the positive-film DIR-coupler path),
 `highlight_boost_e2e` (the pre-clip highlight-boost in filming.expose),
+`scene_latitude_e2e` (opt-in, Android-only scene latitude knee before the film -- no oracle, so it
+gates inertness when off, the per-pixel-gain position when on, memo keys and thread identity),
 `spatial_decouple_e2e` (per-effect spatial gating: lens blur ON / halation OFF),
 `print_spatial_e2e` (print-route filming spatial branch),
 **`test_parallel`** (thread-invariance, fresh engine per thread count), and the
@@ -142,7 +144,7 @@ per-test argv is in `.github/workflows/ci.yml` — copy from there rather than g
 - Engine `CMAKE_CXX_FLAGS_RELEASE` is `-O3 -ffast-math -fno-finite-math-only`.
   **`-fno-finite-math-only` is required** — the scanning stage relies on NaN propagation through
   `density_to_light` to match spektrafilm's profile null handling. Do not strip it.
-  All 44 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
+  All 45 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
   byte-equality between the two builds — `-ffast-math` reassociates, which is exactly what
   invalidated a Highway f64 byte-identity claim proven only at `-O2` (`docs/research/perf-lab.md` §14).
 - `tools/parity/` is the standalone `.spkvec` golden-vector comparator (CMake + ctest self-test,
@@ -185,7 +187,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   parity suite will NOT catch it if you forget.** The host parity build compiles with a
   glob (`kernels/*.cpp model/*.cpp ...`, see the build line above); the Android build
   enumerates every source explicitly. A file missing from CMakeLists therefore passes all
-  44 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
+  45 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
   reference. Check a new source the way CI links: `g++ -std=c++17 -O2 -pthread -fPIC
   -shared -I. <CMakeLists sources, minus spektra_jni.cpp> -Wl,--no-undefined -o /tmp/x.so`.
   (Cost a red CI run on `551c57f`.)
@@ -237,7 +239,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
 - **The GPU gates CAN be run locally, and must be — parity does not cover GPU code.**
   `tools/parity/run_engine_parity.sh` compiles WITHOUT `SPK_ENABLE_VULKAN`, so
-  `gpu::available()` is false there and every GPU branch is dead. A 44/44 parity
+  `gpu::available()` is false there and every GPU branch is dead. A 45/45 parity
   run is therefore NOT evidence for a change under `gpu/`. The gates that see it
   are `tests/test_gpu_host.cpp`, `gpu/tests/test_halation_gpu.cpp` and
   `gpu/tests/test_grain_gpu.cpp`, which need a Vulkan ICD; CI runs them in the

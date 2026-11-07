@@ -738,6 +738,18 @@ bool marshal_params(JNIEnv* env, jobject params, spk_params* out, ParamStorage* 
             &out->camera_diffusion_halo_size, &out->camera_diffusion_bloom_intensity,
             &out->camera_diffusion_bloom_size)) return false;
         if (df) env->DeleteLocalRef(df);
+        jobject sl = call_obj(env, camera, "getSceneLatitude",
+            "()Lcom/spectrafilm/engine/SceneLatitudeParams;");
+        if (sl) {
+            read_bool_i32(env, sl, "getActive", &out->scene_latitude_active);
+            read_float(env, sl, "getHighlightKnee", &out->scene_latitude_highlight_knee);
+            read_float(env, sl, "getHighlightRoom", &out->scene_latitude_highlight_room);
+            read_float(env, sl, "getShadowKnee", &out->scene_latitude_shadow_knee);
+            read_float(env, sl, "getShadowRoom", &out->scene_latitude_shadow_room);
+            read_float(env, sl, "getRolloff", &out->scene_latitude_rolloff);
+            read_float(env, sl, "getMaxLift", &out->scene_latitude_max_lift);
+            env->DeleteLocalRef(sl);
+        }
     }
 
     // ---- enlarger ----

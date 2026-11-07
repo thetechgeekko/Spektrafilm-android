@@ -29,6 +29,7 @@
 #include "model/density_curves.h"
 #include "model/diffusion.h"
 #include "model/grain.h"
+#include "model/scene_latitude.h"
 #include "model/spectral.h"
 
 namespace spk {
@@ -595,6 +596,21 @@ struct SrcF32Gain {
     }
 };
 
+// Scene latitude (opt-in): wraps any source and scales each loaded triple by
+// its scene_latitude_gain. Only constructed when the stage is engaged.
+template <typename Src>
+struct SrcLatitude {
+    const Src& src;
+    const SceneLatitudeParams& sl;
+    inline void load(int p, double out[3]) const {
+        src.load(p, out);
+        const double k = scene_latitude_gain(sl, out);
+        out[0] *= k;
+        out[1] *= k;
+        out[2] *= k;
+    }
+};
+
 template <typename Src>
 void expose_impl(const Src& src, int width, int height,
                  const FilmingParams& params, const NdArray& tc_lut,
@@ -628,7 +644,8 @@ void expose_impl(const Src& src, int width, int height,
     // been written and the CPU loop below runs over the same memory. The latch
     // is off unless the caller set it, so the default route is unchanged.
     const bool gpu_expose_ok =
-        params.allow_gpu_filming && tc_lut.shape.size() == 3 &&
+        params.allow_gpu_filming &&
+        !params.scene_latitude.engaged() &&  // the GPU expose has no latitude stage tc_lut.shape.size() == 3 &&
         tc_lut.shape[0] >= 2 && tc_lut.shape[0] == tc_lut.shape[1] &&
         tc_lut.shape[2] == 3;
 
@@ -818,14 +835,26 @@ void expose_impl(const Src& src, int width, int height,
 
 void expose(const double* rgb, int width, int height, const FilmingParams& params,
             const NdArray& tc_lut, float* log_raw_out) {
-    expose_impl(SrcF64{rgb}, width, height, params, tc_lut, log_raw_out,
+    const SrcF64 src{rgb};
+    if (params.scene_latitude.engaged()) {
+        expose_impl(SrcLatitude<SrcF64>{src, params.scene_latitude}, width, height,
+                    params, tc_lut, log_raw_out, rgb, nullptr, 1.0);
+        return;
+    }
+    expose_impl(src, width, height, params, tc_lut, log_raw_out,
                 rgb, nullptr, 1.0);
 }
 
 void expose_f32_gain(const float* rgb, double gain, int width, int height,
                      const FilmingParams& params, const NdArray& tc_lut,
                      float* log_raw_out) {
-    expose_impl(SrcF32Gain{rgb, gain}, width, height, params, tc_lut,
+    const SrcF32Gain src{rgb, gain};
+    if (params.scene_latitude.engaged()) {
+        expose_impl(SrcLatitude<SrcF32Gain>{src, params.scene_latitude}, width,
+                    height, params, tc_lut, log_raw_out, nullptr, rgb, gain);
+        return;
+    }
+    expose_impl(src, width, height, params, tc_lut,
                 log_raw_out, nullptr, rgb, gain);
 }
 

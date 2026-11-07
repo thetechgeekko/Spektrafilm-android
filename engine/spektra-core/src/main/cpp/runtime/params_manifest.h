@@ -250,6 +250,14 @@ inline std::string named_inventory(const spk_params& p) {
     SPK_MANIFEST_I32(camera_diffusion_family);
     SPK_MANIFEST_I32(enlarger_diffusion_family);
 
+    SPK_MANIFEST_I32(scene_latitude_active);
+    SPK_MANIFEST_F32(scene_latitude_highlight_knee);
+    SPK_MANIFEST_F32(scene_latitude_highlight_room);
+    SPK_MANIFEST_F32(scene_latitude_shadow_knee);
+    SPK_MANIFEST_F32(scene_latitude_shadow_room);
+    SPK_MANIFEST_F32(scene_latitude_rolloff);
+    SPK_MANIFEST_F32(scene_latitude_max_lift);
+
 #undef SPK_MANIFEST_I32
 #undef SPK_MANIFEST_F32
 #undef SPK_MANIFEST_STR
@@ -261,8 +269,8 @@ inline std::string named_inventory(const spk_params& p) {
 
 // The manifest intentionally ends at the ABI tail. Appending a field without
 // extending named_inventory must make every native build fail loudly.
-static_assert(offsetof(spk_params, enlarger_diffusion_family) +
-                  sizeof(((spk_params*)nullptr)->enlarger_diffusion_family) ==
+static_assert(offsetof(spk_params, scene_latitude_max_lift) +
+                  sizeof(((spk_params*)nullptr)->scene_latitude_max_lift) ==
               sizeof(spk_params));
 
 }  // namespace spk::params_manifest
