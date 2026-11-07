@@ -83,7 +83,11 @@ function(sfraw_add_libjpeg_turbo target_name)
         list(APPEND _args "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
     endif ()
     if (CMAKE_MAKE_PROGRAM)
-        list(APPEND _args "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
+        # AGP hands CMake a native Windows path (C:\Users\...). Written verbatim into the
+        # sub-build's generated configure script it reads as escape sequences ("\U") and
+        # the Windows build fails; forward it in CMake's forward-slash form.
+        file(TO_CMAKE_PATH "${CMAKE_MAKE_PROGRAM}" _make_program)
+        list(APPEND _args "-DCMAKE_MAKE_PROGRAM=${_make_program}")
     endif ()
     # Cross builds (Android): forward the NDK toolchain exactly as the
     # Gradle-driven configure saw it. A native host build forwards none of

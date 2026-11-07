@@ -59,7 +59,9 @@ class EditorBenchmarks {
         packageName = TARGET_PACKAGE,
         metrics = listOf(FrameTimingMetric()),
         compilationMode = mode,
-        startupMode = StartupMode.WARM,
+        // No startup mode: the editor opened in setupBlock must still be in front when the
+        // measured block runs (a startup mode would have the library restart it first).
+        startupMode = null,
         iterations = 5,
         setupBlock = { startEditor() },
     ) {
