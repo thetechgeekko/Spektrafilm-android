@@ -142,13 +142,19 @@ internal suspend fun runBatchExport(
         for ((index, source) in sources.withIndex()) {
             currentCoroutineContext().ensureActive()
             BatchExportTracker.publish(BatchExportProgress(total, done, failed, source.name, finished = false))
+            // Set by the writer once the file is in the gallery, so a photo that was published
+            // still counts when cancellation (or a later step) wins the race back from IO.
+            var committed = false
             try {
-                lastPublished = exportBatchPhoto(context, engine, source, look, options, keepGps, index, total)
+                lastPublished = exportBatchPhoto(
+                    context, engine, source, look, options, keepGps, index, total,
+                ) { committed = true }
                 done++
             } catch (cancel: CancellationException) {
+                if (committed) done++
                 throw cancel
             } catch (failure: Throwable) {
-                failed++
+                if (committed) done++ else failed++
                 Diag.w("batch export: photo ${index + 1} of $total failed: ${failure.javaClass.simpleName}")
             } finally {
                 // Between photos, hand back the GPU buffers a full-resolution render holds, as
@@ -201,6 +207,7 @@ private suspend fun exportBatchPhoto(
     keepGps: Boolean,
     index: Int,
     total: Int,
+    onCommitted: () -> Unit,
 ): Uri {
     val app = context.applicationContext
     val io = ProcessDispatchers.io
@@ -312,7 +319,10 @@ private suspend fun exportBatchPhoto(
                     }.onFailure { Diag.w("batch gain map failed; exporting SDR base: $it") }
                 }
                 withContext(io) {
-                    saveToGallery(app, framed, descriptor, options.jpegQuality, srcExif, displayName = baseName)
+                    saveToGallery(
+                        app, framed, descriptor, options.jpegQuality, srcExif,
+                        displayName = baseName, onCommitted = onCommitted,
+                    )
                 }
             }
             OutputEncoder.NATIVE_TIFF_UINT16,
@@ -327,9 +337,9 @@ private suspend fun exportBatchPhoto(
                 }
                 withContext(io) {
                     if (descriptor.encoder == OutputEncoder.NATIVE_PNG16) {
-                        saveSimResultAsPng16(app, res, descriptor, displayName = baseName)
+                        saveSimResultAsPng16(app, res, descriptor, displayName = baseName, onCommitted = onCommitted)
                     } else {
-                        saveSimResultAsTiff(app, res, descriptor, displayName = baseName)
+                        saveSimResultAsTiff(app, res, descriptor, displayName = baseName, onCommitted = onCommitted)
                     }
                 }
             }
