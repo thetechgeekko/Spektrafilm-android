@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,7 +98,7 @@ internal fun CutoutAwareBarRow(
     // Reading the cutout inset subscribes this composable to inset changes (rotation, fold,
     // bars shown/hidden); the rectangles themselves come from the platform insets.
     val cutoutTop = WindowInsets.displayCutout.getTop(density)
-    val cutoutLeft = WindowInsets.displayCutout.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr)
+    val cutoutLeft = WindowInsets.displayCutout.getLeft(density, LayoutDirection.Ltr)
     val rects: List<Rect> = remember(view, cutoutTop, cutoutLeft) {
         ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects.orEmpty()
     }
@@ -112,33 +113,39 @@ internal fun CutoutAwareBarRow(
         },
     ) { (navM, titleM, actionM), constraints ->
         val width = constraints.maxWidth
+        val rtl = layoutDirection == LayoutDirection.Rtl
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val nav = navM.map { it.measure(loose) }
         val acts = actionM.map { it.measure(loose) }
-        val height = maxOf(
+        val rowHeight = maxOf(
             constraints.minHeight,
             nav.maxOfOrNull { it.height } ?: 0,
             acts.maxOfOrNull { it.height } ?: 0,
         )
 
-        // Cutouts that reach into this bar, in bar-local x, widened by the keep-out margin.
-        val holes = rects
-            .filter { r -> r.top < barTopLeft.y + height && r.bottom > barTopLeft.y }
-            .map { r -> (r.left - barTopLeft.x - keepOut) to (r.right - barTopLeft.x + keepOut) }
+        // Cutouts that reach into this bar, in bar-local LOGICAL x (start edge = 0, mirrored in
+        // RTL so the same walk works both ways), widened by the keep-out margin.
+        val inBand = rects.filter { r -> r.top < barTopLeft.y + rowHeight && r.bottom > barTopLeft.y }
+        val holes = inBand
+            .map { r ->
+                val l = r.left - barTopLeft.x - keepOut
+                val rr = r.right - barTopLeft.x + keepOut
+                if (rtl) (width - rr) to (width - l) else l to rr
+            }
             .filter { (l, r) -> r > 0 && l < width }
             .sortedBy { it.first }
 
         fun blocked(from: Int, to: Int) = holes.any { (l, r) -> from < r && to > l }
 
-        // Navigation from the start edge, stepping right past any cutout it would cover.
+        // Navigation from the start edge, stepping past any cutout it would cover.
         var x = 0
         val navX = nav.map { p ->
             holes.firstOrNull { (l, r) -> x < r && x + p.width > l }?.let { x = it.second }
             val at = x; x += p.width; at
         }
-        val titleStart = x
+        var titleStart = x
 
-        // Actions from the end edge, stepping left past any cutout they would cover.
+        // Actions from the end edge, stepping toward the start past any cutout they would cover.
         var end = width
         val actX = IntArray(acts.size)
         for (i in acts.indices.reversed()) {
@@ -148,24 +155,42 @@ internal fun CutoutAwareBarRow(
                 val hole = holes.last { (l, r) -> at < r && at + p.width > l }
                 at = hole.first - p.width
             }
-            actX[i] = at.coerceAtLeast(titleStart)
-            end = actX[i]
+            actX[i] = at
+            end = at
+        }
+
+        // Not enough room beside the cutout (narrow window, wide notch): rather than let
+        // buttons overlap each other or the camera, drop the whole row below the cutout and lay
+        // it out plainly there.
+        var top = 0
+        val fits = holes.isEmpty() || (navX.all { it >= 0 } && end >= titleStart)
+        if (!fits) {
+            top = inBand.maxOf { it.bottom - barTopLeft.y } + keepOut
+            titleStart = nav.sumOf { it.width }
+            end = width
+            for (i in acts.indices.reversed()) { end -= acts[i].width; actX[i] = end }
+        }
+        val navPositions = if (fits) navX else run {
+            var a = 0
+            nav.map { p -> val at = a; a += p.width; at }
         }
 
         // The title fills what is left before the first cutout or action.
-        val titleEnd = minOf(end, holes.firstOrNull { it.second > titleStart }?.first ?: end)
+        val laneHoles = if (fits) holes else emptyList()
+        val titleEnd = minOf(end, laneHoles.firstOrNull { it.second > titleStart }?.first ?: end)
         val titleWidth = (titleEnd - titleStart).coerceAtLeast(0)
-        val showTitle = holes.isEmpty() || titleWidth >= minTitle
+        val showTitle = laneHoles.isEmpty() || titleWidth >= minTitle
         val titleP: List<Placeable> = if (showTitle && titleWidth > 0) {
-            titleM.map { it.measure(Constraints(maxWidth = titleWidth, maxHeight = height)) }
+            titleM.map { it.measure(Constraints(maxWidth = titleWidth, maxHeight = rowHeight)) }
         } else {
             emptyList()
         }
 
-        layout(width, height) {
-            nav.forEachIndexed { i, p -> p.place(navX[i], (height - p.height) / 2) }
-            titleP.forEach { p -> p.place(titleStart, (height - p.height) / 2) }
-            acts.forEachIndexed { i, p -> p.place(actX[i], (height - p.height) / 2) }
+        // placeRelative mirrors in RTL, matching the logical coordinates above.
+        layout(width, top + rowHeight) {
+            nav.forEachIndexed { i, p -> p.placeRelative(navPositions[i], top + (rowHeight - p.height) / 2) }
+            titleP.forEach { p -> p.placeRelative(titleStart, top + (rowHeight - p.height) / 2) }
+            acts.forEachIndexed { i, p -> p.placeRelative(actX[i], top + (rowHeight - p.height) / 2) }
         }
     }
 }
