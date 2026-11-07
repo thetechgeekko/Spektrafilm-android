@@ -293,7 +293,8 @@ namespace {
 // radius 0 and one -- the coarsest, sl=0 c=2, sigma 0.1726 px -- has radius 1,
 // which is why the earlier identity-only test declined the whole frame there.
 // The GPU sampler replaces the accumulate loop only. Returns true when `out`
-// holds the accumulated grain; false leaves `out` untouched for the CPU loop.
+// holds the accumulated grain; on false the CPU loop overwrites all of `out`
+// (a banded GPU pass may have written part of it before failing).
 bool gpu_grain_accumulate(const float* density_cmy_layers, int npix, int width,
                           int height, const double dmin_layers[3][3],
                           const double dmax_lay[3][3], const double n_ppp[3][3],
@@ -361,7 +362,7 @@ bool gpu_grain_accumulate(const float* density_cmy_layers, int npix, int width,
     const bool ok = gpu::grain_sample(request, out, &diagnostics);
     const bool engaged = ok && diagnostics.engaged;
     stage_timing_note_gpu_grain(/*attempted=*/true, engaged, diagnostics.reason,
-                                diagnostics.gpu_ms);
+                                diagnostics.gpu_ms, diagnostics.slices);
     return engaged;
 }
 

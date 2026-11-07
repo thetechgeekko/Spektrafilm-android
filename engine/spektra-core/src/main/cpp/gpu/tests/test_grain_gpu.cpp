@@ -22,6 +22,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <algorithm>
 #include <vector>
 
 #include "gpu/vulkan_compute.h"
@@ -215,6 +217,71 @@ int main() {
                     ds.max_blur_radius, dsoft.max_blur_radius);
         check(oks && ds.max_blur_radius == 0, "sigma below 1/6 px reduces to radius 0");
         check(oko && dsoft.max_blur_radius == 1, "the 12.5 MP coarsest cell reduces to radius 1");
+    }
+
+    // --- row bands are byte-identical to the whole frame (#282) --------------
+    // A frame over the memory cap runs in row bands with a halo of the widest
+    // blur radius. Seeds and reflect() stay in frame coordinates, so the band
+    // height must not change a single bit. A flat field would hide a wrong halo
+    // or a wrong in-band index (every neighbour reads the same value), so the
+    // density varies per pixel here, and the radii reach the shader's maximum.
+    {
+        const uint32_t bw = 256u, bh = 203u;   // odd height: a short last band
+        const uint32_t bn = bw * bh;
+        std::vector<spk::gpu::GrainCell> bc = cells;
+        bc[0].blur_sigma_px = 0.0;     // radius 0
+        bc[1].blur_sigma_px = 0.1726;  // radius 1, as at 12.5 MP
+        bc[2].blur_sigma_px = 0.9;     // radius 3, the widest the shader carries
+        std::vector<float> dens(static_cast<size_t>(bn) * ncells);
+        for (uint32_t y = 0; y < bh; ++y)
+            for (uint32_t x = 0; x < bw; ++x)
+                for (int k = 0; k < ncells; ++k)
+                    dens[(static_cast<size_t>(y) * bw + x) * ncells + k] =
+                        0.05f + 0.6f * static_cast<float>((x * 7u + y * 13u + k * 5u) % 97u) / 97.0f;
+        spk::gpu::GrainSampleRequest rb = req;
+        rb.density_cells = dens.data();
+        rb.cells = bc.data();
+        rb.width = bw;
+        rb.height = bh;
+        rb.npix = bn;
+        rb.seed_offset = 3;
+        std::vector<float> whole(static_cast<size_t>(bn) * 3u, -1.0f);
+        spk::gpu::GrainSampleDiagnostics dw;
+        const bool okw = spk::gpu::grain_sample(rb, whole.data(), &dw);
+        check(okw && dw.slices == 1, "a frame under the cap runs as one band");
+
+        // ~20 output rows per band: (in + out) per row = bw * (ncells + 3) * 4.
+        const uint64_t rowBytes = static_cast<uint64_t>(bw) * (ncells + 3) * 4u;
+        const uint64_t haloBytes = 2ull * 3u * bw * ncells * 4u;
+        bool all_same = true;
+        uint32_t max_bands = 0;
+        for (uint32_t rows : {20u, 16u, 57u, 190u}) {
+            spk::gpu::GrainSampleRequest rr = rb;
+            rr.band_bytes_override = rows * rowBytes + haloBytes;
+            std::vector<float> banded(whole.size(), -1.0f);
+            spk::gpu::GrainSampleDiagnostics db;
+            const bool okb = spk::gpu::grain_sample(rr, banded.data(), &db);
+            std::printf("  bands: %u rows -> ok=%d slices=%u reason=%s\n", rows,
+                        okb ? 1 : 0, db.slices,
+                        db.reason && *db.reason ? db.reason : "none");
+            if (!okb || std::memcmp(banded.data(), whole.data(),
+                                    whole.size() * sizeof(float)) != 0)
+                all_same = false;
+            if (okb) max_bands = std::max(max_bands, db.slices);
+        }
+        check(okw && all_same, "every band height gives the whole-frame bytes");
+        check(max_bands >= 10, "a small cap really splits the frame into bands");
+
+        // A cap that cannot hold the minimum band refuses before any write.
+        spk::gpu::GrainSampleRequest rt = rb;
+        rt.band_bytes_override = rowBytes;   // one row: under the 16-row floor
+        std::vector<float> keep(whole.size(), 42.0f);
+        spk::gpu::GrainSampleDiagnostics dt;
+        const bool okt = spk::gpu::grain_sample(rt, keep.data(), &dt);
+        bool kept = true;
+        for (float v : keep) if (v != 42.0f) { kept = false; break; }
+        check(!okt && kept && std::strcmp(dt.reason, "budget-too-small") == 0,
+              "a cap below the minimum band refuses to the CPU, buffer untouched");
     }
 
     // --- the out-of-branch counter is real -----------------------------------

@@ -1831,9 +1831,14 @@ struct GrainPush {
     uint32_t groups_x;
     uint32_t width;
     uint32_t height;
+    uint32_t row0;      // first frame row of the band's output (#282)
+    uint32_t in_row0;   // first frame row held in the band's input
 };
 
-constexpr uint32_t kGrainCellStride = 16u;   // floats per cell, matches CELL_STRIDE
+constexpr uint32_t kGrainCellStride = 16u;
+// Input + output bytes one grain band may hold (#282). A frame under it runs as
+// one band, as before banding existed: 128 MiB is ~2.7 MP of nine-cell input.
+constexpr VkDeviceSize kGrainBandBytes = 128ull << 20;   // floats per cell, matches CELL_STRIDE
 constexpr uint32_t kGrainKernelBase = 8u;    // first tap slot within a cell
 
 // Verbatim reproduction of kernels/gaussian.cpp::gaussian_kernel_1d, including
@@ -1941,20 +1946,35 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
     const VkPhysicalDeviceLimits& limits = c.properties.limits;
     Ctx::Kernel& s = c.grainK;
 
-    const PointwiseDispatchGrid grid =
-        plan_pointwise_dispatch(request.npix, limits.maxComputeWorkGroupCount[0],
-                                limits.maxComputeWorkGroupCount[1]);
-    if (!grid.valid) return give_up("dispatch-too-large");
+    // Row bands (#282). The whole frame is npix * (ncells + 3) floats -- 599 MB
+    // at 12.5 MP with nine cells -- and on a compact-tier device that admission
+    // was simply refused ("allocation-failed"), so the largest stage of an export
+    // ran on the CPU. A band holds its output rows plus a halo of the widest blur
+    // radius above and below; the shader keeps seeds and reflect() in frame
+    // coordinates, so the result is byte-identical for any band height (a test
+    // proves it). A frame that fits the cap still runs as ONE band, exactly as
+    // before. An allocation refused at one height is retried at half of it.
+    const uint32_t W = request.width, H = request.height;
+    const VkDeviceSize inRowBytes = static_cast<VkDeviceSize>(W) * ncells * sizeof(float);
+    const VkDeviceSize outRowBytes = static_cast<VkDeviceSize>(W) * 3u * sizeof(float);
+    const VkDeviceSize cap = request.band_bytes_override ? request.band_bytes_override
+                                                         : kGrainBandBytes;
+    // Rows that fit `cap`, counting the 2 * maxRadius halo rows as input only.
+    const VkDeviceSize haloBytes = static_cast<VkDeviceSize>(2u * maxRadius) * inRowBytes;
+    uint32_t bandRows = H;
+    if (static_cast<VkDeviceSize>(H) * (inRowBytes + outRowBytes) > cap) {
+        const VkDeviceSize room = cap > haloBytes ? cap - haloBytes : 0;
+        bandRows = static_cast<uint32_t>(
+            std::min<VkDeviceSize>(H, room / (inRowBytes + outRowBytes)));
+    }
+    // Below this many rows a band is mostly halo and dispatch overhead: let the
+    // CPU have it rather than crawl.
+    const uint32_t minRows = std::min<uint32_t>(H, std::max<uint32_t>(16u, 4u * maxRadius));
+    if (bandRows < minRows) return give_up("budget-too-small");
 
-    const VkDeviceSize inBytes =
-        static_cast<VkDeviceSize>(request.npix) * ncells * sizeof(float);
-    const VkDeviceSize outBytes =
-        static_cast<VkDeviceSize>(request.npix) * 3u * sizeof(float);
     const VkDeviceSize cellBytes =
         static_cast<VkDeviceSize>(kGrainMaxCells) * kGrainCellStride * sizeof(float);
     const VkDeviceSize counterBytes = 16;      // one uint, padded
-    if (inBytes > limits.maxStorageBufferRange || outBytes > limits.maxStorageBufferRange)
-        return give_up("buffer-too-large");
 
     // Every early exit here used to land on the single reason "dispatch-failed",
     // which is exactly what a real 12.5 MP export reported -- with gpu_ms = 0.0,
@@ -1970,17 +1990,39 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
             break;
         }
 
-        const bool hadIn = s.in.cap >= inBytes && s.in.buf;
-        const bool hadOut = s.out.cap >= outBytes && s.out.buf;
-        // The input alone is npix * ncells * 4 -- 449 MB at 12.5 MP with nine
-        // cells, asked for next to the diffusion transform's own scratch.
-        why = "allocation-failed";
-        if (!c.ensureBuf(s.in, inBytes)) break;
-        if (!c.ensureBuf(s.out, outBytes)) break;
-        if (!c.ensureBuf(s.dyeB, cellBytes)) break;      // per-cell constants
-        if (!c.ensureBuf(s.cmfB, counterBytes)) break;   // out-of-branch counter
+        // Admission: the largest band's buffers, halving the band on refusal.
+        bool allocated = false;
+        while (true) {
+            const uint32_t inRows = std::min<uint32_t>(H, bandRows + 2u * maxRadius);
+            const VkDeviceSize inBytes = static_cast<VkDeviceSize>(inRows) * inRowBytes;
+            const VkDeviceSize outBytes = static_cast<VkDeviceSize>(bandRows) * outRowBytes;
+            if (inBytes > limits.maxStorageBufferRange ||
+                outBytes > limits.maxStorageBufferRange ||
+                !plan_pointwise_dispatch(bandRows * W, limits.maxComputeWorkGroupCount[0],
+                                         limits.maxComputeWorkGroupCount[1]).valid) {
+                // Not a memory refusal: shrink without counting it as one.
+            } else if (c.ensureBuf(s.in, inBytes) && c.ensureBuf(s.out, outBytes) &&
+                       c.ensureBuf(s.dyeB, cellBytes) && c.ensureBuf(s.cmfB, counterBytes)) {
+                allocated = true;
+                break;
+            } else {
+                // Refused. ensureBuf keeps any buffer already at least as large as
+                // asked, so a retry at half the height would reuse the oversized
+                // input (or one left from an earlier, larger frame) and never
+                // return its reservation. Release all four so the smaller band
+                // really asks for less.
+                c.destroyBuf(s.in);
+                c.destroyBuf(s.out);
+                c.destroyBuf(s.dyeB);
+                c.destroyBuf(s.cmfB);
+            }
+            if (bandRows / 2u < minRows) break;
+            bandRows /= 2u;
+        }
+        if (!allocated) { why = "allocation-failed"; break; }
         why = "dispatch-failed";
-        if (!hadIn || !hadOut) {
+        {
+            // Rewritten every call: a retry above may have replaced any buffer.
             VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
             VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
             VkDescriptorBufferInfo dbi[4];
@@ -1997,79 +2039,101 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
             vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
         }
         std::memcpy(s.dyeB.mapped, cellData.data(), static_cast<size_t>(cellBytes));
-
-        const size_t nin = static_cast<size_t>(request.npix) * ncells;
-        const size_t nout = static_cast<size_t>(request.npix) * 3u;
-
-        // Upload, and guard non-finite densities here rather than in the shader:
-        // clamp(NaN) is implementation-defined in GLSL, so shader NaN behaviour
-        // must never decide a pixel. The CPU sampler yields zero grain for a
-        // non-finite density (fast_poisson_one rejects a NaN rate), and density
-        // 0 is the closest finite stand-in.
-        const auto t_up = std::chrono::steady_clock::now();
-        {
-            float* dst = static_cast<float*>(s.in.mapped);
-            const float* src = request.density_cells;
-            parallel_for(0, static_cast<int>(nin), [&](int lo, int hi) {
-                for (int i = lo; i < hi; ++i) {
-                    const float v = src[i];
-                    dst[i] = std::isfinite(v) ? v : 0.0f;
-                }
-            });
-        }
         const uint32_t zero = 0;
         std::memcpy(s.cmfB.mapped, &zero, sizeof(uint32_t));
-        d.upload_ms = std::chrono::duration<double, std::milli>(
-                          std::chrono::steady_clock::now() - t_up).count();
 
-        GrainPush push{};
-        push.npix = request.npix;
-        push.ncells = ncells;
-        push.seed_offset = request.seed_offset;
-        push.groups_x = grid.groups_x;
-        push.width = request.width;
-        push.height = request.height;
+        bool bands_ok = true;
+        uint32_t bands = 0;
+        for (uint32_t y0 = 0; y0 < H && bands_ok; y0 += bandRows) {
+            const uint32_t rows = std::min(bandRows, H - y0);
+            const uint32_t in0 = y0 > maxRadius ? y0 - maxRadius : 0u;
+            const uint32_t in1 = std::min(H, y0 + rows + maxRadius);
+            const uint32_t bandNpix = rows * W;
+            const PointwiseDispatchGrid grid =
+                plan_pointwise_dispatch(bandNpix, limits.maxComputeWorkGroupCount[0],
+                                        limits.maxComputeWorkGroupCount[1]);
+            if (!grid.valid) { bands_ok = false; break; }
 
-        const auto t_gpu = std::chrono::steady_clock::now();
-        bool dispatch_ok = true;
-        do {
-            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { dispatch_ok = false; break; }
-            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) { dispatch_ok = false; break; }
-            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
-            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
-                                    &s.dset, 0, nullptr);
-            vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                               sizeof(GrainPush), &push);
-            vkCmdDispatch(s.cmd, grid.groups_x, grid.groups_y, 1);
-            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) { dispatch_ok = false; break; }
+            // Upload, and guard non-finite densities here rather than in the
+            // shader: clamp(NaN) is implementation-defined in GLSL, so shader NaN
+            // behaviour must never decide a pixel. The CPU sampler yields zero
+            // grain for a non-finite density (fast_poisson_one rejects a NaN
+            // rate), and density 0 is the closest finite stand-in.
+            const auto t_up = std::chrono::steady_clock::now();
+            {
+                const size_t nin = static_cast<size_t>(in1 - in0) * W * ncells;
+                float* dst = static_cast<float*>(s.in.mapped);
+                const float* src = request.density_cells +
+                                   static_cast<size_t>(in0) * W * ncells;
+                parallel_for(0, static_cast<int>(nin), [&](int lo, int hi) {
+                    for (int i = lo; i < hi; ++i) {
+                        const float v = src[i];
+                        dst[i] = std::isfinite(v) ? v : 0.0f;
+                    }
+                });
+            }
+            d.upload_ms += std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - t_up).count();
 
-            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &s.cmd;
-            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
-            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) { dispatch_ok = false; break; }
-            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { dispatch_ok = false; break; }
-        } while (false);
-        d.gpu_ms = std::chrono::duration<double, std::milli>(
-                       std::chrono::steady_clock::now() - t_gpu).count();
-        if (!dispatch_ok) break;
-        d.slices = 1;
+            GrainPush push{};
+            push.npix = bandNpix;
+            push.ncells = ncells;
+            push.seed_offset = request.seed_offset;
+            push.groups_x = grid.groups_x;
+            push.width = W;
+            push.height = H;
+            push.row0 = y0;
+            push.in_row0 = in0;
 
-        const auto t_back = std::chrono::steady_clock::now();
-        {
-            const float* outp = static_cast<const float*>(s.out.mapped);
-            parallel_for(0, static_cast<int>(nout), [&](int lo, int hi) {
-                std::memcpy(out_rgb + lo, outp + lo,
-                            static_cast<size_t>(hi - lo) * sizeof(float));
-            });
-            uint32_t got = 0;
-            std::memcpy(&got, s.cmfB.mapped, sizeof(uint32_t));
-            d.out_of_branch = got;
+            const auto t_gpu = std::chrono::steady_clock::now();
+            do {
+                bands_ok = false;
+                if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) break;
+                VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+                bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) break;
+                vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+                vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1,
+                                        &s.dset, 0, nullptr);
+                vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                   sizeof(GrainPush), &push);
+                vkCmdDispatch(s.cmd, grid.groups_x, grid.groups_y, 1);
+                if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) break;
+
+                VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+                si.commandBufferCount = 1;
+                si.pCommandBuffers = &s.cmd;
+                if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) break;
+                if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) break;
+                if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) break;
+                bands_ok = true;
+            } while (false);
+            d.gpu_ms += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t_gpu).count();
+            if (!bands_ok) break;
+
+            // Into the caller's buffer band by band. A later band failing leaves
+            // earlier rows written, so the CPU fallback must not rely on `out`
+            // being untouched -- it overwrites every element (see grain.cpp).
+            const auto t_back = std::chrono::steady_clock::now();
+            {
+                const size_t nout = static_cast<size_t>(bandNpix) * 3u;
+                const float* outp = static_cast<const float*>(s.out.mapped);
+                float* dst = out_rgb + static_cast<size_t>(y0) * W * 3u;
+                parallel_for(0, static_cast<int>(nout), [&](int lo, int hi) {
+                    std::memcpy(dst + lo, outp + lo,
+                                static_cast<size_t>(hi - lo) * sizeof(float));
+                });
+            }
+            d.readback_ms += std::chrono::duration<double, std::milli>(
+                                 std::chrono::steady_clock::now() - t_back).count();
+            ++bands;
         }
-        d.readback_ms = std::chrono::duration<double, std::milli>(
-                            std::chrono::steady_clock::now() - t_back).count();
+        if (!bands_ok) break;
+        d.slices = bands;
+        uint32_t got = 0;
+        std::memcpy(&got, s.cmfB.mapped, sizeof(uint32_t));
+        d.out_of_branch = got;
         ok = true;
     } while (false);
 

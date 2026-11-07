@@ -322,7 +322,8 @@ struct GrainCell {
 
 struct GrainSampleRequest {
     // npix * cell_count floats, index p * cell_count + k, matching `cells`.
-    // WHOLE FRAME: the dye-cloud blur reads neighbours, so this is not sliced.
+    // WHOLE FRAME on the host; the pass uploads it in row bands with a halo
+    // (#282), so the dye-cloud blur still sees every neighbour it reads.
     const float* density_cells = nullptr;
     const GrainCell* cells = nullptr;
     int cell_count = 0;
@@ -330,13 +331,16 @@ struct GrainSampleRequest {
     uint32_t height = 0;    // npix == width * height
     uint32_t npix = 0;
     uint32_t seed_offset = 0;
+    // Test hook: input + output bytes per band in place of the default cap. The
+    // band height never changes a value, only how many dispatches it takes.
+    uint64_t band_bytes_override = 0;
 };
 
 struct GrainSampleDiagnostics {
     bool attempted = false;
     bool engaged = false;
     const char* reason = "";
-    uint32_t slices = 0;
+    uint32_t slices = 0;           // row bands dispatched (1 = whole frame)
     uint32_t max_blur_radius = 0;  // widest dye-cloud kernel carried this frame
     uint64_t samples = 0;          // npix * cell_count
     uint64_t out_of_branch = 0;   // samples the CPU would have drawn from another branch
@@ -345,9 +349,10 @@ struct GrainSampleDiagnostics {
     double readback_ms = 0.0;
 };
 
-// Writes npix*3 accumulated grain floats to `out_rgb` only when the whole pass
-// succeeded; on any failure `out_rgb` is untouched and the caller runs the CPU
-// sampler. Never throws.
+// Writes npix*3 accumulated grain floats to `out_rgb`. Returns true only when
+// every band succeeded. On failure `out_rgb` may hold some bands already (a
+// refusal before the first dispatch leaves it untouched); the caller's CPU
+// sampler overwrites every element, so it must not read it. Never throws.
 bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
                   GrainSampleDiagnostics* diagnostics);
 

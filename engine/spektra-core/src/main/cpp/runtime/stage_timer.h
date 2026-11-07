@@ -227,6 +227,7 @@ struct StageTimingSnapshot {
     bool gpu_grain_engaged = false;
     const char* gpu_grain_reason = "";   // process-lifetime literal
     double gpu_grain_gpu_ms = 0.0;
+    uint32_t gpu_grain_bands = 0;      // row bands; >1 means the frame was split (#282)
     uint32_t gpu_fft_calls = 0;          // fft_convolve calls that ENGAGED
     uint32_t gpu_fft_tiles = 0;          // overlap-save tiles, summed
     int gpu_fft_n = 0;                   // largest transform axis used
@@ -353,7 +354,8 @@ inline void stage_timing_note_gpu_fft(bool engaged, uint32_t tiles, int n,
 }
 
 inline void stage_timing_note_gpu_grain(bool attempted, bool engaged,
-                                        const char* reason, double gpu_ms) {
+                                        const char* reason, double gpu_ms,
+                                        uint32_t bands = 0) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
     StageTimingSnapshot& c = state.current;
@@ -361,6 +363,7 @@ inline void stage_timing_note_gpu_grain(bool attempted, bool engaged,
     c.gpu_grain_engaged = engaged;
     c.gpu_grain_reason = reason ? reason : "";
     c.gpu_grain_gpu_ms = gpu_ms;
+    c.gpu_grain_bands = bands;
 }
 
 inline void stage_timing_note_fft_fallback() {
@@ -651,11 +654,11 @@ inline int stage_timings_format(char* buf, int cap) {
     }
     if (snapshot.gpu_grain_attempted && off < cap - 1) {
         int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%sgpu_grain=%s/%s/gpu%.1f", off ? " " : "",
+                              "%sgpu_grain=%s/%s/bands%u/gpu%.1f", off ? " " : "",
                               snapshot.gpu_grain_engaged ? "engaged" : "fallback",
                               snapshot.gpu_grain_reason && snapshot.gpu_grain_reason[0]
                                   ? snapshot.gpu_grain_reason : "none",
-                              snapshot.gpu_grain_gpu_ms);
+                              snapshot.gpu_grain_bands, snapshot.gpu_grain_gpu_ms);
         if (n > 0) off += n;
     }
     // The GPU diffusion convolution (#227). `fft=` elsewhere counts CPU
