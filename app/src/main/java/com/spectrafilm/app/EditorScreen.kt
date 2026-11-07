@@ -2176,7 +2176,13 @@ internal fun MainActivity.EditorScreen(
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
                         Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.SIMULATION -> EditorSimulationPanel(
+                        Category.SIMULATION, Category.PAPER, Category.SCANNER, Category.OUTPUT -> EditorSimulationPanel(
+                            part = when (activeCategory) {
+                                Category.PAPER -> SimPart.PRINT
+                                Category.SCANNER -> SimPart.SCANNER
+                                Category.OUTPUT -> SimPart.OUTPUT
+                                else -> SimPart.FILM
+                            },
                             ctx = ctx,
                             scope = scope,
                             state = state,

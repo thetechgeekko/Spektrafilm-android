@@ -287,12 +287,15 @@ private fun HowToContent(ctx: android.content.Context) {
 private fun categoryHowtoName(c: Category): Int = when (c) {
     Category.SOURCE -> R.string.screen_howto_cat_source
     Category.PRESETS -> R.string.screen_howto_cat_presets
-    Category.SIMULATION -> R.string.screen_howto_cat_simulation
+    Category.SIMULATION -> R.string.editor_category_film_stock
     Category.INPUT -> R.string.screen_howto_cat_input
     Category.RAW_WB -> R.string.screen_howto_cat_raw_wb
     Category.GRAIN -> R.string.screen_howto_cat_grain
     Category.HALATION -> R.string.screen_howto_cat_halation
     Category.GLARE -> R.string.screen_howto_cat_glare
+    Category.PAPER -> R.string.editor_sim_tab_print
+    Category.SCANNER -> R.string.editor_sim_tab_scanner
+    Category.OUTPUT -> R.string.editor_sim_tab_output
     Category.COUPLERS -> R.string.screen_howto_cat_couplers
     Category.PREFLASH -> R.string.screen_howto_cat_preflash
     Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask
@@ -306,12 +309,15 @@ private fun categoryHowtoName(c: Category): Int = when (c) {
 private fun categoryHowtoDesc(c: Category): Int = when (c) {
     Category.SOURCE -> R.string.screen_howto_cat_source_desc
     Category.PRESETS -> R.string.screen_howto_cat_presets_desc
-    Category.SIMULATION -> R.string.screen_howto_cat_simulation_desc
+    Category.SIMULATION -> R.string.editor_hint_film_stock
     Category.INPUT -> R.string.screen_howto_cat_input_desc
     Category.RAW_WB -> R.string.screen_howto_cat_raw_wb_desc
     Category.GRAIN -> R.string.screen_howto_cat_grain_desc
     Category.HALATION -> R.string.screen_howto_cat_halation_desc
     Category.GLARE -> R.string.screen_howto_cat_glare_desc
+    Category.PAPER -> R.string.editor_hint_paper
+    Category.SCANNER -> R.string.editor_hint_scanner
+    Category.OUTPUT -> R.string.editor_hint_output
     Category.COUPLERS -> R.string.screen_howto_cat_couplers_desc
     Category.PREFLASH -> R.string.screen_howto_cat_preflash_desc
     Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask_desc

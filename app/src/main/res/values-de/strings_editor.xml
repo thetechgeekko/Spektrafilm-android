@@ -17,7 +17,6 @@
     <string name="editor_category_modified">Geändert</string>
     <string name="editor_category_source">Quelle</string>
     <string name="editor_category_presets">Vorgaben</string>
-    <string name="editor_category_simulation">Simulation</string>
     <string name="editor_category_input">Eingabe</string>
     <string name="editor_category_raw_wb">Weißabgl.</string>
     <string name="editor_category_grain">Korn</string>
@@ -194,7 +193,6 @@
     <string name="editor_close_panel">Panel schließen</string>
     <string name="editor_hint_source">Foto / RAW wählen, Demobild, Histogramm und Bearbeitungen zurücksetzen</string>
     <string name="editor_hint_presets">Eingebaute Looks und deine gespeicherten Vorgaben; Import/Export und LUT</string>
-    <string name="editor_hint_simulation">Film, Fotopapier, Belichtung und Messung der Belichtungsautomatik</string>
     <string name="editor_hint_input">Eingabefarbraum, spektrale Rekonstruktion, Filter, Zuschnitt und Hochskalierung</string>
     <string name="editor_hint_raw_wb">Weißabgleich: Pipette + Wärme/Tönung (alle Quellen) und RAW-Kelvin</string>
     <string name="editor_hint_grain">Struktur, Größe und Weichzeichnung des Filmkorns</string>
@@ -302,7 +300,6 @@
     <string name="editor_raw_chroma_noise">Farbrauschen reduzieren</string>
     <string name="editor_raw_chroma_noise_tooltip">Glättet Farbflecken in Tiefen und High-ISO-Aufnahmen. Helligkeit und feine Details bleiben erhalten; nur die Farbe wird geglättet.</string>
     <string name="editor_sim_title">Simulation</string>
-    <string name="editor_sim_tab_film">Film</string>
     <string name="editor_sim_tab_print">Abzug</string>
     <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Ausgabe</string>
@@ -594,4 +591,9 @@
     <string name="editor_snack_pair_done">Halbformat-Paar exportiert</string>
     <string name="editor_snack_pair_failed">Das Halbformat-Paar konnte nicht exportiert werden</string>
     <string name="editor_snack_pair_cancelled">Export des Halbformat-Paars abgebrochen</string>
+    <string name="editor_category_film_stock">Filmmaterial</string>
+    <string name="editor_hint_film_stock">Filmmaterial, Kamerabelichtung und automatische Belichtung</string>
+    <string name="editor_hint_paper">Fotopapier, Printbelichtung, Vergrößerer-Filterung und Printunschärfe</string>
+    <string name="editor_hint_scanner">Scanner-Schärfung und Weiß- und Schwarzpunktkorrektur</string>
+    <string name="editor_hint_output">Ausgabefarbraum, Gamut-Kompression, Sättigung und Dynamik</string>
 </resources>

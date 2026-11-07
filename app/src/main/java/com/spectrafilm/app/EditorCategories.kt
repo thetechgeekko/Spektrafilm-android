@@ -16,21 +16,28 @@ import org.json.JSONObject
 import androidx.compose.animation.core.tween
 
 internal enum class Category(val label: String, @StringRes val labelRes: Int) {
-    SOURCE("Source", R.string.editor_category_source),
+    // Enum order is tab order inside a stage, and a stage opens on its first group
+    // (StageTaxonomyTest pins it). Most used first: Presets before Source in Look (Source's
+    // open / RAW actions are also in the app bar), Tone curve first and Experimental last
+    // in Finish (m3-design-language, foundations §7: primary goal first).
     PRESETS("Presets", R.string.editor_category_presets),
-    SIMULATION("Simulation", R.string.editor_category_simulation),
+    SOURCE("Source", R.string.editor_category_source),
+    SIMULATION("Film stock", R.string.editor_category_film_stock),
     INPUT("Input", R.string.editor_category_input),
     RAW_WB("White Bal", R.string.editor_category_raw_wb),
     GRAIN("Grain", R.string.editor_category_grain),
     HALATION("Halation", R.string.editor_category_halation),
+    SCANNER("Scanner", R.string.editor_sim_tab_scanner),
     GLARE("Glare", R.string.editor_category_glare),
     COUPLERS("Couplers", R.string.editor_category_couplers),
+    PAPER("Paper", R.string.editor_sim_tab_print),
     PREFLASH("Preflash", R.string.editor_category_preflash),
     CONTRAST_MASK("Contrast mask", R.string.editor_category_contrast_mask),
-    EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
     TONE_CURVE("Tone Curve", R.string.editor_category_tone_curve),
+    OUTPUT("Output", R.string.editor_sim_tab_output),
     MASKS("Masks", R.string.editor_category_masks),
     DISPLAY("Display", R.string.editor_category_display),
+    EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
 }
 
 /**
@@ -79,9 +86,9 @@ internal val Category.stage: Stage
         Category.SOURCE, Category.PRESETS -> Stage.LOOK
         Category.SIMULATION, Category.INPUT, Category.RAW_WB,
         Category.GRAIN, Category.HALATION, Category.COUPLERS -> Stage.FILM
-        Category.PREFLASH, Category.CONTRAST_MASK -> Stage.PRINT
-        Category.GLARE -> Stage.SCAN
-        Category.TONE_CURVE, Category.MASKS, Category.DISPLAY,
+        Category.PAPER, Category.PREFLASH, Category.CONTRAST_MASK -> Stage.PRINT
+        Category.SCANNER, Category.GLARE -> Stage.SCAN
+        Category.TONE_CURVE, Category.OUTPUT, Category.MASKS, Category.DISPLAY,
         Category.EXPERIMENTAL -> Stage.FINISH
     }
 

@@ -17,7 +17,6 @@
     <string name="editor_category_modified">Alterado</string>
     <string name="editor_category_source">Origem</string>
     <string name="editor_category_presets">Predefinições</string>
-    <string name="editor_category_simulation">Simulação</string>
     <string name="editor_category_input">Entrada</string>
     <string name="editor_category_raw_wb">Balanço</string>
     <string name="editor_category_grain">Grão</string>
@@ -196,7 +195,6 @@
     <string name="editor_close_panel">Fechar painel</string>
     <string name="editor_hint_source">Escolha uma foto / RAW, imagem de demonstração, histograma e redefinir edições</string>
     <string name="editor_hint_presets">Estilos embutidos e suas predefinições salvas; importar/exportar e LUT</string>
-    <string name="editor_hint_simulation">Filme, papel de cópia, exposição e medição da exposição automática</string>
     <string name="editor_hint_input">Espaço de cor de entrada, reconstrução espectral, filtros, corte e ampliação</string>
     <string name="editor_hint_raw_wb">Balanço de branco: conta-gotas + calor/matiz (todas as origens) e Kelvin do RAW</string>
     <string name="editor_hint_grain">Estrutura, tamanho e desfoque do grão</string>
@@ -304,7 +302,6 @@
     <string name="editor_raw_chroma_noise">Redução de ruído de cor</string>
     <string name="editor_raw_chroma_noise_tooltip">Suaviza manchas de cor nas sombras e em fotos de ISO alto. Brilho e detalhes finos são mantidos; só a cor é suavizada.</string>
     <string name="editor_sim_title">Simulação</string>
-    <string name="editor_sim_tab_film">Filme</string>
     <string name="editor_sim_tab_print">Cópia</string>
     <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Saída</string>
@@ -596,4 +593,9 @@
     <string name="editor_snack_pair_done">Par de meio quadro exportado</string>
     <string name="editor_snack_pair_failed">Não foi possível exportar o par de meio quadro</string>
     <string name="editor_snack_pair_cancelled">Exportação do par de meio quadro interrompida</string>
+    <string name="editor_category_film_stock">Filme</string>
+    <string name="editor_hint_film_stock">Filme, exposição da câmera e exposição automática</string>
+    <string name="editor_hint_paper">Papel de ampliação, exposição da cópia, filtragem do ampliador e desfoque da cópia</string>
+    <string name="editor_hint_scanner">Nitidez do scanner e correção dos pontos branco e preto</string>
+    <string name="editor_hint_output">Espaço de cor de saída, compressão de gama, saturação e vibração</string>
 </resources>

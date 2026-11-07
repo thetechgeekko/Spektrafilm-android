@@ -95,8 +95,6 @@
     <string name="screen_howto_cat_source_desc">open / close a photo, demo image, before/after compare</string>
     <string name="screen_howto_cat_presets">Presets</string>
     <string name="screen_howto_cat_presets_desc">load a built-in or saved parameter set</string>
-    <string name="screen_howto_cat_simulation">Simulation</string>
-    <string name="screen_howto_cat_simulation_desc">film stock, print paper, exposure, Auto-exposure</string>
     <string name="screen_howto_cat_input">Input</string>
     <string name="screen_howto_cat_input_desc">crop, resize, upscale factor</string>
     <string name="screen_howto_cat_raw_wb">RAW WB</string>

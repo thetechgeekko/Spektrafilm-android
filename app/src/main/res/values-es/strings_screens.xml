@@ -75,8 +75,6 @@
     <string name="screen_howto_cat_source_desc">abrir / cerrar una foto, imagen de demostración, comparación antes/después</string>
     <string name="screen_howto_cat_presets">Ajustes preestablecidos</string>
     <string name="screen_howto_cat_presets_desc">cargar un conjunto de parámetros integrado o guardado</string>
-    <string name="screen_howto_cat_simulation">Simulación</string>
-    <string name="screen_howto_cat_simulation_desc">película, papel de copia, exposición, exposición automática</string>
     <string name="screen_howto_cat_input">Entrada</string>
     <string name="screen_howto_cat_input_desc">recorte, cambio de tamaño, factor de ampliación</string>
     <string name="screen_howto_cat_raw_wb">Balance RAW</string>

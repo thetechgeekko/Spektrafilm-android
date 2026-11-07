@@ -17,7 +17,6 @@
     <string name="editor_category_modified">변경됨</string>
     <string name="editor_category_source">소스</string>
     <string name="editor_category_presets">프리셋</string>
-    <string name="editor_category_simulation">시뮬레이션</string>
     <string name="editor_category_input">입력</string>
     <string name="editor_category_raw_wb">WB</string>
     <string name="editor_category_grain">그레인</string>
@@ -192,7 +191,6 @@
     <string name="editor_close_panel">패널 닫기</string>
     <string name="editor_hint_source">사진/RAW 선택, 데모 이미지, 히스토그램, 편집 재설정</string>
     <string name="editor_hint_presets">내장 룩과 저장한 프리셋, 가져오기/내보내기 및 LUT</string>
-    <string name="editor_hint_simulation">필름, 인화지, 노출 및 자동 노출 측광</string>
     <string name="editor_hint_input">입력 색 공간, 스펙트럼 업샘플링, 필터, 자르기 및 업스케일</string>
     <string name="editor_hint_raw_wb">화이트 밸런스 — 스포이트와 따뜻함/색조(모든 소스), RAW 켈빈</string>
     <string name="editor_hint_grain">필름 그레인의 구조, 크기, 흐림</string>
@@ -300,7 +298,6 @@
     <string name="editor_raw_chroma_noise">색 노이즈 감소</string>
     <string name="editor_raw_chroma_noise_tooltip">어두운 부분과 고감도 사진의 색 얼룩을 부드럽게 합니다. 밝기와 미세한 디테일은 유지하고 색만 부드럽게 합니다.</string>
     <string name="editor_sim_title">시뮬레이션</string>
-    <string name="editor_sim_tab_film">필름</string>
     <string name="editor_sim_tab_print">인화</string>
     <string name="editor_sim_tab_scanner">스캐너</string>
     <string name="editor_sim_tab_output">출력</string>
@@ -592,4 +589,9 @@
     <string name="editor_snack_pair_done">하프 프레임 쌍을 내보냈습니다</string>
     <string name="editor_snack_pair_failed">하프 프레임 쌍을 내보낼 수 없습니다</string>
     <string name="editor_snack_pair_cancelled">하프 프레임 쌍 내보내기를 중지했습니다</string>
+    <string name="editor_category_film_stock">필름 종류</string>
+    <string name="editor_hint_film_stock">필름 종류, 카메라 노출, 자동 노출</string>
+    <string name="editor_hint_paper">인화지, 인화 노출, 확대기 필터, 인화 흐림</string>
+    <string name="editor_hint_scanner">스캐너 선명도와 흰색·검은색 점 보정</string>
+    <string name="editor_hint_output">출력 색 공간, 색역 압축, 채도, 생동감</string>
 </resources>

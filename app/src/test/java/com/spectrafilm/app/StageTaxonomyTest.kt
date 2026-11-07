@@ -40,9 +40,8 @@ class StageTaxonomyTest {
 
     @Test
     fun theSecondRowStaysShortEnoughToFitAPhone() {
-        // The whole point of the change: the old row was all 14 at once. Six 72dp chips is
-        // ~432dp, which still scrolls a little at 360dp but is a bounded, obvious amount
-        // rather than a bar running past 1000dp.
+        // The old row was all 14 at once. A stage's groups are now scrollable tabs in the
+        // tool sheet header; six keeps that row a bounded, obvious scroll on a phone.
         val worst = Stage.entries.maxOf { categoriesOf(it).size }
         assertTrue("a stage holds $worst groups, which is too many for one row", worst <= 6)
     }
@@ -70,10 +69,10 @@ class StageTaxonomyTest {
     fun theOpeningGroupOfEachStageIsStable() {
         // Selecting a stage opens categoriesOf(stage).first(). Pin those so a reordering of
         // the Category enum cannot silently change which panel each stage lands on.
-        assertEquals(Category.SOURCE, categoriesOf(Stage.LOOK).first())
+        assertEquals(Category.PRESETS, categoriesOf(Stage.LOOK).first())
         assertEquals(Category.SIMULATION, categoriesOf(Stage.FILM).first())
-        assertEquals(Category.PREFLASH, categoriesOf(Stage.PRINT).first())
-        assertEquals(Category.GLARE, categoriesOf(Stage.SCAN).first())
-        assertEquals(Category.EXPERIMENTAL, categoriesOf(Stage.FINISH).first())
+        assertEquals(Category.PAPER, categoriesOf(Stage.PRINT).first())
+        assertEquals(Category.SCANNER, categoriesOf(Stage.SCAN).first())
+        assertEquals(Category.TONE_CURVE, categoriesOf(Stage.FINISH).first())
     }
 }
