@@ -228,8 +228,13 @@ fun CropOverlay(
                     }
                 }
                 val applyLabel = stringResource(R.string.tool_crop_apply)
+                // The tool's one action, as the kit's editor does it: a filled "Done" button,
+                // not a bare check icon. Its accessible name stays "Apply crop".
                 TextTooltip(applyLabel) {
-                    androidx.compose.material3.IconButton(
+                    androidx.compose.material3.Button(
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .semantics { contentDescription = applyLabel },
                         onClick = {
                             val r = rect
                             val w = (r.right - r.left).coerceIn(0f, 1f)
@@ -249,7 +254,7 @@ fun CropOverlay(
                             }
                         },
                     ) {
-                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = SpektraBrand.onCanvas)
+                        Text(stringResource(R.string.tool_done))
                     }
                 }
             }

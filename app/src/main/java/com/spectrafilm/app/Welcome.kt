@@ -37,6 +37,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -278,22 +279,32 @@ private fun OnboardingPageContent(
                 color = SpektraBrand.onCanvas.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
+            // "Get started" below is this page's one primary action (M3: one filled button per
+            // screen); the guide is the one secondary, and the rest are text links.
             Spacer(Modifier.height(16.dp))
-            OutlinedButton(
+            FilledTonalButton(
                 onClick = onOpenHowTo,
                 modifier = Modifier.fillMaxWidth(0.85f),
             ) { Text(stringResource(R.string.screen_how_to_use_app)) }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onOpenSettings) {
-                    Text(stringResource(R.string.screen_welcome_open_settings))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onOpenSettings) {
+                    Text(
+                        stringResource(R.string.screen_welcome_open_settings),
+                        color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+                    )
                 }
-                OutlinedButton(
+                TextButton(
                     onClick = onReportIssue,
                     // Label only: the button's own click action is kept (null action merges).
                     modifier = Modifier.semantics { onClick(label = opensInBrowser, action = null) },
-                ) { Text(stringResource(R.string.screen_report_issue)) }
+                ) {
+                    Text(
+                        stringResource(R.string.screen_report_issue),
+                        color = SpektraBrand.onCanvas.copy(alpha = 0.85f),
+                    )
+                }
             }
         }
     }

@@ -125,9 +125,15 @@ fun MaskGeometryOverlay(
                 )
                 Spacer(Modifier.weight(1f))
                 val applyLabel = stringResource(R.string.tool_apply)
+                // A filled "Done" button, as in Crop; its accessible name stays "Apply".
                 TextTooltip(applyLabel) {
-                    IconButton(onClick = { confirm() }) {
-                        Icon(SpectraIcons.Confirm, contentDescription = applyLabel, tint = SpektraBrand.onCanvas)
+                    androidx.compose.material3.Button(
+                        onClick = { confirm() },
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .semantics { contentDescription = applyLabel },
+                    ) {
+                        Text(stringResource(R.string.tool_done))
                     }
                 }
             }
