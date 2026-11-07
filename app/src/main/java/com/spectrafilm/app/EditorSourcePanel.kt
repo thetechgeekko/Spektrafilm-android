@@ -13,6 +13,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
@@ -42,10 +43,8 @@ internal fun EditorSourcePanel(
     editHistory: EditHistory,
     photoPicker: ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?>,
     rawPicker: ManagedActivityResultLauncher<Array<String>, Uri?>,
-    sourceUriState: MutableState<Uri?>,
-    sourceKindState: MutableState<SourceKind>,
-    sourceNameState: MutableState<String>,
-    sourceAuthorizationRequiredState: MutableState<Boolean>,
+    sourceState: State<EditorSourceState>,
+    showDemoSource: () -> Unit,
     statusState: MutableState<String>,
     previewTickState: MutableIntState,
     rotationState: MutableState<SourceRotation>,
@@ -59,10 +58,7 @@ internal fun EditorSourcePanel(
     resetEditorCursorForSourceChangeFn: () -> Unit,
     reconcileVisibleSourceAfterFailureFn: (SourceRestoreResult?) -> Unit,
 ) {
-    var sourceUri by sourceUriState
-    var sourceKind by sourceKindState
-    var sourceName by sourceNameState
-    var sourceAuthorizationRequired by sourceAuthorizationRequiredState
+    val source = sourceState.value
     var status by statusState
     var previewTick by previewTickState
     var rotation by rotationState
@@ -78,14 +74,14 @@ internal fun EditorSourcePanel(
     fun resetEditorCursorForSourceChange() = resetEditorCursorForSourceChangeFn()
     fun reconcileVisibleSourceAfterFailure(durable: SourceRestoreResult?) = reconcileVisibleSourceAfterFailureFn(durable)
     SourcePanel(
-        sourceName = sourceName,
+        sourceName = source.displayName,
         status = status,
         showHistogram = showHistogram,
         onToggleHistogram = onToggleHistogram,
         hasRecipe = hasRecipe,
-        needsAuthorization = sourceAuthorizationRequired,
+        needsAuthorization = source.authorizationRequired,
         onReauthorize = {
-            if (sourceKind == SourceKind.RAW) {
+            if (sourceState.value.kind == SourceKind.RAW) {
                 rawPicker.launch(arrayOf("*/*"))
             } else {
                 photoPicker.launch(
@@ -116,15 +112,13 @@ internal fun EditorSourcePanel(
                 }
                 when (outcome) {
                     is ReconciledSourceMutation.Applied -> {
-                        if (sourceUri != null || sourceKind != SourceKind.DEMO) {
+                        val shown = sourceState.value
+                        if (shown.uri != null || shown.kind != SourceKind.DEMO) {
                             retireSourceResources()
                             resetEditorCursorForSourceChange()
                         }
-                        sourceUri = null
-                        sourceKind = SourceKind.DEMO
-                        sourceName = ctx.getString(R.string.editor_source_demo_name)
+                        showDemoSource()
                         rotation = SourceRotation.NONE
-                        sourceAuthorizationRequired = false
                         checkpointEditorSession()
                         previewTick++
                         status = ctx.getString(R.string.editor_status_demo_image)

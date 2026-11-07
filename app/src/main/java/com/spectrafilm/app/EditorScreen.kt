@@ -198,20 +198,20 @@ internal fun EditorScreen(
     // SourceAccess and the complete session are reconciled before this Composable exists.
     // Keep the resulting identity as ordinary live state: destination SavedState is never a
     // second restoration authority and therefore cannot resurrect an older subject.
-    val restoredSource = initialRestoration.source
-    val sourceUriState = remember { mutableStateOf(restoredSource.uri?.let(Uri::parse)) }
-    var sourceUri by sourceUriState
-    val sourceKindState = remember { mutableStateOf(restoredSource.kind) }
-    var sourceKind by sourceKindState
-    val sourceNameState = remember { mutableStateOf(restoredSource.displayName) }
-    var sourceName by sourceNameState
+    // The visible photo is one immutable EditorSourceState on the session (#452), seeded from
+    // initialRestoration.source; these are read-only views of it that stay current inside
+    // callbacks. Every change goes through a session transition (showSource / showDemo /
+    // requireSourceAuthorization), so uri, kind, name and authorization move together.
+    val sourceState = session.source
+    val sourceUri by remember { derivedStateOf { sourceState.value.uri?.let(Uri::parse) } }
+    val sourceKind by remember { derivedStateOf { sourceState.value.kind } }
+    val sourceName by remember { derivedStateOf { sourceState.value.displayName } }
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
     val sourceMutationGate = sourceRuntime.mutations
-    val sourceAuthorizationRequiredState = remember {
-        mutableStateOf(restoredSource.authorizationRequired)
+    val sourceAuthorizationRequired by remember {
+        derivedStateOf { sourceState.value.authorizationRequired }
     }
-    var sourceAuthorizationRequired by sourceAuthorizationRequiredState
     val sourceRenderAllowed = !sourceAuthorizationRequired
     val exportSourceIdentity = remember(
         sourceUri,
@@ -729,12 +729,9 @@ internal fun EditorScreen(
             committedOverlay
         }
         return EditorSessionDocument(
-            source = EditorSourceState(
-                    uri = sourceUri?.toString(),
-                    kind = sourceKind,
-                    displayName = AtomicJsonStore.truncateUtf16Safely(sourceName, 512),
-                    authorizationRequired = sourceAuthorizationRequired,
-                ),
+            source = sourceState.value.let {
+                it.copy(displayName = AtomicJsonStore.truncateUtf16Safely(it.displayName, 512))
+            },
                 current = snapshotNow(),
                 committed = committedSnapshot,
                 history = editHistory.snapshotState(),
@@ -1010,12 +1007,7 @@ internal fun EditorScreen(
         }
     }
 
-    fun visibleSourceState() = EditorSourceState(
-        uri = sourceUri?.toString(),
-        kind = sourceKind,
-        displayName = sourceName,
-        authorizationRequired = sourceAuthorizationRequired,
-    )
+    fun visibleSourceState() = sourceState.value
 
     fun reconcileVisibleSourceAfterFailure(durable: SourceRestoreResult?) {
         when (durable) {
@@ -1024,10 +1016,7 @@ internal fun EditorScreen(
                     retireSourceResources()
                     resetEditorCursorForSourceChange()
                 }
-                sourceUri = null
-                sourceKind = SourceKind.DEMO
-                sourceName = ctx.getString(R.string.editor_source_demo_name)
-                sourceAuthorizationRequired = false
+                session.showDemo(ctx.getString(R.string.editor_source_demo_name))
                 rotation = SourceRotation.NONE
                 status = ctx.getString(R.string.editor_status_demo_image)
             }
@@ -1037,10 +1026,12 @@ internal fun EditorScreen(
                     retireSourceResources()
                     resetEditorCursorForSourceChange()
                 }
-                sourceUri = Uri.parse(durable.ref.uri)
-                sourceKind = SourceKind.valueOf(durable.ref.kind)
-                sourceName = durable.ref.displayName
-                sourceAuthorizationRequired = false
+                session.showSource(
+                    uri = durable.ref.uri,
+                    kind = SourceKind.valueOf(durable.ref.kind),
+                    displayName = durable.ref.displayName,
+                    authorizationRequired = false,
+                )
                 if (switched) rotation = SourceRotation.NONE
                 status = ctx.getString(R.string.editor_status_selection_failed_restored)
             }
@@ -1050,30 +1041,28 @@ internal fun EditorScreen(
                 if (switched) {
                     resetEditorCursorForSourceChange()
                 }
-                sourceUri = Uri.parse(durable.ref.uri)
-                sourceKind = SourceKind.valueOf(durable.ref.kind)
-                sourceName = durable.ref.displayName
-                sourceAuthorizationRequired = true
+                session.showSource(
+                    uri = durable.ref.uri,
+                    kind = SourceKind.valueOf(durable.ref.kind),
+                    displayName = durable.ref.displayName,
+                    authorizationRequired = true,
+                )
                 if (switched) rotation = SourceRotation.NONE
                 status = ctx.getString(R.string.editor_status_selection_failed_auth)
             }
             SourceRestoreResult.None -> {
                 if (sourceUri != null && sourceKind != SourceKind.DEMO) {
                     retireSourceResources()
-                    sourceAuthorizationRequired = true
+                    session.requireSourceAuthorization()
                     status = ctx.getString(R.string.editor_status_selection_failed_auth)
                 } else {
-                    sourceUri = null
-                    sourceKind = SourceKind.DEMO
-                    sourceName = ctx.getString(R.string.editor_source_demo_name)
-                    sourceAuthorizationRequired = false
+                    session.showDemo(ctx.getString(R.string.editor_source_demo_name))
                     rotation = SourceRotation.NONE
                     status = ctx.getString(R.string.editor_status_source_unavailable_demo)
                 }
             }
             is SourceRestoreResult.Invalid, null -> {
-                sourceAuthorizationRequired = sourceUri != null && sourceKind != SourceKind.DEMO
-                if (sourceAuthorizationRequired) retireSourceResources()
+                if (session.requireAuthorizationIfRealSource()) retireSourceResources()
                 status = ctx.getString(R.string.editor_status_source_state_unavailable)
             }
         }
@@ -1108,10 +1097,7 @@ internal fun EditorScreen(
                         retireSourceResources()
                         resetEditorCursorForSourceChange()
                     }
-                    sourceUri = uri
-                    sourceKind = kind
-                    sourceName = displayName
-                    sourceAuthorizationRequired = false
+                    session.showSource(uri.toString(), kind, displayName)
                     if (switched) rotation = SourceRotation.NONE
                     // A new photo opens Film & look: picking a stock is the next step for
                     // almost everyone, so it should not cost a tap on the category bar.
@@ -1839,10 +1825,9 @@ internal fun EditorScreen(
             lastRenderMsState = lastRenderMsState,
             previewBusyState = previewBusyState,
             renderErrState = renderErrState,
-            sourceAuthorizationRequiredState = sourceAuthorizationRequiredState,
             statusState = statusState,
-            sourceKindState = sourceKindState,
-            sourceUriState = sourceUriState,
+            sourceState = sourceState,
+            requireSourceAuthorization = session::requireSourceAuthorization,
         )
     }
 
@@ -1934,7 +1919,7 @@ internal fun EditorScreen(
             currentSourceDecodeRequest = ::currentSourceDecodeRequest,
             engineState = engineState,
             previewBusyState = previewBusyState,
-            sourceUriState = sourceUriState,
+            sourceState = sourceState,
             prerenderDigestState = prerenderDigestState,
             prerenderOutOfMemoryState = prerenderOutOfMemoryState,
         )
@@ -1963,7 +1948,7 @@ internal fun EditorScreen(
             recipeAccessState = recipeAccessState,
             recipeReadyState = recipeReadyState,
             rotationState = rotationState,
-            sourceNameState = sourceNameState,
+            sourceState = sourceState,
             statusState = statusState,
         )
     }
@@ -2439,10 +2424,10 @@ internal fun EditorScreen(
                             photoPicker = photoPicker,
                             rawPicker = rawPicker,
                             showHistogram = viewerUi.histogram,
-                            sourceUriState = sourceUriState,
-                            sourceKindState = sourceKindState,
-                            sourceNameState = sourceNameState,
-                            sourceAuthorizationRequiredState = sourceAuthorizationRequiredState,
+                            sourceState = sourceState,
+                            showDemoSource = {
+                                session.showDemo(ctx.getString(R.string.editor_source_demo_name))
+                            },
                             statusState = statusState,
                             previewTickState = previewTickState,
                             rotationState = rotationState,

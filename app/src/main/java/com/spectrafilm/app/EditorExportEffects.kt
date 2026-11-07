@@ -256,17 +256,16 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     currentSourceDecodeRequest: () -> SourceDecodeRequest,
     engineState: MutableState<SpektraEngine?>,
     previewBusyState: MutableState<Boolean>,
-    sourceUriState: MutableState<Uri?>,
+    sourceState: State<EditorSourceState>,
     prerenderDigestState: MutableState<Pair<String, Long>?>,
     prerenderOutOfMemoryState: MutableState<Boolean>,
 ) {
     var engine by engineState
     var previewBusy by previewBusyState
-    var sourceUri by sourceUriState
     var prerenderDigest by prerenderDigestState
     var prerenderOutOfMemory by prerenderOutOfMemoryState
     val activeEngine = engine ?: return
-    val activeUri = sourceUri ?: return
+    val activeUri = sourceState.value.uri?.let(Uri::parse) ?: return
     if (!sourceRenderAllowed || exportVm.current.inFlight ||
         ExportWorkRuntime.state.value is ExportRuntimeState.Running
     ) return

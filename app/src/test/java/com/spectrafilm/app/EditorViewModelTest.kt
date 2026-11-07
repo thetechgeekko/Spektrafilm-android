@@ -145,6 +145,39 @@ class EditorViewModelTest {
         assertEquals(Presets.toJsonString(session.params), result.freshDefaults)
     }
 
+    @Test fun theSessionStartsOnTheRestoredSourceAndChangesItAsOneValue() {
+        val restored = EditorSourceState("content://media/1", SourceKind.PHOTO, "a.jpg", false)
+        val session = EditorSession(document = null, rotationDegrees = 0, source = restored)
+        assertEquals(restored, session.source.value)
+
+        session.showSource("content://media/2", SourceKind.RAW, "b.dng")
+        assertEquals(
+            EditorSourceState("content://media/2", SourceKind.RAW, "b.dng", false),
+            session.source.value,
+        )
+
+        session.requireSourceAuthorization()
+        assertTrue(session.source.value.authorizationRequired)
+        assertEquals("content://media/2", session.source.value.uri)
+
+        session.showDemo("demo")
+        assertEquals(EditorSourceState(null, SourceKind.DEMO, "demo", false), session.source.value)
+    }
+
+    @Test fun onlyARealSourceNeedsAuthorizationWhenItsStateIsUnknown() {
+        val demo = EditorSession(document = null, rotationDegrees = 0)
+        assertFalse(demo.requireAuthorizationIfRealSource())
+        assertFalse(demo.source.value.authorizationRequired)
+
+        val photo = EditorSession(
+            document = null,
+            rotationDegrees = 0,
+            source = EditorSourceState("content://media/1", SourceKind.PHOTO, "a.jpg", false),
+        )
+        assertTrue(photo.requireAuthorizationIfRealSource())
+        assertTrue(photo.source.value.authorizationRequired)
+    }
+
     private fun sessionDocument(exposure: Float): EditorSessionDocument {
         fun json(ev: Float) = Presets.encode(ParamsState().apply { exposureCompensationEv = ev }).toString()
         val baseline = EditSnapshot(json(0f), 0)
