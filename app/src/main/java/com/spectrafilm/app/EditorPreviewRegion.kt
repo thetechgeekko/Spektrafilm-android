@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.asImageBitmap
  * pattern is full-bleed content (m3-design-language, ux-flows §3, Map / canvas).
  */
 @Composable
-internal fun MainActivity.PreviewRegion(
+internal fun PreviewRegion(
+    /** One-shot zoom commands from the app bar / keyboard (EditorViewerViewModel). */
+    zoomRequests: kotlinx.coroutines.flow.Flow<ViewerZoom>,
     preview: Bitmap?,
     placeholder: Bitmap?,
     before: Bitmap?,
@@ -128,7 +130,7 @@ internal fun MainActivity.PreviewRegion(
             onPointPicked = onPointPicked,
             onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
             onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },
-            zoomRequests = viewerVm.zoomRequests,
+            zoomRequests = zoomRequests,
             onUnavailable = {
                 gpuBroken = true
                 Diag.w("gpu surface unavailable (GL program build failed) -> CPU preview")
@@ -178,7 +180,7 @@ internal fun MainActivity.PreviewRegion(
                         .fillMaxSize()
                         .graphicsLayer { alpha = revealAlpha.value },
                     initialScale = gpuZoomInitial,
-                    zoomRequests = viewerVm.zoomRequests,
+                    zoomRequests = zoomRequests,
                     onPointPicked = onPointPicked,
                     // Press and hold the photo for the unedited frame. The bitmap already
                     // exists for the latched CompareSlider above, so the gesture costs no

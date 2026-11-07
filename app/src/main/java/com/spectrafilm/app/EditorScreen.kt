@@ -2332,6 +2332,8 @@ internal fun MainActivity.EditorScreen(
                         Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
                         Category.SIMULATION, Category.PAPER, Category.SCANNER, Category.OUTPUT -> EditorSimulationPanel(
+                            filmPreviewVm = filmPreviewVm,
+                            printPreviewVm = printPreviewVm,
                             part = when (activeCategory) {
                                 Category.PAPER -> SimPart.PRINT
                                 Category.SCANNER -> SimPart.SCANNER
@@ -2409,6 +2411,8 @@ internal fun MainActivity.EditorScreen(
                             onApplyPrevious = { previousEdit?.let { applyPreviousEdit(it) } },
                         )
                         Category.SOURCE -> EditorSourcePanel(
+                            onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
+                            onClearPresetAmount = { presetVm.onAction(PresetAction.ClearAmount) },
                             ctx = ctx,
                             scope = scope,
                             state = state,
@@ -2466,6 +2470,7 @@ internal fun MainActivity.EditorScreen(
                 val panelInset by animateDpAsState(panelTarget, label = "previewPanelInset")
                 val previewRegion: @Composable () -> Unit = {
                     PreviewRegion(
+                        zoomRequests = viewerVm.zoomRequests,
                         controlsBottomInset = panelInset,
                         preview = preview,
                         placeholder = openPlaceholder,

@@ -25,7 +25,10 @@ import kotlinx.coroutines.launch
  * `var`s arrive as their state holders and its local functions as lambdas.
  */
 @Composable
-internal fun MainActivity.EditorSourcePanel(
+internal fun EditorSourcePanel(
+    onToggleHistogram: () -> Unit,
+    /** Drops the preset Amount blend (Reset makes the defaults the new baseline). */
+    onClearPresetAmount: () -> Unit,
     ctx: Context,
     scope: CoroutineScope,
     state: ParamsState,
@@ -78,7 +81,7 @@ internal fun MainActivity.EditorSourcePanel(
         sourceName = sourceName,
         status = status,
         showHistogram = showHistogram,
-        onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
+        onToggleHistogram = onToggleHistogram,
         hasRecipe = hasRecipe,
         needsAuthorization = sourceAuthorizationRequired,
         onReauthorize = {
@@ -169,7 +172,7 @@ internal fun MainActivity.EditorSourcePanel(
                     )
                 } ?: EditorRecipeAccess.None
                 Recipes.resetToDefaults(state, settings, profiles)
-                presetVm.onAction(PresetAction.ClearAmount)
+                onClearPresetAmount()
                 hasRecipe = false; rotation = SourceRotation.NONE
                 // Reset clears history: the defaults become the new
                 // empty-history baseline (you can't undo back across a
