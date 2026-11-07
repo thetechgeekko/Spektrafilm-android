@@ -488,10 +488,10 @@ internal fun categoriesOf(stage: Stage): List<Category> =
 
 // Neutral parameter defaults (a fresh ParamsState) — source for slider
 // double-tap-to-reset targets.
-private val PARAM_DEFAULTS = ParamsState()
+internal val PARAM_DEFAULTS = ParamsState()
 
 /** Date-back LED colours (linear ProPhoto): the classic orange, a deeper red, and amber. */
-private val DATE_STAMP_COLORS = listOf(
+internal val DATE_STAMP_COLORS = listOf(
     Triple(1.0f, 0.18f, 0.0f) to R.string.editor_sim_date_stamp_color_orange,
     Triple(1.0f, 0.06f, 0.0f) to R.string.editor_sim_date_stamp_color_red,
     Triple(1.0f, 0.45f, 0.02f) to R.string.editor_sim_date_stamp_color_amber,
