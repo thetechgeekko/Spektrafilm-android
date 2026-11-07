@@ -32,6 +32,12 @@ internal interface RecipeRepository {
 
     /** Deletes the recipe for [key], if any, and bumps its generation. */
     fun delete(key: String?)
+
+    /**
+     * The most recently saved recipe of any photo other than [excludeKey], or null when there
+     * is none. Runs file IO: call it off the main thread.
+     */
+    fun previousEdit(excludeKey: String?): PreviousEdit? = null
 }
 
 /** [RecipeRepository] over the app's recipes directory ([Recipes]). */
@@ -48,4 +54,8 @@ internal class FileRecipeRepository(context: Context) : RecipeRepository {
         expectedGeneration: Long?,
     ) = Recipes.saveJson(app, key, paramsJson, sourceName, rotationDegrees, expectedGeneration)
     override fun delete(key: String?) = Recipes.delete(app, key)
+    override fun previousEdit(excludeKey: String?): PreviousEdit? =
+        PreviousEdits.firstReadable(
+            PreviousEdits.candidates(PreviousEdits.stamps(Recipes.directory(app)), excludeKey),
+        ) { key -> readResult(key) }
 }
