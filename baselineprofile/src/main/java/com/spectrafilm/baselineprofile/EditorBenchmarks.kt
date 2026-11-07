@@ -65,7 +65,14 @@ class EditorBenchmarks {
         // measured block runs (a startup mode would have the library restart it first).
         startupMode = null,
         iterations = 5,
-        setupBlock = { startEditor() },
+        // Cold-start the editor for every iteration. A warm relaunch after two journeys
+        // never showed the film preview again on the test phone, and a fresh process also
+        // gives every iteration the same JIT state, which is what the compilation-mode
+        // comparison is about.
+        setupBlock = {
+            killProcess()
+            startEditor()
+        },
     ) {
         editJourney()
     }
