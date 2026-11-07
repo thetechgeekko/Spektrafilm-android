@@ -85,6 +85,14 @@ internal val Category.stage: Stage
         Category.EXPERIMENTAL -> Stage.FINISH
     }
 
+/**
+ * The panel to show after the user opens a new photo. Film & look (SIMULATION) is the next
+ * step for almost everyone, so it opens on its own when no panel is open, or when Source is
+ * (that is where the photo was picked). Any other panel the user chose stays put.
+ */
+internal fun filmLookCategoryAfterOpen(current: Category?): Category? =
+    if (current == null || current == Category.SOURCE) Category.SIMULATION else current
+
 /** The categories in a stage, in enum order. */
 internal fun categoriesOf(stage: Stage): List<Category> =
     Category.entries.filter { it.stage == stage }

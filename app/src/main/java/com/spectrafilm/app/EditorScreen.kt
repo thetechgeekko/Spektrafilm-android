@@ -1110,6 +1110,11 @@ internal fun MainActivity.EditorScreen(
                     sourceName = displayName
                     sourceAuthorizationRequired = false
                     if (switched) rotation = SourceRotation.NONE
+                    // A new photo opens Film & look: picking a stock is the next step for
+                    // almost everyone, so it should not cost a tap on the category bar.
+                    // A panel the user opened themselves (other than Source, which they
+                    // used to pick the photo) is left alone.
+                    if (switched) activeCategory = filmLookCategoryAfterOpen(activeCategory)
                     status = if (ref.accessMode == SourceAccessMode.PERSISTED) {
                         readyStatus
                     } else {
@@ -2159,6 +2164,8 @@ internal fun MainActivity.EditorScreen(
                             onOpenPrintCurves = onOpenPrintCurves,
                             stockPreviewHost = ::stockPreviewHost,
                             checkpointEditorSession = ::checkpointEditorSession,
+                            sourceKey = sourceUri,
+                            previewBusy = previewBusy,
                         )
                         Category.GRAIN -> GrainSection(state)
                         Category.PREFLASH -> PreflashSection(state)

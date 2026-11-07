@@ -299,6 +299,8 @@ internal fun SimulationSection(
     photoDateStamp: String? = null,
     filmPreviewHost: StockPreviewHost? = null,
     printPreviewHost: StockPreviewHost? = null,
+    filmStripSourceKey: Any? = null,
+    filmStripPaused: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_sim_title), expanded, { expanded = it }) {
@@ -315,8 +317,22 @@ internal fun SimulationSection(
             simTab, { simTab = it })
         when (simTab) {
             0 -> {
+                // Film & look: the user's photo through every stock, one tap to try each.
+                // Only with a photo to render; the demo/no-source state keeps the field alone.
+                if (filmPreviewHost != null) {
+                    FilmStockStrip(
+                        selectedId = s.filmProfile,
+                        groups = filmGroups,
+                        previewHost = filmPreviewHost,
+                        sourceKey = filmStripSourceKey,
+                        paused = filmStripPaused,
+                        onSelect = onFilmProfileChange,
+                    )
+                }
                 // A browser rather than a menu: 28 stocks, each with an ISO, a colour
-                // balance and a character note that a dropdown row cannot show well.
+                // balance and a character note that a dropdown row cannot show well. It is
+                // also the strip's "show all" (M3 carousel a11y: every item reachable
+                // without horizontal scrolling).
                 StockPickerField(
                     label = stringResource(R.string.editor_sim_film_profile),
                     selectedId = s.filmProfile,
@@ -324,10 +340,8 @@ internal fun SimulationSection(
                     onSelect = onFilmProfileChange,
                     previewHost = filmPreviewHost,
                 )
-                OutlinedButton(
-                    onClick = onOpenFilmCurves,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.editor_sim_view_film_curves)) }
+                // Exposure next to the stock: the two controls every look starts from. The
+                // curve viewer is reference material and follows them.
                 EnhancedSlider(stringResource(R.string.editor_sim_camera_ev), s.exposureCompensationEv, -10f..10f,
                     { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_camera_ev_tooltip))
@@ -339,6 +353,10 @@ internal fun SimulationSection(
                     onAutoExposureChange = { s.autoExposure = it },
                     onMethodChange = { s.autoExposureMethod = it },
                 )
+                OutlinedButton(
+                    onClick = onOpenFilmCurves,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.editor_sim_view_film_curves)) }
                 EnhancedSlider(stringResource(R.string.editor_sim_film_format), s.filmFormatMm, OperationalParamLimits.FILM_FORMAT_MM, { s.filmFormatMm = it },
                     step = 1f, decimals = 0,
                     tooltip = stringResource(R.string.editor_sim_film_format_tooltip),
