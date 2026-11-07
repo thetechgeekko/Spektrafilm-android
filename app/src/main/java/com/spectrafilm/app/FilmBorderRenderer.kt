@@ -62,11 +62,11 @@ internal object FilmBorderRenderer {
             val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = layout.textColor
                 typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                letterSpacing = 0.08f
+                letterSpacing = FilmBorderGeometry.TEXT_LETTER_SPACING_EM
             }
             for (t in layout.texts) {
                 // BorderText.size is the cap height; monospace caps are ~0.72 of the em.
-                textPaint.textSize = t.size / 0.72f
+                textPaint.textSize = t.size / FilmBorderGeometry.TEXT_CAP_HEIGHT_EM
                 if (t.vertical) {
                     canvas.save()
                     canvas.translate(t.x.toFloat(), t.baseline.toFloat())

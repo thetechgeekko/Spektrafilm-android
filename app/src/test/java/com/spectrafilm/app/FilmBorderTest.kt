@@ -94,6 +94,39 @@ class FilmBorderTest {
     }
 
     @Test
+    fun `edge text runs never overlap and stay on the strip`() {
+        // Phone test on a 4032 x 3024 photo drew the frame number on top of the label
+        // ("SPEKTRAFILM 11A35"): the runs were placed by fraction, not by their length.
+        for (border in listOf(FilmBorder.STRIP_135, FilmBorder.ROLL_120)) {
+            for ((w, h) in listOf(4032 to 3024, 3024 to 4032, 6000 to 4000, 3000 to 3000, 4000 to 1000, 37 to 23)) {
+                for (n in listOf(1, 9, 36)) {
+                    val l = FilmBorderGeometry.layout(border, w, h, n)!!
+                    val along = if (w >= h) l.outWidth else l.outHeight
+                    // Extent of each run along the strip, in left-to-right reading order.
+                    val spans = l.texts.map { t ->
+                        val len = FilmBorderGeometry.textRunLength(t.text, t.size)
+                        val start = if (t.vertical) along - t.baseline else t.x
+                        start to start + len
+                    }.sortedBy { it.first }
+                    for ((a, b) in spans.zipWithNext()) {
+                        assertTrue("$border $w x $h #$n: $a overlaps $b", a.second <= b.first)
+                    }
+                    for ((s0, s1) in spans) {
+                        assertTrue("$border $w x $h #$n: run $s0..$s1 off the strip", s0 >= 0 && s1 <= along)
+                    }
+                    if (w >= 1000) {
+                        assertTrue(
+                            "$border $w x $h #$n lost the label",
+                            l.texts.any { it.text.startsWith(FilmBorderGeometry.EDGE_LABEL) },
+                        )
+                        assertTrue("$border $w x $h #$n lost the frame number", l.texts.any { it.text == "${n}A" })
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `edge text is generic`() {
         val text = FilmBorder.entries.mapNotNull { FilmBorderGeometry.layout(it, 3000, 2000, 7) }
             .flatMap { it.texts }.joinToString(" ") { it.text }
