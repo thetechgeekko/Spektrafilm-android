@@ -29,6 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -41,7 +44,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -112,12 +115,102 @@ fun ExportSheet(
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                stringResource(R.string.tool_export_title),
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.semantics { heading() },
-            )
             val isSceneLinear = options.format == ExportFormat.SCENE_LINEAR_TIFF
+            // Header: what is being saved (the photo) and how (one summary line), so the
+            // choices below read as optional changes rather than a form to fill in.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (previewBitmap != null && !previewBitmap.isRecycled) {
+                    Image(
+                        bitmap = previewBitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.tool_export_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    val summary = buildList {
+                        add(resources.getString(options.format.labelRes()))
+                        if (!options.format.isHighBitDepth()) add(resources.getString(options.size.labelRes))
+                        if (!isSceneLinear) add(resources.getString(colorSpace.labelRes()))
+                    }.joinToString(" · ")
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+            }
+            // --- Actions ---
+            // The sheet's one action comes first, under the summary: with the remembered
+            // settings, export is open sheet -> Export. Swipe down or tap outside to cancel
+            // (M3 modal bottom sheet), so there is no Cancel button competing with it.
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // Split button: the action, plus a menu of its variants (save these settings as a
+                // preset, manage presets). The two halves share one row and read as one control.
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Button(
+                        onClick = onExport,
+                        modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+                        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 4.dp, bottomEnd = 4.dp),
+                    ) {
+                        Icon(SpectraIcons.Export, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.tool_export_action))
+                    }
+                    Box {
+                        var menu by remember { mutableStateOf(false) }
+                        Button(
+                            onClick = { menu = true },
+                            shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.heightIn(min = 56.dp).semantics {
+                                contentDescription = resources.getString(R.string.tool_export_more_options)
+                            },
+                        ) {
+                            Icon(SpectraIcons.ChevronDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_preset_save)) },
+                                onClick = { menu = false; savingPreset = true },
+                            )
+                            if (presetNames.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.tool_export_preset_manage)) },
+                                    onClick = { menu = false; managingPresets = true },
+                                )
+                            }
+                            // Shown disabled rather than hidden when this photo or format
+                            // cannot use them, so the menu does not change shape under the
+                            // user (m3-design-language, menus: disabled, not removed).
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_batch)) },
+                                enabled = onBatchExport != null && !isSceneLinear,
+                                onClick = { menu = false; onBatchExport?.invoke() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_half_frame_pair)) },
+                                enabled = onHalfFramePair != null,
+                                onClick = { menu = false; onHalfFramePair?.invoke() },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
 
             // --- Saved presets: one tap sets every choice below ---
             if (presetNames.isNotEmpty()) {
@@ -280,62 +373,6 @@ fun ExportSheet(
                     onCheckedChange = onKeepGpsChange,
                     tooltip = stringResource(R.string.tool_export_include_gps_help),
                 )
-            }
-
-            // --- Actions ---
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.tool_cancel))
-                }
-                // Split button: the action, plus a menu of its variants (save these settings as a
-                // preset, manage presets). The two halves share one row and read as one control.
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Button(
-                        onClick = onExport,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 4.dp, bottomEnd = 4.dp),
-                    ) {
-                        Text(stringResource(R.string.tool_export_action))
-                    }
-                    Box {
-                        var menu by remember { mutableStateOf(false) }
-                        Button(
-                            onClick = { menu = true },
-                            shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 20.dp, bottomEnd = 20.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            modifier = Modifier.semantics {
-                                contentDescription = resources.getString(R.string.tool_export_more_options)
-                            },
-                        ) {
-                            Icon(SpectraIcons.ChevronDown, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.tool_export_preset_save)) },
-                                onClick = { menu = false; savingPreset = true },
-                            )
-                            if (presetNames.isNotEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.tool_export_preset_manage)) },
-                                    onClick = { menu = false; managingPresets = true },
-                                )
-                            }
-                            // Shown disabled rather than hidden when this photo or format
-                            // cannot use them, so the menu does not change shape under the
-                            // user (m3-design-language, menus: disabled, not removed).
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.tool_export_batch)) },
-                                enabled = onBatchExport != null && !isSceneLinear,
-                                onClick = { menu = false; onBatchExport?.invoke() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.tool_export_half_frame_pair)) },
-                                enabled = onHalfFramePair != null,
-                                onClick = { menu = false; onHalfFramePair?.invoke() },
-                            )
-                        }
-                    }
-                }
             }
 
             if (savingPreset) {
