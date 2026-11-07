@@ -10,8 +10,9 @@
  *  - Writing is opt-in and explicit: "Save edits beside photos" in the Library menu. The Library
  *    otherwise only reads the folder, and writing needs the folder's write grant.
  *  - Reading is automatic and only fills a gap: a frame with a sidecar and NO recipe gets the
- *    sidecar's edit as its recipe. An existing recipe is never replaced, so the app-private edit
- *    stays authoritative and a stale sidecar cannot undo newer work.
+ *    sidecar's edit as its recipe. An existing recipe is never replaced, and neither is a recipe
+ *    the user cleared here (reset, or edited back to defaults), so the app-private edit stays
+ *    authoritative and a stale sidecar cannot undo newer work or a reset.
  *  - A sidecar is parsed with the same strict, bounded preset parser as an imported preset, so
  *    a hostile or future file is skipped, never half-applied.
  */
@@ -102,6 +103,8 @@ internal object LibrarySidecars {
                 repo.atomically(key) {
                     val generation = repo.generation(key)
                     if (repo.readResult(key) != RecipeReadResult.Missing) return@atomically false
+                    // A reset here is a decision, not a gap: never undo it from a sidecar.
+                    if (repo.wasCleared(key)) return@atomically false
                     val edit = decode(readText(sidecar))
                     repo.saveJson(key, edit.params.toString(), frame.name, edit.manualRotationDeg, generation)
                 }

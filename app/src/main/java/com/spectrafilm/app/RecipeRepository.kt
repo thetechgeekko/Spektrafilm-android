@@ -44,6 +44,9 @@ internal interface RecipeRepository {
      * interleave with another save or delete of it. The gate is reentrant.
      */
     fun <T> atomically(key: String, block: () -> T): T = block()
+
+    /** True when [key]'s edit was cleared on purpose here (see [Recipes.delete]). */
+    fun wasCleared(key: String): Boolean = false
 }
 
 /** [RecipeRepository] over the app's recipes directory ([Recipes]). */
@@ -61,6 +64,7 @@ internal class FileRecipeRepository(context: Context) : RecipeRepository {
     ) = Recipes.saveJson(app, key, paramsJson, sourceName, rotationDegrees, expectedGeneration)
     override fun delete(key: String?) = Recipes.delete(app, key)
     override fun <T> atomically(key: String, block: () -> T): T = Recipes.withOperationGate(key, block)
+    override fun wasCleared(key: String): Boolean = Recipes.wasCleared(app, key)
     override fun previousEdit(excludeKey: String?): PreviousEdit? =
         PreviousEdits.firstReadable(
             PreviousEdits.candidates(PreviousEdits.stamps(Recipes.directory(app)), excludeKey),

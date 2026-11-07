@@ -24,6 +24,8 @@ class LibrarySidecarsTest {
 
     private class Repo : RecipeRepository {
         val docs = HashMap<String, RecipeDocument>()
+        val cleared = HashSet<String>()
+        override fun wasCleared(key: String) = key in cleared
         override fun generation(key: String) = 0L
         override fun readResult(key: String?): RecipeReadResult =
             docs[key]?.let { RecipeReadResult.Loaded(it) } ?: RecipeReadResult.Missing
@@ -95,6 +97,21 @@ class LibrarySidecarsTest {
         // An existing edit is authoritative.
         assertEquals("mine", repo.docs.getValue(keyOf("doc/b.jpg")).params.getString("filmProfile"))
         assertTrue(keyOf("doc/c.jpg") !in repo.docs)
+    }
+
+    @Test fun importNeverUndoesAReset() {
+        val repo = Repo()
+        repo.cleared += keyOf("doc/a.jpg")
+        val frames = listOf(row("a.jpg"))
+        val text = LibrarySidecars.encode("a.jpg", LibrarySidecars.Edit(params("old"), 0), 1L)
+        val imported = LibrarySidecars.importMissing(
+            repo,
+            frames,
+            mapOf("doc/a.jpg" to "doc/a.jpg.spektra.json"),
+            ::keyOf,
+        ) { text }
+        assertEquals(0, imported)
+        assertTrue(repo.docs.isEmpty())
     }
 
     private class Folder(val canWrite: Boolean) : LibrarySidecars.Folder {

@@ -221,8 +221,21 @@ object Recipes {
         withGate(key) { operation ->
             operation.generation++
             AtomicJsonStore.delete(file(ctx, key))
+            // Remember that this photo's edit was cleared on purpose, so an edit file saved
+            // beside the photo earlier ([LibrarySidecars]) does not bring it back.
+            runCatching { clearedMarker(ctx, key).apply { parentFile?.mkdirs() }.writeBytes(ByteArray(0)) }
+                .onFailure { Diag.w("recipe clear marker failed: ${it.message}") }
         }
     }
+
+    private fun clearedMarker(ctx: Context, key: String): File {
+        RecipeDocumentCodec.validateKey(key)
+        return File(File(ctx.filesDir, "recipes_cleared"), key)
+    }
+
+    /** True when the recipe for [key] was deleted (reset, or edited back to defaults) here. */
+    internal fun wasCleared(ctx: Context, key: String): Boolean =
+        runCatching { clearedMarker(ctx, key).isFile }.getOrDefault(false)
 
     /**
      * Reset the live editing [state] back to defaults, reusing the shared preset schema
