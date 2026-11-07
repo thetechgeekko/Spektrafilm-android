@@ -117,6 +117,18 @@ CpuTopology parallel_cpu_topology();
 // contract above — which is what test_parallel asserts.
 void parallel_set_big_cores(int mode);
 
+// Scheduling priority (Linux nice) of the persistent pool's workers (#270).
+// An export -- and the idle pre-render, which renders as one -- is long and
+// all-core, and on a phone its workers at nice 0 compete with the UI's main and
+// RenderThread for the same cores for seconds at a time. The JNI entry sets 10
+// (Android's THREAD_PRIORITY_BACKGROUND) for an export and 0 for every other
+// render; each worker applies the value before its next chunk, behind a
+// per-thread latch, so an unchanged value costs one predicted branch.
+//
+// OUTPUT IS UNAFFECTED: priority only decides when a chunk runs, never which
+// chunk or what it computes. The calling thread is never touched.
+void parallel_set_worker_nice(int nice);
+
 // Minimum pixels per worker. Below this the range runs serially to avoid thread
 // spawn overhead dominating (e.g. small preview renders).
 constexpr int kParallelMinChunk = 8192;

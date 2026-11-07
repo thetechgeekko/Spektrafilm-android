@@ -195,6 +195,9 @@ internal object RenderPayloads {
     private const val DIR = "prerender"
     @Volatile private var instance: RenderPayloadCache? = null
 
+    /** The pre-render in flight, which an export joins or cancels (#270). */
+    val flight = PrerenderFlight()
+
     /** How long the editor must sit still before speculating a full-resolution render. */
     const val IDLE_DEBOUNCE_MS = 5_000L
 

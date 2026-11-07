@@ -34,6 +34,7 @@
 
 #include <atomic>
 
+#include "kernels/parallel.h"
 #include "jni_safety.h"
 #include "kernels/pack_display.h"
 #include "runtime/params_manifest.h"
@@ -1207,6 +1208,10 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         throw_runtime(env, "spektra: invalid render kind for preview/exact route");
         return nullptr;
     }
+    // #270: an export (and the idle pre-render, which renders as one) runs the
+    // pool at background priority so the UI keeps its frames; every other
+    // render restores normal priority. Output is unaffected (parallel.h).
+    spk::parallel_set_worker_nice(logical_kind == spk::RTK_EXPORT ? 10 : 0);
 
     spk_engine* eng = reinterpret_cast<spk_engine*>(handle);
     if (!eng) { throw_runtime(env, "spektra: engine handle is null"); return nullptr; }

@@ -17,7 +17,11 @@
 #endif
 
 #if defined(__linux__)
+#include <cerrno>
 #include <sched.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 namespace spk {
@@ -199,6 +203,38 @@ void parallel_set_big_cores(int mode) {
     // value on every recomposition must not force a syscall per render.
     if (prev != m) g_big_cores_generation.fetch_add(1u, std::memory_order_relaxed);
 }
+
+namespace {
+std::atomic<int> g_worker_nice{0};
+}  // namespace
+
+void parallel_set_worker_nice(int nice) {
+    g_worker_nice.store(nice, std::memory_order_relaxed);
+}
+
+namespace {
+// Applies g_worker_nice to the calling pool worker (see parallel.h). The latch
+// moves only on success: on a kernel that refuses to raise a niced thread back
+// up (RLIMIT_NICE), the worker retries before each chunk -- one cheap syscall --
+// and the refusal is logged once per process rather than per chunk.
+void apply_worker_nice() {
+#if defined(__linux__)
+    static thread_local int applied = 0;  // every thread starts at its creator's nice: 0
+    const int want = g_worker_nice.load(std::memory_order_relaxed);
+    if (applied == want) return;
+    const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(tid), want) == 0) {
+        applied = want;
+        return;
+    }
+    static std::atomic<bool> warned{false};
+    if (!warned.exchange(true, std::memory_order_relaxed)) {
+        std::fprintf(stderr, "spektra: pool worker nice %d -> %d refused (errno %d)\n",
+                     applied, want, errno);
+    }
+#endif
+}
+}  // namespace
 
 void parallel_pin_to_big_cores() {
 #if defined(__linux__)
@@ -382,6 +418,7 @@ private:
             // Pinning policy may have changed since this worker was created; the
             // per-thread latch makes this one predicted branch when it has not.
             spk::parallel_pin_to_big_cores();
+            apply_worker_nice();
             run_chunk(job, chunk);
         }
     }
