@@ -97,8 +97,8 @@ internal fun DateStampGroup(s: ParamsState, photoDateStamp: String?) {
             // Laid out as the frame itself: top corners above, bottom corners below.
             ConnectedChoiceRow(
                 options = listOf(
-                    2 to stringResource(R.string.editor_sim_date_stamp_corner_tl),
-                    3 to stringResource(R.string.editor_sim_date_stamp_corner_tr),
+                    3 to stringResource(R.string.editor_sim_date_stamp_corner_tl),
+                    2 to stringResource(R.string.editor_sim_date_stamp_corner_tr),
                 ),
                 selected = s.dateStampCorner,
                 onSelect = { s.dateStampCorner = it },
