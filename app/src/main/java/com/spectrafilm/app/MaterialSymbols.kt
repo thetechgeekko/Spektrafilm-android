@@ -15,15 +15,25 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
 
-private fun symbol(name: String, path: String, autoMirror: Boolean = false): ImageVector =
+/**
+ * [viewport] is the SVG's viewBox size: 960 for the current upstream files (viewBox
+ * 0 -960 960 960, so the path is moved down by 960), 24 for the few still published on the
+ * older 0 0 24 24 grid.
+ */
+private fun symbol(
+    name: String,
+    path: String,
+    autoMirror: Boolean = false,
+    viewport: Float = 960f,
+): ImageVector =
     ImageVector.Builder(
         name = name,
         defaultWidth = 24.dp,
         defaultHeight = 24.dp,
-        viewportWidth = 960f,
-        viewportHeight = 960f,
+        viewportWidth = viewport,
+        viewportHeight = viewport,
         autoMirror = autoMirror,
-    ).addGroup(translationY = 960f)
+    ).addGroup(translationY = if (viewport == 960f) 960f else 0f)
         .addPath(PathParser().parsePathString(path).toNodes(), fill = SolidColor(Color.Black))
         .clearGroup()
         .build()
@@ -39,7 +49,7 @@ internal object MaterialSymbols {
         symbol("aspect_ratio", "M560-280h200v-200h-80v120H560v80ZM200-480h80v-120h120v-80H200v200Zm-40 320q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm0 0v-480 480Z")
     }
     val AutoAwesome: ImageVector by lazy {
-        symbol("auto_awesome", "m19 9-1.25-2.75L15 5l2.75-1.25L19 1l1.25 2.75L23 5l-2.75 1.25Zm0 14-1.25-2.75L15 19l2.75-1.25L19 15l1.25 2.75L23 19l-2.75 1.25ZM9 20l-2.5-5.5L1 12l5.5-2.5L9 4l2.5 5.5L17 12l-5.5 2.5Zm0-4.85L10 13l2.15-1L10 11 9 8.85 8 11l-2.15 1L8 13ZM9 12Z")
+        symbol("auto_awesome", "m19 9-1.25-2.75L15 5l2.75-1.25L19 1l1.25 2.75L23 5l-2.75 1.25Zm0 14-1.25-2.75L15 19l2.75-1.25L19 15l1.25 2.75L23 19l-2.75 1.25ZM9 20l-2.5-5.5L1 12l5.5-2.5L9 4l2.5 5.5L17 12l-5.5 2.5Zm0-4.85L10 13l2.15-1L10 11 9 8.85 8 11l-2.15 1L8 13ZM9 12Z", viewport = 24f)
     }
     val BarChart: ImageVector by lazy {
         symbol("bar_chart", "M640-160v-280h160v280H640Zm-240 0v-640h160v640H400Zm-240 0v-440h160v440H160Z")
