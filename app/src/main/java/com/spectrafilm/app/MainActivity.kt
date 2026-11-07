@@ -1003,6 +1003,22 @@ class MainActivity : ComponentActivity() {
         // Catalog-grouped profile options for the Settings default-profile pickers.
         var settingsFilmGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
         var settingsPrintGroups by remember { mutableStateOf<List<DropdownGroup>>(emptyList()) }
+        // The editor publishes these once its engine is up, but a restored back stack can
+        // open straight onto Settings without composing the editor. Load them here as well so
+        // the pickers are never empty; a later editor publish replaces them.
+        LaunchedEffect(Unit) {
+            if (settingsFilmGroups.isNotEmpty()) return@LaunchedEffect
+            val (film, print) = withContext(dispatchers.io) {
+                val list = runCatching { EngineHolder.get(appContext).listProfiles() }
+                    .getOrDefault(emptyList())
+                StockCatalog.optionsFor(appContext, list, forFilm = true).toGroups() to
+                    StockCatalog.optionsFor(appContext, list, forFilm = false).toGroups()
+            }
+            if (settingsFilmGroups.isEmpty()) {
+                settingsFilmGroups = film
+                settingsPrintGroups = print
+            }
+        }
 
         Box(
             Modifier
