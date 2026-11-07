@@ -292,11 +292,18 @@ PendingIntents; `usesCleartextTraffic=false` with a network security config;
 **R1. No resource shrinking — P2.** `isMinifyEnabled = true` but no `isShrinkResources = true`
 (`app/build.gradle.kts:84`); checklist #58.
 
-**R2. Test-only probe ships in `main` — P2.** `Ticket139EditorProbe.kt` (1,802 lines) and
-`Ticket139EditorTestBridge.kt` live in `src/main`, are called from `EditorScreen.kt` (lines 103,
-468, 725, 741, 1124, 1141–1154) and are kept by R8. Checklist #62 (no debug code in release).
-It is default-off, but it is shipped code and shipped surface. Move it behind a `debug`/
-`androidTest` source set or a no-op interface with a test implementation.
+**R2. Release-candidate probe ships in `main` — P3, a deliberate trade-off.**
+`Ticket139EditorProbe.kt` (1,802 lines) and `Ticket139EditorTestBridge.kt` live in `src/main`,
+are called from `EditorScreen.kt` (lines 103, 468, 725, 741, 1124, 1141–1154) and are kept by
+R8. Checklist #62 asks for no test/debug code in release. Here it is intentional: `testBuildType
+= "release"` and `ReleaseCandidateSmokeInstrumentation` drive the *exact minified release APK*
+through this bridge (Activity recreation, process-death recovery; see `docs/EDITOR_SESSION.md`),
+so moving it to `debug`/`androidTest` or swapping in a no-op would silently disable those
+release checks. Do **not** remove it as-is. The improvement worth making is smaller surface, not
+removal: keep it default-off and armed only by the instrumentation, and as part of the editor
+split (A1) reduce the hooks in `EditorScreen` to one narrow observer interface. Any replacement
+must keep the same checks running against the exact release artifact before the target-side
+probe is removed.
 
 **R3. Dependencies behind** — see top fix 2.
 
@@ -349,7 +356,7 @@ dated snapshot.
    no composable takes `MainActivity` (A1, A2, A4).
 9. Per-entry ViewModels on Navigation 3 (A3).
 10. `mediaProcessing` FGS type on API 35+ and a stage-weighted determinate progress (D3, U2).
-11. Move the Ticket139 probe out of `main` (R2).
+11. Narrow the Ticket139 release probe to one observer interface during the editor split, keeping its exact-release checks (R2).
 
 **Strategic:**
 12. `material3-adaptive` scaffolds for the editor and Settings (D1).
