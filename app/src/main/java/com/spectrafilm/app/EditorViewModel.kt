@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /** What the editor needs from disk and the native side before it can restore and render. */
 @Immutable
@@ -119,6 +120,46 @@ internal class EditorSession(document: EditorSessionDocument?, rotationDegrees: 
      * capture effect skips one settle and does not record the restore as a new edit.
      */
     val restoring: MutableState<Boolean> = mutableStateOf(false)
+
+    /**
+     * The CURRENT live editing state (+ manual rotation) as a snapshot. Session decode
+     * canonicalizes embedded Params JSON, so the live cursor uses the same compact canonical
+     * form; comparing a pretty producer string with a compact restored string would
+     * manufacture an undo entry during the first restore settle.
+     */
+    fun snapshot(): EditSnapshot =
+        EditSnapshot(Presets.encode(params).toString(), rotation.value.degrees)
+
+    /**
+     * Restores [snap] into the live state: decodes params (shared preset schema), re-applies
+     * rotation and adopts it as committed. Sets [restoring] so the next settle does not
+     * record this mutation as a new edit. The caller re-renders (previewTick).
+     */
+    fun restore(snap: EditSnapshot) {
+        restoring.value = true
+        runCatching { Presets.decode(JSONObject(snap.paramsJson), params) }
+        rotation.value = SourceRotation.fromDegrees(snap.rotationDegrees)
+        committedSnapshot.value = snap
+    }
+
+    /** One undo step: restores and returns the target, or null when there is nothing to undo. */
+    fun undo(): EditSnapshot? = history.undo(snapshot())?.also(::restore)
+
+    /** One redo step: restores and returns the target, or null when there is nothing to redo. */
+    fun redo(): EditSnapshot? = history.redo(snapshot())?.also(::restore)
+
+    /**
+     * The capture effect's settle step ([settleDecision], unit-tested in EditHistoryTest):
+     * pushes the previous committed snapshot when the settled state is a real edit, adopts the
+     * settled state and clears [restoring]. Returns true when an undo step was pushed.
+     */
+    fun settle(): Boolean {
+        val action = settleDecision(restoring.value, committedSnapshot.value, snapshot())
+        val pushed = action.push?.also(history::push) != null
+        committedSnapshot.value = action.committed
+        restoring.value = false
+        return pushed
+    }
 }
 
 /**

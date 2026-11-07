@@ -685,35 +685,20 @@ internal fun EditorScreen(
     // Programmatic restore/default application keeps it false; a settled user edit sets it.
     var liveCursorMutated by remember { mutableStateOf(false) }
 
-    // Build a snapshot of the CURRENT live editing state (+ manual rotation).
-    fun snapshotNow(): EditSnapshot =
-        // Session decode canonicalizes embedded Params JSON. Keep the live cursor in the same
-        // compact canonical representation; comparing a pretty producer string with a compact
-        // restored string would manufacture an undo entry during the first restore settle.
-        EditSnapshot(Presets.encode(state).toString(), rotation.degrees)
-
-    // Restore a snapshot into the live state: decode params (shared preset schema),
-    // re-apply rotation, then bump previewTick — mirrors the recipe restore-on-open
-    // path. `restoring` guards the capture effect against recording this mutation.
-    fun applySnapshot(snap: EditSnapshot) {
-        restoring = true
-        runCatching { Presets.decode(org.json.JSONObject(snap.paramsJson), state) }
-        rotation = SourceRotation.fromDegrees(snap.rotationDegrees)
-        committedSnapshot = snap
-        previewTick++
-    }
+    // Snapshot, restore, undo/redo and the settle step live on EditorSession (#452).
+    fun snapshotNow(): EditSnapshot = session.snapshot()
 
     fun doUndo() {
-        val target = editHistory.undo(snapshotNow()) ?: return
+        session.undo() ?: return
         liveCursorMutated = true
-        applySnapshot(target)
+        previewTick++
         status = ctx.getString(R.string.editor_status_undo)
     }
 
     fun doRedo() {
-        val target = editHistory.redo(snapshotNow()) ?: return
+        session.redo() ?: return
         liveCursorMutated = true
-        applySnapshot(target)
+        previewTick++
         status = ctx.getString(R.string.editor_status_redo)
     }
 
@@ -1995,7 +1980,7 @@ internal fun EditorScreen(
     // many state changes but they all collapse into ONE surviving settle). After the
     // state settles we compare the new snapshot to the last COMMITTED one:
     //   • restoring == true  -> this settle is the programmatic undo/redo restore;
-    //     don't record it, just clear the flag (applySnapshot already moved the
+    //     don't record it, just clear the flag (session.restore already moved the
     //     committed pointer). This is what breaks the feedback loop.
     //   • committedSnapshot == null -> first settle for this source/baseline; adopt it
     //     as the baseline WITHOUT pushing (canUndo stays false until a real edit).
@@ -2021,14 +2006,7 @@ internal fun EditorScreen(
         // settleDecision (unit-tested in EditHistoryTest) handles the subtle case where a
         // real edit lands within the restore settle window: it pushes the restored baseline
         // so the edit stays undoable instead of being silently adopted (one-undo-step loss).
-        val now = snapshotNow()
-        val action = settleDecision(restoring, committedSnapshot, now)
-        action.push?.let {
-            editHistory.push(it)
-            liveCursorMutated = true
-        }
-        committedSnapshot = action.committed
-        restoring = false
+        if (session.settle()) liveCursorMutated = true
         checkpointEditorSession()
     }
 

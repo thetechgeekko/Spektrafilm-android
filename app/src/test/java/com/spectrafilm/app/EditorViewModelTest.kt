@@ -8,6 +8,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -61,5 +62,35 @@ class EditorViewModelTest {
 
         assertEquals(1, loads)
         assertNull(vm.catalog.value)
+    }
+
+    @Test fun settlePushesOneUndoStepPerRealEditAndUndoRedoRoundTrip() {
+        val session = EditorSession(document = null, rotationDegrees = 0)
+        // First settle adopts the baseline without an undo step.
+        assertFalse(session.settle())
+        val baseline = session.snapshot()
+        assertEquals(baseline, session.committedSnapshot.value)
+        assertFalse(session.history.canUndo)
+
+        session.params.exposureCompensationEv = 1.5f
+        session.rotation.value = SourceRotation.fromDegrees(90)
+        assertTrue(session.settle())
+        val edited = session.snapshot()
+        assertTrue(session.history.canUndo)
+        // Settling again without a change records nothing.
+        assertFalse(session.settle())
+
+        assertEquals(baseline, session.undo())
+        assertEquals(baseline, session.snapshot())
+        assertTrue(session.restoring.value)
+        assertEquals(SourceRotation.NONE, session.rotation.value)
+        // The restore's own settle is not a new edit.
+        assertFalse(session.settle())
+        assertFalse(session.restoring.value)
+        assertFalse(session.history.canUndo)
+
+        assertEquals(edited, session.redo())
+        assertEquals(edited, session.snapshot())
+        assertNull(session.redo())
     }
 }
