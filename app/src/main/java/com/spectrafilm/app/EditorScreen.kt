@@ -813,8 +813,9 @@ internal fun EditorScreen(
     val editorCatalog by editorVm.catalog.collectAsStateWithLifecycle()
     LaunchedEffect(editorCatalog) {
         val loaded = editorCatalog ?: return@LaunchedEffect
+        val list = loaded.profiles
         val restore = session.applyCatalog(
-            profiles = loaded.profiles,
+            profiles = list,
             applyDefaults = settings::applyDefaultsTo,
             restored = initialRestoredSession?.takeIf { restored ->
                 sourceUri?.toString() == restored.source.uri &&
