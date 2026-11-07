@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="help_grain_title">Korn</string>
+    <string name="help_grain_summary">Die feine, funkelnde Struktur, die Film nach Film aussehen lässt.</string>
+    <string name="help_grain_body">Echter Film besteht aus mikroskopisch kleinen lichtempfindlichen Partikeln, und ihre zufällige Verklumpung siehst du als Korn. Größere Partikel (ein schnellerer Film mit höherer ISO) ergeben gröberes, sichtbareres Korn; mit den Skalen pro Kanal kann eine Farbschicht körniger sein als die anderen. Dreh es herunter für einen sauberen, modernen Look oder hoch für einen rauen Vintage-Look. Korn wird in Mikrometern gemessen, daher kann es in der kleinen Vorschau feiner wirken als im Export in voller Auflösung.</string>
+    <string name="help_halation_title">Lichthof</string>
+    <string name="help_halation_summary">Das weiche, rötliche Leuchten, das um helle Lichter aufblüht.</string>
+    <string name="help_halation_body">Bei echtem Film dringt starkes Licht durch die Emulsion, wird an der Rückseite des Trägers reflektiert und belichtet den Film rund um helle Stellen erneut: Straßenlaternen, Sonne durch Blätter, Spitzlichter. „Lichthof-Stärke“ bestimmt, wie stark dieses Leuchten ist, während die „Streuung“ eine breitere, subtilere Lichtverteilung in der Emulsion hinzufügt; „Boost-EV“ legt fest, wie hell ein Licht sein muss, bevor es aufblüht. Erhöhe es für einen verträumten, filmischen Look oder schalte den ganzen Abschnitt aus für klinisch saubere, digitale Lichter.</string>
+    <string name="help_couplers_title">Farbcharakter des Films (Kuppler)</string>
+    <string name="help_couplers_summary">Die typische Farbtrennung, Kantenschärfe und Sättigungsabflachung von Film.</string>
+    <string name="help_couplers_body">Während der Film entwickelt wird, hemmt der Farbstoff, der sich in einer Farbschicht bildet, chemisch seine Nachbarn: der „DIR-Kuppler“-Effekt. Dieses Übersprechen ist ein großer Teil dessen, warum Filmfarben so aussehen: knackigere Kanten und eine charakteristische, nichtlineare Sättigung. „Effektstärke“ skaliert den gesamten Charakter, und die Farbübergreifend-Regler bestimmen, wie stark jede Farbe in die anderen hineinwirkt. Das ist ein Charakter-Regler, kein einfacher Sättigungsregler: Für normales „mehr / weniger bunt“ nimm Sättigung / Dynamik unter Ausgabe.</string>
+    <string name="help_print_gamma_title">Film- und Abzugskontrast (Gamma)</string>
+    <string name="help_print_gamma_summary">Der Grundkontrast, der im Negativ und im Fotopapier steckt.</string>
+    <string name="help_print_gamma_body">Jeder Film und jedes Papier hat eine Schwärzungskurve, und ihr „Gamma“ ist, wie steil diese Kurve ist: das fotochemische Gegenstück zu einem Kontrastregler. Ein höheres Abzugsgamma ergibt einen knackigeren, kontrastreicheren Abzug; ein niedrigeres macht ihn flacher. Für alltägliche Kontrastanpassungen greif zuerst zum Kontrastregler; dies sind die zugrunde liegenden fotochemischen Stellschrauben für das Rückgrat des Looks.</string>
+    <string name="help_preflash_title">Vorbelichtung</string>
+    <string name="help_preflash_summary">Eine schwache, gleichmäßige Vorbelichtung des Papiers, die harten Kontrast zähmt.</string>
+    <string name="help_preflash_body">In der Dunkelkammer wird das Papier manchmal vor der eigentlichen Belichtung kurz mit schwachem, gleichmäßigem Licht geblitzt. Das hebt die tiefsten Schatten an und senkt den Kontrast im Abzug sanft, ohne die Lichter anzutasten. Erhöhe „Belichtung“ für weichere, offenere Tiefen; die Verschiebungen der Y- und M-Filter tönen dieses Vorbelichtungslicht, genau wie die Filterung am Vergrößerer.</string>
+    <string name="help_glare_title">Streulicht</string>
+    <string name="help_glare_summary">Schleier durch Licht, das über die Abzugsoberfläche streut.</string>
+    <string name="help_glare_body">Modelliert Streulicht, das im Abzug und im Scanner herumspringt, die Schwärzen etwas anhebt und einen weichen Schleier über das Bild legt. Es ist ein zufälliger (stochastischer) Effekt, daher standardmäßig aus und nicht Teil des exakten, wiederholbaren Exports. Erhöhe „Prozent“ für ein dunstigeres, kontrastärmeres, nostalgischeres Gefühl.</string>
+    <string name="help_contrast_mask_title">Kontrastmaske</string>
+    <string name="help_contrast_mask_summary">Hält in großen hellen Flächen Licht zurück und gibt es in großen dunklen dazu, wie eine Dunkelkammermaske.</string>
+    <string name="help_contrast_mask_body">Früher legten Laboranten eine weiche, unscharfe Kopie des Negativs zusammen mit dem Original in den Vergrößerer. Wo das Negativ dünn war, hielt sie Licht zurück, und wo es dicht war, fügte sie nichts hinzu, sodass große helle und dunkle Flächen des Abzugs zur Mitte rückten, während Kanten und Textur ihren Biss behielten. „Lichter“ holt Himmels- und Lichterzeichnung zurück, „Tiefen“ öffnet dunkle Bereiche, „Unberührte Mitteltöne“ schützt die Mitte der Skala und „Weichheit“ legt fest, wie stark die Maske weichgezeichnet wird. Standardmäßig aus und nur im Abzugsweg wirksam.</string>
+</resources>

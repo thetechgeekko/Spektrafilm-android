@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="widget_state_expanded">Ausgeklappt</string>
+    <string name="widget_state_collapsed">Eingeklappt</string>
+    <string name="widget_section_expand">Ausklappen</string>
+    <string name="widget_section_collapse">Einklappen</string>
+    <string name="widget_section_enable_switch">%1$s aktivieren</string>
+    <string name="widget_help_badge_tooltip">Was macht „%1$s“?</string>
+    <string name="widget_help_badge_description">Über %1$s</string>
+    <string name="widget_help_badge_action">Hilfe anzeigen</string>
+    <string name="widget_advanced_hide">Erweiterte Optionen ausblenden</string>
+    <string name="widget_advanced_show">Erweiterte Optionen einblenden</string>
+    <string name="widget_value_pill_description">%1$s, Wert %2$s</string>
+    <string name="widget_value_pill_description_modified">%1$s, Wert %2$s, geändert</string>
+    <string name="widget_value_pill_enter_exact">Genauen Wert für %1$s eingeben</string>
+    <string name="widget_value_pill_reset_default">%1$s auf Standard zurücksetzen</string>
+    <string name="widget_component_r">R</string>
+    <string name="widget_component_g">G</string>
+    <string name="widget_component_b">B</string>
+    <string name="widget_component_1">1</string>
+    <string name="widget_component_2">2</string>
+    <string name="widget_not_yet_active_badge">noch nicht aktiv</string>
+    <string name="widget_not_yet_active_detail">Diese Regler sind für ein künftiges Engine-Update vorbereitet und haben noch keine Wirkung.</string>
+    <string name="widget_numeric_entry_field_label">Wert</string>
+    <string name="widget_numeric_entry_sign_toggle">Vorzeichen wechseln</string>
+    <string name="widget_numeric_entry_range_hint">Gib einen Wert zwischen %1$s und %2$s ein.</string>
+    <string name="widget_numeric_entry_set">Übernehmen</string>
+    <string name="widget_numeric_entry_cancel">Abbrechen</string>
+    <string name="widget_ae_drag_handle">Ziehgriff</string>
+    <string name="widget_ae_dismiss_menu">Messmenü schließen</string>
+    <string name="widget_ae_metering_method">Messmethode</string>
+    <string name="widget_ae_off_manual">Aus / Manuell</string>
+    <string name="widget_ae_description">Belichtungsautomatik</string>
+    <string name="widget_ae_state_on">An, %1$s</string>
+    <string name="widget_ae_state_off">Aus, manuelle Belichtung</string>
+    <string name="widget_ae_choose_method">Messmethode wählen</string>
+    <string name="widget_ae_turn_on">einschalten und Messmethode wählen</string>
+    <string name="widget_ae_tooltip">Belichtungsautomatik: Tippen, um ein Messmuster zu wählen, oder nach oben wischen, um auszuklappen. Im Aus-Zustand ist die Belichtung vollständig manuell.</string>
+    <string name="widget_ae_button_on">"Auto  ·  %1$s"</string>
+    <string name="widget_ae_button_off">Auto</string>
+    <string name="widget_ae_manual_exposure">Manuelle Belichtung</string>
+</resources>

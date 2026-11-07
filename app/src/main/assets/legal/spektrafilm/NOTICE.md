@@ -113,6 +113,9 @@ Full-resolution RAW/DNG decoding uses **LibRaw**.
   in `strings_zh_draft.xml`, drafted by Claude and awaiting native-speaker review.
 - **Japanese (ja):** machine-drafted by Claude (2026-11) in `app/src/main/res/values-ja/`;
   awaiting native-speaker review. Corrections are welcome as issues or pull requests.
+- **Korean (ko), Spanish (es), Brazilian Portuguese (pt-BR), German (de), French (fr):**
+  machine-drafted by Claude (2026-11) in `app/src/main/res/values-{ko,es,pt-rBR,de,fr}/`;
+  awaiting native-speaker review. Corrections are welcome as issues or pull requests.
 - The idea of shipping the app in Chinese also came from
   [hwx959](https://github.com/hwx959/Spektrafilm-android); none of that fork's files are used.
 

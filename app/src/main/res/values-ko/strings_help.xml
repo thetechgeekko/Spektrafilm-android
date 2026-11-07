@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="help_grain_title">그레인</string>
+    <string name="help_grain_summary">필름을 필름답게 보이게 하는 미세하고 반짝이는 질감.</string>
+    <string name="help_grain_body">실제 필름은 미세한 감광 입자로 이루어져 있으며, 이 입자들이 무작위로 뭉친 것이 그레인으로 보입니다. 입자가 클수록(감도가 높은 필름일수록) 그레인은 거칠고 뚜렷해집니다. 채널별 배율로 특정 색 층만 더 거칠게 만들 수도 있습니다. 줄이면 깨끗하고 현대적인 느낌, 늘리면 거칠고 빈티지한 느낌이 됩니다. 그레인은 마이크론 단위이므로 화면의 작은 미리보기에서는 전체 해상도 내보내기보다 더 곱게 보일 수 있습니다.</string>
+    <string name="help_halation_title">할레이션</string>
+    <string name="help_halation_summary">밝은 하이라이트 주변에 번지는 부드럽고 붉은 빛.</string>
+    <string name="help_halation_body">실제 필름에서는 강한 빛이 유제를 통과해 베이스 뒷면에서 반사되어 가로등, 나뭇잎 사이의 햇빛, 반사광 같은 밝은 영역 주변을 다시 노광합니다. \"할레이션 양\"은 그 빛의 세기를, \"산란\"은 유제 내부의 더 넓고 은은한 빛의 퍼짐을 더합니다. \"부스트 EV\"는 하이라이트가 얼마나 밝아야 번지기 시작할지를 정합니다. 몽환적이고 영화 같은 느낌을 원하면 올리고, 디지털처럼 깨끗한 하이라이트를 원하면 섹션 전체를 끄세요.</string>
+    <string name="help_couplers_title">필름 색 특성(커플러)</string>
+    <string name="help_couplers_summary">필름 특유의 색 분리, 경계의 선명함, 채도 롤오프.</string>
+    <string name="help_couplers_body">필름이 현상되는 동안 한 색 층에서 생성되는 염료가 이웃 층의 발색을 화학적으로 억제합니다. 이것이 \"DIR 커플러\" 효과입니다. 이 상호작용은 필름 색이 그렇게 보이는 큰 이유로, 경계가 더 또렷해지고 독특한 비선형 채도가 생깁니다. \"효과 강도\"는 전체 특성을, 색 간 설정은 각 색이 다른 색으로 얼마나 번지는지를 조절합니다. 단순한 채도 슬라이더가 아니라 특성 조절입니다. 일반적으로 색을 더 진하게/연하게 하려면 출력의 채도/생동감을 사용하세요.</string>
+    <string name="help_print_gamma_title">필름 및 인화 대비(감마)</string>
+    <string name="help_print_gamma_summary">네거티브와 인화지에 담긴 본래의 대비.</string>
+    <string name="help_print_gamma_body">모든 필름과 인화지에는 특성 곡선이 있으며, \"감마\"는 그 곡선의 기울기입니다. 사진화학에서의 대비 조절에 해당합니다. 인화 감마를 높이면 힘 있고 대비가 높은 인화가, 낮추면 평탄한 인화가 됩니다. 일상적인 대비 조절에는 먼저 대비 슬라이더를 사용하고, 이 설정은 룩의 뼈대를 만드는 사진화학적 조절 장치로 사용하세요.</string>
+    <string name="help_preflash_title">프리플래시</string>
+    <string name="help_preflash_summary">강한 대비를 누그러뜨리는 인화지의 약하고 균일한 사전 노광.</string>
+    <string name="help_preflash_body">암실에서는 본 노광 전에 인화지에 약하고 균일한 빛을 비추기도 합니다. 그러면 하이라이트는 건드리지 않고 가장 깊은 섀도가 올라가며 인화의 대비가 부드럽게 낮아집니다. \"노광\"을 올리면 더 부드럽고 열린 섀도가 됩니다. Y와 M 필터 이동은 확대기의 필터 조정처럼 사전 노광 빛에 색을 더합니다.</string>
+    <string name="help_glare_title">글레어</string>
+    <string name="help_glare_summary">인화지 표면에서 빛이 산란해 생기는 베일 같은 흐림.</string>
+    <string name="help_glare_body">인화지와 스캐너 안에서 튀는 미광을 재현하여 검정을 약간 올리고 이미지에 부드러운 흐림을 더합니다. 무작위(확률적) 효과이므로 기본적으로 꺼져 있으며, 정확하고 반복 가능한 내보내기에는 포함되지 않습니다. \"퍼센트\"를 올리면 더 흐리고 대비가 낮은 향수 어린 느낌이 됩니다.</string>
+    <string name="help_contrast_mask_title">대비 마스크</string>
+    <string name="help_contrast_mask_summary">암실 마스크처럼 넓은 밝은 부분에서는 빛을 줄이고 넓은 어두운 부분에서는 빛을 더합니다.</string>
+    <string name="help_contrast_mask_body">예전에는 네거티브를 흐리게 만든 부드러운 사본을 원본과 겹쳐 확대기에 넣었습니다. 네거티브가 얇은 곳에서는 빛을 막고 진한 곳에서는 아무것도 더하지 않아, 인화의 넓은 밝은 부분과 어두운 부분이 중간으로 모이고 가장자리와 질감은 선명함을 유지했습니다. ‘하이라이트’는 하늘과 하이라이트 디테일을 되살리고, ‘섀도’는 어두운 부분을 열어 주며, ‘보호할 중간 톤’은 톤의 중앙을 지키고, ‘부드러움’은 마스크를 얼마나 흐리게 할지 정합니다. 기본값은 꺼짐이며 인화 경로에서만 적용됩니다.</string>
+</resources>

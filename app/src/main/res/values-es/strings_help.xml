@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spektrafilm for Android. GPLv3. -->
+<!-- Machine-drafted translation (Claude, 2026-11); needs review by a native speaker. -->
+<resources>
+    <string name="help_grain_title">Grano</string>
+    <string name="help_grain_summary">La textura fina y chispeante que hace que la película parezca película.</string>
+    <string name="help_grain_body">La película real está formada por partículas microscópicas sensibles a la luz, y su agrupación aleatoria es lo que ves como grano. Partículas más grandes (una película más rápida, de ISO más alto) dan un grano más grueso y visible; las escalas por canal permiten que una capa de color tenga más grano que las demás. Bájalo para un aspecto limpio y moderno o súbelo para uno áspero y vintage. El grano se mide en micras, así que puede verse más fino en la pequeña vista previa en pantalla que en la exportación a resolución completa.</string>
+    <string name="help_halation_title">Halación</string>
+    <string name="help_halation_summary">El suave resplandor rojizo que florece alrededor de las luces intensas.</string>
+    <string name="help_halation_body">En la película real, la luz intensa atraviesa la emulsión, se refleja en la parte trasera del soporte y vuelve a exponer la película alrededor de las zonas brillantes: farolas, el sol entre las hojas, reflejos especulares. «Cantidad de halación» fija la intensidad de ese resplandor, mientras que la «dispersión» añade una difusión de luz más amplia y sutil dentro de la emulsión; «EV de realce» decide cuán brillante debe ser una luz antes de florecer. Súbela para un aspecto onírico y cinematográfico, o desactiva toda la sección para unas luces limpias y digitales.</string>
+    <string name="help_couplers_title">Carácter de color de la película (acopladores)</string>
+    <string name="help_couplers_summary">La separación de color característica de la película, el realce de bordes y la caída de saturación.</string>
+    <string name="help_couplers_body">Al revelarse la película, el tinte que se forma en una capa de color frena químicamente a sus vecinas: el efecto de los «acopladores DIR». Esa interferencia explica en gran parte por qué los colores de la película se ven como se ven: bordes más nítidos y una saturación característica y no lineal. «Intensidad del efecto» escala todo el carácter, y los controles entre colores fijan cuánto se filtra cada color en los demás. Es un control de carácter, no un simple regulador de saturación: para un «más / menos colorido» normal, usa Saturación / Intensidad en Salida.</string>
+    <string name="help_print_gamma_title">Contraste de película y copia (gamma)</string>
+    <string name="help_print_gamma_summary">El contraste de base incorporado en el negativo y en el papel de copia.</string>
+    <string name="help_print_gamma_body">Cada película y cada papel tienen una curva característica, y su «gamma» es la pendiente de esa curva: el equivalente fotoquímico de un control de contraste. Una gamma de copia más alta da una copia más contundente y contrastada; una más baja la aplana. Para ajustes de contraste cotidianos, usa primero el regulador Contraste; estos son los mandos fotoquímicos de fondo para dar forma a la base del estilo.</string>
+    <string name="help_preflash_title">Preexposición</string>
+    <string name="help_preflash_summary">Una exposición previa, débil y uniforme, del papel que suaviza el contraste duro.</string>
+    <string name="help_preflash_body">En el cuarto oscuro, a veces se da al papel un destello de luz baja y uniforme antes de la exposición real. Eso levanta las sombras más profundas y reduce suavemente el contraste de la copia sin tocar las luces. Sube «Exposición» para sombras más suaves y abiertas; los desplazamientos de los filtros Y y M tiñen esa luz de preexposición, igual que la filtración de la ampliadora.</string>
+    <string name="help_glare_title">Velo</string>
+    <string name="help_glare_summary">Neblina causada por la luz que se dispersa sobre la superficie de la copia.</string>
+    <string name="help_glare_body">Modela la luz parásita que rebota en la copia y el escáner, levantando un poco los negros y extendiendo una neblina suave sobre la imagen. Es un efecto aleatorio (estocástico), por eso está desactivado por defecto y no forma parte de la exportación exacta y repetible. Sube «Porcentaje» para un aspecto más brumoso, de menor contraste y más nostálgico.</string>
+    <string name="help_contrast_mask_title">Máscara de contraste</string>
+    <string name="help_contrast_mask_summary">Retiene luz en las grandes zonas claras y la añade en las grandes zonas oscuras, como una máscara de cuarto oscuro.</string>
+    <string name="help_contrast_mask_body">Antiguamente, los positivadores colocaban en la ampliadora una copia suave y desenfocada del negativo junto al original. Donde el negativo era fino retenía luz, y donde era denso no añadía nada, así que las grandes zonas claras y oscuras de la copia se acercaban al centro mientras los bordes y la textura conservaban su mordiente. «Luces» recupera el detalle del cielo y de las altas luces, «Sombras» abre las zonas oscuras, «Medios tonos intactos» protege el centro de la escala y «Suavidad» fija cuánto se desenfoca la máscara. Está desactivada por defecto y solo funciona en la ruta de copia.</string>
+</resources>
