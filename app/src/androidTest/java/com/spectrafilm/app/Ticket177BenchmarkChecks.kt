@@ -222,6 +222,7 @@ object Ticket177BenchmarkChecks {
                     null,
                     95,
                     /* keepGps = */ false,
+                    FilmBorder.NONE,
                     ExportCaches.contractVersionOf(context),
                 )
             }

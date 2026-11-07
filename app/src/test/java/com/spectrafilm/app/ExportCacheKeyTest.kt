@@ -57,9 +57,10 @@ class ExportCacheKeyTest {
         longEdge: Int? = null,
         jpegQuality: Int = 95,
         keepGps: Boolean = false,
+        border: FilmBorder = FilmBorder.NONE,
         contractVersion: String = contract,
     ) = ExportCacheKey.compute(
-        source, params, grade, descriptor, longEdge, jpegQuality, keepGps, contractVersion,
+        source, params, grade, descriptor, longEdge, jpegQuality, keepGps, border, contractVersion,
     )
 
     @Test
@@ -109,6 +110,14 @@ class ExportCacheKeyTest {
         // the key saw it, so an export with GPS turned off could republish the cached file that
         // still carried the coordinates.
         assertNotEquals("keepGps", key(), key(keepGps = true))
+    }
+
+    @Test
+    fun `the film border participates`() {
+        // A border changes the output size and pixels; a key blind to it would republish the
+        // bare photo after the user picked a frame, or the reverse.
+        val keys = FilmBorder.entries.map { key(border = it) }
+        assertEquals(keys.size, keys.toSet().size)
     }
 
     @Test

@@ -757,6 +757,11 @@ internal fun attachRenderedGainmap(
     result: SimResult,
     base: Bitmap,
     descriptor: OutputDescriptor,
+    /**
+     * Film border already composited around the photo in [base], or null. The map is computed
+     * for the photo and padded with neutral gain to cover the border, so it stays aligned.
+     */
+    border: BorderLayout? = null,
 ): HdrGainMap.Result? {
     val contract = descriptor.metadata.hdrGainMap ?: return null
     if (Build.VERSION.SDK_INT < 34) return null
@@ -774,6 +779,8 @@ internal fun attachRenderedGainmap(
             epsilonSdr = contract.epsilonSdr,
             epsilonHdr = contract.epsilonHdr,
         )
+    }.let { map ->
+        border?.let { HdrGainMap.padForBorder(map, it) } ?: map
     }
     val content = Bitmap.createBitmap(computed.width, computed.height, Bitmap.Config.ALPHA_8)
     // ALPHA_8 rows can be padded, so copy row by row against the bitmap's own stride rather

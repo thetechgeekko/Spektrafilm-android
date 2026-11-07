@@ -977,6 +977,7 @@ internal object EditorSessionDocumentCodec {
         put("size", options.size.name)
         put("customLongEdge", options.customLongEdge)
         put("customName", options.customName)
+        put("border", options.border.name)
     }
 
     private fun presetToJson(preset: EditorPresetState) = JSONObject().apply {
@@ -1006,6 +1007,8 @@ internal object EditorSessionDocumentCodec {
         size = strictEnum(value.requiredString("size"), "export size"),
         customLongEdge = exactInt(value.opt("customLongEdge"), "customLongEdge"),
         customName = value.requiredString("customName"),
+        // Optional: sessions written before film borders existed have no key.
+        border = FilmBorder.parse(value.optString("border", FilmBorder.NONE.name)),
     )
 
     private fun JSONObject.requiredObject(key: String): JSONObject =
