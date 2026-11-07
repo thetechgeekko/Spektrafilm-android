@@ -5090,7 +5090,9 @@ class MainActivity : ComponentActivity() {
             Modifier
                 .fillMaxSize()
                 .background(SpectraIcons.nearBlackCanvas)
-                .padding(horizontal = 16.dp)
+                // Edge to edge: no side gutter. A 16dp gutter on each side cost a landscape
+                // photo (the common case on a portrait phone) 32dp of width and therefore
+                // ~8% of its displayed size. The overlays below carry their own insets.
                 .semantics {
                     contentDescription = previewDesc
                     customActions = previewActions
@@ -5187,7 +5189,7 @@ class MainActivity : ComponentActivity() {
                     renderErr = renderErr,
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = 6.dp, top = 6.dp),
+                        .padding(start = 12.dp, top = 6.dp),
                 )
 
                 // bottom-center controls on a scrim: histogram + compare + crop + rotate
