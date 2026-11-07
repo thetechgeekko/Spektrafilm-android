@@ -40,15 +40,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -190,14 +188,18 @@ fun ExportSheet(
                     stringResource(R.string.tool_export_sharpen),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().semantics { selectableGroup() },
+                    horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
+                ) {
                     val choices = OutputSharpen.entries
                     choices.forEachIndexed { index, choice ->
-                        SegmentedButton(
+                        ConnectedToggle(
+                            label = stringResource(choice.labelRes),
                             selected = options.sharpen == choice,
+                            shape = connectedShape(index, choices.size),
                             onClick = { onOptionsChange(options.copy(sharpen = choice)) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
-                            label = { Text(stringResource(choice.labelRes), maxLines = 1) },
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
