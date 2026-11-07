@@ -193,7 +193,7 @@ Kotlin / build:
 ANDROID_SDK_ROOT=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
   ./gradlew :app:assembleDebug          # debug APK (all 3 ABIs)
 ./gradlew :app:testDebugUnitTest        # JVM unit tests (the only Kotlin test layer)
-./gradlew :app:lint                     # abortOnError=true; baseline app/lint-baseline.xml
+./gradlew :app:lint                     # abortOnError=true; no baseline (#298)
 ```
 
 ---

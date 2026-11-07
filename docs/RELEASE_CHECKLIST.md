@@ -177,7 +177,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   - `parity` — the `.spkvec` comparator self-test.
   - `python-lint` — byte-compile plus deterministic compliance and release-policy tests.
   - `android` — JVM unit tests + **`:app:lint`** (`ci.yml:379-388`; a hard gate —
-    `abortOnError = true`, baseline at `app/lint-baseline.xml`) + full debug assemble,
+    `abortOnError = true`, no baseline since #298) + full debug assemble,
     an NDK 27 x86_64 standalone-recipient relink smoke (SONAME, JNI/marker exports,
     and 16 KiB `PT_LOAD` alignment),
     **including the 16 KB-page-alignment
