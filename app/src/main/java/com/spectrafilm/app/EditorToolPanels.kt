@@ -94,27 +94,30 @@ internal fun DateStampGroup(s: ParamsState, photoDateStamp: String?) {
             }
             Text(stringResource(R.string.editor_sim_date_stamp_corner),
                 style = MaterialTheme.typography.bodyMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    0 to R.string.editor_sim_date_stamp_corner_br,
-                    1 to R.string.editor_sim_date_stamp_corner_bl,
-                    2 to R.string.editor_sim_date_stamp_corner_tr,
-                    3 to R.string.editor_sim_date_stamp_corner_tl,
-                ).forEach { (corner, label) ->
-                    FilterChip(selected = s.dateStampCorner == corner,
-                        onClick = { s.dateStampCorner = corner },
-                        label = { Text(stringResource(label)) })
-                }
-            }
+            // Laid out as the frame itself: top corners above, bottom corners below.
+            ConnectedChoiceRow(
+                options = listOf(
+                    3 to stringResource(R.string.editor_sim_date_stamp_corner_tl),
+                    2 to stringResource(R.string.editor_sim_date_stamp_corner_tr),
+                ),
+                selected = s.dateStampCorner,
+                onSelect = { s.dateStampCorner = it },
+            )
+            ConnectedChoiceRow(
+                options = listOf(
+                    1 to stringResource(R.string.editor_sim_date_stamp_corner_bl),
+                    0 to stringResource(R.string.editor_sim_date_stamp_corner_br),
+                ),
+                selected = s.dateStampCorner,
+                onSelect = { s.dateStampCorner = it },
+            )
             Text(stringResource(R.string.editor_sim_date_stamp_color),
                 style = MaterialTheme.typography.bodyMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DATE_STAMP_COLORS.forEach { (color, label) ->
-                    FilterChip(selected = s.dateStampColor == color,
-                        onClick = { s.dateStampColor = color },
-                        label = { Text(stringResource(label)) })
-                }
-            }
+            ConnectedChoiceRow(
+                options = DATE_STAMP_COLORS.map { (color, label) -> color to stringResource(label) },
+                selected = s.dateStampColor,
+                onSelect = { s.dateStampColor = it },
+            )
             EnhancedSlider(stringResource(R.string.editor_sim_date_stamp_size),
                 s.dateStampHeight * 100f, 2f..10f, { s.dateStampHeight = it / 100f },
                 step = 0.25f, decimals = 2,
