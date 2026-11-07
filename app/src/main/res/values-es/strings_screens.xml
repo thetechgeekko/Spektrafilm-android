@@ -268,4 +268,23 @@
     <string name="library_loading">Cargando carpeta</string>
     <string name="library_badge_edited">Editada</string>
     <string name="library_cell_edited_desc">%1$s, editada</string>
+    <string name="library_select_action">Seleccionar</string>
+    <string name="library_select_all">Seleccionar todo</string>
+    <string name="library_paste_edit">Pegar edición</string>
+    <string name="library_paste_no_source">Edita primero una foto. Pegar edición da a los fotogramas seleccionados el aspecto de la foto abierta en el editor.</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%1$d seleccionada</item>
+        <item quantity="many">%1$d seleccionadas</item>
+        <item quantity="other">%1$d seleccionadas</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="one">Aspecto pegado en %1$d foto. Se conservaron su recorte y sus máscaras.</item>
+        <item quantity="many">Aspecto pegado en %1$d fotos. Se conservaron sus recortes y máscaras.</item>
+        <item quantity="other">Aspecto pegado en %1$d fotos. Se conservaron sus recortes y máscaras.</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="one">Aspecto pegado en %1$d. Se omitió %2$d foto porque no se pudo leer su edición.</item>
+        <item quantity="many">Aspecto pegado en %1$d. Se omitieron %2$d fotos porque no se pudieron leer sus ediciones.</item>
+        <item quantity="other">Aspecto pegado en %1$d. Se omitieron %2$d fotos porque no se pudieron leer sus ediciones.</item>
+    </plurals>
 </resources>

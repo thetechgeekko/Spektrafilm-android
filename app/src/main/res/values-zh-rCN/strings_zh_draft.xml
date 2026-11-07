@@ -218,4 +218,17 @@
     <string name="tool_export_batch">用此编辑导出更多照片…</string>
     <string name="library_badge_edited">已编辑</string>
     <string name="library_cell_edited_desc">%1$s，已编辑</string>
+    <string name="library_select_action">选择</string>
+    <string name="library_select_all">全选</string>
+    <string name="library_paste_edit">粘贴编辑</string>
+    <string name="library_paste_no_source">请先编辑一张照片。粘贴编辑会把编辑器中打开的照片的风格应用到所选照片。</string>
+    <plurals name="library_selected_count">
+        <item quantity="other">已选择 %1$d 张</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="other">已将风格粘贴到 %1$d 张照片，保留了各自的裁剪和蒙版。</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="other">已粘贴到 %1$d 张。%2$d 张照片的编辑无法读取，已跳过。</item>
+    </plurals>
 </resources>

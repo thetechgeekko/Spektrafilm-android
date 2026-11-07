@@ -93,6 +93,13 @@ internal data class LibraryUiState(
     val unreadable: Boolean = false,
 )
 
+/** Progress of a Library look paste ([LibraryViewModel.pasteLookFrom]). */
+internal sealed interface LibraryPasteState {
+    data object Idle : LibraryPasteState
+    data class Running(val count: Int) : LibraryPasteState
+    data class Done(val result: LookSync.Result) : LibraryPasteState
+}
+
 /** Where the chosen folder lives, and its grant. Production: AppSettings + ContentResolver. */
 internal interface LibraryFolderStore {
     var treeUri: String?
@@ -118,10 +125,71 @@ internal class LibraryViewModel(
     private val io: CoroutineDispatcher,
     /** True when a saved edit exists for a document URI. Blocking; called on [io]. */
     private val hasEdit: (documentUri: String) -> Boolean = { false },
+    /** Pastes the look of the photo at the first URI onto the targets. Called on [io]. */
+    private val pasteLook: suspend (sourceUri: String, targets: List<LookSync.Target>) -> LookSync.Result =
+        { _, _ -> LookSync.Result(0, 0, noSource = true) },
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState(treeUri = store.treeUri))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
     private var loadJob: Job? = null
+
+    private val _selection = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Document URIs the user selected (long-press, then tap) to paste a look onto. */
+    val selection: StateFlow<Set<String>> = _selection.asStateFlow()
+
+    private val _paste = MutableStateFlow<LibraryPasteState>(LibraryPasteState.Idle)
+    val paste: StateFlow<LibraryPasteState> = _paste.asStateFlow()
+
+    fun toggleSelected(documentUri: String) {
+        _selection.value = _selection.value.let { if (documentUri in it) it - documentUri else it + documentUri }
+    }
+
+    fun selectAll() {
+        _selection.value = _state.value.entries.mapTo(LinkedHashSet()) { it.documentUri }
+    }
+
+    fun clearSelection() {
+        _selection.value = emptySet()
+    }
+
+    /**
+     * Gives every selected frame the look of [sourceUri] (the photo open in the editor), keeping
+     * each frame's own crop, masks and rotation ([LookSync]). Ends selection and re-reads the
+     * folder so the Edited badges catch up.
+     */
+    fun pasteLookFrom(sourceUri: String?) {
+        if (_paste.value is LibraryPasteState.Running) return
+        val picked = _selection.value
+        val targets = _state.value.entries
+            .filter { it.documentUri in picked && it.documentUri != sourceUri }
+            .map { LookSync.Target(it.documentUri, it.name) }
+        if (sourceUri == null) {
+            _paste.value = LibraryPasteState.Done(LookSync.Result(0, 0, noSource = true))
+            return
+        }
+        if (targets.isEmpty()) return
+        _paste.value = LibraryPasteState.Running(targets.size)
+        viewModelScope.launch {
+            val result = try {
+                withContext(io) { pasteLook(sourceUri, targets) }
+            } catch (cancelled: CancellationException) {
+                _paste.value = LibraryPasteState.Idle
+                throw cancelled
+            } catch (failure: Exception) {
+                Diag.w("library paste failed: ${failure.message}")
+                LookSync.Result(applied = 0, skipped = targets.size)
+            }
+            if (!result.noSource) _selection.value = emptySet()
+            _paste.value = LibraryPasteState.Done(result)
+            if (result.applied > 0) refresh()
+        }
+    }
+
+    /** The screen showed the outcome of [pasteLookFrom]. */
+    fun pasteShown() {
+        if (_paste.value is LibraryPasteState.Done) _paste.value = LibraryPasteState.Idle
+    }
 
     /** Re-read the folder. Called when the screen is shown, so new frames appear. */
     fun refresh() {
@@ -144,6 +212,11 @@ internal class LibraryViewModel(
                 null
             }
             if (store.treeUri != tree) return@launch
+            if (listing != null) {
+                // A frame that left the folder cannot stay selected.
+                val present = listing.rows.mapTo(HashSet()) { it.documentUri }
+                _selection.value = _selection.value.filterTo(LinkedHashSet()) { it in present }
+            }
             _state.value = if (listing == null) {
                 LibraryUiState(treeUri = tree, folderName = _state.value.folderName, unreadable = true)
             } else {
@@ -162,6 +235,7 @@ internal class LibraryViewModel(
         // Record the folder before taking its grant, so a source restore running meanwhile
         // already counts the grant as the Library's and does not release it.
         store.treeUri = treeUri
+        _selection.value = emptySet()
         if (!store.takeGrant(treeUri)) {
             // Without a persisted grant the folder would vanish on the next cold start; still
             // show it for this session rather than refusing the pick outright.
@@ -177,6 +251,7 @@ internal class LibraryViewModel(
         store.treeUri ?: return
         loadJob?.cancel()
         store.treeUri = null
+        _selection.value = emptySet()
         releaseUnused()
         _state.value = LibraryUiState()
     }
@@ -214,6 +289,13 @@ internal class LibraryViewModel(
             val app = context.applicationContext
             return { uri -> Recipes.exists(app, Recipes.keyFor(Uri.parse(uri))) }
         }
+
+        /**
+         * Runs on the recipe FIFO ([RecipeWorkRuntime]), behind any editor save already queued,
+         * so the look pasted is the one the editor last saved.
+         */
+        fun androidLookPaste(recipes: RecipeRepository): suspend (String, List<LookSync.Target>) -> LookSync.Result =
+            { source, targets -> RecipeWorkRuntime.submit { LookSync.paste(recipes, source, targets) }.await() }
 
         fun androidLister(context: Context): LibraryLister {
             val resolver = context.applicationContext.contentResolver

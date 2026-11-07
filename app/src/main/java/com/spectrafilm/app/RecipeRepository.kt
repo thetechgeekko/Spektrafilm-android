@@ -38,6 +38,12 @@ internal interface RecipeRepository {
      * is none. Runs file IO: call it off the main thread.
      */
     fun previousEdit(excludeKey: String?): PreviousEdit? = null
+
+    /**
+     * Runs [block] holding [key]'s operation gate, so a read-modify-write of one recipe cannot
+     * interleave with another save or delete of it. The gate is reentrant.
+     */
+    fun <T> atomically(key: String, block: () -> T): T = block()
 }
 
 /** [RecipeRepository] over the app's recipes directory ([Recipes]). */
@@ -54,6 +60,7 @@ internal class FileRecipeRepository(context: Context) : RecipeRepository {
         expectedGeneration: Long?,
     ) = Recipes.saveJson(app, key, paramsJson, sourceName, rotationDegrees, expectedGeneration)
     override fun delete(key: String?) = Recipes.delete(app, key)
+    override fun <T> atomically(key: String, block: () -> T): T = Recipes.withOperationGate(key, block)
     override fun previousEdit(excludeKey: String?): PreviousEdit? =
         PreviousEdits.firstReadable(
             PreviousEdits.candidates(PreviousEdits.stamps(Recipes.directory(app)), excludeKey),

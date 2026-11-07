@@ -296,4 +296,20 @@
     <string name="library_loading">Loading folder</string>
     <string name="library_badge_edited">Edited</string>
     <string name="library_cell_edited_desc">%1$s, edited</string>
+    <string name="library_select_action">Select</string>
+    <string name="library_select_all">Select all</string>
+    <string name="library_paste_edit">Paste edit</string>
+    <string name="library_paste_no_source">Edit a photo first. Paste edit gives the selected frames the look of the photo open in the editor.</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="one">Look pasted onto %1$d photo. Its crop and masks were kept.</item>
+        <item quantity="other">Look pasted onto %1$d photos. Their crops and masks were kept.</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="one">Look pasted onto %1$d. %2$d photo was skipped because its edit could not be read.</item>
+        <item quantity="other">Look pasted onto %1$d. %2$d photos were skipped because their edits could not be read.</item>
+    </plurals>
 </resources>

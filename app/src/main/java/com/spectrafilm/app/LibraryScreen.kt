@@ -8,12 +8,14 @@ package com.spectrafilm.app
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +38,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -78,17 +84,67 @@ internal fun LibraryDestination(
     onOpen: (Uri) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val paste by vm.paste.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
     // Re-read on every visit, so frames shot since the last one appear.
     LaunchedEffect(Unit) { vm.refresh() }
+    val outcome = (paste as? LibraryPasteState.Done)?.result
+    LaunchedEffect(outcome) {
+        if (outcome == null) return@LaunchedEffect
+        val message = when {
+            outcome.noSource -> ctx.getString(R.string.library_paste_no_source)
+            outcome.skipped == 0 ->
+                ctx.resources.getQuantityString(R.plurals.library_paste_done, outcome.applied, outcome.applied)
+            else -> ctx.resources.getQuantityString(
+                R.plurals.library_paste_partial,
+                outcome.skipped,
+                outcome.applied,
+                outcome.skipped,
+            )
+        }
+        // Cleared only after the snackbar, since clearing changes this effect's key.
+        try {
+            snackbar.showSnackbar(message)
+        } finally {
+            vm.pasteShown()
+        }
+    }
+    val selecting = selection.isNotEmpty()
+    BackHandler(enabled = selecting) { vm.clearSelection() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         if (tree != null) vm.chooseFolder(tree.toString())
     }
     val choose = { picker.launch(state.treeUri?.let(Uri::parse)) }
+    val running = paste is LibraryPasteState.Running
     NavScaffold(
-        title = state.folderName ?: stringResource(R.string.library_title),
-        onBack = onBack,
+        title = if (selecting) {
+            pluralStringResource(R.plurals.library_selected_count, selection.size, selection.size)
+        } else {
+            state.folderName ?: stringResource(R.string.library_title)
+        },
+        onBack = if (selecting) vm::clearSelection else onBack,
         actions = {
-            if (state.treeUri != null) {
+            if (selecting) {
+                // The look comes from the photo open in the editor; without one there is
+                // nothing to paste, and the snackbar says so.
+                TextButton(onClick = { vm.pasteLookFrom(currentUri) }, enabled = !running) {
+                    Text(stringResource(R.string.library_paste_edit))
+                }
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(SpectraIcons.More, contentDescription = stringResource(R.string.editor_action_more))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_select_all)) },
+                            onClick = { menuOpen = false; vm.selectAll() },
+                        )
+                    }
+                }
+            } else if (state.treeUri != null) {
                 var menuOpen by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -112,7 +168,22 @@ internal fun LibraryDestination(
             }
         },
     ) {
-        LibraryScreen(state, currentUri = currentUri, onChooseFolder = choose, onOpen = onOpen)
+        Box(Modifier.fillMaxSize()) {
+            LibraryScreen(
+                state,
+                currentUri = currentUri,
+                selection = selection,
+                onChooseFolder = choose,
+                onOpen = onOpen,
+                onToggleSelected = vm::toggleSelected,
+            )
+            SnackbarHost(
+                snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(WindowInsets.navigationBars.asPaddingValues()),
+            )
+        }
     }
 }
 
@@ -123,6 +194,8 @@ internal fun LibraryScreen(
     currentUri: String?,
     onChooseFolder: () -> Unit,
     onOpen: (Uri) -> Unit,
+    selection: Set<String> = emptySet(),
+    onToggleSelected: (String) -> Unit = {},
 ) {
     val choose = onChooseFolder
     when {
@@ -151,12 +224,19 @@ internal fun LibraryScreen(
             action = stringResource(R.string.library_change_folder),
             onAction = choose,
         )
-        else -> LibraryGrid(state.entries, currentUri, onOpen)
+        else -> LibraryGrid(state.entries, currentUri, selection, onOpen, onToggleSelected)
     }
 }
 
 @Composable
-private fun LibraryGrid(entries: List<LibraryEntry>, currentUri: String?, onOpen: (Uri) -> Unit) {
+private fun LibraryGrid(
+    entries: List<LibraryEntry>,
+    currentUri: String?,
+    selection: Set<String>,
+    onOpen: (Uri) -> Unit,
+    onToggleSelected: (String) -> Unit,
+) {
+    val selecting = selection.isNotEmpty()
     val gridState = rememberLazyGridState()
     // Find the user's place in the shoot: scroll to the frame open in the editor, once per
     // visit, so a Refresh does not yank the grid back.
@@ -185,20 +265,34 @@ private fun LibraryGrid(entries: List<LibraryEntry>, currentUri: String?, onOpen
             LibraryCell(
                 entry,
                 current = entry.documentUri == currentUri,
-                onClick = { onOpen(Uri.parse(entry.documentUri)) },
+                selected = entry.documentUri in selection,
+                // Long-press starts selecting (as in Photos and Files); while selecting, a tap
+                // toggles instead of opening.
+                onClick = {
+                    if (selecting) onToggleSelected(entry.documentUri) else onOpen(Uri.parse(entry.documentUri))
+                },
+                onLongClick = { onToggleSelected(entry.documentUri) },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Unit) {
+private fun LibraryCell(
+    entry: LibraryEntry,
+    current: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val ctx = LocalContext.current
     val description = if (entry.edited) {
         stringResource(R.string.library_cell_edited_desc, entry.name)
     } else {
         entry.name
     }
+    val selectLabel = stringResource(R.string.library_select_action)
     val thumb by produceState<Bitmap?>(LibraryThumbnails.cached(entry.documentUri), entry.documentUri) {
         if (value == null) value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, entry.documentUri) }
     }
@@ -207,18 +301,18 @@ private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Un
             .aspectRatio(1f)
             .clip(RoundedCornerShape(4.dp))
             .then(
-                if (current) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-                } else {
-                    Modifier
+                when {
+                    selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(4.dp))
+                    current -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
+                    else -> Modifier
                 },
             )
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = selectLabel)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = description
-                selected = current
+                this.selected = selected || current
             },
     ) {
         thumb?.let {
@@ -245,6 +339,20 @@ private fun LibraryCell(entry: LibraryEntry, current: Boolean, onClick: () -> Un
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
+        }
+        if (selected) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiary,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+            ) {
+                Icon(
+                    SpectraIcons.Confirm,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiary,
+                    modifier = Modifier.padding(2.dp).size(18.dp),
                 )
             }
         }

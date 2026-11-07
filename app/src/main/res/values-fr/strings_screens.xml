@@ -268,4 +268,23 @@
     <string name="library_loading">Chargement du dossier</string>
     <string name="library_badge_edited">Modifiée</string>
     <string name="library_cell_edited_desc">%1$s, modifiée</string>
+    <string name="library_select_action">Sélectionner</string>
+    <string name="library_select_all">Tout sélectionner</string>
+    <string name="library_paste_edit">Coller la retouche</string>
+    <string name="library_paste_no_source">Retouchez d\'abord une photo. Coller la retouche applique aux vues sélectionnées le rendu de la photo ouverte dans l\'éditeur.</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%1$d sélectionnée</item>
+        <item quantity="many">%1$d sélectionnées</item>
+        <item quantity="other">%1$d sélectionnées</item>
+    </plurals>
+    <plurals name="library_paste_done">
+        <item quantity="one">Rendu collé sur %1$d photo. Son recadrage et ses masques ont été conservés.</item>
+        <item quantity="many">Rendu collé sur %1$d photos. Leurs recadrages et masques ont été conservés.</item>
+        <item quantity="other">Rendu collé sur %1$d photos. Leurs recadrages et masques ont été conservés.</item>
+    </plurals>
+    <plurals name="library_paste_partial">
+        <item quantity="one">Rendu collé sur %1$d. %2$d photo a été ignorée, sa retouche étant illisible.</item>
+        <item quantity="many">Rendu collé sur %1$d. %2$d photos ont été ignorées, leurs retouches étant illisibles.</item>
+        <item quantity="other">Rendu collé sur %1$d. %2$d photos ont été ignorées, leurs retouches étant illisibles.</item>
+    </plurals>
 </resources>
