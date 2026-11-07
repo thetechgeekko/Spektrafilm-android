@@ -1147,6 +1147,8 @@ class MainActivity : ComponentActivity() {
                                 printGroups = settingsPrintGroups,
                                 onShowOnboarding = { showOnboarding = true; popToEditor() },
                                 onOpenDiagnostics = { push(DiagnosticsRoute) },
+                                onOpenAbout = { push(AboutRoute) },
+                                onOpenHowTo = { push(HowToRoute) },
                                 updateUi = updateUi,
                                 onUpdateAction = onUpdateAction,
                             )
@@ -2855,11 +2857,17 @@ class MainActivity : ComponentActivity() {
             val roiPublicationTicket = roiPublicationGate.begin(renderSnapshot.renderKey)
             roiJobRef.value = scope.launch {
                 val pendingOutcomes = PendingRenderOutcomes()
+                // Zoom timing (rawr study step 1): settle -> source -> draft -> final, all in ms
+                // from the settle. One line per completed or superseded ROI render.
+                val timing = RoiTiming()
                 val result = runCatching {
                     loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
+                        timing.sourceMs = timing.sinceStartMs()
                         val full = fullLease.image
                         val cw = (roi.wN * full.width).toInt().coerceAtLeast(8)
                         val ch = (roi.hN * full.height).toInt().coerceAtLeast(8)
+                        timing.cropW = cw
+                        timing.cropH = ch
                         withOwnedContext(
                             context = dispatchers.default,
                             dispose = LinearImage::close,
@@ -2910,6 +2918,7 @@ class MainActivity : ComponentActivity() {
                             // DisposableEffect(roiOverlay), which recycles the prior one) OR recycled here —
                             // so a cancel mid-flight never leaks one.
                             val (draft, draftRenderId) = renderAt(ROI_DRAFT_MAX_PX)
+                            timing.draftMs = timing.sinceStartMs()
                             if (
                                 isActive && roiPublicationGate.canPublish(
                                     roiPublicationTicket,
@@ -2923,7 +2932,7 @@ class MainActivity : ComponentActivity() {
                                 if (!draft.isRecycled) draft.recycle()
                                 return@runCatching null
                             }
-                            renderAt(ROI_RENDER_MAX_PX)
+                            renderAt(ROI_RENDER_MAX_PX).also { timing.finalMs = timing.sinceStartMs() }
                         }
                     }
                 }
@@ -2937,6 +2946,7 @@ class MainActivity : ComponentActivity() {
                     // Superseded (cancelled): drop the final render (the draft, if published, stays
                     // and is recycled by the DisposableEffect when the next overlay replaces it).
                     result.getOrNull()?.first?.let { if (!it.isRecycled) it.recycle() }
+                    Diag.i(timing.line("superseded"))
                     return@launch
                 }
                 // On success publish the sharp final; the prior overlay (the draft) is recycled by
@@ -2946,8 +2956,10 @@ class MainActivity : ComponentActivity() {
                         roiOverlay = RoiOverlay(bmp, roi.cxN, roi.cyN, roi.wN, roi.hN)
                         pendingOutcomes.resolve(renderId, AppRenderOutcome.CONSUMED)
                     }
+                    Diag.i(timing.line("done"))
                 }.onFailure {
                     pendingOutcomes.resolveAll(AppRenderOutcome.FAILED)
+                    Diag.i(timing.line("failed"))
                 }
             }
         }

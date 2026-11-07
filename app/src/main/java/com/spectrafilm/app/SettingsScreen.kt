@@ -5,7 +5,7 @@
  * App-level settings persisted via AppSettings (SharedPreferences): default output
  * color space, preview resolution, default film/print profiles, export format +
  * quality, theme, a "Show onboarding again" action, a "Report an issue" entry (and a
- * "View issues" link), and an embedded About card. Stateless over the persisted values:
+ * "View issues" link), and rows for How to use, About and Diagnostics. Stateless over the persisted values:
  * it renders [SettingsUiState] and reports edits as [SettingsAction]s to
  * [SettingsViewModel], which writes them to AppSettings. Theme and dynamic colour
  * re-apply immediately (the activity reads them from the same state); the render
@@ -20,13 +20,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +57,11 @@ import com.spectrafilm.engine.ColorSpace
  * The Settings UI. [state] is the saved settings; [onAction] reports an edit.
  * [filmGroups]/[printGroups] are the catalog-grouped profile options (may be empty
  * before the engine is ready); [onShowOnboarding] re-launches the welcome flow.
+ *
+ * Laid out as M3 grouped (segmented) lists: a short heading per group, rows in one
+ * rounded container with 2dp gaps. Switches act at once; one-of-many choices open a
+ * radio dialog and apply on tap. About, How to use and Diagnostics are rows here, so
+ * the editor's overflow menu stays short.
  */
 @Composable
 internal fun SettingsScreen(
@@ -61,256 +71,410 @@ internal fun SettingsScreen(
     printGroups: List<DropdownGroup>,
     onShowOnboarding: () -> Unit,
     onOpenDiagnostics: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
+    onOpenHowTo: () -> Unit = {},
     updateUi: UpdateUiState = UpdateUiState(),
     onUpdateAction: (UpdateAction) -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    // Dropdown's display lambda isn't composable, so resolve the translated labels up front.
     val themeLabels = ThemeMode.entries.associateWith { stringResource(it.labelRes) }
     val formatLabels = ExportFormat.entries.associateWith { stringResource(it.labelRes) }
 
     val opensInBrowser = stringResource(R.string.screen_opens_in_browser)
-    // Label only: each link button keeps its own click action (null action merges).
+    // Label only: each link row keeps its own click action (null action merges).
     val linkSemantics = Modifier.semantics { onClick(label = opensInBrowser, action = null) }
 
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 24.dp),
     ) {
-        Text(
-            stringResource(R.string.screen_settings_title),
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.semantics { heading() },
+        // --- Appearance ---
+        SettingsGroup(
+            stringResource(R.string.screen_settings_appearance),
+            buildList<@Composable () -> Unit> {
+                add {
+                    ChoiceRow(
+                        title = stringResource(R.string.screen_settings_theme),
+                        selected = state.theme,
+                        options = ThemeMode.entries.toList(),
+                        display = { themeLabels.getValue(it) },
+                        onSelect = { onAction(SettingsAction.SetTheme(it)) },
+                    )
+                }
+                // Only offered where the platform can actually do it (API 31+).
+                if (dynamicColorSupported) add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_dynamic_color),
+                        note = stringResource(R.string.screen_settings_dynamic_color_note),
+                        checked = state.dynamicColor,
+                        onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
+                    )
+                }
+                // Per-app language lives in the system (Android 13+); this row only opens it.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && appLanguageChoiceAvailable(ctx)) add {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_language),
+                        supporting = stringResource(R.string.screen_settings_language_note, currentAppLanguageLabel(ctx)),
+                        onClick = { ctx.startActivity(appLanguageSettingsIntent(ctx)) },
+                    )
+                }
+            },
         )
 
-        // --- Appearance ---
-        SettingsCard(stringResource(R.string.screen_settings_appearance)) {
-            Dropdown(
-                label = stringResource(R.string.screen_settings_theme),
-                selected = state.theme,
-                options = ThemeMode.entries.toList(),
-                display = { themeLabels.getValue(it) },
-                onSelect = { onAction(SettingsAction.SetTheme(it)) },
-            )
-            // Only offered where the platform can actually do it (API 31+). Showing a switch that
-            // silently does nothing is worse than not showing one.
-            if (dynamicColorSupported) {
-                SettingToggleRow(
-                    title = stringResource(R.string.screen_settings_dynamic_color),
-                    note = stringResource(R.string.screen_settings_dynamic_color_note),
-                    checked = state.dynamicColor,
-                    onCheckedChange = { onAction(SettingsAction.SetDynamicColor(it)) },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            // Per-app language lives in the system (Android 13+); this row only opens it, and
-            // only appears once the app ships more than one language (see AppLanguage.kt).
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && appLanguageChoiceAvailable(ctx)) {
-                LanguageRow(
-                    current = currentAppLanguageLabel(ctx),
-                    onClick = { ctx.startActivity(appLanguageSettingsIntent(ctx)) },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
+        // --- Export (what people change most, so it comes before the render internals) ---
+        SettingsGroup(
+            stringResource(R.string.screen_settings_export),
+            buildList<@Composable () -> Unit> {
+                add {
+                    ChoiceRow(
+                        title = stringResource(R.string.screen_settings_export_format),
+                        selected = state.exportFormat,
+                        options = ExportFormat.entries.toList(),
+                        display = { formatLabels.getValue(it) },
+                        onSelect = { onAction(SettingsAction.SetExportFormat(it)) },
+                    )
+                }
+                if (state.showsQuality) add {
+                    RowBody {
+                        IntSlider(
+                            label = stringResource(R.string.screen_settings_jpeg_quality),
+                            value = state.exportQuality,
+                            range = 1..100,
+                            onValueChange = { onAction(SettingsAction.SetExportQuality(it)) },
+                        )
+                    }
+                }
+                add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_keep_gps),
+                        note = stringResource(R.string.screen_settings_keep_gps_note),
+                        checked = state.keepGps,
+                        onCheckedChange = { onAction(SettingsAction.SetKeepGps(it)) },
+                    )
+                }
+            },
+        )
 
-        // --- Defaults ---
-        SettingsCard(stringResource(R.string.screen_settings_render_defaults)) {
-            Text(
-                stringResource(R.string.screen_settings_render_defaults_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Dropdown(
-                label = stringResource(R.string.screen_settings_default_output_cs),
-                selected = state.outputColorSpace,
-                options = ColorSpace.entries.toList(),
-                display = { it.name },
-                onSelect = { onAction(SettingsAction.SetOutputColorSpace(it)) },
-            )
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_preview_auto),
-                note = stringResource(
-                    if (state.previewAuto) R.string.screen_settings_preview_auto_note
-                    else R.string.screen_settings_preview_auto_off_note,
-                    state.autoEdges.previewEdge,
-                ),
-                checked = state.previewAuto,
-                onCheckedChange = { onAction(SettingsAction.SetPreviewAuto(it)) },
-            )
-            if (!state.previewAuto) {
-                IntSlider(
-                    label = stringResource(R.string.screen_settings_preview_max_size),
-                    value = state.previewMaxSize,
-                    range = 128..1024,
-                    onValueChange = { onAction(SettingsAction.SetPreviewMaxSize(it)) },
-                    tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
-                )
-            }
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_draft_auto),
-                note = stringResource(
-                    if (state.draftAuto) R.string.screen_settings_draft_auto_note
-                    else R.string.screen_settings_draft_auto_off_note,
-                    state.autoEdges.draftEdge,
-                ),
-                checked = state.draftAuto,
-                onCheckedChange = { onAction(SettingsAction.SetDraftAuto(it)) },
-            )
-            if (!state.draftAuto) {
-                IntSlider(
-                    label = stringResource(R.string.screen_settings_draft_size),
-                    value = state.draftMaxPx,
-                    range = 128..512,
-                    onValueChange = { onAction(SettingsAction.SetDraftMaxPx(it)) },
-                    tooltip = stringResource(R.string.screen_settings_draft_size_tip),
-                )
-            }
-            if (filmGroups.isNotEmpty()) {
-                GroupedDropdown(
-                    label = stringResource(R.string.screen_settings_default_film),
-                    selectedId = state.defaultFilm.ifEmpty { filmGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
-                    groups = filmGroups,
-                    onSelect = { onAction(SettingsAction.SetDefaultFilm(it)) },
-                )
-            }
-            if (printGroups.isNotEmpty()) {
-                GroupedDropdown(
-                    label = stringResource(R.string.screen_settings_default_print),
-                    selectedId = state.defaultPrint.ifEmpty { printGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
-                    groups = printGroups,
-                    onSelect = { onAction(SettingsAction.SetDefaultPrint(it)) },
-                )
-            }
-        }
-
-        // --- Export ---
-        SettingsCard(stringResource(R.string.screen_settings_export)) {
-            Dropdown(
-                label = stringResource(R.string.screen_settings_export_format),
-                selected = state.exportFormat,
-                options = ExportFormat.entries.toList(),
-                display = { formatLabels.getValue(it) },
-                onSelect = { onAction(SettingsAction.SetExportFormat(it)) },
-            )
-            if (state.showsQuality) {
-                IntSlider(
-                    label = stringResource(R.string.screen_settings_jpeg_quality),
-                    value = state.exportQuality,
-                    range = 1..100,
-                    onValueChange = { onAction(SettingsAction.SetExportQuality(it)) },
-                )
-            }
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_keep_gps),
-                note = stringResource(R.string.screen_settings_keep_gps_note),
-                checked = state.keepGps,
-                onCheckedChange = { onAction(SettingsAction.SetKeepGps(it)) },
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-
-        // The three GPU toggles that stood here are gone: the engine's GPU route
-        // is now how the app renders, gated per device by its own self-check with
-        // automatic CPU fallback, so there is nothing left for a user to choose.
-        // The card went with them rather than standing empty.
+        // --- Render defaults ---
+        SettingsGroup(
+            stringResource(R.string.screen_settings_render_defaults),
+            buildList<@Composable () -> Unit> {
+                add {
+                    ChoiceRow(
+                        title = stringResource(R.string.screen_settings_default_output_cs),
+                        selected = state.outputColorSpace,
+                        options = ColorSpace.entries.toList(),
+                        display = { it.name },
+                        onSelect = { onAction(SettingsAction.SetOutputColorSpace(it)) },
+                    )
+                }
+                if (filmGroups.isNotEmpty()) add {
+                    RowBody {
+                        GroupedDropdown(
+                            label = stringResource(R.string.screen_settings_default_film),
+                            selectedId = state.defaultFilm.ifEmpty { filmGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
+                            groups = filmGroups,
+                            onSelect = { onAction(SettingsAction.SetDefaultFilm(it)) },
+                        )
+                    }
+                }
+                if (printGroups.isNotEmpty()) add {
+                    RowBody {
+                        GroupedDropdown(
+                            label = stringResource(R.string.screen_settings_default_print),
+                            selectedId = state.defaultPrint.ifEmpty { printGroups.firstOrNull()?.options?.firstOrNull()?.id ?: "" },
+                            groups = printGroups,
+                            onSelect = { onAction(SettingsAction.SetDefaultPrint(it)) },
+                        )
+                    }
+                }
+                add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_preview_auto),
+                        note = stringResource(
+                            if (state.previewAuto) R.string.screen_settings_preview_auto_note
+                            else R.string.screen_settings_preview_auto_off_note,
+                            state.autoEdges.previewEdge,
+                        ),
+                        checked = state.previewAuto,
+                        onCheckedChange = { onAction(SettingsAction.SetPreviewAuto(it)) },
+                    )
+                }
+                if (!state.previewAuto) add {
+                    RowBody {
+                        IntSlider(
+                            label = stringResource(R.string.screen_settings_preview_max_size),
+                            value = state.previewMaxSize,
+                            range = 128..1024,
+                            onValueChange = { onAction(SettingsAction.SetPreviewMaxSize(it)) },
+                            tooltip = stringResource(R.string.screen_settings_preview_max_size_tip),
+                        )
+                    }
+                }
+                add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_draft_auto),
+                        note = stringResource(
+                            if (state.draftAuto) R.string.screen_settings_draft_auto_note
+                            else R.string.screen_settings_draft_auto_off_note,
+                            state.autoEdges.draftEdge,
+                        ),
+                        checked = state.draftAuto,
+                        onCheckedChange = { onAction(SettingsAction.SetDraftAuto(it)) },
+                    )
+                }
+                if (!state.draftAuto) add {
+                    RowBody {
+                        IntSlider(
+                            label = stringResource(R.string.screen_settings_draft_size),
+                            value = state.draftMaxPx,
+                            range = 128..512,
+                            onValueChange = { onAction(SettingsAction.SetDraftMaxPx(it)) },
+                            tooltip = stringResource(R.string.screen_settings_draft_size_tip),
+                        )
+                    }
+                }
+            },
+            note = stringResource(R.string.screen_settings_render_defaults_note),
+        )
 
         // --- Updates & diagnostics ---
-        SettingsCard(stringResource(R.string.screen_settings_updates_heading)) {
-            val checking = updateUi.status == UpdateStatus.CHECKING
-            Button(
-                onClick = { onUpdateAction(UpdateAction.CheckNow) },
-                enabled = !checking,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                val labelRes =
-                    if (checking) R.string.screen_settings_checking
-                    else R.string.screen_settings_check_updates
-                Text(stringResource(labelRes))
-            }
-            val updateStatus = when (updateUi.status) {
-                UpdateStatus.IDLE, UpdateStatus.CHECKING -> null
-                UpdateStatus.FAILED -> stringResource(R.string.screen_settings_update_check_failed)
-                UpdateStatus.UP_TO_DATE ->
-                    stringResource(R.string.screen_settings_up_to_date, updateUi.currentVersion.orEmpty())
-                UpdateStatus.AVAILABLE ->
-                    stringResource(R.string.screen_settings_update_available_tag, updateUi.latestTag.orEmpty())
-            }
-            updateStatus?.let {
-                Text(
-                    it, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
-            if (updateUi.status == UpdateStatus.AVAILABLE && updateUi.offer == null) {
-                TextButton(onClick = { onUpdateAction(UpdateAction.ShowOffer) }) {
-                    Text(stringResource(R.string.screen_settings_update_view))
+        val checking = updateUi.status == UpdateStatus.CHECKING
+        val updateStatus = when (updateUi.status) {
+            UpdateStatus.IDLE -> null
+            UpdateStatus.CHECKING -> stringResource(R.string.screen_settings_checking)
+            UpdateStatus.FAILED -> stringResource(R.string.screen_settings_update_check_failed)
+            UpdateStatus.UP_TO_DATE ->
+                stringResource(R.string.screen_settings_up_to_date, updateUi.currentVersion.orEmpty())
+            UpdateStatus.AVAILABLE ->
+                stringResource(R.string.screen_settings_update_available_tag, updateUi.latestTag.orEmpty())
+        }
+        SettingsGroup(
+            stringResource(R.string.screen_settings_updates_heading),
+            buildList<@Composable () -> Unit> {
+                add {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_check_updates),
+                        supporting = updateStatus,
+                        enabled = !checking,
+                        onClick = { onUpdateAction(UpdateAction.CheckNow) },
+                        supportingLive = true,
+                    )
                 }
-            }
-            SettingToggleRow(
-                title = stringResource(R.string.screen_settings_auto_update),
-                note = stringResource(R.string.screen_settings_auto_update_note),
-                checked = updateUi.autoCheck,
-                onCheckedChange = { onUpdateAction(UpdateAction.SetAutoCheck(it)) },
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.screen_settings_diagnostics_logs))
-            }
-        }
+                if (updateUi.status == UpdateStatus.AVAILABLE && updateUi.offer == null) add {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_update_view),
+                        onClick = { onUpdateAction(UpdateAction.ShowOffer) },
+                    )
+                }
+                add {
+                    SettingToggleRow(
+                        title = stringResource(R.string.screen_settings_auto_update),
+                        note = stringResource(R.string.screen_settings_auto_update_note),
+                        checked = updateUi.autoCheck,
+                        onCheckedChange = { onUpdateAction(UpdateAction.SetAutoCheck(it)) },
+                    )
+                }
+                add {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_diagnostics_logs),
+                        onClick = onOpenDiagnostics,
+                    )
+                }
+            },
+        )
 
-        // --- Help / feedback ---
-        SettingsCard(stringResource(R.string.screen_settings_help_heading)) {
-            Button(
-                onClick = { Links.open(ctx, Links.NEW_ISSUE) },
-                modifier = Modifier.fillMaxWidth().then(linkSemantics),
-            ) { Text(stringResource(R.string.screen_report_issue)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { Links.open(ctx, Links.ISSUES) },
-                    modifier = Modifier.weight(1f).then(linkSemantics),
-                ) { Text(stringResource(R.string.screen_settings_view_issues)) }
-                OutlinedButton(
-                    onClick = { Links.open(ctx, Links.SOURCE) },
-                    modifier = Modifier.weight(1f).then(linkSemantics),
-                ) { Text(stringResource(R.string.screen_settings_source)) }
-            }
-            OutlinedButton(
-                onClick = onShowOnboarding,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.screen_settings_show_onboarding)) }
-        }
-
-        // --- About ---
-        AboutCard()
+        // --- Help & feedback, with About folded in ---
+        SettingsGroup(
+            stringResource(R.string.screen_settings_help_heading),
+            listOf<@Composable () -> Unit>(
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_how_to_use_app),
+                        onClick = onOpenHowTo,
+                    )
+                },
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_show_onboarding),
+                        onClick = onShowOnboarding,
+                    )
+                },
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_report_issue),
+                        onClick = { Links.open(ctx, Links.NEW_ISSUE) },
+                        modifier = linkSemantics,
+                    )
+                },
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_view_issues),
+                        onClick = { Links.open(ctx, Links.ISSUES) },
+                        modifier = linkSemantics,
+                    )
+                },
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_settings_source),
+                        onClick = { Links.open(ctx, Links.SOURCE) },
+                        modifier = linkSemantics,
+                    )
+                },
+                {
+                    NavRow(
+                        title = stringResource(R.string.screen_about_title),
+                        supporting = stringResource(
+                            R.string.screen_about_version, appVersionName(ctx), appVersionCode(ctx),
+                        ),
+                        onClick = onOpenAbout,
+                    )
+                },
+            ),
+        )
     }
 }
 
-/** A simple always-expanded settings card (reuses the editor SectionCard look). */
+/**
+ * One M3 grouped (segmented) list: a heading, then [rows] in a shared rounded container
+ * split by 2dp gaps. The group's outer corners are large and the inner ones small, so the
+ * rows read as one unit without dividers.
+ */
 @Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) {
-    var expanded by remember { mutableStateOf(true) }
-    SectionCard(title, expanded, { expanded = it }) { content() }
-}
-
-/** A tappable row that opens the system per-app language page; one TalkBack node, full-row target. */
-@Composable
-private fun LanguageRow(current: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 8.dp),
-    ) {
-        Text(stringResource(R.string.screen_settings_language), style = MaterialTheme.typography.bodyLarge)
+private fun SettingsGroup(
+    title: String,
+    rows: List<@Composable () -> Unit>,
+    note: String? = null,
+) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .padding(start = 16.dp, top = 24.dp, bottom = 8.dp)
+            .semantics { heading() },
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(SEGMENT_GAP)) {
+        rows.forEachIndexed { i, row ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = segmentShape(i, rows.size),
+                modifier = Modifier.fillMaxWidth(),
+            ) { row() }
+        }
+    }
+    if (note != null) {
         Text(
-            stringResource(R.string.screen_settings_language_note, current),
+            note,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        )
+    }
+}
+
+private val SEGMENT_GAP = 2.dp
+private val SEGMENT_OUTER = 16.dp
+private val SEGMENT_INNER = 4.dp
+
+private fun segmentShape(index: Int, count: Int): RoundedCornerShape {
+    val top = if (index == 0) SEGMENT_OUTER else SEGMENT_INNER
+    val bottom = if (index == count - 1) SEGMENT_OUTER else SEGMENT_INNER
+    return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
+}
+
+/** Padding for a row whose body is a full control (slider, profile picker), not a label. */
+@Composable
+private fun RowBody(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) { content() }
+}
+
+/** A tappable list row: title, optional supporting line, full-row 56dp+ target. */
+@Composable
+private fun NavRow(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+    enabled: Boolean = true,
+    supportingLive: Boolean = false,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+        )
+        if (supporting != null) {
+            Text(
+                supporting,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = if (supportingLive) {
+                    Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                } else Modifier,
+            )
+        }
+    }
+}
+
+/**
+ * A one-of-many setting: the row shows the current value; tapping opens a radio dialog
+ * that applies the choice on tap and closes (M3 settings: no Save step for a single choice).
+ */
+@Composable
+private fun <T> ChoiceRow(
+    title: String,
+    selected: T,
+    options: List<T>,
+    display: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    NavRow(title = title, supporting = display(selected), onClick = { open = true })
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(title) },
+            text = {
+                Column(Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
+                    options.forEach { option ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .selectable(
+                                    selected = option == selected,
+                                    role = Role.RadioButton,
+                                    onClick = { onSelect(option); open = false },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = option == selected, onClick = null)
+                            Text(
+                                display(option),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 16.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { open = false }) { Text(stringResource(R.string.editor_cancel)) }
+            },
         )
     }
 }
@@ -330,10 +494,12 @@ private fun SettingToggleRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+            .heightIn(min = 56.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(
                 note,
