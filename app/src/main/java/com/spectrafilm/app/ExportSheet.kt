@@ -311,18 +311,19 @@ fun ExportSheet(
                                     onClick = { menu = false; managingPresets = true },
                                 )
                             }
-                            if (onBatchExport != null && !isSceneLinear) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.tool_export_batch)) },
-                                    onClick = { menu = false; onBatchExport() },
-                                )
-                            }
-                            if (onHalfFramePair != null) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.tool_export_half_frame_pair)) },
-                                    onClick = { menu = false; onHalfFramePair() },
-                                )
-                            }
+                            // Shown disabled rather than hidden when this photo or format
+                            // cannot use them, so the menu does not change shape under the
+                            // user (m3-design-language, menus: disabled, not removed).
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_batch)) },
+                                enabled = onBatchExport != null && !isSceneLinear,
+                                onClick = { menu = false; onBatchExport?.invoke() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.tool_export_half_frame_pair)) },
+                                enabled = onHalfFramePair != null,
+                                onClick = { menu = false; onHalfFramePair?.invoke() },
+                            )
                         }
                     }
                 }

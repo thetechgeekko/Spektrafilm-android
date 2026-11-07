@@ -160,6 +160,7 @@ internal fun LibraryDestination(
             state.folderName ?: stringResource(R.string.library_title)
         },
         onBack = if (selecting) vm::clearSelection else onBack,
+        closeNavigation = selecting,
         actions = {
             if (selecting) {
                 // The look comes from the photo open in the editor; without one there is

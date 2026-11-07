@@ -205,7 +205,10 @@ internal fun StageItem(
                     this.selected = isSelected
                     if (modified) stateDescription = modifiedState
                 }
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                // 2dp, not more: on a 360dp phone with Export beside the toolbar each stage
+                // is ~53dp wide, and translated labels (フィルム, Película) need nearly all of
+                // it. Labels must not truncate (m3-design-language, navigation bar items).
+                .padding(horizontal = 2.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
