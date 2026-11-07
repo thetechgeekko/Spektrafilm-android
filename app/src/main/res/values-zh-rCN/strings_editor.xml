@@ -16,7 +16,6 @@
     <string name="editor_category_modified">已修改</string>
     <string name="editor_category_source">源图像</string>
     <string name="editor_category_presets">预设</string>
-    <string name="editor_category_simulation">模拟</string>
     <string name="editor_category_input">输入</string>
     <string name="editor_category_raw_wb">白平衡</string>
     <string name="editor_category_grain">颗粒</string>
@@ -191,7 +190,6 @@
     <string name="editor_close_panel">关闭面板</string>
     <string name="editor_hint_source">选择照片或 RAW、演示图像、直方图及重置编辑</string>
     <string name="editor_hint_presets">内置风格与已保存预设；导入、导出及 LUT</string>
-    <string name="editor_hint_simulation">胶片、相纸、曝光与自动曝光测光</string>
     <string name="editor_hint_input">输入色彩空间、光谱上采样、滤镜、裁剪与放大</string>
     <string name="editor_hint_raw_wb">白平衡 — 吸管和冷暖/色调（所有源文件），以及 RAW 色温</string>
     <string name="editor_hint_grain">胶片颗粒结构、尺寸和模糊</string>
@@ -299,7 +297,6 @@
     <string name="editor_raw_chroma_noise">色彩降噪</string>
     <string name="editor_raw_chroma_noise_tooltip">平滑暗部和高 ISO 照片中的色斑。保留亮度和细节，只柔化颜色。</string>
     <string name="editor_sim_title">模拟</string>
-    <string name="editor_sim_tab_film">胶片</string>
     <string name="editor_sim_tab_print">冲印</string>
     <string name="editor_sim_tab_scanner">扫描仪</string>
     <string name="editor_sim_tab_output">输出</string>
@@ -499,4 +496,9 @@
     <string name="editor_display_title">显示</string>
     <string name="editor_display_preview_max_size">预览最大尺寸</string>
     <string name="editor_display_preview_max_size_tooltip">预览图像长边的最大尺寸，单位像素。</string>
+    <string name="editor_category_film_stock">胶片型号</string>
+    <string name="editor_hint_film_stock">胶片型号、相机曝光和自动曝光</string>
+    <string name="editor_hint_paper">相纸、放印曝光、放大机滤色和放印模糊</string>
+    <string name="editor_hint_scanner">扫描仪锐化与白点、黑点校正</string>
+    <string name="editor_hint_output">输出色彩空间、色域压缩、饱和度和自然饱和度</string>
 </resources>

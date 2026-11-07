@@ -75,8 +75,6 @@
     <string name="screen_howto_cat_source_desc">ouvrir / fermer une photo, image de démo, comparaison avant/après</string>
     <string name="screen_howto_cat_presets">Préréglages</string>
     <string name="screen_howto_cat_presets_desc">charger un jeu de paramètres intégré ou enregistré</string>
-    <string name="screen_howto_cat_simulation">Simulation</string>
-    <string name="screen_howto_cat_simulation_desc">film, papier de tirage, exposition, exposition automatique</string>
     <string name="screen_howto_cat_input">Entrée</string>
     <string name="screen_howto_cat_input_desc">recadrage, redimensionnement, facteur d’agrandissement</string>
     <string name="screen_howto_cat_raw_wb">Balance RAW</string>

@@ -17,7 +17,6 @@
     <string name="editor_category_modified">変更あり</string>
     <string name="editor_category_source">ソース</string>
     <string name="editor_category_presets">プリセット</string>
-    <string name="editor_category_simulation">シミュレーション</string>
     <string name="editor_category_input">入力</string>
     <string name="editor_category_raw_wb">WB</string>
     <string name="editor_category_grain">粒状</string>
@@ -192,7 +191,6 @@
     <string name="editor_close_panel">パネルを閉じる</string>
     <string name="editor_hint_source">写真/RAWの選択、デモ画像、ヒストグラム、編集のリセット</string>
     <string name="editor_hint_presets">内蔵のルックと保存したプリセット、読み込み/書き出しとLUT</string>
-    <string name="editor_hint_simulation">フィルム、印画紙、露光量と自動露出の測光</string>
     <string name="editor_hint_input">入力色空間、スペクトルアップサンプリング、フィルター、切り抜きとアップスケール</string>
     <string name="editor_hint_raw_wb">ホワイトバランス：スポイトと暖かさ/色かぶり（すべてのソース）、RAWのケルビン</string>
     <string name="editor_hint_grain">フィルムの粒状の構造、サイズ、ぼかし</string>
@@ -300,7 +298,6 @@
     <string name="editor_raw_chroma_noise">カラーノイズ低減</string>
     <string name="editor_raw_chroma_noise_tooltip">シャドウや高感度撮影の色むらを滑らかにします。明るさと細部は保ち、色だけを和らげます。</string>
     <string name="editor_sim_title">シミュレーション</string>
-    <string name="editor_sim_tab_film">フィルム</string>
     <string name="editor_sim_tab_print">プリント</string>
     <string name="editor_sim_tab_scanner">スキャナー</string>
     <string name="editor_sim_tab_output">出力</string>
@@ -592,4 +589,9 @@
     <string name="editor_snack_pair_done">ハーフサイズのペアを書き出しました</string>
     <string name="editor_snack_pair_failed">ハーフサイズのペアを書き出せませんでした</string>
     <string name="editor_snack_pair_cancelled">ハーフサイズのペアの書き出しを中止しました</string>
+    <string name="editor_category_film_stock">フィルム銘柄</string>
+    <string name="editor_hint_film_stock">フィルム銘柄、カメラ露出、自動露出</string>
+    <string name="editor_hint_paper">印画紙、プリント露光、引き伸ばし機のフィルター、プリントのぼけ</string>
+    <string name="editor_hint_scanner">スキャナーのシャープネスと白・黒点補正</string>
+    <string name="editor_hint_output">出力色空間、色域圧縮、彩度、自然な彩度</string>
 </resources>

@@ -71,8 +71,8 @@ class StageTaxonomyTest {
         // the Category enum cannot silently change which panel each stage lands on.
         assertEquals(Category.PRESETS, categoriesOf(Stage.LOOK).first())
         assertEquals(Category.SIMULATION, categoriesOf(Stage.FILM).first())
-        assertEquals(Category.PREFLASH, categoriesOf(Stage.PRINT).first())
-        assertEquals(Category.GLARE, categoriesOf(Stage.SCAN).first())
+        assertEquals(Category.PAPER, categoriesOf(Stage.PRINT).first())
+        assertEquals(Category.SCANNER, categoriesOf(Stage.SCAN).first())
         assertEquals(Category.TONE_CURVE, categoriesOf(Stage.FINISH).first())
     }
 }

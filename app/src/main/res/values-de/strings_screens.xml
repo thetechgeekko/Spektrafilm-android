@@ -75,8 +75,6 @@
     <string name="screen_howto_cat_source_desc">Foto öffnen / schließen, Demobild, Vorher/Nachher-Vergleich</string>
     <string name="screen_howto_cat_presets">Vorgaben</string>
     <string name="screen_howto_cat_presets_desc">einen eingebauten oder gespeicherten Parametersatz laden</string>
-    <string name="screen_howto_cat_simulation">Simulation</string>
-    <string name="screen_howto_cat_simulation_desc">Film, Fotopapier, Belichtung, Belichtungsautomatik</string>
     <string name="screen_howto_cat_input">Eingabe</string>
     <string name="screen_howto_cat_input_desc">Zuschnitt, Größenänderung, Hochskalierungsfaktor</string>
     <string name="screen_howto_cat_raw_wb">RAW-Weißabgleich</string>

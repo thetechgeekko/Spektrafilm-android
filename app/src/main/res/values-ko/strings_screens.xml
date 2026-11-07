@@ -75,8 +75,6 @@
     <string name="screen_howto_cat_source_desc">사진 열기/닫기, 데모 이미지, 전후 비교</string>
     <string name="screen_howto_cat_presets">프리셋</string>
     <string name="screen_howto_cat_presets_desc">내장 또는 저장된 매개변수 세트 불러오기</string>
-    <string name="screen_howto_cat_simulation">시뮬레이션</string>
-    <string name="screen_howto_cat_simulation_desc">필름, 인화지, 노출, 자동 노출</string>
     <string name="screen_howto_cat_input">입력</string>
     <string name="screen_howto_cat_input_desc">자르기, 크기 조정, 업스케일 배율</string>
     <string name="screen_howto_cat_raw_wb">RAW WB</string>

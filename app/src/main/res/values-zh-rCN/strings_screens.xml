@@ -74,8 +74,6 @@
     <string name="screen_howto_cat_source_desc">打开或关闭照片、演示图像、编辑前后对比</string>
     <string name="screen_howto_cat_presets">预设</string>
     <string name="screen_howto_cat_presets_desc">加载内置或已保存的参数组</string>
-    <string name="screen_howto_cat_simulation">模拟</string>
-    <string name="screen_howto_cat_simulation_desc">胶片、相纸、曝光、自动曝光</string>
     <string name="screen_howto_cat_input">输入</string>
     <string name="screen_howto_cat_input_desc">裁剪、调整尺寸、放大倍数</string>
     <string name="screen_howto_cat_raw_wb">RAW 白平衡</string>

@@ -339,12 +339,15 @@ internal fun categoryHint(c: Category) = stringResource(
     when (c) {
         Category.SOURCE -> R.string.editor_hint_source
         Category.PRESETS -> R.string.editor_hint_presets
-        Category.SIMULATION -> R.string.editor_hint_simulation
+        Category.SIMULATION -> R.string.editor_hint_film_stock
         Category.INPUT -> R.string.editor_hint_input
         Category.RAW_WB -> R.string.editor_hint_raw_wb
         Category.GRAIN -> R.string.editor_hint_grain
         Category.HALATION -> R.string.editor_hint_halation
         Category.GLARE -> R.string.editor_hint_glare
+        Category.PAPER -> R.string.editor_hint_paper
+        Category.SCANNER -> R.string.editor_hint_scanner
+        Category.OUTPUT -> R.string.editor_hint_output
         Category.COUPLERS -> R.string.editor_hint_couplers
         Category.PREFLASH -> R.string.editor_hint_preflash
         Category.CONTRAST_MASK -> R.string.editor_hint_contrast_mask
@@ -365,6 +368,9 @@ internal fun categoryIcon(c: Category) = when (c) {
     Category.HALATION -> SpectraIcons.Halation
     Category.COUPLERS -> SpectraIcons.Couplers
     Category.GLARE -> SpectraIcons.Glare
+    Category.PAPER -> SpectraIcons.Preflash
+    Category.SCANNER -> SpectraIcons.Glare
+    Category.OUTPUT -> SpectraIcons.Display
     Category.EXPERIMENTAL -> SpectraIcons.Experimental
     Category.TONE_CURVE -> SpectraIcons.ToneCurve
     Category.MASKS -> SpectraIcons.Masks

@@ -287,6 +287,9 @@ internal fun offerSnackbarSuggestion(
     }
 }
 
+/** Which part of the film -> print -> scan simulation a [SimulationSection] shows. */
+internal enum class SimPart { FILM, PRINT, SCANNER, OUTPUT }
+
 @Composable
 internal fun SimulationSection(
     s: ParamsState,
@@ -301,22 +304,16 @@ internal fun SimulationSection(
     printPreviewHost: StockPreviewHost? = null,
     filmStripSourceKey: Any? = null,
     filmStripPaused: Boolean = false,
+    part: SimPart = SimPart.FILM,
 ) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_sim_title), expanded, { expanded = it }) {
-        // Lightroom-style sub-tabs split this tool's four groups (Film / Print / Scanner /
-        // Output) so only one shows at a time, instead of one long scroll behind dividers.
-        var simTab by remember { mutableIntStateOf(0) }
-        SubTabRow(
-            listOf(
-                stringResource(R.string.editor_sim_tab_film),
-                stringResource(R.string.editor_sim_tab_print),
-                stringResource(R.string.editor_sim_tab_scanner),
-                stringResource(R.string.editor_sim_tab_output),
-            ),
-            simTab, { simTab = it })
-        when (simTab) {
-            0 -> {
+        // One part per editor tab. These four used to be a third level of tabs (Film /
+        // Print / Scanner / Output chips) inside Film -> Simulation, repeating the stage
+        // names; each part now opens from its own stage (m3-design-language, ux-flows §2:
+        // one level of peers, no nested tab rows).
+        when (part) {
+            SimPart.FILM -> {
                 // Film & look: the user's photo through every stock, one tap to try each.
                 // Only with a photo to render; the demo/no-source state keeps the field alone.
                 if (filmPreviewHost != null) {
@@ -369,7 +366,7 @@ internal fun SimulationSection(
                 SceneLatitudeGroup(s)
                 DateStampGroup(s, photoDateStamp)
             }
-            1 -> {
+            SimPart.PRINT -> {
                 StockPickerField(
                     label = stringResource(R.string.editor_sim_print_profile),
                     selectedId = s.printProfile,
@@ -402,7 +399,7 @@ internal fun SimulationSection(
                 }
                 DiffusionGroup(stringResource(R.string.editor_sim_print_diffusion), s.printDiffusionState)
             }
-            2 -> {
+            SimPart.SCANNER -> {
                 val ctx = LocalContext.current
                 EnhancedSlider(stringResource(R.string.editor_sim_scan_lens_blur), s.scanLensBlur, 0f..20f, { s.scanLensBlur = it },
                     step = 0.05f, decimals = 2,
@@ -443,7 +440,7 @@ internal fun SimulationSection(
                     tooltip = stringResource(R.string.editor_sim_scan_unsharp_tooltip),
                     componentLabels = "σ" to "amt", default = PARAM_DEFAULTS.scanUnsharpMask)
             }
-            else -> {
+            SimPart.OUTPUT -> {
                 val res = LocalContext.current.resources
                 Dropdown(stringResource(R.string.editor_sim_output_color_space), s.outputColorSpace, ColorSpace.entries.toList(),
                     { it.name }, { s.outputColorSpace = it })

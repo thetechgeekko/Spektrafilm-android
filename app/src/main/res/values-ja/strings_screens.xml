@@ -75,8 +75,6 @@
     <string name="screen_howto_cat_source_desc">写真を開く/閉じる、デモ画像、ビフォー/アフター比較</string>
     <string name="screen_howto_cat_presets">プリセット</string>
     <string name="screen_howto_cat_presets_desc">内蔵または保存済みのパラメーターセットを読み込む</string>
-    <string name="screen_howto_cat_simulation">シミュレーション</string>
-    <string name="screen_howto_cat_simulation_desc">フィルム、印画紙、露光量、自動露出</string>
     <string name="screen_howto_cat_input">入力</string>
     <string name="screen_howto_cat_input_desc">切り抜き、リサイズ、アップスケール倍率</string>
     <string name="screen_howto_cat_raw_wb">RAW WB</string>

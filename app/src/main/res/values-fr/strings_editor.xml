@@ -17,7 +17,6 @@
     <string name="editor_category_modified">Modifié</string>
     <string name="editor_category_source">Source</string>
     <string name="editor_category_presets">Préréglages</string>
-    <string name="editor_category_simulation">Simulation</string>
     <string name="editor_category_input">Entrée</string>
     <string name="editor_category_raw_wb">Balance</string>
     <string name="editor_category_grain">Grain</string>
@@ -196,7 +195,6 @@
     <string name="editor_close_panel">Fermer le panneau</string>
     <string name="editor_hint_source">Choisir une photo / un RAW, image de démo, histogramme et réinitialiser les retouches</string>
     <string name="editor_hint_presets">Looks intégrés et vos préréglages enregistrés ; import/export et LUT</string>
-    <string name="editor_hint_simulation">Film, papier de tirage, exposition et mesure de l’exposition automatique</string>
     <string name="editor_hint_input">Espace colorimétrique d’entrée, reconstruction spectrale, filtres, recadrage et agrandissement</string>
     <string name="editor_hint_raw_wb">Balance des blancs : pipette + chaleur/teinte (toutes sources) et Kelvin du RAW</string>
     <string name="editor_hint_grain">Structure, taille et flou du grain</string>
@@ -304,7 +302,6 @@
     <string name="editor_raw_chroma_noise">Réduction du bruit chromatique</string>
     <string name="editor_raw_chroma_noise_tooltip">Lisse les taches de couleur dans les ombres et les photos à ISO élevé. La luminosité et les détails fins sont conservés ; seule la couleur est adoucie.</string>
     <string name="editor_sim_title">Simulation</string>
-    <string name="editor_sim_tab_film">Film</string>
     <string name="editor_sim_tab_print">Tirage</string>
     <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Sortie</string>
@@ -596,4 +593,9 @@
     <string name="editor_snack_pair_done">Paire demi-format exportée</string>
     <string name="editor_snack_pair_failed">Impossible d\'exporter la paire demi-format</string>
     <string name="editor_snack_pair_cancelled">Export de la paire demi-format arrêté</string>
+    <string name="editor_category_film_stock">Pellicule</string>
+    <string name="editor_hint_film_stock">Pellicule, exposition de l’appareil et exposition automatique</string>
+    <string name="editor_hint_paper">Papier de tirage, exposition du tirage, filtrage de l’agrandisseur et flou du tirage</string>
+    <string name="editor_hint_scanner">Netteté du scanner et correction des points blanc et noir</string>
+    <string name="editor_hint_output">Espace colorimétrique de sortie, compression de gamut, saturation et vibrance</string>
 </resources>

@@ -17,7 +17,6 @@
     <string name="editor_category_modified">Modificado</string>
     <string name="editor_category_source">Origen</string>
     <string name="editor_category_presets">Ajustes preestablecidos</string>
-    <string name="editor_category_simulation">Simulación</string>
     <string name="editor_category_input">Entrada</string>
     <string name="editor_category_raw_wb">Balance</string>
     <string name="editor_category_grain">Grano</string>
@@ -196,7 +195,6 @@
     <string name="editor_close_panel">Cerrar panel</string>
     <string name="editor_hint_source">Elige una foto / RAW, imagen de demostración, histograma y restablecer ediciones</string>
     <string name="editor_hint_presets">Estilos integrados y tus ajustes guardados; importar/exportar y LUT</string>
-    <string name="editor_hint_simulation">Película, papel de copia, exposición y medición de la exposición automática</string>
     <string name="editor_hint_input">Espacio de color de entrada, reconstrucción espectral, filtros, recorte y ampliación</string>
     <string name="editor_hint_raw_wb">Balance de blancos: cuentagotas + calidez/matiz (todos los orígenes) y Kelvin del RAW</string>
     <string name="editor_hint_grain">Estructura, tamaño y desenfoque del grano</string>
@@ -304,7 +302,6 @@
     <string name="editor_raw_chroma_noise">Reducción de ruido de color</string>
     <string name="editor_raw_chroma_noise_tooltip">Suaviza las manchas de color en las sombras y en tomas de ISO alto. Se conservan el brillo y el detalle fino; solo se suaviza el color.</string>
     <string name="editor_sim_title">Simulación</string>
-    <string name="editor_sim_tab_film">Película</string>
     <string name="editor_sim_tab_print">Copia</string>
     <string name="editor_sim_tab_scanner">Escáner</string>
     <string name="editor_sim_tab_output">Salida</string>
@@ -596,4 +593,9 @@
     <string name="editor_snack_pair_done">Par de medio formato exportado</string>
     <string name="editor_snack_pair_failed">No se pudo exportar el par de medio formato</string>
     <string name="editor_snack_pair_cancelled">Exportación del par de medio formato detenida</string>
+    <string name="editor_category_film_stock">Película</string>
+    <string name="editor_hint_film_stock">Película, exposición de cámara y exposición automática</string>
+    <string name="editor_hint_paper">Papel de copia, exposición de copia, filtrado de la ampliadora y desenfoque de copia</string>
+    <string name="editor_hint_scanner">Enfoque del escáner y corrección de punto blanco y negro</string>
+    <string name="editor_hint_output">Espacio de color de salida, compresión de gama, saturación e intensidad</string>
 </resources>

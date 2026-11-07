@@ -29,9 +29,11 @@ internal fun MainActivity.EditorSimulationPanel(
     previewBusy: Boolean,
     onOpenFilmCurves: (id: String, name: String) -> Unit,
     onOpenPrintCurves: (id: String, name: String) -> Unit,
+    part: SimPart = SimPart.FILM,
 ) {
     SimulationSection(
         s = state,
+        part = part,
         photoDateStamp = photoDateStamp,
         filmPreviewHost = stockPreviewHost(filmPreviewVm, true),
         // In slide mode the print stage is skipped, so every paper would

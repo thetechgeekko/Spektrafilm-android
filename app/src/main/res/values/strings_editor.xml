@@ -22,7 +22,6 @@
     <string name="editor_category_modified">Modified</string>
     <string name="editor_category_source">Source</string>
     <string name="editor_category_presets">Presets</string>
-    <string name="editor_category_simulation">Simulation</string>
     <string name="editor_category_input">Input</string>
     <string name="editor_category_raw_wb">White Bal</string>
     <string name="editor_category_grain">Grain</string>
@@ -242,7 +241,6 @@
     <!-- Category bar tooltips -->
     <string name="editor_hint_source">Pick a photo / RAW, demo image, histogram &amp; reset edits</string>
     <string name="editor_hint_presets">Built-in looks and your saved presets; import/export &amp; LUT</string>
-    <string name="editor_hint_simulation">Film stock, print paper, exposure &amp; auto-exposure metering</string>
     <string name="editor_hint_input">Input colour space, spectral upsampling, filters, crop &amp; upscale</string>
     <string name="editor_hint_raw_wb">White balance — eyedropper + warmth/tint (all sources), and RAW Kelvin</string>
     <string name="editor_hint_grain">Film grain structure, size and blur</string>
@@ -368,7 +366,6 @@
 
     <!-- Simulation section (Film / Print / Scanner / Output tabs) -->
     <string name="editor_sim_title">Simulation</string>
-    <string name="editor_sim_tab_film">Film</string>
     <string name="editor_sim_tab_print">Print</string>
     <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Output</string>
@@ -686,4 +683,9 @@
     <string name="editor_snack_pair_done">Half-frame pair exported</string>
     <string name="editor_snack_pair_failed">The half-frame pair could not be exported</string>
     <string name="editor_snack_pair_cancelled">Half-frame pair export stopped</string>
+    <string name="editor_category_film_stock">Film stock</string>
+    <string name="editor_hint_film_stock">Film stock, camera exposure and auto-exposure</string>
+    <string name="editor_hint_paper">Print paper, print exposure, enlarger filtration and print blur</string>
+    <string name="editor_hint_scanner">Scanner sharpening and white and black point correction</string>
+    <string name="editor_hint_output">Output colour space, gamut compression, saturation and vibrance</string>
 </resources>
