@@ -127,11 +127,16 @@ internal object SpektraBrand {
  * the Spektrafilm brand scheme (#468, audit V1). Generated with the M3 tonal system
  * (Material Color Utilities, Tonal Spot, 2021 spec, standard contrast) from one seed, film
  * amber #C8892B, so the chrome reads as film stock rather than Material's default purple.
- * Every on-/container pair clears WCAG AA 4.5:1 (lowest: light primary on
- * surfaceContainerHighest 5.0, dark onSurfaceVariant on surfaceVariant 5.5).
+ * The neutral and neutral-variant palettes are generated at chroma 0 instead of Tonal Spot's
+ * warm 6 / 8: backgrounds, panels and outlines are true greys, so no tinted chrome sits beside
+ * a photo being judged for colour. Amber lives only in the accent roles (primary, secondary,
+ * their containers). Every on-/container pair clears WCAG AA 4.5:1 (lowest: light primary on
+ * surfaceContainerHighest 5.0, dark onSurfaceVariant on surfaceVariant 5.4).
  *
  * The photo is never judged against these: the editor canvas and everything drawn on it use
- * the theme-independent [SpektraBrand] neutrals. To regenerate, rerun Tonal Spot on the seed;
+ * the theme-independent [SpektraBrand] neutrals. To regenerate, rerun Tonal Spot on the seed
+ * with neutral chroma 0 (Material Color Utilities `DynamicScheme(..., neutral_palette =
+ * TonalPalette.from_hue_and_chroma(seedHue, 0), neutral_variant_palette = same)`, spec 2021);
  * do not hand-tune single roles, or the tonal relationships (and the contrast) break.
  */
 internal fun spektraLightScheme(): ColorScheme = lightColorScheme(
@@ -148,29 +153,29 @@ internal fun spektraLightScheme(): ColorScheme = lightColorScheme(
     onTertiary = Color(0xFFFFFFFF),
     tertiaryContainer = Color(0xFFD6E9BA),
     onTertiaryContainer = Color(0xFF3C4C29),
-    background = Color(0xFFFFF8F4),
-    onBackground = Color(0xFF211B13),
-    surface = Color(0xFFFFF8F4),
-    onSurface = Color(0xFF211B13),
-    surfaceVariant = Color(0xFFF0E0D0),
-    onSurfaceVariant = Color(0xFF4F4539),
+    background = Color(0xFFF9F9F9),
+    onBackground = Color(0xFF1B1B1B),
+    surface = Color(0xFFF9F9F9),
+    onSurface = Color(0xFF1B1B1B),
+    surfaceVariant = Color(0xFFE2E2E2),
+    onSurfaceVariant = Color(0xFF474747),
     surfaceTint = Color(0xFF815512),
-    inverseSurface = Color(0xFF362F27),
-    inverseOnSurface = Color(0xFFFCEEE2),
+    inverseSurface = Color(0xFF303030),
+    inverseOnSurface = Color(0xFFF1F1F1),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF93000A),
-    outline = Color(0xFF827568),
-    outlineVariant = Color(0xFFD3C4B4),
+    outline = Color(0xFF777777),
+    outlineVariant = Color(0xFFC6C6C6),
     scrim = Color(0xFF000000),
-    surfaceBright = Color(0xFFFFF8F4),
-    surfaceContainer = Color(0xFFF9ECDF),
-    surfaceContainerHigh = Color(0xFFF3E6DA),
-    surfaceContainerHighest = Color(0xFFEDE0D4),
-    surfaceContainerLow = Color(0xFFFFF1E5),
+    surfaceBright = Color(0xFFF9F9F9),
+    surfaceContainer = Color(0xFFEEEEEE),
+    surfaceContainerHigh = Color(0xFFE8E8E8),
+    surfaceContainerHighest = Color(0xFFE2E2E2),
+    surfaceContainerLow = Color(0xFFF3F3F3),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceDim = Color(0xFFE5D8CC),
+    surfaceDim = Color(0xFFDADADA),
 )
 
 internal fun spektraDarkScheme(): ColorScheme = darkColorScheme(
@@ -187,29 +192,29 @@ internal fun spektraDarkScheme(): ColorScheme = darkColorScheme(
     onTertiary = Color(0xFF263514),
     tertiaryContainer = Color(0xFF3C4C29),
     onTertiaryContainer = Color(0xFFD6E9BA),
-    background = Color(0xFF18120C),
-    onBackground = Color(0xFFEDE0D4),
-    surface = Color(0xFF18120C),
-    onSurface = Color(0xFFEDE0D4),
-    surfaceVariant = Color(0xFF4F4539),
-    onSurfaceVariant = Color(0xFFD3C4B4),
+    background = Color(0xFF131313),
+    onBackground = Color(0xFFE2E2E2),
+    surface = Color(0xFF131313),
+    onSurface = Color(0xFFE2E2E2),
+    surfaceVariant = Color(0xFF474747),
+    onSurfaceVariant = Color(0xFFC6C6C6),
     surfaceTint = Color(0xFFF6BC70),
-    inverseSurface = Color(0xFFEDE0D4),
-    inverseOnSurface = Color(0xFF362F27),
+    inverseSurface = Color(0xFFE2E2E2),
+    inverseOnSurface = Color(0xFF303030),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF9C8E80),
-    outlineVariant = Color(0xFF4F4539),
+    outline = Color(0xFF919191),
+    outlineVariant = Color(0xFF474747),
     scrim = Color(0xFF000000),
-    surfaceBright = Color(0xFF3F3830),
-    surfaceContainer = Color(0xFF251F17),
-    surfaceContainerHigh = Color(0xFF302921),
-    surfaceContainerHighest = Color(0xFF3B342B),
-    surfaceContainerLow = Color(0xFF211B13),
-    surfaceContainerLowest = Color(0xFF130D07),
-    surfaceDim = Color(0xFF18120C),
+    surfaceBright = Color(0xFF393939),
+    surfaceContainer = Color(0xFF1F1F1F),
+    surfaceContainerHigh = Color(0xFF2A2A2A),
+    surfaceContainerHighest = Color(0xFF353535),
+    surfaceContainerLow = Color(0xFF1B1B1B),
+    surfaceContainerLowest = Color(0xFF0E0E0E),
+    surfaceDim = Color(0xFF131313),
 )
 
 /**

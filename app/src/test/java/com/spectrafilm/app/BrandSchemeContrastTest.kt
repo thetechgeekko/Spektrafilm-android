@@ -55,6 +55,21 @@ class BrandSchemeContrastTest {
     @Test
     fun darkBrandSchemeMeetsAa() = assertAa("dark", spektraDarkScheme())
 
+    /** Chrome beside a colour-critical photo stays grey: amber is for accents only. */
+    @Test
+    fun brandSurfacesAreNeutralGrey() {
+        for ((name, s) in listOf("light" to spektraLightScheme(), "dark" to spektraDarkScheme())) {
+            val surfaces = listOf(
+                s.background, s.surface, s.surfaceVariant, s.surfaceDim, s.surfaceBright,
+                s.surfaceContainerLowest, s.surfaceContainerLow, s.surfaceContainer,
+                s.surfaceContainerHigh, s.surfaceContainerHighest, s.outline, s.outlineVariant,
+            )
+            for (c in surfaces) {
+                assertTrue("$name surface $c is tinted", c.red == c.green && c.green == c.blue)
+            }
+        }
+    }
+
     @Test
     fun brandSchemesAreNotTheMaterialBaseline() {
         // The whole point of #468: the fallback is not Material's default purple (#6750A4).
