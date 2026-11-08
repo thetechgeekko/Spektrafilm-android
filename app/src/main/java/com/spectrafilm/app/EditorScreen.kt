@@ -363,9 +363,12 @@ internal fun EditorScreen(
     // It never feeds the engine, an export or a cache. Keyed on the source identity only:
     // a later rotate does not reload it, because by then the render is on screen.
     var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
+    // The plain thumbnail the stand-in came from, kept so its film look can still be
+    // rendered when the engine finishes loading after the thumbnail arrived (cold start).
+    var placeholderSource by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
         openPlaceholder = null
-        var lookJob: Job? = null
+        placeholderSource = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
         OpenPlaceholder.load(
@@ -376,21 +379,24 @@ internal fun EditorScreen(
             rawSource = sourceKind == SourceKind.RAW,
         ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
-            if (preview == null) openPlaceholder = bmp
-            // Then give the stand-in the photo's film look (PlaceholderLook), so the real
-            // render changes only detail when it lands. A better thumbnail replaces the job.
-            lookJob?.cancel()
-            val e = engine
-            if (e != null && preview == null) {
-                val tick = previewTick
-                lookJob = launch {
-                    val looked = PlaceholderLook.render(e, bmp, state, dispatchers.default)
-                    // Dropped if the real render won, or the settings changed meanwhile.
-                    if (looked != null && preview == null && previewTick == tick) {
-                        openPlaceholder = looked
-                    }
-                }
+            if (preview == null) {
+                openPlaceholder = bmp
+                placeholderSource = bmp
             }
+        }
+    }
+    // Give the stand-in the photo's film look (PlaceholderLook), so the real render changes
+    // only detail when it lands. Re-runs for a better thumbnail and when the engine becomes
+    // ready, so a thumbnail that beat the engine still gets its look.
+    LaunchedEffect(placeholderSource, engine) {
+        val src = placeholderSource ?: return@LaunchedEffect
+        val e = engine ?: return@LaunchedEffect
+        if (preview != null) return@LaunchedEffect
+        val tick = previewTick
+        val looked = PlaceholderLook.render(e, src, state, dispatchers.default)
+        // Dropped if the real render won, the settings changed, or the source moved on.
+        if (looked != null && preview == null && previewTick == tick && placeholderSource === src) {
+            openPlaceholder = looked
         }
     }
     // Keep the stand-in under the fading-in render briefly, then drop it.
