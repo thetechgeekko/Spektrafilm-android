@@ -109,7 +109,11 @@ private data class HelpSpotElement(val state: QuickHelpState, val spot: HelpSpot
 private class HelpSpotNode(var state: QuickHelpState, var spot: HelpSpot) :
     Modifier.Node(), GlobalPositionAwareModifierNode {
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
-        if (coordinates.isAttached) state.spots[spot] = coordinates.boundsInWindow()
+        if (!coordinates.isAttached) return
+        // boundsInWindow is clipped by every scrolling parent: a control scrolled out of its
+        // panel is attached but invisible, so it has no "Show me" until it scrolls back.
+        val visible = coordinates.boundsInWindow()
+        if (visible.width > 0f && visible.height > 0f) state.spots[spot] = visible else forget()
     }
 
     // A control that leaves the screen takes its "Show me" with it.
