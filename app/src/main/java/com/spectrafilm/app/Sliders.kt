@@ -726,18 +726,23 @@ internal fun rememberReadoutEdit(
     val latestChange = rememberUpdatedState(onValueChange)
     val latestFinished = rememberUpdatedState(onValueChangeFinished)
     val latestValue = rememberUpdatedState(value)
-    val alive = remember { booleanArrayOf(true) }
+    // State, not a plain flag: the editor observes it to offer the photo drag (PhotoScrub)
+    // only while this control is on screen.
+    val alive = remember { mutableStateOf(true) }
     DisposableEffect(Unit) {
-        alive[0] = true
-        onDispose { alive[0] = false }
+        alive.value = true
+        onDispose { alive.value = false }
     }
     return { current ->
         SliderReadoutEdit(
             range, step, decimals, current,
             isCurrent = {
                 val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
-                alive[0] && kotlin.math.abs(latestValue.value - current) <= tol
+                alive.value && kotlin.math.abs(latestValue.value - current) <= tol
             },
+            live = { if (alive.value) latestValue.value else null },
+            alive = alive,
+            move = { v -> if (alive.value) latestChange.value(snap(v, range, step)) },
         ) { v ->
             latestChange.value(snap(v, range, step))
             latestFinished.value?.invoke()
