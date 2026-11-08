@@ -389,7 +389,10 @@ internal object SourceAccessRuntimeHolder {
                 AndroidUriGrantBackend(context.applicationContext),
                 SharedPreferencesSourceRefStore(context.applicationContext),
                 retainedGrants = {
-                    setOfNotNull(AppSettings.from(context.applicationContext).libraryTreeUri)
+                    // The Library's folder, and every folder or file an album reads through.
+                    // An unreadable albums file throws, and the sweep then releases nothing.
+                    setOfNotNull(AppSettings.from(context.applicationContext).libraryTreeUri) +
+                        FileAlbumStore.retainedUris(context.applicationContext)
                 },
             ),
             mutations = LatestSourceMutationGate(),

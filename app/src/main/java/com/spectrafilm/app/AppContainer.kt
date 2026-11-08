@@ -65,6 +65,9 @@ internal class AppContainer(context: Context) {
     /** Serializes Library pastes and sidecar saves across every Library entry (see [LibraryViewModel]). */
     private val libraryWriteLock = Mutex()
 
+    /** Serializes album loads and saves across every Library visit (see [AlbumsViewModel]). */
+    private val albumLock = Mutex()
+
     /** The settings store (Preferences DataStore since #276). */
     val settings: AppSettings get() = AppSettings.from(app)
 
@@ -122,6 +125,16 @@ internal class AppContainer(context: Context) {
                 aspectReader = LibraryViewModel.androidAspectReader(app),
             )
         },
+        albumsViewModel = {
+            AlbumsViewModel(
+                FileAlbumStore.of(app),
+                dispatchers.io,
+                hasEdit = LibraryViewModel.androidEditLookup(app),
+                aspectReader = LibraryViewModel.androidAspectReader(app),
+                writes = processScope,
+                lock = albumLock,
+            )
+        },
     )
 }
 
@@ -138,6 +151,7 @@ internal class AppViewModelFactory(
         error("stock previews not provided")
     },
     private val libraryViewModel: () -> LibraryViewModel = { error("library not provided") },
+    private val albumsViewModel: () -> AlbumsViewModel = { error("albums not provided") },
     private val editorViewModel: () -> EditorViewModel = { error("editor not provided") },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
@@ -148,6 +162,7 @@ internal class AppViewModelFactory(
             ExportPresetViewModel::class.java -> exportPresetViewModel()
             StockPreviewViewModel::class.java -> stockPreviewViewModel()
             LibraryViewModel::class.java -> libraryViewModel()
+            AlbumsViewModel::class.java -> albumsViewModel()
             EditorViewModel::class.java -> editorViewModel()
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()

@@ -63,6 +63,11 @@ object SpectraIcons {
     val Rotate: ImageVector get() = MaterialSymbols.RotateRight
     val Cancel: ImageVector get() = MaterialSymbols.Close
     val Search: ImageVector get() = MaterialSymbols.Search
+    val Add: ImageVector get() = MaterialSymbols.Add
+    val Album: ImageVector get() = MaterialSymbols.PhotoAlbum
+    val AddToAlbum: ImageVector get() = MaterialSymbols.LibraryAdd
+    val RemoveFromAlbum: ImageVector get() = MaterialSymbols.DoNotDisturbOn
+    val SetCover: ImageVector get() = MaterialSymbols.Image
     val Sort: ImageVector get() = MaterialSymbols.Sort
     val GridView: ImageVector get() = MaterialSymbols.GridView
     val JustifiedView: ImageVector get() = MaterialSymbols.ViewQuilt
