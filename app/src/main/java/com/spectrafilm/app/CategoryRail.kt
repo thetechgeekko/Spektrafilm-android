@@ -60,13 +60,11 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Stage icons, reusing the vector that best represents each stage's contents. */
-internal fun stageIcon(stage: Stage) = when (stage) {
-    Stage.LOOK -> SpectraIcons.StageLook
-    Stage.FILM -> SpectraIcons.StageFilm
-    Stage.PRINT -> SpectraIcons.StagePrint
-    Stage.SCAN -> SpectraIcons.StageScan
-    Stage.FINISH -> SpectraIcons.StageFinish
+/** Bottom-bar icons for the editor's modes. */
+internal fun modeIcon(mode: EditorMode) = when (mode) {
+    EditorMode.LOOKS -> SpectraIcons.StageLook
+    EditorMode.EDIT -> SpectraIcons.StageFinish
+    EditorMode.MASKS -> SpectraIcons.Masks
 }
 
 @Composable
@@ -143,48 +141,70 @@ internal fun CategoryItem(
     }
 }
 
-/** One-line tooltip description for each editor category. */
+/** One-line tooltip description for each editor tool. */
 @Composable
 internal fun categoryHint(c: Category) = stringResource(
     when (c) {
         Category.SOURCE -> R.string.editor_hint_source
         Category.PRESETS -> R.string.editor_hint_presets
         Category.SIMULATION -> R.string.editor_hint_film_stock
-        Category.INPUT -> R.string.editor_hint_input
+        Category.PAPER -> R.string.editor_hint_paper
+        Category.EXPOSURE -> R.string.editor_hint_exposure
+        Category.TONE_CURVE -> R.string.editor_hint_tone_curve
+        Category.SCENE_LATITUDE -> R.string.editor_hint_scene_latitude
+        Category.CONTRAST_MASK -> R.string.editor_hint_contrast_mask
         Category.RAW_WB -> R.string.editor_hint_raw_wb
+        Category.SAT_VIB -> R.string.editor_hint_sat_vib
+        Category.PRINT_COLOR -> R.string.editor_hint_print_color
+        Category.COUPLERS -> R.string.editor_hint_couplers
+        Category.FILM_FORMAT -> R.string.editor_hint_film_format
         Category.GRAIN -> R.string.editor_hint_grain
         Category.HALATION -> R.string.editor_hint_halation
-        Category.GLARE -> R.string.editor_hint_glare
-        Category.PAPER -> R.string.editor_hint_paper
-        Category.SCANNER -> R.string.editor_hint_scanner
-        Category.OUTPUT -> R.string.editor_hint_output
-        Category.COUPLERS -> R.string.editor_hint_couplers
+        Category.CAMERA_DIFFUSION -> R.string.editor_hint_camera_diffusion
+        Category.PRINT_EXPOSURE -> R.string.editor_hint_print_exposure
         Category.PREFLASH -> R.string.editor_hint_preflash
-        Category.CONTRAST_MASK -> R.string.editor_hint_contrast_mask
-        Category.EXPERIMENTAL -> R.string.editor_hint_experimental
-        Category.TONE_CURVE -> R.string.editor_hint_tone_curve
-        Category.MASKS -> R.string.editor_hint_masks
+        Category.ENLARGER -> R.string.editor_hint_enlarger
+        Category.GLARE -> R.string.editor_hint_glare
+        Category.LENS_BLUR -> R.string.editor_hint_lens_blur
+        Category.DATE_STAMP -> R.string.editor_hint_date_stamp
+        Category.SCANNER -> R.string.editor_hint_scanner
+        Category.RAW_CLEANUP -> R.string.editor_hint_raw_cleanup
+        Category.OUTPUT -> R.string.editor_hint_output
         Category.DISPLAY -> R.string.editor_hint_display
+        Category.INPUT -> R.string.editor_hint_input
+        Category.EXPERIMENTAL -> R.string.editor_hint_experimental
+        Category.MASKS -> R.string.editor_hint_masks
     },
 )
 
 internal fun categoryIcon(c: Category) = when (c) {
     Category.SIMULATION -> SpectraIcons.Simulation
-    Category.INPUT -> SpectraIcons.Input
-    Category.RAW_WB -> SpectraIcons.WhiteBalance
-    Category.GRAIN -> SpectraIcons.Grain
-    Category.PREFLASH -> SpectraIcons.Preflash
-    Category.CONTRAST_MASK -> SpectraIcons.ContrastMask
-    Category.HALATION -> SpectraIcons.Halation
-    Category.COUPLERS -> SpectraIcons.Couplers
-    Category.GLARE -> SpectraIcons.Glare
     Category.PAPER -> SpectraIcons.Paper
-    Category.SCANNER -> SpectraIcons.StageScan
-    Category.OUTPUT -> SpectraIcons.Output
-    Category.EXPERIMENTAL -> SpectraIcons.Experimental
-    Category.TONE_CURVE -> SpectraIcons.ToneCurve
-    Category.MASKS -> SpectraIcons.Masks
-    Category.DISPLAY -> SpectraIcons.Display
     Category.PRESETS -> SpectraIcons.Presets
     Category.SOURCE -> SpectraIcons.Source
+    Category.EXPOSURE -> MaterialSymbols.Exposure
+    Category.TONE_CURVE -> SpectraIcons.ToneCurve
+    Category.SCENE_LATITUDE -> MaterialSymbols.Tune
+    Category.CONTRAST_MASK -> SpectraIcons.ContrastMask
+    Category.RAW_WB -> SpectraIcons.WhiteBalance
+    Category.SAT_VIB -> MaterialSymbols.Palette
+    Category.PRINT_COLOR -> MaterialSymbols.Colorize
+    Category.COUPLERS -> SpectraIcons.Couplers
+    Category.FILM_FORMAT -> MaterialSymbols.AspectRatio
+    Category.GRAIN -> SpectraIcons.Grain
+    Category.HALATION -> SpectraIcons.Halation
+    Category.CAMERA_DIFFUSION -> MaterialSymbols.BlurOn
+    Category.PRINT_EXPOSURE -> MaterialSymbols.Print
+    Category.PREFLASH -> SpectraIcons.Preflash
+    Category.ENLARGER -> MaterialSymbols.ZoomIn
+    Category.GLARE -> SpectraIcons.Glare
+    Category.LENS_BLUR -> MaterialSymbols.BlurOn
+    Category.DATE_STAMP -> MaterialSymbols.CameraRoll
+    Category.SCANNER -> MaterialSymbols.DocumentScanner
+    Category.RAW_CLEANUP -> MaterialSymbols.RawOn
+    Category.OUTPUT -> SpectraIcons.Output
+    Category.DISPLAY -> SpectraIcons.Display
+    Category.INPUT -> SpectraIcons.Input
+    Category.EXPERIMENTAL -> SpectraIcons.Experimental
+    Category.MASKS -> SpectraIcons.Masks
 }

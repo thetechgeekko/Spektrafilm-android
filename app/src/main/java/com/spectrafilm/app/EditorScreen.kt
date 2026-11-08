@@ -2424,24 +2424,63 @@ internal fun EditorScreen(
                         withContext(dispatchers.io) { DateStampText.readCaptureDate(ctx, uri) }
                     }
                 }
-                // The active panel body, shared by both branches so the per-category
-                // `when` below is not duplicated.
-                val panelContent: @Composable ColumnScope.() -> Unit = {
-                    CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
-                    when (activeCategory) {
-                        Category.INPUT -> InputSection(state, onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                // Re-encoded only when a parameter actually changes, not per frame.
+                // Shared by the bottom bar/rail, the section tabs and the panels: a tool's
+                // reset is offered only when it actually holds edits, which is the same
+                // question the dot asks.
+                val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
+                val resetCategory: (Category) -> Unit = { target ->
+                    // A partial recipe carrying only this tool's sections or keys.
+                    // Presets.applyJson reads each section behind its own optJSONObject and
+                    // keeps the current value of any key it leaves out, so nothing outside
+                    // them can move.
+                    categoryDefaults(target)?.let { defaults ->
+                        runCatching { Presets.decode(defaults, state) }
+                        previewTick++
+                    }
+                }
+                // RAW cleanup acts inside the RAW decode, so it is only offered for a RAW.
+                val isRawSource = sourceKind == SourceKind.RAW
+                fun toolShown(c: Category) = c != Category.RAW_CLEANUP || isRawSource
+                // The tool Edit reopens on: the last one shown there.
+                var lastEdit by rememberSaveable { mutableStateOf<Category?>(null) }
+                LaunchedEffect(activeCategory) {
+                    activeCategory?.takeIf { it.mode == EditorMode.EDIT }?.let { lastEdit = it }
+                }
+                val editOpen = activeCategory?.mode == EditorMode.EDIT
+                // One tool's controls, shared by every branch so the per-tool `when` below
+                // is not duplicated.
+                val toolContent: @Composable ColumnScope.(Category) -> Unit = { tool ->
+                    val simPart: SimPart? = when (tool) {
+                        Category.SIMULATION -> SimPart.FILM_STOCK
+                        Category.PAPER -> SimPart.PAPER
+                        Category.EXPOSURE -> SimPart.EXPOSURE
+                        Category.SCENE_LATITUDE -> SimPart.SCENE_LATITUDE
+                        Category.SAT_VIB -> SimPart.SAT_VIB
+                        Category.PRINT_COLOR -> SimPart.PRINT_COLOR
+                        Category.FILM_FORMAT -> SimPart.FILM_FORMAT
+                        Category.CAMERA_DIFFUSION -> SimPart.CAMERA_DIFFUSION
+                        Category.PRINT_EXPOSURE -> SimPart.PRINT_EXPOSURE
+                        Category.ENLARGER -> SimPart.ENLARGER
+                        Category.LENS_BLUR -> SimPart.LENS_BLUR
+                        Category.DATE_STAMP -> SimPart.DATE_STAMP
+                        Category.SCANNER -> SimPart.SCANNER
+                        Category.OUTPUT -> SimPart.OUTPUT
+                        else -> null
+                    }
+                    when (tool) {
+                        Category.INPUT -> InputSection(state, onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) })
+                        Category.RAW_WB -> ImportRawSection(state, isRaw = isRawSource,
                             onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.RAW_WB -> ImportRawSection(state, isRaw = sourceKind == SourceKind.RAW,
-                            onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.SIMULATION, Category.PAPER, Category.SCANNER, Category.OUTPUT -> EditorSimulationPanel(
+                        Category.RAW_CLEANUP -> RawCleanupSection(state)
+                        Category.SIMULATION, Category.PAPER, Category.EXPOSURE, Category.SCENE_LATITUDE,
+                        Category.SAT_VIB, Category.PRINT_COLOR, Category.FILM_FORMAT,
+                        Category.CAMERA_DIFFUSION, Category.PRINT_EXPOSURE, Category.ENLARGER,
+                        Category.LENS_BLUR, Category.DATE_STAMP, Category.SCANNER,
+                        Category.OUTPUT -> EditorSimulationPanel(
                             filmPreviewVm = filmPreviewVm,
                             printPreviewVm = printPreviewVm,
-                            part = when (activeCategory) {
-                                Category.PAPER -> SimPart.PRINT
-                                Category.SCANNER -> SimPart.SCANNER
-                                Category.OUTPUT -> SimPart.OUTPUT
-                                else -> SimPart.FILM
-                            },
+                            part = simPart ?: SimPart.FILM_STOCK,
                             ctx = ctx,
                             scope = scope,
                             state = state,
@@ -2548,8 +2587,30 @@ internal fun EditorScreen(
                             resetEditorCursorForSourceChangeFn = ::resetEditorCursorForSourceChange,
                             reconcileVisibleSourceAfterFailureFn = ::reconcileVisibleSourceAfterFailure,
                         )
-                        null -> {}
                     }
+                }
+                // The open panel's body. Looks and Masks show the one picked tool; Edit shows
+                // every tool of the open section stacked, each under its own name and reset.
+                val panelContent: @Composable ColumnScope.() -> Unit = {
+                    CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
+                        val open = activeCategory
+                        if (open != null && open.mode == EditorMode.EDIT) {
+                            categoriesOf(open.stage).filter(::toolShown).forEachIndexed { i, tool ->
+                                if (i > 0) {
+                                    HorizontalDivider(
+                                        Modifier.padding(vertical = 6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    )
+                                }
+                                ToolHeader(
+                                    tool = tool,
+                                    onReset = if (tool in dirty) ({ resetCategory(tool) }) else null,
+                                )
+                                toolContent(tool)
+                            }
+                        } else if (open != null) {
+                            toolContent(open)
+                        }
                     }
                 }
                 // Measured height of the floating adjustment panel (narrow layout only). The
@@ -2604,24 +2665,15 @@ internal fun EditorScreen(
                         onRoiCleared = { clearRoi() },
                     )
                 }
-                // Re-encoded only when a parameter actually changes, not per frame.
-                // Shared by the stage row/rail and the panels:
-                // the per-category reset is offered only for a category that actually holds
-                // edits, which is the same question the rail's dot asks.
-                val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
+                // In Edit each stacked tool carries its own reset (ToolHeader); elsewhere the
+                // panel offers one for the open tool.
                 val resetActiveCategory: (() -> Unit)? =
-                    activeCategory?.takeIf { it in dirty }?.let { target ->
-                        {
-                            // A partial recipe carrying only this category's sections.
-                            // Presets.applyJson reads each section behind its own
-                            // optJSONObject, so nothing outside them can move.
-                            categoryDefaults(target)?.let { defaults ->
-                                runCatching { Presets.decode(defaults, state) }
-                                previewTick++
-                            }
-                            Unit
-                        }
-                    }
+                    activeCategory?.takeIf { !editOpen && it in dirty }?.let { target -> { resetCategory(target) } }
+                val editSections = stagesOf(EditorMode.EDIT)
+                val openSection: (Stage) -> Unit = { section ->
+                    activeCategory = categoriesOf(section).first(::toolShown)
+                }
+                val openCrop: () -> Unit = { toolVm.onAction(EditorToolAction.OpenCrop) }
                 if (wide) {
                     Row(Modifier.fillMaxSize()) {
                         // --- STAGE RAIL (expanded windows), Export as its FAB ---
@@ -2630,6 +2682,8 @@ internal fun EditorScreen(
                                 active = activeCategory,
                                 dirty = dirty,
                                 onOpen = { activeCategory = it },
+                                onCrop = openCrop,
+                                lastEdit = lastEdit,
                                 exportVisible = engine != null && sourceRenderAllowed,
                                 exporting = exportInFlight,
                                 onExport = { requestExport() },
@@ -2669,9 +2723,11 @@ internal fun EditorScreen(
                                 onDismiss = { activeCategory = null },
                                 onResetCategory = resetActiveCategory,
                                 width = sidePaneWidth,
-                                tabs = categoriesOf(sideCategory.stage),
+                                tabs = if (editOpen) emptyList() else categoriesOf(sideCategory.stage),
                                 dirty = dirty,
                                 onSelectTab = { activeCategory = it },
+                                sections = if (editOpen) editSections else emptyList(),
+                                onSelectSection = openSection,
                                 content = panelContent,
                             )
                         }
@@ -2726,9 +2782,11 @@ internal fun EditorScreen(
                                     tall = panelTall,
                                     onTallChange = { panelTall = it },
                                     fixedHeight = tabletopPanelHeight,
-                                    tabs = activeCategory?.let { categoriesOf(it.stage) }.orEmpty(),
+                                    tabs = if (editOpen) emptyList() else activeCategory?.let { categoriesOf(it.stage) }.orEmpty(),
                                     dirty = dirty,
                                     onSelectTab = { activeCategory = it },
+                                    sections = if (editOpen) editSections else emptyList(),
+                                    onSelectSection = openSection,
                                     content = panelContent,
                                 )
                             }
@@ -2760,6 +2818,8 @@ internal fun EditorScreen(
                                 active = activeCategory,
                                 dirty = dirty,
                                 onOpen = { activeCategory = it },
+                                onCrop = openCrop,
+                                lastEdit = lastEdit,
                             )
                         }
                     }

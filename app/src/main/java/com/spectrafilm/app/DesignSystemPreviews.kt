@@ -35,16 +35,19 @@ internal fun PreviewSurface(dark: Boolean, content: @Composable () -> Unit) {
 }
 
 private val previewDirty = setOf(Category.GRAIN, Category.HALATION)
-private val previewFilmTools = listOf(Category.SIMULATION, Category.GRAIN, Category.HALATION, Category.COUPLERS)
+private val previewLooksTools = listOf(Category.SIMULATION, Category.PAPER, Category.PRESETS, Category.SOURCE)
 
 @Composable
 internal fun StageRowSample(dark: Boolean) = PreviewSurface(dark) {
-    StageRow(active = Category.GRAIN, dirty = previewDirty, onOpen = {})
+    Column {
+        SectionTabs(sections = stagesOf(EditorMode.EDIT), active = Stage.FILM, dirty = previewDirty, onSelect = {})
+        StageRow(active = Category.GRAIN, dirty = previewDirty, onOpen = {}, onCrop = {})
+    }
 }
 
 @Composable
 internal fun ToolRowSample(dark: Boolean) = PreviewSurface(dark) {
-    ToolRow(tools = previewFilmTools, active = Category.GRAIN, dirty = previewDirty, onSelect = {})
+    ToolRow(tools = previewLooksTools, active = Category.SIMULATION, dirty = previewDirty, onSelect = {})
 }
 
 @Composable
@@ -57,10 +60,11 @@ internal fun StageRailSample(dark: Boolean) = PreviewSurface(dark) {
             exportVisible = true,
             exporting = false,
             onExport = {},
+            onCrop = {},
         )
         ToolList(
-            tools = previewFilmTools,
-            active = Category.GRAIN,
+            tools = previewLooksTools,
+            active = Category.SIMULATION,
             dirty = previewDirty,
             onSelect = {},
             modifier = Modifier.width(240.dp),

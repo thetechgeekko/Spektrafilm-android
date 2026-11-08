@@ -21,7 +21,16 @@ class CategoryResetTest {
         for ((category, sections) in CATEGORY_SECTIONS) {
             val defaults = categoryDefaults(category)
             assertNotNull("no defaults for $category", defaults)
-            val keys = requireNotNull(defaults).keys().asSequence().toSet()
+            val d = requireNotNull(defaults)
+            val keys = d.keys().asSequence().flatMap { section ->
+                val v = d.get(section)
+                val claimedWhole = section in sections
+                if (!claimedWhole && v is org.json.JSONObject) {
+                    v.keys().asSequence().map { "$section.$it" }
+                } else {
+                    sequenceOf(section)
+                }
+            }.toSet()
             assertEquals("$category carried the wrong sections", sections.toSet(), keys)
         }
     }
@@ -60,9 +69,38 @@ class CategoryResetTest {
     }
 
     @Test
+    fun resettingOneKeyToolLeavesItsSectionNeighboursAlone() {
+        // Exposure, Film format, Lens blur, Highlights & shadows and Date stamp all live in
+        // the encoded "camera" section. A reset of one must not touch the others.
+        val state = ParamsState()
+        state.exposureCompensationEv = 1.5f
+        state.filmFormatMm = 120f
+        state.cameraLensBlurUm = 2f
+        state.sceneLatitudeActive = true
+        state.dateStampActive = true
+        state.saturation = 30f
+        state.contrast = 12f
+
+        Presets.decode(requireNotNull(categoryDefaults(Category.EXPOSURE)), state)
+        Presets.decode(requireNotNull(categoryDefaults(Category.SAT_VIB)), state)
+
+        assertEquals(0f, state.exposureCompensationEv, 1e-6f)
+        assertEquals(0f, state.saturation, 1e-6f)
+        assertEquals("film format was collateral damage", 120f, state.filmFormatMm, 1e-6f)
+        assertEquals("lens blur was collateral damage", 2f, state.cameraLensBlurUm, 1e-6f)
+        assertTrue("scene latitude was collateral damage", state.sceneLatitudeActive)
+        assertTrue("date stamp was collateral damage", state.dateStampActive)
+        assertEquals("contrast was collateral damage", 12f, state.contrast, 1e-6f)
+        assertEquals(
+            setOf(Category.FILM_FORMAT, Category.LENS_BLUR, Category.SCENE_LATITUDE, Category.DATE_STAMP, Category.TONE_CURVE),
+            dirtyCategories(state),
+        )
+    }
+
+    @Test
     fun anUnmappedCategoryOffersNoReset() {
-        // SIMULATION and PREFLASH both live in the "enlarger" section and are deliberately
-        // absent from CATEGORY_SECTIONS. They must return null rather than an empty object,
+        // SIMULATION and PAPER are pickers (the stock is the look, not an edit) and are
+        // deliberately absent from CATEGORY_SECTIONS. They must return null rather than an empty object,
         // which would decode as a no-op reset button that appears to do nothing.
         assertTrue(Category.SIMULATION !in CATEGORY_SECTIONS)
         assertEquals(null, categoryDefaults(Category.SIMULATION))

@@ -66,9 +66,9 @@
     <string name="screen_howto_s3_step1">固定预览 — 照片按当前设置实时渲染，占据屏幕上半部分。角落的状态标签显示渲染进度与上次耗时。点按照片可隐藏全部控件并全屏查看，再次点按可恢复。长按照片查看原图，松开返回；双击缩放至 100%，双指捏合自由缩放，拖动平移。</string>
     <string name="screen_howto_s3_step2">直方图 — 叠加显示在预览上，便于判断曝光与色阶裁切。左上角蓝色三角表示阴影被压至纯黑；右上角红色三角表示高光溢出。零星一两个像素不会触发提示 — 大约每一千个像素中有一个时才会显示。</string>
     <string name="screen_howto_s3_step4">滑块 — 拖动时，面板会接近淡出，使您能查看完整照片，数值悬浮显示在右上角。每个值都有胶囊形标签：点按输入精确数值；横向拖动可进行比滑轨细十倍的微调；双击可将该参数恢复默认值。带圆环的标签表示参数已偏离默认值。整组有更改时，面板顶部会出现重置按钮。</string>
-    <string name="screen_howto_s3_step3">阶段栏 — 底部有五个阶段：风格、胶片、冲印、扫描和后期。这些阶段与引擎实际模拟的顺序一致：从风格开始，为负片曝光，冲印，扫描照片，最后调色。</string>
-    <string name="screen_howto_s3_p2">点按某阶段可展开，在阶段栏上方以图标显示该阶段的参数组；长按图标可查看名称。阶段或组上的圆点表示其中有设置偏离中性默认值，便于一眼看出哪些流程正在影响照片。各阶段的参数组如下：</string>
-    <string name="screen_howto_s3_p3">向下滑动面板，或再次点按已展开的阶段，即可收起并返回完整预览。</string>
+    <string name="screen_howto_s3_step3">底部栏：风格、编辑、裁剪和蒙版。风格是起点：胶片、相纸和预设。编辑包含所有调整，按其改变的内容分为光线、颜色、胶片、印放、效果、细节、输出和实验室几个分区。裁剪打开裁剪框，蒙版把调整限定在照片的一部分。</string>
+    <string name="screen_howto_s3_p2">在编辑中，分区标签位于面板顶部，分区的工具依次排列在下方，每个工具都有名称，有改动时旁边会显示重置。模式、分区或工具上的圆点表示其中有设置不同于中性默认值，让你一眼看出哪些在影响照片。各分区的工具：</string>
+    <string name="screen_howto_s3_p3">向下滑动面板，或再次点按已打开的模式，即可关闭面板并返回完整预览。</string>
     <string name="screen_howto_category_line">" — %1$s"</string>
     <string name="screen_howto_cat_source">源图像</string>
     <string name="screen_howto_cat_source_desc">打开或关闭照片、演示图像、编辑前后对比</string>
@@ -102,10 +102,10 @@
     <string name="screen_howto_s3_step0b">设置中包含导出默认值、色彩管理与应用诊断。</string>
     <string name="screen_howto_s4_title">选择风格</string>
     <string name="screen_howto_s4_p1">从这里开始，为照片找到合适的胶片特性：</string>
-    <string name="screen_howto_s4_step1" formatted="false">打开胶片阶段，在胶片选择器中选择胶片 — 共 %1$d 个配置，按彩色负片、反转片、电影胶片和印片分类。各项均显示 ISO、色彩平衡和一句特性说明。</string>
-    <string name="screen_howto_s4_step2">如需冲印效果（负片→放大机→相纸），还需在模拟中的冲印选择器里选择相纸。保留默认值即可得到直接扫描负片的结果。</string>
+    <string name="screen_howto_s4_step1" formatted="false">打开风格，从胶片条或胶片选择器中选择胶片：共有 %1$d 种配置文件，分为彩色负片、反转片、电影胶片和印片胶片。每一项都显示 ISO、色彩平衡和一句特性说明。</string>
+    <string name="screen_howto_s4_step2">如果想要放印效果（负片→放大机→相纸），还要在风格的相纸中选择相纸。保持默认即可得到直接扫描负片的效果。</string>
     <string name="screen_howto_s4_step3">调整曝光滑块，使模拟曝光变亮或变暗。也可点按自动，让应用为场景测光。自动曝光以中灰为目标，弹出列表提供 7 种测光模式（中央重点、矩阵、点测光等）。</string>
-    <string name="screen_howto_s4_step4" formatted="false">要快速开始，请打开风格阶段并选择预设。内置 %1$d 套经研究设计的胶片到相纸风格。点按可加载完整参数，然后继续微调。</string>
+    <string name="screen_howto_s4_step4" formatted="false">想快速开始，打开风格并选择预设。共有 %1$d 种内置、经过考证的胶片到放印风格。点按一个即可载入全部参数，再从那里微调。</string>
     <string name="screen_howto_s5_title">主要工具</string>
     <string name="screen_howto_s5_p1">编辑器中可直接使用多种工具：</string>
     <string name="screen_howto_s5_step1">旋转 90° — 顶部栏的旋转按钮会将照片顺时针旋转 90°。旋转同时作用于预览、导出和颗粒放大镜。</string>

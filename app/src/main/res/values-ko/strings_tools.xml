@@ -148,8 +148,8 @@
     <string name="tool_masks_invert_color_help">범위 바깥의 색에 적용합니다.</string>
     <string name="tool_masks_delete">마스크 삭제</string>
     <string name="tool_coach_title">빠른 팁</string>
-    <string name="tool_coach_category_title">단계 선택</string>
-    <string name="tool_coach_category_body">룩, 필름, 인화, 스캔, 마무리 — 사진이 거치는 단계입니다. 하나를 탭하면 설정이 열립니다.</string>
+    <string name="tool_coach_category_title">모드 선택</string>
+    <string name="tool_coach_category_body">룩에서 필름으로 시작하고, 편집에서 섹션별로 모든 조정을, 그리고 자르기와 마스크. 하나를 탭하면 설정이 열립니다.</string>
     <string name="tool_coach_compare_title">전 / 후</string>
     <string name="tool_coach_compare_body">비교 분할을 켜고 꺼서 편집을 원본과 비교하세요.</string>
     <string name="tool_coach_inspect_title" formatted="false">100%로 확인</string>

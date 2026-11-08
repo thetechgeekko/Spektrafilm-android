@@ -119,8 +119,8 @@
     <string name="tool_masks_invert_color_help">改为作用于范围以外的颜色。</string>
     <string name="tool_masks_delete">删除蒙版</string>
     <string name="tool_coach_title">快速提示</string>
-    <string name="tool_coach_category_title">选择阶段</string>
-    <string name="tool_coach_category_body">风格、胶片、冲印、扫描、后期 — 照片依次经历的阶段。点按可打开相应控件。</string>
+    <string name="tool_coach_category_title">选择模式</string>
+    <string name="tool_coach_category_body">风格：从胶片开始；编辑：按分区进行所有调整；还有裁剪和蒙版。点按可打开相应控件。</string>
     <string name="tool_coach_compare_title">编辑前后</string>
     <string name="tool_coach_compare_body">切换对比分屏，将编辑效果与原图比较。</string>
     <string name="tool_coach_inspect_title" formatted="false">以 100% 检查</string>

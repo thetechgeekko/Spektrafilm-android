@@ -50,10 +50,8 @@ class LocalizedLayoutTest {
         )
     }
 
-    private val stageLabels = listOf(
-        "editor_stage_look", "editor_stage_film", "editor_stage_print",
-        "editor_stage_scan", "editor_stage_finish",
-    )
+    // The bottom bar's modes: the selected one shows its label in the pill.
+    private val stageLabels = listOf("editor_mode_looks", "editor_mode_edit", "editor_mode_masks")
 
     /** Latin letters count 1, CJK and full-width count 2 (they set about twice as wide). */
     private fun width(text: String): Int = text.sumOf { c ->

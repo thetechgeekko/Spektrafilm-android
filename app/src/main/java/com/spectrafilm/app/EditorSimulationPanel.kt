@@ -32,7 +32,7 @@ internal fun EditorSimulationPanel(
     previewBusy: Boolean,
     onOpenFilmCurves: (id: String, name: String) -> Unit,
     onOpenPrintCurves: (id: String, name: String) -> Unit,
-    part: SimPart = SimPart.FILM,
+    part: SimPart = SimPart.FILM_STOCK,
 ) {
     val printIds = remember(printGroups) { printGroups.flatMap { g -> g.options.map { it.id } } }
     // A black-and-white film only prints on silver paper (on a colour paper it renders orange),

@@ -148,8 +148,8 @@
     <string name="tool_masks_invert_color_help">Agit plutôt sur les couleurs EN DEHORS de la plage.</string>
     <string name="tool_masks_delete">Supprimer le masque</string>
     <string name="tool_coach_title">Astuces rapides</string>
-    <string name="tool_coach_category_title">Choisissez une étape</string>
-    <string name="tool_coach_category_body">Look, Film, Tirage, Numérisation, Finition : les étapes que traverse votre photo. Touchez-en une pour ouvrir ses réglages.</string>
+    <string name="tool_coach_category_title">Choisissez un mode</string>
+    <string name="tool_coach_category_body">Looks pour partir d’une pellicule, Réglages pour tous les réglages par section, Recadrer et Masques. Touchez-en un pour ouvrir ses réglages.</string>
     <string name="tool_coach_compare_title">Avant / après</string>
     <string name="tool_coach_compare_body">Activez la séparation de comparaison pour juger une retouche par rapport à l’original.</string>
     <string name="tool_coach_inspect_title" formatted="false">Inspecter à 100 %</string>

@@ -291,8 +291,19 @@ private fun categoryHowtoName(c: Category): Int = when (c) {
     Category.GRAIN -> R.string.screen_howto_cat_grain
     Category.HALATION -> R.string.screen_howto_cat_halation
     Category.GLARE -> R.string.screen_howto_cat_glare
-    Category.PAPER -> R.string.editor_sim_tab_print
-    Category.SCANNER -> R.string.editor_sim_tab_scanner
+    Category.PAPER -> R.string.editor_category_paper
+    Category.SCANNER -> R.string.editor_category_scanner
+    Category.EXPOSURE -> R.string.editor_category_exposure
+    Category.SCENE_LATITUDE -> R.string.editor_category_scene_latitude
+    Category.SAT_VIB -> R.string.editor_category_sat_vib
+    Category.PRINT_COLOR -> R.string.editor_category_print_color
+    Category.FILM_FORMAT -> R.string.editor_category_film_format
+    Category.CAMERA_DIFFUSION -> R.string.editor_category_camera_diffusion
+    Category.PRINT_EXPOSURE -> R.string.editor_category_print_exposure
+    Category.ENLARGER -> R.string.editor_category_enlarger
+    Category.LENS_BLUR -> R.string.editor_category_lens_blur
+    Category.DATE_STAMP -> R.string.editor_category_date_stamp
+    Category.RAW_CLEANUP -> R.string.editor_category_raw_cleanup
     Category.OUTPUT -> R.string.editor_sim_tab_output
     Category.COUPLERS -> R.string.screen_howto_cat_couplers
     Category.PREFLASH -> R.string.screen_howto_cat_preflash
@@ -316,6 +327,17 @@ private fun categoryHowtoDesc(c: Category): Int = when (c) {
     Category.PAPER -> R.string.editor_hint_paper
     Category.SCANNER -> R.string.editor_hint_scanner
     Category.OUTPUT -> R.string.editor_hint_output
+    Category.EXPOSURE -> R.string.editor_hint_exposure
+    Category.SCENE_LATITUDE -> R.string.editor_hint_scene_latitude
+    Category.SAT_VIB -> R.string.editor_hint_sat_vib
+    Category.PRINT_COLOR -> R.string.editor_hint_print_color
+    Category.FILM_FORMAT -> R.string.editor_hint_film_format
+    Category.CAMERA_DIFFUSION -> R.string.editor_hint_camera_diffusion
+    Category.PRINT_EXPOSURE -> R.string.editor_hint_print_exposure
+    Category.ENLARGER -> R.string.editor_hint_enlarger
+    Category.LENS_BLUR -> R.string.editor_hint_lens_blur
+    Category.DATE_STAMP -> R.string.editor_hint_date_stamp
+    Category.RAW_CLEANUP -> R.string.editor_hint_raw_cleanup
     Category.COUPLERS -> R.string.screen_howto_cat_couplers_desc
     Category.PREFLASH -> R.string.screen_howto_cat_preflash_desc
     Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask_desc
