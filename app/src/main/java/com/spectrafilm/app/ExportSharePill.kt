@@ -78,6 +78,9 @@ private val PILL_OUTER = 20.dp // full: half of the 40dp button height
 private val PILL_PRESSED_INNER = 4.dp // M3 connected group: inner corners tighten on press
 private val SHARE_WIDTH = 48.dp
 
+/** The icon-only pill: 4dp padding, Export 48dp, the 2dp connected gap, Share 48dp, 4dp. */
+internal val EXPORT_PILL_ICON_WIDTH = 4.dp + SHARE_WIDTH + 2.dp + SHARE_WIDTH + 4.dp
+
 /** The shared fill the export's progress paints, start to end (mirrored in RTL). */
 private fun DrawScope.drawProgressFill(fraction: Float, color: Color) {
     if (fraction <= 0f) return

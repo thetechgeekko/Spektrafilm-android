@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
@@ -76,6 +77,117 @@ internal fun topBarSafeInsets(): WindowInsets =
     WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
 
 /**
+ * Where the front camera cutouts are, for one app bar: [rects] in window coordinates and the
+ * bar's own top-left in the window (tracked by [track]). Created once per bar with
+ * [rememberCutoutBand] so the bar's owner can plan what fits beside the cutout (see
+ * [placeBesideCutout]) with the same numbers [CutoutAwareBarRow] lays out with.
+ */
+@Stable
+internal class CutoutBand(internal val keepOutPx: Int) {
+    internal var rects: List<Rect> by mutableStateOf(emptyList())
+    internal var barTopLeft: IntOffset by mutableStateOf(IntOffset.Zero)
+
+    /** Records where the bar sits in the window. */
+    val track: Modifier = Modifier.onGloballyPositioned {
+        val p = it.positionInWindow()
+        barTopLeft = IntOffset(p.x.toInt(), p.y.toInt())
+    }
+
+    /** Cutouts that reach into a bar [width] wide and [height] tall (see [cutoutHolesInBar]). */
+    fun holes(width: Int, height: Int, rtl: Boolean): List<Pair<Int, Int>> =
+        cutoutHolesInBar(rects, barTopLeft.x, barTopLeft.y, width, height, keepOutPx, rtl)
+}
+
+/** A [CutoutBand] that follows the window's cutout (rotation, fold, bars shown/hidden). */
+@Composable
+internal fun rememberCutoutBand(): CutoutBand {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val band = remember(density) { CutoutBand(with(density) { 8.dp.roundToPx() }) }
+    // Reading the cutout inset subscribes the caller to inset changes; the rectangles
+    // themselves come from the platform insets.
+    val cutoutTop = WindowInsets.displayCutout.getTop(density)
+    val cutoutLeft = WindowInsets.displayCutout.getLeft(density, LayoutDirection.Ltr)
+    val statusTop = WindowInsets.statusBars.getTop(density)
+    val rects = remember(view, cutoutTop, cutoutLeft, statusTop) {
+        ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects.orEmpty()
+            .filter { it.width() > 0 && it.height() > 0 }
+    }
+    if (band.rects != rects) band.rects = rects
+    return band
+}
+
+/**
+ * The cutouts in [rects] (window coordinates) that reach into a bar at ([barX], [barY]) of
+ * [width] x [height], as bar-local LOGICAL x ranges (start edge = 0, mirrored in RTL so one
+ * walk works both ways), widened by [keepOut] on each side and sorted from the start edge.
+ */
+internal fun cutoutHolesInBar(
+    rects: List<Rect>,
+    barX: Int,
+    barY: Int,
+    width: Int,
+    height: Int,
+    keepOut: Int,
+    rtl: Boolean,
+): List<Pair<Int, Int>> = rects
+    .filter { r -> r.top < barY + height && r.bottom > barY }
+    .map { r ->
+        val l = r.left - barX - keepOut
+        val rr = r.right - barX + keepOut
+        if (rtl) (width - rr) to (width - l) else l to rr
+    }
+    .filter { (l, r) -> r > 0 && l < width }
+    .sortedBy { it.first }
+
+/** Where [placeBesideCutout] put each item, in bar-local logical x. */
+internal class BarPlacement(
+    val startX: IntArray,
+    val endX: IntArray,
+    /** Where the first end-side item starts; the title may run up to here. */
+    val end: Int,
+    /** Where the last start-side item ends; the title starts here. */
+    val titleStart: Int,
+) {
+    /** No item covers a cutout or another item. */
+    val fits: Boolean get() = end >= titleStart
+}
+
+/**
+ * Lays out a bar row around cutout [holes] (from [cutoutHolesInBar]): [startWidths] from the
+ * start edge and [endWidths] from the end edge (kept in order, nearest the end first), each
+ * item stepping past any cutout it would cover. Pure, so callers can ask "does this set of
+ * buttons fit beside the camera?" before composing them.
+ */
+internal fun placeBesideCutout(
+    width: Int,
+    holes: List<Pair<Int, Int>>,
+    startWidths: List<Int>,
+    endWidths: List<Int>,
+): BarPlacement {
+    fun blocked(from: Int, to: Int) = holes.any { (l, r) -> from < r && to > l }
+    var x = 0
+    val startX = IntArray(startWidths.size)
+    startWidths.forEachIndexed { i, w ->
+        holes.firstOrNull { (l, r) -> x < r && x + w > l }?.let { x = it.second }
+        startX[i] = x
+        x += w
+    }
+    var end = width
+    val endX = IntArray(endWidths.size)
+    for (i in endWidths.indices.reversed()) {
+        val w = endWidths[i]
+        var at = end - w
+        while (blocked(at, at + w)) {
+            at = holes.last { (l, r) -> at < r && at + w > l }.first - w
+        }
+        endX[i] = at
+        end = at
+    }
+    return BarPlacement(startX, endX, end, x)
+}
+
+/**
  * An app bar row that keeps its buttons clear of a camera cutout in the band it occupies.
  *
  * With the status bar showing, the bar sits below it and no cutout reaches it, so this lays
@@ -83,34 +195,24 @@ internal fun topBarSafeInsets(): WindowInsets =
  * full screen the bar moves up into the status strip; then each action that would cover the
  * cutout moves to the free side of it (actions keep their order, nearest the end first), and
  * the title takes whatever room is left before the cutout — or gives way entirely when that
- * room is too small to read.
+ * room is too small to read. Only when the buttons cannot fit beside the cutout at all does
+ * the row drop below it; a caller that wants to stay in the strip plans with [band] and
+ * [placeBesideCutout] and trims its actions first.
  */
 @Composable
 internal fun CutoutAwareBarRow(
     modifier: Modifier = Modifier,
+    band: CutoutBand = rememberCutoutBand(),
     navigation: @Composable () -> Unit,
     title: @Composable () -> Unit,
     actions: @Composable () -> Unit,
 ) {
-    val view = LocalView.current
     val density = LocalDensity.current
-    var barTopLeft by remember { mutableStateOf(IntOffset.Zero) }
-    // Reading the cutout inset subscribes this composable to inset changes (rotation, fold,
-    // bars shown/hidden); the rectangles themselves come from the platform insets.
-    val cutoutTop = WindowInsets.displayCutout.getTop(density)
-    val cutoutLeft = WindowInsets.displayCutout.getLeft(density, LayoutDirection.Ltr)
-    val rects: List<Rect> = remember(view, cutoutTop, cutoutLeft) {
-        ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects.orEmpty()
-    }
-    val keepOut = with(density) { 8.dp.roundToPx() }
     val minTitle = with(density) { 72.dp.roundToPx() }
 
     Layout(
         contents = listOf(navigation, title, actions),
-        modifier = modifier.onGloballyPositioned {
-            val p = it.positionInWindow()
-            barTopLeft = IntOffset(p.x.toInt(), p.y.toInt())
-        },
+        modifier = modifier.then(band.track),
     ) { (navM, titleM, actionM), constraints ->
         val width = constraints.maxWidth
         val rtl = layoutDirection == LayoutDirection.Rtl
@@ -123,54 +225,27 @@ internal fun CutoutAwareBarRow(
             acts.maxOfOrNull { it.height } ?: 0,
         )
 
-        // Cutouts that reach into this bar, in bar-local LOGICAL x (start edge = 0, mirrored in
-        // RTL so the same walk works both ways), widened by the keep-out margin.
-        val inBand = rects.filter { r -> r.top < barTopLeft.y + baseRowHeight && r.bottom > barTopLeft.y }
-        val holes = inBand
-            .map { r ->
-                val l = r.left - barTopLeft.x - keepOut
-                val rr = r.right - barTopLeft.x + keepOut
-                if (rtl) (width - rr) to (width - l) else l to rr
-            }
-            .filter { (l, r) -> r > 0 && l < width }
-            .sortedBy { it.first }
-
-        fun blocked(from: Int, to: Int) = holes.any { (l, r) -> from < r && to > l }
-
-        // Navigation from the start edge, stepping past any cutout it would cover.
-        var x = 0
-        val navX = nav.map { p ->
-            holes.firstOrNull { (l, r) -> x < r && x + p.width > l }?.let { x = it.second }
-            val at = x; x += p.width; at
-        }
-        var titleStart = x
-
-        // Actions from the end edge, stepping toward the start past any cutout they would cover.
-        var end = width
-        val actX = IntArray(acts.size)
-        for (i in acts.indices.reversed()) {
-            val p = acts[i]
-            var at = end - p.width
-            while (blocked(at, at + p.width)) {
-                val hole = holes.last { (l, r) -> at < r && at + p.width > l }
-                at = hole.first - p.width
-            }
-            actX[i] = at
-            end = at
-        }
+        val holes = band.holes(width, baseRowHeight, rtl)
+        val plan = placeBesideCutout(width, holes, nav.map { it.width }, acts.map { it.width })
+        var titleStart = plan.titleStart
+        var end = plan.end
+        val actX = plan.endX
 
         // Not enough room beside the cutout (narrow window, wide notch): rather than let
         // buttons overlap each other or the camera, drop the whole row below the cutout and lay
         // it out plainly there.
         var top = 0
-        val fits = holes.isEmpty() || (navX.all { it >= 0 } && end >= titleStart)
+        val fits = holes.isEmpty() || plan.fits
         if (!fits) {
-            top = inBand.maxOf { it.bottom - barTopLeft.y } + keepOut
+            val barY = band.barTopLeft.y
+            top = band.rects
+                .filter { r -> r.top < barY + baseRowHeight && r.bottom > barY }
+                .maxOf { it.bottom - barY } + band.keepOutPx
             titleStart = nav.sumOf { it.width }
             end = width
             for (i in acts.indices.reversed()) { end -= acts[i].width; actX[i] = end }
         }
-        val navPositions = if (fits) navX else run {
+        val navPositions = if (fits) plan.startX.toList() else run {
             var a = 0
             nav.map { p -> val at = a; a += p.width; at }
         }
