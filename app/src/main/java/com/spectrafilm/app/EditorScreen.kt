@@ -2817,6 +2817,7 @@ internal fun EditorScreen(
         // --- full-screen export mask ---
         if (exportInFlight) {
             ExportMask(
+                photo = preview,
                 onCancel = {
                     val running = exportRuntimeState as? ExportRuntimeState.Running
                     if (running != null && ExportWorkRuntime.cancel(running.runId)) {
