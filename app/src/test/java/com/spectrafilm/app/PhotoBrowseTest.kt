@@ -89,4 +89,20 @@ class PhotoBrowseTest {
             PhotoBrowse.frames = saved
         }
     }
+
+    @Test
+    fun aNeighbourOpensWithItsOwnRecipe() {
+        val own = ParamsState().apply { filmProfile = "fujifilm_pro_400h" }
+        val doc = RecipeDocument("k", "b.jpg", 0L, 0, Presets.encode(own))
+        var defaulted = false
+        val s = openingStateFor(doc) { defaulted = true }
+        assertEquals("fujifilm_pro_400h", s.filmProfile)
+        assertEquals(false, defaulted)
+    }
+
+    @Test
+    fun aNeighbourWithoutARecipeOpensWithTheDefaults() {
+        val s = openingStateFor(null) { it.filmProfile = "kodak_gold_200" }
+        assertEquals("kodak_gold_200", s.filmProfile)
+    }
 }

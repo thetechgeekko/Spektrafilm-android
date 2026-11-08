@@ -151,7 +151,17 @@ object Recipes {
         }
     }
 
-    internal fun readResult(ctx: Context, key: String?): RecipeReadResult {
+    internal fun readResult(ctx: Context, key: String?): RecipeReadResult = read(ctx, key, quarantine = true)
+
+    /**
+     * The recipe document for [key] if it reads cleanly, else null. Never quarantines or
+     * otherwise touches the file, so a speculative read (a swipe neighbour's look) leaves a
+     * corrupt recipe for the real restore to find and report.
+     */
+    internal fun peek(ctx: Context, key: String?): RecipeDocument? =
+        (read(ctx, key, quarantine = false) as? RecipeReadResult.Loaded)?.document
+
+    private fun read(ctx: Context, key: String?, quarantine: Boolean): RecipeReadResult {
         if (key == null) return RecipeReadResult.Missing
         return try {
             withOperationGate(key) {
@@ -161,9 +171,9 @@ object Recipes {
                     val text = try {
                         AtomicJsonStore.readUtf8(target, AtomicJsonStore.MAX_RECIPE_BYTES)
                     } catch (failure: DocumentLimitException) {
-                        return@withPathLock quarantineResult(target, failure)
+                        return@withPathLock corrupt(target, failure, quarantine)
                     } catch (failure: CharacterCodingException) {
-                        return@withPathLock quarantineResult(target, failure)
+                        return@withPathLock corrupt(target, failure, quarantine)
                     } catch (failure: IOException) {
                         return@withPathLock RecipeReadResult.IoFailure(
                             failure.message ?: "recipe read failed",
@@ -175,7 +185,7 @@ object Recipes {
                     } catch (failure: UnsupportedRecipeVersionException) {
                         RecipeReadResult.Unsupported(failure.version)
                     } catch (failure: Exception) {
-                        quarantineResult(target, failure)
+                        corrupt(target, failure, quarantine)
                     }
                 }
             }
@@ -183,6 +193,13 @@ object Recipes {
             RecipeReadResult.CorruptQuarantineFailed(failure.message ?: "invalid recipe key")
         }
     }
+
+    private fun corrupt(target: File, failure: Throwable, quarantine: Boolean): RecipeReadResult =
+        if (quarantine) {
+            quarantineResult(target, failure)
+        } else {
+            RecipeReadResult.CorruptQuarantineFailed(failure.message ?: failure.javaClass.simpleName)
+        }
 
     private fun quarantineResult(target: File, failure: Throwable): RecipeReadResult {
         return try {
