@@ -189,11 +189,18 @@ internal fun Instrument(
                     apply(if (vertical) -d.y else d.x, fine)
                     change.consume()
                 }
-                val completed = if (vertical) verticalDrag(slop.id, onMove) else horizontalDrag(slop.id, onMove)
-                dragging = false
-                latestFinished.value?.invoke()
-                if (completed) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                interaction.onFinished()
+                // finally: the instrument can leave composition mid-drag (another finger closes
+                // the panel), which cancels this coroutine. The editor's drag state must still
+                // end, or the chrome stays faded and the HUD never settles.
+                var completed = false
+                try {
+                    completed = if (vertical) verticalDrag(slop.id, onMove) else horizontalDrag(slop.id, onMove)
+                } finally {
+                    dragging = false
+                    latestFinished.value?.invoke()
+                    if (completed) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    interaction.onFinished()
+                }
             }
         }
         // Cleared, not merged: the label and value Texts underneath would otherwise be read
