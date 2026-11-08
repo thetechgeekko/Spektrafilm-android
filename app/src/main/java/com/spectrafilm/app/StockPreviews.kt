@@ -41,8 +41,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Long edge of a rendered preview tile, in pixels. */
-internal const val STOCK_PREVIEW_EDGE = 160
+/**
+ * Long edge of a rendered preview tile, in pixels. 240 since the strip became a multi-browse
+ * carousel: its large tile is about 168dp wide, and 160 px looked soft there.
+ */
+internal const val STOCK_PREVIEW_EDGE = 240
 
 /** Long edge of the one linear copy of the photo every tile is rendered from. */
 internal const val STOCK_PREVIEW_SOURCE_EDGE = 320
