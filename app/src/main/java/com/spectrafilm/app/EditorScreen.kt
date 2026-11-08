@@ -399,6 +399,41 @@ internal fun EditorScreen(
         if (published) openPlaceholder = look.bitmap
         PlaceholderLook.report(look, published = published, cancelled = cancelled)
     }
+    // Sideways swipe on the photo to the next / previous frame of the Library folder it was
+    // opened from (PhotoBrowse). The neighbours' grid thumbnails ride in with the swipe;
+    // opening one is the Library's own dispatch, so edits are kept exactly as they are when
+    // stepping back to the grid and picking it.
+    val currentUriString = sourceUri?.toString()
+    val nextFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, 1) }
+    val previousFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, -1) }
+    val nextThumb by produceState(nextFrame?.let { LibraryThumbnails.cached(it.uri) }, nextFrame) {
+        val f = nextFrame ?: return@produceState
+        if (value == null) value = withContext(dispatchers.io) {
+            runCatching { LibraryThumbnails.load(ctx.applicationContext, f.uri, f.raw) }.getOrNull()
+        }
+    }
+    val previousThumb by produceState(previousFrame?.let { LibraryThumbnails.cached(it.uri) }, previousFrame) {
+        val f = previousFrame ?: return@produceState
+        if (value == null) value = withContext(dispatchers.io) {
+            runCatching { LibraryThumbnails.load(ctx.applicationContext, f.uri, f.raw) }.getOrNull()
+        }
+    }
+    val photoSwipe = if (nextFrame == null && previousFrame == null) {
+        null
+    } else {
+        PhotoSwipeNeighbours(
+            next = nextThumb,
+            previous = previousThumb,
+            hasNext = nextFrame != null,
+            hasPrevious = previousFrame != null,
+            onCommit = { step ->
+                val target = if (step > 0) nextFrame else previousFrame
+                if (target != null) {
+                    incomingImageIntent.value = Intent(Intent.ACTION_VIEW, Uri.parse(target.uri))
+                }
+            },
+        )
+    }
     // Keep the stand-in under the fading-in render briefly, then drop it.
     LaunchedEffect(preview != null) {
         if (preview != null && openPlaceholder != null) {
@@ -2839,6 +2874,7 @@ internal fun EditorScreen(
                         roiOverlay = roiOverlay,
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
+                        swipe = photoSwipe,
                     )
                 }
                 // In Edit each stacked tool carries its own reset (ToolHeader); elsewhere the

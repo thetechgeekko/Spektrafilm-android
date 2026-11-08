@@ -25,6 +25,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.LinearImage
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
@@ -67,6 +74,8 @@ internal fun PreviewRegion(
     controlsBottomInset: Dp = 0.dp,
     /** The top bar's Compare is held: show the original frame until it is released. */
     peekOriginal: Boolean = false,
+    /** Library neighbours a sideways swipe on the photo opens; null when there are none. */
+    swipe: PhotoSwipeNeighbours? = null,
 ) {
     // Accessibility: the canvas gestures (pinch/double-tap zoom, drag to inspect a region,
     // tap to open the 100% grain magnifier) have no widget of their own, so the region is
@@ -96,6 +105,65 @@ internal fun PreviewRegion(
     } else {
         emptyList()
     }
+    // --- Sideways swipe to the next / previous Library frame (PhotoSwipe) ---------------
+    // The photo follows the finger and shrinks into a rounded card while the neighbour's
+    // thumbnail slides in after it, growing to fill (the Material 3 carousel's mask and
+    // parallax motion). Only at fit: zoomed, one finger pans the photo instead.
+    val swipeScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val swipeGapPx = with(density) { PhotoSwipeRules.GAP_DP.dp.toPx() }
+    val swipeFlingPx = with(density) { SWIPE_FLING_DP.dp.toPx() }
+    val swipeSlopPx = LocalViewConfiguration.current.touchSlop
+    var zoomed by remember { mutableStateOf(false) }
+    var swipeWidth by remember { mutableFloatStateOf(0f) }
+    val swipeX = remember { Animatable(0f) }
+    // True from the moment a swipe takes the finger until it settles (springs back, or the
+    // next photo is on screen): the GPU fit surface steps aside meanwhile, because a
+    // SurfaceView cannot be moved, scaled or clipped by graphicsLayer.
+    var swiping by remember { mutableStateOf(false) }
+    // The neighbour that slid in, held while the editor opens it: the neighbours are
+    // recomputed for the new photo as soon as it is committed.
+    var heldIncoming by remember { mutableStateOf<Bitmap?>(null) }
+    val latestSwipe by rememberUpdatedState(swipe)
+    val latestShown by rememberUpdatedState(preview ?: placeholder)
+    val swipeEnabled = swipe != null && (swipe.hasNext || swipe.hasPrevious) &&
+        !zoomed && !compareMode && !peekOriginal && (preview != null || placeholder != null)
+    val swipeModifier = Modifier.photoSwipeGesture(
+        enabled = swipeEnabled || swiping,
+        onStart = {
+            swiping = true
+            swipeScope.launch { swipeX.stop() }
+        },
+        onDrag = { dx ->
+            val nb = latestSwipe
+            val shown = PhotoSwipeRules.shownOffset(dx, nb?.hasNext == true, nb?.hasPrevious == true)
+            swipeScope.launch { swipeX.snapTo(shown) }
+        },
+        onEnd = { dx, velocityX ->
+            val nb = latestSwipe
+            val step = if (velocityX == null || nb == null) 0 else PhotoSwipeRules.commitStep(
+                dx, velocityX, swipeWidth, swipeFlingPx, swipeSlopPx, nb.hasNext, nb.hasPrevious,
+            )
+            swipeScope.launch {
+                if (step != 0 && nb != null) {
+                    heldIncoming = if (step > 0) nb.next else nb.previous
+                    swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
+                    val leaving = latestShown
+                    nb.onCommit(step)
+                    // Hold the neighbour in place until the new photo has something on
+                    // screen (its stand-in or its render), so nothing blank flashes.
+                    withTimeoutOrNull(SWIPE_HOLD_MAX_MS) {
+                        snapshotFlow { latestShown }.first { it != null && it !== leaving }
+                    }
+                    swipeX.snapTo(0f)
+                    heldIncoming = null
+                } else {
+                    swipeX.animateTo(0f, tween(SWIPE_BACK_MS))
+                }
+                swiping = false
+            }
+        },
+    )
     Box(
         Modifier
             .fillMaxSize()
@@ -106,7 +174,11 @@ internal fun PreviewRegion(
             .semantics {
                 contentDescription = previewDesc
                 customActions = previewActions
-            },
+            }
+            // On this outer box, an ancestor of both the GPU surface and the CPU image, so
+            // the swipe sees the finger first without hiding either surface's own gestures.
+            .onSizeChanged { swipeWidth = it.width.toFloat() }
+            .then(swipeModifier),
         contentAlignment = Alignment.Center,
     ) {
         val bmp = preview
@@ -122,7 +194,8 @@ internal fun PreviewRegion(
         var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
         val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
         val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-            !compareMode && !(peekOriginal && before != null) && !showClipping && !gpuBroken && !gpuZoomHandoff
+            !compareMode && !(peekOriginal && before != null) && !showClipping && !gpuBroken && !gpuZoomHandoff &&
+            !swiping
         if (gpuActive) GpuPreviewSurface(
             proxy = gpuProxy!!,
             lut = gpuLut!!,
@@ -157,7 +230,20 @@ internal fun PreviewRegion(
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(bottom = controlsBottomInset),
+                .padding(bottom = controlsBottomInset)
+                .graphicsLayer {
+                    // The outgoing photo: follows the finger, shrinking into a rounded card.
+                    val x = swipeX.value
+                    if (x != 0f) {
+                        val p = PhotoSwipeRules.progress(x, size.width)
+                        val sc = PhotoSwipeRules.scaleAt(p)
+                        translationX = x
+                        scaleX = sc
+                        scaleY = sc
+                        shape = RoundedCornerShape(PhotoSwipeRules.cornerDpAt(p).dp.toPx())
+                        clip = true
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             if (placeholder != null && !gpuActive) {
@@ -204,6 +290,7 @@ internal fun PreviewRegion(
                     onRoiCleared = { onRoiCleared(); gpuZoomHandoff = false },
                     roiOverlay = roiOverlay,
                     // No inset: this Box already stops at the panel's top edge.
+                    onZoomedChange = { zoomed = it },
                 )
                 placeholder != null -> Unit
                 else -> Text(stringResource(R.string.editor_preview_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -234,5 +321,58 @@ internal fun PreviewRegion(
                     .padding(start = 12.dp, top = 6.dp),
             )
         }
+
+        // The neighbour sliding in after the photo: grows from a rounded card to fill, its
+        // image drifting inside the frame (the carousel's parallax) until it lands.
+        val swipeSign by remember { derivedStateOf { kotlin.math.sign(swipeX.value) } }
+        val incoming = heldIncoming ?: when {
+            swipeSign < 0f -> swipe?.next
+            swipeSign > 0f -> swipe?.previous
+            else -> null
+        }
+        if (incoming != null && !incoming.isRecycled) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(bottom = controlsBottomInset)
+                    .graphicsLayer {
+                        val x = swipeX.value
+                        val towardNext = x < 0f
+                        val p = PhotoSwipeRules.progress(x, size.width)
+                        val sc = PhotoSwipeRules.scaleAt(1f - p)
+                        translationX = x + (if (towardNext) 1f else -1f) * (size.width + swipeGapPx)
+                        scaleX = sc
+                        scaleY = sc
+                        shape = RoundedCornerShape(PhotoSwipeRules.cornerDpAt(1f - p).dp.toPx())
+                        clip = true
+                    },
+            ) {
+                Image(
+                    bitmap = incoming.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val x = swipeX.value
+                            val p = PhotoSwipeRules.progress(x, size.width)
+                            translationX = (if (x < 0f) 1f else -1f) *
+                                (1f - p) * size.width * PhotoSwipeRules.PARALLAX
+                        },
+                )
+            }
+        }
     }
 }
+
+/** A release faster than this (dp/s) toward a neighbour opens it, however short the swipe. */
+private const val SWIPE_FLING_DP = 400f
+
+/** The neighbour sliding the rest of the way in, ms. */
+private const val SWIPE_COMMIT_MS = 250
+
+/** A swipe that did not commit springing back, ms. */
+private const val SWIPE_BACK_MS = 200
+
+/** Longest the neighbour holds the screen while the editor opens it. */
+private const val SWIPE_HOLD_MAX_MS = 3_000L

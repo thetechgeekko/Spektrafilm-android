@@ -608,6 +608,11 @@ internal fun MainActivity.AppRoot(
                         currentUri = activeRestoration.source.uri,
                         onBack = { pop() },
                         onOpen = { uri ->
+                            // The folder, in grid order, so a sideways swipe on the photo in
+                            // the editor can step to the next or previous frame.
+                            PhotoBrowse.frames = libraryVm.state.value.entries.map {
+                                BrowseFrame(it.documentUri, it.isRaw)
+                            }
                             // The same dispatch as a shared or picked file: the editor
                             // consumes it once it is the top entry again. Popping (not
                             // pushing) the editor keeps Back from reopening the Library.
