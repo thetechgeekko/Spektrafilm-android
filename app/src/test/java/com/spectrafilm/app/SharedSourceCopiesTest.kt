@@ -53,4 +53,13 @@ class SharedSourceCopiesTest {
         SharedSourceCopies.pruneDir(dir, emptySet())
         assertTrue(dir.list()!!.isEmpty())
     }
+
+    /** Codex on #512: a Library frame is readable through its folder's tree grant, keep it. */
+    @Test fun libraryFramesAndPersistedGrantsAreNotCopied() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3ADCIM"
+        val grants = setOf(tree, "content://media/picker/0/x/media/1")
+        assertTrue(SharedSourceCopies.alreadyDurable("$tree/document/primary%3ADCIM%2Fa.dng", grants))
+        assertTrue(SharedSourceCopies.alreadyDurable("content://media/picker/0/x/media/1", grants))
+        assertFalse(SharedSourceCopies.alreadyDurable("content://media/external/images/media/244070", grants))
+    }
 }

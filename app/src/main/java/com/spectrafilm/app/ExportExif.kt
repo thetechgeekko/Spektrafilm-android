@@ -174,7 +174,10 @@ fun readSourceExif(ctx: Context, sourceUri: Uri?, keepGps: Boolean = false): Sou
     fun readFrom(uri: Uri): SourceExif =
         runCatching { readFromOrThrow(uri) }.getOrDefault(SourceExif(emptyMap()))
     if (!keepGps) return readFrom(sourceUri)
-    val originalUri = originalMediaUriForGpsMetadata(sourceUri) ?: sourceUri
+    // A shared photo's working copy (#508) was read through a location-redacted stream; its
+    // original, while still granted, is where the GPS lives.
+    val metadataUri = SharedSourceCopies.originOf(sourceUri) ?: sourceUri
+    val originalUri = originalMediaUriForGpsMetadata(metadataUri) ?: metadataUri
     if (originalUri == sourceUri) return readFrom(sourceUri)
     return runCatching { readFromOrThrow(originalUri) }.getOrElse { readFrom(sourceUri) }
 }

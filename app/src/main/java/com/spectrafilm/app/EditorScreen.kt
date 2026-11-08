@@ -53,6 +53,7 @@ import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.engine.SpektraParams
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -966,7 +967,7 @@ internal fun EditorScreen(
     fun mediaLocationPermissionMissing(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             exportVm.current.keepGps &&
-            requiresMediaLocationPermissionForGpsExport(sourceUri) &&
+            requiresMediaLocationPermissionForGpsExport(SharedSourceCopies.originOf(sourceUri) ?: sourceUri) &&
             ContextCompat.checkSelfPermission(
                 ctx,
                 android.Manifest.permission.ACCESS_MEDIA_LOCATION,
@@ -1262,26 +1263,40 @@ internal fun EditorScreen(
             return@LaunchedEffect
         }
         // #508: a temporary grant dies with the process (update, reboot, background kill), so
-        // keep a private working copy while it is still readable and open that instead. If the
-        // copy fails, the original still opens for this session, as before.
-        // Runs on the editor scope, not this effect: clearing incomingImageIntent above
-        // restarts the effect, which would cancel a copy still in flight.
-        // Claim the selection now: a photo picked while a large copy is still running must
-        // win, so a copy that finishes after a newer selection is discarded.
+        // keep a private working copy while it is still readable and open that instead -- unless
+        // the photo is already durably readable (a Library frame under its folder's tree grant),
+        // which keeps its own URI and so its recipe. The copy runs in the PROCESS scope and is
+        // parked in [SharedSourceCopies.pendingImport]: leaving the editor mid-copy no longer
+        // drops the photo, the effect below adopts it on return. The selection is claimed now,
+        // so a photo picked while a large copy runs wins and the late copy is discarded.
         val selection = sourceMutationGate.begin()
-        scope.launch {
-            val name = incoming.lastPathSegment ?: "raw"
-            val (mime, copy) = withContext(dispatchers.io) {
-                val mime = runCatching { ctx.contentResolver.getType(incoming) }.getOrNull()
-                mime to SharedSourceCopies.copy(ctx, incoming, name, mime)
-            }
-            if (!sourceMutationGate.isCurrent(selection)) {
-                copy?.let { stale -> withContext(dispatchers.io) { SharedSourceCopies.delete(ctx, stale) } }
-                return@launch
-            }
-            if (copy == null) Diag.w("shared source copy failed; opening it for this session only")
-            adoptIncomingImage(copy ?: incoming, nameHint = name, mimeHint = mime)
+        val name = incoming.lastPathSegment ?: "raw"
+        val app = ctx.applicationContext // outlives this Activity, like the process scope
+        val result = app.appContainer.processScope.async(dispatchers.io) {
+            val mime = runCatching { app.contentResolver.getType(incoming) }.getOrNull()
+            val durable = runCatching {
+                SharedSourceCopies.alreadyDurable(incoming.toString(), AndroidUriGrantBackend(app).persistedReads())
+            }.getOrDefault(false)
+            val copy = if (durable) null else SharedSourceCopies.copy(app, incoming, name, mime)
+            SharedSourceCopies.Imported(source = copy ?: incoming, copied = copy != null, durable = durable, mime = mime)
         }
+        SharedSourceCopies.pendingImport.value =
+            SharedSourceCopies.PendingImport(selection, incoming, name, result)
+    }
+    val pendingImport by SharedSourceCopies.pendingImport.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingImport) {
+        val pending = pendingImport ?: return@LaunchedEffect
+        val imported = pending.result.await()
+        // Claim it exactly once, even if the effect restarts while adopting.
+        if (!SharedSourceCopies.pendingImport.compareAndSet(pending, null)) return@LaunchedEffect
+        if (!sourceMutationGate.isCurrent(pending.selection)) {
+            if (imported.copied) withContext(dispatchers.io) { SharedSourceCopies.delete(ctx, imported.source) }
+            return@LaunchedEffect
+        }
+        if (!imported.copied && !imported.durable) {
+            Diag.w("shared source copy failed; opening it for this session only")
+        }
+        adoptIncomingImage(imported.source, nameHint = pending.name, mimeHint = imported.mime)
     }
     // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
     val pendingShortcut by launcherShortcut

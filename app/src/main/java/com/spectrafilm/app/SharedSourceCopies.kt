@@ -8,6 +8,8 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -35,6 +37,31 @@ internal object SharedSourceCopies {
     fun grantIsPersistable(intent: Intent): Boolean =
         intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
 
+    /** What an import produced: the URI to adopt and how it was obtained. */
+    data class Imported(val source: Uri, val copied: Boolean, val durable: Boolean, val mime: String?)
+
+    /** A copy started for selection [selection]; adopted by the editor whenever it is shown. */
+    class PendingImport(val selection: Long, val original: Uri, val name: String, val result: Deferred<Imported>)
+
+    /** The process-wide import in flight (or finished but not yet adopted), if any. */
+    val pendingImport = MutableStateFlow<PendingImport?>(null)
+
+    /**
+     * True when [uri] is already readable through a persisted grant this app holds, either its
+     * own or its folder's tree grant (a Library frame): nothing to copy, and keeping the
+     * original URI keeps its recipe key.
+     */
+    fun alreadyDurable(uri: String, persistedReads: Set<String>): Boolean =
+        uri in persistedReads || persistedReads.any { isDocumentInTree(it, uri) }
+
+    /**
+     * The original URI a working copy was made from, while this process still holds its
+     * temporary grant; null for anything else. Used only to read GPS from the original
+     * media (MediaStore redacts location in the stream the copy was made from). After a
+     * restart the grant is gone anyway, so the copy's own metadata is the fallback.
+     */
+    fun originOf(uri: Uri?): Uri? = uri?.let { synchronized(lock) { origins[it.toString()] } }
+
     /** True when [uri] is one of our own working copies. */
     fun isCopy(context: Context, uri: String): Boolean =
         uri.startsWith("content://${authority(context)}/")
@@ -56,10 +83,12 @@ internal object SharedSourceCopies {
         val published = written?.let {
             runCatching { FileProvider.getUriForFile(context, authority(context), it) }.getOrNull()
         }
-        if (published == null) {
-            synchronized(lock) {
+        synchronized(lock) {
+            if (published == null) {
                 pending -= target.name
                 target.delete()
+            } else {
+                origins[published.toString()] = uri
             }
         }
         return published
@@ -140,4 +169,7 @@ internal object SharedSourceCopies {
 
     /** Copies written or being written but not yet adopted or discarded; guarded by [lock]. */
     private val pending = mutableSetOf<String>()
+
+    /** Copy URI -> the original it was made from, for this process only; guarded by [lock]. */
+    private val origins = mutableMapOf<String, Uri>()
 }
