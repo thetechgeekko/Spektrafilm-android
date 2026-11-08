@@ -53,7 +53,7 @@ class AlbumsViewModelTest {
         model.create("  Trip ", listOf(item(1))) { newId, count -> created = newId to count }; idle()
         val id = created!!.first!!
         assertEquals(1, created!!.second)
-        var added = -1
+        var added: Int? = -1
         model.add(id, listOf(item(1), item(2))) { added = it }; idle()
         model.rename(id, "Roll 3"); idle()
         assertEquals(1, added)
