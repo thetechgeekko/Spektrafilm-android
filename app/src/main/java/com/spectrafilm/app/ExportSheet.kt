@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selectableGroup
@@ -96,6 +97,13 @@ fun ExportSheet(
      * that is not possible right now. The caller picks the second photo.
      */
     onHalfFramePair: (() -> Unit)? = null,
+    /**
+     * Non-null: the sheet exports this many photos from the Library, each with its own saved
+     * edit (LibraryExport.kt). Their colour space is part of each edit, so the sheet hides the
+     * Colour section, the scene-linear format (it exports the decode, not an edit) and the
+     * split button's menu of single-photo variants.
+     */
+    photoCount: Int? = null,
 ) {
     var savingPreset by remember { mutableStateOf(false) }
     var managingPresets by remember { mutableStateOf(false) }
@@ -119,6 +127,7 @@ fun ExportSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             val isSceneLinear = options.format == ExportFormat.SCENE_LINEAR_TIFF
+            val manyPhotos = photoCount != null
             // Header: what is being saved (the photo) and how (one summary line), so the
             // choices below read as optional changes rather than a form to fill in.
             Row(
@@ -138,14 +147,18 @@ fun ExportSheet(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        stringResource(R.string.tool_export_title),
+                        if (photoCount != null) {
+                            pluralStringResource(R.plurals.library_export_title, photoCount, photoCount)
+                        } else {
+                            stringResource(R.string.tool_export_title)
+                        },
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.semantics { heading() },
                     )
                     val summary = buildList {
                         add(resources.getString(options.format.labelRes()))
                         if (!options.format.isHighBitDepth()) add(resources.getString(options.size.labelRes))
-                        if (!isSceneLinear) add(resources.getString(colorSpace.labelRes()))
+                        if (!isSceneLinear && !manyPhotos) add(resources.getString(colorSpace.labelRes()))
                     }.joinToString(" · ")
                     Text(
                         summary,
@@ -154,11 +167,28 @@ fun ExportSheet(
                     )
                 }
             }
+            if (manyPhotos) {
+                Text(
+                    stringResource(R.string.library_export_own_edits),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             // --- Actions ---
             // The sheet's one action comes first, under the summary: with the remembered
             // settings, export is open sheet -> Export. Swipe down or tap outside to cancel
             // (M3 modal bottom sheet), so there is no Cancel button competing with it.
-            Row(modifier = Modifier.fillMaxWidth()) {
+            if (manyPhotos) {
+                Button(
+                    onClick = onExport,
+                    enabled = !isSceneLinear,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                ) {
+                    Icon(SpectraIcons.Export, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.tool_export_action))
+                }
+            } else Row(modifier = Modifier.fillMaxWidth()) {
                 // Split button: the action, plus a menu of its variants (save these settings as a
                 // preset, manage presets). The two halves share one row and read as one control.
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -230,7 +260,7 @@ fun ExportSheet(
             Dropdown(
                 label = stringResource(R.string.tool_export_format),
                 selected = options.format,
-                options = ExportFormat.entries.toList(),
+                options = ExportFormat.entries.filter { !manyPhotos || it != ExportFormat.SCENE_LINEAR_TIFF },
                 display = { resources.getString(it.labelRes()) },
                 onSelect = { onOptionsChange(options.copy(format = it)) },
             )
@@ -338,7 +368,7 @@ fun ExportSheet(
                 display = { resources.getString(it.labelRes) },
             )
 
-            if (!isSceneLinear) {
+            if (!isSceneLinear && !manyPhotos) {
                 HorizontalDivider()
 
                 // --- Colour ---

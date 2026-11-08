@@ -132,6 +132,11 @@ internal fun LibraryDestination(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    // Export of selected frames, each with its own edit (LibraryExport.kt): one flow for the
+    // folder, gallery and album bars, and the finished run's snackbar while the Library is up.
+    val export = rememberLibraryExportFlow(snackbar, scope)
+    LibraryExportSheet(export)
+    LibraryExportResultEffect(snackbar, scope)
     val importedName = stringResource(R.string.album_imported)
     val importInto: (List<String>, Boolean) -> Unit = { uris, keepGrants ->
         albumsVm.import(uris, keepGrants, importedName) { added, failed ->
@@ -185,6 +190,7 @@ internal fun LibraryDestination(
                 onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
                 onOpen = onOpen,
                 onSlideshow = playSlideshow,
+                onExport = export::request,
             )
         }
     }
@@ -204,6 +210,7 @@ internal fun LibraryDestination(
             snackbar, scope, onBack, onOpen, importInto,
             onSlideshow = playSlideshow,
             albumOpen = albumOpen,
+            onExport = export::request,
         )
     }
     // Compact and medium: an open album replaces the Library. Expanded and wider: M3
@@ -247,6 +254,8 @@ private fun LibraryFolderAndAlbums(
     onSlideshow: (List<LibraryEntry>) -> Unit,
     /** An album is open in the detail pane beside this one: Back and snackbars are its. */
     albumOpen: Boolean = false,
+    /** Export these frames, each with its own edit; the callback runs once it has started. */
+    onExport: (frames: List<LibraryEntry>, onStarted: () -> Unit) -> Unit = { _, _ -> },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -476,6 +485,9 @@ private fun LibraryFolderAndAlbums(
                         val picked = vm.visibleEntries().filter { it.documentUri in selection }
                         shareLibraryFrames(ctx, picked)
                     },
+                    onExport = {
+                        onExport(vm.visibleEntries().filter { it.documentUri in selection }, vm::clearSelection)
+                    },
                     onSelectAll = vm::selectAll,
                     onAddToAlbum = {
                         addToAlbum = vm.visibleEntries()
@@ -501,6 +513,9 @@ private fun LibraryFolderAndAlbums(
                             .filter { it.documentUri in gallerySelection }
                             .map { AlbumItem.of(it, treeUri = null) }
                     }
+                    LibraryBarAction(SpectraIcons.Export, R.string.tool_export_action, true) {
+                        onExport(galleryShown().filter { it.documentUri in gallerySelection }, galleryVm::clearSelection)
+                    }
                     LibraryBarAction(SpectraIcons.Share, R.string.library_share, true) {
                         shareLibraryFrames(ctx, galleryShown().filter { it.documentUri in gallerySelection })
                     }
@@ -508,6 +523,15 @@ private fun LibraryFolderAndAlbums(
                         galleryVm.selectAll(galleryShown().map { it.documentUri })
                     }
                 }
+            }
+            // A running export, over the top of the grid; beside an open album, that pane shows it.
+            if (!albumOpen) {
+                LibraryExportProgress(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth(),
+                )
             }
         }
     }
@@ -1187,6 +1211,7 @@ private fun LibrarySelectionBar(
     onShare: () -> Unit,
     onSelectAll: () -> Unit,
     onAddToAlbum: () -> Unit,
+    onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -1200,6 +1225,8 @@ private fun LibrarySelectionBar(
             // to paste, and the snackbar says so.
             LibraryBarAction(SpectraIcons.Presets, R.string.library_paste_edit, pasteEnabled, onPaste)
             LibraryBarAction(SpectraIcons.AddToAlbum, R.string.album_add_to, true, onAddToAlbum)
+            // Each selected frame with its own edit, unlike Share, which sends the originals.
+            LibraryBarAction(SpectraIcons.Export, R.string.tool_export_action, true, onExport)
             LibraryBarAction(SpectraIcons.Share, R.string.library_share, true, onShare)
             LibraryBarAction(SpectraIcons.Check, R.string.library_select_all, true, onSelectAll)
         }
