@@ -118,3 +118,16 @@ delete it. Finishes in under a minute. Purpose: `release.yml` only reaches that 
 in, and `34882197355/1` failed there with `HTTP 403: Resource not accessible by personal access
 token` after every other gate had passed. Dispatch it after rotating the token and before pushing
 a `v*` tag.
+
+## `auto-tag.yml` (added 2026-11-08)
+
+Runs on every push to `main` that touches `app/build.gradle.kts`, and on manual dispatch.
+When `versionName` is a stable `X.Y.Z` with no `vX.Y.Z` tag yet, it checks that
+`CHANGELOG.md` has a `## vX.Y.Z` section, creates the annotated tag on that exact
+commit, and starts `release.yml` for it with `workflow_dispatch` (a tag pushed with
+`GITHUB_TOKEN` does not trigger workflows by itself). An existing tag means the
+version is already released or in flight, so the workflow does nothing; it never
+moves or reuses a tag. The version-bump PR is therefore the release decision, and
+the `release-signing` Environment keeps whatever protection it has (today a required
+reviewer). If the tag was pushed but the dispatch step failed, start the release by
+hand: Actions → Release → Run workflow with that tag.

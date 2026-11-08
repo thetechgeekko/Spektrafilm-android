@@ -1,0 +1,97 @@
+# Tag a release when a merged version bump has no tag yet.
+#
+# The release decision is the version bump itself: a PR that changes
+# versionName in app/build.gradle.kts and adds the matching CHANGELOG.md
+# section. Once that lands on main, this workflow creates vX.Y.Z on that exact
+# commit and starts release.yml for it. Everything after that is release.yml's
+# own gates; the release-signing Environment still applies whatever protection
+# it is configured with (today: a required reviewer).
+#
+# It never moves or reuses a tag: an existing vX.Y.Z (local or remote) means
+# "already released or in flight" and the workflow exits green without doing
+# anything. The repository's immutable refs/tags/v* ruleset backs that up.
+#
+# A tag pushed with GITHUB_TOKEN does not trigger other workflows, so the
+# release is started explicitly with workflow_dispatch (release.yml's
+# `tag` input), which GITHUB_TOKEN may do with actions: write.
+name: Auto tag
+
+on:
+  push:
+    branches: [main]
+    paths: [app/build.gradle.kts]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag and release a new versionName
+    if: github.repository == 'thetechgeekko/Spektrafilm-android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether this commit is a new release
+        id: decide
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)"[[:space:]]*$/\1/p' app/build.gradle.kts)"
+          if [ "$(printf '%s\n' "$version" | grep -c .)" != "1" ]; then
+            echo "::error::Expected exactly one versionName line in app/build.gradle.kts, got: '$version'"
+            exit 1
+          fi
+          tag="v${version}"
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Not a stable vMAJOR.MINOR.PATCH ($tag); nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --quiet --tags --force origin
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null \
+             || [ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]; then
+            echo "${tag} already exists; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The CHANGELOG section is part of the release decision; refuse a
+          # bump that forgot it rather than publish empty notes.
+          if ! grep -qE "^## ${tag}( |$)" CHANGELOG.md; then
+            echo "::error::${tag} has no '## ${tag}' section in CHANGELOG.md; not tagging"
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Create the tag on this commit
+        if: steps.decide.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$SHA" -m "Spektrafilm ${TAG}"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Start the release workflow
+        if: steps.decide.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --ref main -f tag="$TAG"
+          echo "Started release.yml for ${TAG}." >> "$GITHUB_STEP_SUMMARY"
