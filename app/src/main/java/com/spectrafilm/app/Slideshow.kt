@@ -127,11 +127,13 @@ internal fun LibrarySlideshow(frames: List<LibraryEntry>, start: Int = 0, onClos
     val pager = rememberPagerState(initialPage = start.coerceIn(0, frames.lastIndex)) { frames.size }
     var playing by rememberSaveable { mutableStateOf(true) }
     var controls by rememberSaveable { mutableStateOf(true) }
-    // Restarts on every page change, so a manual swipe also gets a full SLIDE_MS.
-    LaunchedEffect(playing, pager.currentPage, frames.size) {
+    // Keyed on the settled page, not currentPage: currentPage flips halfway through the
+    // animation, which would cancel this effect's own scroll and leave the show between
+    // frames. A manual swipe still gets a full SLIDE_MS once it settles.
+    LaunchedEffect(playing, pager.settledPage, frames.size) {
         if (!playing || frames.size < 2) return@LaunchedEffect
         delay(SLIDE_MS)
-        pager.animateScrollToPage((pager.currentPage + 1) % frames.size)
+        pager.animateScrollToPage((pager.settledPage + 1) % frames.size)
     }
     // Controls fade away on their own once the show is running.
     LaunchedEffect(controls, playing) {
