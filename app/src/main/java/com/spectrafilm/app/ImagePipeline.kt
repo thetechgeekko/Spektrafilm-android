@@ -92,7 +92,11 @@ private val PROPHOTO_TO_SRGB = floatArrayOf(
  * spaces (e.g. ACES2065-1 RAW) are tone-mapped through the same matrix as a reasonable
  * approximation, then sRGB-encoded. This is only a viewing reference, not a render path.
  */
-fun linearToDisplayBitmap(img: LinearImage): Bitmap {
+fun linearToDisplayBitmap(img: LinearImage): Bitmap =
+    Bitmap.createBitmap(linearToDisplayArgb(img), img.width, img.height, Bitmap.Config.ARGB_8888)
+
+/** [img] as display-sRGB packed ARGB (`width*height`, row-major), the pixels [linearToDisplayBitmap] shows. */
+fun linearToDisplayArgb(img: LinearImage): IntArray {
     val w = img.width
     val h = img.height
     return img.acquireDataLease().use { lease ->
@@ -111,7 +115,7 @@ fun linearToDisplayBitmap(img: LinearImage): Bitmap {
             val b = (linearToSrgb(bl) * 255f + 0.5f).toInt().coerceIn(0, 255)
             px[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
-        Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        px
     }
 }
 

@@ -47,6 +47,19 @@
     <string name="tool_masks_intro">局部调整：蒙版将整套调整（曝光、色温/色调、饱和度、色相、对比度、白色/黑色及细节控制）限制在某个区域。径向蒙版作用于一个局部（如提亮人脸）；渐变蒙版在画面上逐渐过渡（如从顶部压暗天空）。效果合成在最终图像上，胶片渲染本身保持不变。</string>
     <string name="tool_masks_add_radial">+ 径向蒙版</string>
     <string name="tool_masks_add_gradient">+ 渐变蒙版</string>
+    <string name="tool_masks_add_skin">皮肤（AI）</string>
+    <string name="tool_masks_skin_face">面部皮肤</string>
+    <string name="tool_masks_skin_body">身体皮肤</string>
+    <string name="tool_masks_skin_softness">边缘柔和度</string>
+    <string name="tool_masks_skin_softness_help">选区在皮肤边缘处淡出的平缓程度。</string>
+    <string name="tool_masks_skin_expand">扩展</string>
+    <string name="tool_masks_skin_expand_help">扩大（+）或缩小（−）皮肤周围的选区。</string>
+    <string name="tool_masks_skin_downloading" formatted="true">正在下载皮肤识别模型（16 MB，仅一次）… %1$d%%</string>
+    <string name="tool_masks_skin_finding">正在查找皮肤…</string>
+    <string name="tool_masks_skin_found">已在本机找到皮肤。照片不会被上传。</string>
+    <string name="tool_masks_skin_none">此照片中未找到人物，因此该蒙版不会选中任何内容。</string>
+    <string name="tool_masks_skin_unavailable">无法加载皮肤识别模型。请检查网络连接后重试。</string>
+    <string name="tool_masks_skin_retry">重试</string>
     <string name="tool_masks_tab">蒙版 %1$d</string>
     <string name="tool_masks_position_on_photo">在照片上定位</string>
     <string name="tool_masks_temp">色温</string>

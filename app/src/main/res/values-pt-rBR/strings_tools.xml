@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">Ajustes locais: uma máscara limita todo o conjunto de ajustes (exposição, temperatura/matiz, saturação, tom, contraste, brancos/pretos e os controles de detalhe) a uma área. Uma radial mira um ponto (clarear um rosto); um gradiente atravessa o quadro (escurecer o céu a partir do topo). Composta sobre a imagem final: a renderização do filme não é alterada.</string>
     <string name="tool_masks_add_radial">+ Máscara radial</string>
     <string name="tool_masks_add_gradient">+ Máscara de gradiente</string>
+    <string name="tool_masks_add_skin">Pele (IA)</string>
+    <string name="tool_masks_skin_face">Pele do rosto</string>
+    <string name="tool_masks_skin_body">Pele do corpo</string>
+    <string name="tool_masks_skin_softness">Suavidade da borda</string>
+    <string name="tool_masks_skin_softness_help">Quão gradualmente a seleção some na borda da pele.</string>
+    <string name="tool_masks_skin_expand">Expandir</string>
+    <string name="tool_masks_skin_expand_help">Aumenta (+) ou reduz (−) a seleção ao redor da pele.</string>
+    <string name="tool_masks_skin_downloading" formatted="true">Baixando o detector de pele (16 MB, uma vez)… %1$d%%</string>
+    <string name="tool_masks_skin_finding">Procurando pele…</string>
+    <string name="tool_masks_skin_found">Pele encontrada neste celular. Sua foto nunca é enviada.</string>
+    <string name="tool_masks_skin_none">Nenhuma pessoa encontrada nesta foto, então esta máscara não seleciona nada.</string>
+    <string name="tool_masks_skin_unavailable">Não foi possível carregar o detector de pele. Verifique a conexão e tente de novo.</string>
+    <string name="tool_masks_skin_retry">Tentar de novo</string>
     <string name="tool_masks_tab">Máscara %1$d</string>
     <string name="tool_masks_position_on_photo">Posicionar na foto</string>
     <string name="tool_masks_temp">Temp.</string>

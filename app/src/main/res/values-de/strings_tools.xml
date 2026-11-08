@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">Lokale Anpassungen: Eine Maske beschränkt den kompletten Anpassungssatz (Belichtung, Temperatur/Tönung, Sättigung, Farbton, Kontrast, Weiß/Schwarz und die Detailregler) auf einen Bereich. Eine radiale Maske zielt auf eine Stelle (ein Gesicht aufhellen); ein Verlauf zieht sich über das Bild (einen Himmel von oben abdunkeln). Wird auf das fertige Bild gerechnet: das Film-Rendering bleibt unberührt.</string>
     <string name="tool_masks_add_radial">+ Radiale Maske</string>
     <string name="tool_masks_add_gradient">+ Verlaufsmaske</string>
+    <string name="tool_masks_add_skin">Haut (KI)</string>
+    <string name="tool_masks_skin_face">Gesichtshaut</string>
+    <string name="tool_masks_skin_body">Körperhaut</string>
+    <string name="tool_masks_skin_softness">Kantenweichheit</string>
+    <string name="tool_masks_skin_softness_help">Wie sanft die Auswahl am Rand der Haut ausläuft.</string>
+    <string name="tool_masks_skin_expand">Erweitern</string>
+    <string name="tool_masks_skin_expand_help">Auswahl um die Haut vergrößern (+) oder verkleinern (−).</string>
+    <string name="tool_masks_skin_downloading" formatted="true">Hauterkennung wird geladen (16 MB, einmalig)… %1$d%%</string>
+    <string name="tool_masks_skin_finding">Haut wird gesucht…</string>
+    <string name="tool_masks_skin_found">Haut auf diesem Telefon gefunden. Dein Foto wird nie hochgeladen.</string>
+    <string name="tool_masks_skin_none">Keine Person in diesem Foto gefunden, daher wählt diese Maske nichts aus.</string>
+    <string name="tool_masks_skin_unavailable">Die Hauterkennung konnte nicht geladen werden. Prüfe die Verbindung und versuche es erneut.</string>
+    <string name="tool_masks_skin_retry">Erneut versuchen</string>
     <string name="tool_masks_tab">Maske %1$d</string>
     <string name="tool_masks_position_on_photo">Auf dem Foto platzieren</string>
     <string name="tool_masks_temp">Temp.</string>

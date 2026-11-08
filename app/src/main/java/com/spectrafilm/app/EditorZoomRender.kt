@@ -102,7 +102,13 @@ internal fun startMagnifierRender(
                                 renderSnapshot.saturation,
                                 renderSnapshot.vibrance,
                                 renderSnapshot.gamutCompress,
-                                renderSnapshot.localAdjustments,
+                                renderSnapshot.localAdjustments.withSkinField(
+                                    renderSnapshot.params.io, crop.width, crop.height,
+                                    regionOf(
+                                        centredCropBox(full.width, full.height, nx, ny, MAGNIFIER_CROP_PX, MAGNIFIER_CROP_PX),
+                                        full.width, full.height,
+                                    ),
+                                ),
                             )
                         }
                     }
@@ -262,7 +268,10 @@ internal fun startRoiPatchRender(
                                     renderSnapshot.saturation,
                                     renderSnapshot.vibrance,
                                     renderSnapshot.gamutCompress,
-                                    renderSnapshot.localAdjustments,
+                                    renderSnapshot.localAdjustments.withSkinField(
+                                        renderSnapshot.params.io, crop.width, crop.height,
+                                        regionOf(box, full.width, full.height),
+                                    ),
                                 ) to res.renderId
                             }
                         }

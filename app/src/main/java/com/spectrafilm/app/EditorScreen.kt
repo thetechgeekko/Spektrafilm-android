@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.spectrafilm.app.masks.hasSemantic
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.engine.SpektraParams
@@ -1903,6 +1904,23 @@ internal fun EditorScreen(
             engineState = engineState,
             previewState = previewState,
         )
+    }
+
+    // AI skin masks (SkinFields.kt): bind renders to this photo's skin, and find it once a skin
+    // mask exists. Activation runs in composition so no render of a new photo sees the old field.
+    val skinKey = SkinSourceKey(sourceUri?.toString(), sourceKind.name, rotation.degrees)
+    remember(skinKey) { SkinFields.activate(skinKey) }
+    val needsSkin = state.localAdjustments.any { it.mask.hasSemantic }
+    LaunchedEffect(skinKey, needsSkin, sourceRenderAllowed, SkinFields.retryToken) {
+        if (!needsSkin || !sourceRenderAllowed) return@LaunchedEffect
+        val fresh = SkinFields.ensure(ctx, skinKey, dispatchers) {
+            loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256)).use { lease ->
+                withContext(dispatchers.default) {
+                    Triple(linearToDisplayArgb(lease.image), lease.image.width, lease.image.height)
+                }
+            }
+        }
+        if (fresh) previewTick++
     }
 
     // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
