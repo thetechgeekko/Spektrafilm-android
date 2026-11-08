@@ -295,4 +295,22 @@
     <string name="shortcut_open_photo_long">사진 열기</string>
     <string name="shortcut_library_short">라이브러리</string>
     <string name="shortcut_library_long">라이브러리 열기</string>
+    <string name="help_menu">빠른 도움말</string>
+    <string name="help_title">빠른 도움말</string>
+    <string name="help_show_me">위치 보기</string>
+    <string name="help_full_guide">전체 가이드 읽기</string>
+    <string name="help_library_title">사진 열기</string>
+    <string name="help_library_body">사진과 앨범을 한 번의 탭으로.</string>
+    <string name="help_modes_title">모드 선택</string>
+    <string name="help_modes_body">룩, 편집, 자르기, 마스크가 각자의 도구를 엽니다.</string>
+    <string name="help_films_title">필름 탭하기</string>
+    <string name="help_films_body">각 타일에 그 필름으로 본 사진이 보입니다.</string>
+    <string name="help_compare_title">전과 후</string>
+    <string name="help_compare_body">탭하면 분할 보기, 길게 누르면 원본.</string>
+    <string name="help_undo_title">실행 취소</string>
+    <string name="help_undo_body">탭하면 한 단계 뒤로, 길게 누르면 모든 단계.</string>
+    <string name="help_save_title">저장</string>
+    <string name="help_save_body">최고 화질 사진을 갤러리에 저장합니다.</string>
+    <string name="help_zoom_title">확대</string>
+    <string name="help_zoom_body">두 손가락으로 확대. 탭하면 세부를 확인합니다.</string>
 </resources>

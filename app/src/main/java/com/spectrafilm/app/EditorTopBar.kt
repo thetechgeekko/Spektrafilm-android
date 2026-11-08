@@ -99,7 +99,10 @@ internal fun EditorTopBar(
             navigation = {
             // The Library is the way back to the shoot: the bar's navigation slot.
             TextTooltip(stringResource(R.string.library_title)) {
-                PressIconButton(onClick = onOpenLibrary) {
+                PressIconButton(
+                    onClick = onOpenLibrary,
+                    modifier = Modifier.helpSpot(LocalQuickHelp.current, HelpSpot.LIBRARY),
+                ) {
                     Icon(
                         SpectraIcons.SourceImage, contentDescription = stringResource(R.string.library_title),
                         tint = MaterialTheme.colorScheme.onSurface,
@@ -160,7 +163,7 @@ internal fun EditorTopBar(
                 onHoldStart = onShowHistory,
                 holdLabel = stringResource(R.string.editor_history_title),
                 enabled = canUndo || canRedo,
-                modifier = fade,
+                modifier = fade.helpSpot(LocalQuickHelp.current, HelpSpot.UNDO),
             ) {
                 Icon(
                     SpectraIcons.Undo, contentDescription = stringResource(R.string.editor_action_undo),
@@ -183,7 +186,9 @@ internal fun EditorTopBar(
                 onHoldStart = { onPeekOriginal(true) },
                 onHoldEnd = { onPeekOriginal(false) },
                 enabled = hasPhoto,
-                modifier = fade.semantics { toggleableState = ToggleableState(compare) },
+                modifier = fade
+                    .helpSpot(LocalQuickHelp.current, HelpSpot.COMPARE)
+                    .semantics { toggleableState = ToggleableState(compare) },
             ) {
                 Icon(
                     SpectraIcons.Compare, contentDescription = stringResource(R.string.editor_compare),
@@ -203,6 +208,7 @@ internal fun EditorTopBar(
                     saved = exportSaved,
                     onExport = onExport,
                     onShare = onShare,
+                    modifier = Modifier.helpSpot(LocalQuickHelp.current, HelpSpot.EXPORT),
                     maxWidth = this@BoxWithConstraints.maxWidth - 248.dp,
                 )
             }
@@ -266,9 +272,17 @@ internal fun EditorTopBar(
                         leadingIcon = { Icon(SpectraIcons.Settings, contentDescription = null) },
                         onClick = { menuOpen = false; onOpenSettings() },
                     )
+                    val quickHelp = LocalQuickHelp.current
+                    if (quickHelp != null) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.help_menu)) },
+                            leadingIcon = { Icon(SpectraIcons.Help, contentDescription = null) },
+                            onClick = { menuOpen = false; quickHelp.open() },
+                        )
+                    }
                     androidx.compose.material3.DropdownMenuItem(
                         text = { Text(stringResource(R.string.editor_action_about)) },
-                        leadingIcon = { Icon(SpectraIcons.Help, contentDescription = null) },
+                        leadingIcon = { Icon(SpectraIcons.Info, contentDescription = null) },
                         onClick = { menuOpen = false; onOpenAbout() },
                     )
                 }

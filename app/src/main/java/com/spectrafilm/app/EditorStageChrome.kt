@@ -84,6 +84,7 @@ internal fun StageRow(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
+                .helpSpot(LocalQuickHelp.current, HelpSpot.MODES)
                 .selectableGroup(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -324,7 +325,7 @@ internal fun StageRail(
 ) {
     val modifiedState = stringResource(R.string.editor_category_modified)
     NavigationRail(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxHeight().helpSpot(LocalQuickHelp.current, HelpSpot.MODES),
         containerColor = MaterialTheme.colorScheme.surface,
         header = {
             if (exportVisible) {

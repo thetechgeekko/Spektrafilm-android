@@ -116,6 +116,7 @@ internal fun PresetPanel(
         val apply = { id: String -> all.firstOrNull { it.id == id }?.let(onApplyBuiltIn); Unit }
         if (previewHost != null) {
             FilmStockStrip(
+                modifier = Modifier.helpSpot(LocalQuickHelp.current, HelpSpot.FILMS),
                 selectedId = appliedBuiltInId,
                 groups = builtInDropdownGroups,
                 previewHost = previewHost,

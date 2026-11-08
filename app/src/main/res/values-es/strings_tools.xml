@@ -160,17 +160,6 @@
     <string name="tool_masks_invert_color">Invertir color</string>
     <string name="tool_masks_invert_color_help">Afecta en su lugar a los colores FUERA del rango.</string>
     <string name="tool_masks_delete">Eliminar máscara</string>
-    <string name="tool_coach_title">Consejos rápidos</string>
-    <string name="tool_coach_category_title">Elige un modo</string>
-    <string name="tool_coach_category_body">Estilos para empezar con una película, Editar para todos los ajustes por sección, Recortar y Máscaras. Toca uno para abrir sus controles.</string>
-    <string name="tool_coach_compare_title">Antes / después</string>
-    <string name="tool_coach_compare_body">Activa la división de comparación para juzgar una edición frente al original.</string>
-    <string name="tool_coach_inspect_title" formatted="false">Inspeccionar al 100 %</string>
-    <string name="tool_coach_inspect_body">Toca la vista previa para revisar el grano y el detalle a resolución completa.</string>
-    <string name="tool_coach_zoom_title">Pellizca para hacer zoom</string>
-    <string name="tool_coach_zoom_body">Pellizca y arrastra la vista previa para inspeccionar cualquier zona.</string>
-    <string name="tool_coach_got_it">Entendido</string>
-    <string name="tool_coach_dismiss">Cerrar consejos</string>
     <string name="tool_crop_title">Recortar</string>
     <string name="tool_crop_cancel">Cancelar recorte</string>
     <string name="tool_crop_rotate">Girar 90°</string>

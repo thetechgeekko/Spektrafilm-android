@@ -309,6 +309,7 @@ internal fun SimulationSection(
                 // Only with a photo to render; the demo/no-source state keeps the field alone.
                 if (filmPreviewHost != null) {
                     FilmStockStrip(
+                        modifier = Modifier.helpSpot(LocalQuickHelp.current, HelpSpot.FILMS),
                         selectedId = s.filmProfile,
                         groups = filmGroups,
                         previewHost = filmPreviewHost,
