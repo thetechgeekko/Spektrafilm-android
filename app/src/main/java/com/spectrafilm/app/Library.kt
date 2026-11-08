@@ -149,6 +149,36 @@ internal fun applyLibraryQuery(entries: List<LibraryEntry>, query: LibraryQuery)
     return shown.sortedWith(unknownSizeLast.then(ordered).then(byName))
 }
 
+/**
+ * [base] plus every frame between [anchorUri] and [toUri] (inclusive) in [shown] order. An
+ * anchor or target no longer shown leaves [base] as it is.
+ */
+internal fun selectionRange(
+    shown: List<LibraryEntry>,
+    anchorUri: String,
+    toUri: String,
+    base: Set<String>,
+): Set<String> {
+    val from = shown.indexOfFirst { it.documentUri == anchorUri }
+    val to = shown.indexOfFirst { it.documentUri == toUri }
+    if (from < 0 || to < 0) return base
+    val out = LinkedHashSet(base)
+    for (i in minOf(from, to)..maxOf(from, to)) out += shown[i].documentUri
+    return out
+}
+
+/**
+ * The share intent's type for [mimes]: the one type they all have, else any image when all
+ * are images, else any type at all. A RAW reported as octet-stream widens the batch to any
+ * type, so no receiving app is promised an image it cannot read.
+ */
+internal fun shareMimeType(mimes: List<String?>): String {
+    val known = mimes.map { it?.lowercase(Locale.ROOT) ?: "*/*" }
+    if (known.isEmpty()) return "*/*"
+    if (known.distinct().size == 1) return known.first()
+    return if (known.all { it.startsWith("image/") }) "image/*" else "*/*"
+}
+
 /** Where the Library's sort and filter are remembered. Production: [AppSettings]. */
 internal interface LibraryQueryStore {
     fun load(): LibraryQuery
@@ -431,6 +461,21 @@ internal class LibraryViewModel(
     /** Selects every frame on screen; frames hidden by a filter or search stay unselected. */
     fun selectAll() {
         _selection.value = visibleEntries().mapTo(LinkedHashSet()) { it.documentUri }
+    }
+
+    /**
+     * Drag-select: the frames from [anchorUri] to [toUri] in grid order, on top of [base] (the
+     * selection when the drag began). Dragging back past a frame unselects it again, as in
+     * Photos, because the range is recomputed from the anchor every time.
+     */
+    fun selectRange(anchorUri: String, toUri: String, base: Set<String>) {
+        _selection.value = selectionRange(visibleEntries(), anchorUri, toUri, base)
+    }
+
+    /** A day header's Select: selects the day, or clears it when it is all selected already. */
+    fun toggleDay(uris: Collection<String>) {
+        val current = _selection.value
+        _selection.value = if (uris.all { it in current }) current - uris.toSet() else current + uris
     }
 
     fun clearSelection() {

@@ -33,6 +33,17 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -207,21 +218,12 @@ internal fun LibraryDestination(
         },
         actions = {
             if (selecting) {
-                // The look comes from the photo open in the editor; without one there is
-                // nothing to paste, and the snackbar says so.
-                TextButton(onClick = { vm.pasteLookFrom(currentUri) }, enabled = !running) {
-                    Text(stringResource(R.string.library_paste_edit))
-                }
                 var menuOpen by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(SpectraIcons.More, contentDescription = stringResource(R.string.editor_action_more))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.library_select_all)) },
-                            onClick = { menuOpen = false; vm.selectAll() },
-                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_save_sidecars)) },
                             onClick = { menuOpen = false; vm.saveEditsBesidePhotos() },
@@ -269,7 +271,24 @@ internal fun LibraryDestination(
                 query = query,
                 onQueryChange = vm::setQuery,
                 aspects = aspects,
+                onSelectRange = vm::selectRange,
+                onToggleDay = vm::toggleDay,
             )
+            if (selecting) {
+                LibrarySelectionBar(
+                    pasteEnabled = !running,
+                    onPaste = { vm.pasteLookFrom(currentUri) },
+                    onShare = {
+                        val picked = vm.visibleEntries().filter { it.documentUri in selection }
+                        shareLibraryFrames(ctx, picked)
+                    },
+                    onSelectAll = vm::selectAll,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(WindowInsets.navigationBars.asPaddingValues())
+                        .padding(bottom = 16.dp),
+                )
+            }
             SnackbarHost(
                 snackbar,
                 modifier = Modifier
@@ -292,6 +311,8 @@ internal fun LibraryScreen(
     query: LibraryQuery = LibraryQuery(),
     onQueryChange: (LibraryQuery) -> Unit = {},
     aspects: Map<String, Float> = emptyMap(),
+    onSelectRange: (String, String, Set<String>) -> Unit = { _, _, _ -> },
+    onToggleDay: (List<String>) -> Unit = {},
 ) {
     val choose = onChooseFolder
     when {
@@ -331,7 +352,11 @@ internal fun LibraryScreen(
                     onAction = { onQueryChange(query.copy(filter = null, text = "")) },
                 )
             } else {
-                LibraryGrid(shown, query, aspects, currentUri, selection, onOpen, onToggleSelected)
+                LibraryGrid(
+                    shown, query, aspects, currentUri, selection, onOpen, onToggleSelected,
+                    onSelectRange = onSelectRange,
+                    onToggleDay = onToggleDay,
+                )
             }
         }
     }
@@ -506,9 +531,13 @@ private fun LibraryGrid(
     selection: Set<String>,
     onOpen: (Uri) -> Unit,
     onToggleSelected: (String) -> Unit,
+    onSelectRange: (anchor: String, to: String, base: Set<String>) -> Unit = { _, _, _ -> },
+    onToggleDay: (List<String>) -> Unit = {},
 ) {
     val selecting = selection.isNotEmpty()
     val listState = rememberLazyListState()
+    val currentSelection by rememberUpdatedState(selection)
+    val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthPx = with(density) { (maxWidth - GRID_SIDE * 2).toPx() }
@@ -551,9 +580,104 @@ private fun LibraryGrid(
             listState.scrollToItem(index)
             placed = true
         }
+        val sidePx = with(density) { GRID_SIDE.toPx() }
+        val edgePx = with(density) { 64.dp.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        val currentLines by rememberUpdatedState(lines)
+        // The frame under a point of the list, from the laid-out rows: no per-cell modifiers.
+        // Rows lay out from the right in RTL, so the hit test reads x from that edge there.
+        val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+        val listWidthPx = with(density) { maxWidth.toPx() }
+        val frameAt: (Offset) -> String? = { raw ->
+            val pos = if (rtl) Offset(listWidthPx - raw.x, raw.y) else raw
+            listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { pos.y >= it.offset && pos.y < it.offset + it.size }
+                ?.let { item -> currentLines.firstOrNull { it.key == item.key } as? LibraryLine.Frames }
+                ?.row
+                ?.let { row ->
+                    var x = sidePx
+                    row.entries.indices.firstOrNull { i ->
+                        val hit = pos.x >= x && pos.x < x + row.widths[i] + gapPx
+                        x += row.widths[i] + gapPx
+                        hit
+                    }?.let { row.entries[it].documentUri }
+                }
+        }
+        // Drag-select (Photos style): hold a frame, then drag across others. The hold itself is
+        // the cell's own long-press (which selects the frame, and stays the TalkBack action);
+        // this layer only watches, in the Initial pass so it sees the touch before the cell, and
+        // takes over the gesture once the hold has lasted long enough. A move before that is a
+        // scroll and is left alone. Near the top or bottom edge the list scrolls along.
+        var dragPointer by remember { mutableStateOf<Offset?>(null) }
+        var dragAnchor by remember { mutableStateOf<String?>(null) }
+        var dragBase by remember { mutableStateOf<Set<String>?>(null) }
+        var dragLast by remember { mutableStateOf<String?>(null) }
+        val dragTo: (Offset) -> Unit = { pos ->
+            val anchor = dragAnchor
+            val target = frameAt(pos)
+            if (anchor != null && target != null && target != dragLast) {
+                if (dragBase == null) dragBase = currentSelection
+                dragLast = target
+                onSelectRange(anchor, target, dragBase ?: emptySet())
+            }
+        }
+        LaunchedEffect(dragPointer != null) {
+            while (dragPointer != null) {
+                val y = dragPointer?.y ?: break
+                val step = when {
+                    y < edgePx -> -(edgePx - y) / 3f
+                    y > heightPx - edgePx -> (y - (heightPx - edgePx)) / 3f
+                    else -> 0f
+                }
+                if (step != 0f) {
+                    listState.scrollBy(step)
+                    dragPointer?.let(dragTo)
+                }
+                kotlinx.coroutines.delay(16)
+            }
+        }
+        val dragSelect = Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val start = frameAt(down.position) ?: return@awaitEachGesture
+                // Times out (null) when the finger stayed down and still for the long-press
+                // timeout; anything else (a lift, a move past slop) ends the wait early.
+                val endedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    var ended = false
+                    while (!ended) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                            .firstOrNull { it.id == down.id }
+                        ended = change == null || !change.pressed ||
+                            (change.position - down.position).getDistance() > viewConfiguration.touchSlop
+                    }
+                    true
+                }
+                if (endedEarly != null) return@awaitEachGesture
+                dragAnchor = start
+                dragLast = start
+                dragBase = null
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        change.consume()
+                        if (!change.pressed) break
+                        dragPointer = change.position
+                        val before = dragLast
+                        dragTo(change.position)
+                        if (dragLast != before) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    }
+                } finally {
+                    dragPointer = null
+                    dragAnchor = null
+                    dragBase = null
+                    dragLast = null
+                }
+            }
+        }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().then(dragSelect),
             contentPadding = PaddingValues(
                 start = GRID_SIDE,
                 end = GRID_SIDE,
@@ -565,7 +689,12 @@ private fun LibraryGrid(
             lines.forEach { line ->
                 when (line) {
                     is LibraryLine.Header -> stickyHeader(key = line.key, contentType = "header") {
-                        LibraryDayHeader(line.section)
+                        LibraryDayHeader(
+                            line.section,
+                            selecting = selecting,
+                            daySelected = line.section.entries.all { it.documentUri in selection },
+                            onToggleDay = { onToggleDay(line.section.entries.map { it.documentUri }) },
+                        )
                     }
                     is LibraryLine.Frames -> item(key = line.key, contentType = "row") {
                         Row(horizontalArrangement = Arrangement.spacedBy(GRID_GAP)) {
@@ -604,7 +733,12 @@ private fun LibraryGrid(
  * year), and how many frames the day holds. Opaque, so rows scroll under it cleanly.
  */
 @Composable
-private fun LibraryDayHeader(section: LibrarySection) {
+private fun LibraryDayHeader(
+    section: LibrarySection,
+    selecting: Boolean = false,
+    daySelected: Boolean = false,
+    onToggleDay: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     val zone = remember { java.util.TimeZone.getDefault() }
     val today = remember { localEpochDay(System.currentTimeMillis(), zone) }
@@ -637,11 +771,17 @@ private fun LibraryDayHeader(section: LibrarySection) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        Text(
-            pluralStringResource(R.plurals.library_day_count, count, count),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (selecting) {
+            TextButton(onClick = onToggleDay) {
+                Text(stringResource(if (daySelected) R.string.library_clear_day else R.string.library_select_day))
+            }
+        } else {
+            Text(
+                pluralStringResource(R.plurals.library_day_count, count, count),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -770,6 +910,68 @@ private fun LibraryCell(
             }
         }
     }
+}
+
+/**
+ * The floating toolbar of selection mode (Pen board, "Library"): what can be done with the
+ * selected frames. A pill over the grid, as the editor's stage bar, so the actions sit under
+ * the thumb instead of in the app bar.
+ */
+@Composable
+private fun LibrarySelectionBar(
+    pasteEnabled: Boolean,
+    onPaste: () -> Unit,
+    onShare: () -> Unit,
+    onSelectAll: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+            // The look comes from the photo open in the editor; without one there is nothing
+            // to paste, and the snackbar says so.
+            LibraryBarAction(SpectraIcons.Presets, R.string.library_paste_edit, pasteEnabled, onPaste)
+            LibraryBarAction(SpectraIcons.Share, R.string.library_share, true, onShare)
+            LibraryBarAction(SpectraIcons.Check, R.string.library_select_all, true, onSelectAll)
+        }
+    }
+}
+
+@Composable
+private fun LibraryBarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Int, enabled: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null)
+            Text(stringResource(label), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * Hands the selected originals to the share sheet. The Library holds a read grant on the
+ * folder, so the receiving app gets a temporary read grant on each file through the clip.
+ */
+private fun shareLibraryFrames(ctx: android.content.Context, frames: List<LibraryEntry>) {
+    if (frames.isEmpty()) return
+    val uris = ArrayList(frames.map { Uri.parse(it.documentUri) })
+    val intent = if (uris.size == 1) {
+        android.content.Intent(android.content.Intent.ACTION_SEND).putExtra(android.content.Intent.EXTRA_STREAM, uris[0])
+    } else {
+        android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE)
+            .putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+    }
+    intent.type = shareMimeType(frames.map { it.mimeType })
+    intent.clipData = android.content.ClipData.newRawUri(null, uris[0]).also { clip ->
+        uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }
+    }
+    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    runCatching {
+        ctx.startActivity(android.content.Intent.createChooser(intent, ctx.getString(R.string.library_share)))
+    }.onFailure { Diag.w("library share failed: ${it.message}") }
 }
 
 @Composable
