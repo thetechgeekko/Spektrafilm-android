@@ -1278,7 +1278,10 @@ internal fun EditorScreen(
             val durable = runCatching {
                 SharedSourceCopies.alreadyDurable(incoming.toString(), AndroidUriGrantBackend(app).persistedReads())
             }.getOrDefault(false)
-            val copy = if (durable) null else SharedSourceCopies.copy(app, incoming, name, mime)
+            // Kinds the editor refuses (video, .mcraw) are never copied: adoption turns them
+            // away anyway, and a clip can be gigabytes.
+            val refused = detectSourceKind(name, mime).let { it == SourceFileKind.VIDEO || it == SourceFileKind.MCRAW }
+            val copy = if (durable || refused) null else SharedSourceCopies.copy(app, incoming, name, mime)
             SharedSourceCopies.Imported(source = copy ?: incoming, copied = copy != null, durable = durable, mime = mime)
         }
         val superseded = SharedSourceCopies.pendingImport.getAndUpdate {
@@ -1300,7 +1303,12 @@ internal fun EditorScreen(
         // Claim it exactly once, even if the effect restarts while adopting.
         if (!SharedSourceCopies.pendingImport.compareAndSet(pending, null)) return@LaunchedEffect
         if (!sourceMutationGate.isCurrent(pending.selection)) {
-            if (imported.copied) withContext(dispatchers.io) { SharedSourceCopies.delete(ctx, imported.source) }
+            // Hand the cleanup to the process scope BEFORE anything can cancel this effect:
+            // clearing the slot above re-keys it.
+            if (imported.copied) {
+                val app = ctx.applicationContext
+                app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, imported.source) }
+            }
             return@LaunchedEffect
         }
         if (!imported.copied && !imported.durable) {
