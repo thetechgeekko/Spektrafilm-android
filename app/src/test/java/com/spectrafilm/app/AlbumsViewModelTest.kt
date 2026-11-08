@@ -41,8 +41,18 @@ class AlbumsViewModelTest {
     private fun item(n: Int) = AlbumItem("content://doc/$n", "f$n.jpg", "image/jpeg", n.toLong(), 1L, "content://tree/a")
 
     private var ids = 0
-    private fun vm(store: AlbumStore) =
-        AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" })
+    private fun vm(
+        store: AlbumStore,
+        importer: AlbumImporter = AlbumImporter { _, _ -> null },
+        prune: (Set<String>) -> Unit = {},
+    ) = AlbumsViewModel(
+        store,
+        Dispatchers.Unconfined,
+        now = { 7L },
+        newId = { "id${ids++}" },
+        importer = importer,
+        pruneImports = prune,
+    )
 
     private fun idle() = shadowOf(Looper.getMainLooper()).idle()
 
@@ -180,5 +190,35 @@ class AlbumsViewModelTest {
         assertNull(created)
         assertEquals(0, store.saves)
         assertTrue(model.albums.value.isEmpty())
+    }
+
+    @Test fun importLandsInTheImportedAlbumAndCountsWhatFailed() {
+        val store = FakeStore()
+        val grants = mutableListOf<Boolean>()
+        val model = vm(store, importer = { uri, keep ->
+            grants += keep
+            if (uri.endsWith("bad")) null else AlbumItem(uri, "x.jpg", "image/jpeg", 1L, 1L, null)
+        }); idle()
+        var result: Pair<Int?, Int>? = null
+        model.import(listOf("content://a", "content://bad", "content://a"), keepGrants = true, albumName = "Imported") { added, failed ->
+            result = added to failed
+        }; idle()
+        assertEquals(1 to 1, result)
+        assertEquals(listOf(true, true), grants)
+        assertEquals(AlbumOps.IMPORTED_ID, store.saved.single().id)
+        assertEquals(listOf("content://a"), store.saved.single().items.map { it.uri })
+        model.import(listOf("content://a"), keepGrants = false, albumName = "Imported") { added, failed ->
+            result = added to failed
+        }; idle()
+        assertEquals(0 to 0, result)
+    }
+
+    @Test fun importedCopiesArePrunedAgainstEveryAlbumAfterAGoodRead() {
+        var kept: Set<String>? = null
+        vm(FakeStore(listOf(Album("a", "A", 1L, listOf(item(1))))), prune = { kept = it }); idle()
+        assertEquals(setOf("content://doc/1"), kept)
+        kept = null
+        vm(FakeStore(failLoad = true), prune = { kept = it }); idle()
+        assertNull(kept)
     }
 }

@@ -352,6 +352,19 @@
     <string name="album_empty_title">This album is empty</string>
     <string name="album_empty_body">Select frames in a folder, then choose Add to album.</string>
     <string name="album_go_to_folder">Go to folder</string>
+    <string name="album_imported">Imported</string>
+    <string name="album_view">View</string>
+    <string name="album_import_already">Already in %1$s</string>
+    <string name="library_import_photos">Import photos</string>
+    <string name="library_import_files">Import files</string>
+    <plurals name="album_import_failed">
+        <item quantity="one">Couldn\'t import %d file. Only photos and RAW files can be added.</item>
+        <item quantity="other">Couldn\'t import %d files. Only photos and RAW files can be added.</item>
+    </plurals>
+    <plurals name="album_imported_partial">
+        <item quantity="one">Added %1$d to %2$s. %3$d file couldn\'t be imported.</item>
+        <item quantity="other">Added %1$d to %2$s. %3$d files couldn\'t be imported.</item>
+    </plurals>
     <plurals name="album_count">
         <item quantity="one">%d photo</item>
         <item quantity="other">%d photos</item>

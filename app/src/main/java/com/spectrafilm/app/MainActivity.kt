@@ -100,6 +100,22 @@ class MainActivity : ComponentActivity() {
     internal val launcherShortcut = androidx.compose.runtime.mutableStateOf<LauncherShortcut?>(null)
 
     /**
+     * Photos shared in several at once (SEND_MULTIPLE), waiting for the Library to import them
+     * into its Imported album. AppRoot opens the Library; the Library takes and clears it.
+     */
+    internal val incomingShareBatch = androidx.compose.runtime.mutableStateOf<List<String>?>(null)
+
+    /** Routes a launching intent: a multi-photo share to the Library, anything else to the editor. */
+    private fun deliver(intent: Intent?) {
+        val batch = AlbumImports.sharedUris(intent)
+        if (batch.isNotEmpty()) {
+            incomingShareBatch.value = batch.map(Uri::toString)
+        } else {
+            incomingImageIntent.value = intent
+        }
+    }
+
+    /**
      * Hardware keyboard shortcuts (DeX, ChromeOS, keyboard covers). Set by the live editor
      * composition and cleared when it leaves, so a shortcut can never act on an editor that
      * is not on screen. Returns true when the shortcut was handled.
@@ -138,7 +154,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        incomingImageIntent.value = intent
+        deliver(intent)
         LauncherShortcut.fromAction(intent.action)?.let { launcherShortcut.value = it }
     }
 
@@ -166,7 +182,9 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.Composer.setDiagnosticStackTraceEnabled(true)
         }
         super.onCreate(savedInstanceState)
-        incomingImageIntent.value = intent
+        // A recreated Activity still holds a multi-photo share; importing it again is a no-op
+        // (an album never lists a photo twice), but there is no reason to start it.
+        if (savedInstanceState == null || intent?.action != Intent.ACTION_SEND_MULTIPLE) deliver(intent)
         // Only on a fresh launch: a recreated Activity still holds the shortcut intent, and
         // reopening the picker or the Library on every rotation would be wrong.
         if (savedInstanceState == null) launcherShortcut.value = LauncherShortcut.fromAction(intent?.action)

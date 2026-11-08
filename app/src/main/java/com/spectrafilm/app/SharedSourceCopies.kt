@@ -67,7 +67,7 @@ internal object SharedSourceCopies {
 
     /** True when [uri] is one of our own working copies. */
     fun isCopy(context: Context, uri: String): Boolean =
-        uri.startsWith("content://${authority(context)}/")
+        uri.startsWith("content://${authority(context)}/shared/")
 
     /**
      * Copies [uri] into the private directory and returns the copy's content URI, or null when

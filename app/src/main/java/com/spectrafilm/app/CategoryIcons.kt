@@ -68,6 +68,8 @@ object SpectraIcons {
     val AddToAlbum: ImageVector get() = MaterialSymbols.LibraryAdd
     val RemoveFromAlbum: ImageVector get() = MaterialSymbols.DoNotDisturbOn
     val SetCover: ImageVector get() = MaterialSymbols.Image
+    val ImportFiles: ImageVector get() = MaterialSymbols.FileOpen
+    val Folder: ImageVector get() = MaterialSymbols.FolderOpen
     val Sort: ImageVector get() = MaterialSymbols.Sort
     val GridView: ImageVector get() = MaterialSymbols.GridView
     val JustifiedView: ImageVector get() = MaterialSymbols.ViewQuilt

@@ -370,6 +370,17 @@ internal fun MainActivity.AppRoot(
             null -> Unit
         }
     }
+    // Several photos shared in at once: the Library imports them into its Imported album.
+    // Left set here; the Library clears it once it has started the import.
+    val pendingShareBatch by incomingShareBatch
+    LaunchedEffect(pendingShareBatch) {
+        if (pendingShareBatch == null || backStack.lastOrNull() == LibraryRoute) return@LaunchedEffect
+        navigate {
+            growIntoEditor = false
+            while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+            backStack.add(LibraryRoute)
+        }
+    }
 
     LaunchedEffect(editorEntryGeneration) {
         if (editorEntryGeneration == 0L) return@LaunchedEffect
@@ -608,6 +619,8 @@ internal fun MainActivity.AppRoot(
                     LibraryDestination(
                         vm = libraryVm,
                         albumsVm = albumsVm,
+                        sharedIn = incomingShareBatch.value,
+                        onSharedInTaken = { incomingShareBatch.value = null },
                         currentUri = activeRestoration.source.uri,
                         onBack = { pop() },
                         onOpen = { uri, frames ->

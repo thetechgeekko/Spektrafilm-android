@@ -133,6 +133,8 @@ internal class AppContainer(context: Context) {
                 aspectReader = LibraryViewModel.androidAspectReader(app),
                 writes = processScope,
                 lock = albumLock,
+                importer = AlbumImports.androidImporter(app),
+                pruneImports = { keep -> AlbumImports.prune(app, keep) },
             )
         },
     )
