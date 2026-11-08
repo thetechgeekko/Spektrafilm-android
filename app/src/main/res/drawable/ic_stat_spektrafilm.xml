@@ -8,8 +8,7 @@
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="52"
-    android:viewportHeight="52"
-    android:tint="?attr/colorControlNormal">
+    android:viewportHeight="52">
 
     <group
         android:translateX="-28"
