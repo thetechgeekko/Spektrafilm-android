@@ -56,6 +56,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -1280,8 +1281,17 @@ internal fun EditorScreen(
             val copy = if (durable) null else SharedSourceCopies.copy(app, incoming, name, mime)
             SharedSourceCopies.Imported(source = copy ?: incoming, copied = copy != null, durable = durable, mime = mime)
         }
-        SharedSourceCopies.pendingImport.value =
+        val superseded = SharedSourceCopies.pendingImport.getAndUpdate {
             SharedSourceCopies.PendingImport(selection, incoming, name, result)
+        }
+        // A share that arrives before the previous one was adopted replaces it; nothing will
+        // adopt the older copy, so delete it once it lands instead of keeping it as pending.
+        if (superseded != null) {
+            app.appContainer.processScope.launch(dispatchers.io) {
+                val stale = runCatching { superseded.result.await() }.getOrNull() ?: return@launch
+                if (stale.copied) SharedSourceCopies.delete(app, stale.source)
+            }
+        }
     }
     val pendingImport by SharedSourceCopies.pendingImport.collectAsStateWithLifecycle()
     LaunchedEffect(pendingImport) {
