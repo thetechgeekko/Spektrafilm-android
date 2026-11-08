@@ -541,7 +541,11 @@ internal fun AdjustmentPanel(
                 )
             }
             // A new section starts at its top, not wherever the last one was scrolled to.
-            val scroll = key(category?.stage) { rememberScrollState() }
+            // Reset by an effect, not by key(stage) { rememberScrollState() }: that keyed
+            // group sat among the panel's node-emitting siblings and opening Edit crashed in
+            // LayoutNode.onChildRemoved (null child) on device.
+            val scroll = rememberScrollState()
+            LaunchedEffect(category?.stage) { scroll.scrollTo(0) }
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -674,7 +678,8 @@ internal fun SidePanel(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            val sideScroll = key(category.stage) { rememberScrollState() }
+            val sideScroll = rememberScrollState()
+            LaunchedEffect(category.stage) { sideScroll.scrollTo(0) }
             Column(
                 Modifier
                     .fillMaxWidth()
