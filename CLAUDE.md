@@ -184,7 +184,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 
 ## Conventions / gotchas
 
-- Current version: `versionCode 13` / `versionName 0.11.0`, `minSdk 24`, `targetSdk 36`,
+- Current version: `versionCode 14` / `versionName 0.12.0`, `minSdk 24`, `targetSdk 36`,
   `compileSdk 37` (`:app` only — set when material3 `1.5.0-alpha28` pulled Compose 1.13
   alphas that required android-37; every other module stays on 36). material3 is now
   `1.5.0-rc01` on stable Compose 1.12.0 (#292, #384); whether `:app` can drop back to 36 is
