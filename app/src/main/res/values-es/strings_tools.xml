@@ -148,8 +148,8 @@
     <string name="tool_masks_invert_color_help">Afecta en su lugar a los colores FUERA del rango.</string>
     <string name="tool_masks_delete">Eliminar máscara</string>
     <string name="tool_coach_title">Consejos rápidos</string>
-    <string name="tool_coach_category_title">Elige una etapa</string>
-    <string name="tool_coach_category_body">Estilo, Película, Copia, Escaneo, Acabado: las etapas por las que pasa tu foto. Toca una para abrir sus controles.</string>
+    <string name="tool_coach_category_title">Elige un modo</string>
+    <string name="tool_coach_category_body">Estilos para empezar con una película, Editar para todos los ajustes por sección, Recortar y Máscaras. Toca uno para abrir sus controles.</string>
     <string name="tool_coach_compare_title">Antes / después</string>
     <string name="tool_coach_compare_body">Activa la división de comparación para juzgar una edición frente al original.</string>
     <string name="tool_coach_inspect_title" formatted="false">Inspeccionar al 100 %</string>

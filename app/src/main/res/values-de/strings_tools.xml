@@ -148,8 +148,8 @@
     <string name="tool_masks_invert_color_help">Wirkt stattdessen auf die Farben AUSSERHALB des Bereichs.</string>
     <string name="tool_masks_delete">Maske löschen</string>
     <string name="tool_coach_title">Kurztipps</string>
-    <string name="tool_coach_category_title">Wähle eine Stufe</string>
-    <string name="tool_coach_category_body">Look, Film, Abzug, Scan, Feinschliff: die Stufen, die dein Foto durchläuft. Tippe auf eine, um ihre Regler zu öffnen.</string>
+    <string name="tool_coach_category_title">Wähle einen Modus</string>
+    <string name="tool_coach_category_body">Looks zum Start mit einem Film, Anpassen für alle Regler nach Bereich, Zuschneiden und Masken. Tippe auf einen, um seine Regler zu öffnen.</string>
     <string name="tool_coach_compare_title">Vorher / Nachher</string>
     <string name="tool_coach_compare_body">Schalte die Vergleichsteilung ein, um eine Bearbeitung mit dem Original zu vergleichen.</string>
     <string name="tool_coach_inspect_title" formatted="false">Bei 100 % prüfen</string>

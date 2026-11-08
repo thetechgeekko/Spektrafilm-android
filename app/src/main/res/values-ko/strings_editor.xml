@@ -4,16 +4,6 @@
 <resources>
     <string name="stock_browser_change">변경</string>
     <string name="stock_browser_selected">선택됨</string>
-    <string name="editor_stage_look">룩</string>
-    <string name="editor_stage_look_hint">필름, 인화지, 프리셋에서 시작</string>
-    <string name="editor_stage_film">필름</string>
-    <string name="editor_stage_film_hint">네거티브: 노출, 화이트 밸런스, 그레인, 할레이션</string>
-    <string name="editor_stage_print">인화</string>
-    <string name="editor_stage_print_hint">확대기와 인화지</string>
-    <string name="editor_stage_scan">스캔</string>
-    <string name="editor_stage_scan_hint">인화물을 다시 파일로</string>
-    <string name="editor_stage_finish">마무리</string>
-    <string name="editor_stage_finish_hint">스캔 후 보정, 마스크, 디스플레이</string>
     <string name="editor_category_modified">변경됨</string>
     <string name="editor_category_source">소스</string>
     <string name="editor_category_presets">프리셋</string>
@@ -190,7 +180,7 @@
     <string name="editor_hint_grain">필름 그레인의 구조, 크기, 흐림</string>
     <string name="editor_hint_halation">할레이션 번짐과 유제 내부 빛 산란</string>
     <string name="editor_hint_glare">인화 글레어(확률적, 기본값 꺼짐)</string>
-    <string name="editor_hint_couplers">필름 색 특성 — DIR 커플러(화학적 색 간섭). 일반 채도는 출력에 있습니다.</string>
+    <string name="editor_hint_couplers">필름 색 특성 — DIR 커플러(화학적 색 간섭). 일반 채도는 색상에 있습니다.</string>
     <string name="editor_hint_preflash">확대기 프리플래시 노광과 필터</string>
     <string name="editor_hint_contrast_mask">확대기 소프트 마스크: 넓은 밝은 부분과 어두운 부분의 디테일</string>
     <string name="editor_hint_experimental">필름과 인화의 농도 곡선 감마 계수</string>
@@ -243,12 +233,6 @@
     <string name="editor_input_color_space">입력 색 공간</string>
     <string name="editor_input_cctf">CCTF 디코딩 적용</string>
     <string name="editor_input_cctf_tooltip">색 공간의 역 CCTF 전달 함수를 적용합니다</string>
-    <string name="editor_input_creative_wb_heading">크리에이티브 화이트 밸런스</string>
-    <string name="editor_input_creative_wb_desc">필름에 들어가는 이미지에 따뜻함/차가움 + 녹색/마젠타 보정을 적용합니다 — 모든 소스(RAW, JPEG, HEIC)에서 작동합니다. RAW 화이트 밸런스와는 별개이며, 0이면 꺼짐입니다.</string>
-    <string name="editor_input_creative_warmth">크리에이티브 따뜻함</string>
-    <string name="editor_input_creative_warmth_tooltip">필름이 보기 전에 장면을 따뜻하게/차갑게 합니다(선형 ProPhoto에서 Bradford 순응). 양수 = 더 따뜻하게. 0 = 변화 없음.</string>
-    <string name="editor_input_creative_tint">크리에이티브 색조</string>
-    <string name="editor_input_creative_tint_tooltip">녹색 ↔ 마젠타 이동. 양수 = 마젠타, 음수 = 녹색. 0 = 변화 없음.</string>
     <string name="editor_wb_eyedropper">스포이트 — 중성색을 탭해 화이트 밸런스 설정</string>
     <string name="editor_input_gated_upsampling">MALLETT2019는 아직 구현되지 않았습니다 — 현재 두 옵션 모두 HANATOS2025로 렌더링됩니다.</string>
     <string name="editor_input_spectral_upsampling">스펙트럼 업샘플링</string>
@@ -292,8 +276,6 @@
     <string name="editor_raw_chroma_noise">색 노이즈 감소</string>
     <string name="editor_raw_chroma_noise_tooltip">어두운 부분과 고감도 사진의 색 얼룩을 부드럽게 합니다. 밝기와 미세한 디테일은 유지하고 색만 부드럽게 합니다.</string>
     <string name="editor_sim_title">시뮬레이션</string>
-    <string name="editor_sim_tab_print">인화</string>
-    <string name="editor_sim_tab_scanner">스캐너</string>
     <string name="editor_sim_tab_output">출력</string>
     <string name="editor_sim_film_profile">필름 프로필</string>
     <string name="editor_sim_view_film_curves">필름 프로필 커브 보기</string>
@@ -587,10 +569,10 @@
     <string name="editor_snack_pair_failed">하프 프레임 쌍을 내보낼 수 없습니다</string>
     <string name="editor_snack_pair_cancelled">하프 프레임 쌍 내보내기를 중지했습니다</string>
     <string name="editor_category_film_stock">필름 종류</string>
-    <string name="editor_hint_film_stock">필름 종류, 카메라 노출, 자동 노출</string>
-    <string name="editor_hint_paper">인화지, 인화 노출, 확대기 필터, 인화 흐림</string>
+    <string name="editor_hint_film_stock">필름 종류를 고르고 커브 보기</string>
+    <string name="editor_hint_paper">인화지와 슬라이드 모드</string>
     <string name="editor_hint_scanner">스캐너 선명도와 흰색·검은색 점 보정</string>
-    <string name="editor_hint_output">출력 색 공간, 색역 압축, 채도, 생동감</string>
+    <string name="editor_hint_output">출력 색 공간, 색역 압축, 인코딩</string>
     <string name="editor_msg_export_failed">이 사진을 내보내지 못했습니다. 다시 시도하거나 더 작은 크기 또는 다른 형식을 선택하세요.</string>
     <string name="editor_msg_export_failed_memory">이 크기로 내보내기에는 메모리가 부족합니다. 더 작은 크기를 선택하세요.</string>
     <string name="editor_msg_retry">다시 시도</string>
@@ -599,4 +581,52 @@
     <string name="editor_msg_lut_bake_failed">LUT를 만들지 못했습니다. 다시 시도하세요.</string>
     <string name="editor_msg_save_dialog_failed">저장 대화상자를 열지 못했습니다. 다시 시도하세요.</string>
     <string name="editor_msg_wb_sample_failed">그 위치에서 화이트 밸런스를 측정하지 못했습니다. 다른 곳을 탭하세요.</string>
+    <!-- 2026-11-08 tool regroup: modes, Edit sections and the split tools. -->
+    <string name="editor_mode_looks">룩</string>
+    <string name="editor_mode_looks_hint">필름, 인화지, 프리셋으로 시작</string>
+    <string name="editor_mode_edit">편집</string>
+    <string name="editor_mode_edit_hint">빛, 색상, 필름, 인화 등을 섹션별로</string>
+    <string name="editor_mode_masks">마스크</string>
+    <string name="editor_mode_masks_hint">특정 영역에 한정된 부분 보정</string>
+    <string name="editor_section_light">빛</string>
+    <string name="editor_section_light_hint">노출, 톤 커브, 하이라이트와 섀도, 콘트라스트 마스크</string>
+    <string name="editor_section_color">색상</string>
+    <string name="editor_section_color_hint">화이트 밸런스, 채도, 인화 색상, 커플러</string>
+    <string name="editor_section_film">필름</string>
+    <string name="editor_section_film_hint">포맷, 그레인, 헐레이션, 디퓨전 필터</string>
+    <string name="editor_section_print">인화</string>
+    <string name="editor_section_print_hint">인화 노출, 프리플래시, 확대기 렌즈</string>
+    <string name="editor_section_effects">효과</string>
+    <string name="editor_section_effects_hint">글레어, 렌즈 블러, 날짜 각인</string>
+    <string name="editor_section_detail">디테일</string>
+    <string name="editor_section_detail_hint">스캔 선명도와 레벨, RAW 정리</string>
+    <string name="editor_section_output">출력</string>
+    <string name="editor_section_output_hint">색 공간, 색역, 미리보기</string>
+    <string name="editor_section_lab">랩</string>
+    <string name="editor_section_lab_hint">스펙트럼 입력과 실험적 커브</string>
+    <string name="editor_category_paper">인화지</string>
+    <string name="editor_category_exposure">노출</string>
+    <string name="editor_category_scene_latitude">하이라이트 및 섀도</string>
+    <string name="editor_category_sat_vib">채도</string>
+    <string name="editor_category_print_color">인화 색상</string>
+    <string name="editor_category_film_format">필름 포맷</string>
+    <string name="editor_category_camera_diffusion">디퓨전 필터</string>
+    <string name="editor_category_print_exposure">인화 노출</string>
+    <string name="editor_category_enlarger">확대기 렌즈</string>
+    <string name="editor_category_lens_blur">렌즈 블러</string>
+    <string name="editor_category_date_stamp">날짜 각인</string>
+    <string name="editor_category_scanner">스캔</string>
+    <string name="editor_category_raw_cleanup">RAW 정리</string>
+    <string name="editor_hint_exposure">카메라 노출과 자동 노출</string>
+    <string name="editor_hint_scene_latitude">필름 전에 밝은 하이라이트와 깊은 섀도의 디테일 유지</string>
+    <string name="editor_hint_sat_vib">최종 이미지의 채도와 생동감</string>
+    <string name="editor_hint_print_color">확대기의 옐로와 마젠타 필터</string>
+    <string name="editor_hint_film_format">그레인과 헐레이션 크기를 정하는 프레임 크기</string>
+    <string name="editor_hint_camera_diffusion">카메라 렌즈의 디퓨전 필터</string>
+    <string name="editor_hint_print_exposure">인화 노출과 인화지 호수</string>
+    <string name="editor_hint_enlarger">확대기 렌즈 블러와 인화 디퓨전</string>
+    <string name="editor_hint_lens_blur">카메라 렌즈의 부드러움</string>
+    <string name="editor_hint_date_stamp">프레임 모서리에 새기는 날짜</string>
+    <string name="editor_hint_raw_cleanup">RAW 디코딩 중 핫 픽셀과 색 노이즈</string>
+    <string name="editor_reset_short">재설정</string>
 </resources>

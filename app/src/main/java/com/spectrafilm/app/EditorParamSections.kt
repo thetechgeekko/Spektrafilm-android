@@ -50,7 +50,7 @@ internal fun ButtonIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 }
 
 @Composable
-internal fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral: () -> Unit = {}) {
+internal fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_input_title), expanded, { expanded = it }) {
         // Honesty: the engine's input space is fixed to linear ProPhoto RGB (the
@@ -66,28 +66,8 @@ internal fun InputSection(s: ParamsState, onEditCrop: () -> Unit, onPickNeutral:
             stringResource(R.string.editor_input_cctf_tooltip))
         // Honesty: the engine only implements HANATOS2025 (filming.expose always calls
         // rgb_to_raw_hanatos2025); MALLETT2019 marshals but falls back, so the choice is inert.
-        Divider()
-        Text(
-            stringResource(R.string.editor_input_creative_wb_heading),
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(
-            stringResource(R.string.editor_input_creative_wb_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        EnhancedSlider(stringResource(R.string.editor_input_creative_warmth), s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
-            step = 1f, decimals = 0,
-            tooltip = stringResource(R.string.editor_input_creative_warmth_tooltip), default = 0f)
-        EnhancedSlider(stringResource(R.string.editor_input_creative_tint), s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
-            step = 1f, decimals = 0,
-            tooltip = stringResource(R.string.editor_input_creative_tint_tooltip),
-            default = 0f)
-        OutlinedButton(onClick = onPickNeutral, modifier = Modifier.fillMaxWidth()) {
-            ButtonIcon(SpectraIcons.Eyedropper)
-            Text(stringResource(R.string.editor_wb_eyedropper))
-        }
+        // Creative warmth/tint and the eyedropper used to be repeated here; they live in
+        // White balance only now, one place per control.
         Divider()
         GatedBlock(stringResource(R.string.editor_input_gated_upsampling)) {
             Dropdown(stringResource(R.string.editor_input_spectral_upsampling), s.spectralUpsampling, Rgb2Raw.entries.toList(),
@@ -237,29 +217,31 @@ internal fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () 
                     default = PARAM_DEFAULTS.rawTint,
                 )
             }
-
-            // #259: opt-in clean-up inside the RAW decode. Both default off/0, which
-            // decodes byte-identically to a build without them.
-            Divider()
-            Text(
-                stringResource(R.string.editor_raw_cleanup_heading),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.semantics { heading() },
-            )
-            SwitchRow(
-                stringResource(R.string.editor_raw_hot_pixels),
-                s.rawHotPixels,
-                { s.rawHotPixels = it },
-                stringResource(R.string.editor_raw_hot_pixels_tooltip),
-            )
-            EnhancedSlider(
-                stringResource(R.string.editor_raw_chroma_noise), s.rawChromaNoise, 0f..100f,
-                { s.rawChromaNoise = it },
-                step = 1f, decimals = 0,
-                tooltip = stringResource(R.string.editor_raw_chroma_noise_tooltip),
-                default = 0f,
-            )
         }
+    }
+}
+
+/**
+ * RAW cleanup (#259): opt-in clean-up inside the RAW decode. Both default off/0, which decodes
+ * byte-identically to a build without them. Only offered for a RAW/DNG source.
+ */
+@Composable
+internal fun RawCleanupSection(s: ParamsState) {
+    var expanded by remember { mutableStateOf(true) }
+    SectionCard(stringResource(R.string.editor_raw_cleanup_heading), expanded, { expanded = it }) {
+        SwitchRow(
+            stringResource(R.string.editor_raw_hot_pixels),
+            s.rawHotPixels,
+            { s.rawHotPixels = it },
+            stringResource(R.string.editor_raw_hot_pixels_tooltip),
+        )
+        EnhancedSlider(
+            stringResource(R.string.editor_raw_chroma_noise), s.rawChromaNoise, 0f..100f,
+            { s.rawChromaNoise = it },
+            step = 1f, decimals = 0,
+            tooltip = stringResource(R.string.editor_raw_chroma_noise_tooltip),
+            default = 0f,
+        )
     }
 }
 
@@ -287,8 +269,15 @@ internal fun offerSnackbarSuggestion(
     }
 }
 
-/** Which part of the film -> print -> scan simulation a [SimulationSection] shows. */
-internal enum class SimPart { FILM, PRINT, SCANNER, OUTPUT }
+/**
+ * Which tool of the film -> print -> scan simulation a [SimulationSection] shows. One per
+ * editor tool since the 2026-11-08 regroup: the old four parts (Film / Print / Scanner /
+ * Output) each held several tools, which is why Exposure used to hide in the film-stock panel.
+ */
+internal enum class SimPart {
+    FILM_STOCK, EXPOSURE, FILM_FORMAT, LENS_BLUR, CAMERA_DIFFUSION, SCENE_LATITUDE, DATE_STAMP,
+    PAPER, PRINT_EXPOSURE, PRINT_COLOR, ENLARGER, SCANNER, OUTPUT, SAT_VIB,
+}
 
 @Composable
 internal fun SimulationSection(
@@ -304,16 +293,14 @@ internal fun SimulationSection(
     printPreviewHost: StockPreviewHost? = null,
     filmStripSourceKey: Any? = null,
     filmStripPaused: Boolean = false,
-    part: SimPart = SimPart.FILM,
+    part: SimPart = SimPart.FILM_STOCK,
 ) {
     var expanded by remember { mutableStateOf(true) }
     SectionCard(stringResource(R.string.editor_sim_title), expanded, { expanded = it }) {
-        // One part per editor tab. These four used to be a third level of tabs (Film /
-        // Print / Scanner / Output chips) inside Film -> Simulation, repeating the stage
-        // names; each part now opens from its own stage (m3-design-language, ux-flows §2:
-        // one level of peers, no nested tab rows).
+        // One part per editor tool (m3-design-language, ux-flows §2: one level of peers, no
+        // nested tab rows).
         when (part) {
-            SimPart.FILM -> {
+            SimPart.FILM_STOCK -> {
                 // Film & look: the user's photo through every stock, one tap to try each.
                 // Only with a photo to render; the demo/no-source state keeps the field alone.
                 if (filmPreviewHost != null) {
@@ -337,12 +324,17 @@ internal fun SimulationSection(
                     onSelect = onFilmProfileChange,
                     previewHost = filmPreviewHost,
                 )
-                // Exposure next to the stock: the two controls every look starts from. The
-                // curve viewer is reference material and follows them.
+                // The curve viewer is reference material for the stock just picked.
+                OutlinedButton(
+                    onClick = onOpenFilmCurves,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.editor_sim_view_film_curves)) }
+            }
+            SimPart.EXPOSURE -> {
+                // Camera exposure, the first thing a photographer reaches for: Edit opens on it.
                 EnhancedSlider(stringResource(R.string.editor_sim_camera_ev), s.exposureCompensationEv, -10f..10f,
                     { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_camera_ev_tooltip))
-
                 AutoExposureControl(
                     autoExposure = s.autoExposure,
                     autoExposureMethod = s.autoExposureMethod,
@@ -350,23 +342,24 @@ internal fun SimulationSection(
                     onAutoExposureChange = { s.autoExposure = it },
                     onMethodChange = { s.autoExposureMethod = it },
                 )
-                OutlinedButton(
-                    onClick = onOpenFilmCurves,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.editor_sim_view_film_curves)) }
+            }
+            SimPart.FILM_FORMAT -> {
                 EnhancedSlider(stringResource(R.string.editor_sim_film_format), s.filmFormatMm, OperationalParamLimits.FILM_FORMAT_MM, { s.filmFormatMm = it },
                     step = 1f, decimals = 0,
                     tooltip = stringResource(R.string.editor_sim_film_format_tooltip),
                     default = PARAM_DEFAULTS.filmFormatMm)
+            }
+            SimPart.LENS_BLUR -> {
                 EnhancedSlider(stringResource(R.string.editor_sim_camera_lens_blur), s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
                     step = 0.05f, decimals = 2,
                     tooltip = stringResource(R.string.editor_sim_camera_lens_blur_tooltip),
                     default = PARAM_DEFAULTS.cameraLensBlurUm)
-                DiffusionGroup(stringResource(R.string.editor_sim_camera_diffusion), s.cameraDiffusionState)
-                SceneLatitudeGroup(s)
-                DateStampGroup(s, photoDateStamp)
             }
-            SimPart.PRINT -> {
+            SimPart.CAMERA_DIFFUSION ->
+                DiffusionGroup(stringResource(R.string.editor_sim_camera_diffusion), s.cameraDiffusionState)
+            SimPart.SCENE_LATITUDE -> SceneLatitudeGroup(s)
+            SimPart.DATE_STAMP -> DateStampGroup(s, photoDateStamp)
+            SimPart.PAPER -> {
                 StockPickerField(
                     label = stringResource(R.string.editor_sim_print_profile),
                     selectedId = s.printProfile,
@@ -374,10 +367,15 @@ internal fun SimulationSection(
                     onSelect = onPrintProfileChange,
                     previewHost = printPreviewHost,
                 )
+                // Slide mode skips the paper altogether, so it sits with the paper choice.
+                SwitchRow(stringResource(R.string.editor_sim_slide_mode), s.scanFilm, { s.scanFilm = it },
+                    stringResource(R.string.editor_sim_slide_mode_tooltip))
                 OutlinedButton(
                     onClick = onOpenPrintCurves,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.editor_sim_view_print_curves)) }
+            }
+            SimPart.PRINT_EXPOSURE -> {
                 if (SilverPrint.isSilverPaper(s.printProfile)) PaperGradeRow(s)
                 EnhancedSlider(stringResource(R.string.editor_sim_print_exposure), s.printExposure, 0f..4f, { s.printExposure = it },
                     step = 0.02f, decimals = 2,
@@ -386,12 +384,16 @@ internal fun SimulationSection(
                 SwitchRow(stringResource(R.string.editor_sim_print_auto_comp), s.printExposureCompensation,
                     { s.printExposureCompensation = it },
                     stringResource(R.string.editor_sim_print_auto_comp_tooltip))
+            }
+            SimPart.PRINT_COLOR -> {
                 EnhancedSlider(stringResource(R.string.editor_sim_print_y_shift), s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
                     step = 1f, decimals = 0, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_print_y_shift_tooltip))
                 EnhancedSlider(stringResource(R.string.editor_sim_print_m_shift), s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
                     step = 1f, decimals = 0, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_print_m_shift_tooltip))
+            }
+            SimPart.ENLARGER -> {
                 GatedBlock(stringResource(R.string.editor_sim_gated_enlarger_blur)) {
                     EnhancedSlider(stringResource(R.string.editor_sim_enlarger_lens_blur), s.enlargerLensBlur, 0f..20f, { s.enlargerLensBlur = it },
                         step = 0.05f, decimals = 2,
@@ -487,22 +489,22 @@ internal fun SimulationSection(
                     },
                     { s.inputGamutCompress = it },
                 )
-                // Creative output grade (post-engine Oklab chroma; parity-safe). Negative
-                // Saturation mutes a too-punchy look; Vibrance boosts muted colors while
-                // sparing already-saturated ones.
+                EnhancedSlider(stringResource(R.string.editor_sim_gamut_compression), s.gamutCompress, 0f..100f, { s.gamutCompress = it },
+                    step = 1f, decimals = 0, default = 0f,
+                    tooltip = stringResource(R.string.editor_sim_gamut_compression_tooltip))
+                SwitchRow(stringResource(R.string.editor_sim_saving_cctf), s.savingCctfEncoding, { s.savingCctfEncoding = it },
+                    stringResource(R.string.editor_sim_saving_cctf_tooltip))
+            }
+            SimPart.SAT_VIB -> {
+                // Creative grade (post-engine Oklab chroma; parity-safe). Negative Saturation
+                // mutes a too-punchy look; Vibrance boosts muted colors while sparing
+                // already-saturated ones.
                 EnhancedSlider(stringResource(R.string.editor_sim_saturation), s.saturation, -100f..100f, { s.saturation = it },
                     step = 1f, decimals = 0, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_saturation_tooltip))
                 EnhancedSlider(stringResource(R.string.editor_sim_vibrance), s.vibrance, -100f..100f, { s.vibrance = it },
                     step = 1f, decimals = 0, default = 0f,
                     tooltip = stringResource(R.string.editor_sim_vibrance_tooltip))
-                EnhancedSlider(stringResource(R.string.editor_sim_gamut_compression), s.gamutCompress, 0f..100f, { s.gamutCompress = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_gamut_compression_tooltip))
-                SwitchRow(stringResource(R.string.editor_sim_saving_cctf), s.savingCctfEncoding, { s.savingCctfEncoding = it },
-                    stringResource(R.string.editor_sim_saving_cctf_tooltip))
-                SwitchRow(stringResource(R.string.editor_sim_slide_mode), s.scanFilm, { s.scanFilm = it },
-                    stringResource(R.string.editor_sim_slide_mode_tooltip))
             }
         }
     }

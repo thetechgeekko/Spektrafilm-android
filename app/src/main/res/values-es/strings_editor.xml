@@ -4,16 +4,6 @@
 <resources>
     <string name="stock_browser_change">Cambiar</string>
     <string name="stock_browser_selected">Seleccionado</string>
-    <string name="editor_stage_look">Estilo</string>
-    <string name="editor_stage_look_hint">Parte de una película, un papel y un ajuste preestablecido</string>
-    <string name="editor_stage_film">Película</string>
-    <string name="editor_stage_film_hint">El negativo: exposición, balance de blancos, grano, halación</string>
-    <string name="editor_stage_print">Copia</string>
-    <string name="editor_stage_print_hint">La ampliadora y el papel</string>
-    <string name="editor_stage_scan">Escaneo</string>
-    <string name="editor_stage_scan_hint">Devolver la copia a un archivo</string>
-    <string name="editor_stage_finish">Acabado</string>
-    <string name="editor_stage_finish_hint">El ajuste tras el escaneo, las máscaras y la visualización</string>
     <string name="editor_category_modified">Modificado</string>
     <string name="editor_category_source">Origen</string>
     <string name="editor_category_presets">Ajustes preestablecidos</string>
@@ -194,7 +184,7 @@
     <string name="editor_hint_grain">Estructura, tamaño y desenfoque del grano</string>
     <string name="editor_hint_halation">Resplandor de halación y dispersión de la luz en la emulsión</string>
     <string name="editor_hint_glare">Velo de la copia (estocástico; desactivado por defecto)</string>
-    <string name="editor_hint_couplers">Carácter de color de la película: acopladores DIR (interferencia química del color). La saturación simple está en Salida.</string>
+    <string name="editor_hint_couplers">Carácter de color de la película: acopladores DIR (interferencia química del color). La saturación simple está en Color.</string>
     <string name="editor_hint_preflash">Preexposición en la ampliadora y su filtración</string>
     <string name="editor_hint_contrast_mask">Máscara suave de ampliadora: detalle en grandes zonas claras y oscuras</string>
     <string name="editor_hint_experimental">Factores gamma de las curvas de densidad de película y copia</string>
@@ -247,12 +237,6 @@
     <string name="editor_input_color_space">Espacio de color de entrada</string>
     <string name="editor_input_cctf">Aplicar decodificación CCTF</string>
     <string name="editor_input_cctf_tooltip">Aplica la función de transferencia CCTF inversa del espacio de color</string>
-    <string name="editor_input_creative_wb_heading">Balance de blancos creativo</string>
-    <string name="editor_input_creative_wb_desc">Un ajuste cálido/frío + verde/magenta sobre la imagen que entra en la película; funciona con todos los orígenes (RAW, JPEG, HEIC). Independiente del balance de blancos RAW; 0 = desactivado.</string>
-    <string name="editor_input_creative_warmth">Calidez creativa</string>
-    <string name="editor_input_creative_warmth_tooltip">Calienta o enfría la escena antes de que la vea la película (adaptación Bradford en ProPhoto lineal). Positivo = más cálido. 0 = sin cambio.</string>
-    <string name="editor_input_creative_tint">Matiz creativo</string>
-    <string name="editor_input_creative_tint_tooltip">Desplazamiento verde ↔ magenta. Positivo = magenta, negativo = verde. 0 = sin cambio.</string>
     <string name="editor_wb_eyedropper">Cuentagotas: toca un neutro para ajustar el balance de blancos</string>
     <string name="editor_input_gated_upsampling">MALLETT2019 aún no está implementado; ambas opciones se renderizan actualmente como HANATOS2025.</string>
     <string name="editor_input_spectral_upsampling">Reconstrucción espectral</string>
@@ -296,8 +280,6 @@
     <string name="editor_raw_chroma_noise">Reducción de ruido de color</string>
     <string name="editor_raw_chroma_noise_tooltip">Suaviza las manchas de color en las sombras y en tomas de ISO alto. Se conservan el brillo y el detalle fino; solo se suaviza el color.</string>
     <string name="editor_sim_title">Simulación</string>
-    <string name="editor_sim_tab_print">Copia</string>
-    <string name="editor_sim_tab_scanner">Escáner</string>
     <string name="editor_sim_tab_output">Salida</string>
     <string name="editor_sim_film_profile">Perfil de película</string>
     <string name="editor_sim_view_film_curves">Ver las curvas del perfil de película</string>
@@ -591,10 +573,10 @@
     <string name="editor_snack_pair_failed">No se pudo exportar el par de medio formato</string>
     <string name="editor_snack_pair_cancelled">Exportación del par de medio formato detenida</string>
     <string name="editor_category_film_stock">Película</string>
-    <string name="editor_hint_film_stock">Película, exposición de cámara y exposición automática</string>
-    <string name="editor_hint_paper">Papel de copia, exposición de copia, filtrado de la ampliadora y desenfoque de copia</string>
+    <string name="editor_hint_film_stock">Elige la película y consulta sus curvas</string>
+    <string name="editor_hint_paper">Papel de copia y modo diapositiva</string>
     <string name="editor_hint_scanner">Enfoque del escáner y corrección de punto blanco y negro</string>
-    <string name="editor_hint_output">Espacio de color de salida, compresión de gama, saturación e intensidad</string>
+    <string name="editor_hint_output">Espacio de color de salida, compresión de gama y codificación</string>
     <string name="editor_msg_export_failed">No se pudo exportar esta foto. Inténtalo de nuevo o elige un tamaño más pequeño u otro formato.</string>
     <string name="editor_msg_export_failed_memory">No hay memoria suficiente para exportar a este tamaño. Prueba un tamaño más pequeño.</string>
     <string name="editor_msg_retry">Reintentar</string>
@@ -603,4 +585,52 @@
     <string name="editor_msg_lut_bake_failed">No se pudo crear la LUT. Inténtalo de nuevo.</string>
     <string name="editor_msg_save_dialog_failed">No se pudo abrir el diálogo de guardado. Inténtalo de nuevo.</string>
     <string name="editor_msg_wb_sample_failed">No se pudo medir el balance de blancos ahí. Toca otro punto.</string>
+    <!-- 2026-11-08 tool regroup: modes, Edit sections and the split tools. -->
+    <string name="editor_mode_looks">Estilos</string>
+    <string name="editor_mode_looks_hint">Empieza por una película, un papel y un preajuste</string>
+    <string name="editor_mode_edit">Editar</string>
+    <string name="editor_mode_edit_hint">Luz, color, película, copia y más, por secciones</string>
+    <string name="editor_mode_masks">Máscaras</string>
+    <string name="editor_mode_masks_hint">Ajustes locales limitados a una zona</string>
+    <string name="editor_section_light">Luz</string>
+    <string name="editor_section_light_hint">Exposición, curva tonal, luces y sombras, máscara de contraste</string>
+    <string name="editor_section_color">Color</string>
+    <string name="editor_section_color_hint">Balance de blancos, saturación, color de copia y acopladores</string>
+    <string name="editor_section_film">Película</string>
+    <string name="editor_section_film_hint">Formato, grano, halación y filtro de difusión</string>
+    <string name="editor_section_print">Copia</string>
+    <string name="editor_section_print_hint">Exposición de copia, preexposición y objetivo de ampliadora</string>
+    <string name="editor_section_effects">Efectos</string>
+    <string name="editor_section_effects_hint">Destello, desenfoque de objetivo y fecha impresa</string>
+    <string name="editor_section_detail">Detalle</string>
+    <string name="editor_section_detail_hint">Enfoque y niveles del escaneo, limpieza RAW</string>
+    <string name="editor_section_output">Salida</string>
+    <string name="editor_section_output_hint">Espacio de color, gama y vista previa</string>
+    <string name="editor_section_lab">Lab</string>
+    <string name="editor_section_lab_hint">Entrada espectral y curvas experimentales</string>
+    <string name="editor_category_paper">Papel</string>
+    <string name="editor_category_exposure">Exposición</string>
+    <string name="editor_category_scene_latitude">Luces y sombras</string>
+    <string name="editor_category_sat_vib">Saturación</string>
+    <string name="editor_category_print_color">Color de copia</string>
+    <string name="editor_category_film_format">Formato de película</string>
+    <string name="editor_category_camera_diffusion">Filtro de difusión</string>
+    <string name="editor_category_print_exposure">Exposición de copia</string>
+    <string name="editor_category_enlarger">Objetivo de ampliadora</string>
+    <string name="editor_category_lens_blur">Desenfoque de objetivo</string>
+    <string name="editor_category_date_stamp">Fecha impresa</string>
+    <string name="editor_category_scanner">Escaneo</string>
+    <string name="editor_category_raw_cleanup">Limpieza RAW</string>
+    <string name="editor_hint_exposure">Exposición de cámara y exposición automática</string>
+    <string name="editor_hint_scene_latitude">Conserva el detalle en luces altas y sombras profundas antes de la película</string>
+    <string name="editor_hint_sat_vib">Saturación e intensidad de la imagen final</string>
+    <string name="editor_hint_print_color">Filtrado amarillo y magenta de la ampliadora</string>
+    <string name="editor_hint_film_format">Tamaño del fotograma, que escala el grano y la halación</string>
+    <string name="editor_hint_camera_diffusion">Un filtro de difusión en el objetivo de la cámara</string>
+    <string name="editor_hint_print_exposure">Exposición de copia y grado del papel</string>
+    <string name="editor_hint_enlarger">Desenfoque del objetivo de ampliadora y difusión de copia</string>
+    <string name="editor_hint_lens_blur">Suavidad del objetivo de la cámara</string>
+    <string name="editor_hint_date_stamp">Una fecha impresa en la esquina del fotograma</string>
+    <string name="editor_hint_raw_cleanup">Píxeles calientes y ruido de color al decodificar el RAW</string>
+    <string name="editor_reset_short">Restablecer</string>
 </resources>

@@ -15,54 +15,84 @@ import org.json.JSONObject
 import androidx.compose.animation.core.tween
 
 internal enum class Category(val label: String, @StringRes val labelRes: Int) {
-    // Enum order is tab order inside a stage, and a stage opens on its first group
-    // (StageTaxonomyTest pins it). Most used first: Presets before Source in Look (Source's
-    // open / RAW actions are also in the app bar), Tone curve first and Experimental last
-    // in Finish (m3-design-language, foundations §7: primary goal first).
-    PRESETS("Presets", R.string.editor_category_presets),
-    SOURCE("Source", R.string.editor_category_source),
+    // One tool each. Enum order is the order inside a section, and a section's tools are
+    // stacked in that order (StageTaxonomyTest pins the first of each). The names are also
+    // the persisted editor-session value, so an existing name is never renamed or removed.
+    // Looks: what you start from.
     SIMULATION("Film stock", R.string.editor_category_film_stock),
-    INPUT("Input", R.string.editor_category_input),
-    RAW_WB("White Bal", R.string.editor_category_raw_wb),
+    PAPER("Paper", R.string.editor_category_paper),
+    PRESETS("Presets", R.string.editor_category_presets),
+    SOURCE("Photo", R.string.editor_category_source),
+    // Light
+    EXPOSURE("Exposure", R.string.editor_category_exposure),
+    TONE_CURVE("Tone Curve", R.string.editor_category_tone_curve),
+    SCENE_LATITUDE("Highlights & shadows", R.string.editor_category_scene_latitude),
+    CONTRAST_MASK("Contrast mask", R.string.editor_category_contrast_mask),
+    // Color
+    RAW_WB("White balance", R.string.editor_category_raw_wb),
+    SAT_VIB("Saturation", R.string.editor_category_sat_vib),
+    PRINT_COLOR("Print color", R.string.editor_category_print_color),
+    COUPLERS("Couplers", R.string.editor_category_couplers),
+    // Film
+    FILM_FORMAT("Film format", R.string.editor_category_film_format),
     GRAIN("Grain", R.string.editor_category_grain),
     HALATION("Halation", R.string.editor_category_halation),
-    SCANNER("Scanner", R.string.editor_sim_tab_scanner),
-    GLARE("Glare", R.string.editor_category_glare),
-    COUPLERS("Couplers", R.string.editor_category_couplers),
-    PAPER("Paper", R.string.editor_sim_tab_print),
+    CAMERA_DIFFUSION("Diffusion filter", R.string.editor_category_camera_diffusion),
+    // Print
+    PRINT_EXPOSURE("Print exposure", R.string.editor_category_print_exposure),
     PREFLASH("Preflash", R.string.editor_category_preflash),
-    CONTRAST_MASK("Contrast mask", R.string.editor_category_contrast_mask),
-    TONE_CURVE("Tone Curve", R.string.editor_category_tone_curve),
+    ENLARGER("Enlarger lens", R.string.editor_category_enlarger),
+    // Effects
+    GLARE("Glare", R.string.editor_category_glare),
+    LENS_BLUR("Lens blur", R.string.editor_category_lens_blur),
+    DATE_STAMP("Date stamp", R.string.editor_category_date_stamp),
+    // Detail
+    SCANNER("Scan", R.string.editor_category_scanner),
+    RAW_CLEANUP("RAW cleanup", R.string.editor_category_raw_cleanup),
+    // Output
     OUTPUT("Output", R.string.editor_sim_tab_output),
-    MASKS("Masks", R.string.editor_category_masks),
     DISPLAY("Display", R.string.editor_category_display),
+    // Lab
+    INPUT("Spectral input", R.string.editor_category_input),
     EXPERIMENTAL("Experimental", R.string.editor_category_experimental),
+    // Masks
+    MASKS("Masks", R.string.editor_category_masks),
 }
 
 /**
- * The darkroom the engine actually simulates, as the editor's top level.
+ * The editor's bottom bar: where you start (Looks), the adjustments (Edit) and local
+ * adjustments (Masks). Crop sits beside them as an action, not a destination.
  *
- * Fourteen [Category] chips in one scrolling row mixed three incompatible kinds of thing --
- * modes (SOURCE, PRESETS), tools (MASKS, DISPLAY) and parameter groups -- and named several
- * of them after engine internals (COUPLERS, PREFLASH, GLARE) rather than anything a
- * photographer says out loud. Worse, the correct taxonomy was already in the file, one level
- * too deep: SIMULATION contains a Film / Print / Scanner / Output sub-tab row.
- *
- * These five are `runtime/stages/` -- filming -> printing -> scanning -- plus the look you
- * start from and the grade you end with. Every stage is nameable; none is a chemical.
- *
- * PRINT and SCAN each hold a single group today, and that is honest rather than tidy: the
- * print and scan parameters live inside SIMULATION's own sub-tabs, and prising them out is a
- * separate change to that section's internals. A stage holding one group opens it directly,
- * so the thinness costs no extra tap.
+ * The earlier top level was the engine's own pipeline (Look, Film, Print, Scan, Finish). It
+ * read well as a diagram and badly as a tool box: Exposure lived inside the film stock panel,
+ * white balance was split across two stages, and Saturation sat under Output. These three are
+ * what a photographer reaches for; the darkroom words survive as Edit's sections.
  */
-internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
-    LOOK(R.string.editor_stage_look, R.string.editor_stage_look_hint),
-    FILM(R.string.editor_stage_film, R.string.editor_stage_film_hint),
-    PRINT(R.string.editor_stage_print, R.string.editor_stage_print_hint),
-    SCAN(R.string.editor_stage_scan, R.string.editor_stage_scan_hint),
-    FINISH(R.string.editor_stage_finish, R.string.editor_stage_finish_hint),
+internal enum class EditorMode(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
+    LOOKS(R.string.editor_mode_looks, R.string.editor_mode_looks_hint),
+    EDIT(R.string.editor_mode_edit, R.string.editor_mode_edit_hint),
+    MASKS(R.string.editor_mode_masks, R.string.editor_mode_masks_hint),
 }
+
+/**
+ * A group of tools shown together: Looks and Masks are one group each; Edit has eight
+ * sections, by what each changes (Light, Color, ...), shown as tabs over a stacked list.
+ */
+internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: Int, val mode: EditorMode) {
+    LOOKS(R.string.editor_mode_looks, R.string.editor_mode_looks_hint, EditorMode.LOOKS),
+    LIGHT(R.string.editor_section_light, R.string.editor_section_light_hint, EditorMode.EDIT),
+    COLOR(R.string.editor_section_color, R.string.editor_section_color_hint, EditorMode.EDIT),
+    FILM(R.string.editor_section_film, R.string.editor_section_film_hint, EditorMode.EDIT),
+    PRINT(R.string.editor_section_print, R.string.editor_section_print_hint, EditorMode.EDIT),
+    EFFECTS(R.string.editor_section_effects, R.string.editor_section_effects_hint, EditorMode.EDIT),
+    DETAIL(R.string.editor_section_detail, R.string.editor_section_detail_hint, EditorMode.EDIT),
+    OUTPUT(R.string.editor_section_output, R.string.editor_section_output_hint, EditorMode.EDIT),
+    LAB(R.string.editor_section_lab, R.string.editor_section_lab_hint, EditorMode.EDIT),
+    MASKS(R.string.editor_mode_masks, R.string.editor_mode_masks_hint, EditorMode.MASKS),
+}
+
+/** The stages (sections) a mode holds, in enum order. */
+internal fun stagesOf(mode: EditorMode): List<Stage> = Stage.entries.filter { it.mode == mode }
 
 /**
  * Motion specs for the editor rail.
@@ -78,17 +108,25 @@ internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: 
 internal val RAIL_PRESS = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
 internal val RAIL_PAINT = tween<Color>(durationMillis = 180)
 
-/** Which stage each existing category belongs to. Every Category must appear exactly once. */
+/** Which section each tool belongs to. Every Category must appear exactly once. */
 internal val Category.stage: Stage
     get() = when (this) {
-        Category.SOURCE, Category.PRESETS -> Stage.LOOK
-        Category.SIMULATION, Category.INPUT, Category.RAW_WB,
-        Category.GRAIN, Category.HALATION, Category.COUPLERS -> Stage.FILM
-        Category.PAPER, Category.PREFLASH, Category.CONTRAST_MASK -> Stage.PRINT
-        Category.SCANNER, Category.GLARE -> Stage.SCAN
-        Category.TONE_CURVE, Category.OUTPUT, Category.MASKS, Category.DISPLAY,
-        Category.EXPERIMENTAL -> Stage.FINISH
+        Category.SIMULATION, Category.PAPER, Category.PRESETS, Category.SOURCE -> Stage.LOOKS
+        Category.EXPOSURE, Category.TONE_CURVE, Category.SCENE_LATITUDE,
+        Category.CONTRAST_MASK -> Stage.LIGHT
+        Category.RAW_WB, Category.SAT_VIB, Category.PRINT_COLOR, Category.COUPLERS -> Stage.COLOR
+        Category.FILM_FORMAT, Category.GRAIN, Category.HALATION,
+        Category.CAMERA_DIFFUSION -> Stage.FILM
+        Category.PRINT_EXPOSURE, Category.PREFLASH, Category.ENLARGER -> Stage.PRINT
+        Category.GLARE, Category.LENS_BLUR, Category.DATE_STAMP -> Stage.EFFECTS
+        Category.SCANNER, Category.RAW_CLEANUP -> Stage.DETAIL
+        Category.OUTPUT, Category.DISPLAY -> Stage.OUTPUT
+        Category.INPUT, Category.EXPERIMENTAL -> Stage.LAB
+        Category.MASKS -> Stage.MASKS
     }
+
+/** The mode a tool opens in. */
+internal val Category.mode: EditorMode get() = stage.mode
 
 /**
  * The panel to show after the user opens a new photo: always Film & look (SIMULATION).
@@ -114,27 +152,56 @@ internal val DATE_STAMP_COLORS = listOf(
 )
 
 /**
- * The encoded section each category owns, for the "this category is doing something" dot.
+ * The encoded parameters each tool owns, for the "this tool is doing something" dot and the
+ * per-tool reset.
  *
- * Only categories whose panel maps EXACTLY onto one or more top-level `Presets.encode`
- * sections appear here. SIMULATION and PREFLASH both edit fields inside `enlarger`, so
- * neither can be attributed from the encoding without the dot lying about the other;
- * SOURCE, PRESETS and DISPLAY are pickers and app settings rather than parameter groups.
- * A category that is absent simply shows no dot — a missing dot is a smaller defect than
- * a wrong one, and this table is the thing that keeps it honest.
+ * An entry is either a whole top-level `Presets.encode` section ("grain") or one key inside
+ * one ("camera.exposureCompensationEv"). Keys matter since tools were split by what they do
+ * rather than by engine stage: Exposure, Film format and Lens blur all live in "camera", and
+ * a reset of one must leave the others alone. `Presets.applyJson` keeps the current value of
+ * any key a section object leaves out, which is what makes a one-key reset safe.
+ *
+ * SIMULATION and PAPER are pickers (the stock is the look, not an edit); PRESETS, SOURCE and
+ * DISPLAY are pickers and app settings rather than parameter groups. A tool that is absent
+ * simply shows no dot: a missing dot is a smaller defect than a wrong one, and this table is
+ * the thing that keeps it honest.
  */
 internal val CATEGORY_SECTIONS: Map<Category, List<String>> = mapOf(
-    Category.INPUT to listOf("input"),
-    Category.RAW_WB to listOf("raw", "creativeWb"),
+    Category.EXPOSURE to listOf("camera.exposureCompensationEv", "camera.autoExposure", "camera.autoExposureMethod"),
+    Category.TONE_CURVE to listOf("toneCurve", "grade.contrast"),
+    Category.SCENE_LATITUDE to listOf("camera.sceneLatitude"),
+    Category.CONTRAST_MASK to listOf("contrastMask"),
+    Category.RAW_WB to listOf("raw.whiteBalance", "raw.temperature", "raw.tint", "creativeWb"),
+    Category.SAT_VIB to listOf("grade.saturation", "grade.vibrance"),
+    Category.PRINT_COLOR to listOf("enlarger.yFilterShift", "enlarger.mFilterShift"),
+    Category.COUPLERS to listOf("couplers"),
+    Category.FILM_FORMAT to listOf("camera.filmFormatMm"),
     Category.GRAIN to listOf("grain"),
     Category.HALATION to listOf("halation"),
+    Category.CAMERA_DIFFUSION to listOf("camera.diffusion"),
+    Category.PRINT_EXPOSURE to listOf("enlarger.printExposure", "enlarger.printExposureCompensation", "enlarger.paperGrade"),
+    Category.PREFLASH to listOf("enlarger.preflashExposure", "enlarger.preflashYFilterShift", "enlarger.preflashMFilterShift"),
+    Category.ENLARGER to listOf("enlarger.lensBlur", "enlarger.diffusion"),
     Category.GLARE to listOf("glare"),
-    Category.CONTRAST_MASK to listOf("contrastMask"),
-    Category.COUPLERS to listOf("couplers"),
+    Category.LENS_BLUR to listOf("camera.lensBlurUm"),
+    Category.DATE_STAMP to listOf("camera.dateStamp"),
+    Category.SCANNER to listOf("scanner"),
+    Category.RAW_CLEANUP to listOf("raw.hotPixels", "raw.chromaNoise"),
+    Category.OUTPUT to listOf(
+        "output.outputColorSpace", "output.savingCctfEncoding", "output.outputGamutCompress",
+        "output.inputGamutCompress", "grade.gamutCompress",
+    ),
+    Category.INPUT to listOf("input"),
     Category.EXPERIMENTAL to listOf("experimental"),
-    Category.TONE_CURVE to listOf("toneCurve"),
     Category.MASKS to listOf("masks"),
 )
+
+/** The value at a [CATEGORY_SECTIONS] entry ("section" or "section.key"), or null. */
+private fun JSONObject.entry(path: String): Any? {
+    val dot = path.indexOf('.')
+    if (dot < 0) return opt(path)
+    return optJSONObject(path.substring(0, dot))?.opt(path.substring(dot + 1))
+}
 
 /** Encoded neutral state, built once; the right-hand side of every dirty comparison. */
 private val DEFAULT_ENCODED: JSONObject? by lazy {
@@ -154,7 +221,7 @@ internal fun dirtyCategories(state: ParamsState): Set<Category> {
     val current = runCatching { Presets.encode(state) }.getOrNull() ?: return emptySet()
     return CATEGORY_SECTIONS.entries.mapNotNullTo(mutableSetOf()) { (category, sections) ->
         val changed = sections.any { key ->
-            current.opt(key)?.toString() != defaults.opt(key)?.toString()
+            current.entry(key)?.toString() != defaults.entry(key)?.toString()
         }
         category.takeIf { changed }
     }
@@ -193,12 +260,20 @@ internal fun categoryDefaults(category: Category): JSONObject? {
     val defaults = DEFAULT_ENCODED ?: return null
     val sections = CATEGORY_SECTIONS[category] ?: return null
     val out = JSONObject()
-    for (key in sections) {
-        when (val v = defaults.opt(key)) {
-            null -> return null
-            is JSONObject -> out.put(key, JSONObject(v.toString()))
-            is org.json.JSONArray -> out.put(key, org.json.JSONArray(v.toString()))
-            else -> out.put(key, v)
+    for (path in sections) {
+        val v = defaults.entry(path) ?: return null
+        val copy: Any = when (v) {
+            is JSONObject -> JSONObject(v.toString())
+            is org.json.JSONArray -> org.json.JSONArray(v.toString())
+            else -> v
+        }
+        val dot = path.indexOf('.')
+        if (dot < 0) {
+            out.put(path, copy)
+        } else {
+            val section = path.substring(0, dot)
+            val holder = out.optJSONObject(section) ?: JSONObject().also { out.put(section, it) }
+            holder.put(path.substring(dot + 1), copy)
         }
     }
     return out

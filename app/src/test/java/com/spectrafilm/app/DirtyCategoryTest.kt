@@ -31,6 +31,19 @@ class DirtyCategoryTest {
         only(Category.GLARE) { glarePercent = 0.2f }
         only(Category.TONE_CURVE) { toneCurveActive = true }
         only(Category.INPUT) { spectralGaussianBlur = 3f }
+        // The tools split out of one encoded section by key (2026-11-08 regroup).
+        only(Category.EXPOSURE) { exposureCompensationEv = 1f }
+        only(Category.FILM_FORMAT) { filmFormatMm = 120f }
+        only(Category.LENS_BLUR) { cameraLensBlurUm = 2f }
+        only(Category.SCENE_LATITUDE) { sceneLatitudeActive = true }
+        only(Category.DATE_STAMP) { dateStampActive = true }
+        only(Category.SAT_VIB) { saturation = 20f }
+        only(Category.TONE_CURVE) { contrast = 10f }
+        only(Category.PRINT_COLOR) { printYFilterShift = 5f }
+        only(Category.PRINT_EXPOSURE) { printExposure = 1.5f }
+        only(Category.ENLARGER) { enlargerLensBlur = 1f }
+        only(Category.RAW_CLEANUP) { rawHotPixels = true }
+        only(Category.SCANNER) { scanLensBlur = 1f }
     }
 
     @Test
@@ -59,9 +72,13 @@ class DirtyCategoryTest {
     fun everySectionNameExistsInTheEncoding() {
         // A typo or a renamed section would make a chip that can never light up, and nothing
         // else in the app would notice. Encode a neutral state and require every claimed key.
+        // An entry is a section ("grain") or one key inside one ("camera.filmFormatMm").
         val encoded = Presets.encode(ParamsState())
         val claimed = CATEGORY_SECTIONS.values.flatten().toSet()
-        val missing = claimed.filterNot { encoded.has(it) }
+        val missing = claimed.filterNot { path ->
+            val dot = path.indexOf('.')
+            if (dot < 0) encoded.has(path) else encoded.optJSONObject(path.substring(0, dot))?.has(path.substring(dot + 1)) == true
+        }
         assertTrue(
             "CATEGORY_SECTIONS names sections that Presets.encode does not emit: $missing",
             missing.isEmpty(),
@@ -79,5 +96,9 @@ class DirtyCategoryTest {
             all.size,
             all.toSet().size,
         )
+        // Nor may one tool claim a whole section while another claims a key inside it.
+        val whole = all.filter { '.' !in it }.toSet()
+        val nested = all.filter { it.substringBefore('.') in whole && '.' in it }
+        assertTrue("keys inside a section another tool owns whole: $nested", nested.isEmpty())
     }
 }

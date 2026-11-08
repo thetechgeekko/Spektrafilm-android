@@ -7,23 +7,13 @@
     <string name="stock_browser_change">Change</string>
     <string name="stock_browser_selected">Selected</string>
     <!-- The five darkroom stages that form the editor's top level. -->
-    <string name="editor_stage_look">Look</string>
-    <string name="editor_stage_look_hint">Start from a film stock, a paper and a preset</string>
-    <string name="editor_stage_film">Film</string>
-    <string name="editor_stage_film_hint">The negative: exposure, white balance, grain, halation</string>
-    <string name="editor_stage_print">Print</string>
-    <string name="editor_stage_print_hint">The enlarger and the paper</string>
-    <string name="editor_stage_scan">Scan</string>
-    <string name="editor_stage_scan_hint">Getting the print back into a file</string>
-    <string name="editor_stage_finish">Finish</string>
-    <string name="editor_stage_finish_hint">The grade after the scan, masks and display</string>
     <!-- Announced for a category chip whose parameters differ from the neutral defaults;
          the on-screen marker is a colour dot, which TalkBack cannot see. -->
     <string name="editor_category_modified">Modified</string>
     <string name="editor_category_source">Source</string>
     <string name="editor_category_presets">Presets</string>
     <string name="editor_category_input">Input</string>
-    <string name="editor_category_raw_wb">White Bal</string>
+    <string name="editor_category_raw_wb">White balance</string>
     <string name="editor_category_grain">Grain</string>
     <string name="editor_category_halation">Halation</string>
     <string name="editor_category_glare">Glare</string>
@@ -239,7 +229,7 @@
     <string name="editor_hint_grain">Film grain structure, size and blur</string>
     <string name="editor_hint_halation">Halation glow and in-emulsion light scatter</string>
     <string name="editor_hint_glare">Print glare (stochastic; off by default)</string>
-    <string name="editor_hint_couplers">Film color character — DIR couplers (chemical color crosstalk). Plain saturation lives in Output.</string>
+    <string name="editor_hint_couplers">Film color character: DIR couplers (chemical color crosstalk). Plain saturation is under Color.</string>
     <string name="editor_hint_preflash">Enlarger pre-flash exposure and filtration</string>
     <string name="editor_hint_contrast_mask">Soft enlarger mask: detail in big bright and dark areas</string>
     <string name="editor_hint_experimental">Film and print density-curve gamma factors</string>
@@ -306,12 +296,6 @@
     <string name="editor_input_color_space">Input color space</string>
     <string name="editor_input_cctf">Apply CCTF decoding</string>
     <string name="editor_input_cctf_tooltip">Apply the inverse cctf transfer function of the color space</string>
-    <string name="editor_input_creative_wb_heading">Creative white balance</string>
-    <string name="editor_input_creative_wb_desc">A warm/cool + green/magenta grade on the image going into the film — works on every source (RAW, JPEG, HEIC). Separate from the RAW white balance; 0 = off.</string>
-    <string name="editor_input_creative_warmth">Creative warmth</string>
-    <string name="editor_input_creative_warmth_tooltip">Warm/cool the scene before the film sees it (Bradford adaptation in linear ProPhoto). Positive = warmer. 0 = no change.</string>
-    <string name="editor_input_creative_tint">Creative tint</string>
-    <string name="editor_input_creative_tint_tooltip">Green ↔ magenta shift. Positive = magenta, negative = green. 0 = no change.</string>
     <string name="editor_wb_eyedropper">Eyedropper — tap a neutral to set white balance</string>
     <string name="editor_input_gated_upsampling">MALLETT2019 isn\'t implemented yet — both options currently render as HANATOS2025.</string>
     <string name="editor_input_spectral_upsampling">Spectral upsampling</string>
@@ -359,8 +343,6 @@
 
     <!-- Simulation section (Film / Print / Scanner / Output tabs) -->
     <string name="editor_sim_title">Simulation</string>
-    <string name="editor_sim_tab_print">Print</string>
-    <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Output</string>
     <string name="editor_sim_film_profile">Film profile</string>
     <string name="editor_sim_view_film_curves">View film profile curves</string>
@@ -680,10 +662,10 @@
     <string name="editor_snack_pair_failed">The half-frame pair could not be exported</string>
     <string name="editor_snack_pair_cancelled">Half-frame pair export stopped</string>
     <string name="editor_category_film_stock">Film stock</string>
-    <string name="editor_hint_film_stock">Film stock, camera exposure and auto-exposure</string>
-    <string name="editor_hint_paper">Print paper, print exposure, enlarger filtration and print blur</string>
+    <string name="editor_hint_film_stock">Pick the film stock and view its curves</string>
+    <string name="editor_hint_paper">Print paper and slide mode</string>
     <string name="editor_hint_scanner">Scanner sharpening and white and black point correction</string>
-    <string name="editor_hint_output">Output colour space, gamut compression, saturation and vibrance</string>
+    <string name="editor_hint_output">Output color space, gamut compression and encoding</string>
     <string name="editor_msg_export_failed">Couldn\'t export this photo. Try again, or pick a smaller size or another format.</string>
     <string name="editor_msg_export_failed_memory">Not enough memory to export at this size. Try a smaller size.</string>
     <string name="editor_msg_retry">Retry</string>
@@ -692,4 +674,52 @@
     <string name="editor_msg_lut_bake_failed">Couldn\'t create the LUT. Try again.</string>
     <string name="editor_msg_save_dialog_failed">Couldn\'t open the save dialog. Try again.</string>
     <string name="editor_msg_wb_sample_failed">Couldn\'t read white balance there. Tap another spot.</string>
+    <!-- 2026-11-08 tool regroup: modes, Edit sections and the split tools. -->
+    <string name="editor_mode_looks">Looks</string>
+    <string name="editor_mode_looks_hint">Start from a film stock, a paper and a preset</string>
+    <string name="editor_mode_edit">Edit</string>
+    <string name="editor_mode_edit_hint">Light, color, film, print and more, by section</string>
+    <string name="editor_mode_masks">Masks</string>
+    <string name="editor_mode_masks_hint">Local adjustments limited to an area</string>
+    <string name="editor_section_light">Light</string>
+    <string name="editor_section_light_hint">Exposure, tone curve, highlights and shadows, contrast mask</string>
+    <string name="editor_section_color">Color</string>
+    <string name="editor_section_color_hint">White balance, saturation, print color and couplers</string>
+    <string name="editor_section_film">Film</string>
+    <string name="editor_section_film_hint">Format, grain, halation and diffusion filter</string>
+    <string name="editor_section_print">Print</string>
+    <string name="editor_section_print_hint">Print exposure, preflash and enlarger lens</string>
+    <string name="editor_section_effects">Effects</string>
+    <string name="editor_section_effects_hint">Glare, lens blur and date stamp</string>
+    <string name="editor_section_detail">Detail</string>
+    <string name="editor_section_detail_hint">Scan sharpening and levels, RAW cleanup</string>
+    <string name="editor_section_output">Output</string>
+    <string name="editor_section_output_hint">Color space, gamut and preview</string>
+    <string name="editor_section_lab">Lab</string>
+    <string name="editor_section_lab_hint">Spectral input and experimental curves</string>
+    <string name="editor_category_paper">Paper</string>
+    <string name="editor_category_exposure">Exposure</string>
+    <string name="editor_category_scene_latitude">Highlights &amp; shadows</string>
+    <string name="editor_category_sat_vib">Saturation</string>
+    <string name="editor_category_print_color">Print color</string>
+    <string name="editor_category_film_format">Film format</string>
+    <string name="editor_category_camera_diffusion">Diffusion filter</string>
+    <string name="editor_category_print_exposure">Print exposure</string>
+    <string name="editor_category_enlarger">Enlarger lens</string>
+    <string name="editor_category_lens_blur">Lens blur</string>
+    <string name="editor_category_date_stamp">Date stamp</string>
+    <string name="editor_category_scanner">Scan</string>
+    <string name="editor_category_raw_cleanup">RAW cleanup</string>
+    <string name="editor_hint_exposure">Camera exposure and auto-exposure</string>
+    <string name="editor_hint_scene_latitude">Hold detail in bright highlights and deep shadows before the film</string>
+    <string name="editor_hint_sat_vib">Saturation and vibrance of the final image</string>
+    <string name="editor_hint_print_color">Enlarger yellow and magenta filtration</string>
+    <string name="editor_hint_film_format">Frame size, which scales grain and halation</string>
+    <string name="editor_hint_camera_diffusion">A diffusion filter on the camera lens</string>
+    <string name="editor_hint_print_exposure">Print exposure and paper grade</string>
+    <string name="editor_hint_enlarger">Enlarger lens blur and print diffusion</string>
+    <string name="editor_hint_lens_blur">Camera lens softness</string>
+    <string name="editor_hint_date_stamp">A date imprint in the corner of the frame</string>
+    <string name="editor_hint_raw_cleanup">Hot pixels and chroma noise inside the RAW decode</string>
+    <string name="editor_reset_short">Reset</string>
 </resources>

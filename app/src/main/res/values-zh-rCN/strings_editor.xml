@@ -3,16 +3,6 @@
 <resources>
     <string name="stock_browser_change">更换</string>
     <string name="stock_browser_selected">已选中</string>
-    <string name="editor_stage_look">风格</string>
-    <string name="editor_stage_look_hint">从胶片、相纸和预设开始</string>
-    <string name="editor_stage_film">胶片</string>
-    <string name="editor_stage_film_hint">底片：曝光、白平衡、颗粒和光晕</string>
-    <string name="editor_stage_print">冲印</string>
-    <string name="editor_stage_print_hint">放大机与相纸</string>
-    <string name="editor_stage_scan">扫描</string>
-    <string name="editor_stage_scan_hint">将照片重新转换为数字文件</string>
-    <string name="editor_stage_finish">后期</string>
-    <string name="editor_stage_finish_hint">扫描后的调色、蒙版与显示</string>
     <string name="editor_category_modified">已修改</string>
     <string name="editor_category_source">源图像</string>
     <string name="editor_category_presets">预设</string>
@@ -189,7 +179,7 @@
     <string name="editor_hint_grain">胶片颗粒结构、尺寸和模糊</string>
     <string name="editor_hint_halation">光晕与乳剂层内的光散射</string>
     <string name="editor_hint_glare">冲印眩光（随机效果；默认关闭）</string>
-    <string name="editor_hint_couplers">胶片色彩特性 — DIR 成色剂（化学色彩串扰）。常规饱和度位于输出中。</string>
+    <string name="editor_hint_couplers">胶片色彩特性 — DIR 成色剂（化学色彩串扰）。常规饱和度位于颜色中。</string>
     <string name="editor_hint_preflash">放大机预闪曝光与滤色</string>
     <string name="editor_hint_contrast_mask">柔和放大机蒙版：保留大面积亮部与暗部的细节</string>
     <string name="editor_hint_experimental">胶片和相纸密度曲线的伽马系数</string>
@@ -242,12 +232,6 @@
     <string name="editor_input_color_space">输入色彩空间</string>
     <string name="editor_input_cctf">应用 CCTF 解码</string>
     <string name="editor_input_cctf_tooltip">应用色彩空间的逆 CCTF 传递函数</string>
-    <string name="editor_input_creative_wb_heading">创意白平衡</string>
-    <string name="editor_input_creative_wb_desc">在图像进入胶片前调整冷暖与绿/品红色调 — 适用于所有源文件（RAW、JPEG、HEIC）。独立于 RAW 白平衡；0 = 关闭。</string>
-    <string name="editor_input_creative_warmth">创意暖度</string>
-    <string name="editor_input_creative_warmth_tooltip">在胶片曝光前调整场景冷暖（在线性 ProPhoto 中执行 Bradford 色适应）。正值 = 更暖。0 = 不变。</string>
-    <string name="editor_input_creative_tint">创意色调</string>
-    <string name="editor_input_creative_tint_tooltip">绿色 ↔ 品红偏移。正值 = 品红，负值 = 绿色。0 = 不变。</string>
     <string name="editor_wb_eyedropper">吸管 — 点按中性色设置白平衡</string>
     <string name="editor_input_gated_upsampling">MALLETT2019 尚未实现 — 两个选项目前均按 HANATOS2025 渲染。</string>
     <string name="editor_input_spectral_upsampling">光谱上采样</string>
@@ -291,8 +275,6 @@
     <string name="editor_raw_chroma_noise">色彩降噪</string>
     <string name="editor_raw_chroma_noise_tooltip">平滑暗部和高 ISO 照片中的色斑。保留亮度和细节，只柔化颜色。</string>
     <string name="editor_sim_title">模拟</string>
-    <string name="editor_sim_tab_print">冲印</string>
-    <string name="editor_sim_tab_scanner">扫描仪</string>
     <string name="editor_sim_tab_output">输出</string>
     <string name="editor_sim_film_profile">胶片配置</string>
     <string name="editor_sim_view_film_curves">查看胶片配置曲线</string>
@@ -494,10 +476,10 @@
     <string name="editor_display_preview_max_size">预览最大尺寸</string>
     <string name="editor_display_preview_max_size_tooltip">预览图像长边的最大尺寸，单位像素。</string>
     <string name="editor_category_film_stock">胶片型号</string>
-    <string name="editor_hint_film_stock">胶片型号、相机曝光和自动曝光</string>
-    <string name="editor_hint_paper">相纸、放印曝光、放大机滤色和放印模糊</string>
+    <string name="editor_hint_film_stock">选择胶片型号并查看其曲线</string>
+    <string name="editor_hint_paper">相纸和幻灯片模式</string>
     <string name="editor_hint_scanner">扫描仪锐化与白点、黑点校正</string>
-    <string name="editor_hint_output">输出色彩空间、色域压缩、饱和度和自然饱和度</string>
+    <string name="editor_hint_output">输出色彩空间、色域压缩和编码</string>
     <string name="editor_msg_export_failed">无法导出这张照片。请重试，或选择更小的尺寸或其他格式。</string>
     <string name="editor_msg_export_failed_memory">内存不足，无法以此尺寸导出。请选择更小的尺寸。</string>
     <string name="editor_msg_retry">重试</string>
@@ -506,4 +488,52 @@
     <string name="editor_msg_lut_bake_failed">无法创建 LUT。请重试。</string>
     <string name="editor_msg_save_dialog_failed">无法打开保存对话框。请重试。</string>
     <string name="editor_msg_wb_sample_failed">无法在该位置测量白平衡。请点按其他位置。</string>
+    <!-- 2026-11-08 tool regroup: modes, Edit sections and the split tools. -->
+    <string name="editor_mode_looks">风格</string>
+    <string name="editor_mode_looks_hint">从胶片、相纸和预设开始</string>
+    <string name="editor_mode_edit">编辑</string>
+    <string name="editor_mode_edit_hint">按分区调整光线、颜色、胶片、印放等</string>
+    <string name="editor_mode_masks">蒙版</string>
+    <string name="editor_mode_masks_hint">限定在区域内的局部调整</string>
+    <string name="editor_section_light">光线</string>
+    <string name="editor_section_light_hint">曝光、色调曲线、高光与阴影、反差蒙版</string>
+    <string name="editor_section_color">颜色</string>
+    <string name="editor_section_color_hint">白平衡、饱和度、印放色彩和成色剂</string>
+    <string name="editor_section_film">胶片</string>
+    <string name="editor_section_film_hint">画幅、颗粒、光晕和柔光滤镜</string>
+    <string name="editor_section_print">印放</string>
+    <string name="editor_section_print_hint">印放曝光、预曝光和放大机镜头</string>
+    <string name="editor_section_effects">效果</string>
+    <string name="editor_section_effects_hint">眩光、镜头模糊和日期印记</string>
+    <string name="editor_section_detail">细节</string>
+    <string name="editor_section_detail_hint">扫描锐化与色阶、RAW 清理</string>
+    <string name="editor_section_output">输出</string>
+    <string name="editor_section_output_hint">色彩空间、色域和预览</string>
+    <string name="editor_section_lab">实验室</string>
+    <string name="editor_section_lab_hint">光谱输入和实验性曲线</string>
+    <string name="editor_category_paper">相纸</string>
+    <string name="editor_category_exposure">曝光</string>
+    <string name="editor_category_scene_latitude">高光与阴影</string>
+    <string name="editor_category_sat_vib">饱和度</string>
+    <string name="editor_category_print_color">印放色彩</string>
+    <string name="editor_category_film_format">胶片画幅</string>
+    <string name="editor_category_camera_diffusion">柔光滤镜</string>
+    <string name="editor_category_print_exposure">印放曝光</string>
+    <string name="editor_category_enlarger">放大机镜头</string>
+    <string name="editor_category_lens_blur">镜头模糊</string>
+    <string name="editor_category_date_stamp">日期印记</string>
+    <string name="editor_category_scanner">扫描</string>
+    <string name="editor_category_raw_cleanup">RAW 清理</string>
+    <string name="editor_hint_exposure">相机曝光和自动曝光</string>
+    <string name="editor_hint_scene_latitude">在胶片之前保留亮部高光和深部阴影的细节</string>
+    <string name="editor_hint_sat_vib">最终图像的饱和度和自然饱和度</string>
+    <string name="editor_hint_print_color">放大机黄色和品红滤色</string>
+    <string name="editor_hint_film_format">画幅尺寸，决定颗粒和光晕的比例</string>
+    <string name="editor_hint_camera_diffusion">相机镜头上的柔光滤镜</string>
+    <string name="editor_hint_print_exposure">印放曝光和相纸号数</string>
+    <string name="editor_hint_enlarger">放大机镜头模糊和印放柔光</string>
+    <string name="editor_hint_lens_blur">相机镜头的柔和度</string>
+    <string name="editor_hint_date_stamp">画面角落的日期印记</string>
+    <string name="editor_hint_raw_cleanup">RAW 解码中的热像素和色度噪点</string>
+    <string name="editor_reset_short">重置</string>
 </resources>

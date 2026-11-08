@@ -5,19 +5,28 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** The stage row/rail tap rule and the film-balance retarget used by the look previews. */
+/** The bottom bar/rail tap rule and the film-balance retarget used by the look previews. */
 class StageChromeTest {
 
     @Test
-    fun tappingAClosedStageOpensItsFirstGroup() {
-        assertEquals(Category.PRESETS, stageTapTarget(Stage.LOOK, null))
-        assertEquals(Category.SIMULATION, stageTapTarget(Stage.FILM, Category.PAPER))
+    fun tappingAClosedModeOpensItsFirstTool() {
+        assertEquals(Category.SIMULATION, modeTapTarget(EditorMode.LOOKS, null))
+        assertEquals(Category.EXPOSURE, modeTapTarget(EditorMode.EDIT, Category.PAPER))
+        assertEquals(Category.MASKS, modeTapTarget(EditorMode.MASKS, Category.GRAIN))
     }
 
     @Test
-    fun tappingTheOpenStageClosesThePanel() {
-        assertNull(stageTapTarget(Stage.FILM, Category.GRAIN))
-        assertNull(stageTapTarget(Stage.FINISH, Category.TONE_CURVE))
+    fun editReopensTheLastToolShownThere() {
+        assertEquals(Category.GRAIN, modeTapTarget(EditorMode.EDIT, null, lastEdit = Category.GRAIN))
+        // A remembered tool from another mode is ignored.
+        assertEquals(Category.EXPOSURE, modeTapTarget(EditorMode.EDIT, null, lastEdit = Category.PRESETS))
+    }
+
+    @Test
+    fun tappingTheOpenModeClosesThePanel() {
+        assertNull(modeTapTarget(EditorMode.EDIT, Category.GRAIN))
+        assertNull(modeTapTarget(EditorMode.LOOKS, Category.PRESETS))
+        assertNull(modeTapTarget(EditorMode.MASKS, Category.MASKS))
     }
 
     @Test

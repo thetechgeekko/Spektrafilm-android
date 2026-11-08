@@ -314,6 +314,10 @@ internal fun AdjustmentPanel(
     tabs: List<Category> = emptyList(),
     dirty: Set<Category> = emptySet(),
     onSelectTab: (Category) -> Unit = {},
+    // Edit's sections (Light, Color, ...), shown as tabs at the top; their tools are stacked
+    // in [content]. Empty for Looks and Masks.
+    sections: List<Stage> = emptyList(),
+    onSelectSection: (Stage) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val screenH = localConfigurationHeightDp()
@@ -391,8 +395,8 @@ internal fun AdjustmentPanel(
                             .clip(RoundedCornerShape(2.dp))
                             .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
                     )
-                    if (tabs.size > 1) {
-                        // The tabs below name the open group; a title here would repeat it.
+                    if (tabs.size > 1 || sections.size > 1) {
+                        // The tabs name the open group; a title here would repeat it.
                         Spacer(Modifier.height(8.dp))
                     } else {
                         Text(
@@ -404,13 +408,26 @@ internal fun AdjustmentPanel(
                     }
                 }
             }
+            // Outside the handle's merged semantics node, so each section tab stays its own
+            // TalkBack stop.
+            if (sections.size > 1 && category != null) {
+                SectionTabs(
+                    sections = sections,
+                    active = category.stage,
+                    dirty = dirty,
+                    onSelect = onSelectSection,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            // A new section starts at its top, not wherever the last one was scrolled to.
+            val scroll = key(category?.stage) { rememberScrollState() }
             Column(
                 Modifier
                     .fillMaxWidth()
                     // fill = false: a short panel stays short, a long one scrolls while the
                     // tool row below it stays in view.
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scroll)
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -460,11 +477,13 @@ internal fun SidePanel(
     tabs: List<Category> = emptyList(),
     dirty: Set<Category> = emptySet(),
     onSelectTab: (Category) -> Unit = {},
+    sections: List<Stage> = emptyList(),
+    onSelectSection: (Stage) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val title = stringResource(category.labelRes)
-    // The heading names the stage; the tool list under it names the group.
-    val heading = if (tabs.size > 1) stringResource(category.stage.labelRes) else title
+    // The heading names the mode; the tool list or section tabs under it name the group.
+    val heading = if (tabs.size > 1 || sections.size > 1) stringResource(category.mode.labelRes) else title
     val panelTitle = stringResource(R.string.editor_panel_title, title)
     val closeLabel = stringResource(R.string.editor_close_panel_named, title)
     Surface(
@@ -495,7 +514,19 @@ internal fun SidePanel(
                     }
                 }
             }
-            if (tabs.size > 1 && localConfigurationHeightDp() < SIDE_PANE_LIST_MIN_HEIGHT_DP) {
+            if (sections.size > 1) {
+                SectionTabs(
+                    sections = sections,
+                    active = category.stage,
+                    dirty = dirty,
+                    onSelect = onSelectSection,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            } else if (tabs.size > 1 && localConfigurationHeightDp() < SIDE_PANE_LIST_MIN_HEIGHT_DP) {
                 // Short window (a landscape phone): six 48dp list rows would leave the
                 // controls no height at all, so the tools go in one scrolling row instead.
                 ToolRow(
@@ -522,11 +553,12 @@ internal fun SidePanel(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
+            val sideScroll = key(category.stage) { rememberScrollState() }
             Column(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(sideScroll)
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 12.dp),

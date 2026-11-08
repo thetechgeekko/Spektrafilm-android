@@ -4,16 +4,6 @@
 <resources>
     <string name="stock_browser_change">Ändern</string>
     <string name="stock_browser_selected">Ausgewählt</string>
-    <string name="editor_stage_look">Look</string>
-    <string name="editor_stage_look_hint">Starte mit einem Film, einem Papier und einer Vorgabe</string>
-    <string name="editor_stage_film">Film</string>
-    <string name="editor_stage_film_hint">Das Negativ: Belichtung, Weißabgleich, Korn, Lichthof</string>
-    <string name="editor_stage_print">Abzug</string>
-    <string name="editor_stage_print_hint">Der Vergrößerer und das Papier</string>
-    <string name="editor_stage_scan">Scan</string>
-    <string name="editor_stage_scan_hint">Den Abzug zurück in eine Datei bringen</string>
-    <string name="editor_stage_finish">Schliff</string>
-    <string name="editor_stage_finish_hint">Das Grading nach dem Scan, Masken und Anzeige</string>
     <string name="editor_category_modified">Geändert</string>
     <string name="editor_category_source">Quelle</string>
     <string name="editor_category_presets">Vorgaben</string>
@@ -192,7 +182,7 @@
     <string name="editor_hint_grain">Struktur, Größe und Weichzeichnung des Filmkorns</string>
     <string name="editor_hint_halation">Lichthofleuchten und Lichtstreuung in der Emulsion</string>
     <string name="editor_hint_glare">Streulicht im Abzug (stochastisch; standardmäßig aus)</string>
-    <string name="editor_hint_couplers">Farbcharakter des Films: DIR-Kuppler (chemisches Farbübersprechen). Einfache Sättigung findest du unter Ausgabe.</string>
+    <string name="editor_hint_couplers">Farbcharakter des Films: DIR-Kuppler (chemisches Farbübersprechen). Einfache Sättigung findest du unter Farbe.</string>
     <string name="editor_hint_preflash">Vorbelichtung am Vergrößerer und Filterung</string>
     <string name="editor_hint_contrast_mask">Weiche Vergrößerermaske: Zeichnung in großen hellen und dunklen Flächen</string>
     <string name="editor_hint_experimental">Gammafaktoren der Dichtekurven von Film und Abzug</string>
@@ -245,12 +235,6 @@
     <string name="editor_input_color_space">Eingabefarbraum</string>
     <string name="editor_input_cctf">CCTF-Dekodierung anwenden</string>
     <string name="editor_input_cctf_tooltip">Wendet die inverse CCTF-Übertragungsfunktion des Farbraums an</string>
-    <string name="editor_input_creative_wb_heading">Kreativer Weißabgleich</string>
-    <string name="editor_input_creative_wb_desc">Ein Warm/Kalt- + Grün/Magenta-Grading auf dem Bild, das in den Film geht; funktioniert mit jeder Quelle (RAW, JPEG, HEIC). Getrennt vom RAW-Weißabgleich; 0 = aus.</string>
-    <string name="editor_input_creative_warmth">Kreative Wärme</string>
-    <string name="editor_input_creative_warmth_tooltip">Erwärmt oder kühlt die Szene, bevor der Film sie sieht (Bradford-Anpassung in linearem ProPhoto). Positiv = wärmer. 0 = keine Änderung.</string>
-    <string name="editor_input_creative_tint">Kreative Tönung</string>
-    <string name="editor_input_creative_tint_tooltip">Verschiebung Grün ↔ Magenta. Positiv = Magenta, negativ = Grün. 0 = keine Änderung.</string>
     <string name="editor_wb_eyedropper">Pipette: auf einen Neutralton tippen, um den Weißabgleich zu setzen</string>
     <string name="editor_input_gated_upsampling">MALLETT2019 ist noch nicht implementiert; beide Optionen rendern derzeit als HANATOS2025.</string>
     <string name="editor_input_spectral_upsampling">Spektrale Rekonstruktion</string>
@@ -294,8 +278,6 @@
     <string name="editor_raw_chroma_noise">Farbrauschen reduzieren</string>
     <string name="editor_raw_chroma_noise_tooltip">Glättet Farbflecken in Tiefen und High-ISO-Aufnahmen. Helligkeit und feine Details bleiben erhalten; nur die Farbe wird geglättet.</string>
     <string name="editor_sim_title">Simulation</string>
-    <string name="editor_sim_tab_print">Abzug</string>
-    <string name="editor_sim_tab_scanner">Scanner</string>
     <string name="editor_sim_tab_output">Ausgabe</string>
     <string name="editor_sim_film_profile">Filmprofil</string>
     <string name="editor_sim_view_film_curves">Kurven des Filmprofils ansehen</string>
@@ -589,10 +571,10 @@
     <string name="editor_snack_pair_failed">Das Halbformat-Paar konnte nicht exportiert werden</string>
     <string name="editor_snack_pair_cancelled">Export des Halbformat-Paars abgebrochen</string>
     <string name="editor_category_film_stock">Filmmaterial</string>
-    <string name="editor_hint_film_stock">Filmmaterial, Kamerabelichtung und automatische Belichtung</string>
-    <string name="editor_hint_paper">Fotopapier, Printbelichtung, Vergrößerer-Filterung und Printunschärfe</string>
+    <string name="editor_hint_film_stock">Filmmaterial wählen und seine Kurven ansehen</string>
+    <string name="editor_hint_paper">Fotopapier und Diamodus</string>
     <string name="editor_hint_scanner">Scanner-Schärfung und Weiß- und Schwarzpunktkorrektur</string>
-    <string name="editor_hint_output">Ausgabefarbraum, Gamut-Kompression, Sättigung und Dynamik</string>
+    <string name="editor_hint_output">Ausgabefarbraum, Gamut-Kompression und Kodierung</string>
     <string name="editor_msg_export_failed">Das Foto konnte nicht exportiert werden. Versuche es erneut oder wähle eine kleinere Größe oder ein anderes Format.</string>
     <string name="editor_msg_export_failed_memory">Nicht genug Speicher für den Export in dieser Größe. Wähle eine kleinere Größe.</string>
     <string name="editor_msg_retry">Erneut versuchen</string>
@@ -601,4 +583,52 @@
     <string name="editor_msg_lut_bake_failed">Die LUT konnte nicht erstellt werden. Versuche es erneut.</string>
     <string name="editor_msg_save_dialog_failed">Der Speichern-Dialog konnte nicht geöffnet werden. Versuche es erneut.</string>
     <string name="editor_msg_wb_sample_failed">Weißabgleich konnte dort nicht gemessen werden. Tippe auf eine andere Stelle.</string>
+    <!-- 2026-11-08 tool regroup: modes, Edit sections and the split tools. -->
+    <string name="editor_mode_looks">Looks</string>
+    <string name="editor_mode_looks_hint">Starte mit Filmmaterial, Papier und Preset</string>
+    <string name="editor_mode_edit">Anpassen</string>
+    <string name="editor_mode_edit_hint">Licht, Farbe, Film, Abzug und mehr, nach Bereich</string>
+    <string name="editor_mode_masks">Masken</string>
+    <string name="editor_mode_masks_hint">Lokale Anpassungen in einem Bereich</string>
+    <string name="editor_section_light">Licht</string>
+    <string name="editor_section_light_hint">Belichtung, Gradationskurve, Lichter und Tiefen, Kontrastmaske</string>
+    <string name="editor_section_color">Farbe</string>
+    <string name="editor_section_color_hint">Weißabgleich, Sättigung, Abzugsfarbe und Kuppler</string>
+    <string name="editor_section_film">Film</string>
+    <string name="editor_section_film_hint">Format, Korn, Halation und Diffusionsfilter</string>
+    <string name="editor_section_print">Abzug</string>
+    <string name="editor_section_print_hint">Abzugsbelichtung, Vorbelichtung und Vergrößerungsobjektiv</string>
+    <string name="editor_section_effects">Effekte</string>
+    <string name="editor_section_effects_hint">Streulicht, Objektivunschärfe und Datumsstempel</string>
+    <string name="editor_section_detail">Details</string>
+    <string name="editor_section_detail_hint">Scan-Schärfung und Tonwerte, RAW-Bereinigung</string>
+    <string name="editor_section_output">Ausgabe</string>
+    <string name="editor_section_output_hint">Farbraum, Gamut und Vorschau</string>
+    <string name="editor_section_lab">Labor</string>
+    <string name="editor_section_lab_hint">Spektraler Eingang und experimentelle Kurven</string>
+    <string name="editor_category_paper">Papier</string>
+    <string name="editor_category_exposure">Belichtung</string>
+    <string name="editor_category_scene_latitude">Lichter &amp; Tiefen</string>
+    <string name="editor_category_sat_vib">Sättigung</string>
+    <string name="editor_category_print_color">Abzugsfarbe</string>
+    <string name="editor_category_film_format">Filmformat</string>
+    <string name="editor_category_camera_diffusion">Diffusionsfilter</string>
+    <string name="editor_category_print_exposure">Abzugsbelichtung</string>
+    <string name="editor_category_enlarger">Vergrößerungsobjektiv</string>
+    <string name="editor_category_lens_blur">Objektivunschärfe</string>
+    <string name="editor_category_date_stamp">Datumsstempel</string>
+    <string name="editor_category_scanner">Scan</string>
+    <string name="editor_category_raw_cleanup">RAW-Bereinigung</string>
+    <string name="editor_hint_exposure">Kamerabelichtung und automatische Belichtung</string>
+    <string name="editor_hint_scene_latitude">Zeichnung in hellen Lichtern und tiefen Schatten vor dem Film halten</string>
+    <string name="editor_hint_sat_vib">Sättigung und Dynamik des fertigen Bildes</string>
+    <string name="editor_hint_print_color">Gelb- und Magentafilterung am Vergrößerer</string>
+    <string name="editor_hint_film_format">Bildformat, das Korn und Halation skaliert</string>
+    <string name="editor_hint_camera_diffusion">Ein Diffusionsfilter vor dem Kameraobjektiv</string>
+    <string name="editor_hint_print_exposure">Abzugsbelichtung und Papiergradation</string>
+    <string name="editor_hint_enlarger">Unschärfe des Vergrößerungsobjektivs und Abzugsdiffusion</string>
+    <string name="editor_hint_lens_blur">Weichheit des Kameraobjektivs</string>
+    <string name="editor_hint_date_stamp">Ein Datumsaufdruck in der Bildecke</string>
+    <string name="editor_hint_raw_cleanup">Hotpixel und Farbrauschen beim RAW-Dekodieren</string>
+    <string name="editor_reset_short">Zurücksetzen</string>
 </resources>
