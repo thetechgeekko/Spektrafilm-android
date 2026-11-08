@@ -426,6 +426,7 @@ internal fun EditorScreen(
         null
     } else {
         PhotoSwipeNeighbours(
+            sourceKey = currentUriString,
             next = nextThumb,
             previous = previousThumb,
             hasNext = nextFrame != null,

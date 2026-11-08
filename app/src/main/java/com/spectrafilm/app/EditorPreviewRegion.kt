@@ -163,11 +163,17 @@ internal fun PreviewRegion(
                         heldIncoming = incomingThumb
                         swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
                         val leaving = latestShown
+                        val leavingKey = nb.sourceKey
                         nb.onCommit(step)
-                        // Hold the neighbour in place until the new photo has something on
-                        // screen (its stand-in or its render), so nothing blank flashes.
+                        // Hold the neighbour in place until the editor has switched to the new
+                        // photo AND it has something on screen (its stand-in or its render),
+                        // so nothing blank flashes and a late frame of the old photo does not
+                        // end the hold.
                         withTimeoutOrNull(SWIPE_HOLD_MAX_MS) {
-                            snapshotFlow { latestShown }.first { it != null && it !== leaving }
+                            snapshotFlow { latestSwipe?.sourceKey to latestShown }
+                                .first { (key, shown) ->
+                                    key != leavingKey && shown != null && shown !== leaving
+                                }
                         }
                     } else {
                         swipeX.animateTo(0f, tween(SWIPE_BACK_MS))

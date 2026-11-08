@@ -19,6 +19,8 @@ import kotlin.math.abs
  * and which way there is anything at all. [onCommit] opens the frame [step] places away.
  */
 internal class PhotoSwipeNeighbours(
+    /** The photo these are the neighbours of: a swipe's hold ends only once this changes. */
+    val sourceKey: String?,
     val next: Bitmap?,
     val previous: Bitmap?,
     val hasNext: Boolean,
