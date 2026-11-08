@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.spectrafilm.app.masks.hasSemantic
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.engine.SpektraParams
 import kotlinx.coroutines.CancellationException
