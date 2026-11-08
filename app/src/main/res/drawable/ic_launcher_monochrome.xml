@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Spektrafilm for Android. GPLv3.
-  Monochrome layer for Android 13+ themed icons: the lamp as one solid
-  silhouette with the strip cut through it and the sprocket holes left standing. Same
-  geometry as ic_launcher_foreground, inside the 66dp safe zone.
+  Monochrome layer for Android 13+ themed icons: the film strip as one solid
+  silhouette with the frame window and sprocket holes cut out. Same geometry as
+  ic_launcher_foreground, inside the 66dp safe zone.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,20 +11,8 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Clip everything to the lamp: the strip reads as a gap through it -->
-    <group>
-        <clip-path android:pathData="M30,54 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0 Z" />
-        <group
-            android:pivotX="54"
-            android:pivotY="54"
-            android:rotation="-24">
-            <path
-                android:fillColor="#FFFFFF"
-                android:fillType="evenOdd"
-                android:pathData="M0,0 H108 V108 H0 Z M26,47 h56 a2,2 0 0 1 2,2 v10 a2,2 0 0 1 -2,2 h-56 a2,2 0 0 1 -2,-2 v-10 a2,2 0 0 1 2,-2 Z" />
-            <path
-                android:fillColor="#FFFFFF"
-                android:pathData="M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
-        </group>
-    </group>
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M34,35.5 h40 a4,4 0 0 1 4,4 v29 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-29 a4,4 0 0 1 4,-4 Z M35.5,46 h37 a1.5,1.5 0 0 1 1.5,1.5 v13 a1.5,1.5 0 0 1 -1.5,1.5 h-37 a1.5,1.5 0 0 1 -1.5,-1.5 v-13 a1.5,1.5 0 0 1 1.5,-1.5 Z M36.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M36.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z" />
 </vector>

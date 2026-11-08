@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Spektrafilm for Android. GPLv3.
-  Adaptive-icon foreground, "Safelight": the amber safelight of a darkroom with a
-  strip of negative crossing it. The brand amber (#C8892B, the seed of the M3 scheme in
-  Theme.kt) is the light you print by. Everything sits inside the 66dp safe zone (a circle
-  of radius 33 around 54,54): the lamp is r=24, the rotated strip reaches r~31, and the
-  glow fades to nothing by r=34. Also the splash-screen icon (themes.xml).
+  Adaptive-icon foreground, "Frame": a strip of 35mm film in the brand amber (#C8892B,
+  the seed of the M3 scheme in Theme.kt) with the spectrum showing through the exposed
+  frame. Everything sits inside the 66dp safe zone (a circle of radius 33 around 54,54):
+  the strip spans 30..78 x 35.5..72.5, so its farthest corner is ~30.3 from the centre.
+  Also the splash-screen icon (themes.xml). The spectrum stops match SpektraBrand.spectrum.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -14,45 +14,29 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Glow around the lamp -->
-    <path android:pathData="M20,54 a34,34 0 1 0 68,0 a34,34 0 1 0 -68,0 Z">
+    <!-- Exposed frame: the spectrum, seen through the window in the strip -->
+    <path android:pathData="M35.5,46 h37 a1.5,1.5 0 0 1 1.5,1.5 v13 a1.5,1.5 0 0 1 -1.5,1.5 h-37 a1.5,1.5 0 0 1 -1.5,-1.5 v-13 a1.5,1.5 0 0 1 1.5,-1.5 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:type="radial"
-                android:centerX="54"
-                android:centerY="54"
-                android:gradientRadius="34">
-                <item android:offset="0" android:color="#8CC8892B" />
-                <item android:offset="1" android:color="#00C8892B" />
+                android:type="linear"
+                android:startX="34"
+                android:startY="54"
+                android:endX="74"
+                android:endY="54">
+                <item android:offset="0.000" android:color="#FF7B2FF7" />
+                <item android:offset="0.167" android:color="#FF2F6BFF" />
+                <item android:offset="0.333" android:color="#FF14C7C7" />
+                <item android:offset="0.500" android:color="#FF34C759" />
+                <item android:offset="0.667" android:color="#FFFFCC00" />
+                <item android:offset="0.833" android:color="#FFFF8A00" />
+                <item android:offset="1.000" android:color="#FFFF3B30" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Safelight lens -->
-    <path android:pathData="M30,54 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="48"
-                android:centerY="46"
-                android:gradientRadius="30">
-                <item android:offset="0" android:color="#FFF6BC70" />
-                <item android:offset="1" android:color="#FFC8892B" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Strip of negative across the lamp, with its sprocket holes lit from behind -->
-    <group
-        android:pivotX="54"
-        android:pivotY="54"
-        android:rotation="-24">
-        <path
-            android:fillColor="#141414"
-            android:fillType="evenOdd"
-            android:pathData="M26,47 h56 a2,2 0 0 1 2,2 v10 a2,2 0 0 1 -2,2 h-56 a2,2 0 0 1 -2,-2 v-10 a2,2 0 0 1 2,-2 Z M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
-        <path
-            android:fillColor="#F6BC70"
-            android:pathData="M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
-    </group>
+    <!-- Film strip with the frame window and sprocket holes cut out -->
+    <path
+        android:fillColor="#C8892B"
+        android:fillType="evenOdd"
+        android:pathData="M34,35.5 h40 a4,4 0 0 1 4,4 v29 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-29 a4,4 0 0 1 4,-4 Z M35.5,46 h37 a1.5,1.5 0 0 1 1.5,1.5 v13 a1.5,1.5 0 0 1 -1.5,1.5 h-37 a1.5,1.5 0 0 1 -1.5,-1.5 v-13 a1.5,1.5 0 0 1 1.5,-1.5 Z M36.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M36.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z" />
 </vector>
