@@ -360,8 +360,12 @@ internal fun EditorScreen(
     // It never feeds the engine, an export or a cache. Keyed on the source identity only:
     // a later rotate does not reload it, because by then the render is on screen.
     var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
+    // The plain thumbnail the stand-in came from, kept so its film look can still be
+    // rendered when the engine finishes loading after the thumbnail arrived (cold start).
+    var placeholderSource by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
         openPlaceholder = null
+        placeholderSource = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
         OpenPlaceholder.load(
@@ -372,14 +376,37 @@ internal fun EditorScreen(
             rawSource = sourceKind == SourceKind.RAW,
         ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
-            if (preview == null) openPlaceholder = bmp
+            if (preview == null) {
+                openPlaceholder = bmp
+                placeholderSource = bmp
+            }
         }
+    }
+    // Give the stand-in the photo's film look (PlaceholderLook), so the real render changes
+    // only detail when it lands. Re-runs for a better thumbnail, when the engine becomes
+    // ready (a thumbnail that beat the engine still gets its look) and on every settings
+    // change (a recipe restore that lands after the thumbnail re-grades it).
+    LaunchedEffect(placeholderSource, engine, previewTick) {
+        val src = placeholderSource ?: return@LaunchedEffect
+        val e = engine ?: return@LaunchedEffect
+        if (preview != null) return@LaunchedEffect
+        val look = PlaceholderLook.render(
+            ctx.applicationContext, e, src, state, dispatchers.default,
+        ) ?: return@LaunchedEffect
+        // Dropped if this effect was restarted meanwhile, or the real render won.
+        val cancelled = !isActive
+        val published = !cancelled && preview == null
+        if (published) openPlaceholder = look.bitmap
+        PlaceholderLook.report(look, published = published, cancelled = cancelled)
     }
     // Keep the stand-in under the fading-in render briefly, then drop it.
     LaunchedEffect(preview != null) {
         if (preview != null && openPlaceholder != null) {
             delay(OPEN_PLACEHOLDER_HOLD_MS)
-            if (preview != null) openPlaceholder = null
+            if (preview != null) {
+                openPlaceholder = null
+                placeholderSource = null
+            }
         }
     }
 
