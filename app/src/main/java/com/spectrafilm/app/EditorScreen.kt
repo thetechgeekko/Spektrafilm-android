@@ -24,7 +24,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
@@ -36,14 +35,11 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,7 +60,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import androidx.compose.animation.core.animateDpAsState
 
 internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 /**
@@ -1173,6 +1168,128 @@ internal fun EditorScreen(
         closeMagnifier = ::closeMagnifier,
     )
 
+    // The photo's EXIF capture date for the date-back imprint's default text,
+    // read off the main thread once per source.
+    val photoDateStamp by produceState<String?>(null, sourceUri) {
+        value = sourceUri?.let { uri ->
+            withContext(dispatchers.io) { DateStampText.readCaptureDate(ctx, uri) }
+        }
+    }
+    // RAW cleanup acts inside the RAW decode, so it is only offered for a RAW.
+    val isRawSource = sourceKind == SourceKind.RAW
+    fun toolShown(c: Category) = c != Category.RAW_CLEANUP || isRawSource
+    // One tool's controls, shared by every branch so the per-tool `when` below
+    // is not duplicated.
+    val toolContent: @Composable ColumnScope.(Category) -> Unit = { tool ->
+        EditorToolContent(
+            tool = tool,
+            ctx = ctx,
+            scope = scope,
+            dispatchers = dispatchers,
+            state = state,
+            settings = settings,
+            session = session,
+            snackbarHost = snackbarHost,
+            toolVm = toolVm,
+            toolUi = toolUi,
+            viewerVm = viewerVm,
+            viewerUi = viewerUi,
+            presetVm = presetVm,
+            versionsVm = versionsVm,
+            filmPreviewVm = filmPreviewVm,
+            printPreviewVm = printPreviewVm,
+            isRawSource = isRawSource,
+            preview = preview,
+            previewBusy = previewBusy,
+            interacting = interacting,
+            photoDateStamp = photoDateStamp,
+            filmGroups = filmGroups,
+            printGroups = printGroups,
+            onOpenFilmCurves = onOpenFilmCurves,
+            onOpenPrintCurves = onOpenPrintCurves,
+            stockPreviewHost = ::stockPreviewHost,
+            presetPreviewHost = { presetPreviewHost(presetPreviewVm) },
+            checkpointEditorSession = ::checkpointEditorSession,
+            sourceUri = sourceUri,
+            presetRepo = presetRepo,
+            recipeKey = recipeKey,
+            builtInGroups = builtInGroups,
+            presetUi = presetUi,
+            presetImporter = presetImporter,
+            presetExporter = presetExporter,
+            savedPresetExporter = savedPresetExporter,
+            lutExporter = lutExporter,
+            presetListState = presetListState,
+            presetBaselineJsonState = presetBaselineJsonState,
+            lastBuiltInOutputState = lastBuiltInOutputState,
+            lastBuiltInIdState = lastBuiltInIdState,
+            bakingLutState = bakingLutState,
+            pendingLutTextState = pendingLutTextState,
+            pendingPresetExportState = pendingPresetExportState,
+            rotationState = rotationState,
+            statusState = statusState,
+            previewTickState = previewTickState,
+            engineState = engineState,
+            applyWithAmount = ::applyWithAmount,
+            previousEdit = previousEdit,
+            applyPreviousEdit = ::applyPreviousEdit,
+            sourceRuntime = sourceRuntime,
+            recipeRepo = recipeRepo,
+            recipeEditEpoch = recipeEditEpoch,
+            editHistory = editHistory,
+            photoPicker = photoPicker,
+            rawPicker = rawPicker,
+            sourceState = sourceState,
+            hasRecipeState = hasRecipeState,
+            recipeAccessState = recipeAccessState,
+            committedSnapshotState = committedSnapshotState,
+            restoringState = restoringState,
+            profilesState = profilesState,
+            retireSourceResources = ::retireSourceResources,
+            resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
+            reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
+        )
+    }
+    val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
+        PreviewRegion(
+            zoomRequests = viewerVm.zoomRequests,
+            controlsBottomInset = panelInset,
+            peekOriginal = viewerUi.originalPeek,
+            preview = preview,
+            placeholder = openPlaceholder,
+            before = beforePreview,
+            busy = previewBusy,
+            decoding = decoding,
+            exporting = exportInFlight,
+            lastRenderMs = lastRenderMs,
+            renderErr = renderErr,
+            compareMode = viewerUi.compare,
+            showHistogram = viewerUi.histogram,
+            showClipping = viewerUi.showClipping,
+            gpuEnabled = gpuEnabled,
+            gpuProxy = gpuProxy,
+            gpuLut = gpuLut,
+            gpuGain = gpuGain,
+            // Single tap on the photo = show/hide the chrome. The point is
+            // ignored: this is a toggle, not a pick. The magnifier that used to
+            // own this gesture now has the button below, which is the affordance
+            // the in-app guide already claimed existed.
+            onPointPicked = { _, _ -> viewerVm.onAction(EditorViewerAction.ToggleChrome) },
+            onOpenMagnifier = { openMagnifier(0.5f, 0.5f) },
+            renderKey = previewTick,
+            roiOverlay = roiOverlay,
+            onRoiSettled = { renderRoi(it) },
+            onRoiCleared = { clearRoi() },
+            swipe = photoSwipe,
+            // Only right after a control was used (scrubArmed) and while it is still on
+            // screen: otherwise the sideways drag is the next/previous photo.
+            scrub = photoScrub.takeIf {
+                editOpen && scrubArmed.value && lastControlAlive.value?.value == true
+            },
+            strip = folderStrip,
+        )
+    }
+
     // ============================ LAYOUT ============================
     // Overlay predicates, shared with the overlay branches below the chrome.
     val cropBmp = preview
@@ -1323,278 +1440,29 @@ internal fun EditorScreen(
                 onShare = { requestShare() },
             )
 
-            // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
-            // bottom panel over the category bar, as before. Wide (tablets, landscape phones,
-            // desktop windows, unfolded foldables): the active panel docks as a side column
-            // beside the preview + category bar. Neither branch touches PreviewRegion or the
-            // GPU/CPU render paths; only where the panel body is hosted differs.
-            var editorBoxOrigin by remember { mutableStateOf(Offset.Zero) }
-            BoxWithConstraints(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .onGloballyPositioned { editorBoxOrigin = it.positionInWindow() },
-            ) {
-                // Window size classes (M3): side pane for expanded+ windows and landscape
-                // phones, bottom sheet for compact and medium portrait. A half-folded device
-                // overrides that by posture (FoldPosture.kt): tabletop docks the tools below
-                // the hinge, book posture gives the tools exactly one screen.
-                val posture = foldPosture(
-                    foldingFeature?.toHinge(editorBoxOrigin.x, editorBoxOrigin.y, LocalDensity.current.density),
-                    maxWidth.value,
-                    maxHeight.value,
-                )
-                // `posture` here is in this box's coordinates (under the top bar) and only
-                // drives pane geometry; the pane MODE (`wide`) was decided above.
-                val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-                val sidePaneWidth = sidePaneWidthDp(maxWidth.value, posture, rtl).dp
-                val bookHingeGap = bookHingeGapDp(posture, maxWidth.value, rtl).dp
-                val bookAligned = isBookHingeAligned(posture, maxWidth.value, rtl)
-
-                // The photo's EXIF capture date for the date-back imprint's default text,
-                // read off the main thread once per source.
-                val photoDateStamp by produceState<String?>(null, sourceUri) {
-                    value = sourceUri?.let { uri ->
-                        withContext(dispatchers.io) { DateStampText.readCaptureDate(ctx, uri) }
-                    }
-                }
-                // Re-encoded only when a parameter actually changes, not per frame.
-                // Shared by the bottom bar/rail, the section tabs and the panels: a tool's
-                // reset is offered only when it actually holds edits, which is the same
-                // question the dot asks.
-                val dirty by remember(state) { derivedStateOf { dirtyCategories(state) } }
-                val resetCategory: (Category) -> Unit = { target ->
-                    // A partial recipe carrying only this tool's sections or keys.
-                    // Presets.applyJson reads each section behind its own optJSONObject and
-                    // keeps the current value of any key it leaves out, so nothing outside
-                    // them can move.
-                    categoryDefaults(target)?.let { defaults ->
-                        runCatching { Presets.decode(defaults, state) }
-                        previewTick++
-                    }
-                }
-                // RAW cleanup acts inside the RAW decode, so it is only offered for a RAW.
-                val isRawSource = sourceKind == SourceKind.RAW
-                fun toolShown(c: Category) = c != Category.RAW_CLEANUP || isRawSource
-                // The tool Edit reopens on: the last one shown there.
-                var lastEdit by rememberSaveable { mutableStateOf<Category?>(null) }
-                LaunchedEffect(activeCategory) {
-                    activeCategory?.takeIf { it.mode == EditorMode.EDIT }?.let { lastEdit = it }
-                }
-                val editOpen = activeCategory?.mode == EditorMode.EDIT
-                // One tool's controls, shared by every branch so the per-tool `when` below
-                // is not duplicated.
-                val toolContent: @Composable ColumnScope.(Category) -> Unit = { tool ->
-                    EditorToolContent(
-                        tool = tool,
-                        ctx = ctx,
-                        scope = scope,
-                        dispatchers = dispatchers,
-                        state = state,
-                        settings = settings,
-                        session = session,
-                        snackbarHost = snackbarHost,
-                        toolVm = toolVm,
-                        toolUi = toolUi,
-                        viewerVm = viewerVm,
-                        viewerUi = viewerUi,
-                        presetVm = presetVm,
-                        versionsVm = versionsVm,
-                        filmPreviewVm = filmPreviewVm,
-                        printPreviewVm = printPreviewVm,
-                        isRawSource = isRawSource,
-                        preview = preview,
-                        previewBusy = previewBusy,
-                        interacting = interacting,
-                        photoDateStamp = photoDateStamp,
-                        filmGroups = filmGroups,
-                        printGroups = printGroups,
-                        onOpenFilmCurves = onOpenFilmCurves,
-                        onOpenPrintCurves = onOpenPrintCurves,
-                        stockPreviewHost = ::stockPreviewHost,
-                        presetPreviewHost = { presetPreviewHost(presetPreviewVm) },
-                        checkpointEditorSession = ::checkpointEditorSession,
-                        sourceUri = sourceUri,
-                        presetRepo = presetRepo,
-                        recipeKey = recipeKey,
-                        builtInGroups = builtInGroups,
-                        presetUi = presetUi,
-                        presetImporter = presetImporter,
-                        presetExporter = presetExporter,
-                        savedPresetExporter = savedPresetExporter,
-                        lutExporter = lutExporter,
-                        presetListState = presetListState,
-                        presetBaselineJsonState = presetBaselineJsonState,
-                        lastBuiltInOutputState = lastBuiltInOutputState,
-                        lastBuiltInIdState = lastBuiltInIdState,
-                        bakingLutState = bakingLutState,
-                        pendingLutTextState = pendingLutTextState,
-                        pendingPresetExportState = pendingPresetExportState,
-                        rotationState = rotationState,
-                        statusState = statusState,
-                        previewTickState = previewTickState,
-                        engineState = engineState,
-                        applyWithAmount = ::applyWithAmount,
-                        previousEdit = previousEdit,
-                        applyPreviousEdit = ::applyPreviousEdit,
-                        sourceRuntime = sourceRuntime,
-                        recipeRepo = recipeRepo,
-                        recipeEditEpoch = recipeEditEpoch,
-                        editHistory = editHistory,
-                        photoPicker = photoPicker,
-                        rawPicker = rawPicker,
-                        sourceState = sourceState,
-                        hasRecipeState = hasRecipeState,
-                        recipeAccessState = recipeAccessState,
-                        committedSnapshotState = committedSnapshotState,
-                        restoringState = restoringState,
-                        profilesState = profilesState,
-                        retireSourceResources = ::retireSourceResources,
-                        resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
-                        reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
-                    )
-                }
-                // Edit's tool open in full (every control and its help), or null for the rail.
-                var railDetail by rememberSaveable { mutableStateOf<Category?>(null) }
-                // A tab tapped or the panel closed returns to the rail.
-                LaunchedEffect(activeCategory?.stage) {
-                    if (railDetail != null && railDetail?.stage != activeCategory?.stage) railDetail = null
-                }
-                // The open panel's body. Looks and Masks show the one picked tool; Edit shows
-                // every tool on one sideways rail of instrument cards (ToolRail.kt), and a tool
-                // opened from its chip in full, under its own name and reset.
-                val panelContent: @Composable ColumnScope.() -> Unit = {
-                    EditorPanelContent(
-                        sliderInteraction = sliderInteraction,
-                        state = state,
-                        activeCategory = activeCategory,
-                        onActiveCategoryChange = { activeCategory = it },
-                        railDetail = railDetail,
-                        onRailDetailChange = { railDetail = it },
-                        backEnabled = !magnifierOpen && !viewerUi.chromeHidden &&
-                            !toolUi.anyOverlayOpen && !exportMaskVisible,
-                        dirty = dirty,
-                        resetCategory = resetCategory,
-                        toolShown = ::toolShown,
-                        toolContent = toolContent,
-                    )
-                }
-                // Measured height of the floating adjustment panel (narrow layout only). The
-                // preview's zoom control is inset by it so it never sits under the panel.
-                var panelHeightPx by remember { mutableIntStateOf(0) }
-                // Compact vs tall panel height (drag the handle). Kept across panel closes
-                // and rotation so a user who prefers the tall panel is not reset each time.
-                var panelTall by rememberSaveable { mutableStateOf(false) }
-                // Preview-first: the photo fits into the space ABOVE the floating panel
-                // instead of sitting underneath it, so opening a panel never hides the
-                // part of the frame being judged. Animated so the photo eases up as the
-                // panel rises and back down as it closes (the panel's own height lags a
-                // closing panel, so the target drops to 0 straight away instead).
-                // Tabletop reserves the photo's upper-half box outright (below), so the panel
-                // never insets it there.
-                val panelShown = !wide && activeCategory != null && !viewerUi.chromeHidden &&
-                    posture !is FoldPosture.Tabletop
-                val panelTarget = if (panelShown) {
-                    with(LocalDensity.current) { panelHeightPx.toDp() }
-                } else {
-                    0.dp
-                }
-                val panelInset by animateDpAsState(panelTarget, label = "previewPanelInset")
-                val previewRegion: @Composable () -> Unit = {
-                    PreviewRegion(
-                        zoomRequests = viewerVm.zoomRequests,
-                        controlsBottomInset = panelInset,
-                        peekOriginal = viewerUi.originalPeek,
-                        preview = preview,
-                        placeholder = openPlaceholder,
-                        before = beforePreview,
-                        busy = previewBusy,
-                        decoding = decoding,
-                        exporting = exportInFlight,
-                        lastRenderMs = lastRenderMs,
-                        renderErr = renderErr,
-                        compareMode = viewerUi.compare,
-                        showHistogram = viewerUi.histogram,
-                        showClipping = viewerUi.showClipping,
-                        gpuEnabled = gpuEnabled,
-                        gpuProxy = gpuProxy,
-                        gpuLut = gpuLut,
-                        gpuGain = gpuGain,
-                        // Single tap on the photo = show/hide the chrome. The point is
-                        // ignored: this is a toggle, not a pick. The magnifier that used to
-                        // own this gesture now has the button below, which is the affordance
-                        // the in-app guide already claimed existed.
-                        onPointPicked = { _, _ -> viewerVm.onAction(EditorViewerAction.ToggleChrome) },
-                        onOpenMagnifier = { openMagnifier(0.5f, 0.5f) },
-                        renderKey = previewTick,
-                        roiOverlay = roiOverlay,
-                        onRoiSettled = { renderRoi(it) },
-                        onRoiCleared = { clearRoi() },
-                        swipe = photoSwipe,
-                        // Only right after a control was used (scrubArmed) and while it is still on
-                        // screen: otherwise the sideways drag is the next/previous photo.
-                        scrub = photoScrub.takeIf {
-                            editOpen && scrubArmed.value && lastControlAlive.value?.value == true
-                        },
-                        strip = folderStrip,
-                    )
-                }
-                // In Edit each stacked tool carries its own reset (ToolHeader); elsewhere the
-                // panel offers one for the open tool.
-                val resetActiveCategory: (() -> Unit)? =
-                    activeCategory?.takeIf { !editOpen && it in dirty }?.let { target -> { resetCategory(target) } }
-                val editSections = stagesOf(EditorMode.EDIT)
-                val openSection: (Stage) -> Unit = { section ->
-                    activeCategory = categoriesOf(section).first(::toolShown)
-                }
-                val openCrop: () -> Unit = { toolVm.onAction(EditorToolAction.OpenCrop) }
-                if (wide) {
-                    EditorWideLayout(
-                        chromeHidden = viewerUi.chromeHidden,
-                        activeCategory = activeCategory,
-                        onActiveCategoryChange = { activeCategory = it },
-                        dirty = dirty,
-                        lastEdit = lastEdit,
-                        openCrop = openCrop,
-                        exportVisible = engine != null && sourceRenderAllowed,
-                        exportInFlight = exportInFlight,
-                        onExport = { requestExport() },
-                        onShare = { requestShare() },
-                        previewRegion = previewRegion,
-                        bookAligned = bookAligned,
-                        bookHingeGap = bookHingeGap,
-                        sidePaneWidth = sidePaneWidth,
-                        panelBackProgress = panelBackProgress,
-                        resetActiveCategory = resetActiveCategory,
-                        editOpen = editOpen,
-                        editSections = editSections,
-                        openSection = openSection,
-                        panelContent = panelContent,
-                    )
-                } else {
-                    EditorNarrowLayout(
-                        chromeHidden = viewerUi.chromeHidden,
-                        activeCategory = activeCategory,
-                        onActiveCategoryChange = { activeCategory = it },
-                        dirty = dirty,
-                        lastEdit = lastEdit,
-                        openCrop = openCrop,
-                        posture = posture,
-                        interacting = interacting,
-                        sliderReadout = sliderReadout,
-                        previewRegion = previewRegion,
-                        panelBackProgress = panelBackProgress,
-                        panelTall = panelTall,
-                        onPanelTallChange = { panelTall = it },
-                        onPanelHeightChange = { panelHeightPx = it },
-                        resetActiveCategory = resetActiveCategory,
-                        editOpen = editOpen,
-                        editSections = editSections,
-                        openSection = openSection,
-                        panelContent = panelContent,
-                    )
-                }
-            }
+            EditorBody(
+                foldingFeature = foldingFeature,
+                state = state,
+                onParamsChanged = { previewTick++ },
+                activeCategory = activeCategory,
+                onActiveCategoryChange = { activeCategory = it },
+                toolShown = ::toolShown,
+                wide = wide,
+                chromeHidden = viewerUi.chromeHidden,
+                panelBackEnabled = !magnifierOpen && !viewerUi.chromeHidden &&
+                    !toolUi.anyOverlayOpen && !exportMaskVisible,
+                sliderInteraction = sliderInteraction,
+                interacting = interacting,
+                sliderReadout = sliderReadout,
+                panelBackProgress = panelBackProgress,
+                exportVisible = engine != null && sourceRenderAllowed,
+                exportInFlight = exportInFlight,
+                onExport = { requestExport() },
+                onShare = { requestShare() },
+                onOpenCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                toolContent = toolContent,
+                previewRegion = previewRegion,
+            )
         }
 
         // --- 100% grain magnifier overlay (EditorZoom.kt) ---
