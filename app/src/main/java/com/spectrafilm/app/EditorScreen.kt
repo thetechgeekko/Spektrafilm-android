@@ -64,26 +64,6 @@ import org.json.JSONObject
 
 internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 /**
- * True once the editor has restored in this process. Distinguishes a cold start (the first
- * restore) from an Activity recreation (every later one), which is what decides whether a
- * checkpointed export sheet comes back on screen — see [exportSheetVisibleAtRestore].
- */
-private var editorRestoredInThisProcess = false
-
-/**
- * Deliberately non-composed one-shot read: the durable restore adopts an already-running
- * export only when its bound source identity is owned by the editor's exact current
- * binding (ownership, not publication — a revoked source still tracks its own run).
- * Called once from a keyless remember at EditorScreen entry.
- */
-internal fun authorizedRunningExportId(editorIdentity: ExportSourceIdentity): Long? =
-    (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
-        ?.takeIf { running ->
-            exportRunOwnedByEditor(running.sourceIdentity, editorIdentity)
-        }
-        ?.runId
-
-/**
  * The editor screen. It used to be a MainActivity extension; everything it took from the
  * Activity is now a parameter, passed by [AppRoot] (#452):
  *  - [dispatchers] and the editor's ViewModels (Activity-scoped, see MainActivity);
@@ -229,57 +209,16 @@ internal fun EditorScreen(
     var lastRenderMs by lastRenderMsState
     val renderErrState = screen.renderErrState
     var renderErr by renderErrState
-    // One-shot at-restore snapshot (remember, no keys): later runtime transitions reach the
-    // UI through its Compose observer, never through this initializer.
-    val activeExportRunAtRestore = remember { authorizedRunningExportId(exportSourceIdentity) }
-    val initialExportState = reconcileRestoredExport(
-        initialRestoredSession?.export ?: EditorExportState(
-            sheetOpen = false,
-            options = ExportOptions(
-                settings.exportFormat,
-                settings.exportQuality,
-                ExportSize.FULL,
-                2048,
-                "",
-                settings.exportBorder,
-            ),
-            keepGps = settings.exportKeepGps,
-            phase = EditorExportPhase.IDLE,
-            runtimeRunId = null,
-        ),
-        activeExportRunAtRestore,
+    // Seed the export sheet and phase machine from the checkpoint once (EditorExportRestore.kt).
+    val initialEditorStatus = rememberEditorExportRestore(
+        exportVm = exportVm,
+        settings = settings,
+        restoredExport = initialRestoredSession?.export,
+        initialSessionRestoreNotice = initialSessionRestoreNotice,
+        exportSourceIdentity = exportSourceIdentity,
     )
-    val initialEditorStatus = initialSessionRestoreNotice ?: when (initialExportState.phase) {
-        EditorExportPhase.IDLE -> stringResource(R.string.editor_status_initializing)
-        EditorExportPhase.RUNNING -> stringResource(R.string.editor_status_resuming_export)
-        EditorExportPhase.SUCCESS -> stringResource(R.string.editor_status_prev_export_saved)
-        EditorExportPhase.FAILURE -> stringResource(R.string.editor_status_prev_export_failed)
-        EditorExportPhase.CANCELLED -> stringResource(R.string.editor_status_prev_export_cancelled)
-        EditorExportPhase.RECONCILING -> stringResource(R.string.editor_status_prev_export_reconciling)
-    }
     val statusState = remember { mutableStateOf(initialEditorStatus) }
     var status by statusState
-    // Lightroom-style export sheet (per-export format / quality / size / colour / name,
-    // seeded from Settings and remembered back on export) and the export phase machine
-    // live in ExportViewModel (#272). Each editor composition seeds it once from the
-    // reconciled checkpoint, so the session document stays the only restoration authority.
-    // Process-lifetime, not remember: the FIRST editor restore in a process is a cold start,
-    // every later one is an Activity recreation (which keeps the process).
-    val coldStart = remember {
-        val first = !editorRestoredInThisProcess
-        editorRestoredInThisProcess = true
-        first
-    }
-    remember {
-        exportVm.restore(
-            initialExportState.copy(
-                sheetOpen = exportSheetVisibleAtRestore(
-                    initialExportState.sheetOpen, initialExportState.phase, coldStart,
-                ),
-            ),
-        )
-        true
-    }
     // Composition reads (UI and effect keys) use this collected copy. Effects and callbacks
     // read exportVm.current: the collected copy trails a write by one dispatch, and a
     // checkpoint taken right after an action must journal the new state.
@@ -403,30 +342,7 @@ internal fun EditorScreen(
     fun closeMagnifier() = zoom.closeMagnifier()
 
     /** Retire every source-derived resource before committing a different source identity. */
-    fun retireSourceResources() {
-        publicationGate.invalidate()
-        sourceCache.invalidate()
-        zoomSourceCache.invalidate()
-        gradeCache.clear()
-        previewDecodeFlight.invalidate()
-        zoomDecodeFlight.invalidate()
-
-        // A failed authorization/decode must not leave pixels from the prior source visible or
-        // retained. State removal drives the DisposableEffects above, whose read leases defer
-        // physical recycle only until an already-running histogram sample completes.
-        preview = null
-        beforePreview = null
-
-        gpuProxyLease?.close()
-        gpuProxyLease = null
-        gpuLut = null
-        gpuGain = 1f
-
-        zoom.retireSource()
-        // Evidence is published only after every production gate/cache/lease owner has been
-        // invalidated or retired; callers never observe a start-of-cleanup false positive.
-        editorProbe.publishSourceRetirement()
-    }
+    fun retireSourceResources() = screen.retireSourceResources(zoom)
 
     // Authorization is part of the render identity. Revocation of the same URI must retire
     // cached/native work just as aggressively as replacing the URI, and no render effect is
@@ -711,43 +627,13 @@ internal fun EditorScreen(
     // A new photo has its own history; a list from the last one must not survive the switch.
     LaunchedEffect(sourceUri) { historySheet = null }
 
-    // --- Apply previous edit (PreviousEdit.kt) ---
-    // The newest OTHER photo's saved look, looked up on the recipe worker so it is ordered after
-    // any autosave of the photo just left. Applying it is exactly Paste settings: the whole look
-    // is replaced (rotation stays this photo's), and the settle effect below makes it undoable.
-    var previousEdit by remember(recipeKey) { mutableStateOf<PreviousEdit?>(null) }
-    suspend fun lookUpPreviousEdit(): PreviousEdit? {
-        val key = recipeKey
-        return RecipeWorkRuntime.submit { runCatching { recipeRepo.previousEdit(key) }.getOrNull() }
-            .await()
-            .also { previousEdit = it }
-    }
-    LaunchedEffect(recipeKey, recipeReady) {
-        if (recipeReady) lookUpPreviousEdit()
-    }
-    fun applyPreviousEdit(edit: PreviousEdit) {
-        // Accepted right after opening, the settle effect may not have taken this photo's
-        // baseline yet (it is debounced and was cleared by the source change); capture it now
-        // so settleDecision pushes it and the applied look stays one undo away.
-        if (committedSnapshot == null) committedSnapshot = snapshotNow()
-        runCatching { Presets.decode(JSONObject(edit.paramsJson), state) }
-            .onSuccess {
-                presetVm.onAction(PresetAction.ClearAmount)
-                status = ctx.getString(R.string.editor_status_previous_applied, previousEditDisplayName(ctx, edit))
-                previewTick++
-            }
-            .onFailure { status = ctx.getString(R.string.editor_status_paste_failed, it.message) }
-    }
-    suspend fun offerPreviousEdit() {
-        val edit = lookUpPreviousEdit() ?: return
-        val result = snackbarHost.showSnackbar(
-            message = ctx.getString(R.string.editor_snack_apply_previous, previousEditDisplayName(ctx, edit)),
-            actionLabel = ctx.getString(R.string.editor_snack_apply_previous_action),
-            withDismissAction = true,
-            duration = SnackbarDuration.Long,
-        )
-        if (result == SnackbarResult.ActionPerformed) applyPreviousEdit(edit)
-    }
+    // --- Apply previous edit (EditorPreviousEditActions.kt) ---
+    val previousEditActions = rememberEditorPreviousEditActions(
+        ctx, screen, session, presetVm, statusState, recipeKey, recipeReady, recipeRepo,
+    )
+    val previousEdit = previousEditActions.previousEdit
+    fun applyPreviousEdit(edit: PreviousEdit) = previousEditActions.apply(edit)
+    suspend fun offerPreviousEdit() = previousEditActions.offer()
     val recipeEditEpoch = remember { RecipeEditEpoch() }
     LaunchedEffect(recipeKey, recipeReady) {
         runRecipeRestore(

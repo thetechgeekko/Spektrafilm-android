@@ -117,6 +117,32 @@ internal class EditorScreenState {
     val panelBackProgressState: MutableFloatState = mutableFloatStateOf(0f)
     val overlayBackProgressState: MutableFloatState = mutableFloatStateOf(0f)
 
+    /** Retire every source-derived resource before committing a different source identity. */
+    fun retireSourceResources(zoom: EditorZoomController) {
+        publicationGate.invalidate()
+        sourceCache.invalidate()
+        zoomSourceCache.invalidate()
+        gradeCache.clear()
+        previewDecodeFlight.invalidate()
+        zoomDecodeFlight.invalidate()
+
+        // A failed authorization/decode must not leave pixels from the prior source visible or
+        // retained. State removal drives EditorScreen's preview DisposableEffects, whose read
+        // leases defer physical recycle only until an already-running histogram sample completes.
+        previewState.value = null
+        beforePreviewState.value = null
+
+        gpuProxyLeaseState.value?.close()
+        gpuProxyLeaseState.value = null
+        gpuLutState.value = null
+        gpuGainState.floatValue = 1f
+
+        zoom.retireSource()
+        // Evidence is published only after every production gate/cache/lease owner has been
+        // invalidated or retired; callers never observe a start-of-cleanup false positive.
+        editorProbe.publishSourceRetirement()
+    }
+
     /** Releases the caches and the GPU proxy lease when the editor leaves composition. */
     fun release() {
         gpuProxyLeaseState.value?.close()
