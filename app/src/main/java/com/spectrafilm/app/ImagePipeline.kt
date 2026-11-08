@@ -296,12 +296,20 @@ fun bitmapToLinearProPhoto(
 
 /**
  * Lossy / JPEG-XL DNG fallback: decode [uri] via the platform image decoder
- * ([android.graphics.ImageDecoder] on API 28+, [BitmapFactory] on 24..27) and convert
+ * ([BitmapFactory] on every API level) and convert
  * to a display-referred ProPhoto-RGB [LinearImage]. Used when LibRaw throws on a
  * compressed Samsung/Pixel Expert-RAW DNG. The result is display-referred (NOT linear
  * ACES scene data), so it bypasses the spectral scene-linear assumptions — preview/
  * import quality only. Downscaled to [maxEdge]; EXIF orientation is applied by the
  * caller (loadSource) just like any other source.
+ *
+ * Why not [android.graphics.ImageDecoder]: it applies the codec's encoded origin itself
+ * (hwui ImageDecoder::getOrigin), and Skia's RAW codec hands a DNG with a JPEG preview to
+ * the JPEG codec WITH the file's EXIF orientation as that origin (SkRawCodec::MakeFromStream).
+ * The caller then applied the same orientation a second time, so a portrait DNG on API 28+
+ * came out upside down (90 + 90) or back to sideways (180 + 180). BitmapFactory never applies
+ * the origin, so the caller's single EXIF pass is the only one on every API level and for
+ * both the preview-JPEG and the full dng_sdk routes inside Skia.
  */
 
 /**
@@ -334,19 +342,9 @@ fun decodeViaPlatform(
     maxEdge: Int = MAX_EDGE_PX,
     isCancelled: () -> Boolean = { false },
 ): LinearImage {
-    val bmp: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val source = android.graphics.ImageDecoder.createSource(ctx.contentResolver, uri)
-        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            // Force a software ARGB_8888 bitmap (getPixels needs CPU-readable pixels) and
-            // honour maxEdge with an integer sample size.
-            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
-            val longest = max(info.size.width, info.size.height).coerceAtLeast(1)
-            val sample = platformSampleSize(longest, maxEdge)
-            if (sample > 1) decoder.setTargetSampleSize(sample)
-        }
-    } else {
-        decodeDownscaled(ctx, uri, maxEdge)
-    }
+    // BitmapFactory, not ImageDecoder: see the KDoc. The EXIF baseline is applied exactly once,
+    // by decodeSourceRequest.
+    val bmp: Bitmap = decodeDownscaled(ctx, uri, maxEdge)
     // Hard cap to maxEdge BEFORE the linear conversion. ImageDecoder.setTargetSampleSize
     // (and BitmapFactory inSampleSize) are only hints and are IGNORED for some DNG/RAW
     // decoders, which then hand back a full-resolution bitmap. bitmapToLinearProPhoto would
