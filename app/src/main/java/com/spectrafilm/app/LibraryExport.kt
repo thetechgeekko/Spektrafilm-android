@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.SpektraEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,22 +94,43 @@ internal fun startLibraryExport(
     val started = System.currentTimeMillis()
     Diag.i("library export start: ${sources.size} photos format=${options.format.name}")
     ExportWorkRuntime.launch(app, options.format, started) {
-        val engine = withContext(io) { EngineHolder.get(app) }
-        val profiles = withContext(io) { runCatching { engine.listProfiles() }.getOrDefault(emptyList()) }
+        // Published from inside the run, so a run that ends before rendering (cancelled or
+        // failed while the engine loads) can never be overwritten by this first progress.
+        BatchExportTracker.publish(BatchExportProgress(sources.size, 0, 0, sources.first().name, finished = false))
+        val engine: SpektraEngine
+        val profiles: List<String>
+        try {
+            engine = withContext(io) { EngineHolder.get(app) }
+            profiles = withContext(io) { runCatching { engine.listProfiles() }.getOrDefault(emptyList()) }
+        } catch (failure: Throwable) {
+            // runBatchExport finishes the progress itself; before it starts, this does.
+            val cancelled = failure is CancellationException
+            BatchExportTracker.publish(
+                BatchExportProgress(sources.size, 0, if (cancelled) 0 else sources.size, null, finished = true, cancelled = cancelled),
+            )
+            if (cancelled) throw failure
+            Diag.w("library export: engine unavailable: ${failure.javaClass.simpleName}")
+            return@launch ExportTerminalOutcome.Failure(
+                format = options.format,
+                renderId = 0L,
+                elapsedMs = System.currentTimeMillis() - started,
+                cause = failure,
+            )
+        }
         val edits = BatchEditSource.OwnEdits { source ->
-            // Read now, not at submit: an edit saved while earlier photos render is the one
-            // exported. A corrupt recipe is quarantined and reported as the editor's restore
+            // Read now, not at submit, and through the recipe FIFO: an editor save still queued
+            // (leaving the editor queues it without waiting) lands first, so the photo exports
+            // with its latest edit. A corrupt recipe is quarantined as the editor's restore
             // does, and the photo then exports as a first open would show it.
-            val recipe = withContext(io) {
-                Recipes.keyFor(source.uri)?.let { key ->
+            val recipe = Recipes.keyFor(source.uri)?.let { key ->
+                RecipeWorkRuntime.submit {
                     (runCatching { recipes.readResult(key) }.getOrNull() as? RecipeReadResult.Loaded)?.document
-                }
+                }.await()
             }
             ownEditFor(recipe, profiles, settings::applyDefaultsTo)
         }
         runBatchExport(app, engine, sources, edits, options, keepGps, started)
     } ?: return LibraryExportStart.BUSY
-    BatchExportTracker.publish(BatchExportProgress(sources.size, 0, 0, sources.first().name, finished = false))
     return LibraryExportStart.STARTED
 }
 
