@@ -67,9 +67,6 @@ import org.json.JSONObject
 import androidx.compose.animation.core.animateDpAsState
 
 internal const val OPEN_PLACEHOLDER_FADE_MS = 220
-private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
-/** Wait before finding skin again after its preview decode was superseded by a decode edit. */
-private const val SKIN_RETRY_MS = 250L
 /**
  * True once the editor has restored in this process. Distinguishes a cold start (the first
  * restore) from an Activity recreation (every later one), which is what decides whether a
@@ -216,8 +213,10 @@ internal fun EditorScreen(
     // callbacks. Every change goes through a session transition (showSource / showDemo /
     // requireSourceAuthorization), so uri, kind, name and authorization move together.
     val sourceState = session.source
-    val sourceUri by remember { derivedStateOf { sourceState.value.uri?.let(Uri::parse) } }
-    val sourceKind by remember { derivedStateOf { sourceState.value.kind } }
+    val sourceUriState = remember { derivedStateOf { sourceState.value.uri?.let(Uri::parse) } }
+    val sourceUri by sourceUriState
+    val sourceKindState = remember { derivedStateOf { sourceState.value.kind } }
+    val sourceKind by sourceKindState
     val sourceName by remember { derivedStateOf { sourceState.value.displayName } }
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
@@ -339,103 +338,14 @@ internal fun EditorScreen(
     var previewTick by previewTickState
     val publicationGate = remember { RenderPublicationGate() }
     val previewRevision = remember(previewTick) { publicationGate.nextRevision() }
-    // Slider drag tracking (Lightroom's ICBSliderTrackingBegin/End): true while a slider is
-    // being dragged, so the live DRAFT pass runs only during a drag and a discrete edit
-    // (switch/dropdown) goes straight to the crisp settle render — no draft flicker, and the
-    // continuous-draft cost is bounded to actual drags. Remembered so its identity is stable
-    // across recompositions; provided to sliders via LocalSliderInteraction below.
-    val interacting = remember { mutableStateOf(false) }
-    // What the moving slider currently reads. Held as State and handed to the readout by
-    // REFERENCE, never by value: a drag writes this every frame, and reading `.value` here
-    // in EditorScreen would recompose this entire 6600-line composable at 60 Hz while the
-    // engine is already running a draft render on the same cores.
-    val sliderReadout = remember { mutableStateOf<SliderReadout?>(null) }
-    // The last control a drag reported, which a sideways drag on the photo keeps adjusting
-    // (PhotoScrub). A plain holder, not State, for the same reason as sliderReadout: every
-    // drag frame writes it. What is observed is the control's own liveness State, which only
-    // changes hands when another control is dragged.
-    val lastControl = remember { arrayOfNulls<SliderReadout>(1) }
-    val lastControlAlive = remember { mutableStateOf<State<Boolean>?>(null) }
-    // The photo drag is ARMED only for a moment after a control was used (PHOTO_SCRUB_ARM_MS
-    // after the finger last lifted from it, or from a photo drag). Unarmed, a sideways drag on
-    // the photo is the swipe to the next photo again. Without this, once any control had been
-    // touched every later swipe meant for the next photo changed that control instead: a
-    // half-screen flick swung Exposure from 0 to -7.5 EV on the phone. [scrubArmToken] restarts
-    // the clock; it changes on release only, never per drag frame.
-    val scrubArmed = remember { mutableStateOf(false) }
-    val scrubArmToken = remember { mutableLongStateOf(0L) }
-    LaunchedEffect(scrubArmToken.longValue) {
-        if (scrubArmToken.longValue == 0L) return@LaunchedEffect
-        delay(PHOTO_SCRUB_ARM_MS)
-        // Never disarm under a finger: that would drop the photo drag mid-gesture.
-        while (interacting.value) delay(100)
-        scrubArmed.value = false
-    }
-    val sliderInteraction = remember {
-        SliderInteraction(
-            onChange = { readout ->
-                interacting.value = true
-                sliderReadout.value = readout
-                val edit = readout?.edit
-                if (edit?.move != null && edit.alive != null) {
-                    lastControl[0] = readout
-                    if (lastControlAlive.value !== edit.alive) lastControlAlive.value = edit.alive
-                    scrubArmed.value = true
-                }
-            },
-            onFinished = {
-                interacting.value = false
-                scrubArmToken.longValue += 1
-            },
-            // A second finger on the slider row peeks at clipping (the canvas button
-            // latches the same overlay without a gesture).
-            onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
-        )
-    }
-    // Sideways drag on the photo adjusts the last control: the HUD shows it as on the control
-    // itself, and the release settles one history step.
-    val photoScrub = remember {
-        var target: SliderReadout? = null
-        var startValue = 0f
-        var lastValue: Float? = null
-        PhotoScrub(
-            start = {
-                val r = lastControl[0]
-                val v = r?.edit?.live?.invoke()
-                if (r == null || v == null) {
-                    false
-                } else {
-                    target = r
-                    startValue = v
-                    lastValue = null
-                    true
-                }
-            },
-            drag = { dx, widthPx ->
-                val r = target
-                val e = r?.edit
-                if (r != null && e != null) {
-                    val v = scrubValue(startValue, dx, widthPx, e.range, e.step)
-                    if (v != lastValue) {
-                        lastValue = v
-                        e.move?.invoke(v)
-                    }
-                    interacting.value = true
-                    // The same edit, re-based on the scrubbed value, so the lingering HUD can
-                    // still be tapped to type an exact value (Codex on #545).
-                    sliderReadout.value = SliderReadout(r.label, formatValue(v, e.decimals), e.rebased(v))
-                }
-            },
-            end = {
-                val e = target?.edit
-                val v = lastValue
-                if (e != null && v != null) e.set(v)
-                target = null
-                interacting.value = false
-                scrubArmToken.longValue += 1
-            },
-        )
-    }
+    // Slider drag tracking, the HUD readout and the sideways photo scrub (EditorSliderTracking.kt).
+    val sliderTracking = rememberEditorSliderTracking(viewerVm)
+    val interacting = sliderTracking.interacting
+    val sliderReadout = sliderTracking.sliderReadout
+    val lastControlAlive = sliderTracking.lastControlAlive
+    val scrubArmed = sliderTracking.scrubArmed
+    val sliderInteraction = sliderTracking.sliderInteraction
+    val photoScrub = sliderTracking.photoScrub
 
     // source rotation (applied to the decoded LinearImage -> preview AND export).
     // This is the user's MANUAL step only; the EXIF baseline is derived fresh per load
@@ -443,139 +353,27 @@ internal fun EditorScreen(
     val rotationState = session.rotation
     var rotation by rotationState
 
-    // #286: a display-only stand-in (the file's embedded thumbnail, else the provider's) shown
-    // from the moment a source is picked or restored until the first engine render lands.
-    // It never feeds the engine, an export or a cache. Keyed on the source identity only:
-    // a later rotate does not reload it, because by then the render is on screen.
-    var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
-    // The plain thumbnail the stand-in came from, kept so its film look can still be
-    // rendered when the engine finishes loading after the thumbnail arrived (cold start).
-    var placeholderSource by remember { mutableStateOf<Bitmap?>(null) }
-    // The neighbour a swipe slid in, already in the film look: it stands in for the opened
-    // photo until that photo's own graded thumbnail is ready, so the hand-off never steps
-    // back to the plain thumbnail (film look -> plain -> film look).
-    var swipeHandoff by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
-    LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
-        val handoff = swipeHandoff?.takeIf { it.first == sourceUri?.toString() }?.second
-        swipeHandoff = null
-        openPlaceholder = handoff?.takeIf { !it.isRecycled && preview == null }
-        val seeded = openPlaceholder != null
-        placeholderSource = null
-        val uri = sourceUri ?: return@LaunchedEffect
-        if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
-        OpenPlaceholder.load(
-            ctx.applicationContext,
-            uri,
-            rotation,
-            dispatchers.io,
-            rawSource = sourceKind == SourceKind.RAW,
-        ) { bmp ->
-            // A render that already landed wins; a late thumbnail never covers it.
-            if (preview == null) {
-                // A graded swipe hand-off stays up; the look effect below replaces it.
-                if (!seeded) openPlaceholder = bmp
-                placeholderSource = bmp
-            }
-        }
-    }
-    // Give the stand-in the photo's film look (PlaceholderLook), so the real render changes
-    // only detail when it lands. Re-runs for a better thumbnail, when the engine becomes
-    // ready (a thumbnail that beat the engine still gets its look) and on every settings
-    // change (a recipe restore that lands after the thumbnail re-grades it).
-    LaunchedEffect(placeholderSource, engine, previewTick) {
-        val src = placeholderSource ?: return@LaunchedEffect
-        val e = engine ?: return@LaunchedEffect
-        if (preview != null) return@LaunchedEffect
-        val look = PlaceholderLook.render(
-            ctx.applicationContext, e, src, state, dispatchers.default,
-        ) ?: return@LaunchedEffect
-        // Dropped if this effect was restarted meanwhile, or the real render won.
-        val cancelled = !isActive
-        val published = !cancelled && preview == null
-        if (published) openPlaceholder = look.bitmap
-        PlaceholderLook.report(look, published = published, cancelled = cancelled)
-    }
-    // Sideways swipe on the photo to the next / previous frame of the Library folder it was
-    // opened from (PhotoBrowse). The neighbours' grid thumbnails ride in with the swipe;
-    // opening one is the Library's own dispatch, so edits are kept exactly as they are when
-    // stepping back to the grid and picking it.
-    val currentUriString = sourceUri?.toString()
-    val nextFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, 1) }
-    val previousFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, -1) }
-    // Each neighbour is graded with the settings it will open with (its own recipe, else the
-    // defaults), read through the recipe queue so a just-flushed save of it is seen.
-    val neighbourOpeningState: suspend (String) -> ParamsState = { uri ->
-        val recipes = ctx.appContainer.recipes
-        // peek, not readResult: a speculative read must not quarantine a corrupt recipe and
-        // so hide its warning from the real restore when the photo is opened.
-        val recipe = Recipes.keyFor(Uri.parse(uri))?.let { key ->
-            RecipeWorkRuntime.submit { recipes.peek(key) }.await()
-        }
-        openingStateFor(recipe) { Recipes.resetToDefaults(it, settings, profiles) }
-    }
-    val nextThumb = rememberNeighbourBitmap(
-        nextFrame, ctx.applicationContext, engine, neighbourOpeningState,
-        busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
+    // Open placeholder, swipe to the neighbouring photo and the folder strip (EditorPhotoBrowse.kt).
+    val photoBrowse = rememberEditorPhotoBrowse(
+        ctx = ctx,
+        dispatchers = dispatchers,
+        settings = settings,
+        profiles = profiles,
+        engine = engine,
+        state = state,
+        sourceUri = sourceUri,
+        sourceKind = sourceKind,
+        sourceAuthorizationRequired = sourceAuthorizationRequired,
+        rotationState = rotationState,
+        previewState = previewState,
+        previewBusyState = previewBusyState,
+        interacting = interacting,
+        previewTick = previewTick,
+        incomingImageIntent = incomingImageIntent,
     )
-    val previousThumb = rememberNeighbourBitmap(
-        previousFrame, ctx.applicationContext, engine, neighbourOpeningState,
-        busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
-    )
-    val photoSwipe = if (nextFrame == null && previousFrame == null) {
-        null
-    } else {
-        PhotoSwipeNeighbours(
-            sourceKey = currentUriString,
-            next = nextThumb,
-            previous = previousThumb,
-            hasNext = nextFrame != null,
-            hasPrevious = previousFrame != null,
-            onCommit = { step ->
-                val target = if (step > 0) nextFrame else previousFrame
-                if (target != null) {
-                    val carried = if (step > 0) nextThumb else previousThumb
-                    swipeHandoff = carried?.let { target.uri to it }
-                    incomingImageIntent.value = Intent(Intent.ACTION_VIEW, Uri.parse(target.uri))
-                }
-            },
-        )
-    }
-    // The folder strip (FolderStrip): the same Library folder, each frame drawn in this
-    // photo's current look, opened from the frame counter on the canvas.
-    val stripFrames = remember(currentUriString) { PhotoBrowse.frames }
-    val stripIndex = remember(currentUriString, stripFrames) {
-        stripFrames.indexOfFirst { it.uri == currentUriString }
-    }
-    val stripLooks = remember(engine) {
-        engine?.let { FolderStripLooks(ctx.applicationContext, it, state, dispatchers.default) }
-    }
-    val folderStrip = if (stripIndex < 0 || stripFrames.size < 2) {
-        null
-    } else {
-        FolderStripModel(
-            frames = stripFrames,
-            currentIndex = stripIndex,
-            looks = stripLooks,
-            lookKey = previewTick,
-            paused = previewBusy || interacting.value,
-            io = dispatchers.io,
-            onOpen = { index ->
-                stripFrames.getOrNull(index)?.let { target ->
-                    incomingImageIntent.value = Intent(Intent.ACTION_VIEW, Uri.parse(target.uri))
-                }
-            },
-        )
-    }
-    // Keep the stand-in under the fading-in render briefly, then drop it.
-    LaunchedEffect(preview != null) {
-        if (preview != null && openPlaceholder != null) {
-            delay(OPEN_PLACEHOLDER_HOLD_MS)
-            if (preview != null) {
-                openPlaceholder = null
-                placeholderSource = null
-            }
-        }
-    }
+    val openPlaceholder = photoBrowse.openPlaceholder
+    val photoSwipe = photoBrowse.photoSwipe
+    val folderStrip = photoBrowse.folderStrip
 
     // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
     // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
@@ -622,60 +420,29 @@ internal fun EditorScreen(
     remember { toolVm.restore(restoredOverlay, restoredTool?.maskIndex ?: 0); true }
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
-    // 100% grain magnifier
-    val magnifierOpenState = remember { mutableStateOf(false) }
-    var magnifierOpen by magnifierOpenState
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
     // that would remeasure it every frame, which is the churn documented on PanelOverlay.
     // A one-shot layout change is a different thing and is what this is.
-    val magnifierBitmapState = remember { mutableStateOf<Bitmap?>(null) }
-    var magnifierBitmap by magnifierBitmapState
-    val magnifierRenderingState = remember { mutableStateOf(false) }
-    var magnifierRendering by magnifierRenderingState
-    val magnifierStatusState = remember { mutableStateOf("") }
-    var magnifierStatus by magnifierStatusState
-    // Tracks the in-flight magnifier render so a rapid re-tap can cancel the previous
-    // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
-    // Held in a remember box (not Compose state — we never read it during composition).
-    val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // Zoom step 4: background decode of the zoom source after an idle settle (ZoomPrewarm).
-    val zoomPrewarmJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val zoomPrewarmEligible = remember { ZoomPrewarm.eligible(ctx) }
-    fun closeMagnifier() {
-        // Cancel any in-flight crop render so it doesn't resurrect the overlay
-        // state or leak its bitmap (a cancelled job recycles its own result).
-        magnifierJobRef.value?.cancel()
-        magnifierRendering = false
-        magnifierOpen = false
-        magnifierBitmap = null
-    }
-    val magnifierPublicationGate = remember { RoiRenderPublicationGate() }
-
-    // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
-    // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
-    val roiOverlayState = remember { mutableStateOf<RoiOverlay?>(null) }
-    var roiOverlay by roiOverlayState
-    val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val roiPatchTracker = remember { RoiPatchTracker() }
-    // Zoom step 3: recent finished patch renders for the current edit (RoiPatchCache).
-    // 64 MiB like rawr's tile LRU on roomy devices, 16 MiB elsewhere.
-    val roiPatchCache = remember {
-        RoiPatchCache<RoiOverlay>(
-            maxBytes = if (ZoomPrewarm.eligible(ctx)) 64L shl 20 else 16L shl 20,
-            sizeOf = { it.bitmap.allocationByteCount.toLong() },
-            // Through the lease registry: a patch the Canvas still draws this frame is
-            // recycled only once its draw lease closes.
-            recycle = { retirePreviewBitmap(it.bitmap) },
-            isShown = { it === roiOverlay },
-        )
-    }
-    val roiPublicationGate = remember { RoiRenderPublicationGate() }
-    val latestRoiRenderKeyState = rememberUpdatedState(previewTick)
-    val latestRoiRenderKey by latestRoiRenderKeyState
-    val latestMagnifierRenderKeyState = rememberUpdatedState(previewTick)
-    val latestMagnifierRenderKey by latestMagnifierRenderKeyState
+    // 100% grain magnifier + Lightroom-style ROI zoom patch (EditorZoom.kt).
+    val zoom = rememberEditorZoom(
+        ctx = ctx,
+        scope = scope,
+        dispatchers = dispatchers,
+        state = state,
+        engineState = engineState,
+        previewTickState = previewTickState,
+        sourceRenderAllowed = sourceRenderAllowed,
+        patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
+    )
+    val magnifierOpen by zoom.magnifierOpenState
+    val magnifierBitmap by zoom.magnifierBitmapState
+    val magnifierRendering by zoom.magnifierRenderingState
+    val magnifierStatus by zoom.magnifierStatusState
+    val roiOverlay by zoom.roiOverlayState
+    val zoomPrewarmEligible = zoom.zoomPrewarmEligible
+    fun closeMagnifier() = zoom.closeMagnifier()
 
     /** Retire every source-derived resource before committing a different source identity. */
     fun retireSourceResources() {
@@ -697,15 +464,7 @@ internal fun EditorScreen(
         gpuLut = null
         gpuGain = 1f
 
-        zoomPrewarmJobRef.value?.cancel()
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        roiPatchCache.clear()
-        roiOverlay = null
-        magnifierPublicationGate.invalidate()
-        magnifierJobRef.value?.cancel()
-        magnifierBitmap = null
-        magnifierRendering = false
+        zoom.retireSource()
         // Evidence is published only after every production gate/cache/lease owner has been
         // invalidated or retired; callers never observe a start-of-cleanup false positive.
         editorProbe.publishSourceRetirement()
@@ -720,46 +479,7 @@ internal fun EditorScreen(
 
     // Invalidate an old edit generation before its next main-thread publication, cancel its
     // remaining native work, and retire its overlay while the replacement preview is pending.
-    LaunchedEffect(previewTick) {
-        // An edit is under way: don't let the idle zoom-source decode compete with it.
-        zoomPrewarmJobRef.value?.cancel()
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        // Before roiOverlay is cleared, so the shown patch is skipped here and retired by
-        // DisposableEffect(roiOverlay) once it has left the screen.
-        roiPatchCache.retain(previewTick)
-        roiOverlay = null
-        magnifierPublicationGate.invalidate()
-        magnifierJobRef.value?.cancel()
-        if (magnifierOpen) {
-            magnifierBitmap = null
-            magnifierRendering = false
-            magnifierStatus = ctx.getString(R.string.editor_magnifier_edit_changed)
-        }
-    }
-    // Cancel any in-flight ROI / magnifier render job when the editor leaves composition
-    // (navigation), so a superseded job doesn't keep rendering into a gone Composable.
-    DisposableEffect(Unit) {
-        onDispose {
-            magnifierJobRef.value?.cancel()
-            roiJobRef.value?.cancel()
-            zoomPrewarmJobRef.value?.cancel()
-            // The editor is leaving: retire every cached patch, the one on screen included
-            // (its own disposal may have skipped it as still cached). Lease-safe and
-            // idempotent, so a patch retired twice or still mid-draw is fine.
-            roiPatchCache.clear(includeShown = true)
-        }
-    }
-    // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
-    DisposableEffect(roiOverlay) {
-        val current = roiOverlay
-        onDispose {
-            // A patch still held by roiPatchCache is the cache's to recycle.
-            if (current != null && !roiPatchCache.holds(current)) {
-                retirePreviewBitmap(current.bitmap)
-            }
-        }
-    }
+    LaunchedEffect(previewTick) { zoom.onEdit(previewTick) }
 
     // presets
     val restoredPreset = initialRestoredSession?.preset
@@ -1669,395 +1389,91 @@ internal fun EditorScreen(
         )
     }
 
-    // Zoom step 4: once the fit preview has settled and the editor stays idle, decode the
-    // zoom source into zoomSourceCache so the first pinch starts from a cache hit (see
-    // ZoomPrewarm). Cancelled by the next edit; a zoom during the decode joins its flight.
-    fun scheduleZoomPrewarm() {
-        if (!sourceRenderAllowed) return
-        zoomPrewarmJobRef.value?.cancel()
-        zoomPrewarmJobRef.value = scope.launch {
-            delay(ZoomPrewarm.IDLE_DELAY_MS)
-            val start = System.nanoTime()
-            runCatching { loadSourceCachedForZoom(MAX_EDGE_PX).close() }
-                .onSuccess {
-                    Diag.i("zoom prewarm ready ms=${(System.nanoTime() - start) / 1_000_000L}")
-                }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    Diag.w("zoom prewarm failed: ${t.message}")
-                }
-        }
-    }
+    zoom.loadSourceCachedForZoom = ::loadSourceCachedForZoom
+    fun scheduleZoomPrewarm() = zoom.scheduleZoomPrewarm()
+    fun openMagnifier(nx: Float, ny: Float) = zoom.openMagnifier(nx, ny)
+    fun renderRoi(roi: RoiRect) = zoom.renderRoi(roi)
+    fun clearRoi() = zoom.clearRoi()
 
-    // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
-    //
-    // PERF/RACE: each tap previously launched an independent coroutine with no
-    // cancellation, so rapid taps ran several full-res simulate()s in parallel and
-    // raced their results into magnifierBitmap (last-write-wins, wasteful, and an
-    // orphaned bitmap per superseded run). We now cancel the prior in-flight render
-    // before starting a new one (last-tap-wins), and the result is only published if
-    // the coroutine is still active — a cancelled run recycles its own bitmap instead
-    // of writing it, so a superseded render can never leak or land on screen.
-    fun openMagnifier(nx: Float, ny: Float) {
-        startMagnifierRender(
-            dispatchers = dispatchers,
-            nx = nx,
-            ny = ny,
-            ctx = ctx,
-            scope = scope,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            magnifierJobRef = magnifierJobRef,
-            magnifierPublicationGate = magnifierPublicationGate,
-            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
-            engineState = engineState,
-            previewTickState = previewTickState,
-            magnifierBitmapState = magnifierBitmapState,
-            magnifierOpenState = magnifierOpenState,
-            magnifierRenderingState = magnifierRenderingState,
-            magnifierStatusState = magnifierStatusState,
-            latestMagnifierRenderKeyState = latestMagnifierRenderKeyState,
-        )
-    }
-
-    // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
-    // source) at ~screen resolution via the FAST preview path, then overlay it sharply on the
-    // graphicsLayer-scaled proxy. Modeled on openMagnifier's last-wins cancellation. Memory is
-    // bounded by ROI_RENDER_MAX_PX (a few MB), independent of source megapixels — this is the
-    // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
-    // while cropping or comparing (those branches own the gestures / have no zoom).
-    fun renderRoi(roi: RoiRect) {
-        startRoiPatchRender(
-            dispatchers = dispatchers,
-            patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
-            roi = roi,
-            scope = scope,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            roiJobRef = roiJobRef,
-            roiPatchCache = roiPatchCache,
-            roiPatchTracker = roiPatchTracker,
-            roiPublicationGate = roiPublicationGate,
-            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
-            engineState = engineState,
-            previewTickState = previewTickState,
-            roiOverlayState = roiOverlayState,
-            latestRoiRenderKeyState = latestRoiRenderKeyState,
-        )
-    }
-
-    fun clearRoi() {
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
-    }
-
-    // Everything that feeds the NATIVE render for a fit preview at [fullEdge]:
-    // the engine-param snapshot + the decode key. Reads Compose state — call on
-    // the main thread. Grade inputs are deliberately absent (see GradeCache).
-    fun gradeCacheKey(fullEdge: Int): GradeCache.Key {
-        val filmBalance =
-            if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
-        return GradeCache.Key(
-            engineParams = state.toParams(skipGrainHalation = true),
-            decode = GradeCache.DecodeKey(
-                uri = sourceUri?.toString(), kind = sourceKind.name,
-                whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
-                tint = state.rawTint, creativeTemp = state.creativeWbTemp,
-                creativeTint = state.creativeWbTint, filmBalance = filmBalance,
-                rotationDegrees = rotation.degrees, maxEdge = fullEdge,
-                hotPixels = state.rawHotPixels, chromaNoise = state.rawChromaNoise,
-                straightenDegrees = state.straightenDegrees,
-            ),
-        )
-    }
-
-    // Live DRAFT pass — the Lightroom-style render-system "port": on EVERY edit (a slider drag,
-    // a preset/dropdown/toggle, a rotation), paint a small fast proxy so the image tracks the
-    // change in ~hundreds of ms instead of sitting on the stale frame until the full settle
-    // render lands ~1s later. A new revision cancels the prior coroutine; native cancellation
-    // cooperates where supported, and the publication ticket rejects any late return.
-    // Cheap by construction: it renders ONLY when the full-edge proxy is already decoded (a
-    // cache peek — never decodes here, so it cannot race the settle pass's first decode) and
-    // just asks the engine for a smaller DRAFT_RENDER_MAX_PX pass. Quiet: it touches only
-    // `preview`, never status/previewBusy; the crisp full pass still lands on settle below.
-    // `engine` is a KEY, not just a guard. It is assigned asynchronously once the native
-    // engine finishes loading, which can land AFTER this effect first composes — and the
-    // `engine ?: return` below then retires the effect for good, because nothing re-runs it
-    // until previewTick or sourceRenderAllowed changes. Today the recipe restore's
-    // previewTick++ rescues that by accident; the key makes it deliberate.
-    // Honest scope: this was written while chasing a cold-start hang and did NOT fix it.
-    // It closes a real race that is simply not the one observed there.
-    LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
-        runDraftPreviewPass(
-            dispatchers,
-            draftSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
-            ctx = ctx,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            previewRevision = previewRevision,
-            publicationGate = publicationGate,
-            gradeCache = gradeCache,
-            interacting = interacting,
-            settings = settings,
-            sourceCache = sourceCache,
-            gradeCacheKey = ::gradeCacheKey,
-            cachedSourceDecodeRequest = ::cachedSourceDecodeRequest,
-            engineState = engineState,
-            previewState = previewState,
-        )
-    }
-
-    // AI skin masks (SkinFields.kt): bind renders to this photo's skin, and find it once a skin
-    // mask exists. Activation runs in composition so no render of a new photo sees the old field.
-    val skinKey = SkinSourceKey(sourceUri?.toString(), sourceKind.name, rotation.degrees, state.straightenDegrees)
-    remember(skinKey) { SkinFields.activate(skinKey) }
-    val needsSkin = state.localAdjustments.any { it.mask.hasSemantic }
-    LaunchedEffect(skinKey, needsSkin, sourceRenderAllowed, SkinFields.retryToken) {
-        if (!needsSkin || !sourceRenderAllowed) return@LaunchedEffect
-        // A decode edit (WB, creative temp, ...) supersedes the preview decode this borrows and
-        // cancels the load without cancelling us: try again, still for the same photo.
-        while (true) {
-            val fresh = try {
-                SkinFields.ensure(ctx, skinKey, dispatchers) {
-                    loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256)).use { lease ->
-                        withContext(dispatchers.default) {
-                            Triple(linearToDisplayArgb(lease.image), lease.image.width, lease.image.height)
-                        }
-                    }
-                }
-            } catch (c: CancellationException) {
-                if (!isActive) throw c
-                delay(SKIN_RETRY_MS)
-                continue
-            }
-            if (fresh) previewTick++
-            break
-        }
-    }
-
-    // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
-    // change, after a debounce so it lands once the user pauses. The live DRAFT effect above
-    // keeps the image moving during the edit (Lightroom's loupe), so this pass goes straight
-    // to the full-resolution result instead of a separate coarse pass.
-    // Keyed on engine for the same reason as the draft effect above: without it a cold
-    // start that composes before the native engine is ready never renders at all.
-    LaunchedEffect(previewTick, sourceRenderAllowed, engine) {
-        runFinalPreviewPass(
-            dispatchers,
-            ctx = ctx,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            previewRevision = previewRevision,
-            publicationGate = publicationGate,
-            gradeCache = gradeCache,
-            zoomPrewarmEligible = zoomPrewarmEligible,
-            gradeCacheKey = ::gradeCacheKey,
-            loadSourceCachedForPreview = ::loadSourceCachedForPreview,
-            retireSourceResources = ::retireSourceResources,
-            scheduleZoomPrewarm = ::scheduleZoomPrewarm,
-            engineState = engineState,
-            previewState = previewState,
-            beforePreviewState = beforePreviewState,
-            decodingState = decodingState,
-            lastRenderMsState = lastRenderMsState,
-            previewBusyState = previewBusyState,
-            renderErrState = renderErrState,
-            statusState = statusState,
-            sourceState = sourceState,
-            requireSourceAuthorization = session::requireSourceAuthorization,
-        )
-    }
-
-    // GPU LUT preview feed (experimental, default OFF): after the CPU preview settles,
-    // bake a 33³ .cube of the current look and keep it + the linear proxy for the GPU
-    // path. The proxy decode is a cache hit (the main effect already loaded it), so this
-    // adds only the LUT bake. Cancelled/replaced cleanly when previewTick advances.
-    LaunchedEffect(previewTick, gpuEnabled, sourceRenderAllowed) {
-        runGpuPreviewFeed(
-            dispatchers,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            gpuEnabled = gpuEnabled,
-            loadSourceCachedForPreview = ::loadSourceCachedForPreview,
-            engineState = engineState,
-            gpuGainState = gpuGainState,
-            gpuLutState = gpuLutState,
-            gpuProxyLeaseState = gpuProxyLeaseState,
-        )
-    }
-
-    // re-trigger preview on any change to the params snapshot / source / rotation.
-    //
-    // PERF: wrap toParams() in derivedStateOf so the full SpektraParams tree (+ nested
-    // Grain/Halation/DirCouplers/Glare/Diffusion) is allocated ONLY when a param state
-    // actually changes — not on every recomposition of EditorScreen. derivedStateOf reads
-    // exactly the same param states toParams() does, so it invalidates (and re-allocates)
-    // iff one of those states changes, and otherwise returns the cached instance. The
-    // resulting SpektraParams is structurally compared by LaunchedEffect's key machinery
-    // (it is a data class), so a relaunch fires for every field that can alter the render —
-    // identical trigger behaviour to the old per-frame snapshot, with no per-frame alloc.
+    // Every preview render effect: draft, skin, settle, GPU feed, the render trigger and the
+    // idle full-resolution pre-render (EditorPreviewEffects.kt). Same order as before.
     val snapshot by remember { derivedStateOf { state.toParams() } }
-    // NOTE the three grade fields at the end. They are POST-ENGINE (not part of
-    // `snapshot`, i.e. state.toParams()), and they were absent from every effect
-    // key in this file — so moving Saturation, Vibrance or Gamut compression
-    // changed the slider and nothing else: previewTick never bumped, the draft
-    // collector below never emitted, and the image sat unchanged until some
-    // unrelated engine parameter was touched. Three shipped controls that looked
-    // dead.
-    //
-    // Adding them here does NOT cost a native render. gradeCacheKey() is built
-    // from the ENGINE params + decode key + edge, so a grade-only edit hits the
-    // retained pristine result and both the draft and settle paths take their
-    // zero-native-work re-grade branch. That machinery was already correct; it
-    // was simply never reached.
-    //
-    // This is the drift the audit's immutable EditorRenderRequest (PERF-01) is
-    // meant to make impossible: three hand-maintained key lists that must agree
-    // with each other and with toParams(), and did not. Until that lands, if you
-    // add a post-engine control you must add it to ALL THREE effects below.
-    LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
-        state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
-        state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
-        state.localAdjustments,
-        state.saturation, state.vibrance, state.gamutCompress) { previewTick++ }
+    EditorPreviewEffects(
+        ctx = ctx,
+        dispatchers = dispatchers,
+        state = state,
+        settings = settings,
+        toolVm = toolVm,
+        viewerVm = viewerVm,
+        exportVm = exportVm,
+        engineState = engineState,
+        sourceState = sourceState,
+        sourceUriState = sourceUriState,
+        sourceKindState = sourceKindState,
+        sourceRenderAllowed = sourceRenderAllowed,
+        rotationState = rotationState,
+        previewTickState = previewTickState,
+        previewRevision = previewRevision,
+        publicationGate = publicationGate,
+        gradeCache = gradeCache,
+        sourceCache = sourceCache,
+        interacting = interacting,
+        previewState = previewState,
+        beforePreviewState = beforePreviewState,
+        decodingState = decodingState,
+        lastRenderMsState = lastRenderMsState,
+        previewBusyState = previewBusyState,
+        renderErrState = renderErrState,
+        statusState = statusState,
+        gpuEnabled = gpuEnabled,
+        gpuGainState = gpuGainState,
+        gpuLutState = gpuLutState,
+        gpuProxyLeaseState = gpuProxyLeaseState,
+        zoomPrewarmEligible = zoomPrewarmEligible,
+        snapshot = snapshot,
+        exportOptions = exportOptions,
+        exportInFlight = exportInFlight,
+        exportRuntimeStateState = exportRuntimeStateState,
+        retireSourceResources = ::retireSourceResources,
+        scheduleZoomPrewarm = ::scheduleZoomPrewarm,
+        requireSourceAuthorization = session::requireSourceAuthorization,
+        currentSourceDecodeRequest = ::currentSourceDecodeRequest,
+        cachedSourceDecodeRequest = ::cachedSourceDecodeRequest,
+        loadSourceCachedForPreview = ::loadSourceCachedForPreview,
+    )
 
-    // --- #179: idle full-resolution pre-render ---
-    // Decode plus the engine are ~86% of a first export (BASE: 0.98 s decode + 5.02 s engine
-    // inside a 6.05 s JPEG export), and the editor is idle while the user looks at the
-    // preview. So do that work then, keep the engine's float output, and let the export run
-    // the real encoder on it — the published bytes come from the same encoder either way, so
-    // a pre-render can never make the exported file differ.
-    //
-    // Keyed on previewTick, which the effect above bumps for EVERY render-affecting edit:
-    // that avoids adding a fourth hand-maintained key list to the three this file already
-    // warns about, and Compose's own cancellation is the latest-wins rule for free.
-    val prerenderDigestState = remember(sourceUri) { mutableStateOf<Pair<String, Long>?>(null) }
-    var prerenderDigest by prerenderDigestState
-    // Stood down after a speculative render ran the source out of memory. Keyed on
-    // sourceUri like the digest, so a different photo gets a fresh chance.
-    val prerenderOutOfMemoryState = remember(sourceUri) { mutableStateOf(false) }
-    var prerenderOutOfMemory by prerenderOutOfMemoryState
-    LaunchedEffect(
-        previewTick, sourceRenderAllowed, sourceUri, exportOptions,
-        state.outputColorSpace, state.savingCctfEncoding,
-        // A real export must not compete with a speculative one for the same eight cores:
-        // as a key, this cancels any pre-render in flight the moment an export starts.
-        exportInFlight,
-        // Same for a run the editor does not own (a batch export): the runtime is busy.
-        exportRuntimeStateState.value is ExportRuntimeState.Running,
-    ) {
-        runSpeculativePrerender(
-            dispatchers,
-            exportVm,
-            ctx = ctx,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            currentSourceDecodeRequest = ::currentSourceDecodeRequest,
-            engineState = engineState,
-            previewBusyState = previewBusyState,
-            sourceState = sourceState,
-            prerenderDigestState = prerenderDigestState,
-            prerenderOutOfMemoryState = prerenderOutOfMemoryState,
-        )
-    }
-
-    // --- Non-destructive recipe: debounced auto-save ---
-    // Grade fields included for the same reason as the render trigger above:
-    // Presets.toJsonString already SERIALIZES them, so the recipe content was
-    // right — but a grade-only edit never fired this effect, so it was not
-    // persisted until some other change happened to save it along the way.
-    LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
-        recipeAccess,
-        state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
-        state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
-        state.localAdjustments,
-        state.saturation, state.vibrance, state.gamutCompress) {
-        runRecipeAutosave(
-            ctx = ctx,
-            state = state,
-            recipeEditEpoch = recipeEditEpoch,
-            recipeKey = recipeKey,
-            recipeRepo = recipeRepo,
-            defaultsJsonState = defaultsJsonState,
-            hasRecipeState = hasRecipeState,
-            recipeAccessState = recipeAccessState,
-            recipeReadyState = recipeReadyState,
-            rotationState = rotationState,
-            sourceState = sourceState,
-            statusState = statusState,
-        )
-    }
-
-    // --- Undo/redo capture (debounced coalescing) ---
-    // Keyed on the same settle inputs as the auto-save effect, so it re-arms on every
-    // edit and only the LAST change in a burst survives the delay (a slider drag fires
-    // many state changes but they all collapse into ONE surviving settle). After the
-    // state settles we compare the new snapshot to the last COMMITTED one:
-    //   • restoring == true  -> this settle is the programmatic undo/redo restore;
-    //     don't record it, just clear the flag (session.restore already moved the
-    //     committed pointer). This is what breaks the feedback loop.
-    //   • committedSnapshot == null -> first settle for this source/baseline; adopt it
-    //     as the baseline WITHOUT pushing (canUndo stays false until a real edit).
-    //   • differs from committed -> the user made an edit: push the PREVIOUS committed
-    //     snapshot onto the undo stack and advance the committed pointer. One settled
-    //     drag => exactly one undo step that returns to the pre-drag state.
-    // Uses a slightly shorter delay than auto-save so a quick undo right after an edit
-    // still finds the entry recorded; both are debounced independently and key on the
-    // same inputs, so this adds no extra previewTick churn or re-decodes.
-    // Grade fields added here too. snapshotNow() already captures them (it goes
-    // through Presets.toJsonString), so the CONTENT was complete and only the
-    // TRIGGER was missing — which meant a grade-only edit pushed no undo step,
-    // and a later unrelated edit then collapsed both into a single step that
-    // undid more than the user did.
-    LaunchedEffect(snapshot, recipeKey, recipeReady, rotation,
-        state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
-        state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
-        state.localAdjustments,
-        state.saturation, state.vibrance, state.gamutCompress) {
-        if (!recipeReady) return@LaunchedEffect
-        delay(500)
-        // settleDecision (unit-tested in EditHistoryTest) handles the subtle case where a
-        // real edit lands within the restore settle window: it pushes the restored baseline
-        // so the edit stays undoable instead of being silently adopted (one-undo-step loss).
-        if (session.settle()) liveCursorMutated = true
-        checkpointEditorSession()
-    }
-
-    // UI-only editor cursor state does not participate in the render snapshot. Persist it on a
-    // short debounce so category/tool/mask, copy/paste and export-sheet choices survive a
-    // navigation round-trip without enqueueing one document per keystroke.
-    LaunchedEffect(
-        recipeReady,
-        sourceUri,
-        sourceKind,
-        sourceName,
-        sourceAuthorizationRequired,
-        activeCategory,
-        toolUi,
-        presetUi,
-    ) {
-        if (!recipeReady) return@LaunchedEffect
-        delay(250)
-        checkpointEditorSession()
-    }
-    // Export-sheet choices take the same 250 ms debounce, but are collected here rather than
-    // used as a key above: a key is a composition read, and that would recompose the whole
-    // editor on every export-state change (#270). collectLatest restarts the wait on each
-    // change, exactly as a key change restarts the effect above. drop(1) skips the value
-    // the StateFlow replays on collection, which the effect above already checkpoints.
-    LaunchedEffect(recipeReady) {
-        if (!recipeReady) return@LaunchedEffect
-        exportVm.uiState.drop(1).collectLatest {
-            delay(250)
-            // The updated-state copy: this collector outlives recompositions, and the local
-            // function captures the composition it was declared in.
-            currentSessionCheckpoint()
-        }
-    }
+    // Recipe auto-save, undo/redo capture and the session-cursor checkpoints (EditorSettleEffects.kt).
+    EditorSettleEffects(
+        ctx = ctx,
+        session = session,
+        state = state,
+        exportVm = exportVm,
+        snapshot = snapshot,
+        recipeKey = recipeKey,
+        recipeReady = recipeReady,
+        defaultsJson = defaultsJson,
+        rotation = rotation,
+        recipeAccess = recipeAccess,
+        sourceUri = sourceUri,
+        sourceKind = sourceKind,
+        sourceName = sourceName,
+        sourceAuthorizationRequired = sourceAuthorizationRequired,
+        activeCategory = activeCategory,
+        toolUi = toolUi,
+        presetUi = presetUi,
+        recipeEditEpoch = recipeEditEpoch,
+        recipeRepo = recipeRepo,
+        defaultsJsonState = defaultsJsonState,
+        hasRecipeState = hasRecipeState,
+        recipeAccessState = recipeAccessState,
+        recipeReadyState = recipeReadyState,
+        rotationState = rotationState,
+        sourceState = sourceState,
+        statusState = statusState,
+        onLiveCursorMutated = { liveCursorMutated = true },
+        checkpointEditorSession = ::checkpointEditorSession,
+        currentSessionCheckpoint = { currentSessionCheckpoint() },
+    )
 
     // catalog-grouped profile options for the Simulation pickers + Settings.
     val available = profiles.ifEmpty {
@@ -2160,94 +1576,33 @@ internal fun EditorScreen(
         }
     }
 
-    // --- hardware keyboard shortcuts (EditorShortcuts.kt) ---
-    // Every shortcut calls the SAME action as its on-screen control. Esc goes through the
-    // back dispatcher, so it closes exactly what Back would (and in the same order), but
-    // only when something is open: at the root Back leaves the app, and Esc must not.
-    val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
-        // The magnifier is a full-screen overlay in this window (not a dialog), so it
-        // has to block shortcuts too; an undo behind it would invalidate its crop.
-        val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
-        when (shortcut) {
-            EditorShortcut.CLOSE -> {
-                val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
-                if (closable) onBackPressedDispatcher.onBackPressed()
-                closable
-            }
-            EditorShortcut.UNDO -> !overlayOpen && editHistory.canUndo && run { doUndo(); true }
-            EditorShortcut.REDO -> !overlayOpen && editHistory.canRedo && run { doRedo(); true }
-            EditorShortcut.OPEN -> !overlayOpen && run {
-                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                true
-            }
-            EditorShortcut.EXPORT -> !overlayOpen && run { requestExport(); true }
-            EditorShortcut.TOGGLE_COMPARE -> !overlayOpen && run {
-                viewerVm.onAction(EditorViewerAction.ToggleCompare)
-                true
-            }
-            // Delivered to whichever preview is on screen (Viewer.kt), the same transform
-            // as its wheel / + / - controls.
-            EditorShortcut.ZOOM_IN -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.IN); true }
-            EditorShortcut.ZOOM_OUT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.OUT); true }
-            EditorShortcut.ZOOM_FIT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.FIT); true }
-            EditorShortcut.PHOTO_INFO -> !overlayOpen && sourceUri != null && run { openPhotoInfo(); true }
-            EditorShortcut.APPLY_PREVIOUS -> !overlayOpen && previousEdit?.let { applyPreviousEdit(it); true } == true
-        }
-    }
-    DisposableEffect(Unit) {
-        setEditorShortcutHandler { shortcutHandler(it) }
-        onDispose { setEditorShortcutHandler(null) }
-    }
-
-    // --- back handling on the root editor ---
-    // 0) full-screen tool open -> close it; 1) panel open -> close panel;
-    // 2) else the system takes Back (to home).
-    // Above every other rung: with the chrome hidden there is no visible control at
-    // all, so Back has to mean "give me the app back" before it means anything else.
-    BackHandler(enabled = viewerUi.chromeHidden) { viewerVm.onAction(EditorViewerAction.ShowChrome) }
-    // Predictive back on the full-screen tools (crop, mask geometry, eyedropper): while the
-    // swipe is held the tool shrinks away so the user can see Back will close it, and can
-    // still cancel. Committing cancels the tool exactly as its own Cancel button does.
-    androidx.activity.compose.PredictiveBackHandler(
-        enabled = toolUi.cropOpen || toolUi.maskGeometryOpen || toolUi.sampleOpen,
-    ) { progress ->
-        try {
-            progress.collect { overlayBackProgress = it.progress }
-            val tool = toolVm.current
-            when {
-                tool.cropOpen -> toolVm.onAction(EditorToolAction.CloseCrop)
-                tool.maskGeometryOpen -> toolVm.onAction(EditorToolAction.CloseMaskGeometry)
-                tool.sampleOpen -> toolVm.onAction(EditorToolAction.CloseSample)
-            }
-        } catch (e: CancellationException) {
-            // Gesture cancelled: leave the tool open.
-        } finally {
-            overlayBackProgress = 0f
-        }
-    }
-    // Predictive back on the open panel: while the back swipe is in progress the panel
-    // shrinks toward the bottom edge (M3 sheets), so the user sees what Back will do and
-    // can still cancel. Committing closes it; cancelling springs it back.
-    androidx.activity.compose.PredictiveBackHandler(
-        enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null,
-    ) { progress ->
-        try {
-            progress.collect { panelBackProgress = it.progress }
-            activeCategory = null
-        } catch (e: CancellationException) {
-            // Gesture cancelled: leave the panel open.
-        } finally {
-            panelBackProgress = 0f
-        }
-    }
-    // At the editor root Back is left to the system, so Android 13+ shows the predictive
-    // back-to-home preview and the task simply goes to the background. Nothing is lost:
-    // the session is checkpointed on ON_STOP and restored on the next launch. (This used
-    // to be a "press Back again to exit" trap, which blocks that preview and which M3's
-    // back model -- close the top surface, pop the stack, then exit -- does not have.)
-    // Registered last so it wins: the full-screen grain magnifier sits over everything
-    // above, and Back (or Esc) must close IT, not the panel or overlay hidden beneath.
-    BackHandler(enabled = magnifierOpen) { closeMagnifier() }
+    // Hardware keyboard shortcuts + Back handling (EditorBackAndShortcuts.kt).
+    EditorBackAndShortcuts(
+        toolUi = toolUi,
+        toolVm = toolVm,
+        viewerUi = viewerUi,
+        viewerVm = viewerVm,
+        exportMaskVisible = exportMaskVisible,
+        magnifierOpen = magnifierOpen,
+        activeCategory = activeCategory,
+        onCloseCategory = { activeCategory = null },
+        onBackPressedDispatcher = onBackPressedDispatcher,
+        setEditorShortcutHandler = setEditorShortcutHandler,
+        editHistory = editHistory,
+        doUndo = ::doUndo,
+        doRedo = ::doRedo,
+        openPhotoPicker = {
+            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        requestExport = ::requestExport,
+        hasSource = sourceUri != null,
+        openPhotoInfo = ::openPhotoInfo,
+        previousEdit = previousEdit,
+        applyPreviousEdit = ::applyPreviousEdit,
+        onOverlayBackProgress = { overlayBackProgress = it },
+        onPanelBackProgress = { panelBackProgress = it },
+        closeMagnifier = ::closeMagnifier,
+    )
 
     // ============================ LAYOUT ============================
     // Overlay predicates, shared with the overlay branches below the chrome.
