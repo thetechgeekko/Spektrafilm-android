@@ -323,9 +323,8 @@ internal fun EditorScreen(
     // option edit, the Export tap), and each one then recomposes this entire screen -- the
     // 37-63 ms recomposes the device trace measured. The body reads the derived fields
     // below, which only invalidate when that one field changes; the export sheet reads
-    // `exportUi` inside its own recompose scope (RecomposeScopeBoundary).
+    // `exportUiState` inside its own recompose scope (EditorExportSheetHost).
     val exportUiState = exportVm.uiState.collectAsStateWithLifecycle()
-    val exportUi by exportUiState
     // #161: busy/done are DERIVED from the one export state machine, never parallel
     // flags — the pill can no longer claim "Exporting…" over a finished export, and no
     // path can forget to clear a boolean the phase transition already implies.
@@ -1796,190 +1795,20 @@ internal fun EditorScreen(
             CachedSourceDecodeRequest(decode, cache.beginRequest(cacheRequest))
         }
 
-    /**
-     * The stock browser's preview session (StockPreviews.kt). Built when the sheet opens, from a
-     * snapshot of the look with only the stock left free. It reads the proxy the settle render
-     * already cached -- the same request, so it never moves the cache's generation -- and never
-     * decodes: with no cached proxy the tiles simply stay dark.
-     */
-    /** The film-balance matrix the decode applies for [film] when [balance] is on, else null. */
-    fun filmBalanceFor(balance: Boolean, film: String): FloatArray? =
-        if (balance && FilmStockBalance.isMeaningful(ctx, film)) FilmStockBalance.matrix(ctx, film) else null
-
-    fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = StockPreviewHost(
-        previews = vm.previews,
-        request = vm::request,
-        open = open@{ owner ->
-            if (!sourceRenderAllowed || sourceUri == null) return@open
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
-                .getOrNull() ?: return@open
-            // Each tile renders its stock as a tap would apply it, so the paper-dependent
-            // settings (a silver paper's grade, the colour-pack lookup) and the film-dependent
-            // ones (grain sub-layers, the silver film's move onto silver paper) follow the
-            // candidate. They depend only on whether the film and paper are silver and on which
-            // paper a film tap would pick, so the few distinct variants are built here, from
-            // this snapshot of the state, and each tile copies its own stock id in.
-            val currentFilm = state.filmProfile
-            val currentPrint = state.printProfile
-            val lastColourPrint = state.lastColourPrint
-            fun variant(film: String?, print: String?) = state.toParams(
-                previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
-                skipGrainHalation = true,
-                filmOverride = film,
-                printOverride = print,
-            ).copy(filmProfile = "", printProfile = "")
-            val silverFilm = SilverPrint.FILMS.first()
-            // A film tap re-pairs the paper (SilverPrint.printAfterFilmChange); a paper tap
-            // keeps the film. Every print a film tap can land on is in this set.
-            val pairable = listOfNotNull(currentPrint, SilverPrint.MULTIGRADE, lastColourPrint)
-                .distinct()
-            fun pairedPrint(film: String) = SilverPrint.printAfterFilmChange(
-                oldFilm = currentFilm, newFilm = film, print = currentPrint,
-                lastColourPrint = lastColourPrint, available = pairable,
-            )
-            val variants: Map<Pair<Boolean, String>, SpektraParams> = if (forFilm) {
-                buildMap {
-                    for (silver in listOf(false, true)) {
-                        for (print in pairable) {
-                            put(silver to print, variant(if (silver) silverFilm else "", print))
-                        }
-                    }
-                }
-            } else {
-                // Only silver-or-not matters for a paper, so one representative of each.
-                mapOf(
-                    (true to SilverPrint.MULTIGRADE) to variant(null, SilverPrint.MULTIGRADE),
-                    (false to "") to variant(null, ""),
-                )
-            }
-            val free = variants.entries.sortedBy { it.key.toString() }.map { it.value }
-            val balance = state.balanceToFilmStock
-            val cctf = state.savingCctfEncoding
-            val saturation = state.saturation
-            val vibrance = state.vibrance
-            val gamut = state.gamutCompress
-            val local = state.localAdjustments.toList()
-            // Skin masks bind to this photo's skin field; its fingerprint is in the key so the
-            // tiles redraw once skin is found.
-            val skin = SkinFields.current()
-            val cropIo = state.cropIo()
-            vm.open(
-                StockPreviewSession(
-                    key = listOf(
-                        snapshot.ticket.request, free, currentFilm, currentPrint, lastColourPrint,
-                        cctf, saturation, vibrance, gamut, local, skin?.fingerprint,
-                    ),
-                    source = {
-                        sourceCache.acquire(snapshot.ticket)?.use { lease ->
-                            withContext(dispatchers.default) {
-                                downsampleLinearBox(lease.image, STOCK_PREVIEW_SOURCE_EDGE)
-                            }
-                        }
-                    },
-                    paramsFor = { id ->
-                        if (forFilm) {
-                            val print = pairedPrint(id)
-                            variants.getValue(SilverPrint.isSilverFilm(id) to print)
-                                .copy(filmProfile = id, printProfile = print)
-                        } else {
-                            val silver = SilverPrint.isSilverPaper(id)
-                            variants.getValue(silver to if (silver) SilverPrint.MULTIGRADE else "")
-                                .copy(filmProfile = currentFilm, printProfile = id)
-                        }
-                    },
-                    toBitmap = { res ->
-                        simResultToBitmapGraded(
-                            res, cctf, saturation, vibrance, gamut,
-                            local.withSkinField(cropIo, entry = skin),
-                        )
-                    },
-                    // "Balance to film stock" adapts the decoded photo to the CURRENT film; a
-                    // tile for another film must show that film's adaptation, as a tap would.
-                    retarget = if (forFilm) {
-                        { id -> filmBalanceRetarget(filmBalanceFor(balance, currentFilm), filmBalanceFor(balance, id)) }
-                    } else {
-                        null
-                    },
-                ),
-                owner,
-            )
-        },
-        close = { owner -> vm.close(owner) },
+    // Stock and Look strip preview sessions (EditorStockPreviewHosts.kt).
+    fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = editorStockPreviewHost(
+        vm, forFilm, ctx, state, sourceCache, dispatchers,
+        canOpen = { sourceRenderAllowed && sourceUri != null },
+        cachedSourceDecodeRequest = { cache, edge -> cachedSourceDecodeRequest(cache, edge) },
     )
 
-    /**
-     * The Look strip's preview session: the photo through each built-in look, rendered as a
-     * tap would apply it -- the run's baseline (presetRunBaseline) with the look laid over,
-     * so a tile never stacks on the look applied a moment ago. Same rules as the stock tiles:
-     * the cached proxy only, grain and halation skipped, one tile at a time.
-     */
-    fun presetPreviewHost(vm: StockPreviewViewModel) = StockPreviewHost(
-        previews = vm.previews,
-        request = vm::request,
-        open = open@{ owner ->
-            if (!sourceRenderAllowed || sourceUri == null) return@open
-            val fullEdge = state.previewMaxSize.coerceAtLeast(256)
-            val snapshot = runCatching { cachedSourceDecodeRequest(sourceCache, fullEdge) }
-                .getOrNull() ?: return@open
-            val now = runCatching { Presets.toJsonString(state) }.getOrNull() ?: return@open
-            val baseline = presetRunBaseline(now, lastBuiltInOutput, presetBaselineJson) ?: now
-            val looks = builtInGroups.values.flatten().associateBy { it.id }
-            val balanceNow = state.balanceToFilmStock
-            val filmNow = state.filmProfile
-            // Called on the main thread (StockPreviewViewModel), so a scratch ParamsState
-            // is safe to build here.
-            fun lookFor(id: String): ParamsState = ParamsState().also { look ->
-                Presets.decode(JSONObject(baseline), look)
-                looks[id]?.let { BuiltInPresets.apply(it, look) }
-            }
-            val cctf = state.savingCctfEncoding
-            val saturation = state.saturation
-            val vibrance = state.vibrance
-            val gamut = state.gamutCompress
-            val local = state.localAdjustments.toList()
-            val skin = SkinFields.current()
-            val cropIo = state.cropIo()
-            vm.open(
-                StockPreviewSession(
-                    key = listOf(
-                        snapshot.ticket.request, baseline, looks.keys, cctf, saturation, vibrance, gamut, local,
-                        skin?.fingerprint,
-                    ),
-                    source = {
-                        sourceCache.acquire(snapshot.ticket)?.use { lease ->
-                            withContext(dispatchers.default) {
-                                downsampleLinearBox(lease.image, STOCK_PREVIEW_SOURCE_EDGE)
-                            }
-                        }
-                    },
-                    paramsFor = { id ->
-                        lookFor(id).toParams(
-                            previewMaxSizeOverride = STOCK_PREVIEW_EDGE,
-                            skipGrainHalation = true,
-                        )
-                    },
-                    // The shared source carries the current film's "Balance to film stock"
-                    // adaptation; a look on another film (or flipping the switch) gets that
-                    // look's own, as the decode after a tap would (Codex review on #435).
-                    retarget = { id ->
-                        val look = lookFor(id)
-                        filmBalanceRetarget(
-                            filmBalanceFor(balanceNow, filmNow),
-                            filmBalanceFor(look.balanceToFilmStock, look.filmProfile),
-                        )
-                    },
-                    toBitmap = { res ->
-                        simResultToBitmapGraded(
-                            res, cctf, saturation, vibrance, gamut,
-                            local.withSkinField(cropIo, entry = skin),
-                        )
-                    },
-                ),
-                owner,
-            )
-        },
-        close = { owner -> vm.close(owner) },
+    fun presetPreviewHost(vm: StockPreviewViewModel) = editorPresetPreviewHost(
+        vm, ctx, state, sourceCache, dispatchers,
+        canOpen = { sourceRenderAllowed && sourceUri != null },
+        cachedSourceDecodeRequest = { cache, edge -> cachedSourceDecodeRequest(cache, edge) },
+        builtInGroups = { builtInGroups },
+        lastBuiltInOutput = { lastBuiltInOutput },
+        presetBaselineJson = { presetBaselineJson },
     )
 
     suspend fun loadSourceCached(
@@ -3109,155 +2938,50 @@ internal fun EditorScreen(
                 }
                 val openCrop: () -> Unit = { toolVm.onAction(EditorToolAction.OpenCrop) }
                 if (wide) {
-                    Row(Modifier.fillMaxSize()) {
-                        // --- STAGE RAIL (expanded windows), Export as its FAB ---
-                        if (!viewerUi.chromeHidden) {
-                            StageRail(
-                                active = activeCategory,
-                                dirty = dirty,
-                                onOpen = { activeCategory = it },
-                                onCrop = openCrop,
-                                lastEdit = lastEdit,
-                                exportVisible = engine != null && sourceRenderAllowed,
-                                exporting = exportInFlight,
-                                onExport = { requestExport() },
-                                onShare = { requestShare() },
-                            )
-                        }
-                        Column(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        ) {
-                            // --- PREVIEW (pinned, weight) ---
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .heightIn(min = 220.dp),
-                            ) { previewRegion() }
-                        }
-                        // --- ADJUSTMENT PANEL (docked side column) ---
-                        // A Row sibling, deliberately not animated: the preview keeps its
-                        // height, and the panel's one-shot width change never becomes the
-                        // per-frame GLSurfaceView resize the narrow branch guards against.
-                        val sideCategory = activeCategory
-                        // Book posture on a device with a physical gap: keep the gap empty so
-                        // neither the photo nor the tools sit under it.
-                        if (bookAligned && bookHingeGap > 0.dp) Spacer(Modifier.width(bookHingeGap))
-                        if (sideCategory == null && bookAligned) {
-                            // Panel closed in book posture: the photo still keeps to its own
-                            // screen rather than straddling the fold; the tools' screen stays
-                            // empty until a category is opened again.
-                            Spacer(Modifier.width(sidePaneWidth))
-                        }
-                        if (sideCategory != null) {
-                            SidePanel(
-                                modifier = Modifier.predictiveBackShrink(panelBackProgress),
-                                category = sideCategory,
-                                onDismiss = { activeCategory = null },
-                                onResetCategory = resetActiveCategory,
-                                width = sidePaneWidth,
-                                tabs = if (editOpen) emptyList() else categoriesOf(sideCategory.stage),
-                                dirty = dirty,
-                                onSelectTab = { activeCategory = it },
-                                sections = if (editOpen) editSections else emptyList(),
-                                onSelectSection = openSection,
-                                content = panelContent,
-                            )
-                        }
-                    }
+                    EditorWideLayout(
+                        chromeHidden = viewerUi.chromeHidden,
+                        activeCategory = activeCategory,
+                        onActiveCategoryChange = { activeCategory = it },
+                        dirty = dirty,
+                        lastEdit = lastEdit,
+                        openCrop = openCrop,
+                        exportVisible = engine != null && sourceRenderAllowed,
+                        exportInFlight = exportInFlight,
+                        onExport = { requestExport() },
+                        onShare = { requestShare() },
+                        previewRegion = previewRegion,
+                        bookAligned = bookAligned,
+                        bookHingeGap = bookHingeGap,
+                        sidePaneWidth = sidePaneWidth,
+                        panelBackProgress = panelBackProgress,
+                        resetActiveCategory = resetActiveCategory,
+                        editOpen = editOpen,
+                        editSections = editSections,
+                        openSection = openSection,
+                        panelContent = panelContent,
+                    )
                 } else {
-                    Column(Modifier.fillMaxSize()) {
-                        // --- PREVIEW (pinned, weight) ---
-                        BoxWithConstraints(
-                            Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .heightIn(min = 220.dp),
-                        ) {
-                            // Tabletop: the panel fills the lower half exactly, so the photo
-                            // (inset by the panel's height) fills the upper one. This box
-                            // starts where the editor box does, so the hinge offsets apply.
-                            val tabletopPanelHeight = tabletopPanelHeightDp(posture, maxHeight.value)?.dp
-                            val tabletopPhotoHeight = tabletopPhotoHeightDp(posture)?.dp
-                            if (tabletopPhotoHeight != null) {
-                                // The photo keeps the upper half whether or not a panel is
-                                // open, so closing one never lays it back across the hinge.
-                                // It ends at the hinge's TOP edge: on a device with a physical
-                                // gap, the strip between top and bottom is not display.
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(tabletopPhotoHeight),
-                                ) { previewRegion() }
-                            } else {
-                                previewRegion()
-                            }
-
-                            // --- ADJUSTMENT PANEL (floating bottom overlay) ---
-                            // Floated INSIDE the preview Box (aligned to its bottom) so
-                            // opening/closing a panel no longer resizes the weight(1f) preview
-                            // every frame. That per-frame resize churned the GLSurfaceView (it
-                            // forced GPU preview off) and jolted the CPU preview too; a
-                            // constant-height preview fixes both and unblocks GPU.
-                            PanelOverlay(
-                                visible = activeCategory != null && !viewerUi.chromeHidden,
-                                dimming = interacting,
-                            ) {
-                                AdjustmentPanel(
-                                    modifier = Modifier
-                                        // M3 bottom sheet max width; centred in wider windows.
-                                        .widthIn(max = SHEET_MAX_WIDTH_DP.dp)
-                                        .onSizeChanged { panelHeightPx = it.height }
-                                        .predictiveBackShrink(panelBackProgress),
-                                    category = activeCategory,
-                                    onDismiss = { activeCategory = null },
-                                    onResetCategory = resetActiveCategory,
-                                    tall = panelTall,
-                                    onTallChange = { panelTall = it },
-                                    fixedHeight = tabletopPanelHeight,
-                                    tabs = if (editOpen) emptyList() else activeCategory?.let { categoriesOf(it.stage) }.orEmpty(),
-                                    dirty = dirty,
-                                    onSelectTab = { activeCategory = it },
-                                    sections = if (editOpen) editSections else emptyList(),
-                                    onSelectSection = openSection,
-                                    content = panelContent,
-                                )
-                            }
-
-                            // --- FLOATING VALUE READOUT ---
-                            // Drawn after the panel so it sits above the faded one.
-                            //
-                            // Top-END, not top-centre. The top of the preview is already
-                            // spoken for: StatusPill is TopStart but runs wide enough to
-                            // reach the middle ("Rendered in 162 ms" did, on device), and
-                            // PreviewHistogramOverlay is TopCenter outright. The right
-                            // corner is the only part of that band nothing else claims.
-                            //
-                            // The wrapper is fillMaxWidth so the pill's text changing width
-                            // as digits come and go cannot propagate a remeasure outwards to
-                            // the preview it is sitting on.
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.TopCenter),
-                                contentAlignment = Alignment.TopEnd,
-                            ) { SliderReadoutPill(sliderReadout, interacting) }
-                        }
-
-                        // --- STAGE ROW (compact and medium windows) ---
-                        // Tapping the open stage folds the panel away: photo + this row.
-                        if (!viewerUi.chromeHidden) {
-                            StageRow(
-                                active = activeCategory,
-                                dirty = dirty,
-                                onOpen = { activeCategory = it },
-                                onCrop = openCrop,
-                                lastEdit = lastEdit,
-                            )
-                        }
-                    }
+                    EditorNarrowLayout(
+                        chromeHidden = viewerUi.chromeHidden,
+                        activeCategory = activeCategory,
+                        onActiveCategoryChange = { activeCategory = it },
+                        dirty = dirty,
+                        lastEdit = lastEdit,
+                        openCrop = openCrop,
+                        posture = posture,
+                        interacting = interacting,
+                        sliderReadout = sliderReadout,
+                        previewRegion = previewRegion,
+                        panelBackProgress = panelBackProgress,
+                        panelTall = panelTall,
+                        onPanelTallChange = { panelTall = it },
+                        onPanelHeightChange = { panelHeightPx = it },
+                        resetActiveCategory = resetActiveCategory,
+                        editOpen = editOpen,
+                        editSections = editSections,
+                        openSection = openSection,
+                        panelContent = panelContent,
+                    )
                 }
             }
         }
@@ -3309,150 +3033,46 @@ internal fun EditorScreen(
             )
         }
 
-        // --- full-screen export mask ---
-        if (exportInFlight) {
-            ExportMask(
-                photo = preview,
-                onCancel = {
-                    val running = exportRuntimeState as? ExportRuntimeState.Running
-                    if (running != null && ExportWorkRuntime.cancel(running.runId)) {
-                        status = ctx.getString(R.string.editor_status_cancelling_export)
-                    }
-                },
-            )
-        } else if (exportDone) {
-            // The result, without covering the photo: the pill shows its check, and either
-            // the share sheet opens (the run came from Share) or a Snackbar says where the
-            // file went, with Open. Keyed on the file, and remembered across recreation, so a
-            // rotation does not announce the same save twice.
-            val result = exportLastShare
-            var announced by rememberSaveable { mutableStateOf<String?>(null) }
-            LaunchedEffect(result) {
-                if (result == null || announced == result.first) return@LaunchedEffect
-                announced = result.first
-                val (published, mime) = result
-                if (exportVm.current.shareWhenDone) {
-                    exportVm.onAction(ExportAction.ShareHandled)
-                    if (!shareExportedFile(ctx, published, mime)) {
-                        status = ctx.getString(R.string.editor_status_no_share_target)
-                    }
-                } else {
-                    scope.showEditorMessage(
-                        snackbarHost,
-                        ctx.getString(R.string.editor_export_saved),
-                        actionLabel = ctx.getString(R.string.editor_export_open),
-                    ) {
-                        if (!openExportedFile(ctx, published, mime)) {
-                            status = ctx.getString(R.string.editor_status_no_open_target)
-                        }
-                    }
+        // --- full-screen export mask, or the finished export's share / snackbar ---
+        EditorExportResult(
+            exportInFlight = exportInFlight,
+            exportDone = exportDone,
+            preview = preview,
+            onCancelExport = {
+                val running = exportRuntimeState as? ExportRuntimeState.Running
+                if (running != null && ExportWorkRuntime.cancel(running.runId)) {
+                    status = ctx.getString(R.string.editor_status_cancelling_export)
                 }
-            }
-        }
+            },
+            exportLastShare = exportLastShare,
+            exportVm = exportVm,
+            ctx = ctx,
+            scope = scope,
+            snackbarHost = snackbarHost,
+            setStatus = { status = it },
+        )
 
-        // Everything that reads the export sheet's state sits in its own recompose scope, so
-        // opening the sheet or editing an option recomposes this section and not the whole
-        // editor (#270).
-        RecomposeScopeBoundary {
-            // Legacy storage (API <= 28) is asked when the export SHEET opens -- NOT when
-            // the export starts. A system permission dialog takes focus, and on the
-            // measured device losing /top-app costs 3.90x (§15.1). Notifications are
-            // asked by the first Export tap instead (exportAskingNotificationsOnce).
-            LaunchedEffect(exportUi.sheetOpen) {
-                val showExportSheet = exportUi.sheetOpen
-                if (showExportSheet &&
-                    Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-                    ContextCompat.checkSelfPermission(
-                        ctx,
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    runCatching {
-                        legacyStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    }
-                }
-            }
-
-            // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
-            // and again if "Include location (GPS)" is switched on inside the open sheet.
-            LaunchedEffect(exportUi.sheetOpen, exportUi.keepGps) {
-                if (exportVm.current.sheetOpen) {
-                    requestMediaLocationIfMissing()
-                }
-            }
-
-            // --- Lightroom-style export options sheet ---
-            if (exportUi.sheetOpen) {
-                val exportPresets by exportPresetVm.uiState.collectAsStateWithLifecycle()
-                // Opening the sheet: load the presets, then preselect the one used last so the
-                // Export button is two taps for a repeat export.
-                LaunchedEffect(Unit) {
-                    exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
-                    exportPresetVm.load()
-                }
-                // Saveable, so a recreated Activity (theme or locale change) that restores the open
-                // sheet with the user's own edits does not overwrite them with the preset again.
-                var lastUsedApplied by rememberSaveable { mutableStateOf(false) }
-                LaunchedEffect(exportPresets.lastUsed) {
-                    val last = exportPresets.lastUsedPreset
-                    if (!lastUsedApplied && last != null) {
-                        lastUsedApplied = true
-                        exportVm.onAction(ExportAction.SetOptions(last.options))
-                        exportVm.onAction(ExportAction.SetKeepGps(last.keepGps))
-                    }
-                }
-                val matchingPreset = exportPresets.presets.firstOrNull {
-                    it.matches(exportUi.options, exportUi.keepGps)
-                }?.name
-                ExportSheet(
-                    presetNames = exportPresets.presets.map { it.name },
-                    selectedPreset = matchingPreset,
-                    onSelectPreset = { name ->
-                        exportPresets.presets.firstOrNull { it.name == name }?.let { p ->
-                            exportVm.onAction(ExportAction.SetOptions(p.options))
-                            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
-                        }
-                    },
-                    onSavePreset = { name ->
-                        exportPresetVm.save(name, exportVm.current.options, exportVm.current.keepGps)
-                        status = ctx.getString(R.string.editor_status_export_preset_saved, name)
-                    },
-                    onDeletePreset = { name -> exportPresetVm.delete(name) },
-                    options = exportUi.options,
-                    onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
-                    colorSpace = state.outputColorSpace,
-                    onColorSpaceChange = { state.outputColorSpace = it },
-                    cctf = state.savingCctfEncoding,
-                    onCctfChange = { state.savingCctfEncoding = it },
-                    keepGps = exportUi.keepGps,
-                    onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
-                    onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
-                    previewBitmap = preview,
-                    onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                        {
-                            exportAskingNotificationsOnce {
-                                requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it }
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                    onHalfFramePair = if (
-                        engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
-                        halfFramePairSupports(exportUi.options)
-                    ) {
-                        {
-                            exportAskingNotificationsOnce {
-                                requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it }
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                    onExport = { exportAskingNotificationsOnce { launchEditorExport(exportPresets) } },
-                )
-            }
-        }
+        // Everything that reads the export sheet's state sits in its own recompose scope (the
+        // composable below reads [exportUiState] itself), so opening the sheet or editing an
+        // option recomposes that section and not the whole editor (#270).
+        EditorExportSheetHost(
+            exportUiState = exportUiState,
+            exportVm = exportVm,
+            exportPresetVm = exportPresetVm,
+            ctx = ctx,
+            state = state,
+            preview = preview,
+            engine = engine,
+            sourceUri = sourceUri,
+            sourceKind = sourceKind,
+            legacyStoragePermission = legacyStoragePermission,
+            batchPicker = batchPicker,
+            pairPicker = pairPicker,
+            requestMediaLocationIfMissing = { requestMediaLocationIfMissing() },
+            exportAskingNotificationsOnce = { exportAskingNotificationsOnce(it) },
+            launchEditorExport = { launchEditorExport(it) },
+            setStatus = { status = it },
+        )
 
         // Recipe restore / status snackbar (above the bottom bar / nav).
         SnackbarHost(
@@ -3465,12 +3085,3 @@ internal fun EditorScreen(
     }
 }
 
-/**
- * A recompose scope of its own: state read inside [content] invalidates only [content], not the
- * caller. A composable lambda is restartable, which a plain `if` block in the caller is not --
- * that would subscribe the caller's whole body (#270).
- */
-@Composable
-private fun RecomposeScopeBoundary(content: @Composable () -> Unit) {
-    content()
-}
