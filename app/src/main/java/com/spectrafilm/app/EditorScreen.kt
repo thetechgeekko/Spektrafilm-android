@@ -1621,143 +1621,74 @@ internal fun EditorScreen(
                 // One tool's controls, shared by every branch so the per-tool `when` below
                 // is not duplicated.
                 val toolContent: @Composable ColumnScope.(Category) -> Unit = { tool ->
-                    val simPart: SimPart? = when (tool) {
-                        Category.SIMULATION -> SimPart.FILM_STOCK
-                        Category.PAPER -> SimPart.PAPER
-                        Category.EXPOSURE -> SimPart.EXPOSURE
-                        Category.SCENE_LATITUDE -> SimPart.SCENE_LATITUDE
-                        Category.SAT_VIB -> SimPart.SAT_VIB
-                        Category.PRINT_COLOR -> SimPart.PRINT_COLOR
-                        Category.FILM_FORMAT -> SimPart.FILM_FORMAT
-                        Category.CAMERA_DIFFUSION -> SimPart.CAMERA_DIFFUSION
-                        Category.PRINT_EXPOSURE -> SimPart.PRINT_EXPOSURE
-                        Category.ENLARGER -> SimPart.ENLARGER
-                        Category.LENS_BLUR -> SimPart.LENS_BLUR
-                        Category.DATE_STAMP -> SimPart.DATE_STAMP
-                        Category.SCANNER -> SimPart.SCANNER
-                        Category.OUTPUT -> SimPart.OUTPUT
-                        else -> null
-                    }
-                    when (tool) {
-                        Category.INPUT -> InputSection(state, onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) })
-                        Category.RAW_WB -> ImportRawSection(state, isRaw = isRawSource,
-                            onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.RAW_CLEANUP -> RawCleanupSection(state)
-                        Category.SIMULATION, Category.PAPER, Category.EXPOSURE, Category.SCENE_LATITUDE,
-                        Category.SAT_VIB, Category.PRINT_COLOR, Category.FILM_FORMAT,
-                        Category.CAMERA_DIFFUSION, Category.PRINT_EXPOSURE, Category.ENLARGER,
-                        Category.LENS_BLUR, Category.DATE_STAMP, Category.SCANNER,
-                        Category.OUTPUT -> EditorSimulationPanel(
-                            filmPreviewVm = filmPreviewVm,
-                            printPreviewVm = printPreviewVm,
-                            part = simPart ?: SimPart.FILM_STOCK,
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            snackbarHost = snackbarHost,
-                            photoDateStamp = photoDateStamp,
-                            filmGroups = filmGroups,
-                            printGroups = printGroups,
-                            onOpenFilmCurves = onOpenFilmCurves,
-                            onOpenPrintCurves = onOpenPrintCurves,
-                            stockPreviewHost = ::stockPreviewHost,
-                            checkpointEditorSession = ::checkpointEditorSession,
-                            sourceKey = sourceUri,
-                            // A slider drag runs draft renders without setting previewBusy,
-                            // so the strip also waits for the drag to end.
-                            previewBusy = previewBusy || interacting.value,
-                        )
-                        Category.GRAIN -> GrainSection(state)
-                        Category.PREFLASH -> PreflashSection(state)
-                        Category.CONTRAST_MASK -> ContrastMaskSection(state)
-                        Category.HALATION -> HalationSection(state)
-                        Category.COUPLERS -> CouplersSection(state)
-                        Category.GLARE -> GlareSection(state)
-                        Category.EXPERIMENTAL -> ExperimentalSection(state)
-                        Category.TONE_CURVE -> ToneCurveSection(state, preview)
-                        Category.MASKS -> MasksSection(
-                            state,
-                            selectedIndex = toolUi.maskIndex,
-                            onSelectedIndexChange = { toolVm.onAction(EditorToolAction.SelectMask(it)) },
-                            onEditOnPhoto = { idx ->
-                                toolVm.onAction(EditorToolAction.EditMaskOnPhoto(idx))
-                            },
-                            onSampleColor = { idx ->
-                                toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = false))
-                            },
-                            onSampleLuminance = { idx ->
-                                toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = true))
-                            },
-                        )
-                        Category.DISPLAY -> DisplaySection(state)
-                        Category.PRESETS -> EditorPresetPanel(
-                            dispatchers = dispatchers,
-                            presetVm = presetVm,
-                            versionsVm = versionsVm,
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            presetRepo = presetRepo,
-                            snackbarHost = snackbarHost,
-                            recipeKey = recipeKey,
-                            builtInGroups = builtInGroups,
-                            presetUi = presetUi,
-                            presetImporter = presetImporter,
-                            presetExporter = presetExporter,
-                            savedPresetExporter = savedPresetExporter,
-                            lutExporter = lutExporter,
-                            presetListState = presetListState,
-                            presetBaselineJsonState = presetBaselineJsonState,
-                            lastBuiltInOutputState = lastBuiltInOutputState,
-                            lastBuiltInIdState = lastBuiltInIdState,
-                            presetPreviewHost = presetPreviewHost(presetPreviewVm),
-                            stripSourceKey = sourceUri,
-                            stripPaused = previewBusy || interacting.value,
-                            bakingLutState = bakingLutState,
-                            pendingLutTextState = pendingLutTextState,
-                            pendingPresetExportState = pendingPresetExportState,
-                            rotationState = rotationState,
-                            statusState = statusState,
-                            previewTickState = previewTickState,
-                            engineState = engineState,
-                            applyWithAmountFn = ::applyWithAmount,
-                            previousEdit = previousEdit,
-                            onApplyPrevious = { previousEdit?.let { applyPreviousEdit(it) } },
-                        )
-                        Category.SOURCE -> EditorSourcePanel(
-                            onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
-                            onClearPresetAmount = { presetVm.onAction(PresetAction.ClearAmount) },
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            settings = settings,
-                            snackbarHost = snackbarHost,
-                            sourceRuntime = sourceRuntime,
-                            recipeRepo = recipeRepo,
-                            recipeKey = recipeKey,
-                            recipeEditEpoch = recipeEditEpoch,
-                            editHistory = editHistory,
-                            photoPicker = photoPicker,
-                            rawPicker = rawPicker,
-                            showHistogram = viewerUi.histogram,
-                            sourceState = sourceState,
-                            showDemoSource = {
-                                session.showDemo(ctx.getString(R.string.editor_source_demo_name))
-                            },
-                            statusState = statusState,
-                            previewTickState = previewTickState,
-                            rotationState = rotationState,
-                            hasRecipeState = hasRecipeState,
-                            recipeAccessState = recipeAccessState,
-                            committedSnapshotState = committedSnapshotState,
-                            restoringState = restoringState,
-                            profilesState = profilesState,
-                            checkpointEditorSessionFn = ::checkpointEditorSession,
-                            retireSourceResourcesFn = ::retireSourceResources,
-                            resetEditorCursorForSourceChangeFn = ::resetEditorCursorForSourceChange,
-                            reconcileVisibleSourceAfterFailureFn = ::reconcileVisibleSourceAfterFailure,
-                        )
-                    }
+                    EditorToolContent(
+                        tool = tool,
+                        ctx = ctx,
+                        scope = scope,
+                        dispatchers = dispatchers,
+                        state = state,
+                        settings = settings,
+                        session = session,
+                        snackbarHost = snackbarHost,
+                        toolVm = toolVm,
+                        toolUi = toolUi,
+                        viewerVm = viewerVm,
+                        viewerUi = viewerUi,
+                        presetVm = presetVm,
+                        versionsVm = versionsVm,
+                        filmPreviewVm = filmPreviewVm,
+                        printPreviewVm = printPreviewVm,
+                        isRawSource = isRawSource,
+                        preview = preview,
+                        previewBusy = previewBusy,
+                        interacting = interacting,
+                        photoDateStamp = photoDateStamp,
+                        filmGroups = filmGroups,
+                        printGroups = printGroups,
+                        onOpenFilmCurves = onOpenFilmCurves,
+                        onOpenPrintCurves = onOpenPrintCurves,
+                        stockPreviewHost = ::stockPreviewHost,
+                        presetPreviewHost = { presetPreviewHost(presetPreviewVm) },
+                        checkpointEditorSession = ::checkpointEditorSession,
+                        sourceUri = sourceUri,
+                        presetRepo = presetRepo,
+                        recipeKey = recipeKey,
+                        builtInGroups = builtInGroups,
+                        presetUi = presetUi,
+                        presetImporter = presetImporter,
+                        presetExporter = presetExporter,
+                        savedPresetExporter = savedPresetExporter,
+                        lutExporter = lutExporter,
+                        presetListState = presetListState,
+                        presetBaselineJsonState = presetBaselineJsonState,
+                        lastBuiltInOutputState = lastBuiltInOutputState,
+                        lastBuiltInIdState = lastBuiltInIdState,
+                        bakingLutState = bakingLutState,
+                        pendingLutTextState = pendingLutTextState,
+                        pendingPresetExportState = pendingPresetExportState,
+                        rotationState = rotationState,
+                        statusState = statusState,
+                        previewTickState = previewTickState,
+                        engineState = engineState,
+                        applyWithAmount = ::applyWithAmount,
+                        previousEdit = previousEdit,
+                        applyPreviousEdit = ::applyPreviousEdit,
+                        sourceRuntime = sourceRuntime,
+                        recipeRepo = recipeRepo,
+                        recipeEditEpoch = recipeEditEpoch,
+                        editHistory = editHistory,
+                        photoPicker = photoPicker,
+                        rawPicker = rawPicker,
+                        sourceState = sourceState,
+                        hasRecipeState = hasRecipeState,
+                        recipeAccessState = recipeAccessState,
+                        committedSnapshotState = committedSnapshotState,
+                        restoringState = restoringState,
+                        profilesState = profilesState,
+                        retireSourceResources = ::retireSourceResources,
+                        resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
+                        reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
+                    )
                 }
                 // Edit's tool open in full (every control and its help), or null for the rail.
                 var railDetail by rememberSaveable { mutableStateOf<Category?>(null) }
