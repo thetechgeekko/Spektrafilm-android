@@ -63,8 +63,19 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** Which instrument draws the value. The gesture follows: knob and fader drag up, the bar sideways. */
-internal enum class InstrumentKind { KNOB, FADER, PILL, GRAD_BAR }
+/**
+ * Which instrument draws the value. The gesture follows: knob, fader and pill drag up, the
+ * horizontal kinds (gradient bar, meters, lens grid) sideways. METER_HIGH shades what lies
+ * above the value (a white level clips the brighter tones), METER_LOW what lies below it.
+ */
+internal enum class InstrumentKind {
+    KNOB, FADER, PILL, GRAD_BAR, METER_HIGH, METER_LOW, LENS_GRID;
+
+    val vertical: Boolean get() = this == KNOB || this == FADER || this == PILL
+}
+
+/** Reference frame the lens grid draws the current format against, in mm (35 mm film). */
+internal const val LENS_GRID_REFERENCE_MM = 35f
 
 /** Finger travel, in dp, that sweeps the whole range at normal speed. */
 internal const val INSTRUMENT_TRAVEL_DP = 180f
@@ -163,7 +174,7 @@ internal fun Instrument(
         .pointerInput(kind, range, step, snappedDefault) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                val vertical = kind != InstrumentKind.GRAD_BAR
+                val vertical = kind.vertical
                 // Waiting for slop on OUR axis leaves the other axis to the parent: a knob row
                 // or the panel can still scroll past a knob dragged the wrong way.
                 var overSlop = 0f
@@ -231,7 +242,8 @@ internal fun Instrument(
     val valueColor = if (modified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
 
     when (kind) {
-        InstrumentKind.GRAD_BAR -> Column(modifier.fillMaxWidth().then(gesture)) {
+        InstrumentKind.GRAD_BAR, InstrumentKind.METER_HIGH, InstrumentKind.METER_LOW,
+        InstrumentKind.LENS_GRID -> Column(modifier.fillMaxWidth().then(gesture)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Text(formatted, style = MaterialTheme.typography.labelMedium, color = valueColor)
@@ -239,25 +251,80 @@ internal fun Instrument(
             Canvas(
                 Modifier
                     .fillMaxWidth()
-                    .height(40.dp),
+                    .height(if (kind == InstrumentKind.LENS_GRID) 72.dp else 40.dp),
             ) {
-                val barH = 14.dp.toPx()
                 val pad = 12.dp.toPx()
                 val y = size.height / 2f
                 val w = size.width - 2 * pad
-                drawRoundRect(
-                    brush = Brush.horizontalGradient(gradient, startX = pad, endX = pad + w),
-                    topLeft = Offset(pad, y - barH / 2),
-                    size = Size(w, barH),
-                    cornerRadius = CornerRadius(barH / 2),
-                )
-                // The neutral mark, so "how far from neutral" reads without the number.
-                val ax = pad + w * anchor
-                drawLine(idle, Offset(ax, y + barH / 2 + 3.dp.toPx()), Offset(ax, y + barH / 2 + 8.dp.toPx()), 1.5.dp.toPx())
-                val hx = pad + w * f
-                val r = 10.dp.toPx()
-                drawCircle(gradientAt(gradient, f), r, Offset(hx, y))
-                drawCircle(if (dragging) active else ink, r, Offset(hx, y), style = Stroke(2.5.dp.toPx()))
+                when (kind) {
+                    InstrumentKind.GRAD_BAR -> {
+                        val barH = 14.dp.toPx()
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(gradient, startX = pad, endX = pad + w),
+                            topLeft = Offset(pad, y - barH / 2),
+                            size = Size(w, barH),
+                            cornerRadius = CornerRadius(barH / 2),
+                        )
+                        // The neutral mark, so "how far from neutral" reads without the number.
+                        val ax = pad + w * anchor
+                        drawLine(idle, Offset(ax, y + barH / 2 + 3.dp.toPx()), Offset(ax, y + barH / 2 + 8.dp.toPx()), 1.5.dp.toPx())
+                        val hx = pad + w * f
+                        val r = 10.dp.toPx()
+                        drawCircle(gradientAt(gradient, f), r, Offset(hx, y))
+                        drawCircle(if (dragging) active else ink, r, Offset(hx, y), style = Stroke(2.5.dp.toPx()))
+                    }
+                    InstrumentKind.METER_HIGH, InstrumentKind.METER_LOW -> {
+                        // A level meter: a dark-to-light ramp with the part the level cuts off
+                        // shaded, and a needle on the level itself.
+                        val barH = 16.dp.toPx()
+                        val top = y - barH / 2
+                        val corner = CornerRadius(4.dp.toPx())
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(listOf(body, ink.copy(alpha = 0.55f)), startX = pad, endX = pad + w),
+                            topLeft = Offset(pad, top),
+                            size = Size(w, barH),
+                            cornerRadius = corner,
+                        )
+                        val vx = pad + w * f
+                        val (sx, sw) = if (kind == InstrumentKind.METER_HIGH) vx to (pad + w - vx) else pad to (vx - pad)
+                        if (sw > 0f) drawRect(active.copy(alpha = 0.30f), Offset(sx, top), Size(sw, barH))
+                        drawRoundRect(idle, Offset(pad, top), Size(w, barH), corner, style = Stroke(1.dp.toPx()))
+                        for (i in 0..4) {
+                            val tx = pad + w * i / 4f
+                            drawLine(idle, Offset(tx, top + barH + 2.dp.toPx()), Offset(tx, top + barH + 6.dp.toPx()), 1.dp.toPx())
+                        }
+                        drawLine(
+                            if (dragging) active else ink,
+                            Offset(vx, top - 4.dp.toPx()),
+                            Offset(vx, top + barH + 4.dp.toPx()),
+                            2.5.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                    else -> {
+                        // Lens grid: the current frame (3:2) drawn to scale against a 35 mm
+                        // reference frame, so a bigger format reads as a bigger negative.
+                        val h = size.height - 8.dp.toPx()
+                        val scale = minOf(w, h * 1.5f) / range.endInclusive
+                        val c = Offset(size.width / 2, size.height / 2)
+                        fun frame(mm: Float, color: Color, stroke: Float) {
+                            val fw = (mm * scale).coerceAtLeast(2.dp.toPx())
+                            val fh = fw * 2f / 3f
+                            drawRect(color, Offset(c.x - fw / 2, c.y - fh / 2), Size(fw, fh), style = Stroke(stroke))
+                        }
+                        frame(LENS_GRID_REFERENCE_MM, idle, 1.dp.toPx())
+                        frame(value, if (dragging) active else ink, 2.dp.toPx())
+                        // A rule of thirds inside the current frame.
+                        val fw = (value * scale).coerceAtLeast(2.dp.toPx())
+                        val fh = fw * 2f / 3f
+                        for (i in 1..2) {
+                            val gx = c.x - fw / 2 + fw * i / 3f
+                            val gy = c.y - fh / 2 + fh * i / 3f
+                            drawLine(idle, Offset(gx, c.y - fh / 2), Offset(gx, c.y + fh / 2), 0.5.dp.toPx())
+                            drawLine(idle, Offset(c.x - fw / 2, gy), Offset(c.x + fw / 2, gy), 0.5.dp.toPx())
+                        }
+                    }
+                }
             }
         }
         InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL -> Column(
@@ -600,4 +667,112 @@ internal fun Pad2D(
 @Composable
 internal fun InstrumentTooltip(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** Finger travel, in dp, from one stop of a [StepWave] to the next. */
+internal const val STEP_WAVE_STOP_DP = 36f
+
+/**
+ * The stop a sideways drag of [deltaPx] from [start] reaches, one stop per [stopPx], kept
+ * within [count] stops.
+ */
+internal fun stepWaveIndex(start: Int, deltaPx: Float, stopPx: Float, count: Int): Int {
+    if (count <= 0) return 0
+    val moved = if (stopPx > 0f) (deltaPx / stopPx).toInt() else 0
+    return (start + moved).coerceIn(0, count - 1)
+}
+
+/**
+ * A contrast family as curves (instrument catalogue: wave): one characteristic curve per
+ * stop, steeper as the stop rises, with the selected one drawn bold. A sideways drag walks
+ * the stops with a tick at each; taps and TalkBack stay with the segmented row the caller
+ * puts beside it, so this node is hidden from accessibility.
+ */
+@Composable
+internal fun StepWave(
+    title: String,
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    val interaction = LocalSliderInteraction.current
+    val latestSelected = rememberUpdatedState(selected)
+    val latestSelect = rememberUpdatedState(onSelect)
+    val latestLabels = rememberUpdatedState(labels)
+    val latestTitle = rememberUpdatedState(title)
+    var dragging by remember { mutableStateOf(false) }
+    val stopPx = with(LocalDensity.current) { STEP_WAVE_STOP_DP.dp.toPx() }
+    val n = labels.size
+
+    val gesture = Modifier.pointerInput(n) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            var overSlop = 0f
+            val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, o -> change.consume(); overSlop = o }
+                ?: return@awaitEachGesture
+            dragging = true
+            val start = latestSelected.value
+            var index = start
+            var travelled = overSlop
+            fun step() {
+                val next = stepWaveIndex(start, travelled, stopPx, latestLabels.value.size)
+                if (next != index) {
+                    index = next
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    latestSelect.value(next)
+                }
+                interaction.onChange(SliderReadout(latestTitle.value, latestLabels.value.getOrElse(index) { "" }))
+            }
+            step()
+            try {
+                horizontalDrag(slop.id) { change ->
+                    travelled += change.position.x - change.previousPosition.x
+                    step()
+                    change.consume()
+                }
+            } finally {
+                dragging = false
+                interaction.onFinished()
+            }
+        }
+    }
+
+    val active = MaterialTheme.colorScheme.primary
+    val idle = MaterialTheme.colorScheme.outlineVariant
+    val ink = MaterialTheme.colorScheme.onSurface
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .then(gesture)
+            .clearAndSetSemantics { },
+    ) {
+        val pad = 12.dp.toPx()
+        val w = size.width - 2 * pad
+        val h = size.height - 2 * pad
+        val samples = 32
+        for (i in 0 until n) {
+            // Logistic curves, slope rising with the stop: a picture of "more contrast",
+            // not a measured paper curve.
+            val k = 3f + 9f * i / (n - 1).coerceAtLeast(1)
+            val lo = 1f / (1f + kotlin.math.exp(k * 0.5f))
+            val hi = 1f / (1f + kotlin.math.exp(-k * 0.5f))
+            val path = androidx.compose.ui.graphics.Path()
+            for (j in 0..samples) {
+                val t = j / samples.toFloat()
+                val v = (1f / (1f + kotlin.math.exp(-k * (t - 0.5f))) - lo) / (hi - lo)
+                val px = pad + w * t
+                val py = pad + h * (1f - v)
+                if (j == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            val isSel = i == selected
+            drawPath(
+                path,
+                if (isSel) (if (dragging) active else ink) else idle,
+                style = Stroke(if (isSel) 2.5.dp.toPx() else 1.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+    }
 }

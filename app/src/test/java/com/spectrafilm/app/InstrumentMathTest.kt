@@ -42,4 +42,22 @@ class InstrumentMathTest {
         assertEquals(Color.Red, gradientAt(stops, 1f))
         assertEquals(Color.Red, gradientAt(stops, 2f))
     }
+
+    @Test
+    fun stepWaveMovesOneStopPerStopWidthAndClamps() {
+        assertEquals(2, stepWaveIndex(2, 30f, 36f, 6))
+        assertEquals(3, stepWaveIndex(2, 36f, 36f, 6))
+        assertEquals(1, stepWaveIndex(2, -40f, 36f, 6))
+        assertEquals(5, stepWaveIndex(2, 1000f, 36f, 6))
+        assertEquals(0, stepWaveIndex(2, -1000f, 36f, 6))
+        assertEquals(0, stepWaveIndex(0, 50f, 36f, 0))
+    }
+
+    @Test
+    fun onlyKnobFaderAndPillDragVertically() {
+        assertEquals(
+            setOf(InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL),
+            InstrumentKind.entries.filter { it.vertical }.toSet(),
+        )
+    }
 }
