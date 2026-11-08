@@ -162,11 +162,12 @@ internal fun LibraryDestination(
         importInto(uris, false)
     }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
-    if (openAlbum != null) {
+    val query by vm.query.collectAsStateWithLifecycle()
+    val albumDetail: @Composable (Album) -> Unit = { album ->
         AlbumDetail(
-            album = openAlbum,
+            album = album,
             vm = albumsVm,
-            query = vm.query.collectAsStateWithLifecycle().value,
+            query = query,
             currentUri = currentUri,
             snackbar = snackbar,
             scope = scope,
@@ -174,12 +175,38 @@ internal fun LibraryDestination(
             onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
             onOpen = onOpen,
         )
-        return
     }
-    LibraryFolderAndAlbums(
-        vm, albumsVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
-        importInto,
-    )
+    val browse: @Composable (albumOpen: Boolean) -> Unit = { albumOpen ->
+        LibraryFolderAndAlbums(
+            vm, albumsVm, albums, currentUri,
+            // Beside an open album the list pane is the Albums tab; picking Photos closes it.
+            tab = if (albumOpen) LibraryTab.ALBUMS else tab,
+            onTab = { picked ->
+                if (picked == LibraryTab.FOLDER && openAlbumId != null) {
+                    albumsVm.clearSelection()
+                    openAlbumId = null
+                }
+                tab = picked
+            },
+            onOpenAlbum = { id -> albumsVm.clearSelection(); openAlbumId = id },
+            snackbar, scope, onBack, onOpen, importInto,
+            albumOpen = albumOpen,
+        )
+    }
+    // Compact and medium: an open album replaces the Library. Expanded and wider: M3
+    // list-detail (#457), the albums in the leading pane and the open album beside them.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthDp = maxWidth.value
+        when {
+            openAlbum == null -> browse(false)
+            listDetailTwoPane(widthDp) -> ListDetailPanes(
+                listWidthDp = sidePaneWidthDp(widthDp),
+                list = { browse(true) },
+                detail = { albumDetail(openAlbum) },
+            )
+            else -> albumDetail(openAlbum)
+        }
+    }
 }
 
 internal enum class LibraryTab { FOLDER, ALBUMS }
@@ -198,6 +225,8 @@ private fun LibraryFolderAndAlbums(
     onBack: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
     importInto: (uris: List<String>, keepGrants: Boolean) -> Unit,
+    /** An album is open in the detail pane beside this one: Back and snackbars are its. */
+    albumOpen: Boolean = false,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -232,7 +261,7 @@ private fun LibraryFolderAndAlbums(
     }
     val selecting = selection.isNotEmpty() && tab == LibraryTab.FOLDER
     BackHandler(enabled = selecting) { vm.clearSelection() }
-    BackHandler(enabled = !selecting && tab == LibraryTab.ALBUMS) { onTab(LibraryTab.FOLDER) }
+    BackHandler(enabled = !selecting && tab == LibraryTab.ALBUMS && !albumOpen) { onTab(LibraryTab.FOLDER) }
     var addToAlbum by remember { mutableStateOf<List<AlbumItem>?>(null) }
     var newAlbumFor by remember { mutableStateOf<List<AlbumItem>?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
@@ -405,7 +434,8 @@ private fun LibraryFolderAndAlbums(
                         .padding(bottom = 16.dp),
                 )
             }
-            SnackbarHost(
+            // One host per state: beside an open album, the album's pane shows them.
+            if (!albumOpen) SnackbarHost(
                 snackbar,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
