@@ -134,6 +134,13 @@ val Mask.hasSemantic: Boolean
     get() = components.any { it.shape is MaskComponent.Semantic || it.shape is BoundSemantic }
 
 /**
+ * True when every component is semantic: the mask means the same thing on any photo (unlike a
+ * radial or gradient placed on this one), so a look can carry it to other photos.
+ */
+val Mask.isSemanticOnly: Boolean
+    get() = components.isNotEmpty() && components.all { it.shape is MaskComponent.Semantic || it.shape is BoundSemantic }
+
+/**
  * Replace each unbound semantic component with what [bind] returns for it. A null from [bind] (field
  * not computed yet, no person found) leaves the component unbound, so it selects nothing. Returns this
  * mask unchanged when it has no semantic components.

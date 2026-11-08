@@ -26,6 +26,8 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import com.spectrafilm.app.masks.LocalAdjustment
+import com.spectrafilm.app.masks.MaskCompositor
 import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.RenderKind
 import com.spectrafilm.engine.SimResult
@@ -213,7 +215,7 @@ private suspend fun exportBatchPhoto(
 ): Uri {
     val app = context.applicationContext
     val io = ProcessDispatchers.io
-    // A fresh state per photo: the look, and this photo's own (absent) crop and masks.
+    // A fresh state per photo: the look, and this photo's own (absent) crop and shape masks.
     val state = ParamsState()
     Presets.decodeLook(look, state)
     val descriptor = options.outputDescriptor(
@@ -262,7 +264,11 @@ private suspend fun exportBatchPhoto(
     val srcExif = withContext(io) { readSourceExif(app, source.uri, keepGps = keepGps) }
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image
     var sceneTap: SceneLuma? = null
+    // The look's skin masks (intent only, unlike shape masks) carry over, bound to skin found on
+    // this photo; found before the render, while the decode is still open.
+    var adjustments: List<LocalAdjustment> = emptyList()
     val res = try {
+        adjustments = Presets.decodeSkinMasks(look).withSkinFoundOn(app, image, params.io)
         runCancellableNative(
             onLateResult = { late ->
                 late.reportOutcome(AppRenderOutcome.CANCELLED)
@@ -288,7 +294,7 @@ private suspend fun exportBatchPhoto(
             OutputEncoder.ANDROID_BITMAP_JPEG,
             -> {
                 val full = simResultToBitmapGraded(
-                    res, cctf, state.saturation, state.vibrance, state.gamutCompress,
+                    res, cctf, state.saturation, state.vibrance, state.gamutCompress, adjustments,
                 )
                 bitmap = full
                 val photoEdge = longEdge?.let { edge ->
@@ -336,6 +342,11 @@ private suspend fun exportBatchPhoto(
                         lease.data, res.width, res.height, res.colorSpace,
                         cctf, state.saturation, state.vibrance, state.gamutCompress,
                     )
+                    if (adjustments.isNotEmpty()) {
+                        MaskCompositor.applyInPlace(
+                            lease.data, res.width, res.height, res.colorSpace, cctf, adjustments,
+                        )
+                    }
                 }
                 withContext(io) {
                     if (descriptor.encoder == OutputEncoder.NATIVE_PNG16) {

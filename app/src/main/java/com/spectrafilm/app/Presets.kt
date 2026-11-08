@@ -13,6 +13,7 @@ package com.spectrafilm.app
 import android.content.Context
 import android.net.Uri
 import com.spectrafilm.app.masks.MaskJson
+import com.spectrafilm.app.masks.isSemanticOnly
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.InputGamutCompress
 import com.spectrafilm.engine.OutputGamutCompress
@@ -140,6 +141,17 @@ object Presets {
             remove("cropSize")
         }
         fromJson(look, into)
+    }
+
+    /**
+     * The look's skin (AI) masks: [decodeLook] drops masks because a radial or gradient belongs to
+     * the photo it was placed on, but a mask made only of semantic parts stores intent and means
+     * the same on every photo, so a batch or the second half-frame carries it over.
+     */
+    internal fun decodeSkinMasks(o: JSONObject): List<com.spectrafilm.app.masks.LocalAdjustment> {
+        val scratch = ParamsState()
+        fromJson(JSONObject(o.toString()), scratch)
+        return scratch.localAdjustments.filter { it.mask.isSemanticOnly }
     }
 
     /** Strict import boundary: bounded caller reads this, rejects future/foreign schemas, then commits. */

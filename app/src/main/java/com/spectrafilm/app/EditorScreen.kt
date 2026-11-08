@@ -1617,11 +1617,15 @@ internal fun EditorScreen(
             val vibrance = state.vibrance
             val gamut = state.gamutCompress
             val local = state.localAdjustments.toList()
+            // Skin masks bind to this photo's skin field; its fingerprint is in the key so the
+            // tiles redraw once skin is found.
+            val skin = SkinFields.current()
+            val cropIo = state.cropIo()
             vm.open(
                 StockPreviewSession(
                     key = listOf(
                         snapshot.ticket.request, free, currentFilm, currentPrint, lastColourPrint,
-                        cctf, saturation, vibrance, gamut, local,
+                        cctf, saturation, vibrance, gamut, local, skin?.fingerprint,
                     ),
                     source = {
                         sourceCache.acquire(snapshot.ticket)?.use { lease ->
@@ -1642,7 +1646,10 @@ internal fun EditorScreen(
                         }
                     },
                     toBitmap = { res ->
-                        simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                        simResultToBitmapGraded(
+                            res, cctf, saturation, vibrance, gamut,
+                            local.withSkinField(cropIo, entry = skin),
+                        )
                     },
                     // "Balance to film stock" adapts the decoded photo to the CURRENT film; a
                     // tile for another film must show that film's adaptation, as a tap would.
@@ -1688,9 +1695,14 @@ internal fun EditorScreen(
             val vibrance = state.vibrance
             val gamut = state.gamutCompress
             val local = state.localAdjustments.toList()
+            val skin = SkinFields.current()
+            val cropIo = state.cropIo()
             vm.open(
                 StockPreviewSession(
-                    key = listOf(snapshot.ticket.request, baseline, looks.keys, cctf, saturation, vibrance, gamut, local),
+                    key = listOf(
+                        snapshot.ticket.request, baseline, looks.keys, cctf, saturation, vibrance, gamut, local,
+                        skin?.fingerprint,
+                    ),
                     source = {
                         sourceCache.acquire(snapshot.ticket)?.use { lease ->
                             withContext(dispatchers.default) {
@@ -1715,7 +1727,10 @@ internal fun EditorScreen(
                         )
                     },
                     toBitmap = { res ->
-                        simResultToBitmapGraded(res, cctf, saturation, vibrance, gamut, local)
+                        simResultToBitmapGraded(
+                            res, cctf, saturation, vibrance, gamut,
+                            local.withSkinField(cropIo, entry = skin),
+                        )
                     },
                 ),
                 owner,
