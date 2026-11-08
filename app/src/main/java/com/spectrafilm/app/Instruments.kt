@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,7 +62,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Which instrument draws the value. The gesture follows: knob and fader drag up, the bar sideways. */
-internal enum class InstrumentKind { KNOB, FADER, GRAD_BAR }
+internal enum class InstrumentKind { KNOB, FADER, PILL, GRAD_BAR }
 
 /** Finger travel, in dp, that sweeps the whole range at normal speed. */
 internal const val INSTRUMENT_TRAVEL_DP = 180f
@@ -255,7 +256,7 @@ internal fun Instrument(
                 drawCircle(if (dragging) active else ink, r, Offset(hx, y), style = Stroke(2.5.dp.toPx()))
             }
         }
-        InstrumentKind.KNOB, InstrumentKind.FADER -> Column(
+        InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL -> Column(
             modifier.width(76.dp).then(gesture),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -290,6 +291,35 @@ internal fun Instrument(
                         Offset(c.x + cos(a) * (r - 3.dp.toPx()), c.y + sin(a) * (r - 3.dp.toPx())),
                         2.5.dp.toPx(),
                         cap = StrokeCap.Round,
+                    )
+                }
+            } else if (kind == InstrumentKind.PILL) {
+                // The exposure pill (instrument catalogue: pill): a wide capsule that fills
+                // from its neutral point, like light poured into it, with a level bar.
+                Canvas(Modifier.size(width = 48.dp, height = 112.dp)) {
+                    val pw = size.width - 8.dp.toPx()
+                    val x0 = 4.dp.toPx()
+                    val top = 4.dp.toPx()
+                    val bot = size.height - 4.dp.toPx()
+                    val corner = CornerRadius(pw / 2)
+                    drawRoundRect(body, Offset(x0, top), Size(pw, bot - top), corner)
+                    val yAt = { t: Float -> bot - (bot - top) * t }
+                    val y0 = yAt(maxOf(anchor, f))
+                    val y1 = yAt(minOf(anchor, f))
+                    clipPath(
+                        androidx.compose.ui.graphics.Path().apply {
+                            addRoundRect(androidx.compose.ui.geometry.RoundRect(x0, top, x0 + pw, bot, corner))
+                        },
+                    ) {
+                        drawRect(active.copy(alpha = 0.55f), Offset(x0, y0), Size(pw, y1 - y0))
+                    }
+                    drawRoundRect(idle, Offset(x0, top), Size(pw, bot - top), corner, style = Stroke(1.dp.toPx()))
+                    val ty = yAt(f)
+                    drawRoundRect(
+                        if (dragging) active else ink,
+                        Offset(x0 + 6.dp.toPx(), ty - 2.dp.toPx()),
+                        Size(pw - 12.dp.toPx(), 4.dp.toPx()),
+                        CornerRadius(2.dp.toPx()),
                     )
                 }
             } else {
@@ -355,4 +385,171 @@ internal fun InstrumentRow(
             }
         }
     }
+}
+
+/** One axis of a [Pad2D]: its own label, range, step, default and setter. */
+internal class PadAxis(
+    val label: String,
+    val value: Float,
+    val range: ClosedFloatingPointRange<Float>,
+    val onValueChange: (Float) -> Unit,
+    val step: Float = 0f,
+    val decimals: Int = 0,
+    val default: Float? = null,
+)
+
+/**
+ * Two parameters on one puck (instrument catalogue: pad2D). The
+ * drag is relative, like the other instruments, so a touch never jumps the puck; x and y
+ * each have their own default detent and end ticks, the HUD reads both values, a double-tap
+ * resets both, and one release is one history step. TalkBack gets each axis as its own
+ * slider (two small semantics nodes), since a 2D drag has no screen-reader equivalent.
+ */
+@Composable
+internal fun Pad2D(
+    title: String,
+    x: PadAxis,
+    y: PadAxis,
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val view = LocalView.current
+    val interaction = LocalSliderInteraction.current
+    val latestX = rememberUpdatedState(x)
+    val latestY = rememberUpdatedState(y)
+    val latestFinished = rememberUpdatedState(onValueChangeFinished)
+    val latestTitle = rememberUpdatedState(title)
+    var dragging by remember { mutableStateOf(false) }
+    val travelPx = with(LocalDensity.current) { INSTRUMENT_TRAVEL_DP.dp.toPx() }
+    fun dx(a: PadAxis) = a.default?.let { snap(it, a.range, a.step) }
+    val modified = isModifiedFromDefault(x.value, x.default, x.range, x.step) ||
+        isModifiedFromDefault(y.value, y.default, y.range, y.step)
+    val reset: (() -> Unit)? = if (modified) {
+        {
+            dx(x)?.let(x.onValueChange)
+            dx(y)?.let(y.onValueChange)
+            onValueChangeFinished?.invoke()
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        }
+    } else null
+    val latestReset = rememberUpdatedState(reset)
+    val readout = { xv: Float, yv: Float ->
+        "${formatValue(xv, latestX.value.decimals)} / ${formatValue(yv, latestY.value.decimals)}"
+    }
+
+    val gesture = Modifier
+        .pointerInput(Unit) { detectTapGestures(onDoubleTap = { latestReset.value?.invoke() }) }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var pastSlop = false
+                var rawX = latestX.value.value
+                var rawY = latestY.value.value
+                val ax = latestX.value
+                val ay = latestY.value
+                var zoneX = detentZone(rawX, dx(ax), ax.range)
+                var zoneY = detentZone(rawY, dx(ay), ay.range)
+                var travelled = Offset.Zero
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        val d = change.position - change.previousPosition
+                        if (!pastSlop) {
+                            travelled += d
+                            if (travelled.getDistance() < viewConfiguration.touchSlop) continue
+                            pastSlop = true
+                            dragging = true
+                        }
+                        val fine = event.changes.count { it.pressed } >= 2
+                        rawX = instrumentDragValue(rawX, d.x, travelPx, ax.range, fine)
+                        rawY = instrumentDragValue(rawY, -d.y, travelPx, ay.range, fine)
+                        val vx = detent(snap(rawX, ax.range, ax.step), dx(ax), ax.range)
+                        val vy = detent(snap(rawY, ay.range, ay.step), dx(ay), ay.range)
+                        val zx = detentZone(vx, dx(ax), ax.range)
+                        val zy = detentZone(vy, dx(ay), ay.range)
+                        if ((zx != SliderZone.FREE && zx != zoneX) || (zy != SliderZone.FREE && zy != zoneY)) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        zoneX = zx
+                        zoneY = zy
+                        latestX.value.onValueChange(vx)
+                        latestY.value.onValueChange(vy)
+                        interaction.onChange(SliderReadout(latestTitle.value, readout(vx, vy)))
+                        change.consume()
+                    }
+                } finally {
+                    // Also on cancellation (the pad left composition mid-drag): the editor's
+                    // drag state must end.
+                    if (pastSlop) {
+                        dragging = false
+                        latestFinished.value?.invoke()
+                        interaction.onFinished()
+                    }
+                }
+            }
+        }
+
+    val fx = instrumentFraction(x.value, x.range)
+    val fy = instrumentFraction(y.value, y.range)
+    val ax0 = instrumentFraction(sliderAnchor(x.default, x.range), x.range)
+    val ay0 = instrumentFraction(sliderAnchor(y.default, y.range), y.range)
+    val active = MaterialTheme.colorScheme.primary
+    val idle = MaterialTheme.colorScheme.outlineVariant
+    val body = MaterialTheme.colorScheme.surfaceContainerHighest
+    val ink = MaterialTheme.colorScheme.onSurface
+    val valueColor = if (modified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val resetLabel = stringResource(R.string.widget_value_pill_reset_default, title)
+
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box {
+            Canvas(Modifier.size(132.dp).then(gesture).clearAndSetSemantics { }) {
+                val pad = 8.dp.toPx()
+                val w = size.width - 2 * pad
+                val h = size.height - 2 * pad
+                val c = Offset(size.width / 2, size.height / 2)
+                drawRoundRect(body, Offset(pad, pad), Size(w, h), CornerRadius(12.dp.toPx()))
+                // Neutral crosshair through the defaults.
+                val nx = pad + w * ax0
+                val ny = pad + h * (1 - ay0)
+                drawLine(idle, Offset(nx, pad), Offset(nx, pad + h), 1.dp.toPx())
+                drawLine(idle, Offset(pad, ny), Offset(pad + w, ny), 1.dp.toPx())
+                val px = pad + w * fx
+                val py = pad + h * (1 - fy)
+                drawCircle(if (dragging) active else ink, 9.dp.toPx(), Offset(px, py), style = Stroke(2.dp.toPx()))
+                drawCircle(if (dragging) active else ink, 3.dp.toPx(), Offset(px, py))
+            }
+            // One accessibility node per axis, laid over the pad: TalkBack swipes adjust them.
+            Column(Modifier.matchParentSize()) {
+                for (a in listOf(x, y)) {
+                    val steps = if (a.step > 0f) (((a.range.endInclusive - a.range.start) / a.step).roundToInt() - 1).coerceAtLeast(0) else 0
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .clearAndSetSemantics {
+                                contentDescription = a.label
+                                stateDescription = formatValue(a.value, a.decimals)
+                                progressBarRangeInfo = ProgressBarRangeInfo(a.value.coerceIn(a.range.start, a.range.endInclusive), a.range, steps)
+                                setProgress { t ->
+                                    a.onValueChange(snap(t, a.range, a.step))
+                                    latestFinished.value?.invoke()
+                                    true
+                                }
+                                if (reset != null) customActions = listOf(CustomAccessibilityAction(resetLabel) { reset(); true })
+                            },
+                    )
+                }
+            }
+        }
+        Text(title, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+        Text(readout(x.value, y.value), style = MaterialTheme.typography.labelMedium, color = valueColor)
+    }
+}
+
+/** The one-line explanation under an instrument (sliders carry theirs in a tooltip). */
+@Composable
+internal fun InstrumentTooltip(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

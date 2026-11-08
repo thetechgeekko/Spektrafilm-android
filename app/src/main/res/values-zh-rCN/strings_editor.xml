@@ -329,6 +329,8 @@
     <string name="editor_sim_saturation">饱和度</string>
     <string name="editor_sim_saturation_tooltip">输出的整体色彩浓度。负值 = 更柔和、低饱和（缓解过于浓烈的风格）；正值 = 更鲜艳。在胶片渲染后应用。</string>
     <string name="editor_sim_vibrance">自然饱和度</string>
+    <string name="editor_sim_sat_vib_pad">饱和度 × 自然饱和度</string>
+    <string name="editor_sim_print_color_pad">冲印滤镜 M × Y</string>
     <string name="editor_sim_vibrance_tooltip">类似饱和度，但更侧重低饱和色，使本已饱和的色调（及肤色）变化更小。在胶片渲染后应用。</string>
     <string name="editor_sim_gamut_compression">色域压缩</string>
     <string name="editor_sim_gamut_compression_tooltip">ACES 风格：将高饱和色拉向中性，柔化刺眼的青色或边缘色边。0 = 关闭。适合改善高饱和高光的不自然观感。</string>

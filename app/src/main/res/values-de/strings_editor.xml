@@ -367,6 +367,8 @@
     <string name="editor_sim_saturation">Sättigung</string>
     <string name="editor_sim_saturation_tooltip">Gesamte Farbigkeit der Ausgabe. Negativ = weicher/gedämpfter (zähmt einen zu knackigen Look); positiv = lebendiger. Wird nach dem Film-Rendering angewendet.</string>
     <string name="editor_sim_vibrance">Dynamik</string>
+    <string name="editor_sim_sat_vib_pad">Sättigung × Dynamik</string>
+    <string name="editor_sim_print_color_pad">Abzugsfilter M × Y</string>
     <string name="editor_sim_vibrance_tooltip">Wie Sättigung, aber auf gedämpfte Farben gewichtet, sodass bereits gesättigte Töne (und Haut) sich weniger verschieben. Wird nach dem Film-Rendering angewendet.</string>
     <string name="editor_sim_gamut_compression">Gamutkompression</string>
     <string name="editor_sim_gamut_compression_tooltip">ACES-artig: mildert harte Cyan-/Kantensäume an sehr gesättigten Farben, indem sie Richtung neutral gezogen werden. 0 = aus. Hilft, wenn gesättigte Lichter unnatürlich wirken.</string>

@@ -365,6 +365,8 @@
     <string name="editor_sim_saturation">彩度</string>
     <string name="editor_sim_saturation_tooltip">出力全体の色の鮮やかさ。マイナスで柔らかく落ち着いた色（強すぎる表現を抑える）、プラスでより鮮やかに。フィルムのレンダリング後に適用されます。</string>
     <string name="editor_sim_vibrance">自然な彩度</string>
+    <string name="editor_sim_sat_vib_pad">彩度 × 自然な彩度</string>
+    <string name="editor_sim_print_color_pad">プリントフィルター M × Y</string>
     <string name="editor_sim_vibrance_tooltip">彩度に似ていますが、くすんだ色に重みがあるため、すでに鮮やかな色（と肌）は変化が少なくなります。フィルムのレンダリング後に適用されます。</string>
     <string name="editor_sim_gamut_compression">色域圧縮</string>
     <string name="editor_sim_gamut_compression_tooltip">ACES方式：非常に鮮やかな色の強いシアンやエッジの縁取りを、ニュートラル寄りに引き寄せて和らげます。0でオフ。鮮やかなハイライトが不自然に見えるときに役立ちます。</string>
