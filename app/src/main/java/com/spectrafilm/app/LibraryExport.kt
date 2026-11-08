@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.SpektraEngine
@@ -57,6 +58,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /** The frames a Library export can render, in grid order, once each. */
 internal fun libraryExportFrames(frames: List<LibraryEntry>): List<Pair<LibraryEntry, SourceKind>> =
@@ -79,6 +81,43 @@ internal fun libraryExportDefaults(format: ExportFormat, quality: Int, border: F
     )
 
 internal enum class LibraryExportStart { STARTED, BUSY, NOTHING }
+
+/**
+ * The Library sheet's last choices, kept across launches so a reinstall or restart does not
+ * send the next batch back to the Settings defaults. The file name is per export, so it is
+ * not kept; anything unreadable falls back to [fallback].
+ */
+internal fun encodeLibraryExportOptions(options: ExportOptions): String = JSONObject().apply {
+    put("format", options.format.name)
+    put("jpegQuality", options.jpegQuality)
+    put("size", options.size.name)
+    put("customLongEdge", options.customLongEdge)
+    put("border", options.border.name)
+    put("sharpen", options.sharpen.name)
+}.toString()
+
+internal fun decodeLibraryExportOptions(text: String?, fallback: ExportOptions): ExportOptions {
+    if (text.isNullOrBlank()) return fallback
+    return runCatching {
+        val json = JSONObject(text)
+        val format = ExportFormat.valueOf(json.getString("format"))
+        require(format != ExportFormat.SCENE_LINEAR_TIFF)
+        ExportOptions(
+            format = format,
+            jpegQuality = json.getInt("jpegQuality").coerceIn(1, 100),
+            size = ExportSize.valueOf(json.getString("size")),
+            // 0 is the cleared custom field, which targetLongEdge() reads as full size; keep it.
+            customLongEdge = json.getInt("customLongEdge").coerceAtLeast(0),
+            customName = "",
+            border = FilmBorder.parse(json.optString("border", FilmBorder.NONE.name)),
+            sharpen = runCatching { OutputSharpen.valueOf(json.getString("sharpen")) }
+                .getOrDefault(OutputSharpen.NONE),
+        )
+    }.getOrDefault(fallback)
+}
+
+private const val LIBRARY_EXPORT_PREFS = "library_export"
+private const val KEY_LIBRARY_EXPORT_OPTIONS = "options"
 
 /** Submit the run; never blocks on the engine, which is fetched inside the run. */
 internal fun startLibraryExport(
@@ -155,8 +194,12 @@ internal class LibraryExportFlow(
     private var waitingForPermission: Pair<List<LibraryEntry>, () -> Unit>? = null
     internal var askStoragePermission: () -> Unit = {}
 
+    private val prefs = context.getSharedPreferences(LIBRARY_EXPORT_PREFS, Context.MODE_PRIVATE)
     var options by mutableStateOf(
-        AppSettings.from(context).let { libraryExportDefaults(it.exportFormat, it.exportQuality, it.exportBorder) },
+        decodeLibraryExportOptions(
+            prefs.getString(KEY_LIBRARY_EXPORT_OPTIONS, null),
+            AppSettings.from(context).let { libraryExportDefaults(it.exportFormat, it.exportQuality, it.exportBorder) },
+        ),
     )
     var keepGps by mutableStateOf(AppSettings.from(context).exportKeepGps)
 
@@ -191,6 +234,7 @@ internal class LibraryExportFlow(
     fun export() {
         val (frames, onStarted) = pending ?: return
         pending = null
+        prefs.edit { putString(KEY_LIBRARY_EXPORT_OPTIONS, encodeLibraryExportOptions(options)) }
         when (startLibraryExport(context, frames, options, keepGps)) {
             LibraryExportStart.STARTED -> onStarted()
             LibraryExportStart.BUSY -> show(context.getString(R.string.library_export_busy))

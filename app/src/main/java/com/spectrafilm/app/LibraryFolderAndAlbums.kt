@@ -100,6 +100,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -134,6 +135,16 @@ internal fun LibraryFolderAndAlbums(
     val openFrame = { uri: Uri -> onOpen(uri, vm.visibleEntries()) }
     // Re-read on every visit, so frames shot since the last one appear.
     LaunchedEffect(Unit) { vm.refresh() }
+    // A batch export that wrote files: list them now (Pictures/Spektrafilm is in the gallery,
+    // and may be the chosen folder) instead of on the next visit.
+    val exportWritten by remember {
+        BatchExportTracker.state.map { p -> p?.takeIf { it.finished && it.done > 0 } }
+    }.collectAsStateWithLifecycle(null)
+    LaunchedEffect(exportWritten) {
+        if (exportWritten == null) return@LaunchedEffect
+        vm.refresh()
+        galleryVm.refresh()
+    }
     val outcome = (paste as? LibraryPasteState.Done)?.result
     LaunchedEffect(outcome) {
         if (outcome == null) return@LaunchedEffect

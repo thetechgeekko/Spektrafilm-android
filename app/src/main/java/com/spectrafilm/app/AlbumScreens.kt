@@ -401,25 +401,34 @@ internal fun AlbumDetail(
         },
     ) {
         Box(Modifier.fillMaxSize()) {
-            when {
-                shown == null -> Unit
-                shown.isEmpty() -> LibraryMessage(
-                    title = stringResource(R.string.album_empty_title),
-                    body = stringResource(R.string.album_empty_body),
-                    action = stringResource(R.string.album_go_to_folder),
-                    onAction = onGoToFolder,
+            Column(Modifier.fillMaxSize()) {
+                // A running export (and then its result) above the grid, pushing it down so the
+                // day header and first row stay visible.
+                LibraryExportProgress(
+                    Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth(),
                 )
-                else -> LibraryGrid(
-                    shown,
-                    albumQuery,
-                    aspects,
-                    currentUri,
-                    selection,
-                    onOpen = { uri -> onOpen(uri, shown) },
-                    onToggleSelected = vm::toggleSelected,
-                    onSelectRange = { anchor, to, base -> vm.selectRange(shown, anchor, to, base) },
-                    onToggleDay = vm::toggleDay,
-                )
+                when {
+                    shown == null -> Unit
+                    shown.isEmpty() -> LibraryMessage(
+                        title = stringResource(R.string.album_empty_title),
+                        body = stringResource(R.string.album_empty_body),
+                        action = stringResource(R.string.album_go_to_folder),
+                        onAction = onGoToFolder,
+                    )
+                    else -> LibraryGrid(
+                        shown,
+                        albumQuery,
+                        aspects,
+                        currentUri,
+                        selection,
+                        onOpen = { uri -> onOpen(uri, shown) },
+                        onToggleSelected = vm::toggleSelected,
+                        onSelectRange = { anchor, to, base -> vm.selectRange(shown, anchor, to, base) },
+                        onToggleDay = vm::toggleDay,
+                    )
+                }
             }
             if (selecting && shown != null) {
                 LibraryActionPill(
@@ -451,12 +460,6 @@ internal fun AlbumDetail(
                     }
                 }
             }
-            LibraryExportProgress(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .fillMaxWidth(),
-            )
             SnackbarHost(
                 snackbar,
                 modifier = Modifier
