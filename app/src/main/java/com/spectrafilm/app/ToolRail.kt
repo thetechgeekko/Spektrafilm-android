@@ -69,6 +69,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 /** Height of the rail's cards: tall enough for the 2D pad, the tallest instrument. */
 internal const val TOOL_RAIL_HEIGHT_DP = 224
 
+/** The 2D pads' side on a card: leaves room for the title and the typed-entry values below. */
+private const val RAIL_PAD_DP = 104
+
+/** Tools whose card only opens their full settings: dimming that button would hide the way in. */
+private val OPENS_SETTINGS_ONLY = setOf(
+    Category.TONE_CURVE, Category.OUTPUT, Category.DISPLAY, Category.INPUT, Category.EXPERIMENTAL,
+)
+
 /** A tool's on/off switch, for the tools that have one. */
 internal class ToolSwitch(val on: Boolean, val set: (Boolean) -> Unit)
 
@@ -198,7 +206,7 @@ private fun SectionLabel(stage: Stage) {
     Box(Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
         Text(
             stringResource(stage.labelRes).uppercase(),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             modifier = Modifier
@@ -291,7 +299,7 @@ private fun ToolCard(
                 )
             }
             Box(
-                Modifier.weight(1f).alpha(if (switch?.on == false) 0.38f else 1f),
+                Modifier.weight(1f).alpha(if (switch?.on == false && tool !in OPENS_SETTINGS_ONLY) 0.38f else 1f),
                 contentAlignment = Alignment.Center,
             ) { content() }
         }
@@ -344,6 +352,7 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
                 { s.saturation = it }, step = 1f, decimals = 0, default = 0f),
             y = PadAxis(stringResource(R.string.editor_sim_vibrance), s.vibrance, -100f..100f,
                 { s.vibrance = it }, step = 1f, decimals = 0, default = 0f),
+            padSize = RAIL_PAD_DP.dp,
         )
         Category.PRINT_COLOR -> Pad2D(
             title = stringResource(R.string.editor_sim_print_color_pad),
@@ -351,6 +360,7 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
                 { s.printMFilterShift = it }, step = 1f, decimals = 0, default = 0f),
             y = PadAxis(stringResource(R.string.editor_sim_print_y_shift), s.printYFilterShift, -50f..50f,
                 { s.printYFilterShift = it }, step = 1f, decimals = 0, default = 0f),
+            padSize = RAIL_PAD_DP.dp,
         )
         Category.COUPLERS -> Row {
             Instrument(InstrumentKind.ARC_GAUGE, stringResource(R.string.editor_coup_amount), s.couplersAmount, 0f..4f,
