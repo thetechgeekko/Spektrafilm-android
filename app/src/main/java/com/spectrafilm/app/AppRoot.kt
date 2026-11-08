@@ -616,9 +616,12 @@ internal fun MainActivity.AppRoot(
                         viewModel(factory = appContainer.viewModelFactory)
                     val albumsVm: AlbumsViewModel =
                         viewModel(factory = appContainer.viewModelFactory)
+                    val galleryVm: GalleryViewModel =
+                        viewModel(factory = appContainer.viewModelFactory)
                     LibraryDestination(
                         vm = libraryVm,
                         albumsVm = albumsVm,
+                        galleryVm = galleryVm,
                         sharedIn = incomingShareBatch.value,
                         onSharedInTaken = { incomingShareBatch.value = null },
                         currentUri = activeRestoration.source.uri,

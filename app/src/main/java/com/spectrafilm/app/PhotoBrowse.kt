@@ -22,12 +22,28 @@ internal object PhotoBrowse {
     @Volatile
     var frames: List<BrowseFrame> = emptyList()
 
+    /**
+     * Working copies the editor opened in place of a browsed frame (a Gallery photo under
+     * Android 14's partial access is not durably readable, so the editor copies it), mapped
+     * back to that frame, so swiping still finds its neighbours.
+     */
+    private val origins = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** [copy] stands in for [original]. */
+    fun rememberOrigin(copy: String, original: String) {
+        if (copy != original) origins[copy] = original
+    }
+
+    private fun browsed(currentUri: String?): String? = currentUri?.let { origins[it] ?: it }
+
     /** The frame [step] places from [currentUri] (+1 next, -1 previous), or null. */
-    fun neighbour(currentUri: String?, step: Int): BrowseFrame? = neighbourIn(frames, currentUri, step)
+    fun neighbour(currentUri: String?, step: Int): BrowseFrame? = neighbourIn(frames, browsed(currentUri), step)
 
     /** Where [currentUri] sits in [frames], or -1 when it is not in the folder. */
-    fun indexOf(currentUri: String?): Int =
-        if (currentUri == null) -1 else frames.indexOfFirst { it.uri == currentUri }
+    fun indexOf(currentUri: String?): Int {
+        val uri = browsed(currentUri) ?: return -1
+        return frames.indexOfFirst { it.uri == uri }
+    }
 }
 
 /** [PhotoBrowse.neighbour] over an explicit list. Pure: unit-tested. */

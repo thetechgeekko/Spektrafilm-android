@@ -115,6 +115,7 @@ internal val thumbnailLane = ProcessDispatchers.io.limitedParallelism(3)
 internal fun LibraryDestination(
     vm: LibraryViewModel,
     albumsVm: AlbumsViewModel,
+    galleryVm: GalleryViewModel,
     /** Photos shared in from another app, to import into the Imported album; null when none. */
     sharedIn: List<String>?,
     onSharedInTaken: () -> Unit,
@@ -177,17 +178,18 @@ internal fun LibraryDestination(
         return
     }
     LibraryFolderAndAlbums(
-        vm, albumsVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
+        vm, albumsVm, galleryVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
         importInto,
     )
 }
 
-internal enum class LibraryTab { FOLDER, ALBUMS }
+internal enum class LibraryTab { FOLDER, GALLERY, ALBUMS }
 
 @Composable
 private fun LibraryFolderAndAlbums(
     vm: LibraryViewModel,
     albumsVm: AlbumsViewModel,
+    galleryVm: GalleryViewModel,
     albums: List<Album>,
     currentUri: String?,
     tab: LibraryTab,
@@ -231,8 +233,13 @@ private fun LibraryFolderAndAlbums(
         }
     }
     val selecting = selection.isNotEmpty() && tab == LibraryTab.FOLDER
+    val galleryState by galleryVm.state.collectAsStateWithLifecycle()
+    val gallerySelection by galleryVm.selection.collectAsStateWithLifecycle()
+    val gallerySelecting = gallerySelection.isNotEmpty() && tab == LibraryTab.GALLERY
+    val galleryShown = { applyLibraryQuery(galleryState.entries, query) }
     BackHandler(enabled = selecting) { vm.clearSelection() }
-    BackHandler(enabled = !selecting && tab == LibraryTab.ALBUMS) { onTab(LibraryTab.FOLDER) }
+    BackHandler(enabled = gallerySelecting) { galleryVm.clearSelection() }
+    BackHandler(enabled = !selecting && !gallerySelecting && tab != LibraryTab.FOLDER) { onTab(LibraryTab.FOLDER) }
     var addToAlbum by remember { mutableStateOf<List<AlbumItem>?>(null) }
     var newAlbumFor by remember { mutableStateOf<List<AlbumItem>?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
@@ -291,15 +298,21 @@ private fun LibraryFolderAndAlbums(
     NavScaffold(
         title = if (selecting) {
             pluralStringResource(R.plurals.library_selected_count, selection.size, selection.size)
+        } else if (gallerySelecting) {
+            pluralStringResource(R.plurals.library_selected_count, gallerySelection.size, gallerySelection.size)
         } else if (tab == LibraryTab.FOLDER) {
             state.folderName ?: stringResource(R.string.library_title)
         } else {
             stringResource(R.string.library_title)
         },
-        onBack = if (selecting) vm::clearSelection else onBack,
-        closeNavigation = selecting,
+        onBack = when {
+            selecting -> vm::clearSelection
+            gallerySelecting -> galleryVm::clearSelection
+            else -> onBack
+        },
+        closeNavigation = selecting || gallerySelecting,
         floatingActionButton = {
-            if (!selecting) {
+            if (!selecting && !gallerySelecting) {
                 LibraryFabMenu(
                     onOpenPhoto = {
                         photoPicker.launch(
@@ -331,6 +344,9 @@ private fun LibraryFolderAndAlbums(
                         )
                     }
                 }
+            } else if (tab == LibraryTab.GALLERY && !gallerySelecting && galleryState.entries.isNotEmpty()) {
+                LibraryViewToggle(query, onChange = vm::setQuery)
+                LibrarySortMenu(query, onChange = vm::setQuery)
             } else if (state.treeUri != null && tab == LibraryTab.FOLDER) {
                 LibraryViewToggle(query, onChange = vm::setQuery)
                 LibrarySortMenu(query, onChange = vm::setQuery)
@@ -363,7 +379,7 @@ private fun LibraryFolderAndAlbums(
     ) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                if (!selecting) LibraryTabs(tab, onTab)
+                if (!selecting && !gallerySelecting) LibraryTabs(tab, onTab)
                 when (tab) {
                     LibraryTab.FOLDER -> LibraryScreen(
                         state,
@@ -377,6 +393,13 @@ private fun LibraryFolderAndAlbums(
                         aspects = aspects,
                         onSelectRange = vm::selectRange,
                         onToggleDay = vm::toggleDay,
+                    )
+                    LibraryTab.GALLERY -> GalleryTab(
+                        vm = galleryVm,
+                        query = query,
+                        onQueryChange = vm::setQuery,
+                        currentUri = currentUri,
+                        onOpen = onOpen,
                     )
                     LibraryTab.ALBUMS -> AlbumsTab(
                         albums = albums,
@@ -405,6 +428,27 @@ private fun LibraryFolderAndAlbums(
                         .padding(bottom = 16.dp),
                 )
             }
+            if (gallerySelecting) {
+                // Add to album, Share and Select all; pasting a look stays a folder action for now.
+                LibraryActionPill(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(WindowInsets.navigationBars.asPaddingValues())
+                        .padding(bottom = 16.dp),
+                ) {
+                    LibraryBarAction(SpectraIcons.AddToAlbum, R.string.album_add_to, true) {
+                        addToAlbum = galleryShown()
+                            .filter { it.documentUri in gallerySelection }
+                            .map { AlbumItem.of(it, treeUri = null) }
+                    }
+                    LibraryBarAction(SpectraIcons.Share, R.string.library_share, true) {
+                        shareLibraryFrames(ctx, galleryShown().filter { it.documentUri in gallerySelection })
+                    }
+                    LibraryBarAction(SpectraIcons.Check, R.string.library_select_all, true) {
+                        galleryVm.selectAll(galleryShown().map { it.documentUri })
+                    }
+                }
+            }
             SnackbarHost(
                 snackbar,
                 modifier = Modifier
@@ -415,7 +459,10 @@ private fun LibraryFolderAndAlbums(
     }
     val added = { name: String, count: Int? ->
         // Unsaved: the selection stays, so trying again needs no reselecting.
-        if (count != null) vm.clearSelection()
+        if (count != null) {
+            vm.clearSelection()
+            galleryVm.clearSelection()
+        }
         scope.launch {
             snackbar.showSnackbar(
                 if (count == null) {
@@ -530,7 +577,7 @@ internal fun LibraryScreen(
  * and at large font sizes rather than wrapping into a second row.
  */
 @Composable
-private fun LibraryFindBar(query: LibraryQuery, onChange: (LibraryQuery) -> Unit) {
+internal fun LibraryFindBar(query: LibraryQuery, onChange: (LibraryQuery) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         val searchLabel = stringResource(R.string.library_search_hint)
         TextField(
