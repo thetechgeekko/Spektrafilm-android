@@ -160,44 +160,14 @@ internal fun EditorScreen(
     val profiles by profilesState
     val state = session.params
 
-    // PERF: decoded proxy-source cache. The interactive preview path re-uses this decoded
-    // LinearImage across look/film param edits instead of re-running source decode (LibRaw
-    // RAW decode or bitmap decode + sRGB→ProPhoto linearization + EXIF/manual rotation) on
-    // every previewTick. Keyed by the decode-affecting inputs only (URI + kind + RAW WB/
-    // temp/tint + manual rotation + target edge); any change to one of those invalidates it
-    // (the key mismatches → fresh decode). See DecodedSourceCache for the read-only proof
-    // that the same buffer can be re-fed to the engine without a defensive copy.
-    // EXPORT does NOT use this cache — it always decodes fresh at EXPORT_MAX_EDGE_PX.
-    val sourceCache = remember { DecodedSourceCache() }
-    // Retained-result grade cache: grade-only edits (saturation/vibrance/gamut/
-    // masks) re-grade the last settle render's pristine engine output in pure
-    // Kotlin — zero native work. Keyed by engine params + decode key + edge.
-    val gradeCache = remember { GradeCache() }
-    DisposableEffect(Unit) { onDispose { sourceCache.invalidate() } }
+    // Plain state holders and per-composition caches (EditorScreenState.kt).
+    val screen = rememberEditorScreenState()
+    val sourceCache = screen.sourceCache
+    val gradeCache = screen.gradeCache
+    val zoomSourceCache = screen.zoomSourceCache
+    val zoomDecodeFlight = screen.zoomDecodeFlight
+    val previewDecodeFlight = screen.previewDecodeFlight
 
-    // PERF/OOM: a SECOND single-entry cache for the MAX_EDGE_PX whole-image proxy used by the
-    // Lightroom zoom (renderRoi) and the 100% magnifier. Previously both decoded fresh on every
-    // gesture settle — each a ~1s LibRaw decode + a 36MB managed-heap LinearImage (1500×2000×3×
-    // 4B) — so rapid pan/zoom stacked several before GC reclaimed them and the ART heap OOM'd
-    // ("Failed to allocate a 36000019 byte allocation"). Keeping the 2048px proxy resident (and
-    // reusing it for every crop) removes both the OOM pileup and the per-gesture decode latency,
-    // which is what makes zoom-pan feel Lightroom-smooth. It is a SEPARATE instance from
-    // sourceCache so the 640px preview proxy and the 2048px zoom proxy don't evict each other
-    // (the single-entry cache is keyed by maxEdge — sharing one would thrash both back to a
-    // fresh decode every render).
-    val zoomSourceCache = remember { DecodedSourceCache() }
-    // Single-flight guards: a cancelled zoom/preview render's still-running native decode is
-    // reused by the next gesture instead of triggering an overlapping re-decode (battery).
-    val zoomDecodeFlight = remember { SingleFlight<Unit>() }
-    val previewDecodeFlight = remember { SingleFlight<Unit>() }
-    DisposableEffect(Unit) { onDispose { zoomSourceCache.invalidate() } }
-    DisposableEffect(Unit) {
-        onDispose {
-            gradeCache.close()
-            zoomDecodeFlight.invalidate()
-            previewDecodeFlight.invalidate()
-        }
-    }
 
     // bundled catalog (friendly stock names + grouping) and built-in presets
     val builtInGroups by remember {
@@ -237,12 +207,12 @@ internal fun EditorScreen(
             authorizationRequired = sourceAuthorizationRequired,
         )
     }
-    val previewState = remember { mutableStateOf<Bitmap?>(null) }
+    val previewState = screen.previewState
     var preview by previewState
     // Time to full display (MAD audit fix 4): the editor is fully drawn once the first
     // rendered preview is on screen, so startup can be measured as TTFD.
     ReportDrawnWhen { preview != null }
-    val beforePreviewState = remember { mutableStateOf<Bitmap?>(null) }
+    val beforePreviewState = screen.beforePreviewState
     var beforePreview by beforePreviewState
     // The histogram captures its pixels during composition and never retains either Bitmap.
     // Once a frame is replaced (or the editor leaves composition), no asynchronous reader can
@@ -255,13 +225,13 @@ internal fun EditorScreen(
         val owned = beforePreview
         onDispose { owned?.let(::retirePreviewBitmap) }
     }
-    val previewBusyState = remember { mutableStateOf(false) }
+    val previewBusyState = screen.previewBusyState
     var previewBusy by previewBusyState
-    val decodingState = remember { mutableStateOf(false) }
+    val decodingState = screen.decodingState
     var decoding by decodingState
-    val lastRenderMsState = remember { mutableStateOf<Long?>(null) }
+    val lastRenderMsState = screen.lastRenderMsState
     var lastRenderMs by lastRenderMsState
-    val renderErrState = remember { mutableStateOf<String?>(null) }
+    val renderErrState = screen.renderErrState
     var renderErr by renderErrState
     // One-shot at-restore snapshot (remember, no keys): later runtime transitions reach the
     // UI through its Compose observer, never through this initializer.
@@ -335,9 +305,9 @@ internal fun EditorScreen(
     // Only the render is modal; the result is a Snackbar and the pill's check, which never
     // block the editor.
     val exportMaskVisible = exportInFlight
-    val previewTickState = remember { mutableIntStateOf(0) }
+    val previewTickState = screen.previewTickState
     var previewTick by previewTickState
-    val publicationGate = remember { RenderPublicationGate() }
+    val publicationGate = screen.publicationGate
     val previewRevision = remember(previewTick) { publicationGate.nextRevision() }
     // Slider drag tracking, the HUD readout and the sideways photo scrub (EditorSliderTracking.kt).
     val sliderTracking = rememberEditorSliderTracking(viewerVm)
@@ -376,15 +346,13 @@ internal fun EditorScreen(
     val photoSwipe = photoBrowse.photoSwipe
     val folderStrip = photoBrowse.folderStrip
 
-    // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
-    // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
-    val dngFallbackNoticeState = remember { mutableStateOf(false) }
+    val dngFallbackNoticeState = screen.dngFallbackNoticeState
     var dngFallbackNotice by dngFallbackNoticeState
 
     // LUT export
-    val bakingLutState = remember { mutableStateOf(false) }
+    val bakingLutState = screen.bakingLutState
     var bakingLut by bakingLutState
-    val pendingLutTextState = remember { mutableStateOf<String?>(null) }
+    val pendingLutTextState = screen.pendingLutTextState
     var pendingLutText by pendingLutTextState
 
     // Viewer modes (compare, histogram, hidden chrome) live in EditorViewerViewModel (#272).
@@ -397,18 +365,13 @@ internal fun EditorScreen(
     // GPU-samples them instead of the CPU bitmap. Read at composition — toggling in
     // Settings applies on the next return to the editor.
     val gpuEnabled = settings.gpuPreview
-    val gpuProxyLeaseState = remember { mutableStateOf<DecodedSourceCache.Lease?>(null) }
+    val gpuProxyLeaseState = screen.gpuProxyLeaseState
     var gpuProxyLease by gpuProxyLeaseState
     val gpuProxy = gpuProxyLease?.image
-    val gpuLutState = remember { mutableStateOf<CubeLut?>(null) }
+    val gpuLutState = screen.gpuLutState
     var gpuLut by gpuLutState
-    // Auto-exposure gain (2^ev) for the GPU path: the LUT is baked AE-off at unity
-    // gain, so the shader multiplies this in before the lookup (see LutGpuPreview).
-    val gpuGainState = remember { mutableFloatStateOf(1f) }
+    val gpuGainState = screen.gpuGainState
     var gpuGain by gpuGainState
-    DisposableEffect(Unit) {
-        onDispose { gpuProxyLease?.close() }
-    }
 
     // interactive crop overlay (Lightroom-style); hosts on top of everything.
     val restoredTool = initialRestoredSession?.tool
@@ -482,7 +445,7 @@ internal fun EditorScreen(
 
     // presets
     val restoredPreset = initialRestoredSession?.preset
-    val presetListState = remember { mutableStateOf<List<String>>(emptyList()) }
+    val presetListState = screen.presetListState
     var presetList by presetListState
     // Preset panel selection + name, the Lightroom-style amount blend anchors and the
     // copy/paste settings clipboard (backlog #10) live in PresetViewModel (#272), seeded
@@ -504,12 +467,12 @@ internal fun EditorScreen(
     // sync: a run ends by itself the moment the live state stops matching what the last
     // apply produced, which covers source changes, resets, pastes and any hand edit in
     // one condition. (A hand-maintained effect-key list in this file has drifted before.)
-    val presetBaselineJsonState = remember { mutableStateOf<String?>(null) }
+    val presetBaselineJsonState = screen.presetBaselineJsonState
     var presetBaselineJson by presetBaselineJsonState
-    val lastBuiltInOutputState = remember { mutableStateOf<String?>(null) }
+    val lastBuiltInOutputState = screen.lastBuiltInOutputState
     var lastBuiltInOutput by lastBuiltInOutputState
     // Id of the built-in look whose result [lastBuiltInOutput] is: the Look strip's selection.
-    val lastBuiltInIdState = remember { mutableStateOf<String?>(null) }
+    val lastBuiltInIdState = screen.lastBuiltInIdState
 
     // Capture the pre-apply look, run [apply], then snapshot the full preset and arm
     // the amount slider at 100%. Used by both built-in and saved-preset apply paths.
@@ -529,24 +492,24 @@ internal fun EditorScreen(
     // survives navigation to Settings/About and back.
     var activeCategory by activeCategoryState
     // 0..1 while a predictive-back swipe is closing the open panel; drives its shrink.
-    var panelBackProgress by remember { mutableFloatStateOf(0f) }
+    var panelBackProgress by screen.panelBackProgressState
 
     val presetRepo = remember(ctx) { ctx.appContainer.presets }
     fun refreshPresets() { presetList = presetRepo.list() }
 
     // --- non-destructive recipe (sidecar) layer ---
-    val recipeReadyState = remember { mutableStateOf(false) }
+    val recipeReadyState = screen.recipeReadyState
     var recipeReady by recipeReadyState
-    val hasRecipeState = remember { mutableStateOf(false) }
+    val hasRecipeState = screen.hasRecipeState
     var hasRecipe by hasRecipeState
-    val defaultsJsonState = remember { mutableStateOf<String?>(null) }
+    val defaultsJsonState = screen.defaultsJsonState
     var defaultsJson by defaultsJsonState
     LaunchedEffect(recipeReady, state.localAdjustments.size) {
         if (recipeReady) {
             toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
         }
     }
-    val snackbarHost = remember { SnackbarHostState() }
+    val snackbarHost = screen.snackbarHost
     val recipeRepo = remember(ctx) { ctx.appContainer.recipes }
     val recipeKey = remember(sourceUri) { Recipes.keyFor(sourceUri) }
     // Lifecycle-aware like every other collector here, but kept active down to CREATED on
@@ -557,13 +520,11 @@ internal fun EditorScreen(
         minActiveState = Lifecycle.State.CREATED,
     )
     val exportRuntimeState by exportRuntimeStateState
-    val lastHandledExportRunState = remember { mutableLongStateOf(0L) }
+    val lastHandledExportRunState = screen.lastHandledExportRunState
     var lastHandledExportRun by lastHandledExportRunState
-    val exportPublicationState = remember {
-        mutableStateOf<Pair<Long, RenderPublicationTicket>?>(null)
-    }
+    val exportPublicationState = screen.exportPublicationState
     var exportPublication by exportPublicationState
-    val sessionCheckpointAction = remember { arrayOfNulls<() -> Boolean>(1) }
+    val sessionCheckpointAction = screen.sessionCheckpointAction
 
     // The process-owned export survives this Activity. A recreated UI observes exactly one
     // retained terminal outcome instead of turning a committed MediaStore row into CANCELLED.
@@ -592,7 +553,7 @@ internal fun EditorScreen(
     }
 
     // Predictive-back progress of the open full-screen tool (crop / mask geometry / sampler).
-    var overlayBackProgress by remember { mutableFloatStateOf(0f) }
+    var overlayBackProgress by screen.overlayBackProgressState
 
     // --- in-session undo / redo edit history ---
     // A snapshot = the full preset/recipe JSON (Presets.toJsonString — covers every
@@ -610,7 +571,7 @@ internal fun EditorScreen(
     var restoring by restoringState
     // Explicit conflict marker used only while AppRoot is recovering transient session IO.
     // Programmatic restore/default application keeps it false; a settled user edit sets it.
-    var liveCursorMutated by remember { mutableStateOf(false) }
+    var liveCursorMutated by screen.liveCursorMutatedState
 
     // Snapshot, restore, undo/redo and the settle step live on EditorSession (#452).
     fun snapshotNow(): EditSnapshot = session.snapshot()
@@ -630,7 +591,7 @@ internal fun EditorScreen(
     }
 
     // Hold Undo: the whole history as a named list (timeline, index of the live state).
-    var historySheet by remember { mutableStateOf<Pair<List<EditSnapshot>, Int>?>(null) }
+    var historySheet by screen.historySheetState
 
     /** Walks undo or redo from the live state at [from] to timeline index [to]. */
     fun jumpHistory(from: Int, to: Int) {
@@ -739,7 +700,7 @@ internal fun EditorScreen(
     // --- Photo info (PhotoInfo.kt) ---
     // Read on demand, off the main thread, for the photo on screen; a source change while it
     // loads drops the result instead of showing the previous photo's facts.
-    var photoInfo by remember { mutableStateOf<PhotoInfo?>(null) }
+    var photoInfo by screen.photoInfoState
     fun openPhotoInfo() {
         val uri = sourceUri ?: return
         val name = sourceName
@@ -963,7 +924,7 @@ internal fun EditorScreen(
         },
         setStatus = { status = it },
     )
-    val pendingPresetExportState = remember { mutableStateOf<String?>(null) }
+    val pendingPresetExportState = screen.pendingPresetExportState
     var pendingPresetExport by pendingPresetExportState
     // Preset import/export and LUT save launchers (EditorPresetFiles.kt).
     val presetFiles = rememberEditorPresetFiles(
@@ -988,7 +949,7 @@ internal fun EditorScreen(
     // The live edit state (params + rotation) is compared, not the undo history's committed
     // snapshot, which settles on its own 500 ms debounce and would read as an "edit" when it
     // catches up after a fast Share (Codex on #535).
-    var exportBaseline by remember { mutableStateOf<Pair<EditSnapshot, Category?>?>(null) }
+    var exportBaseline by screen.exportBaselineState
     LaunchedEffect(exportInFlight) {
         if (exportInFlight) exportBaseline = snapshotNow() to activeCategory
     }
