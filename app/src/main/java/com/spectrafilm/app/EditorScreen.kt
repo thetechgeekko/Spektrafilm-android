@@ -363,8 +363,15 @@ internal fun EditorScreen(
     // The plain thumbnail the stand-in came from, kept so its film look can still be
     // rendered when the engine finishes loading after the thumbnail arrived (cold start).
     var placeholderSource by remember { mutableStateOf<Bitmap?>(null) }
+    // The neighbour a swipe slid in, already in the film look: it stands in for the opened
+    // photo until that photo's own graded thumbnail is ready, so the hand-off never steps
+    // back to the plain thumbnail (film look -> plain -> film look).
+    var swipeHandoff by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
     LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
-        openPlaceholder = null
+        val handoff = swipeHandoff?.takeIf { it.first == sourceUri?.toString() }?.second
+        swipeHandoff = null
+        openPlaceholder = handoff?.takeIf { !it.isRecycled && preview == null }
+        val seeded = openPlaceholder != null
         placeholderSource = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
@@ -377,7 +384,8 @@ internal fun EditorScreen(
         ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
             if (preview == null) {
-                openPlaceholder = bmp
+                // A graded swipe hand-off stays up; the look effect below replaces it.
+                if (!seeded) openPlaceholder = bmp
                 placeholderSource = bmp
             }
         }
@@ -426,6 +434,8 @@ internal fun EditorScreen(
             onCommit = { step ->
                 val target = if (step > 0) nextFrame else previousFrame
                 if (target != null) {
+                    val carried = if (step > 0) nextThumb else previousThumb
+                    swipeHandoff = carried?.let { target.uri to it }
                     incomingImageIntent.value = Intent(Intent.ACTION_VIEW, Uri.parse(target.uri))
                 }
             },
