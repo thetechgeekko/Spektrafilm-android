@@ -20,11 +20,11 @@
  *
  * ## Colour
  *
- * The design system is explicit that Spektrafilm does NOT override the M3 baseline — the brand
- * lives in the near-black editor canvas, the spectral palette and the launcher mark, and dark is
- * the shipped default. So the scheme stays baseline (now the *expressive* baseline), and the brand
- * surfaces are lifted out of scattered Kotlin literals into [SpektraBrand] below, at exactly the
- * values `tokens/colors.css` records.
+ * The brand lives in the near-black editor canvas, the spectral palette, the launcher mark and,
+ * when dynamic colour is off, a film-amber tonal scheme (#468; it replaced the M3 baseline the
+ * design system first kept, see [spektraLightScheme]). Dark is the shipped default. The
+ * theme-independent brand surfaces live in [SpektraBrand] below, at exactly the values
+ * `tokens/colors.css` records.
  *
  * Dynamic colour (Material You, API 31+) is offered as an opt-in rather than imposed, because
  * wallpaper-derived chrome around a colour-critical image canvas is a matter of taste, not of
@@ -123,13 +123,99 @@ internal object SpektraBrand {
 }
 
 /**
- * The fallback schemes, used when dynamic colour is unavailable or switched off. Baseline by
- * design, per the note above; named rather than called inline so a brand scheme is a one-line
- * change here and nowhere else.
+ * The fallback schemes, used when dynamic colour is unavailable (API < 31) or switched off:
+ * the Spektrafilm brand scheme (#468, audit V1). Generated with the M3 tonal system
+ * (Material Color Utilities, Tonal Spot, 2021 spec, standard contrast) from one seed, film
+ * amber #C8892B, so the chrome reads as film stock rather than Material's default purple.
+ * The neutral and neutral-variant palettes are generated at chroma 0 instead of Tonal Spot's
+ * warm 6 / 8: backgrounds, panels and outlines are true greys, so no tinted chrome sits beside
+ * a photo being judged for colour. Amber lives only in the accent roles (primary, secondary,
+ * their containers). Every on-/container pair clears WCAG AA 4.5:1 (lowest: light primary on
+ * surfaceContainerHighest 5.0, dark onSurfaceVariant on surfaceVariant 5.4).
+ *
+ * The photo is never judged against these: the editor canvas and everything drawn on it use
+ * the theme-independent [SpektraBrand] neutrals. To regenerate, rerun Tonal Spot on the seed
+ * with neutral chroma 0 (Material Color Utilities `DynamicScheme(..., neutral_palette =
+ * TonalPalette.from_hue_and_chroma(seedHue, 0), neutral_variant_palette = same)`, spec 2021);
+ * do not hand-tune single roles, or the tonal relationships (and the contrast) break.
  */
-private fun spektraLightScheme(): ColorScheme = lightColorScheme()
+internal fun spektraLightScheme(): ColorScheme = lightColorScheme(
+    primary = Color(0xFF815512),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDDB6),
+    onPrimaryContainer = Color(0xFF643F00),
+    inversePrimary = Color(0xFFF6BC70),
+    secondary = Color(0xFF705B40),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFFBDEBC),
+    onSecondaryContainer = Color(0xFF57432B),
+    tertiary = Color(0xFF53643E),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFD6E9BA),
+    onTertiaryContainer = Color(0xFF3C4C29),
+    background = Color(0xFFF9F9F9),
+    onBackground = Color(0xFF1B1B1B),
+    surface = Color(0xFFF9F9F9),
+    onSurface = Color(0xFF1B1B1B),
+    surfaceVariant = Color(0xFFE2E2E2),
+    onSurfaceVariant = Color(0xFF474747),
+    surfaceTint = Color(0xFF815512),
+    inverseSurface = Color(0xFF303030),
+    inverseOnSurface = Color(0xFFF1F1F1),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF93000A),
+    outline = Color(0xFF777777),
+    outlineVariant = Color(0xFFC6C6C6),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFFF9F9F9),
+    surfaceContainer = Color(0xFFEEEEEE),
+    surfaceContainerHigh = Color(0xFFE8E8E8),
+    surfaceContainerHighest = Color(0xFFE2E2E2),
+    surfaceContainerLow = Color(0xFFF3F3F3),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceDim = Color(0xFFDADADA),
+)
 
-private fun spektraDarkScheme(): ColorScheme = darkColorScheme()
+internal fun spektraDarkScheme(): ColorScheme = darkColorScheme(
+    primary = Color(0xFFF6BC70),
+    onPrimary = Color(0xFF462B00),
+    primaryContainer = Color(0xFF643F00),
+    onPrimaryContainer = Color(0xFFFFDDB6),
+    inversePrimary = Color(0xFF815512),
+    secondary = Color(0xFFDEC2A2),
+    onSecondary = Color(0xFF3E2D16),
+    secondaryContainer = Color(0xFF57432B),
+    onSecondaryContainer = Color(0xFFFBDEBC),
+    tertiary = Color(0xFFBACD9F),
+    onTertiary = Color(0xFF263514),
+    tertiaryContainer = Color(0xFF3C4C29),
+    onTertiaryContainer = Color(0xFFD6E9BA),
+    background = Color(0xFF131313),
+    onBackground = Color(0xFFE2E2E2),
+    surface = Color(0xFF131313),
+    onSurface = Color(0xFFE2E2E2),
+    surfaceVariant = Color(0xFF474747),
+    onSurfaceVariant = Color(0xFFC6C6C6),
+    surfaceTint = Color(0xFFF6BC70),
+    inverseSurface = Color(0xFFE2E2E2),
+    inverseOnSurface = Color(0xFF303030),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    outline = Color(0xFF919191),
+    outlineVariant = Color(0xFF474747),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFF393939),
+    surfaceContainer = Color(0xFF1F1F1F),
+    surfaceContainerHigh = Color(0xFF2A2A2A),
+    surfaceContainerHighest = Color(0xFF353535),
+    surfaceContainerLow = Color(0xFF1B1B1B),
+    surfaceContainerLowest = Color(0xFF0E0E0E),
+    surfaceDim = Color(0xFF131313),
+)
 
 /**
  * Wrap the whole app. [dark] comes from the user's [ThemeMode] resolved against the system setting;

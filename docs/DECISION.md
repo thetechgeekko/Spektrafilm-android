@@ -206,3 +206,15 @@ plan whose every item had shipped, or a study nothing referenced.
   `brutalist-re` — installed per-user from their upstreams, and the two copies had diverged; the
   repo keeps only the two project skills (`spectrafilm-dev`, `spectrafilm-solutions`) and their
   configuration in `docs/agents/`.
+
+## Brand colour scheme when dynamic colour is off (2026-11-08, owner decision, #468)
+
+The design system first kept the plain Material 3 baseline scheme as the fallback when Material
+You is off or unavailable (API < 31; minSdk is 24, so every Android 7-11 user saw it). The owner
+reversed that on 2026-11-08: the fallback is now a film-amber tonal scheme generated from one seed
+(#C8892B, Material Color Utilities Tonal Spot), in `Theme.kt` `spektraLightScheme()` /
+`spektraDarkScheme()`, with the neutral palettes at chroma 0 so backgrounds and panels stay
+true grey beside a colour-critical photo; amber is only in the accent roles. Dynamic colour is unchanged. The photo canvas and everything judged
+against it keep the theme-independent `SpektraBrand` neutrals, so the warm chrome never sits
+behind the image. `BrandSchemeContrastTest` pins WCAG AA (4.5:1) on every text/surface pair;
+regenerate the whole scheme from the seed rather than hand-tuning one role.
