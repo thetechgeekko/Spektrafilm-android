@@ -43,6 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -51,6 +54,7 @@ import com.spectrafilm.engine.ColorSpace
 import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -238,14 +242,22 @@ internal fun LibraryExportSheet(flow: LibraryExportFlow) {
 }
 
 /**
- * While a batch runs, where it is and a way to stop it; once it ends, one snackbar with the
- * result. Shows the editor's batches too: they are the same single run.
+ * While a batch runs, where it is and a way to stop it; once it ends, the result in the same
+ * place for a few seconds (or until closed). Shows the editor's batches too: they are the same
+ * single run. The result lives in the card rather than a snackbar so it appears exactly where
+ * the user was watching the progress (a phone test missed the snackbar).
  */
 @Composable
 internal fun LibraryExportProgress(modifier: Modifier = Modifier) {
     val progress by BatchExportTracker.state.collectAsStateWithLifecycle()
     val p = progress ?: return
-    if (p.finished || p.pair) return
+    if (p.pair) return
+    if (p.finished) {
+        LaunchedEffect(p) {
+            delay(RESULT_SHOWN_MS)
+            BatchExportTracker.acknowledge()
+        }
+    }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -253,59 +265,55 @@ internal fun LibraryExportProgress(modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         Column(
-            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = if (p.finished) 8.dp else 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
                     Text(
-                        stringResource(R.string.library_export_progress, p.position, p.total),
+                        if (p.finished) libraryExportResult(p) else stringResource(R.string.library_export_progress, p.position, p.total),
                         style = MaterialTheme.typography.titleSmall,
                     )
-                    p.current?.let { name ->
-                        Text(
-                            name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    if (!p.finished) {
+                        p.current?.let { name ->
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
-                TextButton(
-                    onClick = {
-                        (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
-                            ?.let { ExportWorkRuntime.cancel(it.runId) }
-                    },
-                ) { Text(stringResource(R.string.library_export_stop)) }
+                if (p.finished) {
+                    TextButton(onClick = { BatchExportTracker.acknowledge() }) { Text(stringResource(R.string.tool_done)) }
+                } else {
+                    TextButton(
+                        onClick = {
+                            (ExportWorkRuntime.state.value as? ExportRuntimeState.Running)
+                                ?.let { ExportWorkRuntime.cancel(it.runId) }
+                        },
+                    ) { Text(stringResource(R.string.library_export_stop)) }
+                }
             }
-            LinearProgressIndicator(
-                progress = { ((p.done + p.failed).toFloat() / p.total.coerceAtLeast(1)).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
-            )
+            if (!p.finished) {
+                LinearProgressIndicator(
+                    progress = { ((p.done + p.failed).toFloat() / p.total.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                )
+            }
         }
     }
 }
 
-/** The finished batch's one snackbar, while the Library is on screen. */
+private const val RESULT_SHOWN_MS = 6_000L
+
 @Composable
-internal fun LibraryExportResultEffect(snackbar: SnackbarHostState, scope: CoroutineScope) {
-    val ctx = LocalContext.current
-    val progress by BatchExportTracker.state.collectAsStateWithLifecycle()
-    LaunchedEffect(progress) {
-        val p = progress ?: return@LaunchedEffect
-        if (!p.finished || p.pair) return@LaunchedEffect
-        val message = when {
-            p.cancelled -> ctx.getString(R.string.editor_snack_batch_cancelled, p.done, p.total)
-            p.failed > 0 -> ctx.getString(R.string.editor_snack_batch_done_failed, p.done, p.total, p.failed)
-            else -> ctx.getString(R.string.editor_snack_batch_done, p.done, p.total)
-        }
-        // Outside this effect: acknowledging changes its key, which would cancel a snackbar
-        // shown from in here.
-        scope.launch {
-            snackbar.currentSnackbarData?.dismiss()
-            snackbar.showSnackbar(message)
-        }
-        BatchExportTracker.acknowledge()
-    }
+private fun libraryExportResult(p: BatchExportProgress): String = when {
+    p.cancelled -> stringResource(R.string.editor_snack_batch_cancelled, p.done, p.total)
+    p.failed > 0 -> stringResource(R.string.editor_snack_batch_done_failed, p.done, p.total, p.failed)
+    else -> stringResource(R.string.editor_snack_batch_done, p.done, p.total)
 }
