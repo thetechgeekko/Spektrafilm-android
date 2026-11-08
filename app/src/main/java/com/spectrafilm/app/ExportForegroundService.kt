@@ -263,7 +263,7 @@ class ExportForegroundService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.tool_export_notification_text))
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_spektrafilm)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

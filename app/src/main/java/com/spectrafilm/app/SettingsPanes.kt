@@ -40,7 +40,8 @@ internal enum class SettingsDetail { ABOUT, HOW_TO, DIAGNOSTICS }
  * because the detail pages (About, How to use) are long reading text that would be squeezed
  * under 480dp beside a 360dp list.
  */
-internal fun settingsTwoPane(widthDp: Float): Boolean = widthDp >= EXPANDED_WIDTH_DP
+internal fun settingsTwoPane(widthDp: Float): Boolean =
+    windowSizeClass(widthDp, heightDp = 1f).isExpandedWidth()
 
 /**
  * Settings, adapted to the window (#293, M3 canonical list-detail).
