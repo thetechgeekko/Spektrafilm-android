@@ -18,6 +18,12 @@ import kotlin.math.abs
  * to adjust (and captures its value), [drag] gets the finger's travel past the lock point and
  * the photo's width, [end] settles the change as one history step.
  */
+/**
+ * How long after a control (or a photo drag) is released the photo drag stays armed. Past it,
+ * a sideways drag on the photo goes to the next photo again.
+ */
+internal const val PHOTO_SCRUB_ARM_MS = 3_000L
+
 internal class PhotoScrub(
     val start: () -> Boolean,
     val drag: (dx: Float, widthPx: Float) -> Unit,
