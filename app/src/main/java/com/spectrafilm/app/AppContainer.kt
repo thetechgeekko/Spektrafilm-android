@@ -119,6 +119,7 @@ internal class AppContainer(context: Context) {
                 writes = processScope,
                 writeLock = libraryWriteLock,
                 queryStore = LibraryViewModel.androidQueryStore(settings),
+                aspectReader = LibraryViewModel.androidAspectReader(app),
             )
         },
     )

@@ -29,14 +29,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
@@ -109,6 +110,7 @@ internal fun LibraryDestination(
     val paste by vm.paste.collectAsStateWithLifecycle()
     val sidecarSave by vm.sidecarSave.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
+    val aspects by vm.aspects.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     // Re-read on every visit, so frames shot since the last one appear.
@@ -226,6 +228,7 @@ internal fun LibraryDestination(
                     }
                 }
             } else if (state.treeUri != null) {
+                LibraryViewToggle(query, onChange = vm::setQuery)
                 LibrarySortMenu(query, onChange = vm::setQuery)
                 var menuOpen by remember { mutableStateOf(false) }
                 Box {
@@ -264,6 +267,7 @@ internal fun LibraryDestination(
                 onToggleSelected = vm::toggleSelected,
                 query = query,
                 onQueryChange = vm::setQuery,
+                aspects = aspects,
             )
             SnackbarHost(
                 snackbar,
@@ -286,6 +290,7 @@ internal fun LibraryScreen(
     onToggleSelected: (String) -> Unit = {},
     query: LibraryQuery = LibraryQuery(),
     onQueryChange: (LibraryQuery) -> Unit = {},
+    aspects: Map<String, Float> = emptyMap(),
 ) {
     val choose = onChooseFolder
     when {
@@ -325,7 +330,7 @@ internal fun LibraryScreen(
                     onAction = { onQueryChange(query.copy(filter = null, text = "")) },
                 )
             } else {
-                LibraryGrid(shown, currentUri, selection, onOpen, onToggleSelected)
+                LibraryGrid(shown, query, aspects, currentUri, selection, onOpen, onToggleSelected)
             }
         }
     }
@@ -392,6 +397,7 @@ private fun LibraryFindBar(query: LibraryQuery, onChange: (LibraryQuery) -> Unit
 }
 
 private const val MAX_SEARCH_CHARS = 80
+private val CELL_CORNER = 8.dp
 
 private val LIBRARY_FILTER_CHIPS: List<Pair<LibraryFilter?, Int>> = listOf(
     null to R.string.library_filter_all,
@@ -400,6 +406,23 @@ private val LIBRARY_FILTER_CHIPS: List<Pair<LibraryFilter?, Int>> = listOf(
     LibraryFilter.EDITED to R.string.library_filter_edited,
     LibraryFilter.NOT_EDITED to R.string.library_filter_not_edited,
 )
+
+/**
+ * Switches between justified rows and the square grid. The icon shows the view a tap gives,
+ * as an icon toggle does, and the label says so for TalkBack.
+ */
+@Composable
+private fun LibraryViewToggle(query: LibraryQuery, onChange: (LibraryQuery) -> Unit) {
+    val next = if (query.view == LibraryView.JUSTIFIED) LibraryView.SQUARE else LibraryView.JUSTIFIED
+    IconButton(onClick = { onChange(query.copy(view = next)) }) {
+        Icon(
+            if (next == LibraryView.SQUARE) SpectraIcons.GridView else SpectraIcons.JustifiedView,
+            contentDescription = stringResource(
+                if (next == LibraryView.SQUARE) R.string.library_view_square else R.string.library_view_justified,
+            ),
+        )
+    }
+}
 
 /** The app bar's Sort button: what to sort by, then which way. Ticks mark the current pick. */
 @Composable
@@ -449,54 +472,170 @@ private fun LibrarySortMenu(query: LibraryQuery, onChange: (LibraryQuery) -> Uni
     }
 }
 
+/** One line of the Library's list: a date header, or a row of frames. */
+private sealed interface LibraryLine {
+    val key: String
+
+    data class Header(val section: LibrarySection) : LibraryLine {
+        override val key: String get() = "day:" + (section.epochDay ?: "none") + ":" + section.entries.first().documentUri
+    }
+
+    data class Frames(val row: LibraryRow) : LibraryLine {
+        override val key: String get() = row.key
+    }
+}
+
+private val GRID_GAP = 3.dp
+private val GRID_SIDE = 4.dp
+private val JUSTIFIED_ROW_HEIGHT = 128.dp
+private val SQUARE_MIN_CELL = 104.dp
+
+/**
+ * The frames as one LazyColumn: sticky day headers when sorted by date, and under each either
+ * justified rows (the photo-book look of the Pen board) or the square grid. Rows are packed
+ * off the composition's hot path with remember, keyed on what changes them.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LibraryGrid(
     entries: List<LibraryEntry>,
+    query: LibraryQuery,
+    aspects: Map<String, Float>,
     currentUri: String?,
     selection: Set<String>,
     onOpen: (Uri) -> Unit,
     onToggleSelected: (String) -> Unit,
 ) {
     val selecting = selection.isNotEmpty()
-    val gridState = rememberLazyGridState()
-    // Find the user's place in the shoot: scroll to the frame open in the editor, once per
-    // visit, so a Refresh does not yank the grid back.
-    var placed by remember { mutableStateOf(false) }
-    LaunchedEffect(entries, currentUri) {
-        if (placed) return@LaunchedEffect
-        val index = entries.indexOfFirst { it.documentUri == currentUri }
-        if (index < 0) return@LaunchedEffect
-        gridState.scrollToItem(index)
-        placed = true
-    }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 112.dp),
-        state = gridState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 4.dp,
-            // Room under the last row for the Open photo button.
-            bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-        ),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        items(entries, key = { it.documentUri }) { entry ->
-            LibraryCell(
-                entry,
-                current = entry.documentUri == currentUri,
-                selected = entry.documentUri in selection,
-                selecting = selecting,
-                // Long-press starts selecting (as in Photos and Files); while selecting, a tap
-                // toggles instead of opening.
-                onClick = {
-                    if (selecting) onToggleSelected(entry.documentUri) else onOpen(Uri.parse(entry.documentUri))
-                },
-                onLongClick = { onToggleSelected(entry.documentUri) },
-            )
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthPx = with(density) { (maxWidth - GRID_SIDE * 2).toPx() }
+        val gapPx = with(density) { GRID_GAP.toPx() }
+        val rowPx = with(density) { JUSTIFIED_ROW_HEIGHT.toPx() }
+        val minCellPx = with(density) { SQUARE_MIN_CELL.toPx() }
+        val zone = remember { java.util.TimeZone.getDefault() }
+        val lines = remember(entries, query.sort, query.view, aspects, widthPx) {
+            val out = ArrayList<LibraryLine>()
+            for (section in librarySections(entries, query.sort, zone)) {
+                if (query.sort == LibrarySort.DATE) out += LibraryLine.Header(section)
+                val rows = when (query.view) {
+                    LibraryView.JUSTIFIED -> justifyRows(
+                        section.entries,
+                        { aspects[it.documentUri] ?: DEFAULT_FRAME_ASPECT },
+                        widthPx,
+                        rowPx,
+                        gapPx,
+                    )
+                    LibraryView.SQUARE -> squareRows(
+                        section.entries,
+                        squareColumns(widthPx, minCellPx, gapPx),
+                        widthPx,
+                        gapPx,
+                    )
+                }
+                rows.mapTo(out) { LibraryLine.Frames(it) }
+            }
+            out
         }
+        // Find the user's place in the shoot: scroll to the frame open in the editor, once per
+        // visit, so a Refresh or a reflow does not yank the list back.
+        var placed by remember { mutableStateOf(false) }
+        LaunchedEffect(lines, currentUri) {
+            if (placed || currentUri == null) return@LaunchedEffect
+            val index = lines.indexOfFirst { line ->
+                line is LibraryLine.Frames && line.row.entries.any { it.documentUri == currentUri }
+            }
+            if (index < 0) return@LaunchedEffect
+            listState.scrollToItem(index)
+            placed = true
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = GRID_SIDE,
+                end = GRID_SIDE,
+                // Room under the last row for the Open photo button.
+                bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            ),
+            verticalArrangement = Arrangement.spacedBy(GRID_GAP),
+        ) {
+            lines.forEach { line ->
+                when (line) {
+                    is LibraryLine.Header -> stickyHeader(key = line.key, contentType = "header") {
+                        LibraryDayHeader(line.section)
+                    }
+                    is LibraryLine.Frames -> item(key = line.key, contentType = "row") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(GRID_GAP)) {
+                            line.row.entries.forEachIndexed { i, entry ->
+                                val w = with(density) { line.row.widths[i].toDp() }
+                                val h = with(density) { line.row.height.toDp() }
+                                LibraryCell(
+                                    entry,
+                                    current = entry.documentUri == currentUri,
+                                    selected = entry.documentUri in selection,
+                                    selecting = selecting,
+                                    modifier = Modifier.size(w, h),
+                                    // Long-press starts selecting (as in Photos and Files); while
+                                    // selecting, a tap toggles instead of opening.
+                                    onClick = {
+                                        if (selecting) onToggleSelected(entry.documentUri) else onOpen(Uri.parse(entry.documentUri))
+                                    },
+                                    onLongClick = { onToggleSelected(entry.documentUri) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A sticky day header: Today, Yesterday, or the date (with the year only when it is not this
+ * year), and how many frames the day holds. Opaque, so rows scroll under it cleanly.
+ */
+@Composable
+private fun LibraryDayHeader(section: LibrarySection) {
+    val ctx = LocalContext.current
+    val zone = remember { java.util.TimeZone.getDefault() }
+    val today = remember { localEpochDay(System.currentTimeMillis(), zone) }
+    val label = when {
+        section.undated || section.epochDay == null -> stringResource(R.string.library_day_undated)
+        section.epochDay == today -> stringResource(R.string.library_day_today)
+        section.epochDay == today - 1 -> stringResource(R.string.library_day_yesterday)
+        else -> {
+            val ms = section.entries.first().modifiedMs
+            val thisYear = java.util.Calendar.getInstance(zone).get(java.util.Calendar.YEAR)
+            val year = java.util.Calendar.getInstance(zone).apply { timeInMillis = ms }.get(java.util.Calendar.YEAR)
+            var flags = android.text.format.DateUtils.FORMAT_SHOW_DATE or
+                android.text.format.DateUtils.FORMAT_SHOW_WEEKDAY or
+                android.text.format.DateUtils.FORMAT_ABBREV_ALL
+            flags = flags or if (year == thisYear) {
+                android.text.format.DateUtils.FORMAT_NO_YEAR
+            } else {
+                android.text.format.DateUtils.FORMAT_SHOW_YEAR
+            }
+            android.text.format.DateUtils.formatDateTime(ctx, ms, flags)
+        }
+    }
+    val count = section.entries.size
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 6.dp)
+            .semantics(mergeDescendants = true) { heading() },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Text(
+            pluralStringResource(R.plurals.library_day_count, count, count),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -509,6 +648,7 @@ private fun LibraryCell(
     selecting: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier.aspectRatio(1f),
 ) {
     val ctx = LocalContext.current
     val description = if (entry.edited) {
@@ -523,12 +663,11 @@ private fun LibraryCell(
     // The kit's photo grid: rounded tiles; a selected tile shrinks inside its cell and takes
     // a filled check, every tile shows an empty check circle while selecting.
     val inset by animateDpAsState(if (selected) 10.dp else 0.dp, label = "cellInset")
-    val corner by animateDpAsState(if (selected) 16.dp else 12.dp, label = "cellCorner")
+    val corner by animateDpAsState(if (selected) 16.dp else CELL_CORNER, label = "cellCorner")
     val shape = RoundedCornerShape(corner)
     Box(
-        Modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(12.dp))
+        modifier
+            .clip(RoundedCornerShape(CELL_CORNER))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = selectLabel)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
