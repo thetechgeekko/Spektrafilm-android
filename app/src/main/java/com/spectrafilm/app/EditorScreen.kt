@@ -59,6 +59,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -66,6 +67,8 @@ import androidx.compose.animation.core.animateDpAsState
 
 internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
+/** Wait before finding skin again after its preview decode was superseded by a decode edit. */
+private const val SKIN_RETRY_MS = 250L
 /**
  * True once the editor has restored in this process. Distinguishes a cold start (the first
  * restore) from an Activity recreation (every later one), which is what decides whether a
@@ -1913,14 +1916,25 @@ internal fun EditorScreen(
     val needsSkin = state.localAdjustments.any { it.mask.hasSemantic }
     LaunchedEffect(skinKey, needsSkin, sourceRenderAllowed, SkinFields.retryToken) {
         if (!needsSkin || !sourceRenderAllowed) return@LaunchedEffect
-        val fresh = SkinFields.ensure(ctx, skinKey, dispatchers) {
-            loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256)).use { lease ->
-                withContext(dispatchers.default) {
-                    Triple(linearToDisplayArgb(lease.image), lease.image.width, lease.image.height)
+        // A decode edit (WB, creative temp, ...) supersedes the preview decode this borrows and
+        // cancels the load without cancelling us: try again, still for the same photo.
+        while (true) {
+            val fresh = try {
+                SkinFields.ensure(ctx, skinKey, dispatchers) {
+                    loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256)).use { lease ->
+                        withContext(dispatchers.default) {
+                            Triple(linearToDisplayArgb(lease.image), lease.image.width, lease.image.height)
+                        }
+                    }
                 }
+            } catch (c: CancellationException) {
+                if (!isActive) throw c
+                delay(SKIN_RETRY_MS)
+                continue
             }
+            if (fresh) previewTick++
+            break
         }
-        if (fresh) previewTick++
     }
 
     // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation
