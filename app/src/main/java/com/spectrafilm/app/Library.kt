@@ -444,8 +444,10 @@ internal class LibraryViewModel(
                 lastRowsTree = tree
             }
             if (listing != null) {
-                // A frame that left the folder cannot stay selected.
-                val present = listing.rows.mapTo(HashSet()) { it.documentUri }
+                // A frame that left the folder, or that the active filter or search now hides
+                // (a sidecar import can make an unedited frame edited), cannot stay selected:
+                // a paste would reach it unseen.
+                val present = applyLibraryQuery(listing.rows, _query.value).mapTo(HashSet()) { it.documentUri }
                 _selection.value = _selection.value.filterTo(LinkedHashSet()) { it in present }
             }
             _state.value = if (listing == null) {

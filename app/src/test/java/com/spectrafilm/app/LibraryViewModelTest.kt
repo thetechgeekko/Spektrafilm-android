@@ -410,4 +410,22 @@ class LibraryViewModelTest {
         model.selectAll()
         assertEquals(setOf("content://doc/b.dng"), model.selection.value)
     }
+
+    @Test fun refreshDropsSelectedFramesTheFilterNowHides() {
+        var editedNow = false
+        val rows = listOf(entry("a.jpg", "image/jpeg", 2), entry("b.jpg", "image/jpeg", 1))
+        val model = LibraryViewModel(
+            FakeStore("tree://a"),
+            { LibraryListing("Roll", rows) },
+            Dispatchers.Unconfined,
+            hasEdit = { uri -> editedNow && uri.endsWith("a.jpg") },
+        )
+        model.setQuery(LibraryQuery(filter = LibraryFilter.NOT_EDITED))
+        model.refresh(); idle()
+        model.selectAll()
+        assertEquals(2, model.selection.value.size)
+        editedNow = true
+        model.refresh(); idle()
+        assertEquals(setOf("content://doc/b.jpg"), model.selection.value)
+    }
 }
