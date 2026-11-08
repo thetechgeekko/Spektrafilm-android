@@ -21,11 +21,13 @@ import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.RenderKind
 import com.spectrafilm.engine.SimResult
 import com.spectrafilm.engine.SpektraEngine
+import com.spectrafilm.engine.SpektraParams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 /** Opens the 1:1 magnifier at (nx, ny) and renders its crop. Body of EditorScreen.openMagnifier. */
 internal fun startMagnifierRender(
@@ -73,7 +75,8 @@ internal fun startMagnifierRender(
             ) {
                 loadSourceCachedForZoom(MAX_EDGE_PX).use { fullLease ->
                     val full = fullLease.image
-                    cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX).use { crop ->
+                    val frameGain = frameExposureGain(e, full, renderSnapshot.params)
+                    cropLinearImage(full, nx, ny, MAGNIFIER_CROP_PX, frameGain).use { crop ->
                         // Effective film format so the crop's pixel_size_um matches the proxy it was
                         // cut from (the crop spans only cropFrac of the frame). Without it the engine
                         // treats the crop as a whole 35mm frame and grain/halation (µm-based) render
@@ -231,7 +234,8 @@ internal fun startRoiPatchRender(
                     context = dispatchers.default,
                     dispose = LinearImage::close,
                 ) {
-                    cropLinearImageBox(full, box)
+                    // Expose the patch like the whole frame, not like the patch on its own.
+                    cropLinearImageBox(full, box, frameExposureGain(e, full, renderSnapshot.params))
                 }.use { crop ->
                     // Effective film format so the crop's pixel_size_um matches the proxy (the crop
                     // spans only cropFrac of the frame); keeps grain/halation at the right strength
@@ -333,5 +337,50 @@ internal fun startRoiPatchRender(
             pendingOutcomes.resolveAll(AppRenderOutcome.FAILED)
             Diag.i(timing.line("failed"))
         }
+    }
+}
+
+/**
+ * The linear gain the engine's auto-exposure gives the WHOLE frame [full] under [params]
+ * (1 when auto-exposure is off). The zoom patch and the magnifier fold it into their crop and
+ * render with auto-exposure off ([InteractiveRenderSnapshot.paramsForCrop]): metering the crop
+ * itself exposed every zoomed view for its own content, so zooming changed the brightness.
+ *
+ * Uses the engine's own metering ([SpektraEngine.exposureGain]), the same code the full render
+ * runs, so the two cannot drift. Metering the full-resolution source walks every pixel, so the
+ * last result is kept for the same source and metering settings: pans and zoom steps reuse it.
+ */
+internal fun frameExposureGain(e: SpektraEngine, full: LinearImage, params: SpektraParams): Float {
+    if (!params.camera.autoExposure) return 1f
+    val key = FrameExposureKey(
+        method = params.camera.autoExposureMethod,
+        inputCctfDecoding = params.io.inputCctfDecoding,
+    )
+    FrameExposureCache.lookup(full, key)?.let { return it }
+    val gain = e.exposureGain(full, params)
+    // A degenerate meter (black frame) must not blow the crop up or zero it: unity instead.
+    val safe = if (gain.isFinite() && gain > 0f) gain else 1f
+    FrameExposureCache.store(full, key, safe)
+    return safe
+}
+
+/** The metering inputs besides the pixels: what [frameExposureGain] caches on. */
+internal data class FrameExposureKey(val method: String, val inputCctfDecoding: Boolean)
+
+/** One-entry cache of the last whole-frame meter, held weakly so it never pins a source. */
+internal object FrameExposureCache {
+    private var image: WeakReference<LinearImage>? = null
+    private var key: FrameExposureKey? = null
+    private var gain = 1f
+
+    @Synchronized
+    fun lookup(full: LinearImage, k: FrameExposureKey): Float? =
+        if (image?.get() === full && key == k) gain else null
+
+    @Synchronized
+    fun store(full: LinearImage, k: FrameExposureKey, g: Float) {
+        image = WeakReference(full)
+        key = k
+        gain = g
     }
 }

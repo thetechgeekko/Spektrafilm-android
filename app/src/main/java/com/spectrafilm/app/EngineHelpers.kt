@@ -64,8 +64,8 @@ fun syntheticLinearImage(size: Int): LinearImage {
  * full resolution the dye-cloud grain resolves at 1:1 — this is the backing for the 100%
  * grain magnifier, not an upscale of the downscaled preview.
  */
-fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): LinearImage =
-    cropLinearImageRect(src, nx, ny, cropEdge, cropEdge)
+fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int, gain: Float = 1f): LinearImage =
+    cropLinearImageRect(src, nx, ny, cropEdge, cropEdge, gain)
 
 /**
  * Rectangular generalization of [cropLinearImage]: crop a [cropW]×[cropH] native-pixel window
@@ -74,8 +74,8 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
  * native resolution) as well as the square 100% magnifier.
  */
 fun cropLinearImageRect(
-    src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int,
-): LinearImage = cropLinearImageBox(src, centredCropBox(src.width, src.height, nx, ny, cropW, cropH))
+    src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int, gain: Float = 1f,
+): LinearImage = cropLinearImageBox(src, centredCropBox(src.width, src.height, nx, ny, cropW, cropH), gain)
 
 /** The box [cropLinearImageRect] cuts from a [w]x[h] image: [cropW]x[cropH] centred on ([nx], [ny]), clamped inside. */
 fun centredCropBox(w: Int, h: Int, nx: Float, ny: Float, cropW: Int, cropH: Int): CropBox {
@@ -129,8 +129,16 @@ private fun numpySlice(startIn: Long, sz: Long, dim: Long): Pair<Long, Int> {
     return start to (if (stop > start) (stop - start).toInt() else 0)
 }
 
-/** Cut [box] out of [src] pixel-for-pixel (no resampling); the box must lie inside the image. */
-fun cropLinearImageBox(src: LinearImage, box: CropBox): LinearImage = src.acquireDataLease().use { sourceLease ->
+/**
+ * Cut [box] out of [src] pixel-for-pixel (no resampling); the box must lie inside the image.
+ *
+ * [gain] scales every copied value (1 = a plain copy). The zoom patch and the magnifier pass the
+ * WHOLE frame's auto-exposure gain here and render the crop with auto-exposure off, so a crop is
+ * exposed exactly like the frame it was cut from instead of being metered on its own (which made
+ * a zoomed-in dark corner jump brighter and a bright sky darker). See [frameExposureGain].
+ */
+fun cropLinearImageBox(src: LinearImage, box: CropBox, gain: Float = 1f): LinearImage = src.acquireDataLease().use { sourceLease ->
+    require(gain.isFinite() && gain > 0f) { "crop gain must be finite and positive" }
     val sourceData = sourceLease.data
     val w = src.width
     val h = src.height
@@ -157,7 +165,13 @@ fun cropLinearImageBox(src: LinearImage, box: CropBox): LinearImage = src.acquir
         val rowBase = (y0 + oy) * w
         for (ox in 0 until cw) {
             val si = (rowBase + x0 + ox) * 3
-            of.put(oi, sf.get(si)); of.put(oi + 1, sf.get(si + 1)); of.put(oi + 2, sf.get(si + 2))
+            if (gain == 1f) {
+                of.put(oi, sf.get(si)); of.put(oi + 1, sf.get(si + 1)); of.put(oi + 2, sf.get(si + 2))
+            } else {
+                of.put(oi, sf.get(si) * gain)
+                of.put(oi + 1, sf.get(si + 1) * gain)
+                of.put(oi + 2, sf.get(si + 2) * gain)
+            }
             oi += 3
         }
     }
