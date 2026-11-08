@@ -63,6 +63,12 @@ internal fun Modifier.photoScrubGesture(
                 val delta = change.positionChange()
                 dx += delta.x
                 dy += delta.y
+                // Held past the long-press timeout before moving: the photo's own long press
+                // (peek at the original) owns this touch, so a later sideways move must not
+                // start changing the value under it (Codex on #545).
+                if (!locked && change.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) {
+                    return@awaitEachGesture
+                }
                 if (!locked && abs(dx) > slop && abs(dx) > abs(dy) * 1.5f) {
                     // Nothing to adjust (no control yet, or it left the screen): leave the
                     // gesture to the photo.
