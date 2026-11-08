@@ -131,7 +131,7 @@ internal class SourceAccessCoordinator(
         ) {
             // The new reference is already durable. A provider can still reject release
             // if it independently revoked the old grant, which is safe to treat as gone.
-            runCatching { backend.releasePersistableRead(previous.uri) }
+            releaseUnlessRetainedLocked(previous.uri)
         }
         ref
     }
@@ -183,7 +183,7 @@ internal class SourceAccessCoordinator(
         val previous = store.load()
         store.clear()
         if (previous?.accessMode == SourceAccessMode.PERSISTED) {
-            runCatching { backend.releasePersistableRead(previous.uri) }
+            releaseUnlessRetainedLocked(previous.uri)
         }
         runCatching { reconcilePersistedGrantsLocked(expectedUri = null) }
         Unit
@@ -198,10 +198,20 @@ internal class SourceAccessCoordinator(
         val previous = store.load()
         store.save(DEMO_TOMBSTONE)
         if (previous?.accessMode == SourceAccessMode.PERSISTED && previous != DEMO_TOMBSTONE) {
-            runCatching { backend.releasePersistableRead(previous.uri) }
+            releaseUnlessRetainedLocked(previous.uri)
         }
         runCatching { reconcilePersistedGrantsLocked(expectedUri = null) }
         Unit
+    }
+
+    /**
+     * Releases the editor's old source grant unless something else keeps it (an album item,
+     * such as a picked photo in the Imported album). An unknown retained set keeps it too.
+     */
+    private fun releaseUnlessRetainedLocked(uri: String) {
+        val retained = runCatching { retainedGrants() }.getOrElse { return }
+        if (uri in retained) return
+        runCatching { backend.releasePersistableRead(uri) }
     }
 
     /** Releases grants left by either crash window around source-reference replacement. */
