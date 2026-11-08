@@ -644,42 +644,18 @@ internal fun EditorScreen(
         status = ctx.getString(if (to < from) R.string.editor_status_undo else R.string.editor_status_redo)
     }
 
-    fun captureEditorSessionDocument(): EditorSessionDocument? {
-        if (!recipeReady) return null
-        val overlay = toolVm.current.overlay
-        val selectedMask = clampSelectedMaskIndex(
-            toolVm.current.maskIndex,
-            state.localAdjustments.size,
-        )
-        // Crop/mask-geometry gesture drafts live only inside their overlay Composable. Persist
-        // the selected tool; a recreated overlay seeds a fresh, no-op draft from the committed
-        // crop/mask geometry passed below, never from the disposed in-progress gesture.
-        val committedOverlay = restorableEditorOverlay(overlay)
-        val safeOverlay = if (
-            committedOverlay == EditorOverlayTool.MASK_SAMPLE_COLOR ||
-            committedOverlay == EditorOverlayTool.MASK_SAMPLE_LUMINANCE
-        ) {
-            committedOverlay.takeIf { selectedMask in state.localAdjustments.indices }
-                ?: EditorOverlayTool.NONE
-        } else {
-            committedOverlay
-        }
-        return EditorSessionDocument(
-            source = sourceState.value.let {
-                it.copy(displayName = AtomicJsonStore.truncateUtf16Safely(it.displayName, 512))
-            },
-                current = snapshotNow(),
-                committed = committedSnapshot,
-                history = editHistory.snapshotState(),
-                tool = EditorToolState(
-                    category = activeCategory,
-                    overlay = safeOverlay,
-                    maskIndex = selectedMask,
-                ),
-                preset = presetVm.current.toSessionState(),
-                export = exportVm.current.toSessionState(),
-        )
-    }
+    fun captureEditorSessionDocument(): EditorSessionDocument? = buildEditorSessionDocument(
+        recipeReady = recipeReady,
+        toolVm = toolVm,
+        state = state,
+        sourceState = sourceState,
+        session = session,
+        committedSnapshot = committedSnapshot,
+        editHistory = editHistory,
+        activeCategory = activeCategory,
+        presetVm = presetVm,
+        exportVm = exportVm,
+    )
 
     fun checkpointEditorSession(): Boolean = runCatching {
         captureEditorSessionDocument()?.let { document ->
@@ -694,37 +670,19 @@ internal fun EditorScreen(
     }
     sessionCheckpointAction[0] = ::checkpointEditorSession
 
-    LaunchedEffect(recipeReady) {
-        if (!recipeReady) return@LaunchedEffect
-        runCatching { captureEditorSessionDocument() }
-            .onSuccess { document ->
-                if (document != null) {
-                    editorProbe.publishLiveEditorSnapshot(editorInstance, document)
-                    onSessionCheckpoint(document, liveCursorMutated)
-                    editorProbe.publishLiveEditorReady(editorInstance, document)
-                }
-            }
-            .onFailure {
-                Diag.w("live editor readiness rejected (${it.javaClass.simpleName})")
-            }
-    }
-
-    // Lifecycle recreation is the only time a non-navigation teardown can happen after the
-    // last debounced settle. Capture synchronously on the main thread; the latest-only runtime
-    // owns the bounded IO after this Activity is gone.
+    // Live-editor readiness and the lifecycle checkpoints (EditorSessionCheckpoint.kt).
     val currentSessionCheckpoint by rememberUpdatedState<() -> Boolean>(
         newValue = { checkpointEditorSession() },
     )
-    DisposableEffect(lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) currentSessionCheckpoint()
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            currentSessionCheckpoint()
-            lifecycle.removeObserver(observer)
-        }
-    }
+    EditorSessionLifecycleEffects(
+        recipeReady = recipeReady,
+        lifecycle = lifecycle,
+        editorInstance = editorInstance,
+        captureEditorSessionDocument = ::captureEditorSessionDocument,
+        liveCursorMutated = { liveCursorMutated },
+        onSessionCheckpoint = onSessionCheckpoint,
+        currentSessionCheckpoint = { currentSessionCheckpoint() },
+    )
 
     fun resetEditorCursorForSourceChange() {
         editHistory.clear()
