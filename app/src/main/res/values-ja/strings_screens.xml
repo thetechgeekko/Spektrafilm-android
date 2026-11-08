@@ -313,4 +313,12 @@
     <string name="help_save_body">最高画質の写真をギャラリーに保存します。</string>
     <string name="help_zoom_title">ズーム</string>
     <string name="help_zoom_body">ピンチでズーム。タップで細部を確認。</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">各写真はそれぞれの編集（フィルム、プリント、トリミング、マスク）のまま書き出されます。</string>
+    <string name="library_export_progress">%2$d 枚中 %1$d 枚目を書き出し中</string>
+    <string name="library_export_stop">停止</string>
+    <string name="library_export_busy">別の書き出しが実行中です。終わってからもう一度お試しください。</string>
+    <plurals name="library_export_title">
+        <item quantity="other">%1$d 枚の写真を書き出す</item>
+    </plurals>
 </resources>

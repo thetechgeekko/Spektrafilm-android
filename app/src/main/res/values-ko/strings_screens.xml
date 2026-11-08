@@ -313,4 +313,12 @@
     <string name="help_save_body">최고 화질 사진을 갤러리에 저장합니다.</string>
     <string name="help_zoom_title">확대</string>
     <string name="help_zoom_body">두 손가락으로 확대. 탭하면 세부를 확인합니다.</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">각 사진은 자체 편집(필름, 인화, 자르기, 마스크)을 그대로 유지합니다.</string>
+    <string name="library_export_progress">%2$d장 중 %1$d장 내보내는 중</string>
+    <string name="library_export_stop">중지</string>
+    <string name="library_export_busy">다른 내보내기가 진행 중입니다. 끝난 후 다시 시도하세요.</string>
+    <plurals name="library_export_title">
+        <item quantity="other">사진 %1$d장 내보내기</item>
+    </plurals>
 </resources>

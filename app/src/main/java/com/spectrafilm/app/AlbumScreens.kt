@@ -332,6 +332,8 @@ internal fun AlbumDetail(
     onGoToFolder: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
     onSlideshow: (List<LibraryEntry>) -> Unit,
+    /** Export these frames, each with its own edit; the callback runs once it has started. */
+    onExport: (frames: List<LibraryEntry>, onStarted: () -> Unit) -> Unit = { _, _ -> },
 ) {
     val ctx = LocalContext.current
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -438,6 +440,9 @@ internal fun AlbumDetail(
                         vm.setCover(album.id, selection.first())
                         scope.launch { snackbar.showSnackbar(ctx.getString(R.string.album_cover_set)) }
                     }
+                    LibraryBarAction(SpectraIcons.Export, R.string.tool_export_action, true) {
+                        onExport(shown.filter { it.documentUri in selection }, vm::clearSelection)
+                    }
                     LibraryBarAction(SpectraIcons.Share, R.string.library_share, true) {
                         shareLibraryFrames(ctx, shown.filter { it.documentUri in selection })
                     }
@@ -446,6 +451,12 @@ internal fun AlbumDetail(
                     }
                 }
             }
+            LibraryExportProgress(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .fillMaxWidth(),
+            )
             SnackbarHost(
                 snackbar,
                 modifier = Modifier

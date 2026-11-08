@@ -121,6 +121,8 @@ internal fun LibraryFolderAndAlbums(
     onSlideshow: (List<LibraryEntry>) -> Unit,
     /** An album is open in the detail pane beside this one: Back and snackbars are its. */
     albumOpen: Boolean = false,
+    /** Export these frames, each with its own edit; the callback runs once it has started. */
+    onExport: (frames: List<LibraryEntry>, onStarted: () -> Unit) -> Unit = { _, _ -> },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -350,6 +352,9 @@ internal fun LibraryFolderAndAlbums(
                         val picked = vm.visibleEntries().filter { it.documentUri in selection }
                         shareLibraryFrames(ctx, picked)
                     },
+                    onExport = {
+                        onExport(vm.visibleEntries().filter { it.documentUri in selection }, vm::clearSelection)
+                    },
                     onSelectAll = vm::selectAll,
                     onAddToAlbum = {
                         addToAlbum = vm.visibleEntries()
@@ -375,6 +380,9 @@ internal fun LibraryFolderAndAlbums(
                             .filter { it.documentUri in gallerySelection }
                             .map { AlbumItem.of(it, treeUri = null) }
                     }
+                    LibraryBarAction(SpectraIcons.Export, R.string.tool_export_action, true) {
+                        onExport(galleryShown().filter { it.documentUri in gallerySelection }, galleryVm::clearSelection)
+                    }
                     LibraryBarAction(SpectraIcons.Share, R.string.library_share, true) {
                         shareLibraryFrames(ctx, galleryShown().filter { it.documentUri in gallerySelection })
                     }
@@ -382,6 +390,15 @@ internal fun LibraryFolderAndAlbums(
                         galleryVm.selectAll(galleryShown().map { it.documentUri })
                     }
                 }
+            }
+            // A running export, over the top of the grid; beside an open album, that pane shows it.
+            if (!albumOpen) {
+                LibraryExportProgress(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth(),
+                )
             }
         }
     }

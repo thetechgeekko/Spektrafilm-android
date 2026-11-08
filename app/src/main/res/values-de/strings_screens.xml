@@ -318,4 +318,13 @@
     <string name="help_save_body">Speichert das Foto in voller Qualität in der Galerie.</string>
     <string name="help_zoom_title">Zoomen</string>
     <string name="help_zoom_body">Mit zwei Fingern zoomen. Antippen, um Details zu prüfen.</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">Jedes Foto behält seine eigene Bearbeitung: Film, Abzug, Zuschnitt und Masken.</string>
+    <string name="library_export_progress">Exportiere %1$d von %2$d</string>
+    <string name="library_export_stop">Stopp</string>
+    <string name="library_export_busy">Ein anderer Export läuft. Versuche es erneut, wenn er fertig ist.</string>
+    <plurals name="library_export_title">
+        <item quantity="one">%1$d Foto exportieren</item>
+        <item quantity="other">%1$d Fotos exportieren</item>
+    </plurals>
 </resources>

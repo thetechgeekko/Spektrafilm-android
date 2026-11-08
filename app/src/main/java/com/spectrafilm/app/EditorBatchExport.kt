@@ -176,7 +176,7 @@ internal fun startBatchExport(
         val app = ctx.applicationContext
         Diag.i("batch export start: ${sources.size} photos format=${options.format.name}")
         val launched = ExportWorkRuntime.launch(app, options.format, started) {
-            runBatchExport(app, e, sources, look, options, keepGps, started)
+            runBatchExport(app, e, sources, BatchEditSource.SharedLook(look), options, keepGps, started)
         }
         if (launched == null) {
             setStatus(ctx.getString(R.string.editor_status_export_running))

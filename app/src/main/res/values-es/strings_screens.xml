@@ -323,4 +323,14 @@
     <string name="help_save_body">Guarda la foto a máxima calidad en tu galería.</string>
     <string name="help_zoom_title">Acercar</string>
     <string name="help_zoom_body">Pellizca la foto para hacer zoom. Tócala para ver el detalle.</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">Cada foto conserva su propia edición: película, copia, recorte y máscaras.</string>
+    <string name="library_export_progress">Exportando %1$d de %2$d</string>
+    <string name="library_export_stop">Detener</string>
+    <string name="library_export_busy">Hay otra exportación en curso. Inténtalo de nuevo cuando termine.</string>
+    <plurals name="library_export_title">
+        <item quantity="one">Exportar %1$d foto</item>
+        <item quantity="many">Exportar %1$d fotos</item>
+        <item quantity="other">Exportar %1$d fotos</item>
+    </plurals>
 </resources>
