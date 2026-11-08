@@ -81,7 +81,8 @@ internal fun toolSwitch(s: ParamsState, tool: Category): ToolSwitch? = when (too
     Category.HALATION -> ToolSwitch(s.halationActive) { s.halationActive = it }
     Category.CAMERA_DIFFUSION -> ToolSwitch(s.cameraDiffusionState.active) { s.cameraDiffusionState.active = it }
     Category.GLARE -> ToolSwitch(s.glareActive) { s.glareActive = it }
-    Category.DATE_STAMP -> ToolSwitch(s.dateStampActive) { s.dateStampActive = it }
+    // No DATE_STAMP: switching it on needs its text set up first (DateStampGroup does that),
+    // so its card sends the user to its full settings instead.
     else -> null
 }
 

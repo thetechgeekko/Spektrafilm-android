@@ -9,7 +9,7 @@ import org.junit.Test
 class ToolRailTest {
     private val switched = setOf(
         Category.TONE_CURVE, Category.SCENE_LATITUDE, Category.CONTRAST_MASK, Category.COUPLERS,
-        Category.GRAIN, Category.HALATION, Category.CAMERA_DIFFUSION, Category.GLARE, Category.DATE_STAMP,
+        Category.GRAIN, Category.HALATION, Category.CAMERA_DIFFUSION, Category.GLARE,
     )
 
     @Test
@@ -31,6 +31,5 @@ class ToolRailTest {
         // Spot-check the wiring to the real fields.
         assertEquals(!PARAM_DEFAULTS.halationActive, s.halationActive)
         assertEquals(!PARAM_DEFAULTS.cameraDiffusionState.active, s.cameraDiffusionState.active)
-        assertEquals(!PARAM_DEFAULTS.dateStampActive, s.dateStampActive)
     }
 }
