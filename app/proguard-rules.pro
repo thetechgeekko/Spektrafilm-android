@@ -30,6 +30,10 @@
 # methods by name, which R8 cannot see. Keep the whole runtime package rather than trusting its
 # consumer rules -- a wrong guess here fails silently (skin masks just stay empty), see CLAUDE.md.
 -keep class com.google.ai.edge.litert.** { *; }
+# Its Play AI-pack delivery classes reference the Play libraries excluded in build.gradle.kts;
+# that path is never called here (the model comes from SkinModelStore).
+-dontwarn com.google.android.play.**
+-dontwarn com.google.android.gms.**
 
 # ---- Release-candidate instrumentation boundary ----
 # The separately packaged release AndroidTest APK exercises process-death recovery,
