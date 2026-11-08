@@ -622,60 +622,29 @@ internal fun EditorScreen(
     remember { toolVm.restore(restoredOverlay, restoredTool?.maskIndex ?: 0); true }
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
-    // 100% grain magnifier
-    val magnifierOpenState = remember { mutableStateOf(false) }
-    var magnifierOpen by magnifierOpenState
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
     // that would remeasure it every frame, which is the churn documented on PanelOverlay.
     // A one-shot layout change is a different thing and is what this is.
-    val magnifierBitmapState = remember { mutableStateOf<Bitmap?>(null) }
-    var magnifierBitmap by magnifierBitmapState
-    val magnifierRenderingState = remember { mutableStateOf(false) }
-    var magnifierRendering by magnifierRenderingState
-    val magnifierStatusState = remember { mutableStateOf("") }
-    var magnifierStatus by magnifierStatusState
-    // Tracks the in-flight magnifier render so a rapid re-tap can cancel the previous
-    // request (last-tap-wins) instead of racing N full-res renders into magnifierBitmap.
-    // Held in a remember box (not Compose state — we never read it during composition).
-    val magnifierJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    // Zoom step 4: background decode of the zoom source after an idle settle (ZoomPrewarm).
-    val zoomPrewarmJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val zoomPrewarmEligible = remember { ZoomPrewarm.eligible(ctx) }
-    fun closeMagnifier() {
-        // Cancel any in-flight crop render so it doesn't resurrect the overlay
-        // state or leak its bitmap (a cancelled job recycles its own result).
-        magnifierJobRef.value?.cancel()
-        magnifierRendering = false
-        magnifierOpen = false
-        magnifierBitmap = null
-    }
-    val magnifierPublicationGate = remember { RoiRenderPublicationGate() }
-
-    // Lightroom-style zoom: the sharp render of the currently-visible region (rendered at
-    // ~screen resolution from a native-pixel crop), overlaid on the scaled proxy.
-    val roiOverlayState = remember { mutableStateOf<RoiOverlay?>(null) }
-    var roiOverlay by roiOverlayState
-    val roiJobRef = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val roiPatchTracker = remember { RoiPatchTracker() }
-    // Zoom step 3: recent finished patch renders for the current edit (RoiPatchCache).
-    // 64 MiB like rawr's tile LRU on roomy devices, 16 MiB elsewhere.
-    val roiPatchCache = remember {
-        RoiPatchCache<RoiOverlay>(
-            maxBytes = if (ZoomPrewarm.eligible(ctx)) 64L shl 20 else 16L shl 20,
-            sizeOf = { it.bitmap.allocationByteCount.toLong() },
-            // Through the lease registry: a patch the Canvas still draws this frame is
-            // recycled only once its draw lease closes.
-            recycle = { retirePreviewBitmap(it.bitmap) },
-            isShown = { it === roiOverlay },
-        )
-    }
-    val roiPublicationGate = remember { RoiRenderPublicationGate() }
-    val latestRoiRenderKeyState = rememberUpdatedState(previewTick)
-    val latestRoiRenderKey by latestRoiRenderKeyState
-    val latestMagnifierRenderKeyState = rememberUpdatedState(previewTick)
-    val latestMagnifierRenderKey by latestMagnifierRenderKeyState
+    // 100% grain magnifier + Lightroom-style ROI zoom patch (EditorZoom.kt).
+    val zoom = rememberEditorZoom(
+        ctx = ctx,
+        scope = scope,
+        dispatchers = dispatchers,
+        state = state,
+        engineState = engineState,
+        previewTickState = previewTickState,
+        sourceRenderAllowed = sourceRenderAllowed,
+        patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
+    )
+    val magnifierOpen by zoom.magnifierOpenState
+    val magnifierBitmap by zoom.magnifierBitmapState
+    val magnifierRendering by zoom.magnifierRenderingState
+    val magnifierStatus by zoom.magnifierStatusState
+    val roiOverlay by zoom.roiOverlayState
+    val zoomPrewarmEligible = zoom.zoomPrewarmEligible
+    fun closeMagnifier() = zoom.closeMagnifier()
 
     /** Retire every source-derived resource before committing a different source identity. */
     fun retireSourceResources() {
@@ -697,15 +666,7 @@ internal fun EditorScreen(
         gpuLut = null
         gpuGain = 1f
 
-        zoomPrewarmJobRef.value?.cancel()
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        roiPatchCache.clear()
-        roiOverlay = null
-        magnifierPublicationGate.invalidate()
-        magnifierJobRef.value?.cancel()
-        magnifierBitmap = null
-        magnifierRendering = false
+        zoom.retireSource()
         // Evidence is published only after every production gate/cache/lease owner has been
         // invalidated or retired; callers never observe a start-of-cleanup false positive.
         editorProbe.publishSourceRetirement()
@@ -720,46 +681,7 @@ internal fun EditorScreen(
 
     // Invalidate an old edit generation before its next main-thread publication, cancel its
     // remaining native work, and retire its overlay while the replacement preview is pending.
-    LaunchedEffect(previewTick) {
-        // An edit is under way: don't let the idle zoom-source decode compete with it.
-        zoomPrewarmJobRef.value?.cancel()
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        // Before roiOverlay is cleared, so the shown patch is skipped here and retired by
-        // DisposableEffect(roiOverlay) once it has left the screen.
-        roiPatchCache.retain(previewTick)
-        roiOverlay = null
-        magnifierPublicationGate.invalidate()
-        magnifierJobRef.value?.cancel()
-        if (magnifierOpen) {
-            magnifierBitmap = null
-            magnifierRendering = false
-            magnifierStatus = ctx.getString(R.string.editor_magnifier_edit_changed)
-        }
-    }
-    // Cancel any in-flight ROI / magnifier render job when the editor leaves composition
-    // (navigation), so a superseded job doesn't keep rendering into a gone Composable.
-    DisposableEffect(Unit) {
-        onDispose {
-            magnifierJobRef.value?.cancel()
-            roiJobRef.value?.cancel()
-            zoomPrewarmJobRef.value?.cancel()
-            // The editor is leaving: retire every cached patch, the one on screen included
-            // (its own disposal may have skipped it as still cached). Lease-safe and
-            // idempotent, so a patch retired twice or still mid-draw is fine.
-            roiPatchCache.clear(includeShown = true)
-        }
-    }
-    // Recycle a superseded ROI bitmap once it has left composition (safe — not mid-draw).
-    DisposableEffect(roiOverlay) {
-        val current = roiOverlay
-        onDispose {
-            // A patch still held by roiPatchCache is the cache's to recycle.
-            if (current != null && !roiPatchCache.holds(current)) {
-                retirePreviewBitmap(current.bitmap)
-            }
-        }
-    }
+    LaunchedEffect(previewTick) { zoom.onEdit(previewTick) }
 
     // presets
     val restoredPreset = initialRestoredSession?.preset
@@ -1669,88 +1591,11 @@ internal fun EditorScreen(
         )
     }
 
-    // Zoom step 4: once the fit preview has settled and the editor stays idle, decode the
-    // zoom source into zoomSourceCache so the first pinch starts from a cache hit (see
-    // ZoomPrewarm). Cancelled by the next edit; a zoom during the decode joins its flight.
-    fun scheduleZoomPrewarm() {
-        if (!sourceRenderAllowed) return
-        zoomPrewarmJobRef.value?.cancel()
-        zoomPrewarmJobRef.value = scope.launch {
-            delay(ZoomPrewarm.IDLE_DELAY_MS)
-            val start = System.nanoTime()
-            runCatching { loadSourceCachedForZoom(MAX_EDGE_PX).close() }
-                .onSuccess {
-                    Diag.i("zoom prewarm ready ms=${(System.nanoTime() - start) / 1_000_000L}")
-                }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    Diag.w("zoom prewarm failed: ${t.message}")
-                }
-        }
-    }
-
-    // 100% grain magnifier: render a real FULL-RESOLUTION crop around a tapped point.
-    //
-    // PERF/RACE: each tap previously launched an independent coroutine with no
-    // cancellation, so rapid taps ran several full-res simulate()s in parallel and
-    // raced their results into magnifierBitmap (last-write-wins, wasteful, and an
-    // orphaned bitmap per superseded run). We now cancel the prior in-flight render
-    // before starting a new one (last-tap-wins), and the result is only published if
-    // the coroutine is still active — a cancelled run recycles its own bitmap instead
-    // of writing it, so a superseded render can never leak or land on screen.
-    fun openMagnifier(nx: Float, ny: Float) {
-        startMagnifierRender(
-            dispatchers = dispatchers,
-            nx = nx,
-            ny = ny,
-            ctx = ctx,
-            scope = scope,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            magnifierJobRef = magnifierJobRef,
-            magnifierPublicationGate = magnifierPublicationGate,
-            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
-            engineState = engineState,
-            previewTickState = previewTickState,
-            magnifierBitmapState = magnifierBitmapState,
-            magnifierOpenState = magnifierOpenState,
-            magnifierRenderingState = magnifierRenderingState,
-            magnifierStatusState = magnifierStatusState,
-            latestMagnifierRenderKeyState = latestMagnifierRenderKeyState,
-        )
-    }
-
-    // Lightroom-style zoom: render the currently-visible region (a native-pixel crop of the
-    // source) at ~screen resolution via the FAST preview path, then overlay it sharply on the
-    // graphicsLayer-scaled proxy. Modeled on openMagnifier's last-wins cancellation. Memory is
-    // bounded by ROI_RENDER_MAX_PX (a few MB), independent of source megapixels — this is the
-    // Lightroom "smart preview" strategy, so it sidesteps the full-res OOM entirely. Suppressed
-    // while cropping or comparing (those branches own the gestures / have no zoom).
-    fun renderRoi(roi: RoiRect) {
-        startRoiPatchRender(
-            dispatchers = dispatchers,
-            patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
-            roi = roi,
-            scope = scope,
-            state = state,
-            sourceRenderAllowed = sourceRenderAllowed,
-            roiJobRef = roiJobRef,
-            roiPatchCache = roiPatchCache,
-            roiPatchTracker = roiPatchTracker,
-            roiPublicationGate = roiPublicationGate,
-            loadSourceCachedForZoom = ::loadSourceCachedForZoom,
-            engineState = engineState,
-            previewTickState = previewTickState,
-            roiOverlayState = roiOverlayState,
-            latestRoiRenderKeyState = latestRoiRenderKeyState,
-        )
-    }
-
-    fun clearRoi() {
-        roiPublicationGate.invalidate()
-        roiJobRef.value?.cancel()
-        roiOverlay = null  // bitmap recycled by DisposableEffect(roiOverlay)
-    }
+    zoom.loadSourceCachedForZoom = ::loadSourceCachedForZoom
+    fun scheduleZoomPrewarm() = zoom.scheduleZoomPrewarm()
+    fun openMagnifier(nx: Float, ny: Float) = zoom.openMagnifier(nx, ny)
+    fun renderRoi(roi: RoiRect) = zoom.renderRoi(roi)
+    fun clearRoi() = zoom.clearRoi()
 
     // Everything that feeds the NATIVE render for a fit preview at [fullEdge]:
     // the engine-param snapshot + the decode key. Reads Compose state — call on
