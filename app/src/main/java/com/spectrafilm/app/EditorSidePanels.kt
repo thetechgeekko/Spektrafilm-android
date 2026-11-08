@@ -7,6 +7,8 @@
  */
 package com.spectrafilm.app
 
+import android.graphics.Bitmap
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -432,34 +434,49 @@ internal fun SourcePanel(
  * is NOT shown here -- see [ExportSavedMoment], which leaves the editor usable.
  */
 @Composable
-internal fun ExportMask(onCancel: () -> Unit) {
+internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
     // This overlay swallows every pointer event, so Back is the only system gesture that
     // can reach anything while it is up. Without a handler of its own it would fall
     // through to the editor root, where Back leaves the app -- so a stray Back during a
     // render could send the app away mid-export. Inert while rendering, because Cancel is
     // a deliberate press and not a reflex.
     BackHandler(enabled = true) { }
+    // API 33+: the photo develops in a darkroom tray while the export runs (ExportDevelopTray.kt).
+    // Null below 33, with animations off or without a preview: the plain scrim and indicator.
+    val tray = rememberDevelopTray(photo)
+    val darkroom = tray != null
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+            .background(if (darkroom) SpektraBrand.darkroomScrim else MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
             .pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent() }
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (tray != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            DevelopTrayImage(
+                tray,
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 144.dp),
+            )
+        }
         Column(
             Modifier
+                .then(if (darkroom) Modifier.align(Alignment.BottomCenter).navigationBarsPadding() else Modifier)
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
+            if (!darkroom) SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
             Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
             Text(
                 stringResource(R.string.editor_export_rendering),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (darkroom) SpektraBrand.onDarkroom else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
