@@ -33,6 +33,11 @@ internal data class ExportUiState(
      * Activity restoring SUCCESS still shows the result, just without one-tap share.
      */
     val lastShare: Pair<String, String>?,
+    /**
+     * The pill's Share half started this run: open the share sheet when it lands instead of
+     * the "Saved" snackbar. Session-local like [lastShare], never journaled.
+     */
+    val shareWhenDone: Boolean = false,
 ) {
     // #161: busy/done are DERIVED from the one export state machine, never parallel flags.
     val inFlight: Boolean get() = phase == EditorExportPhase.RUNNING
@@ -88,6 +93,12 @@ internal sealed interface ExportAction {
 
     /** The user dismissed the result mask. */
     data object DismissResult : ExportAction
+
+    /** The pill's Share half asked for the next result to go to the share sheet. */
+    data object ShareWhenDone : ExportAction
+
+    /** The pending share was handed to the share sheet (or can no longer happen). */
+    data object ShareHandled : ExportAction
 }
 
 internal class ExportViewModel : ViewModel() {
@@ -121,7 +132,8 @@ internal class ExportViewModel : ViewModel() {
 
     companion object {
         fun reduce(state: ExportUiState, action: ExportAction): ExportUiState = when (action) {
-            ExportAction.OpenSheet -> state.copy(sheetOpen = true)
+            // Export through the sheet is a plain save: it never inherits a pending share.
+            ExportAction.OpenSheet -> state.copy(sheetOpen = true, shareWhenDone = false)
             ExportAction.CloseSheet -> state.copy(sheetOpen = false)
             is ExportAction.SetOptions -> state.copy(options = action.value)
             is ExportAction.SetKeepGps -> state.copy(keepGps = action.value)
@@ -135,11 +147,27 @@ internal class ExportViewModel : ViewModel() {
                 } else {
                     state
                 }
-            is ExportAction.Terminal -> state.copy(phase = action.phase, runtimeRunId = null)
-            is ExportAction.SetPhase -> state.copy(phase = action.phase)
+            // A failed or cancelled run has nothing to share; only SUCCESS keeps the request
+            // alive until the editor hands the file to the share sheet.
+            is ExportAction.Terminal -> state.copy(
+                phase = action.phase,
+                runtimeRunId = null,
+                shareWhenDone = state.shareWhenDone && action.phase == EditorExportPhase.SUCCESS,
+            )
+            is ExportAction.SetPhase -> state.copy(
+                phase = action.phase,
+                shareWhenDone = state.shareWhenDone &&
+                    (action.phase == EditorExportPhase.RUNNING || action.phase == EditorExportPhase.SUCCESS),
+            )
             is ExportAction.SetShare -> state.copy(lastShare = action.value)
-            ExportAction.DismissResult ->
-                state.copy(lastShare = null, phase = EditorExportPhase.IDLE, runtimeRunId = null)
+            ExportAction.DismissResult -> state.copy(
+                lastShare = null,
+                phase = EditorExportPhase.IDLE,
+                runtimeRunId = null,
+                shareWhenDone = false,
+            )
+            ExportAction.ShareWhenDone -> state.copy(shareWhenDone = true)
+            ExportAction.ShareHandled -> state.copy(shareWhenDone = false)
         }
     }
 }

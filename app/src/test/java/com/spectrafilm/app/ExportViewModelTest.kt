@@ -109,4 +109,53 @@ class ExportViewModelTest {
         assertNull(vm.current.runtimeRunId)
         assertNull(vm.current.lastShare)
     }
+
+    @Test fun shareRequestSurvivesASuccessfulRun() {
+        val vm = vm()
+        vm.onAction(ExportAction.ShareWhenDone)
+        vm.onAction(ExportAction.Running(3L))
+        vm.onAction(ExportAction.Terminal(EditorExportPhase.SUCCESS))
+        vm.onAction(ExportAction.SetShare("content://media/3" to "image/jpeg"))
+        vm.onAction(ExportAction.SetPhase(EditorExportPhase.SUCCESS))
+        assertTrue(vm.current.shareWhenDone)
+        vm.onAction(ExportAction.ShareHandled)
+        assertFalse(vm.current.shareWhenDone)
+    }
+
+    /** A failed or cancelled run must not leave a share armed for the next plain export. */
+    @Test fun shareRequestDiesWithAFailedOrCancelledRun() {
+        for (phase in listOf(EditorExportPhase.FAILURE, EditorExportPhase.CANCELLED, EditorExportPhase.RECONCILING)) {
+            val terminal = vm()
+            terminal.onAction(ExportAction.ShareWhenDone)
+            terminal.onAction(ExportAction.Running(4L))
+            terminal.onAction(ExportAction.Terminal(phase))
+            assertFalse("Terminal($phase)", terminal.current.shareWhenDone)
+
+            val refined = vm()
+            refined.onAction(ExportAction.ShareWhenDone)
+            refined.onAction(ExportAction.Running(4L))
+            refined.onAction(ExportAction.SetPhase(phase))
+            assertFalse("SetPhase($phase)", refined.current.shareWhenDone)
+        }
+    }
+
+    @Test fun sheetExportAndDismissNeverInheritAShare() {
+        val viaSheet = vm()
+        viaSheet.onAction(ExportAction.ShareWhenDone)
+        viaSheet.onAction(ExportAction.OpenSheet)
+        assertFalse(viaSheet.current.shareWhenDone)
+
+        val dismissed = vm()
+        dismissed.onAction(ExportAction.ShareWhenDone)
+        dismissed.onAction(ExportAction.DismissResult)
+        assertFalse(dismissed.current.shareWhenDone)
+    }
+
+    /** Session-local, like lastShare: a restored editor never opens a share sheet by itself. */
+    @Test fun restoreClearsAPendingShare() {
+        val vm = vm()
+        vm.onAction(ExportAction.ShareWhenDone)
+        vm.restore(restored(EditorExportPhase.RUNNING, 2L))
+        assertFalse(vm.current.shareWhenDone)
+    }
 }

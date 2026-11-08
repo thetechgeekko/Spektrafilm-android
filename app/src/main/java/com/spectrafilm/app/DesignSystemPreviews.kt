@@ -61,6 +61,7 @@ internal fun StageRailSample(dark: Boolean) = PreviewSurface(dark) {
             exporting = false,
             onExport = {},
             onCrop = {},
+            onShare = {},
         )
         ToolList(
             tools = previewLooksTools,
@@ -115,8 +116,8 @@ internal fun SectionCardSample(dark: Boolean) = PreviewSurface(dark) {
 @Composable
 internal fun ExportButtonSample(dark: Boolean) = PreviewSurface(dark) {
     Row(Modifier.padding(16.dp)) {
-        ExportButton(exporting = false, onClick = {})
-        ExportButton(exporting = true, onClick = {})
+        ExportSharePill(exporting = false, saved = false, onExport = {}, onShare = {})
+        ExportSharePill(exporting = true, saved = false, onExport = {}, onShare = {})
     }
 }
 

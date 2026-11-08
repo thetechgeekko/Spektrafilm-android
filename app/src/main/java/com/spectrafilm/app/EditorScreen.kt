@@ -8,7 +8,6 @@
  */
 package com.spectrafilm.app
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import androidx.activity.OnBackPressedDispatcher
 import android.content.pm.PackageManager
@@ -322,11 +321,9 @@ internal fun EditorScreen(
     // path can forget to clear a boolean the phase transition already implies.
     val exportInFlight = exportUi.inFlight
     val exportDone = exportUi.done
-    // The result collapses from a modal hero into a non-blocking toolbar; only the hero
-    // beat counts as an open overlay. Reset whenever the result goes away.
-    var exportSavedCollapsed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(exportDone) { if (!exportDone) exportSavedCollapsed = false }
-    val exportMaskVisible = exportInFlight || (exportDone && !exportSavedCollapsed)
+    // Only the render is modal; the result is a Snackbar and the pill's check, which never
+    // block the editor.
+    val exportMaskVisible = exportInFlight
     val previewTickState = remember { mutableIntStateOf(0) }
     var previewTick by previewTickState
     val publicationGate = remember { RenderPublicationGate() }
@@ -1452,10 +1449,10 @@ internal fun EditorScreen(
         pendingLutText = null
     }
 
-    // The saved toolbar's Share / Open never time out (ExportSavedMoment). The user's next
-    // edit -- a slider drag or any settled change -- or a move to another tool panel puts the
-    // result away instead, so it never lingers over work that has moved on.
-    if (exportDone && exportSavedCollapsed) {
+    // A saved result stays "current" (the pill's Share sends that file again) until the
+    // user's next edit -- a slider drag or any settled change -- or a move to another tool
+    // panel, so Share never sends a file the photo has since moved on from.
+    if (exportDone) {
         LaunchedEffect(Unit) {
             val committedAtSave = session.committedSnapshot.value
             val categoryAtSave = activeCategory
@@ -2198,6 +2195,33 @@ internal fun EditorScreen(
     }
     LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
+    // What the sheet's Export button (and the pill's Share) runs: the same checks and the
+    // same run either way. [rememberPreset] off for Share, which uses the last preset without
+    // re-marking it (the preset list may not have loaded yet).
+    fun launchEditorExport(exportPresets: ExportPresetDocument, rememberPreset: Boolean = true) {
+        startEditorExport(
+            dispatchers = dispatchers,
+            exportVm = exportVm,
+            exportPresetVm = exportPresetVm,
+            ctx = ctx,
+            scope = scope,
+            state = state,
+            engine = engine,
+            sourceRenderAllowed = sourceRenderAllowed,
+            sourceUri = sourceUri,
+            sourceName = sourceName,
+            exportSourceIdentity = exportSourceIdentity,
+            exportPresets = exportPresets,
+            snackbarHost = snackbarHost,
+            legacyStoragePermission = legacyStoragePermission,
+            mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
+            currentSourceDecodeRequest = ::currentSourceDecodeRequest,
+            checkpointEditorSession = ::checkpointEditorSession,
+            onSettingsAction = onSettingsAction,
+            setStatus = { status = it },
+            rememberPreset = rememberPreset,
+        )
+    }
     fun openExportSheetIfAllowed() {
         if (engine != null && sourceRenderAllowed && !previewBusy && !exportVm.current.inFlight) {
             exportVm.onAction(ExportAction.OpenSheet)
@@ -2209,12 +2233,46 @@ internal fun EditorScreen(
     fun requestExport() {
         if (previewBusy) exportPending = true else openExportSheetIfAllowed()
     }
+    // The pill's Share half: send the file just saved if nothing changed since, otherwise
+    // export with the last-used choices (no sheet) and share the result when it lands.
+    var sharePending by remember { mutableStateOf(false) }
+    fun shareExportIfAllowed() {
+        val current = exportVm.current
+        val last = current.lastShare
+        if (current.done && last != null) {
+            if (!shareExportedFile(ctx, last.first, last.second)) {
+                status = ctx.getString(R.string.editor_status_no_share_target)
+            }
+            return
+        }
+        if (engine == null || !sourceRenderAllowed || previewBusy || current.inFlight || current.sheetOpen) return
+        exportPresetVm.uiState.value.lastUsedPreset?.let { p ->
+            exportVm.onAction(ExportAction.SetOptions(p.options))
+            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
+        }
+        exportVm.onAction(ExportAction.ShareWhenDone)
+        launchEditorExport(exportPresetVm.uiState.value, rememberPreset = false)
+        // Nothing started (a permission or settings check stopped it): drop the request so a
+        // later plain export does not open the share sheet.
+        if (!exportVm.current.inFlight) exportVm.onAction(ExportAction.ShareHandled)
+    }
+    fun requestShare() {
+        if (previewBusy) sharePending = true else shareExportIfAllowed()
+    }
     LaunchedEffect(exportPending, previewBusy) {
         if (exportPending && !previewBusy) {
             exportPending = false
             openExportSheetIfAllowed()
         }
     }
+    LaunchedEffect(sharePending, previewBusy) {
+        if (sharePending && !previewBusy) {
+            sharePending = false
+            shareExportIfAllowed()
+        }
+    }
+    // Share reads the last-used preset without opening the sheet, so load the presets once.
+    LaunchedEffect(exportPresetVm) { exportPresetVm.load() }
     LaunchedEffect(Unit) {
         if (!editorProbe.isArmed()) return@LaunchedEffect
         editorProbe.exportProbeRequests.collect { request ->
@@ -2461,6 +2519,8 @@ internal fun EditorScreen(
                 exportVisible = engine != null && sourceRenderAllowed,
                 exporting = exportInFlight,
                 onExport = { requestExport() },
+                exportSaved = exportDone,
+                onShare = { requestShare() },
             )
 
             // Adaptive editor chrome. Narrow (phone portrait): the preview over a floating
@@ -2762,6 +2822,7 @@ internal fun EditorScreen(
                                 exportVisible = engine != null && sourceRenderAllowed,
                                 exporting = exportInFlight,
                                 onExport = { requestExport() },
+                                onShare = { requestShare() },
                             )
                         }
                         Column(
@@ -2961,51 +3022,33 @@ internal fun EditorScreen(
                 },
             )
         } else if (exportDone) {
-            // Content URI + minimum read grant; the exported row's exact OutputDescriptor
-            // MIME -- never a filesystem path (#162).
-            fun exportedIntent(action: String, published: String, mime: String) =
-                if (action == Intent.ACTION_SEND) {
-                    Intent(action).apply {
-                        type = mime
-                        putExtra(Intent.EXTRA_STREAM, Uri.parse(published))
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // The result, without covering the photo: the pill shows its check, and either
+            // the share sheet opens (the run came from Share) or a Snackbar says where the
+            // file went, with Open. Keyed on the file, and remembered across recreation, so a
+            // rotation does not announce the same save twice.
+            val result = exportUi.lastShare
+            var announced by rememberSaveable { mutableStateOf<String?>(null) }
+            LaunchedEffect(result) {
+                if (result == null || announced == result.first) return@LaunchedEffect
+                announced = result.first
+                val (published, mime) = result
+                if (exportVm.current.shareWhenDone) {
+                    exportVm.onAction(ExportAction.ShareHandled)
+                    if (!shareExportedFile(ctx, published, mime)) {
+                        status = ctx.getString(R.string.editor_status_no_share_target)
                     }
                 } else {
-                    Intent(action).apply {
-                        setDataAndType(Uri.parse(published), mime)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                }
-            ExportSavedMoment(
-                collapsed = exportSavedCollapsed,
-                onCollapse = { exportSavedCollapsed = true },
-                onDismiss = {
-                    exportVm.onAction(ExportAction.DismissResult)
-                    checkpointEditorSession()
-                },
-                onShare = exportUi.lastShare?.let { (published, mime) ->
-                    {
-                        val send = exportedIntent(Intent.ACTION_SEND, published, mime)
-                        try {
-                            ctx.startActivity(
-                                Intent.createChooser(send, ctx.getString(R.string.editor_share_export_title))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        } catch (_: ActivityNotFoundException) {
-                            status = ctx.getString(R.string.editor_status_no_share_target)
-                        }
-                    }
-                },
-                onOpen = exportUi.lastShare?.let { (published, mime) ->
-                    {
-                        try {
-                            ctx.startActivity(exportedIntent(Intent.ACTION_VIEW, published, mime))
-                        } catch (_: ActivityNotFoundException) {
+                    scope.showEditorMessage(
+                        snackbarHost,
+                        ctx.getString(R.string.editor_export_saved),
+                        actionLabel = ctx.getString(R.string.editor_export_open),
+                    ) {
+                        if (!openExportedFile(ctx, published, mime)) {
                             status = ctx.getString(R.string.editor_status_no_open_target)
                         }
                     }
-                },
-            )
+                }
+            }
         }
 
         // Ask for POST_NOTIFICATIONS when the export SHEET opens — NOT when the
@@ -3102,29 +3145,7 @@ internal fun EditorScreen(
                 } else {
                     null
                 },
-                onExport = {
-                    startEditorExport(
-                        dispatchers = dispatchers,
-                        exportVm = exportVm,
-                        exportPresetVm = exportPresetVm,
-                        ctx = ctx,
-                        scope = scope,
-                        state = state,
-                        engine = engine,
-                        sourceRenderAllowed = sourceRenderAllowed,
-                        sourceUri = sourceUri,
-                        sourceName = sourceName,
-                        exportSourceIdentity = exportSourceIdentity,
-                        exportPresets = exportPresets,
-                        snackbarHost = snackbarHost,
-                        legacyStoragePermission = legacyStoragePermission,
-                        mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
-                        currentSourceDecodeRequest = ::currentSourceDecodeRequest,
-                        checkpointEditorSession = ::checkpointEditorSession,
-                        onSettingsAction = onSettingsAction,
-                        setStatus = { status = it },
-                    )
-                },
+                onExport = { launchEditorExport(exportPresets) },
             )
         }
 

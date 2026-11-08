@@ -74,6 +74,9 @@ internal fun EditorTopBar(
     exportVisible: Boolean,
     exporting: Boolean,
     onExport: () -> Unit,
+    /** The last export saved and nothing changed since: the pill shows its check. */
+    exportSaved: Boolean,
+    onShare: () -> Unit,
 ) {
     Box(
         Modifier
@@ -192,7 +195,9 @@ internal fun EditorTopBar(
                 )
             }
             // Hidden, not disabled, when there is nothing to export.
-            if (!wide && exportVisible) ExportButton(exporting = exporting, onClick = onExport)
+            if (!wide && exportVisible) {
+                ExportSharePill(exporting = exporting, saved = exportSaved, onExport = onExport, onShare = onShare)
+            }
             // M3 app bars carry one or two essential actions: Export, then Undo and Redo.
             // Opening another photo, the view toggles, Settings and About live behind the
             // overflow menu.

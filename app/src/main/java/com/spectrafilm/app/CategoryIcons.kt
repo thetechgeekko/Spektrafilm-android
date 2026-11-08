@@ -44,7 +44,8 @@ object SpectraIcons {
     val StageFinish: ImageVector get() = MaterialSymbols.Tune
 
     // App bar and actions
-    val Export: ImageVector get() = MaterialSymbols.IosShare
+    val Export: ImageVector get() = MaterialSymbols.Download
+    val Share: ImageVector get() = MaterialSymbols.Share
     val SourceImage: ImageVector get() = MaterialSymbols.PhotoLibrary
     val Settings: ImageVector get() = MaterialSymbols.Settings
     val Help: ImageVector get() = MaterialSymbols.Help
