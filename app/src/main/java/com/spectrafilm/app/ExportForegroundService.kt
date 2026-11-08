@@ -17,7 +17,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -146,17 +145,15 @@ class ExportForegroundService : Service() {
     /**
      * Tries each type from [foregroundServiceTypesFor] in order and stops at the first the
      * system accepts. A refused type throws without making the service foreground, so the
-     * next one can still be tried inside the same start window. Seen on device (#458): an
-     * API 37 Samsung build refused mediaProcessing ("Starting FGS with type ... has been
-     * prohibited") while the manifest and permissions were in order; dataSync is the
-     * fallback the service ran as before. Returns false when every type was refused.
+     * next one can still be tried inside the same start window. Returns false when every
+     * type was refused.
      */
     private fun enterForeground(notification: Notification): Boolean {
         val refusedBefore = refusedTypes
         var refusedNow = 0
         for (type in typesToTry(Build.VERSION.SDK_INT, refusedBefore)) {
             try {
-                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+                startForegroundAs(notification, type)
                 // Remember a refusal only once a later type has been accepted, so a start
                 // that fails outright (background-start rules) never narrows the next try.
                 if (refusedNow != 0) {
@@ -170,6 +167,22 @@ class ExportForegroundService : Service() {
             }
         }
         return false
+    }
+
+    /**
+     * Calls the platform's startForeground directly instead of ServiceCompat. On API 34+
+     * ServiceCompat ANDs the type with a mask frozen at Android 14
+     * (FOREGROUND_SERVICE_TYPE_ALLOWED_SINCE_U, still so in androidx-main), which does not
+     * contain mediaProcessing (added in API 35). 8192 & mask == 0, so the platform received
+     * type NONE and refused it as "Starting FGS with type none ... has been prohibited" on
+     * every export (#458): the refusal was ours, not the phone's policy.
+     */
+    private fun startForegroundAs(notification: Notification, type: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, type)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -316,7 +329,7 @@ class ExportForegroundService : Service() {
 
         /**
          * Every type to try on [sdkInt], preferred first: mediaProcessing then dataSync on
-         * API 35+ (some builds refuse mediaProcessing, #458), dataSync alone on 29-34, and
+         * API 35+ (dataSync as a fallback if a build refuses mediaProcessing), dataSync alone on 29-34, and
          * untyped before 29.
          */
         internal fun foregroundServiceTypesFor(sdkInt: Int): List<Int> = when {
@@ -329,13 +342,11 @@ class ExportForegroundService : Service() {
         }
 
         /**
-         * Types the platform refused in this process while a later type was accepted. The
-         * SM-S948W on API 37 refuses mediaProcessing on every export ("Starting FGS with type
-         * none ... has been prohibited", with the manifest type and permission in order) and
-         * runs the service as dataSync (seen as types=0x1, isForeground=true, for the whole
-         * export). The refusal is platform policy, so later exports skip straight to the type
-         * that works instead of throwing and logging each time. Per process: a new process
-         * tries the preferred type again.
+         * Types the platform refused in this process while a later type was accepted, so
+         * later exports skip straight to the type that works instead of throwing and logging
+         * each time. Per process: a new process tries the preferred type again. (The refusal
+         * that motivated this, #458, turned out to be ServiceCompat zeroing mediaProcessing;
+         * see [startForegroundAs]. This stays as a guard for a genuine platform refusal.)
          */
         @Volatile private var refusedTypes = 0
 
