@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Six built-in looks instead of 27
+
+- The Look strip now offers six looks: Portra 400, Gold 200, Ektar 100, CineStill 800T,
+  Kodachrome 64 and Tri-X 400 (the first black-and-white look, printed on Multigrade at grade 3).
+  They are the films photographers most often buy, name and emulate; `docs/PRESETS.md` lists the
+  sources and their limits.
+- The other 21 looks are removed. Their films and papers stay in the pickers, and photos already
+  edited with a removed look open unchanged, because an edit stores its full settings, not the
+  look's name.
+
 ### In-app update with "What's new"
 
 - When the app opens (at most once a day) it checks GitHub for a newer release. If there is one, a

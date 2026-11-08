@@ -12,50 +12,45 @@ import java.io.File
 class BuiltInPresetsApplyTest {
 
     @Test
-    fun dreamyProMistAlwaysSelectsBlackProMistWithoutResettingOmittedControls() {
-        val preset = loadPreset("portra400_promist_dreamy")
-        assertEquals(
-            "the asset must author its promised diffusion family",
-            "black_pro_mist",
-            preset.params.getJSONObject("camera")
-                .getJSONObject("diffusionFilter")
-                .getString("filterFamily"),
-        )
-        val startingStates = listOf(
-            "fresh" to ParamsState(),
-            "Black Pro-Mist" to ParamsState().apply {
-                cameraDiffusionState.family = "black_pro_mist"
-            },
-            "Glimmerglass" to ParamsState().apply {
-                cameraDiffusionState.family = "glimmerglass"
-            },
-            "CineBloom" to ParamsState().apply {
-                cameraDiffusionState.family = "cinebloom"
-            },
-        )
-
-        for ((startingFamily, state) in startingStates) {
-            state.cameraLensBlurUm = 12.345f
-            state.crop = true
-            state.printExposure = 0.271f
-            state.printDiffusionState.family = "cinebloom"
-
-            BuiltInPresets.apply(preset, state)
-
-            assertEquals(
-                "$startingFamily state leaked into the authored camera diffusion family",
-                "black_pro_mist",
-                state.cameraDiffusionState.family,
-            )
-            assertEquals("omitted camera.lensBlurUm was reset", 12.345f, state.cameraLensBlurUm)
-            assertEquals("omitted io.crop was reset", true, state.crop)
-            assertEquals("omitted enlarger.printExposure was reset", 0.271f, state.printExposure)
-            assertEquals(
-                "omitted enlarger.diffusionFilter.family was reset",
-                "cinebloom",
-                state.printDiffusionState.family,
-            )
+    fun aLookLeavesOmittedControlsAlone() {
+        val preset = loadPreset("portra_400")
+        val state = ParamsState().apply {
+            cameraLensBlurUm = 12.345f
+            crop = true
+            printExposure = 0.271f
+            printDiffusionState.family = "cinebloom"
         }
+
+        BuiltInPresets.apply(preset, state)
+
+        assertEquals("kodak_portra_400", state.filmProfile)
+        assertEquals("omitted camera.lensBlurUm was reset", 12.345f, state.cameraLensBlurUm)
+        assertEquals("omitted io.crop was reset", true, state.crop)
+        assertEquals("omitted enlarger.printExposure was reset", 0.271f, state.printExposure)
+        assertEquals(
+            "omitted enlarger.diffusionFilter.family was reset",
+            "cinebloom",
+            state.printDiffusionState.family,
+        )
+    }
+
+    @Test
+    fun triXSwitchesToSilverPaperAtItsGrade() {
+        val state = ParamsState()
+        BuiltInPresets.apply(loadPreset("tri_x_400"), state)
+        assertEquals("kodak_tri_x_400", state.filmProfile)
+        assertEquals(SilverPrint.MULTIGRADE, state.printProfile)
+        assertEquals("3", state.paperGrade)
+        assertEquals(false, state.couplersActive)
+    }
+
+    @Test
+    fun aColourLookAfterTriXLeavesSilverPaper() {
+        val state = ParamsState()
+        BuiltInPresets.apply(loadPreset("tri_x_400"), state)
+        BuiltInPresets.apply(loadPreset("portra_400"), state)
+        assertEquals("kodak_portra_endura", state.printProfile)
+        assertEquals(true, state.couplersActive)
     }
 
     // ---------------------------------------------------------------------------
@@ -66,54 +61,50 @@ class BuiltInPresetsApplyTest {
 
     @Test
     fun applyingTwoBuiltInsInARowCompoundsThem() {
-        val dreamy = loadPreset("portra400_promist_dreamy")
-        val neutral = loadPreset("neutral_adobe_like")
+        val triX = loadPreset("tri_x_400")
+        val portra = loadPreset("portra_400")
 
-        // camera.diffusionFilter is authored by exactly ONE of the 27 presets, so nothing
-        // else can turn it back off.
+        // enlarger.paperGrade is authored only by the black-and-white look, so no colour
+        // look can put it back.
         assertEquals(
-            "only Dreamy Pro-Mist should author camera.diffusionFilter",
+            "only Tri-X should author enlarger.paperGrade",
             false,
-            neutral.params.optJSONObject("camera")?.has("diffusionFilter") ?: false,
+            portra.params.optJSONObject("enlarger")?.has("paperGrade") ?: false,
         )
 
         val state = ParamsState()
-        BuiltInPresets.apply(dreamy, state)
-        assertEquals("Dreamy Pro-Mist must switch the filter on", true, state.cameraDiffusionState.active)
+        BuiltInPresets.apply(triX, state)
+        assertEquals("3", state.paperGrade)
 
-        BuiltInPresets.apply(neutral, state)
+        BuiltInPresets.apply(portra, state)
         assertEquals(
             "a sparse preset cannot clear a field it does not author -- this is the hazard " +
                 "the editor's baseline rewind exists to work around",
-            true,
-            state.cameraDiffusionState.active,
+            "3",
+            state.paperGrade,
         )
     }
 
     @Test
     fun rewindingToTheBaselineYieldsTheSecondPresetAlone() {
-        val dreamy = loadPreset("portra400_promist_dreamy")
-        val neutral = loadPreset("neutral_adobe_like")
+        val triX = loadPreset("tri_x_400")
+        val portra = loadPreset("portra_400")
 
         // The look the browsing run started from.
         val baseline = Presets.toJsonString(ParamsState())
 
         val browsed = ParamsState()
-        BuiltInPresets.apply(dreamy, browsed)
+        BuiltInPresets.apply(triX, browsed)
         // What the editor does before overlaying the next built-in.
         Presets.decode(JSONObject(baseline), browsed)
-        BuiltInPresets.apply(neutral, browsed)
+        BuiltInPresets.apply(portra, browsed)
 
-        assertEquals(
-            "Clean Baseline promises glare and couplers off; the Pro-Mist filter must be gone",
-            false,
-            browsed.cameraDiffusionState.active,
-        )
+        assertEquals("Tri-X's paper grade must be gone", SilverPrint.DEFAULT_GRADE, browsed.paperGrade)
 
-        // Stronger than the flag: browsing to a preset must land on exactly the same look as
-        // choosing it first, field for field.
+        // Stronger than one field: browsing to a preset must land on exactly the same look
+        // as choosing it first, field for field.
         val direct = ParamsState()
-        BuiltInPresets.apply(neutral, direct)
+        BuiltInPresets.apply(portra, direct)
         assertEquals(
             "browsing to a preset must equal applying it from the same baseline",
             Presets.toJsonString(direct),
@@ -125,7 +116,7 @@ class BuiltInPresetsApplyTest {
     fun theRewindPreservesPhotoSpecificWorkTheLookDoesNotOwn() {
         // The baseline is a full encode of live state, so crop and the other per-photo
         // fields ride through the rewind. No built-in authors them.
-        val neutral = loadPreset("neutral_adobe_like")
+        val look = loadPreset("cinestill_800t")
         val start = ParamsState().apply {
             crop = true
             cameraLensBlurUm = 12.345f
@@ -134,10 +125,34 @@ class BuiltInPresetsApplyTest {
 
         val state = ParamsState()
         Presets.decode(JSONObject(baseline), state)
-        BuiltInPresets.apply(neutral, state)
+        BuiltInPresets.apply(look, state)
 
         assertEquals("crop was lost across the rewind", true, state.crop)
         assertEquals("lens blur was lost across the rewind", 12.345f, state.cameraLensBlurUm)
+    }
+
+    @Test
+    fun anEditMadeWithARemovedLookStillDecodes() {
+        // Saved edits (recipes, versions, user presets) store the full settings a look
+        // produced, never the look's id, so retiring a look cannot strand a photo. This is
+        // a recipe written by the old "Velvia 100 -- Chrome Landscape" look (27-look era):
+        // it must decode to the same film, paper and slide route with nothing missing.
+        val saved = ParamsState().apply {
+            filmProfile = "fujifilm_velvia_100"
+            printProfile = "kodak_2383"
+            scanFilm = true
+            filmGammaFactor = 1.18f
+            couplersAmount = 1.25f
+        }
+        val json = Presets.toJsonString(saved)
+
+        val reopened = ParamsState()
+        Presets.decode(JSONObject(json), reopened)
+
+        assertEquals("fujifilm_velvia_100", reopened.filmProfile)
+        assertEquals("kodak_2383", reopened.printProfile)
+        assertEquals(true, reopened.scanFilm)
+        assertEquals(json, Presets.toJsonString(reopened))
     }
 
     private fun loadPreset(id: String): BuiltInPreset {

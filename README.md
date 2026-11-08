@@ -35,7 +35,7 @@ Dedicated to the [pixls.us](https://pixls.us) community.</sub>
     </td>
     <td width="33%" valign="top">
       <h3>Start from a look</h3>
-      27 built-in presets cover researched film and print pairings. Tap one to apply it, then
+      6 built-in presets cover the films photographers reach for most, from Portra 400 to Tri-X. Tap one to apply it, then
       save your own and share them as files.
     </td>
     <td width="33%" valign="top">
