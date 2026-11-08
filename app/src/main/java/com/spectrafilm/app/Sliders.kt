@@ -197,13 +197,15 @@ fun EnhancedSlider(
                 )
             },
             // Announce "<label>, <value>" rather than a bare percentage. The semantics come
-            // FIRST: a node's bounds are those of its outermost semantics modifier, so placed
-            // outside heightIn they report the 48dp target. The M3 Expressive slider itself
+            // FIRST and MERGING: a node's (touch) bounds come from its outermost merging
+            // semantics modifier, and the slider's own progressSemantics merges, so a plain
+            // semantics block here still reported 44dp. Placed outside heightIn, this one
+            // reports the 48dp target. The M3 Expressive slider itself
             // lays out at its 44dp thumb height (#455: measured 44.2dp on device); its drag
             // input already gets Compose's 48dp minimum touch area, this makes the
             // accessibility node say so too. The extra height is centred: the track stays put.
             modifier = Modifier
-                .semantics {
+                .semantics(mergeDescendants = true) {
                     contentDescription = label
                     stateDescription = formatted
                 }
