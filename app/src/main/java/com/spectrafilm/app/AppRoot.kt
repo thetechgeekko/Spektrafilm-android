@@ -697,6 +697,9 @@ internal fun NavScaffold(
     // on the screen (m3-design-language, components-navigation "Contextual selection mode").
     closeNavigation: Boolean = false,
     floatingActionButton: @Composable () -> Unit = {},
+    // In Scaffold's own slot a snackbar is laid out ABOVE the FAB; drawn inside [content] it
+    // sat under it, and the FAB swallowed taps on the snackbar's action (Undo).
+    snackbarHost: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -706,6 +709,7 @@ internal fun NavScaffold(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = floatingActionButton,
+        snackbarHost = snackbarHost,
         topBar = {
             // M3 Expressive flexible bar: larger emphasized title that folds into the bar.
             MediumFlexibleTopAppBar(

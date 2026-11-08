@@ -360,6 +360,8 @@ private fun LibraryFolderAndAlbums(
             else -> onBack
         },
         closeNavigation = selecting || gallerySelecting,
+        // One host per state: beside an open album, the album's pane shows them.
+        snackbarHost = { if (!albumOpen) SnackbarHost(snackbar) },
         floatingActionButton = {
             if (!selecting && !gallerySelecting) {
                 LibraryFabMenu(
@@ -507,13 +509,6 @@ private fun LibraryFolderAndAlbums(
                     }
                 }
             }
-            // One host per state: beside an open album, the album's pane shows them.
-            if (!albumOpen) SnackbarHost(
-                snackbar,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(WindowInsets.navigationBars.asPaddingValues()),
-            )
         }
     }
     val added = { name: String, count: Int? ->
