@@ -29,7 +29,7 @@ internal fun EditorBackAndShortcuts(
     onCloseCategory: () -> Unit,
     onBackPressedDispatcher: OnBackPressedDispatcher,
     setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
-    editHistory: EditHistoryState,
+    editHistory: EditHistory,
     doUndo: () -> Unit,
     doRedo: () -> Unit,
     openPhotoPicker: () -> Unit,
