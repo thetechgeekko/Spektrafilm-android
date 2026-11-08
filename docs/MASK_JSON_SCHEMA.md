@@ -182,9 +182,11 @@ shrink (`expand` < 0) the selection (normally `-1..1`). It never stores pixels, 
 to another photo selects that photo's skin.
 
 At render time the summed class probability `p` from the segmenter is mapped to coverage with
-`smoothstep((p - (t - w/2)) / w)`, where `w = 0.02 + 0.48*softness` and `t = 0.5 - 0.4*expand`
-(both inputs clamped to their normal ranges). Until the segmenter has run on the photo, a semantic
-component selects nothing. The probabilities live in source-photo coordinates, so a semantic
+`smoothstep((p - lo) / (hi - lo))`, where `lo = max(0, t - w/2)`, `hi = min(1, t + w/2)`,
+`w = 0.02 + 0.48*softness` and `t = 0.5 - 0.4*expand` (both inputs clamped to their normal ranges).
+The clip keeps `p = 0` at zero coverage and `p = 1` at full coverage for every setting. Until the
+segmenter has run on the photo, the whole mask holding the semantic component selects nothing, even
+when it or the component is inverted. The probabilities live in source-photo coordinates, so a semantic
 selection stays on the same content when the photo is cropped.
 
 ## Range refinements

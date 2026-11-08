@@ -37,6 +37,39 @@ class MaskSemanticTest {
     }
 
     @Test
+    fun unboundSemantic_staysInertWhenInverted() {
+        val radial = MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f)
+        val cases = listOf(
+            Mask(listOf(Mask.Component(BlendMode.ADD, skin)), invert = true),
+            Mask(listOf(Mask.Component(BlendMode.ADD, skin, invert = true))),
+            Mask(listOf(Mask.Component(BlendMode.ADD, radial), Mask.Component(BlendMode.SUBTRACT, skin))),
+        )
+        for (mask in cases) {
+            assertEquals("$mask at centre", 0f, mask.alphaAt(0.5f, 0.5f), 0f)
+            assertEquals("$mask coverage", 0f, MaskRaster.coverage(mask), 0f)
+        }
+        // Once bound, inversion behaves normally: inverted skin selects the background cell.
+        val bound = cases[0].bindSemantic { BoundSemantic(it, field, FrameMap.IDENTITY) }
+        assertEquals(1f, bound.alphaAt(0.6f, 0.25f), 1e-6f)
+        assertEquals(0f, bound.alphaAt(0.1f, 0.25f), 1e-6f)
+    }
+
+    @Test
+    fun coverage_keepsEndpointsAtEverySetting() {
+        for (softness in listOf(0f, 0.5f, 1f)) for (expand in listOf(-1f, -0.5f, 0f, 0.5f, 1f)) {
+            val c = skin.copy(softness = softness, expand = expand)
+            assertEquals("p=0 s=$softness e=$expand", 0f, c.coverage(0f), 0f)
+            assertEquals("p=1 s=$softness e=$expand", 1f, c.coverage(1f), 0f)
+        }
+        // Max expand + max softness: a field with no skin (body plane missing entirely) must not leak a
+        // faint global edit.
+        val empty = SemanticField(2, 2, mapOf(SemanticClass.FACE_SKIN to FloatArray(4)))
+        val bound = BoundSemantic(skin.copy(softness = 1f, expand = 1f), empty, FrameMap.IDENTITY)
+        assertEquals(0f, bound.alphaAt(0.5f, 0.5f), 0f)
+        assertEquals(0f, MaskRaster.coverage(Mask(listOf(Mask.Component(BlendMode.ADD, bound)))), 0f)
+    }
+
+    @Test
     fun boundSemantic_followsTheField() {
         val bound = BoundSemantic(skin, field, FrameMap.IDENTITY)
         assertEquals(1f, bound.alphaAt(0.1f, 0.25f), 1e-6f)  // face cell
