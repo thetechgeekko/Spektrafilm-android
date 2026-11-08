@@ -350,10 +350,10 @@ internal fun SimulationSection(
                 )
             }
             SimPart.FILM_FORMAT -> {
-                EnhancedSlider(stringResource(R.string.editor_sim_film_format), s.filmFormatMm, OperationalParamLimits.FILM_FORMAT_MM, { s.filmFormatMm = it },
-                    step = 1f, decimals = 0,
-                    tooltip = stringResource(R.string.editor_sim_film_format_tooltip),
+                Instrument(InstrumentKind.LENS_GRID, stringResource(R.string.editor_sim_film_format), s.filmFormatMm,
+                    OperationalParamLimits.FILM_FORMAT_MM, { s.filmFormatMm = it }, step = 1f, decimals = 0,
                     default = PARAM_DEFAULTS.filmFormatMm)
+                InstrumentTooltip(stringResource(R.string.editor_sim_film_format_tooltip))
             }
             SimPart.LENS_BLUR -> {
                 EnhancedSlider(stringResource(R.string.editor_sim_camera_lens_blur), s.cameraLensBlurUm, 0f..20f, { s.cameraLensBlurUm = it },
@@ -438,16 +438,16 @@ internal fun SimulationSection(
                 ) {
                     SwitchRow(stringResource(R.string.editor_sim_scan_white_correction), s.scanWhiteCorrection, { s.scanWhiteCorrection = it },
                         stringResource(R.string.editor_sim_scan_white_correction_tooltip))
-                    EnhancedSlider(stringResource(R.string.editor_sim_scan_white_level), s.scanWhiteLevel, 0f..1f, { s.scanWhiteLevel = it },
-                        step = 0.005f, decimals = 3,
-                        tooltip = stringResource(R.string.editor_sim_scan_white_level_tooltip),
+                    Instrument(InstrumentKind.METER_HIGH, stringResource(R.string.editor_sim_scan_white_level), s.scanWhiteLevel,
+                        0f..1f, { s.scanWhiteLevel = it }, step = 0.005f, decimals = 3,
                         default = PARAM_DEFAULTS.scanWhiteLevel)
+                    InstrumentTooltip(stringResource(R.string.editor_sim_scan_white_level_tooltip))
                     SwitchRow(stringResource(R.string.editor_sim_scan_black_correction), s.scanBlackCorrection, { s.scanBlackCorrection = it },
                         stringResource(R.string.editor_sim_scan_black_correction_tooltip))
-                    EnhancedSlider(stringResource(R.string.editor_sim_scan_black_level), s.scanBlackLevel, 0f..1f, { s.scanBlackLevel = it },
-                        step = 0.005f, decimals = 3,
-                        tooltip = stringResource(R.string.editor_sim_scan_black_level_tooltip),
+                    Instrument(InstrumentKind.METER_LOW, stringResource(R.string.editor_sim_scan_black_level), s.scanBlackLevel,
+                        0f..1f, { s.scanBlackLevel = it }, step = 0.005f, decimals = 3,
                         default = PARAM_DEFAULTS.scanBlackLevel)
+                    InstrumentTooltip(stringResource(R.string.editor_sim_scan_black_level_tooltip))
                 }
                 PairSlider(stringResource(R.string.editor_sim_scan_unsharp), s.scanUnsharpMask, 0f..5f, { s.scanUnsharpMask = it },
                     step = 0.05f, decimals = 2,
@@ -544,6 +544,13 @@ private fun PaperGradeRow(s: ParamsState) {
         Spacer(Modifier.height(8.dp))
         val grades = SilverPrint.GRADES
         val current = SilverPrint.grade(s.paperGrade).label
+        // Drag sideways along the curves to step the grade; the row below stays for taps.
+        StepWave(
+            title = label,
+            labels = grades.map { it.label },
+            selected = grades.indexOfFirst { it.label == current }.coerceAtLeast(0),
+            onSelect = { s.paperGrade = grades[it].label },
+        )
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             grades.forEachIndexed { index, grade ->
                 SegmentedButton(
