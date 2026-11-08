@@ -117,7 +117,7 @@ internal fun CutoutAwareBarRow(
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val nav = navM.map { it.measure(loose) }
         val acts = actionM.map { it.measure(loose) }
-        val rowHeight = maxOf(
+        val baseRowHeight = maxOf(
             constraints.minHeight,
             nav.maxOfOrNull { it.height } ?: 0,
             acts.maxOfOrNull { it.height } ?: 0,
@@ -125,7 +125,7 @@ internal fun CutoutAwareBarRow(
 
         // Cutouts that reach into this bar, in bar-local LOGICAL x (start edge = 0, mirrored in
         // RTL so the same walk works both ways), widened by the keep-out margin.
-        val inBand = rects.filter { r -> r.top < barTopLeft.y + rowHeight && r.bottom > barTopLeft.y }
+        val inBand = rects.filter { r -> r.top < barTopLeft.y + baseRowHeight && r.bottom > barTopLeft.y }
         val holes = inBand
             .map { r ->
                 val l = r.left - barTopLeft.x - keepOut
@@ -181,10 +181,13 @@ internal fun CutoutAwareBarRow(
         val titleWidth = (titleEnd - titleStart).coerceAtLeast(0)
         val showTitle = laneHoles.isEmpty() || titleWidth >= minTitle
         val titleP: List<Placeable> = if (showTitle && titleWidth > 0) {
-            titleM.map { it.measure(Constraints(maxWidth = titleWidth, maxHeight = rowHeight)) }
+            // Height is not capped at the button row: at large font scales the two-line title
+            // is taller than 64dp, and capping it cut the subtitle's glyphs in half (#456).
+            titleM.map { it.measure(Constraints(maxWidth = titleWidth, maxHeight = constraints.maxHeight)) }
         } else {
             emptyList()
         }
+        val rowHeight = maxOf(baseRowHeight, titleP.maxOfOrNull { it.height } ?: 0)
 
         // placeRelative mirrors in RTL, matching the logical coordinates above.
         layout(width, top + rowHeight) {

@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -148,7 +149,6 @@ fun ExportSheet(
                         summary,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
                     )
                 }
             }
@@ -299,19 +299,29 @@ fun ExportSheet(
                     stringResource(R.string.tool_export_sharpen),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Row(
+                // At large text sizes four segments cannot hold "Standard" on a phone (#456: cut
+                // to "Stan" at 2x), so the group becomes two connected rows of two.
+                val choices = OutputSharpen.entries
+                val perRow = if (LocalDensity.current.fontScale >= 1.5f) 2 else choices.size
+                Column(
                     Modifier.fillMaxWidth().semantics { selectableGroup() },
-                    horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
+                    verticalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
                 ) {
-                    val choices = OutputSharpen.entries
-                    choices.forEachIndexed { index, choice ->
-                        ConnectedToggle(
-                            label = stringResource(choice.labelRes),
-                            selected = options.sharpen == choice,
-                            shape = connectedShape(index, choices.size),
-                            onClick = { onOptionsChange(options.copy(sharpen = choice)) },
-                            modifier = Modifier.weight(1f),
-                        )
+                    choices.chunked(perRow).forEach { row ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(CONNECTED_GAP),
+                        ) {
+                            row.forEachIndexed { index, choice ->
+                                ConnectedToggle(
+                                    label = stringResource(choice.labelRes),
+                                    selected = options.sharpen == choice,
+                                    shape = connectedShape(index, row.size),
+                                    onClick = { onOptionsChange(options.copy(sharpen = choice)) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
             }
