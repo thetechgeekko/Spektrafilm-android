@@ -155,6 +155,8 @@ internal fun Instrument(
     val steps = if (step > 0f) (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0) else 0
 
     val gesture = Modifier
+        // A second finger also shows the clipping peek, as it does on the sliders.
+        .multiTouchPeek(interaction.onMultiTouch)
         // Double-tap resets. Declared first so it sees the pointer before the drag does; it
         // gives up as soon as the drag detector consumes past touch slop.
         .pointerInput(Unit) { detectTapGestures(onDoubleTap = { latestReset.value?.invoke() }) }
@@ -440,6 +442,8 @@ internal fun Pad2D(
     }
 
     val gesture = Modifier
+        // A second finger also shows the clipping peek, as it does on the sliders.
+        .multiTouchPeek(interaction.onMultiTouch)
         .pointerInput(Unit) { detectTapGestures(onDoubleTap = { latestReset.value?.invoke() }) }
         .pointerInput(Unit) {
             awaitEachGesture {
