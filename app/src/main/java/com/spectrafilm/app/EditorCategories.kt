@@ -244,8 +244,8 @@ internal fun dirtyCategories(state: ParamsState): Set<Category> {
  * The look a built-in preset should be overlaid onto.
  *
  * Built-ins are sparse: each authors only the fields it means to set, so applying two in a
- * row compounds them (`camera.diffusionFilter` is authored by exactly one of the 27, so
- * nothing else can switch it back off). The editor therefore rewinds to the look a browsing
+ * row compounds them (`enlarger.paperGrade` is authored only by Tri-X 400, so no colour
+ * look can put it back). The editor therefore rewinds to the look a browsing
  * run STARTED from before overlaying the next preset.
  *
  * A run continues only while [now] still equals what the last apply produced ([lastOutput]).

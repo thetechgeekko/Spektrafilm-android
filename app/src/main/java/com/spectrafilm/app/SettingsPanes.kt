@@ -6,19 +6,15 @@ package com.spectrafilm.app
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,7 +25,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 
 /** The Settings rows that open a page of their own: the detail side of list-detail. */
 internal enum class SettingsDetail { ABOUT, HOW_TO, DIAGNOSTICS }
@@ -40,8 +35,7 @@ internal enum class SettingsDetail { ABOUT, HOW_TO, DIAGNOSTICS }
  * because the detail pages (About, How to use) are long reading text that would be squeezed
  * under 480dp beside a 360dp list.
  */
-internal fun settingsTwoPane(widthDp: Float): Boolean =
-    windowSizeClass(widthDp, heightDp = 1f).isExpandedWidth()
+internal fun settingsTwoPane(widthDp: Float): Boolean = listDetailTwoPane(widthDp)
 
 /**
  * Settings, adapted to the window (#293, M3 canonical list-detail).
@@ -49,7 +43,8 @@ internal fun settingsTwoPane(widthDp: Float): Boolean =
  * Compact and medium: the single-pane Settings list, and its About / How to use /
  * Diagnostics rows push their own screens via [onOpenDetail].
  *
- * Expanded and wider: the list in a fixed-width leading pane (360dp, 412dp from the large
+ * Expanded and wider: the material3-adaptive list-detail scaffold ([ListDetailPanes], #457),
+ * the list in a fixed-width leading pane (360dp, 412dp from the large
  * class) and the selected page beside it, with the open row highlighted in the list. About
  * is shown until another row is picked, so the wide pane is never an empty placeholder.
  * Back leaves Settings as a whole, because both panes are one destination.
@@ -64,23 +59,21 @@ internal fun SettingsDestination(
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val title = stringResource(R.string.editor_action_settings)
-        // Read here: inside Row the BoxWithConstraints receiver is not implicitly reachable.
+        // Read here: inside the pane lambdas the BoxWithConstraints receiver is not implicitly reachable.
         val windowWidthDp = maxWidth.value
         // Held across a fold/unfold so the wide layout comes back on the page it showed.
         var detail by rememberSaveable { mutableStateOf(SettingsDetail.ABOUT) }
         if (!settingsTwoPane(windowWidthDp)) {
             NavScaffold(title, onBack = onBack) { settings(null, onOpenDetail) }
-        } else Row(Modifier.fillMaxSize()) {
-            Box(Modifier.width(sidePaneWidthDp(windowWidthDp).dp).fillMaxHeight()) {
-                NavScaffold(title, onBack = onBack) { settings(detail) { detail = it } }
-            }
-            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Box(Modifier.weight(1f).fillMaxHeight()) {
+        } else ListDetailPanes(
+            listWidthDp = sidePaneWidthDp(windowWidthDp),
+            list = { NavScaffold(title, onBack = onBack) { settings(detail) { detail = it } } },
+            detail = {
                 DetailPane(stringResource(detail.titleRes)) {
                     detailContent(detail) { detail = it }
                 }
-            }
-        }
+            },
+        )
     }
 }
 

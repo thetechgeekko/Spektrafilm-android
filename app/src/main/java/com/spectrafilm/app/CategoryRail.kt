@@ -46,7 +46,9 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
             onClick = { if (!exporting) onClick() },
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.semantics { contentDescription = if (exporting) busyLabel else label },
+            modifier = Modifier
+                .helpSpot(LocalQuickHelp.current, HelpSpot.EXPORT)
+                .semantics { contentDescription = if (exporting) busyLabel else label },
         ) {
             if (exporting) {
                 ExportProgressIndicator(

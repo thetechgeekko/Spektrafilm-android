@@ -100,7 +100,8 @@ Full-resolution RAW/DNG decoding uses **LibRaw**.
 
 Lossy-JPEG DNG files (for example Samsung and Pixel "Expert RAW") are decoded by
 LibRaw through **libjpeg-turbo** 3.1.4, statically linked into the RAW library and
-built unmodified from its official release archive (SHA-256 pinned in
+built unmodified from its official release archive (a byte-identical copy is
+kept at `lib/libraw/third_party/`; SHA-256 pinned in
 `lib/libraw/cmake/LibJpegTurboVendor.cmake`).
 
 This software is based in part on the work of the Independent JPEG Group.

@@ -1,308 +1,149 @@
-# Spektrafilm Built-in Presets
+# Spektrafilm Built-in Looks
 
-Spektrafilm ships 27 curated presets, each pairing a film stock with a print medium and a
-small set of complementary engine tweaks to reproduce a coherent, recognizable look. The
-machine-readable definitions live in
-`engine/spektra-core/src/main/assets/spektra/presets.json`; this document is the design
-rationale and the cited research behind every choice. (Presets added after this document was
-written are described in `presets.json` itself.)
+Spektrafilm ships six built-in looks. Each pairs a film stock with a print medium (or scans a
+slide directly) and adds a small set of engine tweaks so the result reads as that film. The
+machine-readable definitions live in `engine/spektra-core/src/main/assets/spektra/presets.json`;
+this document records why these six were chosen and what each one sets.
 
-## How presets work
+Until November 2026 the app shipped 27 looks in nine groups. Many were near-copies (four Portras
+on the same paper, five cinema negatives on the same print film), and none was black and white.
+The set was cut to the six films photographers most often buy, name and emulate. The film stocks
+and papers those older looks used are all still in the Film and Paper pickers; only the one-tap
+looks were removed. The visual comparison used for the decision rendered every old and new look
+through the engine on the same sample photos.
 
-A built-in preset is a sparse overlay: it changes only the fields authored in `presets.json`, and
-`BuiltInPresets.apply` leaves every omitted field at its current editor value. On a fresh/reset
-editor those values are the `ParamsState` defaults; after prior edits or another built-in preset,
-they may not be. These are intentionally light-touch looks rather than full state snapshots. User
-presets use a separate full-state schema.
+## Why these six
+
+No film manufacturer publishes sales by stock, so there is no single popularity figure. The
+choice rests on four independent signals of different kinds, each with its own bias:
+
+| Look | KEH sales rank, 35mm | Film Dating picks (2017) | Fuji X Weekly recipe views (2024) | Other |
+| --- | --- | --- | --- | --- |
+| Portra 400 | top 3 in 120 | #2 | #2, #3, #6, #7 | |
+| Gold 200 | #6 | not ranked | named among the leaders | most-named film in a 2024 r/AnalogCommunity thread (hand count, approximate) |
+| Ektar 100 | #2 | #3 | not in top 10 | |
+| Tri-X 400 | #1 | #1 | #10 | the app's only black-and-white look |
+| Kodachrome 64 | discontinued | slide films excluded | #1 | demand exists only as emulation |
+| CineStill 800T | not ranked | not ranked | not ranked | #3 by rolls logged, Analog.Cafe 2025 Film Log report |
+
+Sources:
+
+- KEH Camera, "What Film Stocks Sell The Most? The KEH Tilt-Shift Report":
+  <https://www.keh.com/blog/what-film-stocks-sell-the-most-the-keh-tilt-shift-report>. Three years
+  of KEH's own sales; ranks only, no unit counts; the page is undated (it references 2021 events).
+- PetaPixel, "The Top 10 Camera Films Preferred by Photographers" (2017):
+  <https://petapixel.com/2017/07/22/top-10-camera-films-preferred-photographers>. Results of a
+  "Film Dating" quiz used by about 38,000 people. Measures preference, not sales; slide films
+  were excluded.
+- Fuji X Weekly, "Top 25 Most Popular Film Simulation Recipes of 2024":
+  <https://fujixweekly.com/2025/01/02/top-25-most-popular-film-simulation-recipes-of-2024/>, ranked
+  by page views; and "Why Do Fujifilm Photographers Love Kodak Film Simulation Recipes So Much?"
+  (October 2026): <https://fujixweekly.com/2026/10/08/why-do-fujifilm-photographers-love-kodak-film-simulation-recipes-so-much/>,
+  which says Kodachrome, Portra, Gold and Tri-X recipes consistently dominate.
+- Analog.Cafe, "Top 10 Film Stocks According to 293 Photographers" (December 2025):
+  <https://www.analog.cafe/r/top-10-film-stocks-according-to-293-photographers-wlzp>. Rolls logged
+  in the Film Log app. Ranks 1, 2 and 4 to 6 are behind a paywall, so only CineStill 800T at #3 is
+  cited here.
+- r/AnalogCommunity, "What is y'all's most used film?" (June 2024):
+  <https://www.reddit.com/r/AnalogCommunity/comments/1d960ge/what_is_yalls_most_used_film/>.
+  Counted by hand; treat as anecdotal.
+
+Close runners-up were Ilford HP5 Plus (KEH #4), Portra 800 (KEH #3), Fujifilm Pro 400H (KEH #10,
+Film Dating #5, discontinued) and UltraMax 400. They were left out so the six cover six different
+jobs (portrait, everyday, landscape, night, slide, black and white) instead of several similar
+400-speed colour negatives.
+
+## How looks work
+
+A built-in look is a sparse overlay: it changes only the fields authored in `presets.json`, and
+`BuiltInPresets.apply` leaves every omitted field at its current editor value. The editor rewinds
+to the look a browsing run started from before applying the next one, so tapping through the strip
+never stacks looks. Every look authors `enlarger.yFilterShift` and `enlarger.mFilterShift`, so one
+look's print colour cannot leak into the next.
+
+Applying a look copies its settings into the photo's edit. Recipes, versions and user presets store
+the full settings, never a look's id, so a photo edited with a look that was later removed keeps
+rendering exactly as before.
 
 Key knobs used here:
 
-- **`camera.exposureCompensationEv`** — overall exposure. Positive opens up shadows / pushes
-  toward the bright, airy end of a negative's latitude.
-- **`filmRender.densityCurveGamma`** — film contrast. `>1` snappier, `<1` softer. The bundled
-  values span 0.88–1.18; Faded Matte and Bleach Bypass are the deliberate endpoints.
-- **`filmRender.grain.blur`** — grain softness. Higher = smoother/finer-looking; lower =
-  grittier. `agxParticleScale` (R,G,B) enlarges grain when we want it visible.
-- **`filmRender.halation.*`** — the glow bright lights scatter into the emulsion.
-  `halationAmount`/`scatterAmount` scale the effect; `boostEv` reconstructs clipped highlights
-  so the glow blooms harder. **A preset cannot set `halationStrength` or
-  `halationFirstSigmaUm`** — the engine bakes both from each profile's `info.use` and
-  `info.antihalation` tags and ignores any preset value, so `halationAmount` is a *multiplier*
-  on the stock's own measured strength, not the strength itself. The three tiers are
-  `strong` (rem-jet or a good undercoat) → R,G,B `0.015/0.005/0.0`, `weak` →
-  `0.08/0.02/0.0`, and `no` → `0.30/0.10/0.015`; the red weighting is why film halation
-  reads as a warm halo. This is why the rem-jet cine stocks sit at or below `1.0` here: a
-  higher multiplier would model more back-reflection than the film physically has.
-- **`filmRender.dirCouplers.amount`** — interlayer (DIR) coupler strength: edge contrast and
-  color crispness. Nudged up slightly for punchy stocks.
-- **`io.scanFilm`** — when `true`, scans the developed film directly and skips the print
-  stage. This is the correct path for reversal/slide stocks (they are already positives) and
-  for anyone who wants the "raw scan" negative look.
-- **`scanner.unsharpMask`** — capture sharpening; raised for the crispest, finest-grain stocks.
-- **`camera.diffusionFilter.*`** — optical diffusion controls. `filterFamily` is an
-  engine-honored selector (`glimmerglass`, `black_pro_mist`, `pro_mist`, or `cinebloom`). A
-  preset that promises a particular family must author it explicitly; otherwise the sparse
-  overlay preserves the editor's current family.
-- **`enlarger.*`** — untouched unless a preset explicitly authors a filter shift or preflash.
-  Several creative/stock-specific looks do so; all other presets preserve the current enlarger
-  state.
-
-Presets are grouped: Portrait, Landscape, Slide / Chrome, Cinema, Low Light / Night,
-Nostalgic / Consumer, Creative, and Neutral. The IDs below are checked against `presets.json` by
-`tools/docs/check_docs_consistency.py`; the asset is authoritative for exact parameter values.
+- **`camera.exposureCompensationEv`**: overall exposure. Negatives flatter slight overexposure.
+- **`filmRender.densityCurveGamma`**: film contrast. Above 1 is snappier, below 1 softer.
+- **`filmRender.grain.*`**: `blur` sets softness (higher is smoother); `agxParticleScale` (R, G, B)
+  enlarges the grain when it should be visible.
+- **`filmRender.halation.*`**: the glow bright lights scatter into the emulsion.
+  `halationAmount` is a multiplier on the stock's own measured strength. A look cannot set
+  `halationStrength` or `halationFirstSigmaUm`; the engine bakes both from each profile's
+  anti-halation tags. `boostEv` reconstructs clipped highlights so the glow blooms harder.
+- **`filmRender.dirCouplers.amount`**: interlayer coupler strength, for edge contrast and colour
+  separation.
+- **`io.scanFilm`**: scan the developed film directly and skip the print stage. Used for the slide
+  film.
+- **`enlarger.yFilterShift` / `mFilterShift`**: the enlarger's colour filtration, in CC units, on
+  top of the neutral pack for that film and paper. A negative yellow shift warms the print.
+- **`enlarger.paperGrade`**: the Multigrade contrast grade, read only on silver paper.
+- **`scanner.unsharpMask`**: capture sharpening (sigma, amount).
 
 ---
 
 ## Portrait
 
-### Portra 400 — Wedding Warm  (`portra400_endura_wedding`)
-**Kodak Portra 400 → Portra Endura.** The archetypal wedding/portrait negative. Portra 400 is
-prized for warm, natural skin and a relatively low-contrast curve that holds both highlight
-and shadow detail in tricky light, with surprisingly fine grain for a 400 speed. Pairing it
-with low-contrast Portra Endura keeps everything soft and forgiving.
-Tuning: `exposureCompensationEv 0.3` (negatives flatter slight overexposure — cleaner shadows,
-creamier skin), `densityCurveGamma 0.96` (a touch gentler still), `grain.blur 0.7` (smooth,
-restrained texture), `halation 1.0` (subtle, just enough warmth on highlights). DIR couplers
-on for natural color separation.
+### Portra 400  (`portra_400`)
+**Kodak Portra 400 → Kodak Portra Endura.** The film most often meant by "the film look": warm,
+forgiving skin and a low-contrast curve that holds highlights and shadows. These are the same
+settings the former "Portra 400 — Wedding Warm" look used, which the export baseline corpus is
+pinned to.
+Tuning: `exposureCompensationEv 0.3` with centre-weighted auto-exposure, `densityCurveGamma 0.96`,
+`grain.blur 0.7`, `halation 1.0`, DIR couplers on at `dirCouplers.amount 1.0`,
+`scanner.unsharpMask [0.5, 0.7]`.
 
-### Portra 160 — Soft Light Portrait  (`portra160_endura_softlight`)
-**Kodak Portra 160 → Portra Endura.** Portra 160 is the finest-grain, lowest-contrast member of
-the line — built for studio/soft-light portraiture. On low-contrast Endura the result is
-luminous and delicate.
-Tuning: `exposureCompensationEv 0.3`, `densityCurveGamma 0.94` (softest of the portrait
-presets), `grain.blur 0.55` (near-invisible grain), `halation 0.85` (very restrained).
+## Everyday
 
-### Pro 400H — Airy Pastel  (`pro400h_crystalarchive_pastel`)
-**Fujifilm Pro 400H → Fujifilm Crystal Archive Type II.** Pro 400H's signature is the airy,
-pastel wedding look that emerges when it is generously overexposed — colors lighten, greens
-stay clean and fresh, and skin renders cooler and softer than Kodak. Crystal Archive keeps the
-Fuji palette intact.
-Tuning: `exposureCompensationEv 1.0` (the deliberate overexposure that triggers the pastel
-shift), `densityCurveGamma 0.9` (low contrast for the lifted, airy tonality), `grain.blur 0.75`,
-`halation 0.9`.
-
----
+### Gold 200  (`gold_200`)
+**Kodak Gold 200 → Kodak Ektacolor Edge.** Kodak's consumer film: sunny yellows, warm golds and a
+friendly grain, on a consumer RA-4 paper.
+Tuning: `exposureCompensationEv 0.3`, `densityCurveGamma 1.0`, `grain.blur 0.68` with
+`agxParticleScale [0.96, 1.2, 2.3]` for a more visible consumer grain, `halation 1.0`,
+`dirCouplers.amount 1.05`, a small yellow filtration shift (`yFilterShift` 2).
 
 ## Landscape
 
-### Ektar 100 — Punchy Landscape  (`ektar100_ultra_landscape`)
-**Kodak Ektar 100 → Ultra Endura.** Ektar is the world's finest-grain color negative, the
-closest C-41 gets to slide film: vivid, saturated, high-acutance, with especially punchy blues
-and greens. High-contrast Ultra Endura amplifies that into a bold, graphic landscape look.
-Tuning: `densityCurveGamma 1.1` (snappy contrast Ektar can carry), `grain.blur 0.5`
-(its real grain is tiny — keep it clean), `halation 0.7` (Ektar has strong halation
-protection; keep glow minimal), `dirCouplers.amount 1.2` (extra edge/color crispness),
-`scanner.unsharpMask [0.9, 0.7]` (sharpen for the "HD" Ektar bite).
+### Ektar 100  (`ektar_100`)
+**Kodak Ektar 100 → Kodak Supra Endura.** The finest-grain colour negative, known for saturated
+skies and foliage. Printed on Supra Endura rather than the contrastier Ultra Endura: in side-by-side
+renders the Ultra pairing pushed reds and skin toward magenta.
+Tuning: `exposureCompensationEv 0.0`, `densityCurveGamma 1.05`, `grain.blur 0.5` with fine
+`agxParticleScale [0.6, 0.8, 1.6]`, `halation 0.7`, `dirCouplers.amount 1.1`,
+`scanner.unsharpMask [0.7, 0.7]`.
 
-### Ektar 100 — Coastal Travel  (`ektar100_supra_travel`)
-**Kodak Ektar 100 → Supra Endura.** The same stock on moderate-contrast Supra, for travel and
-mixed scenes where you want Ektar's saturation without Ultra's harder contrast clipping skin
-and skies.
-Tuning: neutral `densityCurveGamma 1.05`, `grain.blur 0.5`, `halation 0.7`,
-`dirCouplers.amount 1.1`.
+## Night
 
-### Superia X-TRA 400 — Cool Greens  (`superia400_crystalarchive_landscape`)
-**Fujifilm Superia X-TRA 400 → Crystal Archive Type II.** A foliage-oriented variant that keeps
-Fuji's green/cyan signature and adds a faint cool print balance. It uses a small enlarger-filter
-shift, lightly stronger density/coupler settings, and restrained grain/halation.
+### CineStill 800T  (`cinestill_800t`)
+**CineStill 800T → Kodak 2383.** Kodak Vision3 500T with its rem-jet backing removed. Without the
+backing, light reflects off the film base, so bright lights bloom into the red halos the stock is
+known for; the profile's anti-halation tag already models that, and `boostEv 0.6` lets clipped
+practicals and street lights drive it harder. It is tungsten-balanced, so in daylight or mixed light
+an uncorrected print goes strongly blue; the look applies the correction a lab scan would
+(`yFilterShift` −20, `mFilterShift` −10), leaving the cool, cinematic cast it is liked for.
+Tuning: `exposureCompensationEv 0.3` (it is commonly rated slower than box speed),
+`densityCurveGamma 1.0`, `grain.blur 0.68`, `halation 1.0`, `dirCouplers.amount 1.0`.
 
----
+## Slide
 
-## Slide / Chrome
+### Kodachrome 64  (`kodachrome_64`)
+**Kodak Kodachrome 64, scanned as a slide.** The K-14 reversal film: rich reds, deep blues and
+punchy contrast. Kodak discontinued it in 2009 and processing ended in 2010, so emulation
+is the only way to get the look. Reversal film is already a positive, so `io.scanFilm` skips the print.
+Tuning: `exposureCompensationEv 0.0`, `densityCurveGamma 1.04`, `grain.blur 0.55`, `halation 0.6`,
+`dirCouplers.amount 1.05`, `scanner.unsharpMask [0.8, 0.7]`.
 
-All slide presets use **`io.scanFilm: true`** — reversal films are positives, so they are
-scanned directly with no print stage. (A print profile is still listed because the schema
-requires the field; it is ignored when `scanFilm` is true.) Grain is barely touched
-(`blur 0.72`) because E-6/K-14 stocks are very fine-grained, and halation is held low — chromes
-have strong anti-halation backing.
+## Black & white
 
-### Velvia 100 — Chrome Landscape  (`velvia100_chrome_landscape`)
-**Fujifilm Velvia 100.** The landscape shooter's slide: ultra-saturated, high-contrast,
-exceptionally sharp, with yellows/reds/blues/greens that nearly run out of the frame.
-Tuning: `densityCurveGamma 1.0` (Velvia's punchy contrast), `halation 0.5`,
-`dirCouplers.amount 1.1`, `scanner.unsharpMask [0.9, 0.7]` for bite.
-
-### Provia 100F — Natural Chrome  (`provia100f_chrome_natural`)
-**Fujifilm Provia 100F.** The reference E-6 transparency: natural, accurate color, modest
-contrast, fine grain — the calm counterpoint to Velvia.
-Tuning: neutral `densityCurveGamma 1.0`, `halation 0.55`. Everything else default.
-
-### Ektachrome E100 — Clean Chrome  (`ektachrome_e100_chrome_clean`)
-**Kodak Ektachrome E100.** The revived 2018 slide with clean neutrals, fine grain, and a wide
-tonal range for a reversal film — slightly cooler/cleaner than the Fuji chromes.
-Tuning: neutral contrast, `halation 0.55`.
-
-### Kodachrome 64 — Nostalgic Chrome  (`kodachrome64_chrome_nostalgic`)
-**Kodak Kodachrome 64.** The legendary K-14 look: deep saturated reds, luminous blues, rich
-earthy greens, warm golden midtones, fine grain, and strong-but-not-harsh contrast with inky
-blacks.
-Tuning: `densityCurveGamma 1.04` (its punchy contrast), `halation 0.6` (a hair more warmth than
-the other chromes to support the nostalgic glow). The distinctive red/green response comes from
-the stock's own spectral profile.
-
----
-
-## Cinema
-
-Motion-picture negatives are printed onto a release print film (2383 standard / 2393 premium)
-rather than RGB paper — that print stage *is* the cinema look: rich blacks, neutral highlights,
-and the saturated film-print palette.
-
-### Vision3 500T — Night Cinema  (`vision3_500t_2383_night`)
-**Kodak Vision3 500T → 2383.** The fast tungsten-balanced workhorse of digital-era film, the
-night/low-light cinema stock. 5219 carries rem-jet, an anti-halation backing, so on the
-projected 2383 print its highlights stay clean: the famous warm halo around streetlamps and
-neon belongs to *rem-jet-removed* stills stock (CineStill 800T), not to 5219 as shot.
-Tuning: halation left near the stock's own level — `halationAmount 0.9`, `scatterAmount 1.1`,
-`boostEv 0.4` (reconstruct clipped highlights so what glow there is blooms cleanly).
-`grain.blur 0.72` so 500T's grain reads as real texture.
-The profile's `info.antihalation: "strong"` already supplies the rem-jet physics: the engine
-derives `halationStrength` from that tag, and a preset multiplier above 1.0 would model more
-back-reflection than the film has. A true CineStill look needs its own profile tagged
-`antihalation: "no"`, not a multiplier on this one — that is why the former
-`vision3_500t_halation_glow` preset was removed. That profile now ships as the stock
-**CineStill 800T** (`cinestill_800t`, generated by `tools/upstream/derive_profiles.py`).
-
-### Vision3 250D — Day Cinema  (`vision3_250d_2383_daycinema`)
-**Kodak Vision3 250D → 2383.** The medium-speed daylight cine negative: rich contrast, deep
-blacks, fine grain, broad latitude — the everyday modern theatrical look in daylight.
-Tuning: neutral contrast (the 2383 print supplies the cinema contrast), `grain.blur 0.62`,
-`halation 0.9` (a gentle daytime glow, far less than 500T).
-
-### Vision3 50D — Premier Print  (`vision3_50d_2393_premier`)
-**Kodak Vision3 50D → 2393 (Premier).** The sharpest, finest-grain Vision3 stock on the premium
-2393 print film, which gives deeper blacks, brighter highlights, and more saturation than 2383
-— a crisp, high-impact daylight cinema look.
-Tuning: `grain.blur 0.48` (50D is very fine), `halation 0.9`, `scanner.unsharpMask [0.8, 0.7]`
-for the extra crispness this stock is known for.
-
-### Vision3 200T — Tungsten Interior  (`vision3_200t_2383_interior`)
-**Kodak Vision3 200T → 2383.** A low-grain tungsten-balanced interior look with a slightly warm
-print balance, gentle highlight glow, and otherwise neutral exposure/contrast.
-
-### Verita 200D — Warm Cinema  (`verita200d_2383_warmcine`)
-**Kodak Verita 200D → 2383.** Kodak's new (2026) daylight cine negative with bold saturation,
-warm skin, and a deliberately shorter, classically cinematic tonal range.
-Tuning: `halation 0.9`, `dirCouplers.amount 1.1` (lift the saturation/edge the stock is built
-around). Character notes follow Kodak's announcement materials, so this preset is a
-best-estimate starting point.
-
----
-
-## Low Light / Night
-
-### Portra 800 — Natural Low Light  (`portra800_endura_natural`)
-**Kodak Portra 800 → Supra Endura.** One of the last fast color negatives, carrying Portra's
-natural warm palette into low light, with more grain and contrast than 400. Shot at box speed.
-Tuning: `grain.blur 0.8` (grain more visible than the slower Portras), halation lifted
-(`halationAmount 1.2`, `boostEv 0.4`) for the warm
-red/orange halo Portra throws around highlights at night. Supra Endura gives livelier color
-than Portra Endura for after-dark scenes.
-
-### Portra 800 +1 — Pushed Night  (`portra800_push1_endura_night`)
-**Kodak Portra 800 (Push +1, EI 1600) → Supra Endura.** Pushed one stop for available light:
-punchier contrast, bolder grain, and a stronger red halo around neon and lamps.
-Tuning: `densityCurveGamma 1.04` (push contrast), `grain.blur 0.9` + `agxParticleScale [1.2, 1.5, 2.8]` (visibly larger grain), halation pushed further (`halationAmount 1.5`,
-`scatterAmount 1.3`, `boostEv 0.8`).
-
-### Portra 800 +2 — Available Light  (`portra800_push2_endura_available`)
-**Kodak Portra 800 (Push +2, EI 3200) → Supra Endura.** Two stops pushed for the darkest
-available light: heavy grain, high contrast, glowing highlights. The point is mood, not
-fidelity.
-Tuning: `densityCurveGamma 1.08` (highest contrast in the set), `grain.blur 1.0` +
-`agxParticleScale [1.5, 1.9, 3.4]` (heavy grain), halation maxed (`halationAmount 1.7`,
-`scatterAmount 1.4`, `boostEv 1.0`).
-
-### Gold 200 — Golden Hour  (`gold200_ektacolor_goldenhour`)
-**Kodak Gold 200 → Ektacolor Edge.** The nostalgic sunny-snapshot film: warm yellows and golds,
-made for golden-hour everyday shooting. Consumer Ektacolor Edge paper completes the
-minilab-print feel.
-Tuning: `exposureCompensationEv 0.3` (Gold sings when bright and warm), neutral contrast,
-`grain.blur 0.68`, `halation 1.0`.
-
-### UltraMax 400 — Snapshot  (`ultramax400_ektacolor_snapshot`)
-**Kodak UltraMax 400 → Ektacolor Edge.** The punchy, versatile consumer 400: vibrant color,
-warm/orange highlights, slightly green shadows, and a pleasingly gritty grain.
-Tuning: `densityCurveGamma 1.04` (consumer punch), `grain.blur 0.78` + `agxParticleScale [1.0, 1.25, 2.4]` (chunky grain on purpose), `halation 1.1`.
-
-### Superia X-TRA 400 — Cool Snapshot  (`superia400_crystalarchive_cool`)
-**Fujifilm Superia X-TRA 400 → Crystal Archive Type II.** Fuji's grainy consumer 400 with its
-fourth color layer for cleaner mixed light; cooler than Kodak with the characteristic Fuji
-green in the shadows.
-Tuning: `grain.blur 0.72` + `agxParticleScale [0.85, 1.05, 2.1]` (chunky), neutral contrast,
-`halation 1.0`. Crystal Archive keeps the cool Fuji palette.
-
-### Fujicolor C200 — Everyday Budget  (`c200_crystalarchive_budget`)
-**Fujifilm C200 → Crystal Archive Type II.** The economical everyday negative: crisp, slightly
-cool color with accurate skin — cleaner and finer-grained than the 400 consumer stocks.
-Tuning: neutral contrast, `grain.blur 0.66` (finer than the 400s), `halation 0.95`.
-
----
-
-## Creative
-
-### Dreamy Pro-Mist — Portra 400  (`portra400_promist_dreamy`)
-**Kodak Portra 400 → Portra Endura.** Activates the camera diffusion stage, spectral blur, soft
-scanner sharpening, and a warm highlight bloom. It explicitly authors
-`camera.diffusionFilter.filterFamily: black_pro_mist`, so applying the look always selects Black
-Pro-Mist regardless of the previously selected diffusion family. Controls omitted by this preset
-still retain their current editor values under the normal sparse-overlay contract.
-
-### Faded Matte — Lifted Blacks  (`portra400_faded_matte`)
-**Kodak Portra 400 → Portra Endura.** A flashed, low-contrast print with an explicit master tone
-curve that lifts shadows and rolls off highlights. This is a creative grade, not a stock-neutral
-reference.
-
-### Bleach Bypass — High Contrast  (`ektar100_bleach_bypass`)
-**Kodak Ektar 100 → Ultra Endura.** Uses reduced coupler influence, steeper film/print density,
-black correction, and an S-curve for muted color and crushed silver-retention-style contrast.
-
-### Wide-Gamut Glow — Portra 800  (`portra800_wide_gamut_glow`)
-**Kodak Portra 800 → Supra Endura.** Selects Adobe RGB output with veiling glare, warm highlight
-bloom, visible grain, and a wide-gamut print-oriented finish.
-
----
-
-## Neutral
-
-### Neutral — Clean Baseline  (`neutral_adobe_like`)
-**Kodak Portra 400 → Portra Endura, film character minimised.** Not a film *look* but a clean,
-Lightroom-default-style **starting point**: the full negative→print positive path with the
-emulsion's personality dialled out, so you can build a look on top of a neutral base instead of
-fighting an existing one. Derived from a reverse-engineering study of Lightroom's default render
-(Adobe Color DCP + medium-contrast baseline): on the test DNG the film default measured meanL 0.269
-against 0.229 for an Adobe-Color-like neutral render, warmer and glowier, and this preset removes that
-bias. The study itself was removed from the tree on 2026-09-14; git history keeps it.
-Tuning: `io.scanFilm false` (print path) with **grain, halation, glare, and DIR couplers all
-OFF**, `densityCurveGamma 1.0`, `autoExposure true`, and `exposureCompensationEv -0.2` to sit
-slightly darker and track Adobe Color's neutral medium-contrast baseline. Use it as a base, then
-dial in any film stock or look.
-
----
-
-## Sources
-
-- [Kodak Portra 400 — The Darkroom](https://thedarkroom.com/film/portra-400/)
-- [Kodak Portra 400 Review — Moment](https://www.shopmoment.com/eu/articles/kodak-portra-400-review-the-film-stock-everyone-loves)
-- [Kodak Portra 800 at Night — Adam Insights](https://www.adaminsights.com/shooting-kodak-portra-800-at-night-a-handheld-street-photography-review/)
-- [Kodak Portra 800 — The Darkroom](https://thedarkroom.com/film/portra-800/)
-- [Kodak Ektar 100 — The Darkroom](https://thedarkroom.com/film/ektar-100/)
-- [Kodak Ektar 100 Review — Daydream Film](https://www.daydreamfilm.app/blog/film-reviews/kodak-ektar-100-review)
-- [How to Shoot Fuji Pro 400H — Shoot It With Film](https://shootitwithfilm.com/how-to-shoot-fuji-pro-400h/)
-- [Fujicolor Pro 400H Profile — Casual Photophile](https://casualphotophile.com/2018/11/28/fujifilm-fujicolor-pro-400h-film-profile/)
-- [Velvia — Wikipedia](https://en.wikipedia.org/wiki/Velvia)
-- [Fuji Velvia 100 Review — Blue Moon Camera Codex](https://bluemooncameracodex.com/film-fridays/ffvelvia100)
-- [Classic Film Review: Kodachrome 64 — Alex Luyckx](http://www.alexluyckx.com/blog/2019/06/03/classic-film-review-kodachrome-64/)
-- [Kodachrome 64: Remembering This Iconic Film — Paul Pope](https://paulpope.co.uk/kodachrome-64-remembering-this-iconic-35mm-colour-film/)
-- [VISION3 500T 5219/7219 — Kodak](https://www.kodak.com/en/motion/product/camera-films/500t-5219-7219/)
-- [Kodak Vision3 500T 5219 Review — Analog.Cafe](https://www.analog.cafe/r/kodak-vision-3-500t-52197219-film-review-kxxq)
-- [VISION3 250D 5207/7207 — Kodak](https://www.kodak.com/en/motion/product/camera-films/250d-5207-7207/)
-- [Kodak Vision3 5207 250D Review — Tahusa](https://tahusa.co/analog-film-review/kodak-vision-3-5207-250d/)
-- [KODAK VISION Color Print Film 2383/3383 — Kodak](https://www.kodak.com/en/motion/product/post/print-films/vision-color-2383-3383/)
-- [How to shoot Kodak Vision Color Print (2383) — 35mmc](https://www.35mmc.com/24/09/2024/how-to-shoot-kodak-vision-color-print-2383-in-colors/)
-- [KODAK VISION Premier Color Print Film 2393 datasheet (PDF)](https://www.cinematography.net/Files/VISPREM.PDF)
-- [VERITA 200D 5206/7206 — Kodak](https://www.kodak.com/en/motion/product/camera-films/verita-200d-5206-7206/)
-- [Kodak Gold 200 vs UltraMax 400 — Max Kent](https://www.maxkent.co.uk/blogg/kodak-gold-200-vs-kodak-ultramax-400-whats-the-difference)
-- [Fuji Superia 400 vs Kodak UltraMax 400 — Shoot It With Film](https://shootitwithfilm.com/fuji-superia-400-vs-kodak-ultramax-400/)
-- [Fujicolor C200 datasheet — Fujifilm](https://asset.fujifilm.com/master/emea/files/2020-10/98c3d5087c253f51c132a5d46059f131/films_c200_datasheet_01.pdf)
-- [Kodak Portra Endura vs Ultra vs Supra — Photrio](https://www.photrio.com/forum/threads/kodak-portra-endura-vs-ultra-vs-supra.122196/)
+### Tri-X 400  (`tri_x_400`)
+**Kodak Tri-X 400 → Ilford Multigrade IV RC, grade 3.** The classic high-speed black-and-white
+negative: gritty grain, deep blacks and bright midtones. It prints on Multigrade because a silver
+film on colour paper renders orange (see `SilverPrint.kt`). Grade 3 is one step harder than the
+neutral grade 2, for the punchy darkroom print Tri-X is associated with.
+Tuning: `exposureCompensationEv 0.0`, `densityCurveGamma 1.0`, `grain.blur 0.6` with
+`agxParticleScale [1.3, 1.3, 1.3]` (silver grain is the same in every channel), `halation 0.8`,
+DIR couplers off, `scanner.unsharpMask [0.7, 0.8]`.

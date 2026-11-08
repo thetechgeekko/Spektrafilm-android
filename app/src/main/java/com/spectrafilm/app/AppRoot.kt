@@ -321,8 +321,9 @@ internal fun MainActivity.AppRoot(
         }
     }
     var showOnboarding by remember { mutableStateOf(!settings.seenOnboarding) }
-    // One-time editor coach marks, shown once onboarding is out of the way.
-    var showEditorCoach by remember { mutableStateOf(!settings.seenEditorCoach) }
+    // Quick help ("Show me"): the More menu opens it, and it opens once by itself the first
+    // time the editor is shown after onboarding.
+    val quickHelp = remember { QuickHelpState() }
     // Navigation 3 back stack (#274): the editor is the root entry and is never popped,
     // so its saved state outlives every round-trip to a sub-screen. Routes carry their
     // own arguments and the stack is saved across rotation and process death.
@@ -472,6 +473,7 @@ internal fun MainActivity.AppRoot(
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalQuickHelp provides quickHelp) {
     Box(
         Modifier
             .fillMaxSize()
@@ -661,21 +663,21 @@ internal fun MainActivity.AppRoot(
         )
 
         if (showOnboarding && screen == Screen.EDITOR) {
-            WelcomeFlow(
-                onFinish = { settings.seenOnboarding = true; showOnboarding = false },
-                onOpenSettings = {
-                    settings.seenOnboarding = true; showOnboarding = false; push(SettingsRoute)
-                },
-                onReportIssue = { Links.open(ctx, Links.NEW_ISSUE) },
-            )
+            WelcomeFlow(onFinish = { settings.seenOnboarding = true; showOnboarding = false })
         }
 
-        // Editor coach marks: after onboarding, the first time the editor is shown.
-        if (!showOnboarding && showEditorCoach && screen == Screen.EDITOR) {
-            EditorCoachOverlay(
-                onDismiss = { settings.seenEditorCoach = true; showEditorCoach = false },
-            )
+        // Quick help: after onboarding, the first time the editor is shown, then from More.
+        if (!showOnboarding && !settings.seenEditorCoach && screen == Screen.EDITOR) {
+            LaunchedEffect(Unit) {
+                settings.seenEditorCoach = true
+                quickHelp.open()
+            }
         }
+        if (quickHelp.sheetOpen && screen == Screen.EDITOR) {
+            QuickHelpSheet(quickHelp, onOpenGuide = { push(HowToRoute) })
+        }
+        if (screen == Screen.EDITOR) QuickHelpPulse(quickHelp)
+    }
     }
 }
 

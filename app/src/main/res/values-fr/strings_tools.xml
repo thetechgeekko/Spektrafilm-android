@@ -160,17 +160,6 @@
     <string name="tool_masks_invert_color">Inverser la couleur</string>
     <string name="tool_masks_invert_color_help">Agit plutôt sur les couleurs EN DEHORS de la plage.</string>
     <string name="tool_masks_delete">Supprimer le masque</string>
-    <string name="tool_coach_title">Astuces rapides</string>
-    <string name="tool_coach_category_title">Choisissez un mode</string>
-    <string name="tool_coach_category_body">Looks pour partir d’une pellicule, Réglages pour tous les réglages par section, Recadrer et Masques. Touchez-en un pour ouvrir ses réglages.</string>
-    <string name="tool_coach_compare_title">Avant / après</string>
-    <string name="tool_coach_compare_body">Activez la séparation de comparaison pour juger une retouche par rapport à l’original.</string>
-    <string name="tool_coach_inspect_title" formatted="false">Inspecter à 100 %</string>
-    <string name="tool_coach_inspect_body">Touchez l’aperçu pour vérifier le grain et les détails en pleine résolution.</string>
-    <string name="tool_coach_zoom_title">Pincez pour zoomer</string>
-    <string name="tool_coach_zoom_body">Pincez et faites glisser l’aperçu pour inspecter n’importe quelle zone.</string>
-    <string name="tool_coach_got_it">J’ai compris</string>
-    <string name="tool_coach_dismiss">Masquer les astuces</string>
     <string name="tool_crop_title">Recadrer</string>
     <string name="tool_crop_cancel">Annuler le recadrage</string>
     <string name="tool_crop_rotate">Pivoter de 90°</string>

@@ -60,5 +60,8 @@ class EditorLayoutTest {
         assertEquals(360f, sidePaneWidthDp(1199.5f), 0f)
         assertEquals(false, settingsTwoPane(839f))
         assertEquals(true, settingsTwoPane(840f))
+        // The Library's open album goes list-detail at the same edge as Settings.
+        assertEquals(false, listDetailTwoPane(839f))
+        assertEquals(true, listDetailTwoPane(840f))
     }
 }

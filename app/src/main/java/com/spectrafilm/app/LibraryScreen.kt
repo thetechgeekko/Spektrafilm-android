@@ -170,26 +170,57 @@ internal fun LibraryDestination(
     }
     val playSlideshow = { frames: List<LibraryEntry> -> if (frames.isNotEmpty()) slideshow = frames }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
-    if (openAlbum != null) {
-        AlbumDetail(
-            album = openAlbum,
-            vm = albumsVm,
-            query = vm.query.collectAsStateWithLifecycle().value,
-            currentUri = currentUri,
-            snackbar = snackbar,
-            scope = scope,
-            onBack = { albumsVm.clearSelection(); openAlbumId = null },
-            onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
-            onOpen = onOpen,
-            onSlideshow = playSlideshow,
-        )
-        return
+    val query by vm.query.collectAsStateWithLifecycle()
+    val albumDetail: @Composable (Album) -> Unit = { album ->
+        // Keyed: beside the list another album can be picked while this pane stays up, and
+        // its loaded frames and rename/selection state must not carry over to the new one.
+        key(album.id) {
+            AlbumDetail(
+                album = album,
+                vm = albumsVm,
+                query = query,
+                currentUri = currentUri,
+                snackbar = snackbar,
+                scope = scope,
+                onBack = { albumsVm.clearSelection(); openAlbumId = null },
+                onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
+                onOpen = onOpen,
+                onSlideshow = playSlideshow,
+            )
+        }
     }
-    LibraryFolderAndAlbums(
-        vm, albumsVm, galleryVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
-        importInto,
-        playSlideshow,
-    )
+    val browse: @Composable (albumOpen: Boolean) -> Unit = { albumOpen ->
+        LibraryFolderAndAlbums(
+            vm, albumsVm, galleryVm, albums, currentUri,
+            // Beside an open album the list pane is the Albums tab; picking another tab closes it.
+            tab = if (albumOpen) LibraryTab.ALBUMS else tab,
+            onTab = { picked ->
+                if (picked != LibraryTab.ALBUMS && openAlbumId != null) {
+                    albumsVm.clearSelection()
+                    openAlbumId = null
+                }
+                tab = picked
+            },
+            onOpenAlbum = { id -> albumsVm.clearSelection(); openAlbumId = id },
+            snackbar, scope, onBack, onOpen, importInto,
+            onSlideshow = playSlideshow,
+            albumOpen = albumOpen,
+        )
+    }
+    // Compact and medium: an open album replaces the Library. Expanded and wider: M3
+    // list-detail (#457), the albums in the leading pane and the open album beside them.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthDp = maxWidth.value
+        when {
+            openAlbum == null -> browse(false)
+            listDetailTwoPane(widthDp) -> ListDetailPanes(
+                listWidthDp = sidePaneWidthDp(widthDp),
+                list = { browse(true) },
+                detail = { albumDetail(openAlbum) },
+            )
+            else -> albumDetail(openAlbum)
+        }
+    }
 }
 
 internal enum class LibraryTab { FOLDER, GALLERY, ALBUMS }
@@ -210,6 +241,8 @@ private fun LibraryFolderAndAlbums(
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
     importInto: (uris: List<String>, keepGrants: Boolean) -> Unit,
     onSlideshow: (List<LibraryEntry>) -> Unit,
+    /** An album is open in the detail pane beside this one: Back and snackbars are its. */
+    albumOpen: Boolean = false,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -249,7 +282,9 @@ private fun LibraryFolderAndAlbums(
     val galleryShown = { applyLibraryQuery(galleryState.entries, query) }
     BackHandler(enabled = selecting) { vm.clearSelection() }
     BackHandler(enabled = gallerySelecting) { galleryVm.clearSelection() }
-    BackHandler(enabled = !selecting && !gallerySelecting && tab != LibraryTab.FOLDER) { onTab(LibraryTab.FOLDER) }
+    BackHandler(enabled = !selecting && !gallerySelecting && tab != LibraryTab.FOLDER && !albumOpen) {
+        onTab(LibraryTab.FOLDER)
+    }
     var addToAlbum by remember { mutableStateOf<List<AlbumItem>?>(null) }
     var newAlbumFor by remember { mutableStateOf<List<AlbumItem>?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
@@ -468,7 +503,8 @@ private fun LibraryFolderAndAlbums(
                     }
                 }
             }
-            SnackbarHost(
+            // One host per state: beside an open album, the album's pane shows them.
+            if (!albumOpen) SnackbarHost(
                 snackbar,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

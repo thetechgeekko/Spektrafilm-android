@@ -177,6 +177,7 @@ private sealed interface PillState {
 @Composable
 internal fun PressIconButton(
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -186,7 +187,7 @@ internal fun PressIconButton(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interaction,
-        modifier = Modifier.scale(if (pressed) 0.88f else 1f),
+        modifier = modifier.scale(if (pressed) 0.88f else 1f),
     ) { content() }
 }
 

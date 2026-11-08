@@ -28,6 +28,17 @@ set(SFRAW_PINNED_LIBJPEG_TURBO_URL
 set(SFRAW_PINNED_LIBJPEG_TURBO_SHA256
     "e23d3ebb2c6ee4d0e2a5823dbb55b614845df5ea3435c956fed5cf04041a87ad")
 
+# The same release archive, committed to the repository. GitHub's release-asset
+# host has served 504s for long stretches (2026-11-08: every CI build on main
+# failed at this download), and a build should not depend on it being up. The
+# committed copy is used when present and the pinned URL only when it is not
+# (a sparse checkout). Either way CMake checks the pinned SHA-256 before
+# extracting, so the committed file cannot change what is built.
+set(SFRAW_VENDORED_LIBJPEG_TURBO_ARCHIVE
+    "${CMAKE_CURRENT_LIST_DIR}/../third_party/libjpeg-turbo-${SFRAW_PINNED_LIBJPEG_TURBO_VERSION}.tar.gz")
+get_filename_component(SFRAW_VENDORED_LIBJPEG_TURBO_ARCHIVE
+    "${SFRAW_VENDORED_LIBJPEG_TURBO_ARCHIVE}" ABSOLUTE)
+
 set(SFRAW_LIBJPEG_TURBO_ARCHIVE "" CACHE FILEPATH
     "Offline copy of libjpeg-turbo-3.1.4.tar.gz; still verified against the pinned SHA-256")
 
@@ -40,7 +51,12 @@ function(sfraw_add_libjpeg_turbo target_name)
     set(_library "${_install}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}jpeg${CMAKE_STATIC_LIBRARY_SUFFIX}")
     set(_include "${_install}/include")
 
+    # A local path cannot share ExternalProject's URL list with a remote URL
+    # (CMake rejects that mix), so the committed copy replaces the URL when present.
     set(_url "${SFRAW_PINNED_LIBJPEG_TURBO_URL}")
+    if (EXISTS "${SFRAW_VENDORED_LIBJPEG_TURBO_ARCHIVE}")
+        set(_url "${SFRAW_VENDORED_LIBJPEG_TURBO_ARCHIVE}")
+    endif ()
     if (SFRAW_LIBJPEG_TURBO_ARCHIVE)
         set(_url "${SFRAW_LIBJPEG_TURBO_ARCHIVE}")
     endif ()
