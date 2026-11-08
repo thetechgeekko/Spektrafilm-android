@@ -21,6 +21,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.ColorSpace
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -496,12 +498,20 @@ private fun FilmBorderSection(
     // A small framed copy of the current preview, painted by the same code as the export, so
     // what the sheet shows is what the file gets. ~1.6 MB at most; deliberately left to the GC
     // rather than recycled on change, because the Image may still draw the old one for a frame.
-    val thumb = remember(previewBitmap, options.border) {
-        borderThumbnail(previewBitmap, options.border)
+    // Painted on the default dispatcher under a preview read lease, not in composition: the
+    // scale plus the border render is a per-pixel pass, and in composition it lands in the
+    // frame that opens the sheet (#270). The old thumbnail stays up until the new one is ready.
+    val dispatchers = rememberAppDispatchers()
+    var thumb by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(previewBitmap, options.border) {
+        thumb = withContext(dispatchers.default) {
+            val preview = previewBitmap ?: return@withContext null
+            acquirePreviewLease(preview)?.use { borderThumbnail(it.value, options.border) }
+        }
     }
-    if (thumb != null) {
+    thumb?.let { framed ->
         Image(
-            bitmap = thumb.asImageBitmap(),
+            bitmap = framed.asImageBitmap(),
             contentDescription = stringResource(R.string.tool_export_border_preview_cd, display(options.border)),
             contentScale = ContentScale.Fit,
             modifier = Modifier
