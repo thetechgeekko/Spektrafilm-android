@@ -17,14 +17,19 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Largest font scale (#456, audit X2, MAD checklist #12): key screens rendered at 2x text
  * size on a compact phone must not CLIP any text, i.e. no text may be cut off by the box it
  * is laid out in. Ellipsized single-line labels are allowed (the full text stays in the
  * semantics TalkBack reads), clipped glyphs are not.
+ *
+ * NATIVE graphics is required: Robolectric's legacy mode fakes text metrics (about 1 px per
+ * character, fixed line height), so every label "overflows" and the check means nothing.
  */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w360dp-h740dp")
 class FontScaleUiTest {
     @get:Rule(order = 0) val hostActivity = ComposeHostActivityRule()
