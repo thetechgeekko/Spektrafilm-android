@@ -229,6 +229,9 @@ object Ticket177BenchmarkChecks {
             }
 
         Debug.getMemoryInfo(Debug.MemoryInfo())
+        // #465: collect the previous sample's garbage BEFORE the timer starts, so the ART
+        // peak below starts clean and the forced GC never lands in total_ms.
+        ArtHeapSampler.collect()
         val startMs = System.currentTimeMillis()
 
         val hit = if (bypassCache) null else cacheKey?.let { cache.get(it) }
@@ -286,6 +289,10 @@ object Ticket177BenchmarkChecks {
         // #178: minor page faults are the only first-touch/zero-fill signal a non-root
         // profileable process can read on this device (perf page-faults is refused).
         val minfltStart = procStatMinflt()
+        // #465: the ART heap peak and GC cost of the export, so a manifest A/B of largeHeap
+        // can be read from the capture (the PSS/HWM fields above are dominated by native).
+        val artSampler = ArtHeapSampler.start()
+        val gcStart = artGcStats()
         val decodeStart = System.currentTimeMillis()
         // #198: split the decode phase into codec, staging copy and conversion.
         val decodeTimings = DecodeTimings()
@@ -384,6 +391,9 @@ object Ticket177BenchmarkChecks {
             result.close()
         }
 
+        // Stop before the digest step: it buffers the whole container on the ART heap, which
+        // is the harness's own cost, not the export's.
+        val art = artSampler.stop().put("gc_delta", artGcDelta(gcStart))
         val digests = publishedDigests(context, published, format)
         context.contentResolver.delete(published, null, null)
 
@@ -441,7 +451,8 @@ object Ticket177BenchmarkChecks {
                 .put("vm_hwm_kb", procStatusKb("VmHWM:"))
                 .put("vm_rss_kb", procStatusKb("VmRSS:"))
                 .put("minor_faults_decode", minfltAfterDecode - minfltStart)
-                .put("minor_faults_total", procStatMinflt() - minfltStart))
+                .put("minor_faults_total", procStatMinflt() - minfltStart)
+                .put("art", art))
             .put("environment", environment(context))
     }
 
@@ -713,6 +724,88 @@ object Ticket177BenchmarkChecks {
             .put("plugged", plugged)
             .put("cpuset", readProc("/proc/self/cpuset"))
             .put("process_importance", importance)
+            // #465: which heap ceiling the capture ran under.
+            .put("large_heap",
+                (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_LARGE_HEAP) != 0)
+            .put("art_max_kb", Runtime.getRuntime().maxMemory() / 1024L)
+            .put("memory_class_mb", (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).memoryClass)
+    }
+
+    private val GC_STATS = arrayOf(
+        "art.gc.gc-count", "art.gc.gc-time", "art.gc.blocking-gc-count", "art.gc.blocking-gc-time",
+    )
+
+    private fun artGcStats(): LongArray {
+        val out = LongArray(GC_STATS.size)
+        for (i in GC_STATS.indices) {
+            out[i] = try {
+                java.lang.Long.parseLong(Debug.getRuntimeStat(GC_STATS[i]) ?: "-1")
+            } catch (ignored: NumberFormatException) {
+                -1L
+            }
+        }
+        return out
+    }
+
+    private fun artGcDelta(start: LongArray): JSONObject {
+        val end = artGcStats()
+        val out = JSONObject()
+        for (i in GC_STATS.indices) out.put(GC_STATS[i], end[i] - start[i])
+        return out
+    }
+
+    /**
+     * Samples the ART heap in use every 20 ms on a daemon thread and keeps the peak. Start it
+     * after [collect]: otherwise the previous sample's digest garbage (a decoded copy of the
+     * whole container) is still counted and swamps the export's own use.
+     */
+    private class ArtHeapSampler private constructor() : Runnable {
+        @Volatile private var running = true
+        private val startUsed = used()
+        @Volatile private var peakUsed = startUsed
+        private val thread = Thread(this, "t465-art-sampler")
+
+        override fun run() {
+            while (running) {
+                val now = used()
+                if (now > peakUsed) peakUsed = now
+                try {
+                    Thread.sleep(20L)
+                } catch (ignored: InterruptedException) {
+                    return
+                }
+            }
+        }
+
+        fun stop(): JSONObject {
+            running = false
+            thread.interrupt()
+            thread.join()
+            val now = used()
+            if (now > peakUsed) peakUsed = now
+            return JSONObject()
+                .put("start_used_kb", startUsed / 1024L)
+                .put("peak_used_kb", peakUsed / 1024L)
+                .put("end_used_kb", now / 1024L)
+                .put("max_kb", Runtime.getRuntime().maxMemory() / 1024L)
+        }
+
+        companion object {
+            fun used(): Long = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
+
+            /** Forced full collection; call it outside any timed region. */
+            fun collect() {
+                val runtime = Runtime.getRuntime()
+                runtime.gc()
+                System.runFinalization()
+                runtime.gc()
+            }
+
+            fun start(): ArtHeapSampler = ArtHeapSampler().also {
+                it.thread.isDaemon = true
+                it.thread.start()
+            }
+        }
     }
 
     private fun readProc(path: String): String = runCatching {

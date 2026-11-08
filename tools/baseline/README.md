@@ -46,6 +46,12 @@ sample). Its digests are tolerance-bounded Fast GPU output: they must be one per
 format across captures (same-device determinism) and they are NOT Strict Exact
 identity evidence. The default (0) is the exact CPU route.
 
+Each sample's `memory.art` block (#465) holds the export's ART heap use: `start_used_kb`
+(after a forced GC, so the previous sample's digest garbage is gone), `peak_used_kb` (sampled
+every 20 ms until the encode ends, before the harness's own digest step) and `gc_delta` (GC
+count and time, blocking GCs included). `environment` records `large_heap`, `art_max_kb` and
+`memory_class_mb`, so a manifest A/B can be read straight from the two captures.
+
 Each sample's `memory` block also carries `minor_faults_decode` /
 `minor_faults_total` (first-touch counting, #178), the `engine_budget` snapshot
 (`spk.memory_budget.v1`: limit, total/domain/stage high-water marks since the
