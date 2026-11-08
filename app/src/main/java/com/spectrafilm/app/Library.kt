@@ -755,6 +755,7 @@ internal object LibraryThumbnails {
         val bitmap = (if (raw) camera(context, parsed) else null)
             ?: embedded(context, parsed)
             ?: provided(context, parsed)
+            ?: resolved(context, parsed)
             ?: return null
         cache.put(uri, bitmap)
         return bitmap
@@ -783,6 +784,19 @@ internal object LibraryThumbnails {
     private fun provided(context: Context, uri: Uri): Bitmap? = runCatching {
         DocumentsContract.getDocumentThumbnail(context.contentResolver, uri, Point(EDGE_PX, EDGE_PX), null)
     }.getOrNull()
+
+    /**
+     * MediaStore photos (the Gallery tab, the photo picker) are not documents, so the call
+     * above has nothing for them; the resolver's own thumbnail does, already upright.
+     */
+    private fun resolved(context: Context, uri: Uri): Bitmap? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            runCatching {
+                context.contentResolver.loadThumbnail(uri, android.util.Size(EDGE_PX, EDGE_PX), null)
+            }.getOrNull()
+        } else {
+            null
+        }
 }
 
 /**

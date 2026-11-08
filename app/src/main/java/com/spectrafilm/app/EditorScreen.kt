@@ -1330,7 +1330,8 @@ internal fun EditorScreen(
                     status = if (
                         ref.accessMode == SourceAccessMode.PERSISTED ||
                         SharedSourceCopies.isCopy(ctx, ref.uri) ||
-                        AlbumImports.isCopy(ctx, ref.uri)
+                        AlbumImports.isCopy(ctx, ref.uri) ||
+                        PhoneGallery.isReadable(ctx, ref.uri)
                     ) {
                         readyStatus
                     } else {
@@ -1505,7 +1506,8 @@ internal fun EditorScreen(
         val result = app.appContainer.processScope.async(dispatchers.io) {
             val mime = runCatching { app.contentResolver.getType(incoming) }.getOrNull()
             // An Imported-album copy is the app's own file: as durable as a persisted grant.
-            val durable = AlbumImports.isCopy(app, incoming.toString()) || runCatching {
+            val durable = AlbumImports.isCopy(app, incoming.toString()) ||
+                PhoneGallery.isReadable(app, incoming.toString()) || runCatching {
                 SharedSourceCopies.alreadyDurable(incoming.toString(), AndroidUriGrantBackend(app).persistedReads())
             }.getOrDefault(false)
             // Kinds the editor refuses (video, .mcraw) are never copied: adoption turns them

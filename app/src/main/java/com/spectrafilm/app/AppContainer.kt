@@ -125,6 +125,14 @@ internal class AppContainer(context: Context) {
                 aspectReader = LibraryViewModel.androidAspectReader(app),
             )
         },
+        galleryViewModel = {
+            GalleryViewModel(
+                PhoneGallery.androidLister(app),
+                access = { PhoneGallery.access(app) },
+                io = dispatchers.io,
+                hasEdit = LibraryViewModel.androidEditLookup(app),
+            )
+        },
         albumsViewModel = {
             AlbumsViewModel(
                 FileAlbumStore.of(app),
@@ -154,6 +162,7 @@ internal class AppViewModelFactory(
     },
     private val libraryViewModel: () -> LibraryViewModel = { error("library not provided") },
     private val albumsViewModel: () -> AlbumsViewModel = { error("albums not provided") },
+    private val galleryViewModel: () -> GalleryViewModel = { error("gallery not provided") },
     private val editorViewModel: () -> EditorViewModel = { error("editor not provided") },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
@@ -165,6 +174,7 @@ internal class AppViewModelFactory(
             StockPreviewViewModel::class.java -> stockPreviewViewModel()
             LibraryViewModel::class.java -> libraryViewModel()
             AlbumsViewModel::class.java -> albumsViewModel()
+            GalleryViewModel::class.java -> galleryViewModel()
             EditorViewModel::class.java -> editorViewModel()
             ExportViewModel::class.java -> ExportViewModel()
             PresetViewModel::class.java -> PresetViewModel()
