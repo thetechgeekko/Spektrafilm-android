@@ -331,6 +331,10 @@
     <string name="library_tab_folder">Folder</string>
     <string name="library_tab_albums">Albums</string>
     <string name="library_tab_gallery">Gallery</string>
+    <string name="slideshow">Slideshow</string>
+    <string name="slideshow_play">Play</string>
+    <string name="slideshow_pause">Pause</string>
+    <string name="slideshow_position">%1$d of %2$d</string>
     <string name="gallery_access_title">See your phone\'s photos here</string>
     <string name="gallery_access_body">Allow Spektrafilm to read your photos to browse them in the Library. They stay on your phone.</string>
     <string name="gallery_allow">Allow access</string>

@@ -162,6 +162,13 @@ internal fun LibraryDestination(
         onSharedInTaken()
         importInto(uris, false)
     }
+    // The frames a slideshow plays; null when none is up. Not saved: a slideshow is a moment.
+    var slideshow by remember { mutableStateOf<List<LibraryEntry>?>(null) }
+    slideshow?.let { frames ->
+        LibrarySlideshow(frames, onClose = { slideshow = null })
+        return
+    }
+    val playSlideshow = { frames: List<LibraryEntry> -> if (frames.isNotEmpty()) slideshow = frames }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
     if (openAlbum != null) {
         AlbumDetail(
@@ -174,12 +181,14 @@ internal fun LibraryDestination(
             onBack = { albumsVm.clearSelection(); openAlbumId = null },
             onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
             onOpen = onOpen,
+            onSlideshow = playSlideshow,
         )
         return
     }
     LibraryFolderAndAlbums(
         vm, albumsVm, galleryVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
         importInto,
+        playSlideshow,
     )
 }
 
@@ -200,6 +209,7 @@ private fun LibraryFolderAndAlbums(
     onBack: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
     importInto: (uris: List<String>, keepGrants: Boolean) -> Unit,
+    onSlideshow: (List<LibraryEntry>) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -345,6 +355,9 @@ private fun LibraryFolderAndAlbums(
                     }
                 }
             } else if (tab == LibraryTab.GALLERY && !gallerySelecting && galleryState.entries.isNotEmpty()) {
+                IconButton(onClick = { onSlideshow(galleryShown()) }) {
+                    Icon(SpectraIcons.Slideshow, contentDescription = stringResource(R.string.slideshow))
+                }
                 LibraryViewToggle(query, onChange = vm::setQuery)
                 LibrarySortMenu(query, onChange = vm::setQuery)
             } else if (state.treeUri != null && tab == LibraryTab.FOLDER) {
@@ -356,6 +369,12 @@ private fun LibraryFolderAndAlbums(
                         Icon(SpectraIcons.More, contentDescription = stringResource(R.string.editor_action_more))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.slideshow)) },
+                            leadingIcon = { Icon(SpectraIcons.Slideshow, contentDescription = null) },
+                            enabled = state.entries.isNotEmpty(),
+                            onClick = { menuOpen = false; onSlideshow(vm.visibleEntries()) },
+                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_refresh)) },
                             onClick = { menuOpen = false; vm.refresh() },

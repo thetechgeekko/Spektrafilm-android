@@ -189,6 +189,15 @@ internal object MaterialSymbols {
     val FolderOpen: ImageVector by lazy {
         symbol("folder_open", "M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640H447l-80-80H160v480l96-320h684L837-217q-8 26-29.5 41.5T760-160H160Zm84-80h516l72-240H316l-72 240Zm0 0 72-240-72 240Zm-84-400v-80 80Z")
     }
+    val PlayArrow: ImageVector by lazy {
+        symbol("play_arrow", "M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z")
+    }
+    val Pause: ImageVector by lazy {
+        symbol("pause", "M520-200v-560h240v560H520Zm-320 0v-560h240v560H200Zm400-80h80v-400h-80v400Zm-320 0h80v-400h-80v400Zm0-400v400-400Zm320 0v400-400Z")
+    }
+    val Slideshow: ImageVector by lazy {
+        symbol("slideshow", "m380-300 280-180-280-180v360ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z")
+    }
     val Search: ImageVector by lazy {
         symbol("search", "M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z")
     }
