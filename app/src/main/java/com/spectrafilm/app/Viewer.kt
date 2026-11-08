@@ -458,9 +458,24 @@ fun ZoomableImage(
         // transform as the proxy, so it registers exactly and tracks pan/zoom. Drawn over the
         // (soft) scaled proxy; clipToBounds on the Box clips any overflow.
         val ov = roiOverlay
+        // Shown only while it covers the whole visible region. Zooming out (or panning) past
+        // the patch used to leave it up as a small box with its own look over the soft proxy
+        // until the next settle replaced it: a visible seam that then "popped". Hiding it the
+        // moment the view leaves it lets the proxy show alone until the next patch lands.
+        val overlayCoversView by remember(ov, aspect) {
+            derivedStateOf {
+                ov != null && overlayCoversViewport(
+                    RoiRect(ov.cxN, ov.cyN, ov.wN, ov.hN),
+                    viewportRoiNormalized(viewSize, scale, offset, aspect),
+                )
+            }
+        }
         // Suppressed while peeking: the cached ROI crop is a render of the EDITED frame, so
         // leaving it up would paint the edit back over the middle of the before image.
-        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0 && !peekShown) {
+        if (
+            ov != null && !overlayStale && zoomedIn && overlayCoversView &&
+            viewSize.width > 0 && !peekShown
+        ) {
             val roiImage = rememberLeasedImage(ov.bitmap) ?: return@Box
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(
@@ -576,6 +591,20 @@ internal fun ZoomButton(
 
 /** A normalized image rectangle (centre + size, all in 0..1) — the visible region under zoom. */
 data class RoiRect(val cxN: Float, val cyN: Float, val wN: Float, val hN: Float)
+
+/**
+ * True when the patch rect [overlay] contains the visible region [view] (both normalized to the
+ * image), with a little slack for rounding. A null [view] (at fit) is never covered: the
+ * patch is only meant for zoomed views.
+ */
+internal fun overlayCoversViewport(overlay: RoiRect, view: RoiRect?): Boolean {
+    if (view == null) return false
+    val eps = 1e-3f
+    return view.cxN - view.wN / 2f >= overlay.cxN - overlay.wN / 2f - eps &&
+        view.cxN + view.wN / 2f <= overlay.cxN + overlay.wN / 2f + eps &&
+        view.cyN - view.hN / 2f >= overlay.cyN - overlay.hN / 2f - eps &&
+        view.cyN + view.hN / 2f <= overlay.cyN + overlay.hN / 2f + eps
+}
 
 /** A sharp region-of-interest render plus the normalized image rect it represents, so the
  *  overlay tracks pan/zoom (and survives a stale frame) by re-projecting that rect. */
