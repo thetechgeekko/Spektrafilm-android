@@ -258,8 +258,16 @@ internal fun LibraryGrid(
                     true
                 }
                 if (endedEarly != null) return@awaitEachGesture
-                dragAnchor = start
-                dragLast = start
+                // The grid can still be settling under a still finger (rows re-justify as photo
+                // shapes load, right after a launch). Anchor on the frame under the finger NOW,
+                // the one the cell's own long-press selects, not on the one first touched, and
+                // extend only once the finger itself has moved: a layout shift alone must not
+                // turn the hold into a range across several photos.
+                val anchorAt = currentEvent.changes.firstOrNull { it.id == down.id }?.position ?: down.position
+                val anchor = frameAt(anchorAt) ?: start
+                var moved = false
+                dragAnchor = anchor
+                dragLast = anchor
                 dragBase = null
                 try {
                     while (true) {
@@ -267,6 +275,10 @@ internal fun LibraryGrid(
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
                         if (!change.pressed) break
+                        if (!moved) {
+                            moved = (change.position - anchorAt).getDistance() > viewConfiguration.touchSlop
+                            if (!moved) continue
+                        }
                         dragPointer = change.position
                         val before = dragLast
                         dragTo(change.position)
