@@ -1260,7 +1260,6 @@ internal fun EditorScreen(
     // --- drag and drop a photo in (ImageDrop.kt) ---
     // Same adoption path as a shared/opened photo. Refused while a modal tool overlay or
     // an export is up, exactly when the Open button is out of reach too.
-    var dropHover by remember { mutableStateOf(false) }
     val acceptDrop by rememberUpdatedState(!modalOverlayShown && !exportMaskVisible && !exportInFlight)
     val onImageDrop by rememberUpdatedState<(DragAndDropEvent) -> Boolean> { event ->
         val dragEvent = event.toAndroidDragEvent()
@@ -1274,65 +1273,13 @@ internal fun EditorScreen(
             true
         }
     }
-    val imageDropTarget = remember {
-        object : DragAndDropTarget {
-            override fun onDrop(event: DragAndDropEvent): Boolean {
-                dropHover = false
-                return onImageDrop(event)
-            }
-            override fun onEntered(event: DragAndDropEvent) { dropHover = true }
-            override fun onExited(event: DragAndDropEvent) { dropHover = false }
-            override fun onEnded(event: DragAndDropEvent) { dropHover = false }
-        }
-    }
-    val dropHighlight = MaterialTheme.colorScheme.primary
-    // Editor window origin, for placing the fold hinge in this box's coordinates.
-    var editorRootOrigin by remember { mutableStateOf(Offset.Zero) }
-    val foldingFeature by rememberFoldingFeature()
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { editorRootOrigin = it.positionInWindow() }
-            .background(MaterialTheme.colorScheme.surface)
-            .dragAndDropTarget(
-                shouldStartDragAndDrop = { event -> acceptDrop && isDroppableImage(event.mimeTypes()) },
-                target = imageDropTarget,
-            )
-            .drawWithContent {
-                drawContent()
-                if (dropHover) {
-                    val w = 4.dp.toPx()
-                    drawRect(
-                        dropHighlight,
-                        topLeft = androidx.compose.ui.geometry.Offset(w / 2f, w / 2f),
-                        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = w),
-                    )
-                }
-            },
-    ) {
-        // Whether the editor lays out as an expanded window (stage rail + side pane).
-        // Decided ONCE, here, from the whole editor window (the M3 window size class
-        // plus fold posture), and passed down to both the top bar (Export sits in the
-        // bar only when the rail is not carrying it) and the layout below. It used to
-        // be decided in the box under the top bar and written back up through a
-        // SideEffect, which cost a recomposition and a one-frame mismatch, and let
-        // hiding the chrome flip the layout on windows near the compact-height line.
-        val wide = editorPaneMode(
-            maxWidth.value,
-            maxHeight.value,
-            foldPosture(
-                foldingFeature?.toHinge(editorRootOrigin.x, editorRootOrigin.y, LocalDensity.current.density),
-                maxWidth.value,
-                maxHeight.value,
-            ),
-        ) == EditorPaneMode.SIDE_PANE
-        Column(
-            Modifier
-                .fillMaxSize()
-                .then(if (modalOverlayShown) Modifier.clearAndSetSemantics {} else Modifier),
-        ) {
-            // --- TOP BAR ---
+    // Editor window chrome: drop target, window-class decision, the top bar over the body,
+    // and the full-screen layers above them (EditorFrame.kt).
+    EditorFrame(
+        modalOverlayShown = modalOverlayShown,
+        acceptDrop = acceptDrop,
+        onDropImage = { onImageDrop(it) },
+        topBar = { wide ->
             if (!viewerUi.chromeHidden) EditorTopBar(
                 canUndo = editHistory.canUndo,
                 canRedo = editHistory.canRedo,
@@ -1390,7 +1337,8 @@ internal fun EditorScreen(
                 exportSaved = exportDone,
                 onShare = { requestShare() },
             )
-
+        },
+        body = { wide, foldingFeature ->
             EditorBody(
                 foldingFeature = foldingFeature,
                 state = state,
@@ -1414,80 +1362,80 @@ internal fun EditorScreen(
                 toolContent = toolContent,
                 previewRegion = previewRegion,
             )
-        }
+        },
+        overlays = {
+            // --- 100% grain magnifier overlay (EditorZoom.kt) ---
+            EditorMagnifierLayer(zoom)
 
-        // --- 100% grain magnifier overlay (EditorZoom.kt) ---
-        EditorMagnifierLayer(zoom)
+            // The full-screen tools share one wrapper so a held back swipe shrinks whichever
+            // is open (see the PredictiveBackHandler above).
+            Box(Modifier.fillMaxSize().predictiveBackShrink(overlayBackProgress)) {
+                EditorToolOverlays(
+                    dispatchers = dispatchers,
+                    toolVm = toolVm,
+                    ctx = ctx,
+                    scope = scope,
+                    screen = screen,
+                    session = session,
+                    toolUi = toolUi,
+                    cropBmp = cropBmp,
+                    cropShown = cropShown,
+                    maskGeometryShown = maskGeometryShown,
+                    sampleReady = sampleReady,
+                    loadSourceCachedForZoom = { loadSourceCachedForZoom(it) },
+                    statusState = statusState,
+                )
+            }
 
-        // The full-screen tools share one wrapper so a held back swipe shrinks whichever
-        // is open (see the PredictiveBackHandler above).
-        Box(Modifier.fillMaxSize().predictiveBackShrink(overlayBackProgress)) {
-            EditorToolOverlays(
-                dispatchers = dispatchers,
-                toolVm = toolVm,
+            // --- full-screen export mask, or the finished export's share / snackbar ---
+            EditorExportResult(
+                exportInFlight = exportInFlight,
+                exportDone = exportDone,
+                preview = preview,
+                onCancelExport = {
+                    val running = exportRuntimeState as? ExportRuntimeState.Running
+                    if (running != null && ExportWorkRuntime.cancel(running.runId)) {
+                        status = ctx.getString(R.string.editor_status_cancelling_export)
+                    }
+                },
+                exportLastShare = exportLastShare,
+                exportVm = exportVm,
                 ctx = ctx,
                 scope = scope,
-                screen = screen,
-                session = session,
-                toolUi = toolUi,
-                cropBmp = cropBmp,
-                cropShown = cropShown,
-                maskGeometryShown = maskGeometryShown,
-                sampleReady = sampleReady,
-                loadSourceCachedForZoom = { loadSourceCachedForZoom(it) },
-                statusState = statusState,
+                snackbarHost = snackbarHost,
+                setStatus = { status = it },
             )
-        }
 
-        // --- full-screen export mask, or the finished export's share / snackbar ---
-        EditorExportResult(
-            exportInFlight = exportInFlight,
-            exportDone = exportDone,
-            preview = preview,
-            onCancelExport = {
-                val running = exportRuntimeState as? ExportRuntimeState.Running
-                if (running != null && ExportWorkRuntime.cancel(running.runId)) {
-                    status = ctx.getString(R.string.editor_status_cancelling_export)
-                }
-            },
-            exportLastShare = exportLastShare,
-            exportVm = exportVm,
-            ctx = ctx,
-            scope = scope,
-            snackbarHost = snackbarHost,
-            setStatus = { status = it },
-        )
+            // Everything that reads the export sheet's state sits in its own recompose scope (the
+            // composable below reads [exportUiState] itself), so opening the sheet or editing an
+            // option recomposes that section and not the whole editor (#270).
+            EditorExportSheetHost(
+                exportUiState = exportUiState,
+                exportVm = exportVm,
+                exportPresetVm = exportPresetVm,
+                ctx = ctx,
+                state = state,
+                preview = preview,
+                engine = engine,
+                sourceUri = sourceUri,
+                sourceKind = sourceKind,
+                legacyStoragePermission = legacyStoragePermission,
+                batchPicker = batchPicker,
+                pairPicker = pairPicker,
+                requestMediaLocationIfMissing = { requestMediaLocationIfMissing() },
+                exportAskingNotificationsOnce = { exportAskingNotificationsOnce(it) },
+                launchEditorExport = { launchEditorExport(it) },
+                setStatus = { status = it },
+            )
 
-        // Everything that reads the export sheet's state sits in its own recompose scope (the
-        // composable below reads [exportUiState] itself), so opening the sheet or editing an
-        // option recomposes that section and not the whole editor (#270).
-        EditorExportSheetHost(
-            exportUiState = exportUiState,
-            exportVm = exportVm,
-            exportPresetVm = exportPresetVm,
-            ctx = ctx,
-            state = state,
-            preview = preview,
-            engine = engine,
-            sourceUri = sourceUri,
-            sourceKind = sourceKind,
-            legacyStoragePermission = legacyStoragePermission,
-            batchPicker = batchPicker,
-            pairPicker = pairPicker,
-            requestMediaLocationIfMissing = { requestMediaLocationIfMissing() },
-            exportAskingNotificationsOnce = { exportAskingNotificationsOnce(it) },
-            launchEditorExport = { launchEditorExport(it) },
-            setStatus = { status = it },
-        )
-
-        // Recipe restore / status snackbar (above the bottom bar / nav).
-        SnackbarHost(
-            hostState = snackbarHost,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
-        )
-    }
+            // Recipe restore / status snackbar (above the bottom bar / nav).
+            SnackbarHost(
+                hostState = snackbarHost,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
+            )
+        },
+    )
 }
-
