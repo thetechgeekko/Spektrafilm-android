@@ -66,6 +66,9 @@ internal object AlbumOps {
     const val MAX_TOTAL_ITEMS = 10_000
     const val MAX_ALBUMS = 500
 
+    /** The album that photos imported or shared in from elsewhere land in. */
+    const val IMPORTED_ID = "imported"
+
     /** Trimmed, single-line and bounded; blank stays blank so the caller can refuse it. */
     fun cleanName(raw: String): String =
         raw.replace(Regex("\\s+"), " ").trim().take(MAX_NAME_CHARS).trim()
@@ -77,6 +80,10 @@ internal object AlbumOps {
         if (albums.size >= MAX_ALBUMS) return albums
         return albums + Album(id, cleanName(name), nowMs, dedupe(items).take(minOf(MAX_ITEMS, spareItems(albums))))
     }
+
+    /** [albums] with an album [id] in it, created empty under [name] when it is missing. */
+    fun ensure(albums: List<Album>, id: String, name: String, nowMs: Long): List<Album> =
+        if (albums.any { it.id == id }) albums else create(albums, id, name, nowMs)
 
     fun rename(albums: List<Album>, id: String, name: String): List<Album> {
         val clean = cleanName(name)
@@ -222,9 +229,12 @@ internal object AlbumUndoHold {
      * the edit runs later, and a sweep in between would see neither the file nor the folder
      * keeping them. Returns the key for [release].
      */
-    fun holdPending(items: List<AlbumItem>): String {
+    fun holdPending(items: List<AlbumItem>): String = holdUris(items.mapTo(HashSet()) { it.treeUri ?: it.uri })
+
+    /** As [holdPending], for URIs whose grants are taken before they become items (an import). */
+    fun holdUris(uris: Set<String>): String {
         val key = "pending:${pending.incrementAndGet()}"
-        if (items.isNotEmpty()) held[key] = items.mapTo(HashSet()) { it.treeUri ?: it.uri }
+        if (uris.isNotEmpty()) held[key] = uris
         return key
     }
 
@@ -235,6 +245,18 @@ internal object AlbumUndoHold {
 internal interface AlbumStore {
     fun load(): List<Album>
     fun save(albums: List<Album>)
+
+    /** True while a damaged albums file sits quarantined: what it listed is unknown, so keep. */
+    fun hasQuarantined(): Boolean = false
+}
+
+/**
+ * Shared by every [AlbumsViewModel] of the process: [lock] serializes loads and saves, and
+ * [generation] counts saves, so a ViewModel whose albums another one changed (a Library
+ * reopened while an import was still copying) reloads before it edits or shows them.
+ */
+internal class AlbumSync(val lock: Mutex = Mutex()) {
+    val generation = MutableStateFlow(0L)
 }
 
 /** filesDir/albums.json; a damaged file is moved aside (never overwritten) and reads as empty. */
@@ -251,6 +273,9 @@ internal class FileAlbumStore(private val file: File) : AlbumStore {
             emptyList()
         }
     }
+
+    override fun hasQuarantined(): Boolean =
+        file.parentFile?.listFiles()?.any { it.name.startsWith("${file.name}.corrupt-") } ?: false
 
     override fun save(albums: List<Album>) = AtomicJsonStore.withPathLock(file) {
         if (albums.isEmpty()) {
@@ -294,9 +319,16 @@ internal class AlbumsViewModel(
      * Held by every load and save, across every Library visit: a visit that starts while the
      * last one's edits are still saving reads the file only after they land.
      */
-    private val lock: Mutex = Mutex(),
+    private val sync: AlbumSync = AlbumSync(),
+    private val importer: AlbumImporter = AlbumImporter { _, _ -> null },
+    /** Deletes imported copies no album lists any more; given every album URI. Called on [io]. */
+    private val pruneImports: (keep: Set<String>) -> Unit = {},
 ) : ViewModel() {
     private val writeScope: CoroutineScope = writes ?: viewModelScope
+    private val lock: Mutex get() = sync.lock
+
+    /** The [AlbumSync.generation] that [_albums] reflects. */
+    private var seen = -1L
     private val aspectTracker = LibraryAspects(viewModelScope, io, aspectReader)
 
     /** Frame shapes of the open album, for justified rows. */
@@ -317,10 +349,38 @@ internal class AlbumsViewModel(
         viewModelScope.launch {
             lock.withLock {
                 withContext(io) { runCatching { store.load() } }
-                    .onSuccess { _albums.value = it; loaded = true }
+                    .onSuccess { _albums.value = it; loaded = true; seen = sync.generation.value }
                     .onFailure { Diag.w("albums load failed: ${it.message}") }
+                // Only after a good read, and before any import of this session starts. Not
+                // while a damaged file is quarantined: the copies it listed may be wanted back.
+                val quarantined = loaded && runCatching { withContext(io) { store.hasQuarantined() } }.getOrDefault(true)
+                if (loaded && !quarantined) {
+                    val keep = _albums.value.flatMapTo(HashSet()) { album -> album.items.map { it.uri } }
+                    withContext(io) { runCatching { pruneImports(keep) } }
+                        .onFailure { Diag.w("imported copies prune failed: ${it.message}") }
+                }
             }
         }
+    }
+
+    init {
+        // Another visit saved (an import finishing after the Library was reopened): show it.
+        viewModelScope.launch {
+            sync.generation.collect { generation ->
+                if (generation != seen && loaded) lock.withLock { refresh() }
+            }
+        }
+    }
+
+    /** Under [lock]: rereads the file when another ViewModel saved since this one last did. */
+    private suspend fun refresh(): Boolean {
+        if (seen == sync.generation.value) return true
+        val fresh = withContext(io) { runCatching { store.load() } }
+            .onFailure { Diag.w("albums reload failed: ${it.message}") }
+            .getOrNull() ?: return false
+        _albums.value = fresh
+        seen = sync.generation.value
+        return true
     }
 
     // Grants of frames an album drops are not released here: Undo must still be able to
@@ -331,7 +391,7 @@ internal class AlbumsViewModel(
     private fun edit(change: (List<Album>) -> List<Album>, onResult: (saved: Boolean) -> Unit = {}) {
         writeScope.launch {
             val saved = lock.withLock {
-                if (!loaded) return@withLock false
+                if (!loaded || !refresh()) return@withLock false
                 val before = _albums.value
                 val next = change(before)
                 if (next == before) return@withLock true
@@ -341,7 +401,12 @@ internal class AlbumsViewModel(
                         .onFailure { Diag.w("albums save failed: ${it.message}") }
                         .isSuccess
                 }
-                if (!ok) _albums.value = before
+                if (ok) {
+                    sync.generation.value += 1
+                    seen = sync.generation.value
+                } else {
+                    _albums.value = before
+                }
                 ok
             }
             onResult(saved)
@@ -408,6 +473,46 @@ internal class AlbumsViewModel(
 
     /** The Undo offer for a deleted album ended unused: its grants may go at the next sweep. */
     fun undoExpired(album: Album) = AlbumUndoHold.release(album.id)
+
+    /**
+     * Brings [uris] from outside the Library into the Imported album (created as [albumName]
+     * when missing). [keepGrants]: the grants can be persisted (pickers); otherwise each file
+     * is copied while its temporary grant lasts. [onDone] gets how many were added (null when
+     * the change could not be saved), and how many could not be read.
+     */
+    fun import(uris: List<String>, keepGrants: Boolean, albumName: String, onDone: (added: Int?, failed: Int) -> Unit = { _, _ -> }) {
+        if (uris.isEmpty()) return
+        // On the write scope too: a share can be many large files, and leaving must not drop it.
+        // Held from before the grants are persisted until the save lands, so no sweep between
+        // the two can release them.
+        val hold = AlbumUndoHold.holdUris(uris.toSet())
+        writeScope.launch {
+            val wanted = uris.distinct()
+            val items = withContext(io) {
+                wanted.mapNotNull { uri ->
+                    runCatching { importer.import(uri, keepGrants) }
+                        .onFailure { Diag.w("album import failed: ${it.message}") }
+                        .getOrNull()
+                }
+            }
+            var added = 0
+            edit(
+                change = { albums ->
+                    val withAlbum = AlbumOps.ensure(albums, AlbumOps.IMPORTED_ID, albumName, now())
+                    val before = withAlbum.firstOrNull { it.id == AlbumOps.IMPORTED_ID }?.items?.size ?: 0
+                    AlbumOps.add(withAlbum, AlbumOps.IMPORTED_ID, items).also { next ->
+                        added = (next.firstOrNull { it.id == AlbumOps.IMPORTED_ID }?.items?.size ?: 0) - before
+                    }
+                },
+                onResult = { saved ->
+                    AlbumUndoHold.release(hold)
+                    // Saved or not, the copies are no longer in flight: the next prune decides.
+                    importer.settle(items.map { it.uri })
+                    onDone(added.takeIf { saved }, wanted.size - items.size)
+                },
+            )
+        }
+    }
 
     /**
      * Adds [items]; [onDone] gets how many were new and fitted (0 when the album is full), or

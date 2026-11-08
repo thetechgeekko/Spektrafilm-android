@@ -66,7 +66,7 @@ internal class AppContainer(context: Context) {
     private val libraryWriteLock = Mutex()
 
     /** Serializes album loads and saves across every Library visit (see [AlbumsViewModel]). */
-    private val albumLock = Mutex()
+    private val albumSync = AlbumSync()
 
     /** The settings store (Preferences DataStore since #276). */
     val settings: AppSettings get() = AppSettings.from(app)
@@ -132,7 +132,9 @@ internal class AppContainer(context: Context) {
                 hasEdit = LibraryViewModel.androidEditLookup(app),
                 aspectReader = LibraryViewModel.androidAspectReader(app),
                 writes = processScope,
-                lock = albumLock,
+                sync = albumSync,
+                importer = AlbumImports.androidImporter(app),
+                pruneImports = { keep -> AlbumImports.prune(app, keep) },
             )
         },
     )

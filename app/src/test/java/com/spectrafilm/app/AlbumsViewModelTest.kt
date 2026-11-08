@@ -27,6 +27,8 @@ class AlbumsViewModelTest {
         var failSave: Boolean = false,
     ) : AlbumStore {
         var saves = 0
+        var quarantined = false
+        override fun hasQuarantined() = quarantined
         override fun load(): List<Album> {
             if (failLoad) throw java.io.IOException("busy")
             return saved
@@ -41,8 +43,18 @@ class AlbumsViewModelTest {
     private fun item(n: Int) = AlbumItem("content://doc/$n", "f$n.jpg", "image/jpeg", n.toLong(), 1L, "content://tree/a")
 
     private var ids = 0
-    private fun vm(store: AlbumStore) =
-        AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" })
+    private fun vm(
+        store: AlbumStore,
+        importer: AlbumImporter = AlbumImporter { _, _ -> null },
+        prune: (Set<String>) -> Unit = {},
+    ) = AlbumsViewModel(
+        store,
+        Dispatchers.Unconfined,
+        now = { 7L },
+        newId = { "id${ids++}" },
+        importer = importer,
+        pruneImports = prune,
+    )
 
     private fun idle() = shadowOf(Looper.getMainLooper()).idle()
 
@@ -84,7 +96,7 @@ class AlbumsViewModelTest {
     @Test fun undoBringsBackTheAlbumAsTheQueuedEditsLeftIt() {
         val store = FakeStore(listOf(Album("b", "B", 2L, listOf(item(1), item(2)))))
         val lock = Mutex()
-        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = AlbumSync(lock))
         idle()
         // An earlier save still holds the lock while a photo is removed and the album deleted.
         kotlinx.coroutines.runBlocking { lock.lock() }
@@ -101,7 +113,7 @@ class AlbumsViewModelTest {
     @Test fun anAdditionWaitingToBeSavedKeepsItsFolderGrant() {
         val store = FakeStore(listOf(Album("a", "A", 1L)))
         val lock = Mutex()
-        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = AlbumSync(lock))
         idle()
         // Another edit holds the lock, so this one waits; a grant sweep now must keep folder B.
         kotlinx.coroutines.runBlocking { lock.lock() }
@@ -136,7 +148,7 @@ class AlbumsViewModelTest {
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    AlbumsViewModel(store, Dispatchers.Unconfined, newId = { "x" }, writes = writes, lock = lock) as T
+                    AlbumsViewModel(store, Dispatchers.Unconfined, newId = { "x" }, writes = writes, sync = AlbumSync(lock)) as T
             },
         )[AlbumsViewModel::class.java]
         idle() // the first read lands
@@ -146,6 +158,26 @@ class AlbumsViewModelTest {
         lock.unlock()
         idle()
         assertEquals(listOf("Kept"), store.saved.map { it.name })
+    }
+
+    @Test fun twoVisitsEditTheSameAlbumsNotTheirOwnSnapshots() {
+        val store = FakeStore(listOf(Album("a", "A", 1L)))
+        val sync = AlbumSync()
+        fun open() = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = sync)
+        val first = open(); idle()
+        val second = open(); idle() // the Library reopened while the first visit still works
+        first.add("a", listOf(item(1))); idle()
+        // The second visit shows the first one's save, and its own edit keeps it.
+        assertEquals(listOf("content://doc/1"), second.albums.value.single().items.map { it.uri })
+        second.rename("a", "Roll"); idle()
+        assertEquals(listOf(Album("a", "Roll", 1L, listOf(item(1)))), store.saved)
+    }
+
+    @Test fun aQuarantinedAlbumsFileStopsTheCopyPrune() {
+        val store = FakeStore().apply { quarantined = true }
+        var pruned = false
+        vm(store, prune = { pruned = true }); idle()
+        assertTrue(!pruned)
     }
 
     @Test fun removeSelectedDropsThoseFramesAndClearsTheSelection() {
@@ -180,5 +212,53 @@ class AlbumsViewModelTest {
         assertNull(created)
         assertEquals(0, store.saves)
         assertTrue(model.albums.value.isEmpty())
+    }
+
+    @Test fun importLandsInTheImportedAlbumAndCountsWhatFailed() {
+        val store = FakeStore()
+        val grants = mutableListOf<Boolean>()
+        val model = vm(store, importer = { uri, keep ->
+            grants += keep
+            if (uri.endsWith("bad")) null else AlbumItem(uri, "x.jpg", "image/jpeg", 1L, 1L, null)
+        }); idle()
+        var result: Pair<Int?, Int>? = null
+        model.import(listOf("content://a", "content://bad", "content://a"), keepGrants = true, albumName = "Imported") { added, failed ->
+            result = added to failed
+        }; idle()
+        assertEquals(1 to 1, result)
+        assertEquals(listOf(true, true), grants)
+        assertEquals(AlbumOps.IMPORTED_ID, store.saved.single().id)
+        assertEquals(listOf("content://a"), store.saved.single().items.map { it.uri })
+        model.import(listOf("content://a"), keepGrants = false, albumName = "Imported") { added, failed ->
+            result = added to failed
+        }; idle()
+        assertEquals(0 to 0, result)
+    }
+
+    @Test fun anImportSettlesItsCopiesOnlyAfterItsSave() {
+        val store = FakeStore()
+        val settled = ArrayList<String>()
+        var savesWhenSettled = -1
+        val importer = object : AlbumImporter {
+            override fun import(uri: String, keepGrant: Boolean) =
+                AlbumItem("$uri-copy", "x.jpg", "image/jpeg", 1L, 1L, null)
+            override fun settle(itemUris: Collection<String>) {
+                savesWhenSettled = store.saves
+                settled += itemUris
+            }
+        }
+        val model = vm(store, importer = importer); idle()
+        model.import(listOf("content://a"), keepGrants = false, albumName = "Imported"); idle()
+        assertEquals(listOf("content://a-copy"), settled)
+        assertEquals(1, savesWhenSettled)
+    }
+
+    @Test fun importedCopiesArePrunedAgainstEveryAlbumAfterAGoodRead() {
+        var kept: Set<String>? = null
+        vm(FakeStore(listOf(Album("a", "A", 1L, listOf(item(1))))), prune = { kept = it }); idle()
+        assertEquals(setOf("content://doc/1"), kept)
+        kept = null
+        vm(FakeStore(failLoad = true), prune = { kept = it }); idle()
+        assertNull(kept)
     }
 }

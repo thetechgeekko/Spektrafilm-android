@@ -115,6 +115,9 @@ internal val thumbnailLane = ProcessDispatchers.io.limitedParallelism(3)
 internal fun LibraryDestination(
     vm: LibraryViewModel,
     albumsVm: AlbumsViewModel,
+    /** Photos shared in from another app, to import into the Imported album; null when none. */
+    sharedIn: List<String>?,
+    onSharedInTaken: () -> Unit,
     /** The source open in the editor, outlined and scrolled to when it is in this folder. */
     currentUri: String?,
     onBack: () -> Unit,
@@ -126,6 +129,38 @@ internal fun LibraryDestination(
     // Shared with the open album, so an Undo snackbar outlives leaving it.
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val importedName = stringResource(R.string.album_imported)
+    val importInto: (List<String>, Boolean) -> Unit = { uris, keepGrants ->
+        albumsVm.import(uris, keepGrants, importedName) { added, failed ->
+            scope.launch {
+                val message = when {
+                    added == null -> ctx.getString(R.string.album_save_failed)
+                    added > 0 && failed > 0 -> ctx.resources.getQuantityString(
+                        R.plurals.album_imported_partial, failed, added, importedName, failed,
+                    )
+                    added > 0 -> ctx.resources.getQuantityString(R.plurals.album_added, added, added, importedName)
+                    failed > 0 -> ctx.resources.getQuantityString(R.plurals.album_import_failed, failed, failed)
+                    else -> ctx.getString(R.string.album_import_already, importedName)
+                }
+                val choice = snackbar.showSnackbar(
+                    message = message,
+                    actionLabel = ctx.getString(R.string.album_view).takeIf { (added ?: 0) > 0 },
+                    duration = SnackbarDuration.Long,
+                )
+                if (choice == SnackbarResult.ActionPerformed) {
+                    albumsVm.clearSelection()
+                    openAlbumId = AlbumOps.IMPORTED_ID
+                }
+            }
+        }
+    }
+    // Taken once: cleared before the import runs, so a recomposition cannot start it twice.
+    LaunchedEffect(sharedIn) {
+        val uris = sharedIn ?: return@LaunchedEffect
+        onSharedInTaken()
+        importInto(uris, false)
+    }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
     if (openAlbum != null) {
         AlbumDetail(
@@ -141,7 +176,10 @@ internal fun LibraryDestination(
         )
         return
     }
-    LibraryFolderAndAlbums(vm, albumsVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen)
+    LibraryFolderAndAlbums(
+        vm, albumsVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen,
+        importInto,
+    )
 }
 
 internal enum class LibraryTab { FOLDER, ALBUMS }
@@ -159,6 +197,7 @@ private fun LibraryFolderAndAlbums(
     scope: kotlinx.coroutines.CoroutineScope,
     onBack: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
+    importInto: (uris: List<String>, keepGrants: Boolean) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -208,6 +247,13 @@ private fun LibraryFolderAndAlbums(
     // RAW/DNG files are not in the photo picker; the document picker reaches them.
     val rawPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) openFrame(uri)
+    }
+    // Import: many at once, into the Imported album. Both pickers grant reads the app may keep.
+    val importPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        importInto(uris.map(Uri::toString), true)
+    }
+    val importFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        importInto(uris.map(Uri::toString), true)
     }
     val saved = (sidecarSave as? LibrarySidecarState.Done)?.result
     LaunchedEffect(saved) {
@@ -261,6 +307,13 @@ private fun LibraryFolderAndAlbums(
                         )
                     },
                     onOpenRaw = { rawPicker.launch(arrayOf("*/*")) },
+                    onImportPhotos = {
+                        importPhotos.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onImportFiles = { importFiles.launch(arrayOf("*/*")) },
+                    onChooseFolder = choose,
                 )
             }
         },
@@ -1128,7 +1181,13 @@ internal fun LibraryMessage(title: String, body: String, action: String, onActio
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun LibraryFabMenu(onOpenPhoto: () -> Unit, onOpenRaw: () -> Unit) {
+private fun LibraryFabMenu(
+    onOpenPhoto: () -> Unit,
+    onOpenRaw: () -> Unit,
+    onImportPhotos: () -> Unit,
+    onImportFiles: () -> Unit,
+    onChooseFolder: () -> Unit,
+) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = expanded) { expanded = false }
     val openLabel = stringResource(R.string.editor_open_photo)
@@ -1160,6 +1219,21 @@ private fun LibraryFabMenu(onOpenPhoto: () -> Unit, onOpenRaw: () -> Unit) {
             onClick = { expanded = false; onOpenRaw() },
             text = { Text(stringResource(R.string.editor_source_open_raw)) },
             icon = { Icon(SpectraIcons.ImportRaw, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = { expanded = false; onImportPhotos() },
+            text = { Text(stringResource(R.string.library_import_photos)) },
+            icon = { Icon(SpectraIcons.AddToAlbum, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = { expanded = false; onImportFiles() },
+            text = { Text(stringResource(R.string.library_import_files)) },
+            icon = { Icon(SpectraIcons.ImportFiles, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = { expanded = false; onChooseFolder() },
+            text = { Text(stringResource(R.string.library_choose_folder)) },
+            icon = { Icon(SpectraIcons.Folder, contentDescription = null) },
         )
     }
 }

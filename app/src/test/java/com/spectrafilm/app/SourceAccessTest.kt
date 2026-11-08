@@ -324,6 +324,27 @@ class SourceAccessTest {
     }
 
     @Test
+    fun replacingOrClearingTheSource_keepsAGrantAnAlbumStillHolds() {
+        val albumUri = "content://photos/in-an-album"
+        val newUri = "content://photos/new"
+        val oldRef = PersistedSourceRef(albumUri, "PHOTO", "kept.jpg", SourceAccessMode.PERSISTED)
+        val backend = FakeUriGrantBackend(
+            persistedUris = mutableSetOf(albumUri),
+            readableUris = mutableSetOf(albumUri, newUri),
+        )
+        val store = FakeSourceRefStore(oldRef)
+        val coordinator = SourceAccessCoordinator(backend, store) { setOf(albumUri) }
+
+        coordinator.acquire(newUri, "PHOTO", "new.jpg")
+        store.save(oldRef)
+        coordinator.clear()
+        store.save(oldRef)
+        coordinator.selectDemo()
+
+        assertTrue(albumUri !in backend.releasedUris)
+    }
+
+    @Test
     fun restore_reconcilesBothPersistableGrantCrashWindows() {
         val oldUri = "content://photos/old-crash"
         val currentUri = "content://photos/current"

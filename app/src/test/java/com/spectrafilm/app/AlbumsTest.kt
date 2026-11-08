@@ -75,6 +75,12 @@ class AlbumsTest {
         assertEquals("Album 1", AlbumOps.defaultName(emptyList(), "Album"))
     }
 
+    @Test fun ensureCreatesTheImportedAlbumOnce() {
+        val once = AlbumOps.ensure(emptyList(), AlbumOps.IMPORTED_ID, "Imported", 5L)
+        assertEquals(listOf(Album(AlbumOps.IMPORTED_ID, "Imported", 5L)), once)
+        assertSame(once, AlbumOps.ensure(once, AlbumOps.IMPORTED_ID, "Other", 6L))
+    }
+
     @Test fun codecRoundTrips() {
         val list = listOf(
             Album("a", "Trip", 42L, listOf(item(1), item(2, tree = null)), coverUri = "content://doc/2"),

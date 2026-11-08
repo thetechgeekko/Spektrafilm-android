@@ -4,4 +4,6 @@
      addressing them as content:// sources; nothing outside the app can open them. -->
 <paths>
     <files-path name="shared" path="shared-sources/" />
+    <!-- Private copies of photos shared in several at once, kept for the Imported album. -->
+    <files-path name="imported" path="imported/" />
 </paths>
