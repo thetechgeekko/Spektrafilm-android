@@ -140,7 +140,7 @@ internal fun halfFramePairSupports(options: ExportOptions): Boolean =
 
 /**
  * The second frame's edit: its own saved recipe when it has one, else the editor's look on
- * it (the editor's whole edit minus crop and masks, as a batch does). Either way the output
+ * it (the editor's whole edit minus crop and shape masks, as a batch does). Either way the output
  * color space is the first frame's, since both frames end up in one picture.
  */
 internal fun halfFrameSecondSource(
@@ -158,6 +158,8 @@ internal fun halfFrameSecondSource(
         rotation = own.manualRotationDeg
     } else {
         Presets.decodeLook(first.params, state)
+        // Skin masks store intent, not a place on the first photo, so they carry over.
+        state.localAdjustments = Presets.decodeSkinMasks(first.params)
     }
     val firstState = ParamsState().also { Presets.decode(first.params, it) }
     state.outputColorSpace = firstState.outputColorSpace
@@ -331,7 +333,10 @@ private suspend fun renderFrame(
         rawChromaNoise = state.rawChromaNoise,
     )
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image
+    var adjustments = state.localAdjustments
     val res = try {
+        // Skin masks bind to skin found on this frame's own decode, before the render closes it.
+        adjustments = adjustments.withSkinFoundOn(app, image, params.io)
         runCancellableNative(
             onLateResult = { late ->
                 late.reportOutcome(AppRenderOutcome.CANCELLED)
@@ -350,7 +355,7 @@ private suspend fun renderFrame(
         // Local adjustments (masks) are applied in the grade, not by the engine: pass this
         // frame's own, as the editor's export does.
         val full = simResultToBitmapGraded(
-            res, cctf, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments,
+            res, cctf, state.saturation, state.vibrance, state.gamutCompress, adjustments,
         )
         SimResult.reportOutcome(res.renderId, AppRenderOutcome.CONSUMED)
         return full

@@ -25,6 +25,7 @@ import com.spectrafilm.app.masks.SemanticField
 import com.spectrafilm.app.masks.bindSemantic
 import com.spectrafilm.app.masks.hasSemantic
 import com.spectrafilm.engine.IoParams
+import com.spectrafilm.engine.LinearImage
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -109,9 +110,7 @@ internal object SkinFields {
     ): Boolean = computeLock.withLock {
         if (key != activeKey) return@withLock false
         if (current() != null) return@withLock false
-        val store = store ?: SkinModelStore(File(context.applicationContext.noBackupFilesDir, MODEL_DIR), dispatchers.io)
-            .also { store = it }
-        val segmenter = segmenter ?: LiteRtSkinSegmenter(store, dispatchers.default).also { segmenter = it }
+        val (store, segmenter) = runtime(context, dispatchers)
         try {
             if (store.cached() == null) {
                 status = SkinFieldStatus.Downloading(0f)
@@ -153,6 +152,48 @@ internal object SkinFields {
             false
         }
     }
+
+    /**
+     * Find skin on [image] for a one-off render outside the editor (batch export, the second
+     * half-frame): not cached, no status shown. Downloads the model if needed. Null when the model
+     * cannot run; an entry with a null field when no person is in the photo.
+     */
+    suspend fun findOn(context: Context, image: LinearImage, dispatchers: AppDispatchers = AppDispatchers()): SkinFieldEntry? {
+        val (store, segmenter) = runtime(context, dispatchers)
+        return try {
+            if (store.ensure() == null) return null
+            val (argb, w, h) = withContext(dispatchers.default) {
+                downsampleLinearBox(image, FIND_EDGE).use { small ->
+                    Triple(linearToDisplayArgb(small), small.width, small.height)
+                }
+            }
+            val raw = segmenter.segment(argb, w, h) ?: return null
+            withContext(dispatchers.default) {
+                SkinFieldEntry(ONE_OFF, raw.takeIf { it.peak(SKIN) >= PRESENCE }, w, h)
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Exception) {
+            Diag.w("skin field (one-off) failed: ${t.javaClass.simpleName}")
+            null
+        }
+    }
+
+    private val runtimeLock = Any()
+
+    /** The model store and segmenter, made once per process. */
+    private fun runtime(context: Context, dispatchers: AppDispatchers): Pair<SkinModelStore, LiteRtSkinSegmenter> =
+        synchronized(runtimeLock) {
+            val st = store ?: SkinModelStore(File(context.applicationContext.noBackupFilesDir, MODEL_DIR), dispatchers.io)
+                .also { store = it }
+            val seg = segmenter ?: LiteRtSkinSegmenter(st, dispatchers.default).also { segmenter = it }
+            st to seg
+        }
+
+    private val ONE_OFF = SkinSourceKey(null, "one-off", 0)
+
+    /** Long edge a one-off find decodes at, like the editor's preview proxy. */
+    private const val FIND_EDGE = 1024
 
     private const val MODEL_DIR = "skinmodel"
 
@@ -201,4 +242,19 @@ internal fun List<LocalAdjustment>.withSkinField(
     val field = e.field ?: return this
     val frame = engineOutputFrame(io, inputW ?: e.sourceWidth, inputH ?: e.sourceHeight, region)
     return bindSemantic(field, frame)
+}
+
+/**
+ * For a render outside the editor (batch export, half-frame pairs): these adjustments with their
+ * skin masks bound to skin found on [image] itself, the uncropped decode the engine is about to
+ * render with [io]. Unchanged when no mask needs skin or none could be found.
+ */
+internal suspend fun List<LocalAdjustment>.withSkinFoundOn(
+    context: Context,
+    image: LinearImage,
+    io: IoParams,
+): List<LocalAdjustment> {
+    if (none { it.mask.hasSemantic }) return this
+    val entry = SkinFields.findOn(context, image) ?: return this
+    return withSkinField(io, image.width, image.height, entry = entry)
 }

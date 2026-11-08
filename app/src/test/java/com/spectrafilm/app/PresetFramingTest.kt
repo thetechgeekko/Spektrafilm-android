@@ -68,6 +68,31 @@ class PresetFramingTest {
     }
 
     @Test
+    fun onlySkinMasksCarryToOtherPhotos() {
+        // A batch and the second half-frame take the look's skin masks (intent, means the same on
+        // any photo) but never a radial or gradient placed on this one.
+        val radial = com.spectrafilm.app.masks.LocalAdjustment(
+            com.spectrafilm.app.masks.Mask(listOf(com.spectrafilm.app.masks.Mask.Component(
+                com.spectrafilm.app.masks.BlendMode.ADD,
+                com.spectrafilm.app.masks.MaskComponent.Radial(0.5f, 0.5f, 0.3f, 0.3f, 0.5f),
+            ))),
+            com.spectrafilm.app.masks.TierADelta(exposureEv = 1f),
+        )
+        val skin = com.spectrafilm.app.masks.LocalAdjustment(
+            com.spectrafilm.app.masks.Mask(listOf(com.spectrafilm.app.masks.Mask.Component(
+                com.spectrafilm.app.masks.BlendMode.ADD,
+                com.spectrafilm.app.masks.MaskComponent.Semantic(
+                    setOf(com.spectrafilm.app.masks.SemanticClass.FACE_SKIN), softness = 0.3f, expand = 0.2f,
+                ),
+            ))),
+            com.spectrafilm.app.masks.TierADelta(temp = 20f),
+        )
+        val look = Presets.encode(ParamsState().apply { localAdjustments = listOf(radial, skin) })
+        assertEquals(listOf(skin), Presets.decodeSkinMasks(look))
+        assertEquals(emptyList<Any>(), Presets.decodeSkinMasks(Presets.encode(ParamsState())))
+    }
+
+    @Test
     fun decodeItselfStillRestoresFramingForUndoAndSessionRestore() {
         // The regression guard on the seam: undo/redo and session restore call decode, and a
         // crop that does not come back is a lost edit.
