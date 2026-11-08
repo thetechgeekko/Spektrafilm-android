@@ -98,4 +98,12 @@ class LibraryExportTest {
         val linear = encodeLibraryExportOptions(fallback.copy(format = ExportFormat.SCENE_LINEAR_TIFF))
         assertEquals(fallback, decodeLibraryExportOptions(linear, fallback))
     }
+
+    @Test
+    fun `a cleared custom size still means full size after a restart`() {
+        val fallback = libraryExportDefaults(ExportFormat.JPEG, 95, FilmBorder.NONE)
+        val cleared = fallback.copy(size = ExportSize.CUSTOM, customLongEdge = 0)
+        val back = decodeLibraryExportOptions(encodeLibraryExportOptions(cleared), fallback)
+        assertEquals(null, back.targetLongEdge())
+    }
 }

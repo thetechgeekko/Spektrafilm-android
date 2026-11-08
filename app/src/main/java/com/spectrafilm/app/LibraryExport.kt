@@ -106,7 +106,8 @@ internal fun decodeLibraryExportOptions(text: String?, fallback: ExportOptions):
             format = format,
             jpegQuality = json.getInt("jpegQuality").coerceIn(1, 100),
             size = ExportSize.valueOf(json.getString("size")),
-            customLongEdge = json.getInt("customLongEdge").coerceAtLeast(1),
+            // 0 is the cleared custom field, which targetLongEdge() reads as full size; keep it.
+            customLongEdge = json.getInt("customLongEdge").coerceAtLeast(0),
             customName = "",
             border = FilmBorder.parse(json.optString("border", FilmBorder.NONE.name)),
             sharpen = runCatching { OutputSharpen.valueOf(json.getString("sharpen")) }
