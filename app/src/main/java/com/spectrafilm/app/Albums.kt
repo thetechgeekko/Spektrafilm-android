@@ -201,6 +201,22 @@ internal object AlbumCodec {
     }
 }
 
+/**
+ * Grants of albums deleted while their Undo is still offered. The album is already gone from
+ * the file, so without this a grant sweep in that window (e.g. the Library moving to another
+ * folder) could revoke a folder only that album used, and Undo would bring back photos that no
+ * longer open. Process-wide, like the sweep that reads it.
+ */
+internal object AlbumUndoHold {
+    private val held = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+
+    fun hold(albumId: String, uris: Set<String>) { held[albumId] = uris }
+
+    fun release(albumId: String) { held.remove(albumId) }
+
+    fun uris(): Set<String> = held.values.flatMapTo(HashSet()) { it }
+}
+
 /** Where albums live. Blocking; called on the IO dispatcher. */
 internal interface AlbumStore {
     fun load(): List<Album>
@@ -234,8 +250,12 @@ internal class FileAlbumStore(private val file: File) : AlbumStore {
     companion object {
         fun of(context: Context) = FileAlbumStore(File(context.applicationContext.filesDir, "albums.json"))
 
-        /** For the grant sweep: what albums need kept. Unreadable means keep everything. */
-        fun retainedUris(context: Context): Set<String> = AlbumOps.retainedUris(of(context).load())
+        /**
+         * For the grant sweep: what albums need kept, including a just-deleted album whose Undo
+         * is still offered. Unreadable means keep everything.
+         */
+        fun retainedUris(context: Context): Set<String> =
+            AlbumOps.retainedUris(of(context).load()) + AlbumUndoHold.uris()
     }
 }
 
@@ -327,11 +347,19 @@ internal class AlbumsViewModel(
         val index = _albums.value.indexOfFirst { it.id == id }
         if (index < 0) return null
         val album = _albums.value[index]
+        // Held before the album leaves the file, so no sweep can fall between the two.
+        AlbumUndoHold.hold(album.id, AlbumOps.retainedUris(listOf(album)))
         edit { AlbumOps.delete(it, id) }
         return album to index
     }
 
-    fun undoDelete(album: Album, index: Int) = edit { AlbumOps.restore(it, album, index) }
+    /** Puts a deleted album back; its grants were held until now ([AlbumUndoHold]). */
+    fun undoDelete(album: Album, index: Int) {
+        edit { AlbumOps.restore(it, album, index) }.invokeOnCompletion { AlbumUndoHold.release(album.id) }
+    }
+
+    /** The Undo offer for a deleted album ended unused: its grants may go at the next sweep. */
+    fun undoExpired(album: Album) = AlbumUndoHold.release(album.id)
 
     /** Adds [items]; [onDone] gets how many were new and fitted (0 when the album is full). */
     fun add(id: String, items: List<AlbumItem>, onDone: (added: Int) -> Unit = {}) {

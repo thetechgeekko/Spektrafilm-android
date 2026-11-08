@@ -58,8 +58,14 @@ class AlbumsViewModelTest {
         val model = vm(store); idle()
         val undo = model.delete("b"); idle()
         assertEquals(listOf("a", "c"), store.saved.map { it.id })
+        // Until Undo is taken or lapses, the grant sweep still keeps the deleted album's folder.
+        assertTrue("content://tree/a" in AlbumUndoHold.uris())
         model.undoDelete(undo!!.first, undo.second); idle()
         assertEquals(listOf("a", "b", "c"), store.saved.map { it.id })
+        assertTrue(AlbumUndoHold.uris().isEmpty())
+        val again = model.delete("b"); idle()
+        model.undoExpired(again!!.first)
+        assertTrue(AlbumUndoHold.uris().isEmpty())
         assertNull(model.delete("missing"))
     }
 

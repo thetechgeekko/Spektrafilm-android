@@ -362,12 +362,21 @@ internal fun AlbumDetail(
                                 val undo = vm.delete(album.id) ?: return@DropdownMenuItem
                                 onBack()
                                 scope.launch {
-                                    val choice = snackbar.showSnackbar(
-                                        message = ctx.getString(R.string.album_deleted),
-                                        actionLabel = ctx.getString(R.string.album_undo),
-                                        duration = SnackbarDuration.Long,
-                                    )
-                                    if (choice == SnackbarResult.ActionPerformed) vm.undoDelete(undo.first, undo.second)
+                                    var undone = false
+                                    try {
+                                        val choice = snackbar.showSnackbar(
+                                            message = ctx.getString(R.string.album_deleted),
+                                            actionLabel = ctx.getString(R.string.album_undo),
+                                            duration = SnackbarDuration.Long,
+                                        )
+                                        if (choice == SnackbarResult.ActionPerformed) {
+                                            undone = true
+                                            vm.undoDelete(undo.first, undo.second)
+                                        }
+                                    } finally {
+                                        // Also when the Library is left with the offer still up.
+                                        if (!undone) vm.undoExpired(undo.first)
+                                    }
                                 }
                             },
                         )
