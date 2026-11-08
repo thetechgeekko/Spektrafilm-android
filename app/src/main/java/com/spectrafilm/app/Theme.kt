@@ -82,6 +82,16 @@ internal object SpektraBrand {
     /** Scan level meters: black to white in every theme, since the ramp stands for tones. */
     val levelRamp = listOf(Color(0xFF000000), Color(0xFFFFFFFF))
     /** EQ bands for per-channel controls: red, green, blue, muted to sit on any surface. */
+    /**
+     * Print filter wheel (Instruments.kt Pad2D): a sweep starting at 3 o'clock, clockwise on
+     * screen, so magenta sits right and yellow on top, each with its complement opposite
+     * (green left, blue below). It names the filter axes, not the print's resulting cast.
+     */
+    val filterWheel = arrayOf(
+        0f to Color(0xFFC04FB0), 0.25f to Color(0xFF4F6AD9), 0.375f to Color(0xFF4FB0C0),
+        0.5f to Color(0xFF4CAF6A), 0.75f to Color(0xFFE0C040), 0.875f to Color(0xFFD9534F),
+        1f to Color(0xFFC04FB0),
+    )
     val channelColors = listOf(Color(0xFFD9534F), Color(0xFF4CAF6A), Color(0xFF4F86D9))
 
     /** Export darkroom (ExportDevelopTray.kt): the safelit room, dark in every theme. */
