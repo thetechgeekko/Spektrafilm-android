@@ -29,8 +29,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
@@ -124,12 +126,15 @@ internal fun PreviewRegion(
     // The neighbour that slid in, held while the editor opens it: the neighbours are
     // recomputed for the new photo as soon as it is committed.
     var heldIncoming by remember { mutableStateOf<Bitmap?>(null) }
+    // True while a released swipe animates out (and holds for the next photo) or springs
+    // back. No new swipe starts until it settles, so two transitions never overlap.
+    var settling by remember { mutableStateOf(false) }
     val latestSwipe by rememberUpdatedState(swipe)
     val latestShown by rememberUpdatedState(preview ?: placeholder)
     val swipeEnabled = swipe != null && (swipe.hasNext || swipe.hasPrevious) &&
         !zoomed && !compareMode && !peekOriginal && (preview != null || placeholder != null)
     val swipeModifier = Modifier.photoSwipeGesture(
-        enabled = swipeEnabled || swiping,
+        enabled = (swipeEnabled || swiping) && !settling,
         onStart = {
             swiping = true
             swipeScope.launch { swipeX.stop() }
@@ -144,23 +149,29 @@ internal fun PreviewRegion(
             val step = if (velocityX == null || nb == null) 0 else PhotoSwipeRules.commitStep(
                 dx, velocityX, swipeWidth, swipeFlingPx, swipeSlopPx, nb.hasNext, nb.hasPrevious,
             )
+            settling = true
             swipeScope.launch {
-                if (step != 0 && nb != null) {
-                    heldIncoming = if (step > 0) nb.next else nb.previous
-                    swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
-                    val leaving = latestShown
-                    nb.onCommit(step)
-                    // Hold the neighbour in place until the new photo has something on
-                    // screen (its stand-in or its render), so nothing blank flashes.
-                    withTimeoutOrNull(SWIPE_HOLD_MAX_MS) {
-                        snapshotFlow { latestShown }.first { it != null && it !== leaving }
+                try {
+                    if (step != 0 && nb != null) {
+                        heldIncoming = if (step > 0) nb.next else nb.previous
+                        swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
+                        val leaving = latestShown
+                        nb.onCommit(step)
+                        // Hold the neighbour in place until the new photo has something on
+                        // screen (its stand-in or its render), so nothing blank flashes.
+                        withTimeoutOrNull(SWIPE_HOLD_MAX_MS) {
+                            snapshotFlow { latestShown }.first { it != null && it !== leaving }
+                        }
+                    } else {
+                        swipeX.animateTo(0f, tween(SWIPE_BACK_MS))
                     }
-                    swipeX.snapTo(0f)
+                } finally {
+                    // Also on cancellation (the editor leaving): never strand a transition.
+                    withContext(NonCancellable) { swipeX.snapTo(0f) }
                     heldIncoming = null
-                } else {
-                    swipeX.animateTo(0f, tween(SWIPE_BACK_MS))
+                    swiping = false
+                    settling = false
                 }
-                swiping = false
             }
         },
     )
