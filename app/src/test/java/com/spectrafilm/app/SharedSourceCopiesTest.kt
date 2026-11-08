@@ -70,4 +70,13 @@ class SharedSourceCopiesTest {
         assertTrue(SharedSourceCopies.alreadyDurable("content://media/picker/0/x/media/1", grants))
         assertFalse(SharedSourceCopies.alreadyDurable("content://media/external/images/media/244070", grants))
     }
+
+    /** Codex on #512: a sender's name containing ".partial-" is not a writer's partial. */
+    @Test fun aSendersPartialLikeNameIsStillKept() {
+        val dir = File(tmp.root, SharedSourceCopies.DIR).apply { mkdirs() }
+        listOf("k-photo.partial-1.jpg", "k-photo.partial-1.jpg.partial-99", "old.jpg.partial-5")
+            .forEach { File(dir, it).writeText("x") }
+        SharedSourceCopies.pruneDir(dir, setOf("k-photo.partial-1.jpg"))
+        assertEquals(listOf("k-photo.partial-1.jpg", "k-photo.partial-1.jpg.partial-99"), dir.list()!!.sorted())
+    }
 }

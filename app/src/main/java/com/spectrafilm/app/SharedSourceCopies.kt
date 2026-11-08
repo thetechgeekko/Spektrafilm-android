@@ -183,9 +183,14 @@ internal object SharedSourceCopies {
     /** Deletes every file in [dir] except those named in [keep] and their in-flight partials. */
     internal fun pruneDir(dir: File, keep: Set<String>) {
         dir.listFiles()?.forEach { file ->
-            if (file.name.substringBefore(PARTIAL) !in keep) file.delete()
+            // The full name first: a sender's own file name may contain ".partial-" too.
+            val owner = PARTIAL_FILE.matchEntire(file.name)?.groupValues?.get(1)
+            if (file.name !in keep && owner !in keep) file.delete()
         }
     }
+
+    /** `<target>.partial-<nanos>`, the writer suffix [writeCopy] appends; group 1 is the target. */
+    private val PARTIAL_FILE = Regex("""(.+)\.partial-\d+""")
 
     private const val PARTIAL = ".partial-"
 
