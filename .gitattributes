@@ -20,3 +20,4 @@ app/src/main/assets/legal/spektrafilm/* -text
 tools/r8_check/check_release_dex.sh text eol=lf
 *.sh text eol=lf
 gradlew text eol=lf
+lib/libraw/third_party/*.tar.gz binary
