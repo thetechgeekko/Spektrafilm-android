@@ -152,8 +152,15 @@ internal fun PreviewRegion(
             settling = true
             swipeScope.launch {
                 try {
-                    if (step != 0 && nb != null) {
-                        heldIncoming = if (step > 0) nb.next else nb.previous
+                    val incomingThumb = if (step > 0) nb?.next else nb?.previous
+                    if (step != 0 && nb != null && incomingThumb == null) {
+                        // No thumbnail to slide in (still loading, or none exists): keep the
+                        // current photo on screen and open the neighbour in place, rather
+                        // than sliding out to a blank canvas.
+                        swipeX.animateTo(0f, tween(SWIPE_BACK_MS))
+                        nb.onCommit(step)
+                    } else if (step != 0 && nb != null) {
+                        heldIncoming = incomingThumb
                         swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
                         val leaving = latestShown
                         nb.onCommit(step)
