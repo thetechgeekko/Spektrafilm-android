@@ -247,4 +247,12 @@
     <string name="tool_export_proof_clipped">预览的 %1$s 在 %2$s 中被裁切：高光溢出、暗部死黑或超出色彩空间的颜色。照片上的裁切提示按钮会显示位置。</string>
     <string name="tool_export_proof_wide">此屏幕可能无法显示 %1$s 中的所有颜色。文件会保留这些颜色，预览中显示为裁切后的效果。</string>
     <string name="tool_export_proof_sharpen">输出锐化会在此之后应用到文件，可能会多裁切一点。</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">每张照片保留各自的编辑：胶片、相纸、裁剪和蒙版。</string>
+    <string name="library_export_progress">正在导出第 %1$d 张，共 %2$d 张</string>
+    <string name="library_export_stop">停止</string>
+    <string name="library_export_busy">另一项导出正在进行，请在完成后重试。</string>
+    <plurals name="library_export_title">
+        <item quantity="other">导出 %1$d 张照片</item>
+    </plurals>
 </resources>

@@ -1,6 +1,10 @@
 /*
- * Spektrafilm for Android — batch export: apply the current edit to more photos. GPLv3.
+ * Spektrafilm for Android — batch export: render many photos in one run. GPLv3.
  * Film modeling powered by spektrafilm.
+ *
+ * Two kinds of batch share this file: the editor's "Export more photos with this edit"
+ * ([BatchEditSource.SharedLook], below) and the Library's export of selected photos, each with
+ * its own saved edit ([BatchEditSource.OwnEdits], LibraryExport.kt).
  *
  * The editor exports one photo. A batch takes the editor's LOOK (every parameter except the
  * photo's own crop and masks, exactly what applying a preset carries — Presets.decodeLook)
@@ -43,6 +47,59 @@ import org.json.JSONObject
 
 /** One photo picked for a batch. */
 internal data class BatchExportSource(val uri: Uri, val name: String, val kind: SourceKind)
+
+/** A batch photo's settings: the whole edit, the manual turn and the masks to grade with. */
+internal class BatchPhotoEdit(
+    val state: ParamsState,
+    val rotation: SourceRotation,
+    /** Shape and skin masks; skin masks are bound to skin found on the photo at render time. */
+    val adjustments: List<LocalAdjustment>,
+)
+
+/** Where each photo of a batch gets its settings from. */
+internal sealed interface BatchEditSource {
+    /** One look for every photo: the editor's "Export more photos with this edit". */
+    class SharedLook(val look: JSONObject) : BatchEditSource
+
+    /**
+     * Every photo with its own saved edit, crop, turn and masks included, or the settings a
+     * first open gives it when it has none: the Library's export of selected photos. Called on
+     * the batch's coroutine, once per photo, right before that photo renders, so an edit saved
+     * while the batch runs is the one exported.
+     */
+    class OwnEdits(val editFor: suspend (BatchExportSource) -> BatchPhotoEdit) : BatchEditSource
+}
+
+/** [look] as the photo's settings: no crop, no turn, only the look's skin masks (intent). */
+internal fun sharedLookEdit(look: JSONObject): BatchPhotoEdit {
+    val state = ParamsState()
+    Presets.decodeLook(look, state)
+    return BatchPhotoEdit(state, SourceRotation.NONE, Presets.decodeSkinMasks(look))
+}
+
+/**
+ * The settings a photo opens with in the editor, as its restore builds them: the user's
+ * defaults ([applyDefaults]) over a fresh state, then the photo's saved [recipe] over those,
+ * and an installed profile in place of one [profiles] no longer has. Unit-tested.
+ */
+internal fun ownEditFor(
+    recipe: RecipeDocument?,
+    profiles: List<String>,
+    applyDefaults: (ParamsState, List<String>) -> Unit,
+): BatchPhotoEdit {
+    val state = ParamsState()
+    applyDefaults(state, profiles)
+    if (recipe != null) Presets.decode(recipe.params, state)
+    if (profiles.isNotEmpty()) {
+        if (state.filmProfile !in profiles) state.filmProfile = profiles.first()
+        if (state.printProfile !in profiles) state.printProfile = profiles.first()
+    }
+    return BatchPhotoEdit(
+        state,
+        SourceRotation.fromDegrees(recipe?.manualRotationDeg ?: 0),
+        state.localAdjustments.toList(),
+    )
+}
 
 /** Where a batch is, for the editor's status line and its final snackbar. */
 internal data class BatchExportProgress(
@@ -131,7 +188,7 @@ internal suspend fun runBatchExport(
     context: Context,
     engine: SpektraEngine,
     sources: List<BatchExportSource>,
-    look: JSONObject,
+    edits: BatchEditSource,
     options: ExportOptions,
     keepGps: Boolean,
     startedAtMillis: Long,
@@ -151,7 +208,7 @@ internal suspend fun runBatchExport(
             var committed = false
             try {
                 lastPublished = exportBatchPhoto(
-                    context, engine, source, look, options, keepGps, index, total,
+                    context, engine, source, edits, options, keepGps, index, total,
                 ) { committed = true }
                 done++
             } catch (cancel: CancellationException) {
@@ -206,7 +263,7 @@ private suspend fun exportBatchPhoto(
     context: Context,
     engine: SpektraEngine,
     source: BatchExportSource,
-    look: JSONObject,
+    edits: BatchEditSource,
     options: ExportOptions,
     keepGps: Boolean,
     index: Int,
@@ -215,9 +272,13 @@ private suspend fun exportBatchPhoto(
 ): Uri {
     val app = context.applicationContext
     val io = ProcessDispatchers.io
-    // A fresh state per photo: the look, and this photo's own (absent) crop and shape masks.
-    val state = ParamsState()
-    Presets.decodeLook(look, state)
+    // A fresh state per photo: the shared look (with this photo's own, absent, crop and shape
+    // masks), or this photo's own whole edit.
+    val edit = when (edits) {
+        is BatchEditSource.SharedLook -> sharedLookEdit(edits.look)
+        is BatchEditSource.OwnEdits -> edits.editFor(source)
+    }
+    val state = edit.state
     val descriptor = options.outputDescriptor(
         state.outputColorSpace,
         state.savingCctfEncoding,
@@ -251,9 +312,9 @@ private suspend fun exportBatchPhoto(
         rawWhiteBalance = state.rawWhiteBalance,
         rawTemperature = state.rawTemperature,
         rawTint = state.rawTint,
-        // EXIF orientation is applied by the decode itself; the editor's manual rotation
-        // belongs to the photo it was set on.
-        rotation = SourceRotation.NONE,
+        // EXIF orientation is applied by the decode itself; a manual turn comes only with the
+        // photo's own edit (a shared look's turn belongs to the photo it was set on).
+        rotation = edit.rotation,
         creativeTemp = state.creativeWbTemp,
         creativeTint = state.creativeWbTint,
         balanceToFilmStock = state.balanceToFilmStock,
@@ -265,11 +326,12 @@ private suspend fun exportBatchPhoto(
     val srcExif = withContext(io) { readSourceExif(app, source.uri, keepGps = keepGps) }
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image
     var sceneTap: SceneLuma? = null
-    // The look's skin masks (intent only, unlike shape masks) carry over, bound to skin found on
-    // this photo; found before the render, while the decode is still open.
+    // Skin masks are bound to skin found on this photo, before the render, while the decode
+    // is still open. A shared look carries only those (intent, unlike shape masks); an own
+    // edit carries its shape masks too, which are already this photo's.
     var adjustments: List<LocalAdjustment> = emptyList()
     val res = try {
-        adjustments = Presets.decodeSkinMasks(look).withSkinFoundOn(app, image, params.io)
+        adjustments = edit.adjustments.withSkinFoundOn(app, image, params.io)
         runCancellableNative(
             onLateResult = { late ->
                 late.reportOutcome(AppRenderOutcome.CANCELLED)

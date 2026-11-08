@@ -441,4 +441,13 @@
     <string name="help_save_body">Saves the full-quality photo to your gallery.</string>
     <string name="help_zoom_title">Zoom in</string>
     <string name="help_zoom_body">Pinch the photo to zoom. Tap it to check detail.</string>
+    <!-- Library export of selected photos, each with its own edit (LibraryExport.kt) -->
+    <string name="library_export_own_edits">Each photo keeps its own edit: film, print, crop and masks.</string>
+    <string name="library_export_progress">Exporting %1$d of %2$d</string>
+    <string name="library_export_stop">Stop</string>
+    <string name="library_export_busy">Another export is running. Try again when it finishes.</string>
+    <plurals name="library_export_title">
+        <item quantity="one">Export %1$d photo</item>
+        <item quantity="other">Export %1$d photos</item>
+    </plurals>
 </resources>
