@@ -393,8 +393,13 @@ private fun LibraryFolderAndAlbums(
             onDismiss = { newAlbumFor = null },
             onConfirm = { name ->
                 newAlbumFor = null
-                val id = albumsVm.create(name, items)
-                if (items.isEmpty()) onOpenAlbum(id) else added(AlbumOps.cleanName(name), items.size)
+                albumsVm.create(name, items) { id, count ->
+                    when {
+                        id == null -> scope.launch { snackbar.showSnackbar(ctx.getString(R.string.album_create_failed)) }
+                        items.isEmpty() -> onOpenAlbum(id)
+                        else -> added(AlbumOps.cleanName(name), count)
+                    }
+                }
             },
         )
     }

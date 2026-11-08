@@ -13,6 +13,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -240,7 +241,7 @@ internal class FileAlbumStore(private val file: File) : AlbumStore {
 
 /**
  * The albums, for the Library's Albums tab and album view. Every store call runs on [io], one
- * at a time, so two quick edits land in order.
+ * at a time under [lock], so two quick edits land in order.
  */
 internal class AlbumsViewModel(
     private val store: AlbumStore,
@@ -249,7 +250,19 @@ internal class AlbumsViewModel(
     private val now: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { java.util.UUID.randomUUID().toString() },
     aspectReader: LibraryAspectReader = LibraryAspectReader { null },
+    /**
+     * Where edits run. This ViewModel is scoped to the Library's navigation entry and cleared
+     * when the user leaves; an edit shown on screen must still be saved, so the app passes a
+     * process-wide scope, as for the Library's own writes. Null (tests) keeps [viewModelScope].
+     */
+    writes: CoroutineScope? = null,
+    /**
+     * Held by every load and save, across every Library visit: a visit that starts while the
+     * last one's edits are still saving reads the file only after they land.
+     */
+    private val lock: Mutex = Mutex(),
 ) : ViewModel() {
+    private val writeScope: CoroutineScope = writes ?: viewModelScope
     private val aspectTracker = LibraryAspects(viewModelScope, io, aspectReader)
 
     /** Frame shapes of the open album, for justified rows. */
@@ -263,13 +276,12 @@ internal class AlbumsViewModel(
     /** Frames selected inside the open album. */
     val selection: StateFlow<Set<String>> = _selection.asStateFlow()
 
-    private val serial = Mutex()
     /** False after a failed read: saving then would overwrite albums that are only unreadable for now. */
     private var loaded = false
 
     init {
         viewModelScope.launch {
-            serial.withLock {
+            lock.withLock {
                 withContext(io) { runCatching { store.load() } }
                     .onSuccess { _albums.value = it; loaded = true }
                     .onFailure { Diag.w("albums load failed: ${it.message}") }
@@ -280,8 +292,8 @@ internal class AlbumsViewModel(
     // Grants of frames an album drops are not released here: Undo must still be able to
     // read them, and the next grant reconciliation releases whatever no album retains.
     private fun edit(change: (List<Album>) -> List<Album>) =
-        viewModelScope.launch {
-            serial.withLock {
+        writeScope.launch {
+            lock.withLock {
                 if (!loaded) return@withLock
                 val next = change(_albums.value)
                 if (next == _albums.value) return@withLock
@@ -292,12 +304,20 @@ internal class AlbumsViewModel(
             }
         }
 
-    /** A new album holding [items] (maybe none); returns its id at once. */
-    fun create(name: String, items: List<AlbumItem> = emptyList()): String {
+    /**
+     * A new album holding [items] (maybe none). [onDone] gets its id and how many items it took
+     * (the album and total bounds can cut a big selection short), or a null id when no album
+     * could be made (too many albums, or the albums file is unreadable this session).
+     */
+    fun create(name: String, items: List<AlbumItem> = emptyList(), onDone: (id: String?, added: Int) -> Unit = { _, _ -> }) {
         val id = newId()
         val clean = AlbumOps.cleanName(name)
-        edit { albums -> AlbumOps.create(albums, id, clean.ifEmpty { id }, now(), items) }
-        return id
+        var made: Album? = null
+        edit { albums ->
+            AlbumOps.create(albums, id, clean.ifEmpty { id }, now(), items).also { next ->
+                made = next.firstOrNull { it.id == id }
+            }
+        }.invokeOnCompletion { if (it == null) onDone(made?.id, made?.items?.size ?: 0) }
     }
 
     fun rename(id: String, name: String) = edit { AlbumOps.rename(it, id, name) }

@@ -345,6 +345,7 @@
     <string name="album_set_cover">Set as cover</string>
     <string name="album_cover_set">Album cover changed</string>
     <string name="album_full">That album is full</string>
+    <string name="album_create_failed">Couldn\'t make a new album</string>
     <string name="album_none_title">No albums yet</string>
     <string name="album_none_body">Group frames from any folder. An album only lists photos, so the files stay where they are.</string>
     <string name="album_empty_title">This album is empty</string>

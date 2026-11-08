@@ -1,7 +1,13 @@
 package com.spectrafilm.app
 
 import android.os.Looper
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.sync.Mutex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,7 +41,10 @@ class AlbumsViewModelTest {
     @Test fun createAddAndRenamePersist() {
         val store = FakeStore()
         val model = vm(store); idle()
-        val id = model.create("  Trip ", listOf(item(1))); idle()
+        var created: Pair<String?, Int>? = null
+        model.create("  Trip ", listOf(item(1))) { newId, count -> created = newId to count }; idle()
+        val id = created!!.first!!
+        assertEquals(1, created!!.second)
         var added = -1
         model.add(id, listOf(item(1), item(2))) { added = it }; idle()
         model.rename(id, "Roll 3"); idle()
@@ -54,6 +63,38 @@ class AlbumsViewModelTest {
         assertNull(model.delete("missing"))
     }
 
+    @Test fun createReportsWhatTheAlbumBoundsAccepted() {
+        val store = FakeStore()
+        val model = vm(store); idle()
+        val many = (0 until AlbumOps.MAX_ITEMS + 5).map { item(it) }
+        var created: Pair<String?, Int>? = null
+        model.create("Big", many) { newId, count -> created = newId to count }; idle()
+        assertEquals(AlbumOps.MAX_ITEMS, created!!.second)
+        assertEquals(AlbumOps.MAX_ITEMS, store.saved.single().items.size)
+    }
+
+    @Test fun aQueuedEditIsSavedAfterTheLibraryIsLeft() {
+        val lock = Mutex()
+        val writes = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val store = FakeStore()
+        val owner = ViewModelStore()
+        val model = ViewModelProvider(
+            owner,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    AlbumsViewModel(store, Dispatchers.Unconfined, newId = { "x" }, writes = writes, lock = lock) as T
+            },
+        )[AlbumsViewModel::class.java]
+        idle() // the first read lands
+        assertTrue(lock.tryLock()) // an earlier save still running
+        model.create("Kept")
+        owner.clear() // the user leaves the Library
+        lock.unlock()
+        idle()
+        assertEquals(listOf("Kept"), store.saved.map { it.name })
+    }
+
     @Test fun removeSelectedDropsThoseFramesAndClearsTheSelection() {
         val store = FakeStore(listOf(Album("a", "A", 1L, listOf(item(1), item(2), item(3)))))
         val model = vm(store); idle()
@@ -67,7 +108,9 @@ class AlbumsViewModelTest {
     @Test fun aFailedReadNeverOverwritesTheFile() {
         val store = FakeStore(listOf(Album("a", "A", 1L)), failLoad = true)
         val model = vm(store); idle()
-        model.create("New"); idle()
+        var created: String? = "unset"
+        model.create("New") { newId, _ -> created = newId }; idle()
+        assertNull(created)
         assertEquals(0, store.saves)
         assertTrue(model.albums.value.isEmpty())
     }
