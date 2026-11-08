@@ -32,6 +32,12 @@ internal data class InteractiveRenderSnapshot(
         return params.copy(
             camera = params.camera.copy(
                 filmFormatMm = params.camera.filmFormatMm * cropFraction,
+                // Auto-exposure meters the image the engine is given. On a crop that is only
+                // the zoomed region, so the zoom patch and the magnifier came out brighter or
+                // darker than the same pixels in the full preview. The caller meters the WHOLE
+                // frame instead ([frameExposureGain]) and folds that gain into the crop's
+                // pixels ([cropLinearImageBox]), so the crop render must not meter again.
+                autoExposure = false,
                 // The date-back imprint is placed in the corner of the frame the engine
                 // sees; on a cropped ROI/magnifier source that corner is the wrong place
                 // (and its size would follow the crop), so these partial renders omit it.
