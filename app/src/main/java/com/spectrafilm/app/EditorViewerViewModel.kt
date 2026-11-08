@@ -33,6 +33,8 @@ internal data class EditorViewerUiState(
     val clipWarnings: Boolean = false,
     /** A second finger is resting on a slider being adjusted: show clipping while it stays. */
     val clipPeek: Boolean = false,
+    /** The top bar's Compare is being held: the original shows until it is released. */
+    val originalPeek: Boolean = false,
 ) {
     /** Whether the preview paints its clipped pixels right now. */
     val showClipping: Boolean get() = clipWarnings || clipPeek
@@ -46,6 +48,9 @@ internal sealed interface EditorViewerAction {
 
     /** The slider multi-touch peek started (true) or ended (false). */
     data class SetClipPeek(val active: Boolean) : EditorViewerAction
+
+    /** Compare held down (true) or released (false): peek at the original. */
+    data class SetOriginalPeek(val active: Boolean) : EditorViewerAction
 
     /** Back with the chrome hidden: bring the controls back. */
     data object ShowChrome : EditorViewerAction
@@ -90,6 +95,7 @@ internal class EditorViewerViewModel : ViewModel() {
             EditorViewerAction.ShowChrome -> state.copy(chromeHidden = false)
             EditorViewerAction.ToggleClipWarnings -> state.copy(clipWarnings = !state.clipWarnings)
             is EditorViewerAction.SetClipPeek -> state.copy(clipPeek = action.active)
+            is EditorViewerAction.SetOriginalPeek -> state.copy(originalPeek = action.active)
         }
     }
 }

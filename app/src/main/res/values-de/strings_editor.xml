@@ -631,4 +631,12 @@
     <string name="editor_hint_date_stamp">Ein Datumsaufdruck in der Bildecke</string>
     <string name="editor_hint_raw_cleanup">Hotpixel und Farbrauschen beim RAW-Dekodieren</string>
     <string name="editor_reset_short">Zurücksetzen</string>
+    <string name="editor_hud_type_value">Genauen Wert eingeben</string>
+    <string name="editor_history_title">Verlauf</string>
+    <string name="editor_history_start">Anfang</string>
+    <string name="editor_history_current">Aktuell</string>
+    <string name="editor_history_rotate">Drehen</string>
+    <string name="editor_history_other">Andere Änderung</string>
+    <string name="editor_history_on">an</string>
+    <string name="editor_history_off">aus</string>
 </resources>

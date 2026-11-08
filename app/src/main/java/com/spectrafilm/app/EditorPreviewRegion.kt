@@ -65,6 +65,8 @@ internal fun PreviewRegion(
     onRoiSettled: (RoiRect) -> Unit,
     onRoiCleared: () -> Unit,
     controlsBottomInset: Dp = 0.dp,
+    /** The top bar's Compare is held: show the original frame until it is released. */
+    peekOriginal: Boolean = false,
 ) {
     // Accessibility: the canvas gestures (pinch/double-tap zoom, drag to inspect a region,
     // tap to open the 100% grain magnifier) have no widget of their own, so the region is
@@ -120,7 +122,7 @@ internal fun PreviewRegion(
         var gpuZoomInitial by remember { mutableFloatStateOf(1f) }
         val clipMask = rememberClipMask(bmp, showClipping && !compareMode)
         val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
-            !compareMode && !showClipping && !gpuBroken && !gpuZoomHandoff
+            !compareMode && !(peekOriginal && before != null) && !showClipping && !gpuBroken && !gpuZoomHandoff
         if (gpuActive) GpuPreviewSurface(
             proxy = gpuProxy!!,
             lut = gpuLut!!,
@@ -168,7 +170,9 @@ internal fun PreviewRegion(
             }
             when {
                 gpuActive -> Unit
-                bmp != null && compareMode && before != null ->
+                // Holding Compare shows the whole original even over the latched split
+                // view; releasing it brings the split back.
+                bmp != null && compareMode && before != null && !peekOriginal ->
                     CompareSlider(before = before, after = bmp)
                 bmp != null -> ZoomableImage(
                     bitmap = bmp,
@@ -191,6 +195,7 @@ internal fun PreviewRegion(
                     // long press is otherwise unused on this surface. The colour/WB sampler
                     // lives behind the eyedropper (toolUi.sampleOpen), which replaces the preview outright.
                     peek = before,
+                    forcePeek = peekOriginal,
                     // Lightroom-style zoom: render the visible region at native resolution
                     // (renderKey = previewTick so an edit while zoomed re-renders the crop).
                     renderKey = renderKey,

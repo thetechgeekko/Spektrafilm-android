@@ -260,6 +260,9 @@ fun ZoomableImage(
     // finger rested on the photo. Sharing the Image's graphicsLayer also means the peek
     // inherits the live zoom and pan for free.
     peek: Bitmap? = null,
+    // Show [peek] while true, as if the photo were held: the top bar's Compare button,
+    // touched and held, peeks at the original from there.
+    forcePeek: Boolean = false,
     // Lightroom-style zoom: when zoomed past fit, [onRoiSettled] fires (debounced) with the
     // visible region so the caller can render that crop at native resolution and pass it back
     // as [roiOverlay]; [onRoiCleared] fires when zoom returns to fit. [renderKey] (e.g. the
@@ -296,6 +299,7 @@ fun ZoomableImage(
     // editor and is retired on the next settle, so drawing it without a lease is a
     // use-after-recycle waiting for a slow finger.
     val peekImage = peek?.let { rememberLeasedImage(it) }
+    val peekShown = peeking || forcePeek
     val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
     // scale/offset are read in the draw phase by graphicsLayer {}. These three reads are
     // genuinely composition-phase (a string, two visibility gates), so derive them: the
@@ -429,8 +433,8 @@ fun ZoomableImage(
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            bitmap = if (peeking && peekImage != null) peekImage else image,
-            contentDescription = if (peeking) {
+            bitmap = if (peekShown && peekImage != null) peekImage else image,
+            contentDescription = if (peekShown && peekImage != null) {
                 stringResource(R.string.tool_viewer_original_desc)
             } else {
                 stringResource(R.string.tool_viewer_preview_desc)
@@ -456,7 +460,7 @@ fun ZoomableImage(
         val ov = roiOverlay
         // Suppressed while peeking: the cached ROI crop is a render of the EDITED frame, so
         // leaving it up would paint the edit back over the middle of the before image.
-        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0 && !peeking) {
+        if (ov != null && !overlayStale && zoomedIn && viewSize.width > 0 && !peekShown) {
             val roiImage = rememberLeasedImage(ov.bitmap) ?: return@Box
             Canvas(Modifier.fillMaxSize()) {
                 val p0 = imageNormToView(
@@ -480,7 +484,7 @@ fun ZoomableImage(
         }
 
         val overlayImage = remember(overlay) { overlay?.asImageBitmap() }
-        if (overlayImage != null && !peeking) {
+        if (overlayImage != null && !peekShown) {
             Image(
                 bitmap = overlayImage,
                 contentDescription = null,

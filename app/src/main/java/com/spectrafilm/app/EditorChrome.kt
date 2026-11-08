@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -190,6 +191,77 @@ internal fun PressIconButton(
 }
 
 /**
+ * An icon button with a second gesture on hold (interaction rules: hold Compare for the
+ * original, hold Undo for the history). A tap runs [onClick]; once the press outlasts the
+ * long-press timeout [onHoldStart] runs with a haptic tick, and [onHoldEnd] runs when that
+ * same finger lifts. [holdLabel] names the hold for TalkBack's long-click action; a long
+ * click with no finger down (TalkBack) runs start and end together.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun HoldIconButton(
+    onClick: () -> Unit,
+    onHoldStart: () -> Unit,
+    modifier: Modifier = Modifier,
+    onHoldEnd: () -> Unit = {},
+    holdLabel: String? = null,
+    clickLabel: String? = null,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    // combinedClickable, not raw pointer gestures, so the button keeps keyboard / D-pad
+    // focus and activation, the ripple and the long-press haptic. The hold's END is read
+    // from the same interaction source: the Release (or Cancel) of the press that held.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val holdEnd = rememberUpdatedState(onHoldEnd)
+    var held by remember { mutableStateOf(false) }
+    LaunchedEffect(interaction) {
+        interaction.interactions.collect { i ->
+            if ((i is androidx.compose.foundation.interaction.PressInteraction.Release ||
+                    i is androidx.compose.foundation.interaction.PressInteraction.Cancel) && held
+            ) {
+                held = false
+                holdEnd.value()
+            }
+        }
+    }
+    // The button can leave composition mid-hold (the bar hides); the hold must still end,
+    // or the original would stay on screen with no finger down.
+    DisposableEffect(Unit) {
+        onDispose { if (held) { held = false; holdEnd.value() } }
+    }
+    Box(
+        modifier
+            .minimumInteractiveComponentSize()
+            .size(40.dp)
+            .scale(if (pressed) 0.88f else 1f)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = clickLabel,
+                onLongClickLabel = holdLabel,
+                onLongClick = {
+                    if (pressed) {
+                        held = true
+                        onHoldStart()
+                    } else {
+                        // An accessibility long-click has no finger to lift: run the whole
+                        // hold at once (history opens; a peek has nothing to show).
+                        onHoldStart()
+                        onHoldEnd()
+                    }
+                },
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/**
  * How far the panel fades while a slider is moving, and how long each direction takes.
  *
  * Asymmetric on purpose. Getting out of the way has to feel like a consequence of your
@@ -212,19 +284,50 @@ internal val PANEL_DIM_IN_SPEC = tween<Float>(durationMillis = 240)
  * composable is the entire recomposition cost of the feature.
  */
 @Composable
-internal fun SliderReadoutPill(readout: State<SliderReadout?>) {
+internal fun SliderReadoutPill(
+    readout: MutableState<SliderReadout?>,
+    interacting: State<Boolean>,
+) {
+    // The HUD outlives the drag by HUD_LINGER_MS so the last value can be read, and tapped:
+    // a tap opens the numeric entry for that same control. A new drag restarts the clock
+    // (the key changes with every frame of it), and the effect only clears a value it saw
+    // while the finger was up, so it can never blank a readout mid-drag.
     val r = readout.value ?: return
+    val dragging = interacting.value
+    var typing by remember { mutableStateOf<SliderReadoutEdit?>(null) }
+    LaunchedEffect(r, dragging, typing) {
+        if (!dragging && typing == null) {
+            delay(HUD_LINGER_MS)
+            if (readout.value === r) readout.value = null
+        }
+    }
+    val edit = r.edit
+    val tapLabel = stringResource(R.string.editor_hud_type_value)
+    // A stale edit (its slider gone or retargeted since) closes the HUD instead of typing.
+    fun openTyping() {
+        if (edit == null || dragging) return
+        if (edit.isCurrent()) typing = edit else readout.value = null
+    }
     Surface(
         color = SpektraBrand.scrim.copy(alpha = 0.62f),
         shape = RoundedCornerShape(14.dp),
+        onClick = { openTyping() },
+        enabled = edit != null && !dragging,
         modifier = Modifier
             .padding(top = 6.dp, end = 6.dp)
             // A long parameter name must not grow the pill back across the status pill;
             // the number is the part that has to stay readable, so the name ellipsizes.
             .widthIn(max = 220.dp)
-            // Decorative: TalkBack already announces the slider's own value, and a live
-            // region here would read every intermediate frame of the drag aloud.
-            .clearAndSetSemantics { },
+            // While dragging it is decorative: TalkBack already announces the slider's own
+            // value, and a live region would read every intermediate frame aloud. Once the
+            // finger is up it is a button that types the value.
+            .clearAndSetSemantics {
+                if (edit != null && !dragging) {
+                    contentDescription = "${r.label} ${r.value}"
+                    role = Role.Button
+                    onClick(label = tapLabel) { openTyping(); true }
+                }
+            },
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -245,7 +348,25 @@ internal fun SliderReadoutPill(readout: State<SliderReadout?>) {
             )
         }
     }
+    typing?.let { e ->
+        NumericEntryDialog(
+            label = r.label,
+            initial = formatValue(e.current, e.decimals),
+            range = e.range,
+            step = e.step,
+            decimals = e.decimals,
+            onDismiss = { typing = null },
+            onConfirm = { v ->
+                if (e.isCurrent()) e.set(v)
+                typing = null
+                readout.value = null
+            },
+        )
+    }
 }
+
+/** How long the slider HUD stays up after the finger lifts (interaction rule: 1.4 s). */
+internal const val HUD_LINGER_MS = 1400L
 
 /**
  * The adjustment panel as a floating bottom overlay inside the preview Box. Extracting it into a

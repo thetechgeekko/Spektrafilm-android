@@ -79,7 +79,23 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 /** What a slider is currently reading, for the floating readout over the preview. */
-data class SliderReadout(val label: String, val value: String)
+data class SliderReadout(
+    val label: String,
+    val value: String,
+    /** Set when the readout may offer "tap to type an exact value" once the drag ends. */
+    val edit: SliderReadoutEdit? = null,
+)
+
+/** What tapping the floating readout needs to set the slider it came from. */
+class SliderReadoutEdit(
+    val range: ClosedFloatingPointRange<Float>,
+    val step: Float,
+    val decimals: Int,
+    val current: Float,
+    /** False once the slider is gone or shows another value: the edit is stale. */
+    val isCurrent: () -> Boolean,
+    val set: (Float) -> Unit,
+)
 
 /**
  * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]

@@ -629,4 +629,12 @@
     <string name="editor_hint_date_stamp">프레임 모서리에 새기는 날짜</string>
     <string name="editor_hint_raw_cleanup">RAW 디코딩 중 핫 픽셀과 색 노이즈</string>
     <string name="editor_reset_short">재설정</string>
+    <string name="editor_hud_type_value">정확한 값 입력</string>
+    <string name="editor_history_title">기록</string>
+    <string name="editor_history_start">시작</string>
+    <string name="editor_history_current">현재</string>
+    <string name="editor_history_rotate">회전</string>
+    <string name="editor_history_other">기타 변경</string>
+    <string name="editor_history_on">켬</string>
+    <string name="editor_history_off">끔</string>
 </resources>
