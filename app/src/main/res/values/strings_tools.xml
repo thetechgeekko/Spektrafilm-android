@@ -215,7 +215,6 @@
     <string name="tool_viewer_zoom_in">Zoom in</string>
     <string name="tool_viewer_zoom_out">Zoom out</string>
     <string name="tool_viewer_zoom_fit">Fit to screen</string>
-    <string name="tool_viewer_zoom_fit_short">Fit</string>
     <string name="tool_viewer_compare_desc">Before-after comparison. Drag or tap across the photo to move the split.</string>
     <string name="tool_viewer_compare_state">Before shown across %1$d%% of the width</string>
     <string name="tool_viewer_compare_show_before">Show only before</string>

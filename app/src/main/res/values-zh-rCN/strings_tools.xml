@@ -159,7 +159,6 @@
     <string name="tool_viewer_zoom_in">放大</string>
     <string name="tool_viewer_zoom_out">缩小</string>
     <string name="tool_viewer_zoom_fit">适合屏幕</string>
-    <string name="tool_viewer_zoom_fit_short">适合</string>
     <string name="tool_viewer_compare_desc">编辑前后对比。在照片上拖动或点按可移动分隔线。</string>
     <string name="tool_viewer_compare_state">原图显示宽度为 %1$d%%</string>
     <string name="tool_viewer_compare_show_before">仅显示编辑前</string>

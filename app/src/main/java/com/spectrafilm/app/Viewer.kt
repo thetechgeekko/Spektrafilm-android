@@ -25,7 +25,6 @@ import com.spectrafilm.engine.LinearImage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -36,13 +35,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,9 +62,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -167,10 +164,7 @@ fun GpuPreviewSurface(
     onZoomStart: () -> Unit = {},
     onZoomIn: () -> Unit = onZoomStart,
     onUnavailable: () -> Unit = {},
-    // Height of whatever overlays the bottom of this surface (the floating adjustment panel):
-    // the zoom control centres in the part that is still visible (#181, 200% font).
-    controlsBottomInset: Dp = 0.dp,
-    // Keyboard zoom. This surface is fit-only, so zoom-in hands off like the "+" button and
+    // Keyboard zoom. This surface is fit-only, so zoom-in hands off like a double-tap and
     // zoom-out / fit have nothing to do.
     zoomRequests: Flow<ViewerZoom>? = null,
 ) {
@@ -181,11 +175,17 @@ fun GpuPreviewSurface(
         zoomRequests?.collect { if (it == ViewerZoom.IN) latestOnZoomIn() }
     }
     val previewDesc = stringResource(R.string.tool_viewer_preview_desc)
+    val zoomInLabel = stringResource(R.string.tool_viewer_zoom_in)
     Box(
         modifier = modifier
             .onSizeChanged { viewSize = it }
             // The GL view has no semantics of its own; describe the preview + its gestures here.
-            .semantics { contentDescription = previewDesc }
+            // No on-screen zoom button (pinch and double-tap zoom): a screen reader zooms in
+            // through this action instead.
+            .semantics {
+                contentDescription = previewDesc
+                customActions = listOf(CustomAccessibilityAction(zoomInLabel) { latestOnZoomIn(); true })
+            }
             .pointerInput(Unit) {
                 // This surface is fit-only; any pinch hands off to the CPU zoom path.
                 detectTransformGestures { _, _, zoom, _ ->
@@ -210,15 +210,6 @@ fun GpuPreviewSurface(
             exposureGain = exposureGain,
             modifier = Modifier.fillMaxSize(), onUnavailable = onUnavailable,
         )
-        // Explicit zoom-in affordance on the fit-only GPU surface: hands off to the CPU
-        // ZoomableImage already zoomed (the CPU path owns pinch/pan + the sharp ROI render).
-        ZoomButton(
-            "+",
-            contentDescription = stringResource(R.string.tool_viewer_zoom_in),
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp, bottom = controlsBottomInset),
-        ) { onZoomIn() }
     }
 }
 
@@ -271,7 +262,8 @@ fun ZoomableImage(
     onRoiSettled: ((RoiRect) -> Unit)? = null,
     onRoiCleared: (() -> Unit)? = null,
     roiOverlay: RoiOverlay? = null,
-    // See [GpuPreviewSurface.controlsBottomInset].
+    // Height of whatever overlays the bottom of this view (the floating adjustment panel):
+    // the zoom readout centres in the part that is still visible (#181, 200% font).
     controlsBottomInset: Dp = 0.dp,
     // Scale to start at on first composition — used when the GPU fit surface hands off via its
     // "+" button so zoom-in lands already zoomed instead of at fit. Default 1f (fit) everywhere else.
@@ -355,6 +347,10 @@ fun ZoomableImage(
     fun clampOffset(raw: Offset, s: Float): Offset =
         clampPanOffset(raw, viewSize, s, aspect)
 
+    val zoomInLabel = stringResource(R.string.tool_viewer_zoom_in)
+    val zoomOutLabel = stringResource(R.string.tool_viewer_zoom_out)
+    val zoomFitLabel = stringResource(R.string.tool_viewer_zoom_fit)
+
     // The viewport shrinks and grows as the editor's panel opens and closes (the photo fits
     // above it). A pan that was legal in the taller view can overshoot the shorter one, so
     // re-clamp whenever the size changes rather than waiting for the next gesture.
@@ -375,7 +371,31 @@ fun ZoomableImage(
         modifier = modifier
             .clipToBounds()
             .onSizeChanged { viewSize = it }
-            .semantics { stateDescription = zoomState }
+            .semantics {
+                stateDescription = zoomState
+                // No on-screen zoom buttons: a screen reader zooms through these actions.
+                customActions = buildList {
+                    add(CustomAccessibilityAction(zoomInLabel) {
+                        val ns = (scale * 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                        scale = ns
+                        offset = clampOffset(offset, ns)
+                        true
+                    })
+                    if (scale > 1.01f) {
+                        add(CustomAccessibilityAction(zoomOutLabel) {
+                            val ns = (scale / 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                            scale = ns
+                            offset = if (ns <= 1.01f) Offset.Zero else clampOffset(offset, ns)
+                            true
+                        })
+                        add(CustomAccessibilityAction(zoomFitLabel) {
+                            scale = 1f
+                            offset = Offset.Zero
+                            true
+                        })
+                    }
+                }
+            }
             // Mouse cursor: an open hand while zoomed says "drag to pan".
             .pointerHoverIcon(if (zoomedIn) PointerIcon.Hand else PointerIcon.Default)
             .pointerInput(Unit) {
@@ -522,75 +542,19 @@ fun ZoomableImage(
             )
         }
 
-        // Explicit zoom controls (Lightroom-style), complementing pinch + double-tap: "+" zooms
-        // in about centre, and once zoomed a "%" readout, "−" (zoom out) and "Fit" appear. They
-        // drive the SAME scale/offset as the gestures, so pan-clamping and the sharp ROI render
-        // apply identically. Anchored to the right edge so it clears the bottom control row.
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp, bottom = controlsBottomInset),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ZoomButton("+", stringResource(R.string.tool_viewer_zoom_in)) {
-                val ns = (scale * 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                scale = ns
-                offset = clampOffset(offset, ns)
-            }
-            if (scale > 1.01f) {
-                Text(
-                    stringResource(R.string.tool_viewer_zoom_percent, (scale * 100f).roundToInt()),
-                    color = SpektraBrand.onCanvas,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .background(SpektraBrand.scrim.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-                ZoomButton("−", stringResource(R.string.tool_viewer_zoom_out)) {  // minus
-                    val ns = (scale / 1.6f).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                    scale = ns
-                    offset = if (ns <= 1.01f) Offset.Zero else clampOffset(offset, ns)
-                }
-                ZoomButton(
-                    stringResource(R.string.tool_viewer_zoom_fit_short),
-                    stringResource(R.string.tool_viewer_zoom_fit),
-                ) {
-                    scale = 1f
-                    offset = Offset.Zero
-                }
-            }
-        }
-    }
-}
-
-/**
- * A small translucent circular button for the [ZoomableImage] zoom-control cluster. [label] is the
- * visible glyph ("+", "−", "Fit"); [contentDescription] is what TalkBack announces instead of it.
- */
-@Composable
-internal fun ZoomButton(
-    label: String,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Surface(
-        shape = CircleShape,
-        color = SpektraBrand.scrim.copy(alpha = 0.5f),
-        modifier = modifier
-            .minimumInteractiveComponentSize()
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { this.contentDescription = contentDescription },
-    ) {
-        Box(contentAlignment = Alignment.Center) {
+        // Zoom is pinch and double-tap only: the "+", "−" and "Fit" buttons were removed
+        // (they covered the photo and repeated the gestures). While zoomed, a small "%"
+        // readout stays at the right edge so the zoom level is still visible.
+        if (scale > 1.01f) {
             Text(
-                label,
+                stringResource(R.string.tool_viewer_zoom_percent, (scale * 100f).roundToInt()),
                 color = SpektraBrand.onCanvas,
-                style = if (label.length > 1) MaterialTheme.typography.labelMedium
-                else MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp, bottom = controlsBottomInset)
+                    .background(SpektraBrand.scrim.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
     }

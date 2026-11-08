@@ -191,7 +191,6 @@
     <string name="tool_viewer_zoom_in">확대</string>
     <string name="tool_viewer_zoom_out">축소</string>
     <string name="tool_viewer_zoom_fit">화면에 맞추기</string>
-    <string name="tool_viewer_zoom_fit_short">맞춤</string>
     <string name="tool_viewer_compare_desc">전후 비교. 사진 위를 드래그하거나 탭해 분할선을 옮깁니다.</string>
     <string name="tool_viewer_compare_state">너비의 %1$d%%에 편집 전 표시</string>
     <string name="tool_viewer_compare_show_before">편집 전만 표시</string>

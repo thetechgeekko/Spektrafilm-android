@@ -255,7 +255,6 @@ internal fun PreviewRegion(
             lut = gpuLut!!,
             exposureGain = gpuGain,
             modifier = Modifier.fillMaxSize(),
-            controlsBottomInset = controlsBottomInset,
             onPointPicked = onPointPicked,
             onZoomStart = { gpuZoomHandoff = true; gpuZoomInitial = 1f },
             onZoomIn = { gpuZoomHandoff = true; gpuZoomInitial = 2f },

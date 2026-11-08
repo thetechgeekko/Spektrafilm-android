@@ -191,7 +191,6 @@
     <string name="tool_viewer_zoom_in">Vergrößern</string>
     <string name="tool_viewer_zoom_out">Verkleinern</string>
     <string name="tool_viewer_zoom_fit">An Bildschirm anpassen</string>
-    <string name="tool_viewer_zoom_fit_short">Anpassen</string>
     <string name="tool_viewer_compare_desc">Vorher-Nachher-Vergleich. Über das Foto ziehen oder tippen, um die Teilung zu verschieben.</string>
     <string name="tool_viewer_compare_state">Vorher auf %1$d %% der Breite</string>
     <string name="tool_viewer_compare_show_before">Nur Vorher zeigen</string>

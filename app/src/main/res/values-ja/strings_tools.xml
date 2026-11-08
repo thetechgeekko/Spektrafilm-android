@@ -191,7 +191,6 @@
     <string name="tool_viewer_zoom_in">拡大</string>
     <string name="tool_viewer_zoom_out">縮小</string>
     <string name="tool_viewer_zoom_fit">画面に合わせる</string>
-    <string name="tool_viewer_zoom_fit_short">全体</string>
     <string name="tool_viewer_compare_desc">ビフォー/アフター比較。写真上をドラッグまたはタップして分割位置を動かします。</string>
     <string name="tool_viewer_compare_state">幅の%1$d%%にビフォーを表示</string>
     <string name="tool_viewer_compare_show_before">ビフォーのみ表示</string>

@@ -191,7 +191,6 @@
     <string name="tool_viewer_zoom_in">Acercar</string>
     <string name="tool_viewer_zoom_out">Alejar</string>
     <string name="tool_viewer_zoom_fit">Ajustar a la pantalla</string>
-    <string name="tool_viewer_zoom_fit_short">Ajustar</string>
     <string name="tool_viewer_compare_desc">Comparación antes y después. Arrastra o toca sobre la foto para mover la división.</string>
     <string name="tool_viewer_compare_state">El antes ocupa el %1$d %% del ancho</string>
     <string name="tool_viewer_compare_show_before">Mostrar solo el antes</string>
