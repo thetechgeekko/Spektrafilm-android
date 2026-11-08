@@ -406,22 +406,14 @@ internal fun EditorScreen(
     val currentUriString = sourceUri?.toString()
     val nextFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, 1) }
     val previousFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, -1) }
-    val nextThumb by produceState(nextFrame?.let { LibraryThumbnails.cached(it.uri) }, nextFrame) {
-        // produceState keeps its value across key changes: start from the new neighbour.
-        value = nextFrame?.let { LibraryThumbnails.cached(it.uri) }
-        val f = nextFrame ?: return@produceState
-        if (value == null) value = withContext(dispatchers.io) {
-            runCatching { LibraryThumbnails.load(ctx.applicationContext, f.uri, f.raw) }.getOrNull()
-        }
-    }
-    val previousThumb by produceState(previousFrame?.let { LibraryThumbnails.cached(it.uri) }, previousFrame) {
-        // produceState keeps its value across key changes: start from the new neighbour.
-        value = previousFrame?.let { LibraryThumbnails.cached(it.uri) }
-        val f = previousFrame ?: return@produceState
-        if (value == null) value = withContext(dispatchers.io) {
-            runCatching { LibraryThumbnails.load(ctx.applicationContext, f.uri, f.raw) }.getOrNull()
-        }
-    }
+    val nextThumb = rememberNeighbourBitmap(
+        nextFrame, ctx.applicationContext, engine, state, previewTick,
+        busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
+    )
+    val previousThumb = rememberNeighbourBitmap(
+        previousFrame, ctx.applicationContext, engine, state, previewTick,
+        busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
+    )
     val photoSwipe = if (nextFrame == null && previousFrame == null) {
         null
     } else {
