@@ -40,4 +40,14 @@ class EditorViewerViewModelTest {
         vm.reset()
         assertEquals(EditorViewerUiState(), vm.current)
     }
+
+    @Test fun holdingCompareShowsTheOriginalOnlyWhileHeld() {
+        val vm = EditorViewerViewModel()
+        vm.onAction(EditorViewerAction.SetOriginalPeek(true))
+        assertTrue(vm.current.originalPeek)
+        // A peek is not the latched split view.
+        assertFalse(vm.current.compare)
+        vm.onAction(EditorViewerAction.SetOriginalPeek(false))
+        assertEquals(EditorViewerUiState(), vm.current)
+    }
 }

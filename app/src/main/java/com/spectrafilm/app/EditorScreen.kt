@@ -341,7 +341,7 @@ internal fun EditorScreen(
     val sliderInteraction = remember {
         SliderInteraction(
             onChange = { readout -> interacting.value = true; sliderReadout.value = readout },
-            onFinished = { interacting.value = false; sliderReadout.value = null },
+            onFinished = { interacting.value = false },
             // A second finger on the slider row peeks at clipping (the canvas button
             // latches the same overlay without a gesture).
             onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
@@ -716,6 +716,20 @@ internal fun EditorScreen(
         status = ctx.getString(R.string.editor_status_redo)
     }
 
+    // Hold Undo: the whole history as a named list (timeline, index of the live state).
+    var historySheet by remember { mutableStateOf<Pair<List<EditSnapshot>, Int>?>(null) }
+
+    /** Walks undo or redo from the live state at [from] to timeline index [to]. */
+    fun jumpHistory(from: Int, to: Int) {
+        var moved = false
+        repeat(from - to) { if (session.undo() != null) moved = true }
+        repeat(to - from) { if (session.redo() != null) moved = true }
+        if (!moved) return
+        liveCursorMutated = true
+        previewTick++
+        status = ctx.getString(if (to < from) R.string.editor_status_undo else R.string.editor_status_redo)
+    }
+
     fun captureEditorSessionDocument(): EditorSessionDocument? {
         if (!recipeReady) return null
         val overlay = toolVm.current.overlay
@@ -880,6 +894,16 @@ internal fun EditorScreen(
     }
     LaunchedEffect(sourceUri) { photoInfo = null }
     photoInfo?.let { info -> PhotoInfoSheet(info, onDismiss = { photoInfo = null }) }
+    historySheet?.let { (timeline, current) ->
+        EditHistorySheet(
+            timeline = timeline,
+            current = current,
+            onPick = { to -> historySheet = null; jumpHistory(current, to) },
+            onDismiss = { historySheet = null },
+        )
+    }
+    // A new photo has its own history; a list from the last one must not survive the switch.
+    LaunchedEffect(sourceUri) { historySheet = null }
 
     // --- Apply previous edit (PreviousEdit.kt) ---
     // The newest OTHER photo's saved look, looked up on the recipe worker so it is ordered after
@@ -2341,6 +2365,9 @@ internal fun EditorScreen(
                 canRedo = editHistory.canRedo,
                 onUndo = { doUndo() },
                 onRedo = { doRedo() },
+                onShowHistory = { historySheet = historyTimeline(editHistory.snapshotState(), snapshotNow()) },
+                onPeekOriginal = { viewerVm.onAction(EditorViewerAction.SetOriginalPeek(it)) },
+                fading = interacting,
                 onOpenSource = {
                     // Open the SAME photo picker the Source panel uses (no app exit).
                     photoPicker.launch(
@@ -2638,6 +2665,7 @@ internal fun EditorScreen(
                     PreviewRegion(
                         zoomRequests = viewerVm.zoomRequests,
                         controlsBottomInset = panelInset,
+                        peekOriginal = viewerUi.originalPeek,
                         preview = preview,
                         placeholder = openPlaceholder,
                         before = beforePreview,
@@ -2808,7 +2836,7 @@ internal fun EditorScreen(
                                     .fillMaxWidth()
                                     .align(Alignment.TopCenter),
                                 contentAlignment = Alignment.TopEnd,
-                            ) { SliderReadoutPill(sliderReadout) }
+                            ) { SliderReadoutPill(sliderReadout, interacting) }
                         }
 
                         // --- STAGE ROW (compact and medium windows) ---

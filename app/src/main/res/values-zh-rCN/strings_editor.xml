@@ -536,4 +536,12 @@
     <string name="editor_hint_date_stamp">画面角落的日期印记</string>
     <string name="editor_hint_raw_cleanup">RAW 解码中的热像素和色度噪点</string>
     <string name="editor_reset_short">重置</string>
+    <string name="editor_hud_type_value">输入精确数值</string>
+    <string name="editor_history_title">历史记录</string>
+    <string name="editor_history_start">起点</string>
+    <string name="editor_history_current">当前</string>
+    <string name="editor_history_rotate">旋转</string>
+    <string name="editor_history_other">其他更改</string>
+    <string name="editor_history_on">开</string>
+    <string name="editor_history_off">关</string>
 </resources>

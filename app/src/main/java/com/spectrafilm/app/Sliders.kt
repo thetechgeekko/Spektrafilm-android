@@ -92,6 +92,17 @@ fun EnhancedSlider(
     val interaction = LocalSliderInteraction.current
     var editing by remember { mutableStateOf(false) }
     val formatted = formatValue(value, decimals)
+    // Which detent zone the last drag frame was in, so the haptic tick fires on arrival only.
+    val lastZone = remember { mutableStateOf(SliderZone.FREE) }
+    val latestChange = rememberUpdatedState(onValueChange)
+    val latestFinished = rememberUpdatedState(onValueChangeFinished)
+    // What the floating readout needs to offer "tap to type" after the finger lifts.
+    val readoutEdit: (Float) -> SliderReadoutEdit = { current ->
+        SliderReadoutEdit(range, step, decimals, current) { v ->
+            latestChange.value(snap(v, range, step))
+            latestFinished.value?.invoke()
+        }
+    }
     Column(modifier.fillMaxWidth().multiTouchPeek(interaction.onMultiTouch)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -135,7 +146,7 @@ fun EnhancedSlider(
                         step = step,
                         onValueChange = {
                             onValueChange(it)
-                            interaction.onChange(SliderReadout(label, formatValue(it, decimals)))
+                            interaction.onChange(SliderReadout(label, formatValue(it, decimals), readoutEdit(it)))
                         },
                         onSettled = {
                             onValueChangeFinished?.invoke()
@@ -176,10 +187,17 @@ fun EnhancedSlider(
             state = sliderState,
             onValueChange = {
                 // Report the SNAPPED value, not the raw track position: the readout has to say
-                // what the engine will actually receive.
-                val snapped = snap(it, range, step)
+                // what the engine will actually receive. Near the neutral default the value
+                // sticks to it (a detent), so "back to zero" is a feel, not a hunt.
+                val snapped = detent(snap(it, range, step), default?.let { d -> snap(d, range, step) }, range)
+                val zone = detentZone(snapped, default?.let { d -> snap(d, range, step) }, range)
+                // One tick on arriving at the default or at either end of the range.
+                if (zone != SliderZone.FREE && zone != lastZone.value) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+                lastZone.value = zone
                 onValueChange(snapped)
-                interaction.onChange(SliderReadout(label, formatValue(snapped, decimals)))
+                interaction.onChange(SliderReadout(label, formatValue(snapped, decimals), readoutEdit(snapped)))
             },
             onValueChangeFinished = {
                 onValueChangeFinished?.invoke()
@@ -485,7 +503,7 @@ private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float):
     return snapped.coerceIn(range.start, range.endInclusive)
 }
 
-private fun formatValue(v: Float, decimals: Int): String =
+internal fun formatValue(v: Float, decimals: Int): String =
     if (decimals <= 0) v.roundToInt().toString() else "%.${decimals}f".format(v)
 
 /**
@@ -511,7 +529,7 @@ internal fun parseSliderInput(
  * toggle covers negative ranges, where the numeric IME often omits a minus key.
  */
 @Composable
-private fun NumericEntryDialog(
+internal fun NumericEntryDialog(
     label: String,
     initial: String,
     range: ClosedFloatingPointRange<Float>,
@@ -670,3 +688,27 @@ private fun AnchoredSliderTrack(
 }
 
 private val SLIDER_TRACK_HEIGHT = 16.dp
+
+/** Where a slider value sits, for the haptic ticks: free, on its default, or at an end. */
+internal enum class SliderZone { FREE, DEFAULT, END }
+
+/** Fraction of the range around the default that snaps onto it while dragging. */
+internal const val DETENT_FRACTION = 0.015f
+
+/**
+ * The sticky detent: a dragged value within [DETENT_FRACTION] of the range from [default]
+ * lands exactly on it. A slider without a default, or whose default is outside the range,
+ * has no detent.
+ */
+internal fun detent(value: Float, default: Float?, range: ClosedFloatingPointRange<Float>): Float {
+    if (default == null || default < range.start || default > range.endInclusive) return value
+    val width = range.endInclusive - range.start
+    return if (kotlin.math.abs(value - default) <= width * DETENT_FRACTION) default else value
+}
+
+/** Which [SliderZone] a (detented) value is in. */
+internal fun detentZone(value: Float, default: Float?, range: ClosedFloatingPointRange<Float>): SliderZone = when {
+    default != null && value == default -> SliderZone.DEFAULT
+    value <= range.start || value >= range.endInclusive -> SliderZone.END
+    else -> SliderZone.FREE
+}

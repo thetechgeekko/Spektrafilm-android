@@ -629,4 +629,12 @@
     <string name="editor_hint_date_stamp">フレームの隅に写し込む日付</string>
     <string name="editor_hint_raw_cleanup">RAW現像時のホットピクセルと色ノイズ</string>
     <string name="editor_reset_short">リセット</string>
+    <string name="editor_hud_type_value">正確な値を入力</string>
+    <string name="editor_history_title">履歴</string>
+    <string name="editor_history_start">開始</string>
+    <string name="editor_history_current">現在</string>
+    <string name="editor_history_rotate">回転</string>
+    <string name="editor_history_other">その他の変更</string>
+    <string name="editor_history_on">オン</string>
+    <string name="editor_history_off">オフ</string>
 </resources>
