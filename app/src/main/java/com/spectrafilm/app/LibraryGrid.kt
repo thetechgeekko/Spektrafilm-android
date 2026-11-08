@@ -497,8 +497,13 @@ private fun LibraryCell(
                         if (selected) {
                             Modifier.background(MaterialTheme.colorScheme.primary)
                         } else {
+                            // A light ring alone vanishes on a bright photo and leaves only the
+                            // grey fill, which reads as a different state; a dark hairline outside
+                            // it keeps the empty circle visible on any thumbnail.
                             Modifier
                                 .background(SpektraBrand.scrim.copy(alpha = 0.3f))
+                                .border(1.dp, SpektraBrand.scrim.copy(alpha = 0.6f), CircleShape)
+                                .padding(1.dp)
                                 .border(2.dp, SpektraBrand.onCanvas, CircleShape)
                         },
                     ),

@@ -77,4 +77,25 @@ class LibraryExportTest {
         assertEquals(ExportSize.FULL, jpeg.size)
         assertEquals(ExportFormat.TIFF, libraryExportDefaults(ExportFormat.TIFF, 90, FilmBorder.NONE).format)
     }
+
+    @Test
+    fun `the sheet's last choices come back after a restart, without the file name`() {
+        val chosen = ExportOptions(
+            ExportFormat.JPEG, 80, ExportSize.MEDIUM, 2048, "trip",
+            border = FilmBorder.NONE, sharpen = OutputSharpen.values().last(),
+        )
+        val fallback = libraryExportDefaults(ExportFormat.ULTRA_HDR, 95, FilmBorder.NONE)
+        val back = decodeLibraryExportOptions(encodeLibraryExportOptions(chosen), fallback)
+        assertEquals(chosen.copy(customName = ""), back)
+    }
+
+    @Test
+    fun `nothing saved or a broken save opens with the defaults`() {
+        val fallback = libraryExportDefaults(ExportFormat.ULTRA_HDR, 95, FilmBorder.NONE)
+        assertEquals(fallback, decodeLibraryExportOptions(null, fallback))
+        assertEquals(fallback, decodeLibraryExportOptions("{not json", fallback))
+        assertEquals(fallback, decodeLibraryExportOptions("""{"format":"GONE"}""", fallback))
+        val linear = encodeLibraryExportOptions(fallback.copy(format = ExportFormat.SCENE_LINEAR_TIFF))
+        assertEquals(fallback, decodeLibraryExportOptions(linear, fallback))
+    }
 }
