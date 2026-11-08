@@ -15,6 +15,7 @@ package com.spectrafilm.app
 
 import androidx.compose.ui.graphics.vector.ImageVector
 import android.os.Build
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -84,6 +85,7 @@ internal fun SettingsScreen(
     updateUi: UpdateUiState = UpdateUiState(),
     selectedDetail: SettingsDetail? = null,
     onUpdateAction: (UpdateAction) -> Unit = {},
+    scrollState: ScrollState = rememberScrollState(),
 ) {
     val ctx = LocalContext.current
     val themeLabels = ThemeMode.entries.associateWith { stringResource(it.labelRes) }
@@ -96,7 +98,7 @@ internal fun SettingsScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp)
             .padding(bottom = 24.dp),
     ) {

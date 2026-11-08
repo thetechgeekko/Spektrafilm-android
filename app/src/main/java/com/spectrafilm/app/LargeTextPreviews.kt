@@ -9,6 +9,7 @@
  */
 package com.spectrafilm.app
 
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import com.spectrafilm.engine.ColorSpace
 
@@ -57,14 +58,19 @@ private val largeTextSettings = SettingsUiState(
     exportBorder = FilmBorder.NONE,
 )
 
-/** The Settings list with its default values. */
+/**
+ * The Settings list with its default values. Screenshot renders stop at about 3000dp, which
+ * at 2x text is less than the whole list, so [scrolledToEnd] renders its bottom instead: the
+ * initial scroll is clamped to the list's end on the first measure.
+ */
 @Composable
-internal fun SettingsSample(dark: Boolean) = PreviewSurface(dark) {
+internal fun SettingsSample(dark: Boolean, scrolledToEnd: Boolean = false) = PreviewSurface(dark) {
     SettingsScreen(
         state = largeTextSettings,
         onAction = {},
         filmGroups = emptyList(),
         printGroups = emptyList(),
         onShowOnboarding = {},
+        scrollState = rememberScrollState(if (scrolledToEnd) Int.MAX_VALUE else 0),
     )
 }
