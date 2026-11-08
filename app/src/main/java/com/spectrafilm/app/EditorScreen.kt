@@ -1514,6 +1514,8 @@ internal fun EditorScreen(
             // away anyway, and a clip can be gigabytes.
             val refused = detectSourceKind(name, mime).let { it == SourceFileKind.VIDEO || it == SourceFileKind.MCRAW }
             val copy = if (durable || refused) null else SharedSourceCopies.copy(app, incoming, name, mime)
+            // Swiping from the copy still walks the folder or Gallery it was opened from.
+            copy?.let { PhotoBrowse.rememberOrigin(it.toString(), incoming.toString()) }
             SharedSourceCopies.Imported(source = copy ?: incoming, copied = copy != null, durable = durable, mime = mime)
         }
         val superseded = SharedSourceCopies.pendingImport.getAndUpdate {
