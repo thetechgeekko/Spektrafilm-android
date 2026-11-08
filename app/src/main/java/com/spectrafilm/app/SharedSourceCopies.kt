@@ -65,6 +65,12 @@ internal object SharedSourceCopies {
         pruneDir(File(context.filesDir, DIR), keep)
     }
 
+    /** Deletes one working copy, e.g. a copy overtaken by a newer selection. Off main. */
+    fun delete(context: Context, copy: Uri) {
+        if (!isCopy(context, copy.toString())) return
+        copy.lastPathSegment?.let { File(File(context.filesDir, DIR), it).delete() }
+    }
+
     private fun extensionFor(mime: String?): String? =
         mime?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
 

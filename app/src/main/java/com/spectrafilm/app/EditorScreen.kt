@@ -1266,11 +1266,18 @@ internal fun EditorScreen(
         // copy fails, the original still opens for this session, as before.
         // Runs on the editor scope, not this effect: clearing incomingImageIntent above
         // restarts the effect, which would cancel a copy still in flight.
+        // Claim the selection now: a photo picked while a large copy is still running must
+        // win, so a copy that finishes after a newer selection is discarded.
+        val selection = sourceMutationGate.begin()
         scope.launch {
             val name = incoming.lastPathSegment ?: "raw"
             val (mime, copy) = withContext(dispatchers.io) {
                 val mime = runCatching { ctx.contentResolver.getType(incoming) }.getOrNull()
                 mime to SharedSourceCopies.copy(ctx, incoming, name, mime)
+            }
+            if (!sourceMutationGate.isCurrent(selection)) {
+                copy?.let { stale -> withContext(dispatchers.io) { SharedSourceCopies.delete(ctx, stale) } }
+                return@launch
             }
             if (copy == null) Diag.w("shared source copy failed; opening it for this session only")
             adoptIncomingImage(copy ?: incoming, nameHint = name, mimeHint = mime)
