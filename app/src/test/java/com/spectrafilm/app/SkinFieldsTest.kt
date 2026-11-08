@@ -40,6 +40,13 @@ class SkinFieldsTest {
     )
 
     @Test
+    fun straighteningIsADifferentSource() {
+        // A field found before straightening sits on pixels that have since moved.
+        assertTrue(key != key.copy(straightenDegrees = 2f))
+        assertEquals(key, key.copy(straightenDegrees = 0f))
+    }
+
+    @Test
     fun noCropIsTheRegionItself() {
         assertEquals(FrameMap.IDENTITY, engineOutputFrame(IoParams(), 400, 200))
         val region = FrameMap(0.25f, 0f, 0.5f, 1f)

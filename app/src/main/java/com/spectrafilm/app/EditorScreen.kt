@@ -2127,7 +2127,7 @@ internal fun EditorScreen(
 
     // AI skin masks (SkinFields.kt): bind renders to this photo's skin, and find it once a skin
     // mask exists. Activation runs in composition so no render of a new photo sees the old field.
-    val skinKey = SkinSourceKey(sourceUri?.toString(), sourceKind.name, rotation.degrees)
+    val skinKey = SkinSourceKey(sourceUri?.toString(), sourceKind.name, rotation.degrees, state.straightenDegrees)
     remember(skinKey) { SkinFields.activate(skinKey) }
     val needsSkin = state.localAdjustments.any { it.mask.hasSemantic }
     LaunchedEffect(skinKey, needsSkin, sourceRenderAllowed, SkinFields.retryToken) {
