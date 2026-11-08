@@ -84,6 +84,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,22 +101,64 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Thumbnail decodes share a few IO lanes so a fast fling cannot open dozens of files at once. */
-private val thumbnailLane = ProcessDispatchers.io.limitedParallelism(3)
+internal val thumbnailLane = ProcessDispatchers.io.limitedParallelism(3)
 
 /**
- * The Library destination: app bar, folder picker and grid. [onOpen] receives the document URI
- * of a tapped frame.
+ * The Library destination: app bar, the Folder and Albums tabs, and an open album. [onOpen]
+ * receives the document URI of a tapped frame and the frames on screen around it, in order.
  */
 @Composable
 internal fun LibraryDestination(
     vm: LibraryViewModel,
+    albumsVm: AlbumsViewModel,
     /** The source open in the editor, outlined and scrolled to when it is in this folder. */
     currentUri: String?,
     onBack: () -> Unit,
-    onOpen: (Uri) -> Unit,
+    onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
+) {
+    var tab by rememberSaveable { mutableStateOf(LibraryTab.FOLDER) }
+    var openAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    val albums by albumsVm.albums.collectAsStateWithLifecycle()
+    // Shared with the open album, so an Undo snackbar outlives leaving it.
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
+    if (openAlbum != null) {
+        AlbumDetail(
+            album = openAlbum,
+            vm = albumsVm,
+            query = vm.query.collectAsStateWithLifecycle().value,
+            currentUri = currentUri,
+            snackbar = snackbar,
+            scope = scope,
+            onBack = { albumsVm.clearSelection(); openAlbumId = null },
+            onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
+            onOpen = onOpen,
+        )
+        return
+    }
+    LibraryFolderAndAlbums(vm, albumsVm, albums, currentUri, tab, { tab = it }, { openAlbumId = it }, snackbar, scope, onBack, onOpen)
+}
+
+internal enum class LibraryTab { FOLDER, ALBUMS }
+
+@Composable
+private fun LibraryFolderAndAlbums(
+    vm: LibraryViewModel,
+    albumsVm: AlbumsViewModel,
+    albums: List<Album>,
+    currentUri: String?,
+    tab: LibraryTab,
+    onTab: (LibraryTab) -> Unit,
+    onOpenAlbum: (String) -> Unit,
+    snackbar: SnackbarHostState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onBack: () -> Unit,
+    onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -124,7 +167,7 @@ internal fun LibraryDestination(
     val query by vm.query.collectAsStateWithLifecycle()
     val aspects by vm.aspects.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
-    val snackbar = remember { SnackbarHostState() }
+    val openFrame = { uri: Uri -> onOpen(uri, vm.visibleEntries()) }
     // Re-read on every visit, so frames shot since the last one appear.
     LaunchedEffect(Unit) { vm.refresh() }
     val outcome = (paste as? LibraryPasteState.Done)?.result
@@ -148,8 +191,11 @@ internal fun LibraryDestination(
             vm.pasteShown()
         }
     }
-    val selecting = selection.isNotEmpty()
+    val selecting = selection.isNotEmpty() && tab == LibraryTab.FOLDER
     BackHandler(enabled = selecting) { vm.clearSelection() }
+    BackHandler(enabled = !selecting && tab == LibraryTab.ALBUMS) { onTab(LibraryTab.FOLDER) }
+    var addToAlbum by remember { mutableStateOf<List<AlbumItem>?>(null) }
+    var newAlbumFor by remember { mutableStateOf<List<AlbumItem>?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         if (tree != null) vm.chooseFolder(tree.toString())
     }
@@ -157,11 +203,11 @@ internal fun LibraryDestination(
     // The Library is where photos are opened from: one photo from anywhere on the phone,
     // beside the folder of frames. Routed through onOpen like a tapped frame.
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) onOpen(uri)
+        if (uri != null) openFrame(uri)
     }
     // RAW/DNG files are not in the photo picker; the document picker reaches them.
     val rawPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onOpen(uri)
+        if (uri != null) openFrame(uri)
     }
     val saved = (sidecarSave as? LibrarySidecarState.Done)?.result
     LaunchedEffect(saved) {
@@ -199,8 +245,10 @@ internal fun LibraryDestination(
     NavScaffold(
         title = if (selecting) {
             pluralStringResource(R.plurals.library_selected_count, selection.size, selection.size)
-        } else {
+        } else if (tab == LibraryTab.FOLDER) {
             state.folderName ?: stringResource(R.string.library_title)
+        } else {
+            stringResource(R.string.library_title)
         },
         onBack = if (selecting) vm::clearSelection else onBack,
         closeNavigation = selecting,
@@ -230,7 +278,7 @@ internal fun LibraryDestination(
                         )
                     }
                 }
-            } else if (state.treeUri != null) {
+            } else if (state.treeUri != null && tab == LibraryTab.FOLDER) {
                 LibraryViewToggle(query, onChange = vm::setQuery)
                 LibrarySortMenu(query, onChange = vm::setQuery)
                 var menuOpen by remember { mutableStateOf(false) }
@@ -261,19 +309,29 @@ internal fun LibraryDestination(
         },
     ) {
         Box(Modifier.fillMaxSize()) {
-            LibraryScreen(
-                state,
-                currentUri = currentUri,
-                selection = selection,
-                onChooseFolder = choose,
-                onOpen = onOpen,
-                onToggleSelected = vm::toggleSelected,
-                query = query,
-                onQueryChange = vm::setQuery,
-                aspects = aspects,
-                onSelectRange = vm::selectRange,
-                onToggleDay = vm::toggleDay,
-            )
+            Column(Modifier.fillMaxSize()) {
+                if (!selecting) LibraryTabs(tab, onTab)
+                when (tab) {
+                    LibraryTab.FOLDER -> LibraryScreen(
+                        state,
+                        currentUri = currentUri,
+                        selection = selection,
+                        onChooseFolder = choose,
+                        onOpen = openFrame,
+                        onToggleSelected = vm::toggleSelected,
+                        query = query,
+                        onQueryChange = vm::setQuery,
+                        aspects = aspects,
+                        onSelectRange = vm::selectRange,
+                        onToggleDay = vm::toggleDay,
+                    )
+                    LibraryTab.ALBUMS -> AlbumsTab(
+                        albums = albums,
+                        onOpenAlbum = onOpenAlbum,
+                        onNewAlbum = { newAlbumFor = emptyList() },
+                    )
+                }
+            }
             if (selecting) {
                 LibrarySelectionBar(
                     pasteEnabled = !running,
@@ -283,6 +341,11 @@ internal fun LibraryDestination(
                         shareLibraryFrames(ctx, picked)
                     },
                     onSelectAll = vm::selectAll,
+                    onAddToAlbum = {
+                        addToAlbum = vm.visibleEntries()
+                            .filter { it.documentUri in selection }
+                            .map { AlbumItem.of(it, state.treeUri) }
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(WindowInsets.navigationBars.asPaddingValues())
@@ -296,6 +359,44 @@ internal fun LibraryDestination(
                     .padding(WindowInsets.navigationBars.asPaddingValues()),
             )
         }
+    }
+    val added = { name: String, count: Int ->
+        vm.clearSelection()
+        scope.launch {
+            snackbar.showSnackbar(
+                if (count == 0) {
+                    ctx.getString(R.string.album_full)
+                } else {
+                    ctx.resources.getQuantityString(R.plurals.album_added, count, count, name)
+                },
+            )
+        }
+        Unit
+    }
+    addToAlbum?.let { items ->
+        AddToAlbumSheet(
+            albums = albums,
+            onDismiss = { addToAlbum = null },
+            onPick = { album ->
+                addToAlbum = null
+                albumsVm.add(album.id, items) { count -> added(album.name, count) }
+            },
+            onNew = { addToAlbum = null; newAlbumFor = items },
+        )
+    }
+    newAlbumFor?.let { items ->
+        val word = stringResource(R.string.album_default_name)
+        AlbumNameDialog(
+            title = stringResource(R.string.album_new),
+            initial = remember(albums) { AlbumOps.defaultName(albums, word) },
+            confirm = stringResource(R.string.album_create),
+            onDismiss = { newAlbumFor = null },
+            onConfirm = { name ->
+                newAlbumFor = null
+                val id = albumsVm.create(name, items)
+                if (items.isEmpty()) onOpenAlbum(id) else added(AlbumOps.cleanName(name), items.size)
+            },
+        )
     }
 }
 
@@ -523,7 +624,7 @@ private val SQUARE_MIN_CELL = 104.dp
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryGrid(
+internal fun LibraryGrid(
     entries: List<LibraryEntry>,
     query: LibraryQuery,
     aspects: Map<String, Float>,
@@ -923,6 +1024,7 @@ private fun LibrarySelectionBar(
     onPaste: () -> Unit,
     onShare: () -> Unit,
     onSelectAll: () -> Unit,
+    onAddToAlbum: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -935,14 +1037,28 @@ private fun LibrarySelectionBar(
             // The look comes from the photo open in the editor; without one there is nothing
             // to paste, and the snackbar says so.
             LibraryBarAction(SpectraIcons.Presets, R.string.library_paste_edit, pasteEnabled, onPaste)
+            LibraryBarAction(SpectraIcons.AddToAlbum, R.string.album_add_to, true, onAddToAlbum)
             LibraryBarAction(SpectraIcons.Share, R.string.library_share, true, onShare)
             LibraryBarAction(SpectraIcons.Check, R.string.library_select_all, true, onSelectAll)
         }
     }
 }
 
+/** The floating pill shape every selection toolbar in the Library shares. */
 @Composable
-private fun LibraryBarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Int, enabled: Boolean, onClick: () -> Unit) {
+internal fun LibraryActionPill(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) { content() }
+    }
+}
+
+@Composable
+internal fun LibraryBarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Int, enabled: Boolean, onClick: () -> Unit) {
     TextButton(onClick = onClick, enabled = enabled) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null)
@@ -955,7 +1071,7 @@ private fun LibraryBarAction(icon: androidx.compose.ui.graphics.vector.ImageVect
  * Hands the selected originals to the share sheet. The Library holds a read grant on the
  * folder, so the receiving app gets a temporary read grant on each file through the clip.
  */
-private fun shareLibraryFrames(ctx: android.content.Context, frames: List<LibraryEntry>) {
+internal fun shareLibraryFrames(ctx: android.content.Context, frames: List<LibraryEntry>) {
     if (frames.isEmpty()) return
     val uris = ArrayList(frames.map { Uri.parse(it.documentUri) })
     val intent = if (uris.size == 1) {
@@ -975,7 +1091,7 @@ private fun shareLibraryFrames(ctx: android.content.Context, frames: List<Librar
 }
 
 @Composable
-private fun LibraryMessage(title: String, body: String, action: String, onAction: () -> Unit) {
+internal fun LibraryMessage(title: String, body: String, action: String, onAction: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),

@@ -304,41 +304,15 @@ internal class LibraryViewModel(
     private val queryStore: LibraryQueryStore = LibraryQueryStore.None,
     private val aspectReader: LibraryAspectReader = LibraryAspectReader { null },
 ) : ViewModel() {
-    private val _aspects = MutableStateFlow<Map<String, Float>>(emptyMap())
+    private val aspectTracker = LibraryAspects(viewModelScope, io, aspectReader)
 
     /**
      * Known frame shapes by document URI, for justified rows. Filled in the background after
      * each listing, in batches so the grid reflows a few times rather than once per frame.
      */
-    val aspects: StateFlow<Map<String, Float>> = _aspects.asStateFlow()
-    private var aspectJob: Job? = null
+    val aspects: StateFlow<Map<String, Float>> = aspectTracker.aspects
 
-    private fun measureAspects(entries: List<LibraryEntry>) {
-        aspectJob?.cancel()
-        val known = HashMap<String, Float>()
-        val missing = ArrayList<LibraryEntry>()
-        for (entry in entries) {
-            val cached = LibraryAspectCache.get(entry)
-            if (cached != null) known[entry.documentUri] = cached else missing += entry
-        }
-        _aspects.value = known.toMap()
-        if (missing.isEmpty()) return
-        aspectJob = viewModelScope.launch {
-            // On screen first: the grid is newest first by default, as is the listing.
-            missing.chunked(ASPECT_BATCH).forEach { batch ->
-                val read = withContext(io) {
-                    batch.mapNotNull { entry ->
-                        val aspect = runCatching { aspectReader.aspect(entry) }.getOrNull()
-                            ?.takeIf { it.isFinite() && it > 0f }
-                            ?: return@mapNotNull null
-                        LibraryAspectCache.put(entry, aspect)
-                        entry.documentUri to aspect
-                    }
-                }
-                if (read.isNotEmpty()) _aspects.value = _aspects.value + read
-            }
-        }
-    }
+    private fun measureAspects(entries: List<LibraryEntry>) = aspectTracker.measure(entries)
 
     private val _query = MutableStateFlow(runCatching { queryStore.load() }.getOrDefault(LibraryQuery()))
 
@@ -621,7 +595,6 @@ internal class LibraryViewModel(
     }
 
     companion object {
-        private const val ASPECT_BATCH = 24
 
         /**
          * The shape from the file's EXIF header, read through a seekable descriptor so a RAW
@@ -810,4 +783,50 @@ internal object LibraryThumbnails {
     private fun provided(context: Context, uri: Uri): Bitmap? = runCatching {
         DocumentsContract.getDocumentThumbnail(context.contentResolver, uri, Point(EDGE_PX, EDGE_PX), null)
     }.getOrNull()
+}
+
+/**
+ * Frame shapes for justified rows: the cached ones at once, the rest read on [io] in batches
+ * so the grid reflows a few times rather than once per frame. A new [measure] replaces the
+ * last one. Shared by the folder grid and the album view.
+ */
+internal class LibraryAspects(
+    private val scope: CoroutineScope,
+    private val io: CoroutineDispatcher,
+    private val reader: LibraryAspectReader,
+) {
+    private val _aspects = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val aspects: StateFlow<Map<String, Float>> = _aspects.asStateFlow()
+    private var job: Job? = null
+
+    fun measure(entries: List<LibraryEntry>) {
+        job?.cancel()
+        val known = HashMap<String, Float>()
+        val missing = ArrayList<LibraryEntry>()
+        for (entry in entries) {
+            val cached = LibraryAspectCache.get(entry)
+            if (cached != null) known[entry.documentUri] = cached else missing += entry
+        }
+        _aspects.value = known.toMap()
+        if (missing.isEmpty()) return
+        job = scope.launch {
+            // On screen first: the grid is newest first by default, as is the listing.
+            missing.chunked(BATCH).forEach { batch ->
+                val read = withContext(io) {
+                    batch.mapNotNull { entry ->
+                        val aspect = runCatching { reader.aspect(entry) }.getOrNull()
+                            ?.takeIf { it.isFinite() && it > 0f }
+                            ?: return@mapNotNull null
+                        LibraryAspectCache.put(entry, aspect)
+                        entry.documentUri to aspect
+                    }
+                }
+                if (read.isNotEmpty()) _aspects.value = _aspects.value + read
+            }
+        }
+    }
+
+    private companion object {
+        const val BATCH = 24
+    }
 }

@@ -603,15 +603,19 @@ internal fun MainActivity.AppRoot(
                     // writes run on the app's process scope, so leaving never cuts one short.
                     val libraryVm: LibraryViewModel =
                         viewModel(factory = appContainer.viewModelFactory)
+                    val albumsVm: AlbumsViewModel =
+                        viewModel(factory = appContainer.viewModelFactory)
                     LibraryDestination(
                         vm = libraryVm,
+                        albumsVm = albumsVm,
                         currentUri = activeRestoration.source.uri,
                         onBack = { pop() },
-                        onOpen = { uri ->
-                            // The frames on screen, in grid order (after sort, filter and
-                            // search), so a sideways swipe on the photo in the editor steps
-                            // to the next or previous frame the user was looking at.
-                            PhotoBrowse.frames = libraryVm.visibleEntries().map {
+                        onOpen = { uri, frames ->
+                            // The frames on screen, in grid order (the folder after sort,
+                            // filter and search, or the open album), so a sideways swipe on
+                            // the photo in the editor steps to the next or previous frame the
+                            // user was looking at.
+                            PhotoBrowse.frames = frames.map {
                                 BrowseFrame(it.documentUri, it.isRaw)
                             }
                             // The same dispatch as a shared or picked file: the editor
