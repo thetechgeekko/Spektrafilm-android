@@ -25,7 +25,7 @@ are available only through the protected `release-signing` Environment. **APKs
 are not committed to the repository** — there is no `dist/` directory
 and you should never copy a built APK into the repo.
 
-Current in-tree version: **v0.11.0 / versionCode 13** (`minSdk 24`, `targetSdk` 36 /
+Current in-tree version: **v0.12.0 / versionCode 14** (`minSdk 24`, `targetSdk` 36 /
 `compileSdk` 37 on `:app`); latest tag is **v0.10.0** (published 2026-09-15).
 
 [Make production signing and exact release-candidate verification fail closed](https://github.com/thetechgeekko/Spektrafilm-android/issues/168)
@@ -158,7 +158,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
 - [ ] Confirm a repository ruleset covers `refs/tags/v*` and forbids tag updates
   and deletion. Workflow SHA rechecks detect movement while a run is active;
   the ruleset keeps the published tag immutable afterward.
-- [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `13` / `"0.11.0"`).
+- [ ] Bump `versionCode` and `versionName` in `app/build.gradle.kts` (currently `14` / `"0.12.0"`).
 - [ ] Update `CHANGELOG.md` for the new version.
 - [ ] Note: the release build now runs **R8** (`isMinifyEnabled = true`, `app/build.gradle.kts:64`).
   This is **Stage 1 — shrink only, `-dontobfuscate`** (`app/proguard-rules.pro:2`), with explicit

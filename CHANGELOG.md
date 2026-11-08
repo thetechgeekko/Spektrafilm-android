@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## v0.12.0 (versionCode 14) — 2026-11-08 — a real Library, a new Edit rail, on-device skin masks
+
+**Minor: new screens and features, no breaking change to saved edits.**
+
+### Highlights
+
+- **Library:** Gallery tab with the phone's photos (Android 14 partial access supported), albums
+  (create, rename, delete with undo, cover), import and multi-photo share-in into an Imported
+  album, justified and square views with day headers, sort/filter/search, drag-select, slideshow,
+  and swipe on the photo to move to the next or previous frame (#538-#560).
+- **Editor:** tools regrouped into Looks, Edit, Crop and Masks (#519); a sideways Edit rail with
+  instrument controls (knobs, faders, level meters, 2D pad, EQ bands) (#529-#543); drag sideways on
+  the photo to adjust the last control (#545, #551); free-angle straighten with a ruler (#549);
+  quick help (#557) and a three-screen intro (#556).
+- **Masks:** a "Skin (AI)" mask from an on-device LiteRT model, in preview, zoom and export
+  (#524-#530).
+- **Export:** darkroom-tray progress (#520), determinate stage-weighted progress (#498), the saved
+  result as a floating toolbar that keeps Share/Open until the next edit (#495, #513), and a lower
+  export peak memory (#497).
+- **Look and feel:** film-amber colour scheme when Material You is off (#510), a new adaptive
+  launcher icon (#523), large-text fixes at 2x font (#516), 48dp touch targets (#482, #521), and
+  two-pane Settings and albums on tablets and unfolded foldables (#522, #555).
+- **Under the hood:** the editor's state moved into a ViewModel (#452 series), Baseline/Startup
+  Profiles (#504, #511), unused resources shrunk from the release APK (#517), shared photos kept
+  across restarts (#512), and the release probe reached through one interface (#496).
+
 ### Six built-in looks instead of 27
 
 - The Look strip now offers six looks: Portra 400, Gold 200, Ektar 100, CineStill 800T,
