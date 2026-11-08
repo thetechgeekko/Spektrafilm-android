@@ -4,7 +4,17 @@
  */
 package com.spectrafilm.app
 
+import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.snapshotFlow
+import com.spectrafilm.engine.SpektraEngine
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.Modifier
@@ -82,3 +92,45 @@ internal fun Modifier.photoSwipeGesture(
         if (locked) onEnd(dx, if (cancelled) null else tracker.calculateVelocity().x)
     }
 }
+
+/**
+ * The bitmap a neighbour slides in with: its grid thumbnail at once, then (once the
+ * interactive preview is idle) that thumbnail in the open photo's current film look, so the
+ * photo that lands already wears the look instead of shifting into it a moment later.
+ * Re-graded when [lookKey] (the settings) changes; the previous look stays up meanwhile.
+ */
+@Composable
+internal fun rememberNeighbourBitmap(
+    frame: BrowseFrame?,
+    context: Context,
+    engine: SpektraEngine?,
+    state: ParamsState,
+    lookKey: Int,
+    busy: () -> Boolean,
+    io: CoroutineDispatcher,
+    default: CoroutineDispatcher,
+): Bitmap? {
+    val thumb by produceState(frame?.let { LibraryThumbnails.cached(it.uri) }, frame) {
+        // produceState keeps its value across key changes: start from the new neighbour.
+        value = frame?.let { LibraryThumbnails.cached(it.uri) }
+        val f = frame ?: return@produceState
+        if (value == null) value = withContext(io) {
+            runCatching { LibraryThumbnails.load(context, f.uri, f.raw) }.getOrNull()
+        }
+    }
+    // (uri, look) so a look never outlives the frame it was rendered for.
+    val look by produceState<Pair<String, Bitmap>?>(null, frame, thumb, engine, lookKey) {
+        if (value?.first != frame?.uri) value = null
+        val f = frame ?: return@produceState
+        val t = thumb ?: return@produceState
+        val e = engine ?: return@produceState
+        // Let the render the user is waiting for go first.
+        snapshotFlow { busy() }.first { !it }
+        val rendered = PlaceholderLook.render(context, e, t, state, default) ?: return@produceState
+        val active = isActive
+        if (active) value = f.uri to rendered.bitmap
+        PlaceholderLook.report(rendered, published = active, cancelled = !active)
+    }
+    return look?.takeIf { it.first == frame?.uri }?.second ?: thumb
+}
+
