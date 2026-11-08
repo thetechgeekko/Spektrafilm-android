@@ -137,6 +137,28 @@ internal object SpektraBrand {
     /** Draggable mask-geometry handles: a light accent readable on any photo. */
     val maskHandle = Color(0xFF7FD1FF)
 
+    /**
+     * The intro's illustrated sample photo (Welcome.kt): a dusk lake scene drawn in code so
+     * the first launch needs no bundled image. Fixed colours: it stands in for a photograph,
+     * so it must not follow the theme.
+     */
+    val introSkyTop = Color(0xFF7E93A6)
+    val introSkyMid = Color(0xFFC9A993)
+    val introSkyLow = Color(0xFFDCC3A8)
+    val introSun = Color(0xFFFFF6E4)
+    val introHillFar = Color(0xFF76707A)
+    val introHillNear = Color(0xFF4F4A55)
+    val introLakeTop = Color(0xFFB79E8C)
+    val introLakeLow = Color(0xFF3C4250)
+    val introGlint = Color(0x80FFF5DC)
+    val introTrees = Color(0xFF23262E)
+
+    /** Intro overlays drawn on that photo: the compare divider and the demo fingertip. */
+    val introDivider = Color(0xFFFFFFFF)
+    val introTouch = Color(0xE6FFFFFF)
+    val introTouchHalo = Color(0x33FFFFFF)
+    val introChipScrim = Color(0xB30F0E10)
+
     /** Onboarding backdrop / film-strip emblem, violet -> red. */
     val spectrum = listOf(
         Color(0xFF7B2FF7),
