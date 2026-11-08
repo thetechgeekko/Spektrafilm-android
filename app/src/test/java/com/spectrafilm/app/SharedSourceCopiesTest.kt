@@ -18,17 +18,25 @@ class SharedSourceCopiesTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test fun nameKeepsTheSendersNameAndAddsTheMimeExtension() {
-        assertEquals("7-244070.jpg", SharedSourceCopies.copyFileName(7, "244070", "jpg"))
-        assertEquals("7-IMG_1.DNG", SharedSourceCopies.copyFileName(7, "IMG_1.DNG", "dng"))
-        assertEquals("7-IMG_1.ARW", SharedSourceCopies.copyFileName(7, "IMG_1.ARW", null))
+        assertEquals("7-244070.jpg", SharedSourceCopies.copyFileName("7", "244070", "jpg"))
+        assertEquals("7-IMG_1.DNG", SharedSourceCopies.copyFileName("7", "IMG_1.DNG", "dng"))
+        assertEquals("7-IMG_1.ARW", SharedSourceCopies.copyFileName("7", "IMG_1.ARW", null))
+    }
+
+    /** Codex on #512: sharing the same photo again must reach the same copy, and its recipe. */
+    @Test fun copyNameIsStablePerOriginal() {
+        val a = SharedSourceCopies.identityKey("content://media/external/images/media/244070")
+        assertEquals(a, SharedSourceCopies.identityKey("content://media/external/images/media/244070"))
+        assertFalse(a == SharedSourceCopies.identityKey("content://media/external/images/media/244071"))
+        assertTrue(a.matches(Regex("[0-9a-f]{16}")))
     }
 
     @Test fun nameCannotEscapeTheDirectory() {
-        val n = SharedSourceCopies.copyFileName(7, "../../shared_prefs/x.xml", null)
+        val n = SharedSourceCopies.copyFileName("7", "../../shared_prefs/x.xml", null)
         assertFalse(n, n.contains('/') || n.contains(".."))
-        assertEquals("7-shared", SharedSourceCopies.copyFileName(7, "...", null))
-        assertEquals("7-a_b.jpg", SharedSourceCopies.copyFileName(7, "a b", "JPG"))
-        assertEquals("7-x", SharedSourceCopies.copyFileName(7, "x", "not an ext!"))
+        assertEquals("7-shared", SharedSourceCopies.copyFileName("7", "...", null))
+        assertEquals("7-a_b.jpg", SharedSourceCopies.copyFileName("7", "a b", "JPG"))
+        assertEquals("7-x", SharedSourceCopies.copyFileName("7", "x", "not an ext!"))
     }
 
     @Test fun copyLandsWholeOrNotAtAll() {
@@ -46,10 +54,10 @@ class SharedSourceCopiesTest {
 
     @Test fun pruneKeepsTheSourceAndCopiesInFlight() {
         val dir = File(tmp.root, SharedSourceCopies.DIR).apply { mkdirs() }
-        listOf("1-a.jpg", "2-b.jpg", "3-c.jpg.partial", "4-d.jpg").forEach { File(dir, it).writeText("x") }
+        listOf("1-a.jpg", "2-b.jpg", "3-c.jpg.partial-123", "4-d.jpg").forEach { File(dir, it).writeText("x") }
         // 2-b is the source, 3-c is still being written, 4-d finished but is not adopted yet.
         SharedSourceCopies.pruneDir(dir, setOf("2-b.jpg", "3-c.jpg", "4-d.jpg"))
-        assertEquals(listOf("2-b.jpg", "3-c.jpg.partial", "4-d.jpg"), dir.list()!!.sorted())
+        assertEquals(listOf("2-b.jpg", "3-c.jpg.partial-123", "4-d.jpg"), dir.list()!!.sorted())
         SharedSourceCopies.pruneDir(dir, emptySet())
         assertTrue(dir.list()!!.isEmpty())
     }

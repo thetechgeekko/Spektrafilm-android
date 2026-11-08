@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
 
 /**
  * A photo that arrives by "Share" or "Open with" (ACTION_SEND / ACTION_VIEW) usually carries
@@ -25,8 +26,10 @@ import java.io.InputStream
  * So such a photo is copied once, while the grant is still valid, into app-private storage and
  * the editor adopts the copy through this app's own non-exported FileProvider. The copy is a
  * plain content:// source to the rest of the editor, it survives process death, and nothing
- * outside the app can read it. [prune] removes every copy that is neither the editor's current
- * source nor still in flight, so at most one settled copy remains.
+ * outside the app can read it. Its file name is derived from the ORIGINAL URI, so sharing the
+ * same photo again yields the same copy URI and therefore the same recipe (edits, rotation),
+ * across restarts too. [prune] removes every copy that is neither the editor's current source
+ * nor still in flight, so at most one settled copy remains.
  */
 internal object SharedSourceCopies {
     const val DIR = "shared-sources"
@@ -73,10 +76,11 @@ internal object SharedSourceCopies {
      */
     fun copy(context: Context, uri: Uri, name: String, mime: String?): Uri? {
         val dir = File(context.filesDir, DIR)
-        val target = File(dir, copyFileName(System.currentTimeMillis(), name, extensionFor(mime)))
+        val target = File(dir, copyFileName(identityKey(uri.toString()), name, extensionFor(mime)))
         // Pending from before the first byte, so a concurrent [prune] spares the .partial file
-        // and the finished copy until it is adopted or discarded.
-        synchronized(lock) { pending += target.name }
+        // and the finished copy until it is adopted or discarded. Counted: the same photo can
+        // be shared twice at once, and both imports land on the same name.
+        synchronized(lock) { pending[target.name] = (pending[target.name] ?: 0) + 1 }
         val written = runCatching {
             context.contentResolver.openInputStream(uri)?.use { input -> writeCopy(input, dir, target) }
         }.getOrNull()
@@ -85,8 +89,9 @@ internal object SharedSourceCopies {
         }
         synchronized(lock) {
             if (published == null) {
-                pending -= target.name
-                target.delete()
+                // The target is untouched (writeCopy renames last) and may be the current
+                // source from an earlier share of the same photo: leave it to [prune].
+                release(target.name)
             } else {
                 origins[published.toString()] = uri
             }
@@ -105,17 +110,29 @@ internal object SharedSourceCopies {
             ?.takeIf { isCopy(context, it) }
             ?.let { Uri.parse(it).lastPathSegment }
         current?.let { pending -= it } // adopted: an ordinary source from here on
-        pruneDir(File(context.filesDir, DIR), keep = pending + setOfNotNull(current))
+        pruneDir(File(context.filesDir, DIR), keep = pending.keys + setOfNotNull(current))
     }
 
-    /** Deletes one working copy, e.g. a copy overtaken by a newer selection. Off main. */
+    /**
+     * Discards one import's copy, e.g. one overtaken by a newer selection. The file itself goes
+     * only when no other import still holds it and it is not the editor's current source (the
+     * same photo shared again lands on the same name). Off main.
+     */
     fun delete(context: Context, copy: Uri) {
         if (!isCopy(context, copy.toString())) return
         val name = copy.lastPathSegment ?: return
         synchronized(lock) {
-            pending -= name
-            File(File(context.filesDir, DIR), name).delete()
+            release(name)
+            val current = runCatching { SharedPreferencesSourceRefStore(context).load()?.uri }
+                .getOrElse { return } // unknown source: keep the file
+                ?.let { Uri.parse(it).lastPathSegment }
+            if (name !in pending && name != current) File(File(context.filesDir, DIR), name).delete()
         }
+    }
+
+    private fun release(name: String) {
+        val left = (pending[name] ?: 0) - 1
+        if (left > 0) pending[name] = left else pending -= name
     }
 
     private fun extensionFor(mime: String?): String? =
@@ -123,12 +140,17 @@ internal object SharedSourceCopies {
 
     // --- pure parts, JVM-tested in SharedSourceCopiesTest ---
 
+    /** A stable, path-safe key for an original URI: the first 16 hex digits of its SHA-256. */
+    internal fun identityKey(originalUri: String): String =
+        MessageDigest.getInstance("SHA-256").digest(originalUri.toByteArray())
+            .take(8).joinToString("") { "%02x".format(it) }
+
     /**
-     * `<millis>-<name>[.<ext>]`, with [name] reduced to a safe file name. The extension is
+     * `<key>-<name>[.<ext>]`, with [name] reduced to a safe file name. The extension is
      * appended only when the name lacks one, so FileProvider later reports the right MIME type
      * and the editor's kind detection sees the same name the sender gave.
      */
-    internal fun copyFileName(millis: Long, name: String, extension: String?): String {
+    internal fun copyFileName(key: String, name: String, extension: String?): String {
         val safe = name.substringAfterLast('/')
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
             .trim('.', '_')
@@ -136,7 +158,7 @@ internal object SharedSourceCopies {
             .ifEmpty { "shared" }
         val ext = extension?.lowercase()?.takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }
         val withExt = if (ext != null && !safe.lowercase().endsWith(".$ext")) "$safe.$ext" else safe
-        return "$millis-$withExt"
+        return "$key-$withExt"
     }
 
     /**
@@ -145,7 +167,9 @@ internal object SharedSourceCopies {
      */
     internal fun writeCopy(input: InputStream, dir: File, target: File): File {
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create $dir")
-        val partial = File(dir, "${target.name}.partial")
+        // Unique per writer: two imports of the same photo write side by side, then each renames
+        // atomically over the same identical target.
+        val partial = File(dir, "${target.name}$PARTIAL${System.nanoTime()}")
         try {
             partial.outputStream().use { out -> input.copyTo(out) }
             if (!partial.renameTo(target)) throw IOException("cannot finish $target")
@@ -156,19 +180,21 @@ internal object SharedSourceCopies {
         return target
     }
 
-    /** Deletes every file in [dir] except those named in [keep] and their `.partial` files. */
+    /** Deletes every file in [dir] except those named in [keep] and their in-flight partials. */
     internal fun pruneDir(dir: File, keep: Set<String>) {
         dir.listFiles()?.forEach { file ->
-            if (file.name !in keep && file.name.removeSuffix(".partial") !in keep) file.delete()
+            if (file.name.substringBefore(PARTIAL) !in keep) file.delete()
         }
     }
+
+    private const val PARTIAL = ".partial-"
 
     private const val MAX_NAME_CHARS = 96
 
     private val lock = Any()
 
     /** Copies written or being written but not yet adopted or discarded; guarded by [lock]. */
-    private val pending = mutableSetOf<String>()
+    private val pending = mutableMapOf<String, Int>()
 
     /** Copy URI -> the original it was made from, for this process only; guarded by [lock]. */
     private val origins = mutableMapOf<String, Uri>()
