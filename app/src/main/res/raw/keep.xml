@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resource shrinker keep list (#462). The release instrumentation APK looks these strings
+     up BY NAME with getIdentifier (Ticket181AccessibilityChecks), an edge the shrinker
+     cannot see; they are referenced from app code today, this keeps them if that changes. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@string/editor_action_export,@string/editor_action_undo,@string/editor_action_redo,@string/editor_action_more" />

@@ -86,6 +86,11 @@ android {
         }
         release {
             isMinifyEnabled = true
+            // #462: drop resources nothing references (unused library drawables/strings).
+            // Default "safe" mode keeps anything whose name appears as a string in code;
+            // res/raw/keep.xml pins the names the release instrumentation APK resolves
+            // with getIdentifier (Ticket181AccessibilityChecks), which R8 cannot see.
+            isShrinkResources = true
             ndk {
                 // Retain complete native symbols for the exact shipping build.
                 // release.yml hash-binds and publishes AGP's symbols ZIP.
