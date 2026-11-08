@@ -281,6 +281,9 @@ fun ZoomableImage(
     overlay: Bitmap? = null,
     // Keyboard zoom (Ctrl+= / Ctrl+- / Ctrl+0), about the view centre.
     zoomRequests: Flow<ViewerZoom>? = null,
+    // Told when the view leaves fit (true) or comes back to it (false): a sideways swipe to
+    // the next photo only applies at fit, where one finger has nothing to pan.
+    onZoomedChange: ((Boolean) -> Unit)? = null,
 ) {
     var scale by remember { mutableFloatStateOf(initialScale) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -308,6 +311,10 @@ fun ZoomableImage(
     val zoomPercent by remember { derivedStateOf { (scale * 100f).roundToInt() } }
     val zoomedIn by remember { derivedStateOf { scale > 1.01f } }
     val zoomState = stringResource(R.string.tool_viewer_zoom_state, zoomPercent)
+    val latestZoomedChange by rememberUpdatedState(onZoomedChange)
+    LaunchedEffect(Unit) {
+        snapshotFlow { zoomedIn }.collect { latestZoomedChange?.invoke(it) }
+    }
 
     // Drive the sharp ROI render off the zoom/pan transform (and re-fire on a param edit via
     // renderKey). Debounced so we render on settle, not every gesture frame; the instantly
