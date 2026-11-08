@@ -86,7 +86,7 @@ import kotlinx.coroutines.withContext
 private val ALBUM_CARD_MIN = 156.dp
 private val ALBUM_CORNER = 16.dp
 
-/** Folder | Albums, under the app bar (Pen board, "Library"). */
+/** Folder | Gallery | Albums, under the app bar (Pen board, "Library"). */
 @Composable
 internal fun LibraryTabs(tab: LibraryTab, onTab: (LibraryTab) -> Unit) {
     PrimaryTabRow(selectedTabIndex = tab.ordinal, containerColor = MaterialTheme.colorScheme.surface) {
@@ -94,6 +94,11 @@ internal fun LibraryTabs(tab: LibraryTab, onTab: (LibraryTab) -> Unit) {
             selected = tab == LibraryTab.FOLDER,
             onClick = { onTab(LibraryTab.FOLDER) },
             text = { Text(stringResource(R.string.library_tab_folder)) },
+        )
+        Tab(
+            selected = tab == LibraryTab.GALLERY,
+            onClick = { onTab(LibraryTab.GALLERY) },
+            text = { Text(stringResource(R.string.library_tab_gallery)) },
         )
         Tab(
             selected = tab == LibraryTab.ALBUMS,

@@ -14,9 +14,11 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Point
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.LruCache
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
@@ -755,6 +757,7 @@ internal object LibraryThumbnails {
         val bitmap = (if (raw) camera(context, parsed) else null)
             ?: embedded(context, parsed)
             ?: provided(context, parsed)
+            ?: resolved(context, parsed)
             ?: return null
         cache.put(uri, bitmap)
         return bitmap
@@ -782,6 +785,45 @@ internal object LibraryThumbnails {
 
     private fun provided(context: Context, uri: Uri): Bitmap? = runCatching {
         DocumentsContract.getDocumentThumbnail(context.contentResolver, uri, Point(EDGE_PX, EDGE_PX), null)
+    }.getOrNull()
+
+    /**
+     * MediaStore photos (the Gallery tab, the photo picker) are not documents, so the call
+     * above has nothing for them; the resolver's own thumbnail does, already upright.
+     */
+    private fun resolved(context: Context, uri: Uri): Bitmap? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            runCatching {
+                context.contentResolver.loadThumbnail(uri, android.util.Size(EDGE_PX, EDGE_PX), null)
+            }.getOrNull()
+        } else if (uri.authority == MediaStore.AUTHORITY) {
+            sampled(context, uri)
+        } else {
+            null
+        }
+
+    /**
+     * Before Android 10 the resolver has no thumbnail call: decode the photo itself, sampled
+     * down to about the cell size, and turn it upright from its EXIF orientation. Only for
+     * MediaStore photos (camera JPEGs, screenshots), never a RAW, which [camera] covers.
+     */
+    private fun sampled(context: Context, uri: Uri): Bitmap? = runCatching {
+        val resolver = context.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= EDGE_PX) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            ?: return@runCatching null
+        val orientation = resolver.openInputStream(uri)?.use { input ->
+            ExifInterface(input).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+        OpenPlaceholder.applyTransform(
+            bitmap,
+            placeholderTransform(ExifOrientation.fromExif(orientation), SourceRotation.NONE),
+        )
     }.getOrNull()
 }
 

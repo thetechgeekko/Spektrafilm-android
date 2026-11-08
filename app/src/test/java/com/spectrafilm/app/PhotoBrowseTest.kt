@@ -105,4 +105,23 @@ class PhotoBrowseTest {
         val s = openingStateFor(null) { it.filmProfile = "kodak_gold_200" }
         assertEquals("kodak_gold_200", s.filmProfile)
     }
+
+    @Test
+    fun aWorkingCopyStillFindsTheNeighboursOfTheFrameItStandsFor() {
+        val saved = PhotoBrowse.frames
+        try {
+            PhotoBrowse.frames = listOf(
+                BrowseFrame("content://media/external/images/media/1", false),
+                BrowseFrame("content://media/external/images/media/2", false),
+                BrowseFrame("content://media/external/images/media/3", false),
+            )
+            PhotoBrowse.rememberOrigin("content://app.sharedsources/shared/copy-2.jpg", "content://media/external/images/media/2")
+            val copy = "content://app.sharedsources/shared/copy-2.jpg"
+            assertEquals("content://media/external/images/media/3", PhotoBrowse.neighbour(copy, 1)?.uri)
+            assertEquals("content://media/external/images/media/1", PhotoBrowse.neighbour(copy, -1)?.uri)
+            assertEquals(1, PhotoBrowse.indexOf(copy))
+        } finally {
+            PhotoBrowse.frames = saved
+        }
+    }
 }

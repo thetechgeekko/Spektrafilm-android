@@ -35,6 +35,13 @@
          turned "Include location (GPS)" on for a MediaStore photo (#261); denial means the
          export is written without GPS, nothing else. Ignored below API 29. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    <!-- The Library's Gallery tab lists the phone's photos (MediaStore). Asked for only when
+         the user opens that tab; Android 14+ may grant just a selection of photos instead. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- Large screens / desktop windowing: ChromeOS laptops and DeX with a mouse have no
          touchscreen. Nothing in the editor needs one (every gesture has a click or keyboard

@@ -330,6 +330,17 @@
     <string name="library_clear_day">Deselect</string>
     <string name="library_tab_folder">Folder</string>
     <string name="library_tab_albums">Albums</string>
+    <string name="library_tab_gallery">Gallery</string>
+    <string name="gallery_access_title">See your phone\'s photos here</string>
+    <string name="gallery_access_body">Allow Spektrafilm to read your photos to browse them in the Library. They stay on your phone.</string>
+    <string name="gallery_allow">Allow access</string>
+    <string name="gallery_open_settings">Open settings</string>
+    <string name="gallery_partial">Showing only the photos you picked</string>
+    <string name="gallery_partial_change">Change</string>
+    <string name="gallery_failed_title">Couldn\'t read your photos</string>
+    <string name="gallery_failed_body">Try again in a moment.</string>
+    <string name="gallery_empty_title">No photos yet</string>
+    <string name="gallery_empty_body">Photos and RAW files on this phone show up here.</string>
     <string name="album_new">New album</string>
     <string name="album_default_name">Album</string>
     <string name="album_name_label">Album name</string>
