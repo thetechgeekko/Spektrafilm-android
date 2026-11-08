@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -444,21 +445,29 @@ internal fun Pad2D(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 var pastSlop = false
-                var rawX = latestX.value.value
-                var rawY = latestY.value.value
+                val startX = latestX.value.value
+                val startY = latestY.value.value
+                var rawX = startX
+                var rawY = startY
                 val ax = latestX.value
                 val ay = latestY.value
                 var zoneX = detentZone(rawX, dx(ax), ax.range)
                 var zoneY = detentZone(rawY, dx(ay), ay.range)
                 var travelled = Offset.Zero
+                var movedX = false
+                var movedY = false
                 try {
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
                         val d = change.position - change.previousPosition
+                        travelled += d
+                        // An axis counts as moved once the finger has gone a touch slop along
+                        // it, so the jitter of a straight vertical drag leaves x alone.
+                        if (abs(travelled.x) >= viewConfiguration.touchSlop) movedX = true
+                        if (abs(travelled.y) >= viewConfiguration.touchSlop) movedY = true
                         if (!pastSlop) {
-                            travelled += d
                             if (travelled.getDistance() < viewConfiguration.touchSlop) continue
                             pastSlop = true
                             dragging = true
@@ -466,8 +475,10 @@ internal fun Pad2D(
                         val fine = event.changes.count { it.pressed } >= 2
                         rawX = instrumentDragValue(rawX, d.x, travelPx, ax.range, fine)
                         rawY = instrumentDragValue(rawY, -d.y, travelPx, ay.range, fine)
-                        val vx = detent(snap(rawX, ax.range, ax.step), dx(ax), ax.range)
-                        val vy = detent(snap(rawY, ay.range, ay.step), dx(ay), ay.range)
+                        // An axis the finger has not moved keeps its value as it was: a typed
+                        // 2 must not fall into the default detent when only the other axis moves.
+                        val vx = if (!movedX) startX else detent(snap(rawX, ax.range, ax.step), dx(ax), ax.range)
+                        val vy = if (!movedY) startY else detent(snap(rawY, ay.range, ay.step), dx(ay), ay.range)
                         val zx = detentZone(vx, dx(ax), ax.range)
                         val zy = detentZone(vy, dx(ay), ay.range)
                         if ((zx != SliderZone.FREE && zx != zoneX) || (zy != SliderZone.FREE && zy != zoneY)) {
@@ -475,8 +486,8 @@ internal fun Pad2D(
                         }
                         zoneX = zx
                         zoneY = zy
-                        latestX.value.onValueChange(vx)
-                        latestY.value.onValueChange(vy)
+                        if (movedX) latestX.value.onValueChange(vx)
+                        if (movedY) latestY.value.onValueChange(vy)
                         interaction.onChange(SliderReadout(latestTitle.value, readout(vx, vy)))
                         change.consume()
                     }
