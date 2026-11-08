@@ -191,7 +191,6 @@
     <string name="tool_viewer_zoom_in">Zoom avant</string>
     <string name="tool_viewer_zoom_out">Zoom arrière</string>
     <string name="tool_viewer_zoom_fit">Ajuster à l’écran</string>
-    <string name="tool_viewer_zoom_fit_short">Ajuster</string>
     <string name="tool_viewer_compare_desc">Comparaison avant/après. Faites glisser ou touchez la photo pour déplacer la séparation.</string>
     <string name="tool_viewer_compare_state">Avant affiché sur %1$d %% de la largeur</string>
     <string name="tool_viewer_compare_show_before">Afficher seulement l’avant</string>

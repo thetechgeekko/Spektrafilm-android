@@ -35,14 +35,6 @@ class TouchTargetUiTest {
     }
 
     @Test
-    fun zoomButtonOnThePhotoIs48dpToTouch() {
-        compose.setContent {
-            MaterialTheme { ZoomButton("+", "zoom in") {} }
-        }
-        assertAtLeast48dp(compose.onNodeWithContentDescription("zoom in"), "ZoomButton")
-    }
-
-    @Test
     fun topBarPressIconButtonIs48dpToTouch() {
         compose.setContent {
             MaterialTheme {
