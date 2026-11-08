@@ -376,26 +376,58 @@ internal fun CouplersSection(s: ParamsState) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // Basic: the three overall strengths. The per-channel mix matrix is advanced.
-        EnhancedSlider(stringResource(R.string.editor_coup_amount), s.couplersAmount, 0f..4f, { s.couplersAmount = it },
-            step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_coup_amount_tooltip),
-            default = PARAM_DEFAULTS.couplersAmount)
-        EnhancedSlider(stringResource(R.string.editor_coup_samelayer), s.couplersInhibitionSamelayer, 0f..4f,
-            { s.couplersInhibitionSamelayer = it }, step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_coup_samelayer_tooltip),
-            default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
-        EnhancedSlider(stringResource(R.string.editor_coup_interlayer), s.couplersInhibitionInterlayer, 0f..4f,
-            { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_coup_interlayer_tooltip),
-            default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
+        // Basic: the three overall strengths, as arc gauges (instrument catalogue: arcGauge).
+        // The per-channel mix matrix is advanced.
+        val coupAmount = stringResource(R.string.editor_coup_amount)
+        val coupSame = stringResource(R.string.editor_coup_samelayer)
+        val coupInter = stringResource(R.string.editor_coup_interlayer)
+        InstrumentRow(
+            hints = mapOf(
+                coupAmount to stringResource(R.string.editor_coup_amount_tooltip),
+                coupSame to stringResource(R.string.editor_coup_samelayer_tooltip),
+                coupInter to stringResource(R.string.editor_coup_interlayer_tooltip),
+            ),
+        ) {
+            Instrument(InstrumentKind.ARC_GAUGE, coupAmount, s.couplersAmount, 0f..4f, { s.couplersAmount = it },
+                step = 0.05f, decimals = 2, default = PARAM_DEFAULTS.couplersAmount)
+            Instrument(InstrumentKind.ARC_GAUGE, coupSame, s.couplersInhibitionSamelayer, 0f..4f,
+                { s.couplersInhibitionSamelayer = it }, step = 0.05f, decimals = 2,
+                default = PARAM_DEFAULTS.couplersInhibitionSamelayer)
+            Instrument(InstrumentKind.ARC_GAUGE, coupInter, s.couplersInhibitionInterlayer, 0f..4f,
+                { s.couplersInhibitionInterlayer = it }, step = 0.05f, decimals = 2,
+                default = PARAM_DEFAULTS.couplersInhibitionInterlayer)
+        }
         AdvancedToggle(advanced) { advanced = it }
         if (advanced) {
             GatedBlock(stringResource(R.string.editor_coup_gated_gamma)) {
-                TripleSlider(stringResource(R.string.editor_coup_gamma_samelayer), s.couplersGammaSamelayer, 0f..2f, { s.couplersGammaSamelayer = it },
-                    step = 0.02f, decimals = 3,
-                    tooltip = stringResource(R.string.editor_coup_gamma_samelayer_tooltip),
-                    default = PARAM_DEFAULTS.couplersGammaSamelayer)
+                // Per-channel same-layer gamma as three EQ bands (instrument catalogue: eqBand):
+                // a fader per dye layer, in its channel's colour.
+                val gammaLabel = stringResource(R.string.editor_coup_gamma_samelayer)
+                val channels = listOf(
+                    stringResource(R.string.widget_component_r),
+                    stringResource(R.string.widget_component_g),
+                    stringResource(R.string.widget_component_b),
+                )
+                val g = s.couplersGammaSamelayer
+                val gd = PARAM_DEFAULTS.couplersGammaSamelayer
+                Text(gammaLabel, style = MaterialTheme.typography.bodyMedium)
+                InstrumentRow {
+                    channels.forEachIndexed { i, ch ->
+                        val v = when (i) { 0 -> g.first; 1 -> g.second; else -> g.third }
+                        val d = when (i) { 0 -> gd.first; 1 -> gd.second; else -> gd.third }
+                        Instrument(InstrumentKind.FADER, "$gammaLabel $ch", v, 0f..2f,
+                            { nv ->
+                                val cur = s.couplersGammaSamelayer
+                                s.couplersGammaSamelayer = when (i) {
+                                    0 -> cur.copy(first = nv)
+                                    1 -> cur.copy(second = nv)
+                                    else -> cur.copy(third = nv)
+                                }
+                            },
+                            step = 0.02f, decimals = 3, default = d, accent = SpektraBrand.channelColors[i], caption = ch)
+                    }
+                }
+                InstrumentTooltip(stringResource(R.string.editor_coup_gamma_samelayer_tooltip))
                 PairSlider(stringResource(R.string.editor_coup_mix_r), s.couplersGammaRtoGb, 0f..2f, { s.couplersGammaRtoGb = it },
                     step = 0.02f, decimals = 3, tooltip = stringResource(R.string.editor_coup_mix_r_tooltip),
                     componentLabels = "→G" to "→B", default = PARAM_DEFAULTS.couplersGammaRtoGb)

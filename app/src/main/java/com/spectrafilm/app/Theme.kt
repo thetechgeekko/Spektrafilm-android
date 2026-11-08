@@ -81,6 +81,8 @@ internal object SpektraBrand {
     val tintStops = listOf(Color(0xFF4CAF6A), Color(0xFFCFC8D0), Color(0xFFC04FB0))
     /** Scan level meters: black to white in every theme, since the ramp stands for tones. */
     val levelRamp = listOf(Color(0xFF000000), Color(0xFFFFFFFF))
+    /** EQ bands for per-channel controls: red, green, blue, muted to sit on any surface. */
+    val channelColors = listOf(Color(0xFFD9534F), Color(0xFF4CAF6A), Color(0xFF4F86D9))
 
     /** Export darkroom (ExportDevelopTray.kt): the safelit room, dark in every theme. */
     val darkroomScrim = Color(0xF5120A08)
