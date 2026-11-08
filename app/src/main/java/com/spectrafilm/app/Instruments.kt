@@ -280,7 +280,7 @@ internal fun Instrument(
                         val top = y - barH / 2
                         val corner = CornerRadius(4.dp.toPx())
                         drawRoundRect(
-                            brush = Brush.horizontalGradient(listOf(body, ink.copy(alpha = 0.55f)), startX = pad, endX = pad + w),
+                            brush = Brush.horizontalGradient(SpektraBrand.levelRamp, startX = pad, endX = pad + w),
                             topLeft = Offset(pad, top),
                             size = Size(w, barH),
                             cornerRadius = corner,

@@ -79,6 +79,8 @@ internal object SpektraBrand {
      */
     val warmthStops = listOf(Color(0xFF4F86D9), Color(0xFFD8D2C8), Color(0xFFF0A443))
     val tintStops = listOf(Color(0xFF4CAF6A), Color(0xFFCFC8D0), Color(0xFFC04FB0))
+    /** Scan level meters: black to white in every theme, since the ramp stands for tones. */
+    val levelRamp = listOf(Color(0xFF000000), Color(0xFFFFFFFF))
 
     /** Export darkroom (ExportDevelopTray.kt): the safelit room, dark in every theme. */
     val darkroomScrim = Color(0xF5120A08)
