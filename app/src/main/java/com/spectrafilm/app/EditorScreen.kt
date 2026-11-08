@@ -701,37 +701,24 @@ internal fun EditorScreen(
     val editorCatalog by editorVm.catalog.collectAsStateWithLifecycle()
     LaunchedEffect(editorCatalog) {
         val loaded = editorCatalog ?: return@LaunchedEffect
-        val list = loaded.profiles
-        val restore = session.applyCatalog(
-            profiles = list,
-            applyDefaults = settings::applyDefaultsTo,
-            restored = initialRestoredSession?.takeIf { restored ->
-                sourceUri?.toString() == restored.source.uri &&
-                    sourceKind == restored.source.kind
-            },
+        applyEditorCatalog(
+            loaded = loaded,
+            ctx = ctx,
+            session = session,
+            settings = settings,
+            state = state,
+            toolVm = toolVm,
+            presetVm = presetVm,
+            initialRestoredSession = initialRestoredSession,
+            initialSessionRestoreNotice = initialSessionRestoreNotice,
+            sourceUri = sourceUri,
+            sourceKind = sourceKind,
+            refreshPresets = ::refreshPresets,
+            statusState = statusState,
+            defaultsJsonState = defaultsJsonState,
+            recipeReadyState = recipeReadyState,
+            previewTickState = previewTickState,
         )
-        val freshDefaults = restore.freshDefaults
-        if (restore.restored) toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
-        if (restore.rebaselined) {
-            presetVm.onAction(PresetAction.ClearAmount)
-            presetVm.onAction(PresetAction.SetClipboard(null))
-            status = ctx.getString(R.string.editor_status_session_migrated)
-        }
-        session.adoptCatalog(loaded)
-        refreshPresets()
-        if (
-            initialSessionRestoreNotice == null &&
-            status == ctx.getString(R.string.editor_status_initializing)
-        ) {
-            status = if (initialRestoredSession == null) {
-                ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
-            } else {
-                ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
-            }
-        }
-        defaultsJson = freshDefaults
-        recipeReady = true
-        previewTick++
     }
 
     // --- Non-destructive recipe: restore-on-open ---
@@ -1020,26 +1007,16 @@ internal fun EditorScreen(
         }
     }
 
-    LaunchedEffect(sourceAuthorizationRequired, sourceKind) {
-        if (!sourceAuthorizationRequired) return@LaunchedEffect
-        exportVm.onAction(ExportAction.CloseSheet)
-        snackbarHost.currentSnackbarData?.dismiss()
-        val result = snackbarHost.showSnackbar(
-            message = ctx.getString(R.string.editor_snack_source_expired),
-            actionLabel = ctx.getString(R.string.editor_snack_choose_again),
-            withDismissAction = true,
-            duration = SnackbarDuration.Indefinite,
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            if (sourceKind == SourceKind.RAW) {
-                rawPicker.launch(arrayOf("*/*"))
-            } else {
-                photoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
-            }
-        }
-    }
+    // The source's access expired: offer to choose it again (EditorCatalogApply.kt).
+    EditorSourceExpiredEffect(
+        sourceAuthorizationRequired = sourceAuthorizationRequired,
+        sourceKind = sourceKind,
+        ctx = ctx,
+        exportVm = exportVm,
+        snackbarHost = snackbarHost,
+        rawPicker = rawPicker,
+        photoPicker = photoPicker,
+    )
 
     // Source decode requests and the cached preview / zoom loaders (EditorSourceLoader.kt).
     // Built per composition, like the local functions it replaces.
