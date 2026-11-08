@@ -644,42 +644,18 @@ internal fun EditorScreen(
         status = ctx.getString(if (to < from) R.string.editor_status_undo else R.string.editor_status_redo)
     }
 
-    fun captureEditorSessionDocument(): EditorSessionDocument? {
-        if (!recipeReady) return null
-        val overlay = toolVm.current.overlay
-        val selectedMask = clampSelectedMaskIndex(
-            toolVm.current.maskIndex,
-            state.localAdjustments.size,
-        )
-        // Crop/mask-geometry gesture drafts live only inside their overlay Composable. Persist
-        // the selected tool; a recreated overlay seeds a fresh, no-op draft from the committed
-        // crop/mask geometry passed below, never from the disposed in-progress gesture.
-        val committedOverlay = restorableEditorOverlay(overlay)
-        val safeOverlay = if (
-            committedOverlay == EditorOverlayTool.MASK_SAMPLE_COLOR ||
-            committedOverlay == EditorOverlayTool.MASK_SAMPLE_LUMINANCE
-        ) {
-            committedOverlay.takeIf { selectedMask in state.localAdjustments.indices }
-                ?: EditorOverlayTool.NONE
-        } else {
-            committedOverlay
-        }
-        return EditorSessionDocument(
-            source = sourceState.value.let {
-                it.copy(displayName = AtomicJsonStore.truncateUtf16Safely(it.displayName, 512))
-            },
-                current = snapshotNow(),
-                committed = committedSnapshot,
-                history = editHistory.snapshotState(),
-                tool = EditorToolState(
-                    category = activeCategory,
-                    overlay = safeOverlay,
-                    maskIndex = selectedMask,
-                ),
-                preset = presetVm.current.toSessionState(),
-                export = exportVm.current.toSessionState(),
-        )
-    }
+    fun captureEditorSessionDocument(): EditorSessionDocument? = buildEditorSessionDocument(
+        recipeReady = recipeReady,
+        toolVm = toolVm,
+        state = state,
+        sourceState = sourceState,
+        session = session,
+        committedSnapshot = committedSnapshot,
+        editHistory = editHistory,
+        activeCategory = activeCategory,
+        presetVm = presetVm,
+        exportVm = exportVm,
+    )
 
     fun checkpointEditorSession(): Boolean = runCatching {
         captureEditorSessionDocument()?.let { document ->
@@ -694,37 +670,19 @@ internal fun EditorScreen(
     }
     sessionCheckpointAction[0] = ::checkpointEditorSession
 
-    LaunchedEffect(recipeReady) {
-        if (!recipeReady) return@LaunchedEffect
-        runCatching { captureEditorSessionDocument() }
-            .onSuccess { document ->
-                if (document != null) {
-                    editorProbe.publishLiveEditorSnapshot(editorInstance, document)
-                    onSessionCheckpoint(document, liveCursorMutated)
-                    editorProbe.publishLiveEditorReady(editorInstance, document)
-                }
-            }
-            .onFailure {
-                Diag.w("live editor readiness rejected (${it.javaClass.simpleName})")
-            }
-    }
-
-    // Lifecycle recreation is the only time a non-navigation teardown can happen after the
-    // last debounced settle. Capture synchronously on the main thread; the latest-only runtime
-    // owns the bounded IO after this Activity is gone.
+    // Live-editor readiness and the lifecycle checkpoints (EditorSessionCheckpoint.kt).
     val currentSessionCheckpoint by rememberUpdatedState<() -> Boolean>(
         newValue = { checkpointEditorSession() },
     )
-    DisposableEffect(lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) currentSessionCheckpoint()
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            currentSessionCheckpoint()
-            lifecycle.removeObserver(observer)
-        }
-    }
+    EditorSessionLifecycleEffects(
+        recipeReady = recipeReady,
+        lifecycle = lifecycle,
+        editorInstance = editorInstance,
+        captureEditorSessionDocument = ::captureEditorSessionDocument,
+        liveCursorMutated = { liveCursorMutated },
+        onSessionCheckpoint = onSessionCheckpoint,
+        currentSessionCheckpoint = { currentSessionCheckpoint() },
+    )
 
     fun resetEditorCursorForSourceChange() {
         editHistory.clear()
@@ -903,68 +861,29 @@ internal fun EditorScreen(
     fun requestMediaLocationIfMissing() = exportPermissions.requestMediaLocationIfMissing()
     fun exportAskingNotificationsOnce(export: () -> Unit) = exportPermissions.exportAskingNotificationsOnce(export)
 
-    fun visibleSourceState() = sourceState.value
-
-    fun reconcileVisibleSourceAfterFailure(durable: SourceRestoreResult?) {
-        when (durable) {
-            SourceRestoreResult.Demo -> {
-                if (sourceUri != null || sourceKind != SourceKind.DEMO) {
-                    retireSourceResources()
-                    resetEditorCursorForSourceChange()
-                }
-                session.showDemo(ctx.getString(R.string.editor_source_demo_name))
-                rotation = SourceRotation.NONE
-                status = ctx.getString(R.string.editor_status_demo_image)
-            }
-            is SourceRestoreResult.Ready -> {
-                val switched = !shouldRetainEditorCursor(visibleSourceState(), durable)
-                if (switched) {
-                    retireSourceResources()
-                    resetEditorCursorForSourceChange()
-                }
-                session.showSource(
-                    uri = durable.ref.uri,
-                    kind = SourceKind.valueOf(durable.ref.kind),
-                    displayName = durable.ref.displayName,
-                    authorizationRequired = false,
-                )
-                if (switched) rotation = SourceRotation.NONE
-                status = ctx.getString(R.string.editor_status_selection_failed_restored)
-            }
-            is SourceRestoreResult.NeedsAuthorization -> {
-                val switched = !shouldRetainEditorCursor(visibleSourceState(), durable)
-                retireSourceResources()
-                if (switched) {
-                    resetEditorCursorForSourceChange()
-                }
-                session.showSource(
-                    uri = durable.ref.uri,
-                    kind = SourceKind.valueOf(durable.ref.kind),
-                    displayName = durable.ref.displayName,
-                    authorizationRequired = true,
-                )
-                if (switched) rotation = SourceRotation.NONE
-                status = ctx.getString(R.string.editor_status_selection_failed_auth)
-            }
-            SourceRestoreResult.None -> {
-                if (sourceUri != null && sourceKind != SourceKind.DEMO) {
-                    retireSourceResources()
-                    session.requireSourceAuthorization()
-                    status = ctx.getString(R.string.editor_status_selection_failed_auth)
-                } else {
-                    session.showDemo(ctx.getString(R.string.editor_source_demo_name))
-                    rotation = SourceRotation.NONE
-                    status = ctx.getString(R.string.editor_status_source_unavailable_demo)
-                }
-            }
-            is SourceRestoreResult.Invalid, null -> {
-                if (session.requireAuthorizationIfRealSource()) retireSourceResources()
-                status = ctx.getString(R.string.editor_status_source_state_unavailable)
-            }
-        }
-        previewTick++
-    }
-
+    // Source adoption: picking, opening and failure reconciliation (EditorSourceAdoption.kt).
+    // Built per composition, like the local functions it replaces, so it captures this
+    // composition's values; editor state it mutates is passed as state holders.
+    val sourceAdoption = EditorSourceAdoption(
+        ctx = ctx,
+        scope = scope,
+        dispatchers = dispatchers,
+        session = session,
+        sourceRuntime = sourceRuntime,
+        sourceState = sourceState,
+        sourceUriState = sourceUriState,
+        sourceKindState = sourceKindState,
+        rotationState = rotationState,
+        statusState = statusState,
+        previewTickState = previewTickState,
+        activeCategoryState = activeCategoryState,
+        snackbarHost = snackbarHost,
+        retireSourceResources = ::retireSourceResources,
+        resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
+        checkpointEditorSession = ::checkpointEditorSession,
+    )
+    fun reconcileVisibleSourceAfterFailure(durable: SourceRestoreResult?) =
+        sourceAdoption.reconcileVisibleSourceAfterFailure(durable)
     fun adoptSource(
         uri: Uri,
         kind: SourceKind,
@@ -972,72 +891,7 @@ internal fun EditorScreen(
         readyStatus: String,
         probeLabel: String? = null,
         ownedCopy: Uri? = null,
-    ) {
-        val selectionGeneration = sourceMutationGate.begin()
-        // The mutation starts in the process-owned runtime before this Activity awaits it.
-        // Activity recreation may cancel the waiter, but it cannot drop the grant/store write.
-        val pendingAcquire = sourceRuntime.submitReconciled(selectionGeneration) {
-            sourceAccess.acquire(
-                uri.toString(),
-                kind.name,
-                AtomicJsonStore.truncateUtf16Safely(displayName, 512),
-            )
-        }
-        // #508: the working copy belongs to this acquisition from here on, not to the Activity.
-        // Once the queued mutation settles -- applied, skipped by a newer selection, or rejected --
-        // the process scope releases it; [SharedSourceCopies.delete] keeps the file only when it
-        // became the durable source, so a skipped or failed adoption never leaks a copy.
-        if (ownedCopy != null) {
-            val app = ctx.applicationContext
-            pendingAcquire.invokeOnCompletion {
-                app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, ownedCopy) }
-            }
-        }
-        scope.launch {
-            val outcome = pendingAcquire.await() ?: return@launch
-            if (!sourceMutationGate.isCurrent(selectionGeneration)) return@launch
-            when (outcome) {
-                is ReconciledSourceMutation.Applied -> {
-                    val ref = outcome.value
-                    val switched = sourceUri?.toString() != uri.toString() || sourceKind != kind
-                    if (switched) {
-                        retireSourceResources()
-                        resetEditorCursorForSourceChange()
-                    }
-                    session.showSource(uri.toString(), kind, displayName)
-                    if (switched) rotation = SourceRotation.NONE
-                    // A new photo opens Film & look: picking a stock is the next step for
-                    // almost everyone, so it should not cost a tap on the category bar.
-                    if (switched) activeCategory = CATEGORY_AFTER_NEW_PHOTO
-                    // A private working copy (#508) is as durable as a persisted grant.
-                    status = if (
-                        ref.accessMode == SourceAccessMode.PERSISTED ||
-                        SharedSourceCopies.isCopy(ctx, ref.uri) ||
-                        AlbumImports.isCopy(ctx, ref.uri) ||
-                        PhoneGallery.isReadable(ctx, ref.uri)
-                    ) {
-                        readyStatus
-                    } else {
-                        ctx.getString(R.string.editor_status_access_temporary, readyStatus)
-                    }
-                    previewTick++
-                    probeLabel?.let(editorProbe::publishProbeSource)
-                    // One working copy at most (#508): drop any that is no longer the source.
-                    launch(dispatchers.io) { SharedSourceCopies.prune(ctx) }
-                }
-                is ReconciledSourceMutation.Rejected -> {
-                    Diag.w("source adoption failed: ${outcome.failure.message}")
-                    reconcileVisibleSourceAfterFailure(outcome.durableState)
-                    snackbarHost.currentSnackbarData?.dismiss()
-                    snackbarHost.showSnackbar(
-                        ctx.getString(R.string.editor_snack_source_open_failed),
-                        withDismissAction = true,
-                    )
-                }
-            }
-            checkpointEditorSession()
-        }
-    }
+    ) = sourceAdoption.adoptSource(uri, kind, displayName, readyStatus, probeLabel, ownedCopy)
 
     LaunchedEffect(Unit) {
         if (!editorProbe.isArmed()) return@LaunchedEffect
@@ -1081,57 +935,8 @@ internal fun EditorScreen(
     // decision (detectSourceKind, SourceDetect.kt), one adoption path. The picker accepts
     // */*, so every kind below is genuinely reachable — including the motion kinds, which
     // used to fall through the still-image test and be handed to LibRaw as corrupt RAW.
-    fun refuseUnsupported(statusRes: Int, snackRes: Int) {
-        status = ctx.getString(statusRes)
-        scope.launch {
-            snackbarHost.currentSnackbarData?.dismiss()
-            snackbarHost.showSnackbar(ctx.getString(snackRes))
-        }
-    }
-    fun adoptIncomingImage(uri: Uri, nameHint: String? = null, mimeHint: String? = null, ownedCopy: Uri? = null) {
-        val name = nameHint ?: uri.lastPathSegment ?: "raw"
-        val mime = mimeHint ?: runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
-        val kind = detectSourceKind(name, mime)
-        if (ownedCopy != null && (kind == SourceFileKind.MCRAW || kind == SourceFileKind.VIDEO)) {
-            // Never copied on purpose, but a refused kind must not keep a copy either (#508).
-            val app = ctx.applicationContext
-            app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, ownedCopy) }
-        }
-        when (kind) {
-            // MotionCam RAW-video container: recognized (see McrawContainer /
-            // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so don't set
-            // a RAW source that would fail — tell the user instead.
-            SourceFileKind.MCRAW -> refuseUnsupported(
-                R.string.editor_status_mcraw_unsupported,
-                R.string.editor_snack_mcraw_coming,
-            )
-            // A motion clip. The engine simulates stills today, so refuse it the same honest
-            // way as .mcraw rather than failing deep inside the RAW decoder.
-            SourceFileKind.VIDEO -> refuseUnsupported(
-                R.string.editor_status_video_unsupported,
-                R.string.editor_snack_video_coming,
-            )
-            // A JPEG/HEIC chosen via the RAW document picker: process it on the normal photo
-            // path rather than forcing it through LibRaw (which would fail, then fall back to
-            // a lossy display-referred decode).
-            SourceFileKind.PHOTO -> adoptSource(
-                uri,
-                SourceKind.PHOTO,
-                name.substringAfterLast('/'),
-                ctx.getString(R.string.editor_status_photo_selected),
-                ownedCopy = ownedCopy,
-            )
-            // RAW/DNG, and every ambiguous content URI (e.g. MIUI document IDs with no
-            // extension), so a genuine DNG is never misrouted.
-            SourceFileKind.RAW -> adoptSource(
-                uri,
-                SourceKind.RAW,
-                ctx.getString(R.string.editor_source_raw_name, name.substringAfterLast('/')),
-                ctx.getString(R.string.editor_status_raw_selected),
-                ownedCopy = ownedCopy,
-            )
-        }
-    }
+    fun adoptIncomingImage(uri: Uri, nameHint: String? = null, mimeHint: String? = null, ownedCopy: Uri? = null) =
+        sourceAdoption.adoptIncomingImage(uri, nameHint, mimeHint, ownedCopy)
     val rawPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -1816,143 +1621,74 @@ internal fun EditorScreen(
                 // One tool's controls, shared by every branch so the per-tool `when` below
                 // is not duplicated.
                 val toolContent: @Composable ColumnScope.(Category) -> Unit = { tool ->
-                    val simPart: SimPart? = when (tool) {
-                        Category.SIMULATION -> SimPart.FILM_STOCK
-                        Category.PAPER -> SimPart.PAPER
-                        Category.EXPOSURE -> SimPart.EXPOSURE
-                        Category.SCENE_LATITUDE -> SimPart.SCENE_LATITUDE
-                        Category.SAT_VIB -> SimPart.SAT_VIB
-                        Category.PRINT_COLOR -> SimPart.PRINT_COLOR
-                        Category.FILM_FORMAT -> SimPart.FILM_FORMAT
-                        Category.CAMERA_DIFFUSION -> SimPart.CAMERA_DIFFUSION
-                        Category.PRINT_EXPOSURE -> SimPart.PRINT_EXPOSURE
-                        Category.ENLARGER -> SimPart.ENLARGER
-                        Category.LENS_BLUR -> SimPart.LENS_BLUR
-                        Category.DATE_STAMP -> SimPart.DATE_STAMP
-                        Category.SCANNER -> SimPart.SCANNER
-                        Category.OUTPUT -> SimPart.OUTPUT
-                        else -> null
-                    }
-                    when (tool) {
-                        Category.INPUT -> InputSection(state, onEditCrop = { toolVm.onAction(EditorToolAction.OpenCrop) })
-                        Category.RAW_WB -> ImportRawSection(state, isRaw = isRawSource,
-                            onPickNeutral = { toolVm.onAction(EditorToolAction.PickNeutral) })
-                        Category.RAW_CLEANUP -> RawCleanupSection(state)
-                        Category.SIMULATION, Category.PAPER, Category.EXPOSURE, Category.SCENE_LATITUDE,
-                        Category.SAT_VIB, Category.PRINT_COLOR, Category.FILM_FORMAT,
-                        Category.CAMERA_DIFFUSION, Category.PRINT_EXPOSURE, Category.ENLARGER,
-                        Category.LENS_BLUR, Category.DATE_STAMP, Category.SCANNER,
-                        Category.OUTPUT -> EditorSimulationPanel(
-                            filmPreviewVm = filmPreviewVm,
-                            printPreviewVm = printPreviewVm,
-                            part = simPart ?: SimPart.FILM_STOCK,
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            snackbarHost = snackbarHost,
-                            photoDateStamp = photoDateStamp,
-                            filmGroups = filmGroups,
-                            printGroups = printGroups,
-                            onOpenFilmCurves = onOpenFilmCurves,
-                            onOpenPrintCurves = onOpenPrintCurves,
-                            stockPreviewHost = ::stockPreviewHost,
-                            checkpointEditorSession = ::checkpointEditorSession,
-                            sourceKey = sourceUri,
-                            // A slider drag runs draft renders without setting previewBusy,
-                            // so the strip also waits for the drag to end.
-                            previewBusy = previewBusy || interacting.value,
-                        )
-                        Category.GRAIN -> GrainSection(state)
-                        Category.PREFLASH -> PreflashSection(state)
-                        Category.CONTRAST_MASK -> ContrastMaskSection(state)
-                        Category.HALATION -> HalationSection(state)
-                        Category.COUPLERS -> CouplersSection(state)
-                        Category.GLARE -> GlareSection(state)
-                        Category.EXPERIMENTAL -> ExperimentalSection(state)
-                        Category.TONE_CURVE -> ToneCurveSection(state, preview)
-                        Category.MASKS -> MasksSection(
-                            state,
-                            selectedIndex = toolUi.maskIndex,
-                            onSelectedIndexChange = { toolVm.onAction(EditorToolAction.SelectMask(it)) },
-                            onEditOnPhoto = { idx ->
-                                toolVm.onAction(EditorToolAction.EditMaskOnPhoto(idx))
-                            },
-                            onSampleColor = { idx ->
-                                toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = false))
-                            },
-                            onSampleLuminance = { idx ->
-                                toolVm.onAction(EditorToolAction.SampleMask(idx, luminance = true))
-                            },
-                        )
-                        Category.DISPLAY -> DisplaySection(state)
-                        Category.PRESETS -> EditorPresetPanel(
-                            dispatchers = dispatchers,
-                            presetVm = presetVm,
-                            versionsVm = versionsVm,
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            presetRepo = presetRepo,
-                            snackbarHost = snackbarHost,
-                            recipeKey = recipeKey,
-                            builtInGroups = builtInGroups,
-                            presetUi = presetUi,
-                            presetImporter = presetImporter,
-                            presetExporter = presetExporter,
-                            savedPresetExporter = savedPresetExporter,
-                            lutExporter = lutExporter,
-                            presetListState = presetListState,
-                            presetBaselineJsonState = presetBaselineJsonState,
-                            lastBuiltInOutputState = lastBuiltInOutputState,
-                            lastBuiltInIdState = lastBuiltInIdState,
-                            presetPreviewHost = presetPreviewHost(presetPreviewVm),
-                            stripSourceKey = sourceUri,
-                            stripPaused = previewBusy || interacting.value,
-                            bakingLutState = bakingLutState,
-                            pendingLutTextState = pendingLutTextState,
-                            pendingPresetExportState = pendingPresetExportState,
-                            rotationState = rotationState,
-                            statusState = statusState,
-                            previewTickState = previewTickState,
-                            engineState = engineState,
-                            applyWithAmountFn = ::applyWithAmount,
-                            previousEdit = previousEdit,
-                            onApplyPrevious = { previousEdit?.let { applyPreviousEdit(it) } },
-                        )
-                        Category.SOURCE -> EditorSourcePanel(
-                            onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
-                            onClearPresetAmount = { presetVm.onAction(PresetAction.ClearAmount) },
-                            ctx = ctx,
-                            scope = scope,
-                            state = state,
-                            settings = settings,
-                            snackbarHost = snackbarHost,
-                            sourceRuntime = sourceRuntime,
-                            recipeRepo = recipeRepo,
-                            recipeKey = recipeKey,
-                            recipeEditEpoch = recipeEditEpoch,
-                            editHistory = editHistory,
-                            photoPicker = photoPicker,
-                            rawPicker = rawPicker,
-                            showHistogram = viewerUi.histogram,
-                            sourceState = sourceState,
-                            showDemoSource = {
-                                session.showDemo(ctx.getString(R.string.editor_source_demo_name))
-                            },
-                            statusState = statusState,
-                            previewTickState = previewTickState,
-                            rotationState = rotationState,
-                            hasRecipeState = hasRecipeState,
-                            recipeAccessState = recipeAccessState,
-                            committedSnapshotState = committedSnapshotState,
-                            restoringState = restoringState,
-                            profilesState = profilesState,
-                            checkpointEditorSessionFn = ::checkpointEditorSession,
-                            retireSourceResourcesFn = ::retireSourceResources,
-                            resetEditorCursorForSourceChangeFn = ::resetEditorCursorForSourceChange,
-                            reconcileVisibleSourceAfterFailureFn = ::reconcileVisibleSourceAfterFailure,
-                        )
-                    }
+                    EditorToolContent(
+                        tool = tool,
+                        ctx = ctx,
+                        scope = scope,
+                        dispatchers = dispatchers,
+                        state = state,
+                        settings = settings,
+                        session = session,
+                        snackbarHost = snackbarHost,
+                        toolVm = toolVm,
+                        toolUi = toolUi,
+                        viewerVm = viewerVm,
+                        viewerUi = viewerUi,
+                        presetVm = presetVm,
+                        versionsVm = versionsVm,
+                        filmPreviewVm = filmPreviewVm,
+                        printPreviewVm = printPreviewVm,
+                        isRawSource = isRawSource,
+                        preview = preview,
+                        previewBusy = previewBusy,
+                        interacting = interacting,
+                        photoDateStamp = photoDateStamp,
+                        filmGroups = filmGroups,
+                        printGroups = printGroups,
+                        onOpenFilmCurves = onOpenFilmCurves,
+                        onOpenPrintCurves = onOpenPrintCurves,
+                        stockPreviewHost = ::stockPreviewHost,
+                        presetPreviewHost = { presetPreviewHost(presetPreviewVm) },
+                        checkpointEditorSession = ::checkpointEditorSession,
+                        sourceUri = sourceUri,
+                        presetRepo = presetRepo,
+                        recipeKey = recipeKey,
+                        builtInGroups = builtInGroups,
+                        presetUi = presetUi,
+                        presetImporter = presetImporter,
+                        presetExporter = presetExporter,
+                        savedPresetExporter = savedPresetExporter,
+                        lutExporter = lutExporter,
+                        presetListState = presetListState,
+                        presetBaselineJsonState = presetBaselineJsonState,
+                        lastBuiltInOutputState = lastBuiltInOutputState,
+                        lastBuiltInIdState = lastBuiltInIdState,
+                        bakingLutState = bakingLutState,
+                        pendingLutTextState = pendingLutTextState,
+                        pendingPresetExportState = pendingPresetExportState,
+                        rotationState = rotationState,
+                        statusState = statusState,
+                        previewTickState = previewTickState,
+                        engineState = engineState,
+                        applyWithAmount = ::applyWithAmount,
+                        previousEdit = previousEdit,
+                        applyPreviousEdit = ::applyPreviousEdit,
+                        sourceRuntime = sourceRuntime,
+                        recipeRepo = recipeRepo,
+                        recipeEditEpoch = recipeEditEpoch,
+                        editHistory = editHistory,
+                        photoPicker = photoPicker,
+                        rawPicker = rawPicker,
+                        sourceState = sourceState,
+                        hasRecipeState = hasRecipeState,
+                        recipeAccessState = recipeAccessState,
+                        committedSnapshotState = committedSnapshotState,
+                        restoringState = restoringState,
+                        profilesState = profilesState,
+                        retireSourceResources = ::retireSourceResources,
+                        resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
+                        reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
+                    )
                 }
                 // Edit's tool open in full (every control and its help), or null for the rail.
                 var railDetail by rememberSaveable { mutableStateOf<Category?>(null) }
