@@ -267,3 +267,12 @@ tasks.register("writeReleaseRuntimeClasspath") {
         }
     }
 }
+
+// Print the assertion message of a failing JVM test in the build log (CI artifacts are not
+// always reachable, and "AssertionError at Foo.kt:61" alone says nothing).
+tasks.withType<Test>().configureEach {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = false
+    }
+}
