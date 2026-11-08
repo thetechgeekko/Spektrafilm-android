@@ -213,6 +213,24 @@ class AlbumsViewModelTest {
         assertEquals(0 to 0, result)
     }
 
+    @Test fun anImportSettlesItsCopiesOnlyAfterItsSave() {
+        val store = FakeStore()
+        val settled = ArrayList<String>()
+        var savesWhenSettled = -1
+        val importer = object : AlbumImporter {
+            override fun import(uri: String, keepGrant: Boolean) =
+                AlbumItem("$uri-copy", "x.jpg", "image/jpeg", 1L, 1L, null)
+            override fun settle(itemUris: Collection<String>) {
+                savesWhenSettled = store.saves
+                settled += itemUris
+            }
+        }
+        val model = vm(store, importer = importer); idle()
+        model.import(listOf("content://a"), keepGrants = false, albumName = "Imported"); idle()
+        assertEquals(listOf("content://a-copy"), settled)
+        assertEquals(1, savesWhenSettled)
+    }
+
     @Test fun importedCopiesArePrunedAgainstEveryAlbumAfterAGoodRead() {
         var kept: Set<String>? = null
         vm(FakeStore(listOf(Album("a", "A", 1L, listOf(item(1))))), prune = { kept = it }); idle()

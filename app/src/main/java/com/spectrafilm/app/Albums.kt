@@ -460,6 +460,8 @@ internal class AlbumsViewModel(
                 },
                 onResult = { saved ->
                     AlbumUndoHold.release(hold)
+                    // Saved or not, the copies are no longer in flight: the next prune decides.
+                    importer.settle(items.map { it.uri })
                     onDone(added.takeIf { saved }, wanted.size - items.size)
                 },
             )
