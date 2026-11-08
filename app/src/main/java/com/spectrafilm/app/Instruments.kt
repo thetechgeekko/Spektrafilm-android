@@ -18,6 +18,7 @@ package com.spectrafilm.app
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
@@ -544,7 +545,39 @@ internal fun Pad2D(
             }
         }
         Text(title, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
-        Text(readout(x.value, y.value), style = MaterialTheme.typography.labelMedium, color = valueColor)
+        // Each axis value is its own tap target that opens numeric entry: the pad's detent
+        // makes values right beside the default unreachable by drag, so typing must stay.
+        var typing by remember { mutableStateOf<Int?>(null) }
+        val typeLabel = stringResource(R.string.editor_hud_type_value)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(x, y).forEachIndexed { i, a ->
+                if (i == 1) Text("/", style = MaterialTheme.typography.labelMedium, color = valueColor)
+                Text(
+                    formatValue(a.value, a.decimals),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = valueColor,
+                    modifier = Modifier
+                        .clickable(onClickLabel = typeLabel) { typing = i }
+                        .padding(horizontal = 8.dp, vertical = 12.dp),
+                )
+            }
+        }
+        typing?.let { i ->
+            val a = if (i == 0) x else y
+            NumericEntryDialog(
+                label = a.label,
+                initial = formatValue(a.value, a.decimals),
+                range = a.range,
+                step = a.step,
+                decimals = a.decimals,
+                onDismiss = { typing = null },
+                onConfirm = { v ->
+                    a.onValueChange(v)
+                    onValueChangeFinished?.invoke()
+                    typing = null
+                },
+            )
+        }
     }
 }
 
