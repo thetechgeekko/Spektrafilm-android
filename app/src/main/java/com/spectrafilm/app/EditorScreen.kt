@@ -1204,20 +1204,50 @@ internal fun EditorScreen(
     // ongoing notification is silently suppressed unless POST_NOTIFICATIONS is
     // granted. The manifest has declared the permission since the service landed,
     // but nothing ever requested it — so on a real install the export notification
-    // never appeared at all. Asked in context at the first export, and never
+    // never appeared at all. Asked ONCE, by the first Export tap itself, and never
     // blocking: the service's kill-resistance (oom_score_adj 50 vs 700) works
     // whether or not the notification can be drawn.
+    //
+    // It used to be asked every time the Export sheet opened. That re-prompted on every
+    // open while the permission stayed off, and the dialog arrived just as the user
+    // reached for Export, so it swallowed that tap. Now the tap raises the dialog and the
+    // export starts from its answer, granted or not: the tap is never lost, and the render
+    // still starts only after the dialog has gone, so it never competes with a system
+    // dialog for /top-app (§15.1).
     fun notificationPermissionMissing(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
+    // The export waiting on the answer. Not saved: if the Activity is recreated while the
+    // dialog is up, the user taps Export again and, already asked, it starts at once.
+    val exportAfterNotificationAnswer = remember { arrayOfNulls<() -> Unit>(1) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
-        // Granted or denied, the export proceeds either way. The media-location request
-        // is chained here rather than launched alongside, so the two system dialogs are
-        // never requested back-to-back on API 33+.
-        requestMediaLocationIfMissing()
+        // Granted or denied, the export proceeds either way.
+        val pending = exportAfterNotificationAnswer[0]
+        exportAfterNotificationAnswer[0] = null
+        pending?.invoke()
+    }
+    /**
+     * Runs [export], first asking for notifications if this is the first export to need them.
+     * Every export that runs under the foreground service goes through it: the sheet's Export,
+     * and batch and half-frame pair before their pickers open (Codex on #564).
+     */
+    fun exportAskingNotificationsOnce(export: () -> Unit) {
+        if (!notificationPermissionMissing() || settings.askedNotificationPermission) {
+            export()
+            return
+        }
+        settings.askedNotificationPermission = true
+        exportAfterNotificationAnswer[0] = export
+        val launched = runCatching {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }.isSuccess
+        if (!launched) {
+            exportAfterNotificationAnswer[0] = null
+            export()
+        }
     }
     val legacyStoragePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -3324,18 +3354,12 @@ internal fun EditorScreen(
         // opening the sheet or editing an option recomposes this section and not the whole
         // editor (#270).
         RecomposeScopeBoundary {
-            // Ask for POST_NOTIFICATIONS when the export SHEET opens — NOT when the
-            // export starts. A system permission dialog takes focus, and on the
-            // measured device losing /top-app costs 3.90x (§15.1): asking at the
-            // moment the render begins would contaminate the very first export with
-            // the exact effect a whole session was spent characterising. Here the
-            // dialog resolves while the user is still choosing options and nothing
-            // is rendering, and it is still in context — they are about to export.
+            // Legacy storage (API <= 28) is asked when the export SHEET opens -- NOT when
+            // the export starts. A system permission dialog takes focus, and on the
+            // measured device losing /top-app costs 3.90x (§15.1). Notifications are
+            // asked by the first Export tap instead (exportAskingNotificationsOnce).
             LaunchedEffect(exportUi.sheetOpen) {
                 val showExportSheet = exportUi.sheetOpen
-                if (showExportSheet && notificationPermissionMissing()) {
-                    runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
-                }
                 if (showExportSheet &&
                     Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
                     ContextCompat.checkSelfPermission(
@@ -3350,10 +3374,9 @@ internal fun EditorScreen(
             }
 
             // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
-            // and again if "Include location (GPS)" is switched on inside the open sheet. When
-            // a notification request is about to run, its result callback asks instead.
+            // and again if "Include location (GPS)" is switched on inside the open sheet.
             LaunchedEffect(exportUi.sheetOpen, exportUi.keepGps) {
-                if (exportVm.current.sheetOpen && !notificationPermissionMissing()) {
+                if (exportVm.current.sheetOpen) {
                     requestMediaLocationIfMissing()
                 }
             }
@@ -3406,7 +3429,11 @@ internal fun EditorScreen(
                     onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                     previewBitmap = preview,
                     onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                        { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
+                        {
+                            exportAskingNotificationsOnce {
+                                requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it }
+                            }
+                        }
                     } else {
                         null
                     },
@@ -3414,11 +3441,15 @@ internal fun EditorScreen(
                         engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
                         halfFramePairSupports(exportUi.options)
                     ) {
-                        { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
+                        {
+                            exportAskingNotificationsOnce {
+                                requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it }
+                            }
+                        }
                     } else {
                         null
                     },
-                    onExport = { launchEditorExport(exportPresets) },
+                    onExport = { exportAskingNotificationsOnce { launchEditorExport(exportPresets) } },
                 )
             }
         }
