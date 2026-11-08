@@ -1173,92 +1173,15 @@ internal fun EditorScreen(
         }
     }
 
-    // ACCESS_MEDIA_LOCATION (API 29+): only asked for when "Include location (GPS)" is on
-    // and the source is a MediaStore photo, because that is the one case where Android
-    // redacts the GPS bytes from the stream (#261). Denial is not a block: the export
-    // proceeds and simply carries no GPS, exactly as it did before the permission existed.
-    val mediaLocationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (!granted) {
-            status = ctx.getString(R.string.editor_status_media_location_denied)
-        }
-    }
-    fun mediaLocationPermissionMissing(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            exportVm.current.keepGps &&
-            requiresMediaLocationPermissionForGpsExport(SharedSourceCopies.originOf(sourceUri) ?: sourceUri) &&
-            ContextCompat.checkSelfPermission(
-                ctx,
-                android.Manifest.permission.ACCESS_MEDIA_LOCATION,
-            ) != PackageManager.PERMISSION_GRANTED
-    fun requestMediaLocationIfMissing() {
-        if (mediaLocationPermissionMissing()) {
-            runCatching {
-                mediaLocationPermission.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
-            }
-        }
-    }
-    // The export runs under a foreground service, and on API 33+ that service's
-    // ongoing notification is silently suppressed unless POST_NOTIFICATIONS is
-    // granted. The manifest has declared the permission since the service landed,
-    // but nothing ever requested it — so on a real install the export notification
-    // never appeared at all. Asked ONCE, by the first Export tap itself, and never
-    // blocking: the service's kill-resistance (oom_score_adj 50 vs 700) works
-    // whether or not the notification can be drawn.
-    //
-    // It used to be asked every time the Export sheet opened. That re-prompted on every
-    // open while the permission stayed off, and the dialog arrived just as the user
-    // reached for Export, so it swallowed that tap. Now the tap raises the dialog and the
-    // export starts from its answer, granted or not: the tap is never lost, and the render
-    // still starts only after the dialog has gone, so it never competes with a system
-    // dialog for /top-app (§15.1).
-    fun notificationPermissionMissing(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-    // The export waiting on the answer. Not saved: if the Activity is recreated while the
-    // dialog is up, the user taps Export again and, already asked, it starts at once.
-    val exportAfterNotificationAnswer = remember { arrayOfNulls<() -> Unit>(1) }
-    val notificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) {
-        // Granted or denied, the export proceeds either way.
-        val pending = exportAfterNotificationAnswer[0]
-        exportAfterNotificationAnswer[0] = null
-        pending?.invoke()
-    }
-    /**
-     * Runs [export], first asking for notifications if this is the first export to need them.
-     * Every export that runs under the foreground service goes through it: the sheet's Export,
-     * and batch and half-frame pair before their pickers open (Codex on #564).
-     */
-    fun exportAskingNotificationsOnce(export: () -> Unit) {
-        if (!notificationPermissionMissing() || settings.askedNotificationPermission) {
-            export()
-            return
-        }
-        settings.askedNotificationPermission = true
-        exportAfterNotificationAnswer[0] = export
-        val launched = runCatching {
-            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }.isSuccess
-        if (!launched) {
-            exportAfterNotificationAnswer[0] = null
-            export()
-        }
-    }
-    val legacyStoragePermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (!granted) {
-            status = ctx.getString(R.string.editor_status_storage_permission_required)
-            // The export sheet may still be open on API <= 28; close it so the message
-            // is not hidden behind it.
-            exportVm.onAction(ExportAction.CloseSheet)
-            scope.showEditorMessage(snackbarHost, ctx.getString(R.string.editor_toast_storage_permission))
-        }
-    }
+    // Media-location, notification and legacy-storage asks around an export
+    // (EditorExportPermissions.kt).
+    val exportPermissions = rememberEditorExportPermissions(
+        ctx, exportVm, settings, { sourceUri }, scope, snackbarHost,
+    ) { status = it }
+    val legacyStoragePermission = exportPermissions.legacyStoragePermission
+    fun mediaLocationPermissionMissing() = exportPermissions.mediaLocationPermissionMissing()
+    fun requestMediaLocationIfMissing() = exportPermissions.requestMediaLocationIfMissing()
+    fun exportAskingNotificationsOnce(export: () -> Unit) = exportPermissions.exportAskingNotificationsOnce(export)
 
     fun visibleSourceState() = sourceState.value
 
@@ -1515,168 +1438,32 @@ internal fun EditorScreen(
         }
     }
     BatchExportProgressEffect(ctx, scope, snackbarHost) { status = it }
-    // #162 inbound import: consume the Activity's pending VIEW/SEND exactly once and
-    // route it through the same dispatch as a picked document. A rejected shape
-    // (non-content scheme, missing stream) surfaces a status instead of adopting.
-    val pendingIncoming by incomingImageIntent
-    LaunchedEffect(pendingIncoming) {
-        val intent = pendingIncoming ?: return@LaunchedEffect
-        incomingImageIntent.value = null
-        val action = intent.action
-        if (action != Intent.ACTION_VIEW && action != Intent.ACTION_SEND) return@LaunchedEffect
-        val incoming = incomingImageUri(intent)
-        if (incoming == null) {
-            status = ctx.getString(R.string.editor_status_shared_image_unsupported)
-            return@LaunchedEffect
-        }
-        if (SharedSourceCopies.grantIsPersistable(intent)) {
-            adoptIncomingImage(incoming)
-            return@LaunchedEffect
-        }
-        // #508: a temporary grant dies with the process (update, reboot, background kill), so
-        // keep a private working copy while it is still readable and open that instead -- unless
-        // the photo is already durably readable (a Library frame under its folder's tree grant),
-        // which keeps its own URI and so its recipe. The copy runs in the PROCESS scope and is
-        // parked in [SharedSourceCopies.pendingImport]: leaving the editor mid-copy no longer
-        // drops the photo, the effect below adopts it on return. The selection is claimed now,
-        // so a photo picked while a large copy runs wins and the late copy is discarded.
-        val selection = sourceMutationGate.begin()
-        val name = incoming.lastPathSegment ?: "raw"
-        val app = ctx.applicationContext // outlives this Activity, like the process scope
-        val result = app.appContainer.processScope.async(dispatchers.io) {
-            val mime = runCatching { app.contentResolver.getType(incoming) }.getOrNull()
-            // An Imported-album copy is the app's own file: as durable as a persisted grant.
-            val durable = AlbumImports.isCopy(app, incoming.toString()) ||
-                PhoneGallery.isReadable(app, incoming.toString()) || runCatching {
-                SharedSourceCopies.alreadyDurable(incoming.toString(), AndroidUriGrantBackend(app).persistedReads())
-            }.getOrDefault(false)
-            // Kinds the editor refuses (video, .mcraw) are never copied: adoption turns them
-            // away anyway, and a clip can be gigabytes.
-            val refused = detectSourceKind(name, mime).let { it == SourceFileKind.VIDEO || it == SourceFileKind.MCRAW }
-            val copy = if (durable || refused) null else SharedSourceCopies.copy(app, incoming, name, mime)
-            // Swiping from the copy still walks the folder or Gallery it was opened from.
-            copy?.let { PhotoBrowse.rememberOrigin(it.toString(), incoming.toString()) }
-            SharedSourceCopies.Imported(source = copy ?: incoming, copied = copy != null, durable = durable, mime = mime)
-        }
-        val superseded = SharedSourceCopies.pendingImport.getAndUpdate {
-            SharedSourceCopies.PendingImport(selection, incoming, name, result)
-        }
-        // A share that arrives before the previous one was adopted replaces it; nothing will
-        // adopt the older copy, so delete it once it lands instead of keeping it as pending.
-        if (superseded != null) {
-            app.appContainer.processScope.launch(dispatchers.io) {
-                val stale = runCatching { superseded.result.await() }.getOrNull() ?: return@launch
-                if (stale.copied) SharedSourceCopies.delete(app, stale.source)
-            }
-        }
-    }
-    val pendingImport by SharedSourceCopies.pendingImport.collectAsStateWithLifecycle()
-    LaunchedEffect(pendingImport) {
-        val pending = pendingImport ?: return@LaunchedEffect
-        val imported = pending.result.await()
-        // Claim it exactly once, even if the effect restarts while adopting.
-        if (!SharedSourceCopies.pendingImport.compareAndSet(pending, null)) return@LaunchedEffect
-        if (!sourceMutationGate.isCurrent(pending.selection)) {
-            // Hand the cleanup to the process scope BEFORE anything can cancel this effect:
-            // clearing the slot above re-keys it.
-            if (imported.copied) {
-                val app = ctx.applicationContext
-                app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, imported.source) }
-            }
-            return@LaunchedEffect
-        }
-        if (!imported.copied && !imported.durable) {
-            Diag.w("shared source copy failed; opening it for this session only")
-        }
-        adoptIncomingImage(
-            imported.source,
-            nameHint = pending.name,
-            mimeHint = imported.mime,
-            ownedCopy = imported.source.takeIf { imported.copied },
-        )
-    }
-    // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
-    val pendingShortcut by launcherShortcut
-    LaunchedEffect(pendingShortcut) {
-        if (pendingShortcut != LauncherShortcut.OPEN_PHOTO) return@LaunchedEffect
-        launcherShortcut.value = null
-        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-    val presetImporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            // Read the SAF stream off-main; decode (Compose-state write) on main.
-            scope.launch {
-                val text = withContext(dispatchers.io) {
-                    runCatching { presetRepo.readUri(uri) }.getOrNull()
-                }
-                if (text == null) { status = ctx.getString(R.string.editor_status_preset_import_failed); return@launch }
-                runCatching {
-                    // Decode into a detached clone first. The live Compose state changes only
-                    // after the entire bounded/versioned import has validated successfully.
-                    val candidate = ParamsState()
-                    Presets.decode(Presets.encode(state), candidate)
-                    Presets.decode(org.json.JSONObject(text), candidate)
-                    Presets.decode(Presets.encode(candidate), state)
-                }
-                    .onSuccess { status = ctx.getString(R.string.editor_status_preset_imported); previewTick++ }
-                    .onFailure { status = ctx.getString(R.string.editor_status_preset_import_failed_reason, it.message) }
-            }
-        }
-    }
-    val presetExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                // Serialize on main (live Compose-state read); write off-main.
-                val json = runCatching { Presets.toJsonString(state) }.getOrNull()
-                if (json == null) { status = ctx.getString(R.string.editor_status_preset_export_failed); return@launch }
-                val r = withContext(dispatchers.io) { runCatching { presetRepo.exportJson(uri, json) } }
-                r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
-                    .onFailure { status = ctx.getString(R.string.editor_status_preset_export_failed_reason, it.message) }
-            }
-        }
-    }
-    // Exports the SELECTED SAVED preset, byte-for-byte as stored. Distinct from
-    // [presetExporter] above, which serialises live editor state — that one sat under
-    // the saved-preset dropdown and looked like it exported the selection.
+    // Shared / opened-with images and the launcher's "Open photo" shortcut
+    // (EditorIncomingImages.kt).
+    EditorIncomingImageEffects(
+        incomingImageIntent = incomingImageIntent,
+        launcherShortcut = launcherShortcut,
+        ctx = ctx,
+        dispatchers = dispatchers,
+        sourceMutationGate = sourceMutationGate,
+        photoPicker = photoPicker,
+        adoptIncomingImage = { uri, nameHint, mimeHint, ownedCopy ->
+            adoptIncomingImage(uri, nameHint, mimeHint, ownedCopy)
+        },
+        setStatus = { status = it },
+    )
     val pendingPresetExportState = remember { mutableStateOf<String?>(null) }
     var pendingPresetExport by pendingPresetExportState
-    val savedPresetExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        val name = pendingPresetExport
-        pendingPresetExport = null
-        if (uri != null && name != null) {
-            scope.launch {
-                val r = withContext(dispatchers.io) {
-                    runCatching { presetRepo.exportJson(uri, presetRepo.read(name)) }
-                }
-                r.onSuccess { status = ctx.getString(R.string.editor_status_preset_exported) }
-                    .onFailure {
-                        status = ctx.getString(
-                            R.string.editor_status_preset_export_failed_reason, it.message,
-                        )
-                    }
-            }
-        }
-    }
-    val lutExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("*/*")
-    ) { uri ->
-        val text = pendingLutText
-        if (uri != null && text != null) {
-            scope.launch {
-                // SAF write off-main; status (Compose state) lands back on main.
-                val r = withContext(dispatchers.io) { runCatching { saveTextToUri(ctx, uri, text) } }
-                r.onSuccess { status = ctx.getString(R.string.editor_status_lut_saved) }
-                    .onFailure { status = ctx.getString(R.string.editor_status_lut_save_failed, it.message) }
-            }
-        }
-        pendingLutText = null
-    }
+    // Preset import/export and LUT save launchers (EditorPresetFiles.kt).
+    val presetFiles = rememberEditorPresetFiles(
+        ctx, scope, dispatchers, state, presetRepo, pendingPresetExportState, pendingLutTextState,
+        onImported = { previewTick++ },
+        setStatus = { status = it },
+    )
+    val presetImporter = presetFiles.presetImporter
+    val presetExporter = presetFiles.presetExporter
+    val savedPresetExporter = presetFiles.savedPresetExporter
+    val lutExporter = presetFiles.lutExporter
 
     // A saved result stays "current" (the pill's Share sends that file again) until the
     // user's next edit -- a slider drag or any settled change -- or a move to another tool
