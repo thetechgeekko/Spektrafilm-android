@@ -56,6 +56,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -315,12 +317,22 @@ internal fun EditorScreen(
     // Composition reads (UI and effect keys) use this collected copy. Effects and callbacks
     // read exportVm.current: the collected copy trails a write by one dispatch, and a
     // checkpoint taken right after an action must journal the new state.
-    val exportUi by exportVm.uiState.collectAsStateWithLifecycle()
+    //
+    // #270: this function's own body must NOT read `exportUi` directly. A read here
+    // subscribes the whole editor to every export-state change (opening the sheet, each
+    // option edit, the Export tap), and each one then recomposes this entire screen -- the
+    // 37-63 ms recomposes the device trace measured. The body reads the derived fields
+    // below, which only invalidate when that one field changes; the export sheet reads
+    // `exportUi` inside its own recompose scope (RecomposeScopeBoundary).
+    val exportUiState = exportVm.uiState.collectAsStateWithLifecycle()
+    val exportUi by exportUiState
     // #161: busy/done are DERIVED from the one export state machine, never parallel
     // flags — the pill can no longer claim "Exporting…" over a finished export, and no
     // path can forget to clear a boolean the phase transition already implies.
-    val exportInFlight = exportUi.inFlight
-    val exportDone = exportUi.done
+    val exportInFlight by remember(exportUiState) { derivedStateOf { exportUiState.value.inFlight } }
+    val exportDone by remember(exportUiState) { derivedStateOf { exportUiState.value.done } }
+    val exportLastShare by remember(exportUiState) { derivedStateOf { exportUiState.value.lastShare } }
+    val exportOptions by remember(exportUiState) { derivedStateOf { exportUiState.value.options } }
     // Only the render is modal; the result is a Snackbar and the pill's check, which never
     // block the editor.
     val exportMaskVisible = exportInFlight
@@ -1653,8 +1665,8 @@ internal fun EditorScreen(
     LaunchedEffect(exportInFlight) {
         if (exportInFlight) exportBaseline = snapshotNow() to activeCategory
     }
-    if (exportDone && exportUi.lastShare != null) {
-        LaunchedEffect(exportUi.lastShare) {
+    if (exportDone && exportLastShare != null) {
+        LaunchedEffect(exportLastShare) {
             val base = exportBaseline
             val renderedState = base?.first ?: snapshotNow()
             val categoryAtSave = if (base != null) base.second else activeCategory
@@ -2282,7 +2294,7 @@ internal fun EditorScreen(
     val prerenderOutOfMemoryState = remember(sourceUri) { mutableStateOf(false) }
     var prerenderOutOfMemory by prerenderOutOfMemoryState
     LaunchedEffect(
-        previewTick, sourceRenderAllowed, sourceUri, exportUi.options,
+        previewTick, sourceRenderAllowed, sourceUri, exportOptions,
         state.outputColorSpace, state.savingCctfEncoding,
         // A real export must not compete with a speculative one for the same eight cores:
         // as a key, this cancels any pre-render in flight the moment an export starts.
@@ -2381,11 +2393,24 @@ internal fun EditorScreen(
         activeCategory,
         toolUi,
         presetUi,
-        exportUi,
     ) {
         if (!recipeReady) return@LaunchedEffect
         delay(250)
         checkpointEditorSession()
+    }
+    // Export-sheet choices take the same 250 ms debounce, but are collected here rather than
+    // used as a key above: a key is a composition read, and that would recompose the whole
+    // editor on every export-state change (#270). collectLatest restarts the wait on each
+    // change, exactly as a key change restarts the effect above. drop(1) skips the value
+    // the StateFlow replays on collection, which the effect above already checkpoints.
+    LaunchedEffect(recipeReady) {
+        if (!recipeReady) return@LaunchedEffect
+        exportVm.uiState.drop(1).collectLatest {
+            delay(250)
+            // The updated-state copy: this collector outlives recompositions, and the local
+            // function captures the composition it was declared in.
+            currentSessionCheckpoint()
+        }
     }
 
     // catalog-grouped profile options for the Simulation pickers + Settings.
@@ -3270,7 +3295,7 @@ internal fun EditorScreen(
             // the share sheet opens (the run came from Share) or a Snackbar says where the
             // file went, with Open. Keyed on the file, and remembered across recreation, so a
             // rotation does not announce the same save twice.
-            val result = exportUi.lastShare
+            val result = exportLastShare
             var announced by rememberSaveable { mutableStateOf<String?>(null) }
             LaunchedEffect(result) {
                 if (result == null || announced == result.first) return@LaunchedEffect
@@ -3295,102 +3320,107 @@ internal fun EditorScreen(
             }
         }
 
-        // Ask for POST_NOTIFICATIONS when the export SHEET opens — NOT when the
-        // export starts. A system permission dialog takes focus, and on the
-        // measured device losing /top-app costs 3.90x (§15.1): asking at the
-        // moment the render begins would contaminate the very first export with
-        // the exact effect a whole session was spent characterising. Here the
-        // dialog resolves while the user is still choosing options and nothing
-        // is rendering, and it is still in context — they are about to export.
-        LaunchedEffect(exportUi.sheetOpen) {
-            val showExportSheet = exportUi.sheetOpen
-            if (showExportSheet && notificationPermissionMissing()) {
-                runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
-            }
-            if (showExportSheet &&
-                Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-                ContextCompat.checkSelfPermission(
-                    ctx,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                runCatching {
-                    legacyStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        // Everything that reads the export sheet's state sits in its own recompose scope, so
+        // opening the sheet or editing an option recomposes this section and not the whole
+        // editor (#270).
+        RecomposeScopeBoundary {
+            // Ask for POST_NOTIFICATIONS when the export SHEET opens — NOT when the
+            // export starts. A system permission dialog takes focus, and on the
+            // measured device losing /top-app costs 3.90x (§15.1): asking at the
+            // moment the render begins would contaminate the very first export with
+            // the exact effect a whole session was spent characterising. Here the
+            // dialog resolves while the user is still choosing options and nothing
+            // is rendering, and it is still in context — they are about to export.
+            LaunchedEffect(exportUi.sheetOpen) {
+                val showExportSheet = exportUi.sheetOpen
+                if (showExportSheet && notificationPermissionMissing()) {
+                    runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                 }
-            }
-        }
-
-        // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
-        // and again if "Include location (GPS)" is switched on inside the open sheet. When
-        // a notification request is about to run, its result callback asks instead.
-        LaunchedEffect(exportUi.sheetOpen, exportUi.keepGps) {
-            if (exportVm.current.sheetOpen && !notificationPermissionMissing()) {
-                requestMediaLocationIfMissing()
-            }
-        }
-
-        // --- Lightroom-style export options sheet ---
-        if (exportUi.sheetOpen) {
-            val exportPresets by exportPresetVm.uiState.collectAsStateWithLifecycle()
-            // Opening the sheet: load the presets, then preselect the one used last so the
-            // Export button is two taps for a repeat export.
-            LaunchedEffect(Unit) {
-                exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
-                exportPresetVm.load()
-            }
-            // Saveable, so a recreated Activity (theme or locale change) that restores the open
-            // sheet with the user's own edits does not overwrite them with the preset again.
-            var lastUsedApplied by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(exportPresets.lastUsed) {
-                val last = exportPresets.lastUsedPreset
-                if (!lastUsedApplied && last != null) {
-                    lastUsedApplied = true
-                    exportVm.onAction(ExportAction.SetOptions(last.options))
-                    exportVm.onAction(ExportAction.SetKeepGps(last.keepGps))
-                }
-            }
-            val matchingPreset = exportPresets.presets.firstOrNull {
-                it.matches(exportUi.options, exportUi.keepGps)
-            }?.name
-            ExportSheet(
-                presetNames = exportPresets.presets.map { it.name },
-                selectedPreset = matchingPreset,
-                onSelectPreset = { name ->
-                    exportPresets.presets.firstOrNull { it.name == name }?.let { p ->
-                        exportVm.onAction(ExportAction.SetOptions(p.options))
-                        exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
-                    }
-                },
-                onSavePreset = { name ->
-                    exportPresetVm.save(name, exportVm.current.options, exportVm.current.keepGps)
-                    status = ctx.getString(R.string.editor_status_export_preset_saved, name)
-                },
-                onDeletePreset = { name -> exportPresetVm.delete(name) },
-                options = exportUi.options,
-                onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
-                colorSpace = state.outputColorSpace,
-                onColorSpaceChange = { state.outputColorSpace = it },
-                cctf = state.savingCctfEncoding,
-                onCctfChange = { state.savingCctfEncoding = it },
-                keepGps = exportUi.keepGps,
-                onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
-                onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
-                previewBitmap = preview,
-                onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                    { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
-                } else {
-                    null
-                },
-                onHalfFramePair = if (
-                    engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
-                    halfFramePairSupports(exportUi.options)
+                if (showExportSheet &&
+                    Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                    ContextCompat.checkSelfPermission(
+                        ctx,
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
-                } else {
-                    null
-                },
-                onExport = { launchEditorExport(exportPresets) },
-            )
+                    runCatching {
+                        legacyStoragePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    }
+                }
+            }
+
+            // ACCESS_MEDIA_LOCATION is asked for at the same moment and for the same reason,
+            // and again if "Include location (GPS)" is switched on inside the open sheet. When
+            // a notification request is about to run, its result callback asks instead.
+            LaunchedEffect(exportUi.sheetOpen, exportUi.keepGps) {
+                if (exportVm.current.sheetOpen && !notificationPermissionMissing()) {
+                    requestMediaLocationIfMissing()
+                }
+            }
+
+            // --- Lightroom-style export options sheet ---
+            if (exportUi.sheetOpen) {
+                val exportPresets by exportPresetVm.uiState.collectAsStateWithLifecycle()
+                // Opening the sheet: load the presets, then preselect the one used last so the
+                // Export button is two taps for a repeat export.
+                LaunchedEffect(Unit) {
+                    exportPresetVm.onError = { status = ctx.getString(R.string.editor_status_export_preset_failed, it) }
+                    exportPresetVm.load()
+                }
+                // Saveable, so a recreated Activity (theme or locale change) that restores the open
+                // sheet with the user's own edits does not overwrite them with the preset again.
+                var lastUsedApplied by rememberSaveable { mutableStateOf(false) }
+                LaunchedEffect(exportPresets.lastUsed) {
+                    val last = exportPresets.lastUsedPreset
+                    if (!lastUsedApplied && last != null) {
+                        lastUsedApplied = true
+                        exportVm.onAction(ExportAction.SetOptions(last.options))
+                        exportVm.onAction(ExportAction.SetKeepGps(last.keepGps))
+                    }
+                }
+                val matchingPreset = exportPresets.presets.firstOrNull {
+                    it.matches(exportUi.options, exportUi.keepGps)
+                }?.name
+                ExportSheet(
+                    presetNames = exportPresets.presets.map { it.name },
+                    selectedPreset = matchingPreset,
+                    onSelectPreset = { name ->
+                        exportPresets.presets.firstOrNull { it.name == name }?.let { p ->
+                            exportVm.onAction(ExportAction.SetOptions(p.options))
+                            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
+                        }
+                    },
+                    onSavePreset = { name ->
+                        exportPresetVm.save(name, exportVm.current.options, exportVm.current.keepGps)
+                        status = ctx.getString(R.string.editor_status_export_preset_saved, name)
+                    },
+                    onDeletePreset = { name -> exportPresetVm.delete(name) },
+                    options = exportUi.options,
+                    onOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
+                    colorSpace = state.outputColorSpace,
+                    onColorSpaceChange = { state.outputColorSpace = it },
+                    cctf = state.savingCctfEncoding,
+                    onCctfChange = { state.savingCctfEncoding = it },
+                    keepGps = exportUi.keepGps,
+                    onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
+                    onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
+                    previewBitmap = preview,
+                    onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
+                        { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
+                    } else {
+                        null
+                    },
+                    onHalfFramePair = if (
+                        engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
+                        halfFramePairSupports(exportUi.options)
+                    ) {
+                        { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
+                    } else {
+                        null
+                    },
+                    onExport = { launchEditorExport(exportPresets) },
+                )
+            }
         }
 
         // Recipe restore / status snackbar (above the bottom bar / nav).
@@ -3402,4 +3432,14 @@ internal fun EditorScreen(
                 .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
         )
     }
+}
+
+/**
+ * A recompose scope of its own: state read inside [content] invalidates only [content], not the
+ * caller. A composable lambda is restartable, which a plain `if` block in the caller is not --
+ * that would subscribe the caller's whole body (#270).
+ */
+@Composable
+private fun RecomposeScopeBoundary(content: @Composable () -> Unit) {
+    content()
 }
