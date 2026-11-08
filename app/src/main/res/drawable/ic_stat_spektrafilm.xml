@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Spektrafilm for Android. GPLv3.
+  Status-bar icon for the export notification: the monochrome film strip cropped
+  to a 24dp canvas (the system tints it; only alpha matters).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="52"
+    android:viewportHeight="52">
+
+    <group
+        android:translateX="-28"
+        android:translateY="-28">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M34,35.5 h40 a4,4 0 0 1 4,4 v29 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-29 a4,4 0 0 1 4,-4 Z M35.5,46 h37 a1.5,1.5 0 0 1 1.5,1.5 v13 a1.5,1.5 0 0 1 -1.5,1.5 h-37 a1.5,1.5 0 0 1 -1.5,-1.5 v-13 a1.5,1.5 0 0 1 1.5,-1.5 Z M36.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,39.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M36.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M44.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M52.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M60.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z M68.5,64.5 h3 a1,1 0 0 1 1,1 v2 a1,1 0 0 1 -1,1 h-3 a1,1 0 0 1 -1,-1 v-2 a1,1 0 0 1 1,-1 Z" />
+    </group>
+</vector>
