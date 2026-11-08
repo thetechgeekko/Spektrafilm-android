@@ -186,6 +186,12 @@ cache by image fingerprint.
 probabilities in source-photo space) through a `FrameMap` (crop) as a runtime-only `BoundSemantic`
 (`masks/MaskSemantic.kt`). The field comes from Google's Selfie Multiclass model (face/body skin, hair,
 clothes; Apache 2.0) on standalone LiteRT, CPU, downloaded on first use; guided-filter refine on luma.
+Around the model (`masks/SkinSegmentation.kt`): the photo is padded to a centred square (never squashed),
+normalized to [-1, 1]; the logits are softmaxed and the padding cut back off so the field covers exactly
+the photo; `SkinSegmentation.refine` upsamples to a guide image and snaps edges with a guided filter.
+`SkinModelStore` fetches the model from one versioned URL, no redirects, and keeps it only if it matches
+the compiled-in size and SHA-256. Checked against the real model on three portraits: the Kotlin pipeline
+matches an independent numpy one at IoU 0.98-1.00.
 Phone test and skin-tone evaluation: CPU ~50 ms per photo on the test phone, good across all ten Monk
 skin tones in good light, but dark clothing in poor light can read as body skin on darker skin tones.
 **Excluded:** PDR/generative-remove, AI-denoise, skin-blemish (cloud / desktop-NPU).
