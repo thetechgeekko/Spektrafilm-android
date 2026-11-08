@@ -64,6 +64,53 @@ class BuiltInPresetsAssetTest {
     }
 
     @Test
+    fun theSixLooksShipInOrder() {
+        // The roster is a product decision (docs/PRESETS.md), not an accident of the asset:
+        // the six films photographers most often buy, name and emulate. Changing it should
+        // fail here and be made on purpose.
+        val arr = presetsArray()
+        val ids = (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        assertEquals(
+            listOf("portra_400", "gold_200", "ektar_100", "cinestill_800t", "kodachrome_64", "tri_x_400"),
+            ids,
+        )
+    }
+
+    @Test
+    fun everyLookAuthorsThePrintColourShift() {
+        // A sparse overlay keeps any field it omits, so a look that left the enlarger's
+        // filter shift alone would inherit the previous look's print colour (CineStill's
+        // tungsten correction leaking into Portra, say). Every look sets both shifts.
+        val arr = presetsArray()
+        for (i in 0 until arr.length()) {
+            val p = arr.getJSONObject(i)
+            val enlarger = p.getJSONObject("params").optJSONObject("enlarger")
+            for (key in listOf("yFilterShift", "mFilterShift")) {
+                assertTrue("${p.optString("id")} does not author enlarger.$key", enlarger?.has(key) == true)
+            }
+        }
+    }
+
+    @Test
+    fun blackAndWhiteLookPrintsOnSilverPaper() {
+        // A silver film on colour paper renders strong orange (SilverPrint header), so the
+        // look must carry its own paper rather than rely on the film picker's re-pairing.
+        val arr = presetsArray()
+        for (i in 0 until arr.length()) {
+            val params = arr.getJSONObject(i).getJSONObject("params")
+            val film = params.optString("filmProfile")
+            if (SilverPrint.isSilverFilm(film)) {
+                assertTrue(
+                    "$film look is not on silver paper",
+                    SilverPrint.isSilverPaper(params.optString("printProfile")),
+                )
+                val grade = params.getJSONObject("enlarger").optString("paperGrade")
+                assertTrue("unknown paper grade '$grade'", SilverPrint.GRADES.any { it.label == grade })
+            }
+        }
+    }
+
+    @Test
     fun presets_doNotSetEngineIgnoredFields() {
         // Baked per-profile by digest_halation_params / _apply_film_specifics. Diffusion
         // filterFamily is intentionally absent: BuiltInPresets, JNI, and native all honor it.
@@ -156,7 +203,7 @@ class BuiltInPresetsAssetTest {
                 }
             }
         }
-        assertEquals(4, scanning.size)
+        assertEquals(listOf("kodachrome_64"), scanning)
         for (id in scanning) {
             val group = (0 until arr.length())
                 .map { arr.getJSONObject(it) }

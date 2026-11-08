@@ -21,7 +21,7 @@ release-candidate SLO capture.
 | Device | Samsung SM-S948W, Android 16 (API 36), 8 cores, `arm64-v8a`, GLES 3.2 |
 | Build fingerprint | `samsung/m3qcsx/m3q:16/BP4A.251205.006/S948WVLS4AZG3_OYV4AZG3:user/release-keys` |
 | Source image | `66381a8ed2d1a6ab…`, 4080×3060 (12.5 MP), 37,460,417 bytes |
-| Preset | Portra 400 — Wedding Warm (`kodak_portra_400` → `kodak_portra_endura`) |
+| Preset | Portra 400 (`kodak_portra_400` → `kodak_portra_endura`) |
 | Protocol | 5 runs × 12 cell/format pairs = 60 exports, unplugged, `require_thermal_status: 0` |
 
 Every one of the 60 samples recorded `plugged: 0` and `thermal_status: 0`, the thermal

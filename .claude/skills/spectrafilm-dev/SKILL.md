@@ -118,7 +118,7 @@ in spectral integrals), `gaussian`/`exponential_filter` (spatial convs), `interp
 `tonecurve`, `half`, and `parallel`.
 
 Profile/asset loaders: `profiles/profile.cpp` + `io/npy_lut.cpp`. Profiles + LUTs + ICC under
-`engine/spektra-core/src/main/assets/spektra/`. 28 film/paper profiles, 27 built-in presets.
+`engine/spektra-core/src/main/assets/spektra/`. 28 film/paper profiles, 6 built-in looks.
 
 See `references/film-emulation.md` for the physics and `references/parity-and-build.md` for the
 full build + CI gate.

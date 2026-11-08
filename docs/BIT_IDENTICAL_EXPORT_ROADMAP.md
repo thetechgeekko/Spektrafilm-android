@@ -133,7 +133,7 @@ Both cells run on every qualification pass; identity (C0/C3) is gated on both, t
 
 | Cell | Input | Route / preset | Effects | Outputs |
 |---|---|---|---|---|
-| BASE | pinned 4080x3060 sRGB JPEG (SHA-256 recorded in the manifest) | print route, preset `Portra 400 — Wedding Warm` | none | JPEG q95, PNG16, TIFF16 |
+| BASE | pinned 4080x3060 sRGB JPEG (SHA-256 recorded in the manifest) | print route, preset `Portra 400` | none | JPEG q95, PNG16, TIFF16 |
 | HEAVY | same input | same route/preset | grain + halation + DIR couplers on | same three |
 
 ### Fast GPU (E3)

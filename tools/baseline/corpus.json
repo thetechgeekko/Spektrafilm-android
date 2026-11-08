@@ -18,7 +18,7 @@
         "C3",
         "SLO"
       ],
-      "preset": "Portra 400 — Wedding Warm",
+      "preset": "Portra 400",
       "route": "print",
       "effects": [],
       "formats": [
@@ -34,7 +34,7 @@
         "C0",
         "C3"
       ],
-      "preset": "Portra 400 — Wedding Warm",
+      "preset": "Portra 400",
       "route": "print",
       "effects": [
         "grain",
@@ -54,7 +54,7 @@
         "C0",
         "C3"
       ],
-      "preset": "Portra 400 — Wedding Warm",
+      "preset": "Portra 400",
       "route": "print",
       "effects": [
         "grain"
@@ -70,7 +70,7 @@
         "C0",
         "C3"
       ],
-      "preset": "Portra 400 — Wedding Warm",
+      "preset": "Portra 400",
       "route": "scan",
       "effects": [],
       "formats": [
@@ -84,7 +84,7 @@
         "C0",
         "C3"
       ],
-      "preset": "Portra 400 — Wedding Warm",
+      "preset": "Portra 400",
       "route": "scan",
       "effects": [
         "grain"

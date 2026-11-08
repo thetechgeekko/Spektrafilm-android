@@ -765,10 +765,9 @@ internal fun EditorScreen(
 
     // Built-in presets are SPARSE overlays: each authors only the fields it means to
     // set and deliberately leaves everything else alone, so tapping one after another
-    // COMPOUNDS them. camera.diffusionFilter is authored by exactly one of the 27, which
-    // means "Neutral — Clean Baseline" (whose own description promises grain, halation,
-    // couplers and glare off) would silently keep a previously applied Black Pro-Mist
-    // filter and its spectral blur.
+    // COMPOUNDS them. enlarger.paperGrade is authored only by Tri-X 400, so a colour look
+    // tapped after it would silently keep grade 3 (and any field a future look authors
+    // alone would leak the same way).
     //
     // So remember the look a browsing run STARTED from and apply each built-in onto that
     // rather than onto the compounded result. There is no list of clear-sites to keep in
