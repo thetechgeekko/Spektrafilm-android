@@ -229,6 +229,9 @@ object Ticket177BenchmarkChecks {
             }
 
         Debug.getMemoryInfo(Debug.MemoryInfo())
+        // #465: collect the previous sample's garbage BEFORE the timer starts, so the ART
+        // peak below starts clean and the forced GC never lands in total_ms.
+        ArtHeapSampler.collect()
         val startMs = System.currentTimeMillis()
 
         val hit = if (bypassCache) null else cacheKey?.let { cache.get(it) }
@@ -752,9 +755,9 @@ object Ticket177BenchmarkChecks {
     }
 
     /**
-     * Samples the ART heap in use every 20 ms on a daemon thread and keeps the peak. Starts
-     * from a collected heap: without that, the previous sample's digest garbage (a decoded
-     * copy of the whole container) is still counted and swamps the export's own use.
+     * Samples the ART heap in use every 20 ms on a daemon thread and keeps the peak. Start it
+     * after [collect]: otherwise the previous sample's digest garbage (a decoded copy of the
+     * whole container) is still counted and swamps the export's own use.
      */
     private class ArtHeapSampler private constructor() : Runnable {
         @Volatile private var running = true
@@ -790,15 +793,17 @@ object Ticket177BenchmarkChecks {
         companion object {
             fun used(): Long = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
 
-            fun start(): ArtHeapSampler {
+            /** Forced full collection; call it outside any timed region. */
+            fun collect() {
                 val runtime = Runtime.getRuntime()
                 runtime.gc()
                 System.runFinalization()
                 runtime.gc()
-                return ArtHeapSampler().also {
-                    it.thread.isDaemon = true
-                    it.thread.start()
-                }
+            }
+
+            fun start(): ArtHeapSampler = ArtHeapSampler().also {
+                it.thread.isDaemon = true
+                it.thread.start()
             }
         }
     }
