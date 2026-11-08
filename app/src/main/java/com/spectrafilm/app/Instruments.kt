@@ -103,10 +103,10 @@ internal fun gradientAt(stops: List<Color>, f: Float): Color {
 }
 
 /** Cool to warm, for a warmth (temperature) bar. */
-internal val WARMTH_STOPS = listOf(Color(0xFF4F86D9), Color(0xFFD8D2C8), Color(0xFFF0A443))
+internal val WARMTH_STOPS get() = SpektraBrand.warmthStops
 
 /** Green to magenta, for a tint bar. */
-internal val TINT_STOPS = listOf(Color(0xFF4CAF6A), Color(0xFFCFC8D0), Color(0xFFC04FB0))
+internal val TINT_STOPS get() = SpektraBrand.tintStops
 
 /**
  * One instrument: the drawn control with its label and value under it (the bar puts them
