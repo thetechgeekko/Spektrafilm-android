@@ -26,6 +26,7 @@ import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.gestures.verticalDrag
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -69,9 +70,16 @@ import kotlin.math.sin
  * above the value (a white level clips the brighter tones), METER_LOW what lies below it.
  */
 internal enum class InstrumentKind {
-    KNOB, FADER, PILL, ARC_GAUGE, GRAD_BAR, METER_HIGH, METER_LOW, LENS_GRID;
+    KNOB, FADER, PILL, ARC_GAUGE, GRAD_BAR, METER_HIGH, METER_LOW, LENS_GRID,
 
-    val vertical: Boolean get() = this == KNOB || this == FADER || this == PILL || this == ARC_GAUGE
+    /** A dial that fills from the bottom like a level, with the caption's initial in it (fillKnob). */
+    FILL_KNOB,
+
+    /** A chirp whose swing grows with the value (wave): contrast, read as "how hard the tones swing". */
+    WAVE;
+
+    val vertical: Boolean
+        get() = this == KNOB || this == FADER || this == PILL || this == ARC_GAUGE || this == FILL_KNOB
 }
 
 /** Reference frame the lens grid draws the current format against, in mm (35 mm film). */
@@ -141,6 +149,8 @@ internal fun Instrument(
     onValueChangeFinished: (() -> Unit)? = null,
     accent: Color? = null,
     caption: String = label,
+    // What a FILL_KNOB shows in its middle; the caption's initial when not given.
+    glyph: String? = null,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -253,7 +263,7 @@ internal fun Instrument(
 
     when (kind) {
         InstrumentKind.GRAD_BAR, InstrumentKind.METER_HIGH, InstrumentKind.METER_LOW,
-        InstrumentKind.LENS_GRID -> Column(modifier.fillMaxWidth().then(gesture)) {
+        InstrumentKind.LENS_GRID, InstrumentKind.WAVE -> Column(modifier.fillMaxWidth().then(gesture)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Text(formatted, style = MaterialTheme.typography.labelMedium, color = valueColor)
@@ -261,7 +271,13 @@ internal fun Instrument(
             Canvas(
                 Modifier
                     .fillMaxWidth()
-                    .height(if (kind == InstrumentKind.LENS_GRID) 72.dp else 40.dp),
+                    .height(
+                        when (kind) {
+                            InstrumentKind.LENS_GRID -> 72.dp
+                            InstrumentKind.WAVE -> 56.dp
+                            else -> 40.dp
+                        },
+                    ),
             ) {
                 val pad = 12.dp.toPx()
                 val y = size.height / 2f
@@ -282,6 +298,26 @@ internal fun Instrument(
                         val r = 10.dp.toPx()
                         drawCircle(gradientAt(gradient, f), r, Offset(hx, y))
                         drawCircle(if (dragging) active else ink, r, Offset(hx, y), style = Stroke(2.5.dp.toPx()))
+                    }
+                    InstrumentKind.WAVE -> {
+                        // A chirp, tight on the right like a tone ramp squeezed by contrast; its
+                        // swing grows with the value, with a needle on the value itself.
+                        drawLine(idle, Offset(pad, y), Offset(pad + w, y), 1.dp.toPx())
+                        val swing = 3.dp.toPx() + f * (size.height / 2 - 6.dp.toPx())
+                        val path = androidx.compose.ui.graphics.Path()
+                        val samples = 96
+                        for (j in 0..samples) {
+                            val t = j / samples.toFloat()
+                            val px = pad + w * t
+                            val py = y - sin(t * t * 28f) * swing
+                            if (j == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                        }
+                        drawPath(path, active, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+                        val ax = pad + w * anchor
+                        drawLine(idle, Offset(ax, size.height - 6.dp.toPx()), Offset(ax, size.height - 1.dp.toPx()), 1.5.dp.toPx())
+                        val hx = pad + w * f
+                        drawLine(if (dragging) active else ink, Offset(hx, 2.dp.toPx()), Offset(hx, size.height - 2.dp.toPx()),
+                            2.dp.toPx(), cap = StrokeCap.Round)
                     }
                     InstrumentKind.METER_HIGH, InstrumentKind.METER_LOW -> {
                         // A level meter: a dark-to-light ramp with the part the level cuts off
@@ -337,7 +373,8 @@ internal fun Instrument(
                 }
             }
         }
-        InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE -> Column(
+        InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE,
+        InstrumentKind.FILL_KNOB -> Column(
             modifier.width(76.dp).then(gesture),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -372,6 +409,29 @@ internal fun Instrument(
                         Offset(c.x + cos(a) * (r - 3.dp.toPx()), c.y + sin(a) * (r - 3.dp.toPx())),
                         2.5.dp.toPx(),
                         cap = StrokeCap.Round,
+                    )
+                }
+            } else if (kind == InstrumentKind.FILL_KNOB) {
+                // Fill knob (instrument catalogue: fillKnob): a dial that fills from the
+                // bottom like a level, with the control's initial in the middle.
+                Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.matchParentSize()) {
+                        val c = Offset(size.width / 2, size.height / 2)
+                        val r = size.minDimension / 2 - 6.dp.toPx()
+                        drawCircle(body, r, c)
+                        val disc = androidx.compose.ui.graphics.Path().apply {
+                            addOval(androidx.compose.ui.geometry.Rect(c, r))
+                        }
+                        clipPath(disc) {
+                            val top = c.y + r - 2 * r * f
+                            drawRect((if (dragging) active else active.copy(alpha = 0.55f)), Offset(c.x - r, top), Size(2 * r, c.y + r - top))
+                        }
+                        drawCircle(idle, r, c, style = Stroke(1.dp.toPx()))
+                    }
+                    Text(
+                        glyph ?: caption.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = ink,
                     )
                 }
             } else if (kind == InstrumentKind.ARC_GAUGE) {
@@ -536,6 +596,9 @@ internal fun Pad2D(
     onValueChangeFinished: (() -> Unit)? = null,
     // The square's side. The tool rail's cards use a smaller pad than the full settings.
     padSize: androidx.compose.ui.unit.Dp = 132.dp,
+    // Draw the pad as a filter wheel (instrument catalogue: wheel) instead of a square: the
+    // same relative 2D drag, with [wheelLabels] (x, y) marking the two positive axes.
+    wheelLabels: Pair<String, String>? = null,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -645,16 +708,37 @@ internal fun Pad2D(
                 val w = size.width - 2 * pad
                 val h = size.height - 2 * pad
                 val c = Offset(size.width / 2, size.height / 2)
-                drawRoundRect(body, Offset(pad, pad), Size(w, h), CornerRadius(12.dp.toPx()))
-                // Neutral crosshair through the defaults.
-                val nx = pad + w * ax0
-                val ny = pad + h * (1 - ay0)
-                drawLine(idle, Offset(nx, pad), Offset(nx, pad + h), 1.dp.toPx())
-                drawLine(idle, Offset(pad, ny), Offset(pad + w, ny), 1.dp.toPx())
-                val px = pad + w * fx
-                val py = pad + h * (1 - fy)
+                val px: Float
+                val py: Float
+                if (wheelLabels != null) {
+                    // A filter wheel: x points at the right, y up, their complements opposite.
+                    val r = minOf(w, h) / 2
+                    drawCircle(Brush.sweepGradient(*SpektraBrand.filterWheel, center = c), r, c, alpha = 0.6f)
+                    drawCircle(Brush.radialGradient(listOf(body, body.copy(alpha = 0f)), c, r), r, c)
+                    drawCircle(idle, r, c, style = Stroke(1.dp.toPx()))
+                    drawLine(idle, Offset(c.x, c.y - r), Offset(c.x, c.y + r), 1.dp.toPx())
+                    drawLine(idle, Offset(c.x - r, c.y), Offset(c.x + r, c.y), 1.dp.toPx())
+                    // 0.7 keeps the corners of the square value range on the disc.
+                    px = c.x + (fx - ax0) * 2 * r * 0.7f
+                    py = c.y - (fy - ay0) * 2 * r * 0.7f
+                } else {
+                    drawRoundRect(body, Offset(pad, pad), Size(w, h), CornerRadius(12.dp.toPx()))
+                    // Neutral crosshair through the defaults.
+                    val nx = pad + w * ax0
+                    val ny = pad + h * (1 - ay0)
+                    drawLine(idle, Offset(nx, pad), Offset(nx, pad + h), 1.dp.toPx())
+                    drawLine(idle, Offset(pad, ny), Offset(pad + w, ny), 1.dp.toPx())
+                    px = pad + w * fx
+                    py = pad + h * (1 - fy)
+                }
                 drawCircle(if (dragging) active else ink, 9.dp.toPx(), Offset(px, py), style = Stroke(2.dp.toPx()))
                 drawCircle(if (dragging) active else ink, 3.dp.toPx(), Offset(px, py))
+            }
+            wheelLabels?.let { (lx, ly) ->
+                val tag = MaterialTheme.typography.labelSmall
+                val tagColor = MaterialTheme.colorScheme.onSurfaceVariant
+                Text(ly, style = tag, color = tagColor, modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp))
+                Text(lx, style = tag, color = tagColor, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp))
             }
             // One accessibility node per axis, laid over the pad: TalkBack swipes adjust them.
             Column(Modifier.matchParentSize()) {
@@ -827,5 +911,194 @@ internal fun StepWave(
                 style = Stroke(if (isSel) 2.5.dp.toPx() else 1.dp.toPx(), cap = StrokeCap.Round),
             )
         }
+    }
+}
+
+/**
+ * A stepped choice as a slider (instrument catalogue: iconSlider): a track with one dot per
+ * option, a thumb on the chosen one and its name above. A sideways drag walks the options
+ * with a tick at each, and a tap on the track picks the nearest. TalkBack sees a slider over
+ * the option index, announced by the option's name.
+ */
+@Composable
+internal fun IconSlider(
+    title: String,
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    val interaction = LocalSliderInteraction.current
+    val latestSelected = rememberUpdatedState(selected)
+    val latestSelect = rememberUpdatedState(onSelect)
+    val latestLabels = rememberUpdatedState(labels)
+    val latestTitle = rememberUpdatedState(title)
+    var dragging by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val stopPx = with(density) { STEP_WAVE_STOP_DP.dp.toPx() }
+    val trackPadPx = with(density) { ICON_SLIDER_PAD_DP.dp.toPx() }
+    val n = labels.size
+    val current = selected.coerceIn(0, (n - 1).coerceAtLeast(0))
+
+    val gesture = Modifier
+        .pointerInput(n) {
+            detectTapGestures { pos ->
+                val i = iconSliderIndexAt(pos.x, size.width.toFloat(), trackPadPx, latestLabels.value.size)
+                if (i != latestSelected.value) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    latestSelect.value(i)
+                }
+            }
+        }
+        .pointerInput(n) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var overSlop = 0f
+                val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, o -> change.consume(); overSlop = o }
+                    ?: return@awaitEachGesture
+                dragging = true
+                val start = latestSelected.value
+                var index = start
+                var travelled = overSlop
+                fun step() {
+                    val next = stepWaveIndex(start, travelled, stopPx, latestLabels.value.size)
+                    if (next != index) {
+                        index = next
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        latestSelect.value(next)
+                    }
+                    interaction.onChange(SliderReadout(latestTitle.value, latestLabels.value.getOrElse(index) { "" }))
+                }
+                step()
+                try {
+                    horizontalDrag(slop.id) { change ->
+                        travelled += change.position.x - change.previousPosition.x
+                        step()
+                        change.consume()
+                    }
+                } finally {
+                    dragging = false
+                    interaction.onFinished()
+                }
+            }
+        }
+        .clearAndSetSemantics {
+            contentDescription = title
+            stateDescription = labels.getOrElse(current) { "" }
+            progressBarRangeInfo = ProgressBarRangeInfo(
+                current.toFloat(), 0f..(n - 1).coerceAtLeast(1).toFloat(), (n - 2).coerceAtLeast(0),
+            )
+            setProgress { t ->
+                val i = t.roundToInt().coerceIn(0, (n - 1).coerceAtLeast(0))
+                if (i != latestSelected.value) latestSelect.value(i)
+                true
+            }
+        }
+
+    val active = MaterialTheme.colorScheme.primary
+    val idle = MaterialTheme.colorScheme.outlineVariant
+    val ink = MaterialTheme.colorScheme.onSurface
+    val body = MaterialTheme.colorScheme.surfaceContainerHighest
+    Column(modifier.then(gesture)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Canvas(Modifier.fillMaxWidth().height(32.dp)) {
+            val y = size.height / 2
+            val x0 = trackPadPx
+            val x1 = size.width - trackPadPx
+            drawLine(idle, Offset(x0, y), Offset(x1, y), 4.dp.toPx(), cap = StrokeCap.Round)
+            for (i in 0 until n) {
+                val x = iconSliderStopX(i, n, x0, x1)
+                drawCircle(if (i == current) active else idle, 3.dp.toPx(), Offset(x, y))
+            }
+            val tx = iconSliderStopX(current, n, x0, x1)
+            drawCircle(if (dragging) active else ink, 10.dp.toPx(), Offset(tx, y))
+            drawCircle(body, 4.dp.toPx(), Offset(tx, y))
+        }
+        Text(
+            labels.getOrElse(current) { "" },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
+}
+
+/** Inset, in dp, from each end of an [IconSlider]'s canvas to its first and last stop. */
+internal const val ICON_SLIDER_PAD_DP = 14f
+
+/** Where stop [i] of [n] sits on a track from [x0] to [x1]; a single stop sits in the middle. */
+internal fun iconSliderStopX(i: Int, n: Int, x0: Float, x1: Float): Float =
+    if (n <= 1) (x0 + x1) / 2 else x0 + (x1 - x0) * i / (n - 1)
+
+/** The stop nearest a tap at [x] on a canvas [width] wide, with [pad] inset at both ends. */
+internal fun iconSliderIndexAt(x: Float, width: Float, pad: Float, n: Int): Int {
+    if (n <= 1) return 0
+    val span = width - 2 * pad
+    if (span <= 0f) return 0
+    return (((x - pad) / span) * (n - 1)).roundToInt().coerceIn(0, n - 1)
+}
+
+/** The option of [options] nearest [value], by absolute difference; 0 for an empty list. */
+internal fun nearestOptionIndex(options: List<Int>, value: Int): Int =
+    options.indices.minByOrNull { abs(options[it] - value) } ?: 0
+
+/**
+ * An on/off control drawn as a half sunburst (instrument catalogue: sunburst): the rays
+ * light up while it is on. A tap toggles it; TalkBack sees a switch.
+ */
+@Composable
+internal fun SunburstToggle(
+    label: String,
+    on: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    val active = MaterialTheme.colorScheme.primary
+    val idle = MaterialTheme.colorScheme.outlineVariant
+    val onText = stringResource(R.string.editor_rail_tool_on)
+    val offText = stringResource(R.string.editor_rail_tool_off)
+    Column(
+        modifier
+            .width(76.dp)
+            .toggleable(value = on, role = androidx.compose.ui.semantics.Role.Switch) {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onToggle(it)
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Canvas(Modifier.size(width = 72.dp, height = 48.dp)) {
+            val c = Offset(size.width / 2, size.height - 4.dp.toPx())
+            val r = minOf(size.width / 2, size.height) - 4.dp.toPx()
+            val rays = 13
+            for (i in 0 until rays) {
+                val a = PI.toFloat() * (1f + i / (rays - 1).toFloat())
+                drawLine(
+                    if (on) active else idle,
+                    Offset(c.x + cos(a) * 14.dp.toPx(), c.y + sin(a) * 14.dp.toPx()),
+                    Offset(c.x + cos(a) * r, c.y + sin(a) * r),
+                    (if (on) 2.dp else 1.5.dp).toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
+            drawArc(if (on) active else idle, 180f, 180f, true, Offset(c.x - 9.dp.toPx(), c.y - 9.dp.toPx()), Size(18.dp.toPx(), 18.dp.toPx()))
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            if (on) onText else offText,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

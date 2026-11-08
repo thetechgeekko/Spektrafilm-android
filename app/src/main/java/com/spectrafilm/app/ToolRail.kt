@@ -13,6 +13,8 @@
 package com.spectrafilm.app
 
 import android.view.HapticFeedbackConstants
+import com.spectrafilm.engine.ColorSpace
+import com.spectrafilm.engine.OutputGamutCompress
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -73,9 +75,26 @@ internal const val TOOL_RAIL_HEIGHT_DP = 224
 private const val RAIL_PAD_DP = 104
 
 /** Tools whose card only opens their full settings: dimming that button would hide the way in. */
-private val OPENS_SETTINGS_ONLY = setOf(
-    Category.TONE_CURVE, Category.OUTPUT, Category.DISPLAY, Category.INPUT, Category.EXPERIMENTAL,
+private val OPENS_SETTINGS_ONLY = setOf(Category.OUTPUT, Category.DISPLAY, Category.INPUT, Category.EXPERIMENTAL)
+
+/** Preview sizes the Display card's stepped slider offers, in px on the long edge. */
+internal val RAIL_PREVIEW_SIZES = listOf(256, 384, 512, 640, 768, 1024)
+
+/** Output gamut modes on the Output card, in the full settings' order. */
+private val RAIL_GAMUTS = listOf(
+    OutputGamutCompress.LEGACY_CLIP, OutputGamutCompress.ACES_RGC, OutputGamutCompress.OKLCH,
+    OutputGamutCompress.OKLRAB, OutputGamutCompress.JZAZBZ, OutputGamutCompress.CAM16UCS,
 )
+
+/** Short names for the output colour spaces; product names, so not translated. */
+private fun colorSpaceShortName(c: ColorSpace): String = when (c) {
+    ColorSpace.SRGB -> "sRGB"
+    ColorSpace.ADOBE_RGB -> "Adobe RGB"
+    ColorSpace.PROPHOTO -> "ProPhoto"
+    ColorSpace.REC2020 -> "Rec. 2020"
+    ColorSpace.ACES2065_1 -> "ACES 2065-1"
+    ColorSpace.LINEAR_SRGB -> "Linear sRGB"
+}
 
 /** A tool's on/off switch, for the tools that have one. */
 internal class ToolSwitch(val on: Boolean, val set: (Boolean) -> Unit)
@@ -322,8 +341,19 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
     fun on(set: (Float) -> Unit): (Float) -> Unit = { v -> if (sw?.on == false) sw.set(true); set(v) }
     val d = PARAM_DEFAULTS
     when (tool) {
-        Category.EXPOSURE -> Instrument(InstrumentKind.PILL, stringResource(R.string.editor_sim_camera_ev),
-            s.exposureCompensationEv, -10f..10f, { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f)
+        Category.EXPOSURE -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Instrument(InstrumentKind.PILL, stringResource(R.string.editor_sim_camera_ev),
+                s.exposureCompensationEv, -10f..10f, { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f)
+            SunburstToggle(stringResource(R.string.widget_ae_description), s.autoExposure, { s.autoExposure = it })
+        }
+        // Contrast is composed into the tone curve, so moving it switches the curve on (as the
+        // full settings do); the curve points themselves need the full editor.
+        Category.TONE_CURVE -> Column(Modifier.width(176.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Instrument(InstrumentKind.WAVE, stringResource(R.string.tool_curve_contrast), s.contrast, -100f..100f,
+                { s.contrast = it; if (it != 0f && !s.toneCurveActive) s.toneCurveActive = true },
+                step = 1f, decimals = 0, default = 0f)
+            RailOpenButton(onOpen)
+        }
         Category.SCENE_LATITUDE -> Row {
             Instrument(InstrumentKind.FADER, stringResource(R.string.editor_sim_scene_latitude_highlight_room),
                 s.sceneLatitudeHighlightRoom, 0f..8f, on { s.sceneLatitudeHighlightRoom = it }, step = 0.25f, decimals = 2,
@@ -361,6 +391,8 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
             y = PadAxis(stringResource(R.string.editor_sim_print_y_shift), s.printYFilterShift, -50f..50f,
                 { s.printYFilterShift = it }, step = 1f, decimals = 0, default = 0f),
             padSize = RAIL_PAD_DP.dp,
+            // Kodak CC filter letters, the same in every language.
+            wheelLabels = "M" to "Y",
         )
         Category.COUPLERS -> Row {
             Instrument(InstrumentKind.ARC_GAUGE, stringResource(R.string.editor_coup_amount), s.couplersAmount, 0f..4f,
@@ -417,9 +449,9 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
         // The stamp needs its text and corner picked first; those live in its full settings.
         Category.DATE_STAMP -> if (s.dateStampActive) {
             Row {
-                Instrument(InstrumentKind.FADER, stringResource(R.string.editor_sim_date_stamp_brightness),
+                Instrument(InstrumentKind.FILL_KNOB, stringResource(R.string.editor_sim_date_stamp_brightness),
                     s.dateStampExposureEv, 0f..5f, { s.dateStampExposureEv = it }, step = 0.25f, decimals = 2,
-                    default = d.dateStampExposureEv)
+                    default = d.dateStampExposureEv, glyph = "\u2600")
                 Instrument(InstrumentKind.FADER, stringResource(R.string.editor_sim_date_stamp_size),
                     s.dateStampHeight * 100f, 2f..10f, { s.dateStampHeight = it / 100f }, step = 0.25f, decimals = 2,
                     default = d.dateStampHeight * 100f)
@@ -435,6 +467,49 @@ internal fun RailToolContent(s: ParamsState, tool: Category, onOpen: () -> Unit)
         }
         Category.RAW_CLEANUP -> Instrument(InstrumentKind.KNOB, stringResource(R.string.editor_raw_chroma_noise),
             s.rawChromaNoise, 0f..100f, { s.rawChromaNoise = it }, step = 1f, decimals = 0, default = d.rawChromaNoise)
+        Category.OUTPUT -> Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val spaces = ColorSpace.entries
+            IconSlider(stringResource(R.string.editor_sim_output_color_space), spaces.map(::colorSpaceShortName),
+                spaces.indexOf(s.outputColorSpace), { s.outputColorSpace = spaces[it] })
+            // OFF (no clip) is reachable from the full settings only, as before.
+            val gamutLabels = RAIL_GAMUTS.map {
+                when (it) {
+                    OutputGamutCompress.LEGACY_CLIP -> stringResource(R.string.editor_gamut_off)
+                    OutputGamutCompress.OFF -> stringResource(R.string.editor_gamut_off_no_clip)
+                    OutputGamutCompress.ACES_RGC -> stringResource(R.string.editor_gamut_aces)
+                    OutputGamutCompress.OKLCH -> stringResource(R.string.editor_gamut_oklch)
+                    OutputGamutCompress.OKLRAB -> stringResource(R.string.editor_gamut_oklrab)
+                    OutputGamutCompress.JZAZBZ -> stringResource(R.string.editor_gamut_jzazbz)
+                    OutputGamutCompress.CAM16UCS -> stringResource(R.string.editor_gamut_cam16ucs)
+                }
+            }
+            val gamutIndex = RAIL_GAMUTS.indexOf(s.outputGamutCompress)
+            if (gamutIndex >= 0) {
+                IconSlider(stringResource(R.string.editor_sim_output_gamut), gamutLabels, gamutIndex,
+                    { s.outputGamutCompress = RAIL_GAMUTS[it] })
+            } else {
+                RailOpenButton(onOpen)
+            }
+        }
+        Category.DISPLAY -> IconSlider(
+            stringResource(R.string.editor_display_preview_max_size),
+            RAIL_PREVIEW_SIZES.map { "$it px" },
+            nearestOptionIndex(RAIL_PREVIEW_SIZES, s.previewMaxSize),
+            { s.previewMaxSize = RAIL_PREVIEW_SIZES[it] },
+            Modifier.width(208.dp),
+        )
+        Category.INPUT -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Instrument(InstrumentKind.KNOB, stringResource(R.string.editor_input_spectral_blur), s.spectralGaussianBlur,
+                OperationalParamLimits.SPECTRAL_GAUSSIAN_BLUR, { s.spectralGaussianBlur = it }, step = 0.1f, decimals = 1,
+                default = d.spectralGaussianBlur)
+            RailOpenButton(onOpen)
+        }
+        Category.EXPERIMENTAL -> Row {
+            Instrument(InstrumentKind.FADER, stringResource(R.string.editor_exp_film_gamma), s.filmGammaFactor,
+                GAMMA_FACTOR_RANGE, { s.filmGammaFactor = it }, step = 0.05f, decimals = 2, default = d.filmGammaFactor)
+            Instrument(InstrumentKind.FADER, stringResource(R.string.editor_exp_print_gamma), s.printGammaFactor,
+                GAMMA_FACTOR_RANGE, { s.printGammaFactor = it }, step = 0.05f, decimals = 2, default = d.printGammaFactor)
+        }
         else -> RailOpenButton(onOpen)
     }
 }

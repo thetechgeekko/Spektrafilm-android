@@ -54,10 +54,43 @@ class InstrumentMathTest {
     }
 
     @Test
-    fun onlyKnobFaderPillAndArcGaugeDragVertically() {
+    fun onlyTheDialAndColumnKindsDragVertically() {
         assertEquals(
-            setOf(InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE),
+            setOf(
+                InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE,
+                InstrumentKind.FILL_KNOB,
+            ),
             InstrumentKind.entries.filter { it.vertical }.toSet(),
         )
+    }
+
+    @Test
+    fun iconSliderStopsSpanTheTrackEvenly() {
+        assertEquals(10f, iconSliderStopX(0, 5, 10f, 110f), 1e-4f)
+        assertEquals(60f, iconSliderStopX(2, 5, 10f, 110f), 1e-4f)
+        assertEquals(110f, iconSliderStopX(4, 5, 10f, 110f), 1e-4f)
+        // One option sits in the middle rather than dividing by zero.
+        assertEquals(60f, iconSliderStopX(0, 1, 10f, 110f), 1e-4f)
+    }
+
+    @Test
+    fun aTapPicksTheNearestStopAndClamps() {
+        // 120 wide with 10 inset: stops at 10, 35, 60, 85, 110.
+        assertEquals(0, iconSliderIndexAt(0f, 120f, 10f, 5))
+        assertEquals(1, iconSliderIndexAt(40f, 120f, 10f, 5))
+        assertEquals(2, iconSliderIndexAt(60f, 120f, 10f, 5))
+        assertEquals(4, iconSliderIndexAt(200f, 120f, 10f, 5))
+        assertEquals(0, iconSliderIndexAt(60f, 120f, 10f, 1))
+        assertEquals(0, iconSliderIndexAt(60f, 10f, 10f, 5))
+    }
+
+    @Test
+    fun aValueOffTheListShowsTheNearestOption() {
+        val sizes = listOf(256, 384, 512, 640, 768, 1024)
+        assertEquals(3, nearestOptionIndex(sizes, 640))
+        assertEquals(3, nearestOptionIndex(sizes, 600))
+        assertEquals(0, nearestOptionIndex(sizes, 128))
+        assertEquals(5, nearestOptionIndex(sizes, 900))
+        assertEquals(0, nearestOptionIndex(emptyList(), 640))
     }
 }
