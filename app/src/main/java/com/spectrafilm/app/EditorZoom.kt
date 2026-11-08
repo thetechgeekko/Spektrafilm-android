@@ -267,3 +267,32 @@ internal fun rememberEditorZoom(
     }
     return zoom
 }
+
+/** The 100% grain magnifier overlay, shown while [EditorZoomController.magnifierOpen]. */
+@Composable
+internal fun EditorMagnifierLayer(zoom: EditorZoomController) {
+    if (zoom.magnifierOpen) {
+        val magnifierBitmap = zoom.magnifierBitmap
+        // MEMORY: the magnifier crop is a real full-resolution ARGB_8888 render
+        // (~512px native here, but it is the only path that decodes at MAX_EDGE_PX
+        // before cropping). Recycle it deterministically once the overlay leaves
+        // composition (close) or the rendered crop is replaced by a re-render. This
+        // DisposableEffect is scoped INSIDE `if (magnifierOpen)`, so onDispose runs
+        // only after the overlay is no longer composed/drawn — never a use-after-
+        // recycle of the bitmap still on screen. `crop` is the value captured for
+        // THIS effect instance; when `magnifierBitmap` changes (e.g. -> null on a
+        // re-open) or the overlay closes, the captured previous bitmap is freed.
+        val cropToFree = magnifierBitmap
+        DisposableEffect(magnifierBitmap) {
+            onDispose {
+                if (cropToFree != null && !cropToFree.isRecycled) cropToFree.recycle()
+            }
+        }
+        MagnifierOverlay(
+            crop = magnifierBitmap,
+            rendering = zoom.magnifierRendering,
+            status = zoom.magnifierStatus,
+            onClose = { zoom.closeMagnifier() },
+        )
+    }
+}

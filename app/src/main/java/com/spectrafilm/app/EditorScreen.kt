@@ -217,7 +217,8 @@ internal fun EditorScreen(
     val sourceUri by sourceUriState
     val sourceKindState = remember { derivedStateOf { sourceState.value.kind } }
     val sourceKind by sourceKindState
-    val sourceName by remember { derivedStateOf { sourceState.value.displayName } }
+    val sourceNameState = remember { derivedStateOf { sourceState.value.displayName } }
+    val sourceName by sourceNameState
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
     val sourceMutationGate = sourceRuntime.mutations
@@ -377,7 +378,8 @@ internal fun EditorScreen(
 
     // Set by loadSource when a compressed (lossy/JPEG-XL) DNG fell back to the platform
     // ImageDecoder. Drives a one-shot snackbar (a render path can't show UI directly).
-    var dngFallbackNotice by remember { mutableStateOf(false) }
+    val dngFallbackNoticeState = remember { mutableStateOf(false) }
+    var dngFallbackNotice by dngFallbackNoticeState
 
     // LUT export
     val bakingLutState = remember { mutableStateOf(false) }
@@ -437,9 +439,6 @@ internal fun EditorScreen(
         patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
     )
     val magnifierOpen by zoom.magnifierOpenState
-    val magnifierBitmap by zoom.magnifierBitmapState
-    val magnifierRendering by zoom.magnifierRenderingState
-    val magnifierStatus by zoom.magnifierStatusState
     val roiOverlay by zoom.roiOverlayState
     val zoomPrewarmEligible = zoom.zoomPrewarmEligible
     fun closeMagnifier() = zoom.closeMagnifier()
@@ -702,37 +701,24 @@ internal fun EditorScreen(
     val editorCatalog by editorVm.catalog.collectAsStateWithLifecycle()
     LaunchedEffect(editorCatalog) {
         val loaded = editorCatalog ?: return@LaunchedEffect
-        val list = loaded.profiles
-        val restore = session.applyCatalog(
-            profiles = list,
-            applyDefaults = settings::applyDefaultsTo,
-            restored = initialRestoredSession?.takeIf { restored ->
-                sourceUri?.toString() == restored.source.uri &&
-                    sourceKind == restored.source.kind
-            },
+        applyEditorCatalog(
+            loaded = loaded,
+            ctx = ctx,
+            session = session,
+            settings = settings,
+            state = state,
+            toolVm = toolVm,
+            presetVm = presetVm,
+            initialRestoredSession = initialRestoredSession,
+            initialSessionRestoreNotice = initialSessionRestoreNotice,
+            sourceUri = sourceUri,
+            sourceKind = sourceKind,
+            refreshPresets = ::refreshPresets,
+            statusState = statusState,
+            defaultsJsonState = defaultsJsonState,
+            recipeReadyState = recipeReadyState,
+            previewTickState = previewTickState,
         )
-        val freshDefaults = restore.freshDefaults
-        if (restore.restored) toolVm.onAction(EditorToolAction.ClampMask(state.localAdjustments.size))
-        if (restore.rebaselined) {
-            presetVm.onAction(PresetAction.ClearAmount)
-            presetVm.onAction(PresetAction.SetClipboard(null))
-            status = ctx.getString(R.string.editor_status_session_migrated)
-        }
-        session.adoptCatalog(loaded)
-        refreshPresets()
-        if (
-            initialSessionRestoreNotice == null &&
-            status == ctx.getString(R.string.editor_status_initializing)
-        ) {
-            status = if (initialRestoredSession == null) {
-                ctx.resources.getQuantityString(R.plurals.editor_status_ready_profiles, list.size, list.size)
-            } else {
-                ctx.resources.getQuantityString(R.plurals.editor_status_session_restored_profiles, list.size, list.size)
-            }
-        }
-        defaultsJson = freshDefaults
-        recipeReady = true
-        previewTick++
     }
 
     // --- Non-destructive recipe: restore-on-open ---
@@ -1021,91 +1007,37 @@ internal fun EditorScreen(
         }
     }
 
-    LaunchedEffect(sourceAuthorizationRequired, sourceKind) {
-        if (!sourceAuthorizationRequired) return@LaunchedEffect
-        exportVm.onAction(ExportAction.CloseSheet)
-        snackbarHost.currentSnackbarData?.dismiss()
-        val result = snackbarHost.showSnackbar(
-            message = ctx.getString(R.string.editor_snack_source_expired),
-            actionLabel = ctx.getString(R.string.editor_snack_choose_again),
-            withDismissAction = true,
-            duration = SnackbarDuration.Indefinite,
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            if (sourceKind == SourceKind.RAW) {
-                rawPicker.launch(arrayOf("*/*"))
-            } else {
-                photoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
-            }
-        }
-    }
+    // The source's access expired: offer to choose it again (EditorCatalogApply.kt).
+    EditorSourceExpiredEffect(
+        sourceAuthorizationRequired = sourceAuthorizationRequired,
+        sourceKind = sourceKind,
+        ctx = ctx,
+        exportVm = exportVm,
+        snackbarHost = snackbarHost,
+        rawPicker = rawPicker,
+        photoPicker = photoPicker,
+    )
 
-    // Decode the current source to a LinearImage capped to [maxEdge], applying the
-    // EXIF orientation baseline THEN the user's manual rotate steps so imports appear
-    // upright in both the preview and the export. The demo image has no EXIF.
-    //
-    // RAW/DNG: a JPEG-XL Samsung/Pixel Expert-RAW DNG, or a lossy-JPEG one outside the
-    // qualified libjpeg-turbo route (corrupt or progressive tiles, Compression 6), makes
-    // LibRaw throw RawDecodeException; we fall back to the platform ImageDecoder
-    // (display-referred) and flag a one-shot snackbar. EXIF is then applied to the
-    // fallback bitmap too.
-    fun currentSourceDecodeRequest(): SourceDecodeRequest {
-        check(sourceRenderAllowed) { "Source authorization required" }
-        return SourceDecodeRequest(
-            context = ctx.applicationContext,
-            uri = sourceUri,
-            kind = sourceKind,
-            authorizationRequired = false,
-            rawWhiteBalance = state.rawWhiteBalance,
-            rawTemperature = state.rawTemperature,
-            rawTint = state.rawTint,
-            rotation = rotation,
-            creativeTemp = state.creativeWbTemp,
-            creativeTint = state.creativeWbTint,
-            balanceToFilmStock = state.balanceToFilmStock,
-            filmProfile = state.filmProfile,
-            rawHotPixels = state.rawHotPixels,
-            rawChromaNoise = state.rawChromaNoise,
-            straightenDegrees = state.straightenDegrees,
-        )
-    }
-
-    suspend fun cachedSourceDecodeRequest(
-        cache: DecodedSourceCache,
-        maxEdge: Int,
-    ): CachedSourceDecodeRequest =
-        withContext(dispatchers.mainImmediate) {
-            val decode = currentSourceDecodeRequest()
-            val filmBalance = if (
-                decode.balanceToFilmStock &&
-                FilmStockBalance.isMeaningful(decode.context, decode.filmProfile)
-            ) {
-                decode.filmProfile
-            } else {
-                ""
-            }
-            val cacheRequest = DecodedSourceCache.Request(
-                uri = decode.uri?.toString(),
-                kind = decode.kind.name,
-                authorizationRequired = decode.authorizationRequired,
-                whiteBalance = decode.rawWhiteBalance,
-                temperature = decode.rawTemperature,
-                tint = decode.rawTint,
-                creativeTemp = decode.creativeTemp,
-                creativeTint = decode.creativeTint,
-                filmBalance = filmBalance,
-                rotationDegrees = decode.rotation.degrees,
-                maxEdge = maxEdge,
-                hotPixels = decode.rawHotPixels,
-                chromaNoise = decode.rawChromaNoise,
-                straightenDegrees = decode.straightenDegrees,
-            )
-            // Begin publication authority in the same main-thread turn as the snapshot. An
-            // older caller cannot resume later and reorder itself ahead of a newer UI state.
-            CachedSourceDecodeRequest(decode, cache.beginRequest(cacheRequest))
-        }
+    // Source decode requests and the cached preview / zoom loaders (EditorSourceLoader.kt).
+    // Built per composition, like the local functions it replaces.
+    val sourceLoader = EditorSourceLoader(
+        ctx = ctx,
+        scope = scope,
+        dispatchers = dispatchers,
+        state = state,
+        sourceRenderAllowed = sourceRenderAllowed,
+        sourceUriState = sourceUriState,
+        sourceKindState = sourceKindState,
+        rotationState = rotationState,
+        sourceCache = sourceCache,
+        zoomSourceCache = zoomSourceCache,
+        previewDecodeFlight = previewDecodeFlight,
+        zoomDecodeFlight = zoomDecodeFlight,
+        dngFallbackNoticeState = dngFallbackNoticeState,
+    )
+    fun currentSourceDecodeRequest(): SourceDecodeRequest = sourceLoader.currentSourceDecodeRequest()
+    suspend fun cachedSourceDecodeRequest(cache: DecodedSourceCache, maxEdge: Int): CachedSourceDecodeRequest =
+        sourceLoader.cachedSourceDecodeRequest(cache, maxEdge)
 
     // Stock and Look strip preview sessions (EditorStockPreviewHosts.kt).
     fun stockPreviewHost(vm: StockPreviewViewModel, forFilm: Boolean) = editorStockPreviewHost(
@@ -1123,76 +1055,10 @@ internal fun EditorScreen(
         presetBaselineJson = { presetBaselineJson },
     )
 
-    suspend fun loadSourceCached(
-        cache: DecodedSourceCache,
-        flight: SingleFlight<Unit>,
-        maxEdge: Int,
-        label: String,
-    ): DecodedSourceCache.Lease {
-        // Capture both the decoder inputs and cache identity in one main-thread snapshot.
-        // The detached lifecycle flight below must never re-read mutable Compose state.
-        val snapshot = cachedSourceDecodeRequest(cache, maxEdge)
-        val ticket = snapshot.ticket
-        cache.acquire(ticket)?.let { return it }
-        flight.run(ticket, scope) {
-            val existing = cache.acquire(ticket)
-            if (existing != null) {
-                existing.close()
-            } else {
-                val decoded = decodeSourceRequestDiskCached(
-                    snapshot.decode,
-                    ticket.request,
-                    maxEdge,
-                    dispatchers.io,
-                )
-                // publish() consumes the image even when this ticket became stale. An old
-                // detached decode therefore cannot evict the newest source generation.
-                val accepted = cache.publish(ticket, decoded.image)
-                if (accepted && decoded.usedPlatformFallback) {
-                    withContext(dispatchers.mainImmediate) {
-                        if (cache.isCurrent(ticket)) dngFallbackNotice = true
-                    }
-                }
-            }
-        }
-        return cache.acquire(ticket)
-            ?: throw CancellationException("decoded $label source was superseded")
-    }
-
-    // PERF: proxy-source loader used ONLY by the interactive preview path. Consults the
-    // single-entry DecodedSourceCache keyed by the decode-affecting inputs (URI + kind +
-    // RAW WB/temp/tint + manual rotation + target edge). On a hit we re-feed the SAME
-    // cached LinearImage to the engine — proven safe because spk_simulate/_preview take
-    // `const spk_image* in` and only read it (see DecodedSourceCache for the full proof),
-    // so no defensive copy is required. On a miss we run the captured decode request and
-    // store the result, dropping any previous cached source (one entry only). When ONLY
-    // look/film params change (the common case while editing sliders) the key is unchanged
-    // and we skip the expensive LibRaw/bitmap decode + linearization + rotation entirely.
-    // EXPORT calls decodeSourceRequest(EXPORT_MAX_EDGE_PX) directly — full-resolution, never
-    // cached. The magnifier uses the separate zoom cache, so neither path uses this cache.
-    suspend fun loadSourceCachedForPreview(maxEdge: Int): DecodedSourceCache.Lease {
-        return loadSourceCached(
-            cache = sourceCache,
-            flight = previewDecodeFlight,
-            maxEdge = maxEdge,
-            label = "preview",
-        )
-    }
-
-    // PERF/OOM: cached counterpart of loadSourceCachedForPreview for the MAX_EDGE_PX zoom/
-    // magnifier proxy, backed by the dedicated zoomSourceCache. The Lightroom zoom (renderRoi)
-    // and the 100% magnifier both crop this whole-image proxy; without the cache each gesture
-    // settle re-decoded it (LibRaw + 36MB managed alloc) and the pileup OOM'd the ART heap.
-    // Same read-only-reuse proof as the preview cache (the engine treats `in` as const), so the
-    // single cached LinearImage is safely re-fed to every crop.
-    suspend fun loadSourceCachedForZoom(maxEdge: Int): DecodedSourceCache.Lease {
-        return loadSourceCached(
-            cache = zoomSourceCache,
-            flight = zoomDecodeFlight,
-            maxEdge = maxEdge,
-            label = "zoom",
-        )
-    }
+    suspend fun loadSourceCachedForPreview(maxEdge: Int): DecodedSourceCache.Lease =
+        sourceLoader.loadSourceCachedForPreview(maxEdge)
+    suspend fun loadSourceCachedForZoom(maxEdge: Int): DecodedSourceCache.Lease =
+        sourceLoader.loadSourceCachedForZoom(maxEdge)
 
     zoom.loadSourceCachedForZoom = ::loadSourceCachedForZoom
     fun scheduleZoomPrewarm() = zoom.scheduleZoomPrewarm()
@@ -1292,94 +1158,31 @@ internal fun EditorScreen(
     }
     LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
-    // What the sheet's Export button (and the pill's Share) runs: the same checks and the
-    // same run either way. [rememberPreset] off for Share, which uses the last preset without
-    // re-marking it (the preset list may not have loaded yet).
-    fun launchEditorExport(exportPresets: ExportPresetDocument, rememberPreset: Boolean = true) {
-        startEditorExport(
-            dispatchers = dispatchers,
-            exportVm = exportVm,
-            exportPresetVm = exportPresetVm,
-            ctx = ctx,
-            scope = scope,
-            state = state,
-            engine = engine,
-            sourceRenderAllowed = sourceRenderAllowed,
-            sourceUri = sourceUri,
-            sourceName = sourceName,
-            exportSourceIdentity = exportSourceIdentity,
-            exportPresets = exportPresets,
-            snackbarHost = snackbarHost,
-            legacyStoragePermission = legacyStoragePermission,
-            mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
-            currentSourceDecodeRequest = ::currentSourceDecodeRequest,
-            checkpointEditorSession = ::checkpointEditorSession,
-            onSettingsAction = onSettingsAction,
-            setStatus = { status = it },
-            rememberPreset = rememberPreset,
-        )
-    }
-    fun openExportSheetIfAllowed() {
-        if (engine != null && sourceRenderAllowed && !previewBusy && !exportVm.current.inFlight) {
-            exportVm.onAction(ExportAction.OpenSheet)
-        }
-    }
-    // The Export FAB stays enabled while a preview render runs (a FAB is never disabled),
-    // so a tap during a render is held and opens the sheet as soon as the render settles.
-    var exportPending by remember { mutableStateOf(false) }
-    fun requestExport() {
-        if (previewBusy) exportPending = true else openExportSheetIfAllowed()
-    }
-    // The pill's Share half: send the file just saved if nothing changed since, otherwise
-    // export with the last-used choices (no sheet) and share the result when it lands.
-    var sharePending by remember { mutableStateOf(false) }
-    fun shareExportIfAllowed() {
-        val current = exportVm.current
-        val last = current.lastShare
-        if (current.done && last != null) {
-            if (!shareExportedFile(ctx, last.first, last.second)) {
-                status = ctx.getString(R.string.editor_status_no_share_target)
-            }
-            return
-        }
-        if (engine == null || !sourceRenderAllowed || previewBusy || current.inFlight || current.sheetOpen) return
-        exportPresetVm.uiState.value.lastUsedPreset?.let { p ->
-            exportVm.onAction(ExportAction.SetOptions(p.options))
-            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
-        }
-        exportVm.onAction(ExportAction.ShareWhenDone)
-        launchEditorExport(exportPresetVm.uiState.value, rememberPreset = false)
-        // Nothing started (a permission or settings check stopped it): drop the request so a
-        // later plain export does not open the share sheet.
-        if (!exportVm.current.inFlight) exportVm.onAction(ExportAction.ShareHandled)
-    }
-    fun requestShare() {
-        if (previewBusy) sharePending = true else shareExportIfAllowed()
-    }
-    LaunchedEffect(exportPending, previewBusy) {
-        if (exportPending && !previewBusy) {
-            exportPending = false
-            openExportSheetIfAllowed()
-        }
-    }
-    LaunchedEffect(sharePending, previewBusy) {
-        if (sharePending && !previewBusy) {
-            sharePending = false
-            shareExportIfAllowed()
-        }
-    }
-    // Share reads the last-used preset without opening the sheet, so load the presets once.
-    LaunchedEffect(exportPresetVm) { exportPresetVm.load() }
-    LaunchedEffect(Unit) {
-        if (!editorProbe.isArmed()) return@LaunchedEffect
-        editorProbe.exportProbeRequests.collect { request ->
-            openExportSheetIfAllowed()
-            editorProbe.publishExportProbeResult(
-                request.sequence,
-                exportVm.current.sheetOpen,
-            )
-        }
-    }
+    // Export / Share entry points and their deferral while a render runs (EditorExportActions.kt).
+    val exportActions = rememberEditorExportActions(
+        dispatchers = dispatchers,
+        exportVm = exportVm,
+        exportPresetVm = exportPresetVm,
+        ctx = ctx,
+        scope = scope,
+        state = state,
+        engineState = engineState,
+        previewBusyState = previewBusyState,
+        sourceRenderAllowed = sourceRenderAllowed,
+        sourceUriState = sourceUriState,
+        sourceNameState = sourceNameState,
+        exportSourceIdentity = exportSourceIdentity,
+        snackbarHost = snackbarHost,
+        legacyStoragePermission = legacyStoragePermission,
+        mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
+        currentSourceDecodeRequest = ::currentSourceDecodeRequest,
+        checkpointEditorSession = ::checkpointEditorSession,
+        onSettingsAction = onSettingsAction,
+        statusState = statusState,
+    )
+    fun launchEditorExport(exportPresets: ExportPresetDocument) = exportActions.launchEditorExport(exportPresets)
+    fun requestExport() = exportActions.requestExport()
+    fun requestShare() = exportActions.requestShare()
 
     // Hardware keyboard shortcuts + Back handling (EditorBackAndShortcuts.kt).
     EditorBackAndShortcuts(
@@ -1700,51 +1503,20 @@ internal fun EditorScreen(
                 // every tool on one sideways rail of instrument cards (ToolRail.kt), and a tool
                 // opened from its chip in full, under its own name and reset.
                 val panelContent: @Composable ColumnScope.() -> Unit = {
-                    CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
-                        val open = activeCategory
-                        val detail = railDetail
-                        if (open != null && open.mode == EditorMode.EDIT && detail != null) {
-                            // Only while nothing sits over the panel: the magnifier, crop and the
-                            // other full-screen tools own Back while they are open.
-                            BackHandler(
-                                enabled = !magnifierOpen && !viewerUi.chromeHidden &&
-                                    !toolUi.anyOverlayOpen && !exportMaskVisible,
-                            ) { railDetail = null }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { railDetail = null }) {
-                                    Icon(
-                                        MaterialSymbols.ArrowBack,
-                                        contentDescription = stringResource(R.string.editor_rail_back_to_tools),
-                                    )
-                                }
-                                ToolHeader(
-                                    tool = detail,
-                                    onReset = if (detail in dirty) ({ resetCategory(detail) }) else null,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            toolContent(detail)
-                        } else if (open != null && open.mode == EditorMode.EDIT) {
-                            ToolRail(
-                                tools = stagesOf(EditorMode.EDIT).flatMap { categoriesOf(it) }.filter(::toolShown),
-                                activeStage = open.stage,
-                                startTool = open,
-                                dirty = dirty,
-                                switchOf = { toolSwitch(state, it) },
-                                onScrolledTo = { stage ->
-                                    if (activeCategory?.stage != stage) {
-                                        activeCategory = categoriesOf(stage).first(::toolShown)
-                                    }
-                                },
-                                onOpenTool = { tool ->
-                                    activeCategory = tool
-                                    railDetail = tool
-                                },
-                            ) { tool -> RailToolContent(state, tool, onOpen = { activeCategory = tool; railDetail = tool }) }
-                        } else if (open != null) {
-                            toolContent(open)
-                        }
-                    }
+                    EditorPanelContent(
+                        sliderInteraction = sliderInteraction,
+                        state = state,
+                        activeCategory = activeCategory,
+                        onActiveCategoryChange = { activeCategory = it },
+                        railDetail = railDetail,
+                        onRailDetailChange = { railDetail = it },
+                        backEnabled = !magnifierOpen && !viewerUi.chromeHidden &&
+                            !toolUi.anyOverlayOpen && !exportMaskVisible,
+                        dirty = dirty,
+                        resetCategory = resetCategory,
+                        toolShown = ::toolShown,
+                        toolContent = toolContent,
+                    )
                 }
                 // Measured height of the floating adjustment panel (narrow layout only). The
                 // preview's zoom control is inset by it so it never sits under the panel.
@@ -1864,30 +1636,8 @@ internal fun EditorScreen(
             }
         }
 
-        // --- 100% grain magnifier overlay ---
-        if (magnifierOpen) {
-            // MEMORY: the magnifier crop is a real full-resolution ARGB_8888 render
-            // (~512px native here, but it is the only path that decodes at MAX_EDGE_PX
-            // before cropping). Recycle it deterministically once the overlay leaves
-            // composition (close) or the rendered crop is replaced by a re-render. This
-            // DisposableEffect is scoped INSIDE `if (magnifierOpen)`, so onDispose runs
-            // only after the overlay is no longer composed/drawn — never a use-after-
-            // recycle of the bitmap still on screen. `crop` is the value captured for
-            // THIS effect instance; when `magnifierBitmap` changes (e.g. -> null on a
-            // re-open) or the overlay closes, the captured previous bitmap is freed.
-            val cropToFree = magnifierBitmap
-            DisposableEffect(magnifierBitmap) {
-                onDispose {
-                    if (cropToFree != null && !cropToFree.isRecycled) cropToFree.recycle()
-                }
-            }
-            MagnifierOverlay(
-                crop = magnifierBitmap,
-                rendering = magnifierRendering,
-                status = magnifierStatus,
-                onClose = { closeMagnifier() },
-            )
-        }
+        // --- 100% grain magnifier overlay (EditorZoom.kt) ---
+        EditorMagnifierLayer(zoom)
 
         // The full-screen tools share one wrapper so a held back swipe shrinks whichever
         // is open (see the PredictiveBackHandler above).

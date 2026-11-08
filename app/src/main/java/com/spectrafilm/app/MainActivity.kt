@@ -8,7 +8,6 @@
  */
 package com.spectrafilm.app
 
-import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -16,125 +15,25 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.onClick
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
-/** Which kind of source image is loaded. */
-
-/** #286: how long the open stand-in fades into the first render, and stays under it. */
-
 class MainActivity : ComponentActivity() {
-    /** Injected coroutine dispatchers (#277); no `Dispatchers.*` literal in this file. */
-    internal val dispatchers: AppDispatchers by lazy { appContainer.dispatchers }
-
-    /** Editing state and the engine/profile catalog for the editor (audit A2). */
-    internal val editorVm: EditorViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewModel::class.java]
-    }
-
-    /** Export sheet + export phase state for the editor (#272). Activity-scoped. */
-    internal val exportVm: ExportViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[ExportViewModel::class.java]
-    }
-
-    /** Saved export presets for the export sheet. */
-    internal val exportPresetVm: ExportPresetViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[ExportPresetViewModel::class.java]
-    }
-
-    /** Viewer modes: compare, histogram, hidden chrome (#272). */
-    internal val viewerVm: EditorViewerViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[EditorViewerViewModel::class.java]
-    }
-
-    /** On-photo tool overlays and mask selection for the editor (#272). */
-    internal val toolVm: EditorToolViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[EditorToolViewModel::class.java]
-    }
-
-    /** Preset panel, amount blend and settings clipboard state for the editor (#272). */
-    internal val presetVm: PresetViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[PresetViewModel::class.java]
-    }
-
-    /** Previews of the photo through each film stock / print paper, one set per browser. */
-    internal val filmPreviewVm: StockPreviewViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)["film", StockPreviewViewModel::class.java]
-    }
-    internal val printPreviewVm: StockPreviewViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)["print", StockPreviewViewModel::class.java]
-    }
-    /** Previews of the photo through each built-in look (the Look stage strip). */
-    internal val presetPreviewVm: StockPreviewViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)["presets", StockPreviewViewModel::class.java]
-    }
-
-    /** Named versions of the open photo. */
-    internal val versionsVm: VersionsViewModel by lazy {
-        ViewModelProvider(this, appContainer.viewModelFactory)[VersionsViewModel::class.java]
-    }
-
-    /**
-     * #162 inbound import: the latest unconsumed VIEW/SEND intent. Compose state so the
-     * live editor observes delivery through onNewIntent (singleTask) as well as a cold
-     * start; consumed exactly once by the editor's LaunchedEffect.
-     */
-    internal val incomingImageIntent = androidx.compose.runtime.mutableStateOf<Intent?>(null)
-
-    /**
-     * #467: a launcher shortcut waiting to be acted on. AppRoot takes LIBRARY (opens the
-     * Library); OPEN_PHOTO pops to the editor, which consumes it by opening its photo picker.
-     * Set from the launching intent like [incomingImageIntent], never on Activity recreation.
-     */
-    internal val launcherShortcut = androidx.compose.runtime.mutableStateOf<LauncherShortcut?>(null)
-
-    /**
-     * Photos shared in several at once (SEND_MULTIPLE), waiting for the Library to import them
-     * into its Imported album. AppRoot opens the Library; the Library takes and clears it.
-     */
-    internal val incomingShareBatch = androidx.compose.runtime.mutableStateOf<List<String>?>(null)
+    /** Everything the composables need from this Activity (AppHost.kt, #273). */
+    private val host: AppHost by lazy { appHost() }
 
     /** Routes a launching intent: a multi-photo share to the Library, anything else to the editor. */
     private fun deliver(intent: Intent?) {
         val batch = AlbumImports.sharedUris(intent)
         if (batch.isNotEmpty()) {
-            incomingShareBatch.value = batch.map(Uri::toString)
+            host.incomingShareBatch.value = batch.map(Uri::toString)
         } else {
-            incomingImageIntent.value = intent
+            host.incomingImageIntent.value = intent
         }
     }
 
-    /**
-     * Hardware keyboard shortcuts (DeX, ChromeOS, keyboard covers). Set by the live editor
-     * composition and cleared when it leaves, so a shortcut can never act on an editor that
-     * is not on screen. Returns true when the shortcut was handled.
-     */
-    internal var editorShortcutHandler: ((EditorShortcut) -> Boolean)? = null
-
-    /**
-     * Read access to photos dragged in from other apps (ImageDrop.kt). Never released early:
-     * export re-reads the source at full resolution long after the drop, and adoption is
-     * asynchronous and may refuse a new drop, in which case the PREVIOUS dropped photo stays
-     * the source and still needs its grant. The platform revokes them all with the Activity;
-     * a session holds one small token per drop.
-     */
-    internal val heldDropPermissions = mutableListOf<android.view.DragAndDropPermissions>()
-
-    /**
-     * Only reached for keys the focused view did NOT consume, so a text field keeps its own
-     * Ctrl+Z and typed characters. Dialogs and sheets are separate windows and never get here.
-     */
     /** Lists the editor's shortcuts in the system keyboard-shortcuts helper (Meta+/). */
     override fun onProvideKeyboardShortcuts(
         data: MutableList<android.view.KeyboardShortcutGroup>,
@@ -142,12 +41,16 @@ class MainActivity : ComponentActivity() {
         deviceId: Int,
     ) {
         super.onProvideKeyboardShortcuts(data, menu, deviceId)
-        if (editorShortcutHandler != null) data += editorKeyboardShortcutGroup(resources)
+        if (host.editorShortcutHandler != null) data += editorKeyboardShortcutGroup(resources)
     }
 
+    /**
+     * Only reached for keys the focused view did NOT consume, so a text field keeps its own
+     * Ctrl+Z and typed characters. Dialogs and sheets are separate windows and never get here.
+     */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         val shortcut = editorShortcutFor(event)
-        if (shortcut != null && editorShortcutHandler?.invoke(shortcut) == true) return true
+        if (shortcut != null && host.editorShortcutHandler?.invoke(shortcut) == true) return true
         return super.onKeyDown(keyCode, event)
     }
 
@@ -155,7 +58,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deliver(intent)
-        LauncherShortcut.fromAction(intent.action)?.let { launcherShortcut.value = it }
+        LauncherShortcut.fromAction(intent.action)?.let { host.launcherShortcut.value = it }
     }
 
     /**
@@ -187,7 +90,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null || intent?.action != Intent.ACTION_SEND_MULTIPLE) deliver(intent)
         // Only on a fresh launch: a recreated Activity still holds the shortcut intent, and
         // reopening the picker or the Library on every rotation would be wrong.
-        if (savedInstanceState == null) launcherShortcut.value = LauncherShortcut.fromAction(intent?.action)
+        if (savedInstanceState == null) host.launcherShortcut.value = LauncherShortcut.fromAction(intent?.action)
         // Wide-gamut compositing so the color-managed preview bitmaps (tagged Adobe/ProPhoto/Rec2020
         // per the output space) are not clamped to sRGB at composition on wide-gamut panels. No-op on
         // sRGB displays. API 26+; minSdk is 24.
@@ -204,7 +107,7 @@ class MainActivity : ComponentActivity() {
         )
         // Reconcile export journal entries left by process death before a new export can start.
         // Once-per-process guarding prevents Activity recreation from racing a live transaction.
-        lifecycleScope.launch(dispatchers.io) {
+        lifecycleScope.launch(appContainer.dispatchers.io) {
             runCatching {
                 recoverPendingMediaStoreExportsOnce(
                     applicationContext,
@@ -233,75 +136,7 @@ class MainActivity : ComponentActivity() {
                 settings.awaitLoaded()
                 value = true
             }
-            if (loaded) AppContent(settings)
+            if (loaded) AppContent(host, settings)
         }
     }
-
-    /** The app once settings are loaded: theme from the saved settings, then [AppRoot]. */
-    @Composable
-    private fun AppContent(settings: AppSettings) {
-        val settingsVm = remember {
-            ViewModelProvider(this@MainActivity, appContainer.viewModelFactory)[SettingsViewModel::class.java]
-        }
-        val updateVm = remember {
-            ViewModelProvider(this@MainActivity, appContainer.viewModelFactory)[UpdateViewModel::class.java]
-        }
-        // Theme follows the saved settings state, so a Settings edit re-themes at once.
-        val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
-        val dark = when (settingsUi.theme) {
-            ThemeMode.SYSTEM -> isSystemInDarkTheme()
-            ThemeMode.LIGHT -> false
-            ThemeMode.DARK -> true
-        }
-        val updateUi by updateVm.uiState.collectAsStateWithLifecycle()
-        // Launch-time "what's new" check: at most daily, off in Settings, never on Play.
-        LaunchedEffect(Unit) { updateVm.onAction(UpdateAction.AutoCheck) }
-        SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
-            AppRoot(
-                settings = settings,
-                settingsUi = settingsUi,
-                onSettingsAction = settingsVm::onAction,
-                updateUi = updateUi,
-                onUpdateAction = updateVm::onAction,
-            )
-            updateUi.offer?.let { offer -> UpdateDialog(offer, updateVm::onAction) }
-        }
-    }
-
-    /** Hosts onboarding + top-level navigation around the editor. */
 }
-
-/** Small helpers kept at file scope. */
-
-/** Average RGB (0..1) of a small LinearImage crop — the WB eyedropper's sampled neutral. */
-
-@Composable
-internal fun localConfigurationHeightDp(): Int =
-    androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
-
-internal fun Modifier.clickableNoRipple(
-    interactionSource: MutableInteractionSource,
-    onClick: () -> Unit,
-): Modifier = this.then(
-    Modifier.clickable(
-        interactionSource = interactionSource,
-        indication = null,
-        onClick = onClick,
-    )
-)
-
-/**
- * #162: the one accepted inbound shape — a content:// image from VIEW (data) or SEND
- * (EXTRA_STREAM). Anything else (file:// paths, missing streams, foreign actions) is null
- * and never adopted; the decode route itself stays content-sniffed fail-closed (#190).
- */
-internal fun incomingImageUri(intent: Intent?): Uri? = when (intent?.action) {
-    Intent.ACTION_VIEW -> intent.data
-    Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-    } else {
-        @Suppress("DEPRECATION")
-        intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-    }
-    else -> null
-}?.takeIf { it.scheme == ContentResolver.SCHEME_CONTENT }
