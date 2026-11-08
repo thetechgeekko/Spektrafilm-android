@@ -72,10 +72,10 @@ class DiffusionState {
     )
 }
 
-private fun Triple<Float, Float, Float>.times100() =
+internal fun Triple<Float, Float, Float>.times100() =
     Triple(first * 100f, second * 100f, third * 100f)
 
-private fun Triple<Float, Float, Float>.div100() =
+internal fun Triple<Float, Float, Float>.div100() =
     Triple(first / 100f, second / 100f, third / 100f)
 
 /** The engine's colour enlarger defaults, which a colour print keeps sending unchanged. */
