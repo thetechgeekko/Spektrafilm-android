@@ -169,9 +169,12 @@ internal suspend fun decodeSourceRequest(
                     it.initCause(failure)
                 }
             }
-            val fallbackSupported = rawFallbackSupported(failure.status) ||
-                rawMemoryFallbackSupported(failure.status, maxEdge)
+            val memoryFallback = rawMemoryFallbackSupported(failure.status, maxEdge)
+            val fallbackSupported = rawFallbackSupported(failure.status) || memoryFallback
             if (!fallbackSupported) throw failure
+            // A memory refusal depends on free RAM at this moment, which the disk-cache key
+            // does not carry: mark it degraded so the platform image is never cached.
+            if (memoryFallback) rawMemoryDegraded.set(true)
             usedPlatformFallback = true
             applyExifBaseline = true
             decodeViaPlatform(
