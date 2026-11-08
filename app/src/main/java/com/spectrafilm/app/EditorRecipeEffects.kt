@@ -23,26 +23,28 @@ import kotlinx.coroutines.launch
 
 /** Restores the photo's recipe when the source changes; see the comment at its LaunchedEffect in EditorScreen. */
 internal suspend fun CoroutineScope.runRecipeRestore(
+    screen: EditorScreenState,
+    session: EditorSession,
     ctx: Context,
-    state: ParamsState,
     settings: AppSettings,
-    editHistory: EditHistory,
     recipeKey: String?,
     recipeRepo: RecipeRepository,
     restoredRecipeKey: String?,
-    snackbarHost: SnackbarHostState,
-    committedSnapshotState: MutableState<EditSnapshot?>,
-    hasRecipeState: MutableState<Boolean>,
     lastRestoredKeyState: MutableState<String?>,
-    previewTickState: MutableIntState,
     profilesState: State<List<String>>,
     recipeAccessState: MutableState<EditorRecipeAccess>,
-    recipeReadyState: MutableState<Boolean>,
-    restoringState: MutableState<Boolean>,
-    rotationState: MutableState<SourceRotation>,
     statusState: MutableState<String>,
     offerPreviousEdit: suspend () -> Unit = {},
 ) {
+    val snackbarHost = screen.snackbarHost
+    val hasRecipeState = screen.hasRecipeState
+    val previewTickState = screen.previewTickState
+    val recipeReadyState = screen.recipeReadyState
+    val state = session.params
+    val editHistory = session.history
+    val committedSnapshotState = session.committedSnapshot
+    val restoringState = session.restoring
+    val rotationState = session.rotation
     var committedSnapshot by committedSnapshotState
     var hasRecipe by hasRecipeState
     var lastRestoredKey by lastRestoredKeyState

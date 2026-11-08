@@ -31,19 +31,20 @@ import kotlinx.coroutines.withContext
 internal suspend fun CoroutineScope.runExportRuntimeObserver(
     dispatchers: AppDispatchers,
     exportVm: ExportViewModel,
+    screen: EditorScreenState,
     ctx: Context,
     exportSourceIdentity: ExportSourceIdentity,
-    publicationGate: RenderPublicationGate,
-    sessionCheckpointAction: Array<(() -> Boolean)?>,
     exportRuntimeStateState: State<ExportRuntimeState>,
-    exportPublicationState: MutableState<Pair<Long, RenderPublicationTicket>?>,
-    lastHandledExportRunState: MutableLongState,
-    recipeReadyState: MutableState<Boolean>,
-    previewState: MutableState<Bitmap?>,
     statusState: MutableState<String>,
-    snackbarHost: SnackbarHostState,
     messageScope: CoroutineScope,
 ) {
+    val publicationGate = screen.publicationGate
+    val sessionCheckpointAction = screen.sessionCheckpointAction
+    val exportPublicationState = screen.exportPublicationState
+    val lastHandledExportRunState = screen.lastHandledExportRunState
+    val recipeReadyState = screen.recipeReadyState
+    val previewState = screen.previewState
+    val snackbarHost = screen.snackbarHost
     val exportRuntimeState by exportRuntimeStateState
     var exportPublication by exportPublicationState
     var lastHandledExportRun by lastHandledExportRunState
