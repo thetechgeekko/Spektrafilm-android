@@ -345,6 +345,21 @@ internal fun EditorScreen(
     // changes hands when another control is dragged.
     val lastControl = remember { arrayOfNulls<SliderReadout>(1) }
     val lastControlAlive = remember { mutableStateOf<State<Boolean>?>(null) }
+    // The photo drag is ARMED only for a moment after a control was used (PHOTO_SCRUB_ARM_MS
+    // after the finger last lifted from it, or from a photo drag). Unarmed, a sideways drag on
+    // the photo is the swipe to the next photo again. Without this, once any control had been
+    // touched every later swipe meant for the next photo changed that control instead: a
+    // half-screen flick swung Exposure from 0 to -7.5 EV on the phone. [scrubArmToken] restarts
+    // the clock; it changes on release only, never per drag frame.
+    val scrubArmed = remember { mutableStateOf(false) }
+    val scrubArmToken = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(scrubArmToken.longValue) {
+        if (scrubArmToken.longValue == 0L) return@LaunchedEffect
+        delay(PHOTO_SCRUB_ARM_MS)
+        // Never disarm under a finger: that would drop the photo drag mid-gesture.
+        while (interacting.value) delay(100)
+        scrubArmed.value = false
+    }
     val sliderInteraction = remember {
         SliderInteraction(
             onChange = { readout ->
@@ -354,9 +369,13 @@ internal fun EditorScreen(
                 if (edit?.move != null && edit.alive != null) {
                     lastControl[0] = readout
                     if (lastControlAlive.value !== edit.alive) lastControlAlive.value = edit.alive
+                    scrubArmed.value = true
                 }
             },
-            onFinished = { interacting.value = false },
+            onFinished = {
+                interacting.value = false
+                scrubArmToken.longValue += 1
+            },
             // A second finger on the slider row peeks at clipping (the canvas button
             // latches the same overlay without a gesture).
             onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
@@ -402,6 +421,7 @@ internal fun EditorScreen(
                 if (e != null && v != null) e.set(v)
                 target = null
                 interacting.value = false
+                scrubArmToken.longValue += 1
             },
         )
     }
@@ -3011,9 +3031,11 @@ internal fun EditorScreen(
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                         swipe = photoSwipe,
-                        // Only while that control is still on screen: once it scrolls off the rail or its
-                        // panel closes, the sideways drag goes back to the next/previous photo.
-                        scrub = photoScrub.takeIf { editOpen && lastControlAlive.value?.value == true },
+                        // Only right after a control was used (scrubArmed) and while it is still on
+                        // screen: otherwise the sideways drag is the next/previous photo.
+                        scrub = photoScrub.takeIf {
+                            editOpen && scrubArmed.value && lastControlAlive.value?.value == true
+                        },
                         strip = folderStrip,
                     )
                 }
