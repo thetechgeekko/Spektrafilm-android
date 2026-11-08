@@ -473,14 +473,23 @@ internal const val EXPORT_SAVED_HERO_MS = 2_000L
 
 internal const val EXPORT_SAVED_CLOSE_TAG = "export-saved-close"
 
-/** How long the result toolbar stays before it goes away on its own. */
+/** The editor top bar's 64dp plus an 8dp gap: the toolbar floats on the photo, below it. */
+internal val EXPORT_SAVED_TOOLBAR_TOP = 72.dp
+
+/**
+ * How long a result toolbar WITHOUT actions stays before it goes away on its own. A toolbar that
+ * carries Share / Open never times out (M3: an action must not live only on something that
+ * auto-dismisses, the same rule that makes an action Snackbar indefinite); the editor dismisses
+ * it on the user's next edit or navigation instead.
+ */
 internal const val EXPORT_SAVED_TOOLBAR_MS = 6_000L
 
 /**
  * The export result, in two beats. First the hero (Pen board, "Export saved"): the morphing
  * check and the emphasized headline, which plays for [EXPORT_SAVED_HERO_MS] or until any tap
  * or Back. Then it collapses into a floating toolbar with Share / Open / close that does not
- * block the editor and dismisses itself after [EXPORT_SAVED_TOOLBAR_MS].
+ * block the editor. With an action on it, it stays until used, closed, or the caller dismisses
+ * it (next edit or navigation); with none, it goes away after [EXPORT_SAVED_TOOLBAR_MS].
  *
  * Only the hero beat is modal; [collapsed] is hoisted so the editor can stop treating the
  * result as an open overlay the moment it collapses. Both timeouts go through the system's
@@ -505,11 +514,12 @@ internal fun ExportSavedMoment(
     ) ?: EXPORT_SAVED_TOOLBAR_MS
     val collapse by rememberUpdatedState(onCollapse)
     val dismiss by rememberUpdatedState(onDismiss)
-    LaunchedEffect(collapsed) {
+    val hasActions = onShare != null || onOpen != null
+    LaunchedEffect(collapsed, hasActions) {
         if (!collapsed) {
             delay(heroMs)
             collapse()
-        } else {
+        } else if (!hasActions) {
             delay(toolbarMs)
             dismiss()
         }
@@ -574,14 +584,16 @@ private fun ExportSavedToolbar(
 ) {
     val motion = MaterialTheme.motionScheme
     val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
-    // Sits where the editor's snackbars sit; the Box has no pointer handlers, so everything
-    // around the toolbar still reaches the editor.
+    // Floats over the top of the photo, just under the 64dp top bar: never over the tool
+    // panel or the category bar (M3: a floating toolbar does not share the bottom edge with a
+    // navigation bar). The Box has no pointer handlers, so everything around the toolbar
+    // still reaches the editor.
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .navigationBarsPadding()
-            .padding(bottom = 88.dp, start = 16.dp, end = 16.dp),
-        contentAlignment = Alignment.BottomCenter,
+            .statusBarsPadding()
+            .padding(top = EXPORT_SAVED_TOOLBAR_TOP, start = 16.dp, end = 16.dp),
+        contentAlignment = Alignment.TopCenter,
     ) {
         AnimatedVisibility(
             visibleState = shown,

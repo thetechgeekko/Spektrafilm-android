@@ -59,7 +59,7 @@ class ExportSavedMomentUiTest {
         var behindTaps = 0
     }
 
-    private fun show(startCollapsed: Boolean, fontScale: Float = 1f): Calls {
+    private fun show(startCollapsed: Boolean, fontScale: Float = 1f, withActions: Boolean = true): Calls {
         val calls = Calls().apply { collapsed = startCollapsed }
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -75,8 +75,8 @@ class ExportSavedMomentUiTest {
                     collapsed = calls.collapsed,
                     onCollapse = { calls.collapsed = true },
                     onDismiss = { calls.dismissals++ },
-                    onShare = { calls.shares++ },
-                    onOpen = { calls.opens++ },
+                    onShare = if (withActions) ({ calls.shares++ }) else null,
+                    onOpen = if (withActions) ({ calls.opens++ }) else null,
                 )
             } }
         }
@@ -112,11 +112,30 @@ class ExportSavedMomentUiTest {
         assertEquals(0, calls.dismissals)
     }
 
-    @Test fun toolbarGoesAwayOnItsOwn() {
+    /** M3: the only route to Share / Open must not sit on something that auto-dismisses. */
+    @Test fun toolbarWithActionsStaysUntilUsed() {
         val calls = show(startCollapsed = true)
+        compose.mainClock.advanceTimeBy(EXPORT_SAVED_TOOLBAR_MS * 5)
+        compose.waitForIdle()
+        assertEquals(0, calls.dismissals)
+        compose.onNode(hasText(str(R.string.editor_export_share)) and hasClickAction()).assertIsDisplayed()
+    }
+
+    @Test fun toolbarWithoutActionsGoesAwayOnItsOwn() {
+        val calls = show(startCollapsed = true, withActions = false)
         compose.mainClock.advanceTimeBy(EXPORT_SAVED_TOOLBAR_MS + 100)
         compose.waitForIdle()
         assertEquals(1, calls.dismissals)
+    }
+
+    /** It floats over the photo under the top bar, never over the tool panel at the bottom. */
+    @Test fun toolbarSitsInTheTopHalf() {
+        show(startCollapsed = true)
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        val root = compose.onRoot().getBoundsInRoot()
+        val close = compose.onNodeWithTag(EXPORT_SAVED_CLOSE_TAG).getBoundsInRoot()
+        assertTrue("toolbar not in the top half: $close in $root", close.bottom < root.bottom / 2)
     }
 
     /** Codex on #495: a long label must never squeeze the actions out of a narrow window. */

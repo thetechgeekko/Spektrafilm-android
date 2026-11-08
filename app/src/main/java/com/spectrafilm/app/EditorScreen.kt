@@ -57,6 +57,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -1421,6 +1422,23 @@ internal fun EditorScreen(
             }
         }
         pendingLutText = null
+    }
+
+    // The saved toolbar's Share / Open never time out (ExportSavedMoment). The user's next
+    // edit -- a slider drag or any settled change -- or a move to another tool panel puts the
+    // result away instead, so it never lingers over work that has moved on.
+    if (exportDone && exportSavedCollapsed) {
+        LaunchedEffect(Unit) {
+            val committedAtSave = session.committedSnapshot.value
+            val categoryAtSave = activeCategory
+            snapshotFlow {
+                interacting.value ||
+                    session.committedSnapshot.value != committedAtSave ||
+                    activeCategory != categoryAtSave
+            }.first { it }
+            exportVm.onAction(ExportAction.DismissResult)
+            checkpointEditorSession()
+        }
     }
 
     LaunchedEffect(sourceAuthorizationRequired, sourceKind) {
