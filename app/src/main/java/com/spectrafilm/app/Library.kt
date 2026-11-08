@@ -95,12 +95,15 @@ internal data class LibraryQuery(
     val descending: Boolean = true,
     val filter: LibraryFilter? = null,
     val text: String = "",
+    /** Justified rows or the square grid; changes the layout, never which frames show. */
+    val view: LibraryView = LibraryView.JUSTIFIED,
 ) {
     /** Something hides frames: a filter or search words. Sort alone never does. */
     val narrows: Boolean get() = filter != null || text.isNotBlank()
 
     /** Sort and filter as one stored string; the search text is left out on purpose. */
-    fun encode(): String = listOf(sort.name, if (descending) "desc" else "asc", filter?.name ?: "ALL").joinToString(":")
+    fun encode(): String =
+        listOf(sort.name, if (descending) "desc" else "asc", filter?.name ?: "ALL", view.name).joinToString(":")
 
     companion object {
         /** Reads [encode]; anything unknown falls back to the default for that part. */
@@ -110,6 +113,8 @@ internal data class LibraryQuery(
                 sort = parts.getOrNull(0)?.let { name -> LibrarySort.entries.firstOrNull { it.name == name } } ?: LibrarySort.DATE,
                 descending = parts.getOrNull(1) != "asc",
                 filter = parts.getOrNull(2)?.let { name -> LibraryFilter.entries.firstOrNull { it.name == name } },
+                view = parts.getOrNull(3)?.let { name -> LibraryView.entries.firstOrNull { it.name == name } }
+                    ?: LibraryView.JUSTIFIED,
             )
         }
     }
@@ -208,6 +213,32 @@ internal interface LibraryFolderStore {
     fun releaseUnusedGrants()
 }
 
+/**
+ * Reads a frame's shape as shown: width / height after its EXIF rotation. Blocking (opens the
+ * file's header); null when the format does not say.
+ */
+internal fun interface LibraryAspectReader {
+    fun aspect(entry: LibraryEntry): Float?
+}
+
+/**
+ * Frame shapes already read, for the whole process: reopening the Library lays out justified
+ * rows at once instead of reflowing while headers are read again. Keyed by URI and date, so
+ * a replaced file is read afresh. Bounded; cleared rather than evicted, as an overflow only
+ * means some shapes are read again.
+ */
+internal object LibraryAspectCache {
+    private const val MAX = 8_000
+    private val map = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    private fun key(entry: LibraryEntry) = entry.documentUri + "@" + entry.modifiedMs
+    fun get(entry: LibraryEntry): Float? = map[key(entry)]
+    fun put(entry: LibraryEntry, aspect: Float) {
+        if (map.size >= MAX) map.clear()
+        map[key(entry)] = aspect
+    }
+    fun clear() = map.clear()
+}
+
 /** Lists a folder tree. Throws when the folder cannot be read. */
 internal fun interface LibraryLister {
     fun list(treeUri: String): LibraryListing
@@ -241,7 +272,44 @@ internal class LibraryViewModel(
      */
     private val writeLock: Mutex = Mutex(),
     private val queryStore: LibraryQueryStore = LibraryQueryStore.None,
+    private val aspectReader: LibraryAspectReader = LibraryAspectReader { null },
 ) : ViewModel() {
+    private val _aspects = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+    /**
+     * Known frame shapes by document URI, for justified rows. Filled in the background after
+     * each listing, in batches so the grid reflows a few times rather than once per frame.
+     */
+    val aspects: StateFlow<Map<String, Float>> = _aspects.asStateFlow()
+    private var aspectJob: Job? = null
+
+    private fun measureAspects(entries: List<LibraryEntry>) {
+        aspectJob?.cancel()
+        val known = HashMap<String, Float>()
+        val missing = ArrayList<LibraryEntry>()
+        for (entry in entries) {
+            val cached = LibraryAspectCache.get(entry)
+            if (cached != null) known[entry.documentUri] = cached else missing += entry
+        }
+        _aspects.value = known.toMap()
+        if (missing.isEmpty()) return
+        aspectJob = viewModelScope.launch {
+            // On screen first: the grid is newest first by default, as is the listing.
+            missing.chunked(ASPECT_BATCH).forEach { batch ->
+                val read = withContext(io) {
+                    batch.mapNotNull { entry ->
+                        val aspect = runCatching { aspectReader.aspect(entry) }.getOrNull()
+                            ?.takeIf { it.isFinite() && it > 0f }
+                            ?: return@mapNotNull null
+                        LibraryAspectCache.put(entry, aspect)
+                        entry.documentUri to aspect
+                    }
+                }
+                if (read.isNotEmpty()) _aspects.value = _aspects.value + read
+            }
+        }
+    }
+
     private val _query = MutableStateFlow(runCatching { queryStore.load() }.getOrDefault(LibraryQuery()))
 
     /** Sort, filter and search over the folder ([applyLibraryQuery]). */
@@ -450,6 +518,7 @@ internal class LibraryViewModel(
                 val present = applyLibraryQuery(listing.rows, _query.value).mapTo(HashSet()) { it.documentUri }
                 _selection.value = _selection.value.filterTo(LinkedHashSet()) { it in present }
             }
+            if (listing != null) measureAspects(listing.rows)
             _state.value = if (listing == null) {
                 LibraryUiState(treeUri = tree, folderName = _state.value.folderName, unreadable = true)
             } else {
@@ -507,6 +576,31 @@ internal class LibraryViewModel(
     }
 
     companion object {
+        private const val ASPECT_BATCH = 24
+
+        /**
+         * The shape from the file's EXIF header, read through a seekable descriptor so a RAW
+         * is never streamed whole; for a JPEG or HEIC without EXIF size, the decoder's bounds.
+         * CR3 and a few other RAWs carry neither and stay at the default 3:2.
+         */
+        fun androidAspectReader(context: Context): LibraryAspectReader {
+            val resolver = context.applicationContext.contentResolver
+            return LibraryAspectReader { entry ->
+                val uri = Uri.parse(entry.documentUri)
+                val fromExif = resolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    val exif = ExifInterface(pfd.fileDescriptor)
+                    val w = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
+                    val h = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
+                    if (w > 0 && h > 0) exif.rotationDegrees.let { if (it == 90 || it == 270) h.toFloat() / w else w.toFloat() / h } else null
+                }
+                fromExif ?: if (entry.isRaw) null else resolver.openInputStream(uri)?.use { input ->
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeStream(input, null, bounds)
+                    if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth.toFloat() / bounds.outHeight else null
+                }
+            }
+        }
+
         fun androidStore(context: Context, settings: AppSettings): LibraryFolderStore {
             val resolver = context.applicationContext.contentResolver
             return object : LibraryFolderStore {

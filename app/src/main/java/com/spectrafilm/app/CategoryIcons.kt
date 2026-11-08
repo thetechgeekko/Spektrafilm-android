@@ -64,6 +64,8 @@ object SpectraIcons {
     val Cancel: ImageVector get() = MaterialSymbols.Close
     val Search: ImageVector get() = MaterialSymbols.Search
     val Sort: ImageVector get() = MaterialSymbols.Sort
+    val GridView: ImageVector get() = MaterialSymbols.GridView
+    val JustifiedView: ImageVector get() = MaterialSymbols.ViewQuilt
     val Confirm: ImageVector get() = MaterialSymbols.Check
     val Back: ImageVector get() = MaterialSymbols.ArrowBack
     val Eyedropper: ImageVector get() = MaterialSymbols.Colorize

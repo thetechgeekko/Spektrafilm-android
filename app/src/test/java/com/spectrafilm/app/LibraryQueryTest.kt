@@ -71,7 +71,7 @@ class LibraryQueryTest {
     }
 
     @Test fun storedFormKeepsSortAndFilterButNeverTheSearch() {
-        val q = LibraryQuery(LibrarySort.SIZE, descending = false, filter = LibraryFilter.EDITED, text = "beach")
+        val q = LibraryQuery(LibrarySort.SIZE, descending = false, filter = LibraryFilter.EDITED, text = "beach", view = LibraryView.SQUARE)
         assertEquals(q.copy(text = ""), LibraryQuery.decode(q.encode()))
         assertEquals(LibraryQuery(), LibraryQuery.decode(null))
         assertEquals(LibraryQuery(), LibraryQuery.decode("garbage"))
