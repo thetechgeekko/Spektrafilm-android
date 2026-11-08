@@ -107,7 +107,23 @@ class SliderReadoutEdit(
     /** Moves the value without the release step [set] runs; [set] still ends the move. */
     val move: ((Float) -> Unit)? = null,
     val set: (Float) -> Unit,
-)
+) {
+    /**
+     * This edit as it would read had the control's own drag ended at [value]: current and
+     * staleness follow [value], everything else is shared.
+     */
+    fun rebased(value: Float): SliderReadoutEdit {
+        val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
+        return SliderReadoutEdit(
+            range, step, decimals, value,
+            isCurrent = { live()?.let { kotlin.math.abs(it - value) <= tol } == true },
+            live = live,
+            alive = alive,
+            move = move,
+            set = set,
+        )
+    }
+}
 
 /**
  * Reports slider drag begin/end to the editor (Lightroom's ICBSliderTrackingBegin/End): [onChange]

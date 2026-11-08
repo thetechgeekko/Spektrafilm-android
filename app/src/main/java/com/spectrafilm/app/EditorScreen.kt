@@ -391,7 +391,9 @@ internal fun EditorScreen(
                         e.move?.invoke(v)
                     }
                     interacting.value = true
-                    sliderReadout.value = SliderReadout(r.label, formatValue(v, e.decimals))
+                    // The same edit, re-based on the scrubbed value, so the lingering HUD can
+                    // still be tapped to type an exact value (Codex on #545).
+                    sliderReadout.value = SliderReadout(r.label, formatValue(v, e.decimals), e.rebased(v))
                 }
             },
             end = {
