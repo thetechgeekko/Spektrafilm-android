@@ -52,6 +52,19 @@ class ExportForegroundServiceTypeTest {
     }
 
     @Test
+    fun aRefusedTypeIsSkippedButTheListIsNeverEmpty() {
+        val media = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+        val sync = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        assertEquals(listOf(media, sync), ExportForegroundService.typesToTry(37, 0))
+        // Seen on SM-S948W API 37: mediaProcessing refused, dataSync accepted.
+        assertEquals(listOf(sync), ExportForegroundService.typesToTry(37, media))
+        // Everything refused: try the full list again rather than nothing.
+        assertEquals(listOf(media, sync), ExportForegroundService.typesToTry(37, media or sync))
+        assertEquals(listOf(sync), ExportForegroundService.typesToTry(34, sync))
+        assertEquals(listOf(0), ExportForegroundService.typesToTry(28, media or sync))
+    }
+
+    @Test
     fun api29To34StayDataSync() {
         for (sdk in 29..34) {
             assertEquals(

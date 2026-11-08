@@ -152,11 +152,20 @@ class ExportForegroundService : Service() {
      * fallback the service ran as before. Returns false when every type was refused.
      */
     private fun enterForeground(notification: Notification): Boolean {
-        for (type in foregroundServiceTypesFor(Build.VERSION.SDK_INT)) {
+        val refusedBefore = refusedTypes
+        var refusedNow = 0
+        for (type in typesToTry(Build.VERSION.SDK_INT, refusedBefore)) {
             try {
                 ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+                // Remember a refusal only once a later type has been accepted, so a start
+                // that fails outright (background-start rules) never narrows the next try.
+                if (refusedNow != 0) {
+                    refusedTypes = refusedBefore or refusedNow
+                    Diag.w("export foreground service runs as type=$type; skipping refused types for this process")
+                }
                 return true
             } catch (t: Throwable) {
+                refusedNow = refusedNow or type
                 Diag.w("export foreground service could not start as type=$type: ${t.message}")
             }
         }
@@ -317,6 +326,26 @@ class ExportForegroundService : Service() {
             )
             sdkInt >= Build.VERSION_CODES.Q -> listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else -> listOf(0)
+        }
+
+        /**
+         * Types the platform refused in this process while a later type was accepted. The
+         * SM-S948W on API 37 refuses mediaProcessing on every export ("Starting FGS with type
+         * none ... has been prohibited", with the manifest type and permission in order) and
+         * runs the service as dataSync (seen as types=0x1, isForeground=true, for the whole
+         * export). The refusal is platform policy, so later exports skip straight to the type
+         * that works instead of throwing and logging each time. Per process: a new process
+         * tries the preferred type again.
+         */
+        @Volatile private var refusedTypes = 0
+
+        /**
+         * [foregroundServiceTypesFor] minus the types in [refused]. Never empty: if every
+         * typed choice was refused, the full list is tried again rather than none.
+         */
+        internal fun typesToTry(sdkInt: Int, refused: Int): List<Int> {
+            val all = foregroundServiceTypesFor(sdkInt)
+            return all.filter { it == 0 || it and refused == 0 }.ifEmpty { all }
         }
 
         private const val PROGRESS_MAX = 100
