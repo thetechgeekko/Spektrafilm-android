@@ -4,8 +4,10 @@
  */
 package com.spectrafilm.app
 
+import android.content.Context
 import android.graphics.Bitmap
 import com.spectrafilm.engine.AppRenderOutcome
+import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.RenderKind
 import com.spectrafilm.engine.SimResult
 import com.spectrafilm.engine.SpektraEngine
@@ -43,6 +45,7 @@ internal object PlaceholderLook {
      * render id back and can report it (see [report]).
      */
     suspend fun render(
+        ctx: Context,
         engine: SpektraEngine,
         thumbnail: Bitmap,
         state: ParamsState,
@@ -57,6 +60,12 @@ internal object PlaceholderLook {
         val saturation = state.saturation
         val vibrance = state.vibrance
         val gamutCompress = state.gamutCompress
+        // The pre-engine colour steps the real decode applies (decodeSourceRequest), so the
+        // stand-in carries the same creative white balance and film-stock balance.
+        val creativeTemp = state.creativeWbTemp
+        val creativeTint = state.creativeWbTint
+        val balanceToFilmStock = state.balanceToFilmStock
+        val filmProfile = state.filmProfile
         return withContext(default + NonCancellable) {
             runCatching {
                 val src = if (thumbnail.config == Bitmap.Config.HARDWARE) {
@@ -66,6 +75,9 @@ internal object PlaceholderLook {
                 }
                 val startNs = System.nanoTime()
                 bitmapToLinearProPhoto(src).use { linear ->
+                    applyPreEngineColour(
+                        ctx, linear, creativeTemp, creativeTint, balanceToFilmStock, filmProfile,
+                    )
                     engine.simulatePreview(linear, params, RenderKind.PREVIEW).use { res ->
                         val out = runCatching {
                             simResultToBitmapGraded(res, cctf, saturation, vibrance, gamutCompress)
@@ -94,5 +106,36 @@ internal object PlaceholderLook {
                 else -> AppRenderOutcome.SUPERSEDED
             },
         )
+    }
+
+    /** The creative WB and film-stock balance matrices, as [decodeSourceRequest] applies them. */
+    private fun applyPreEngineColour(
+        ctx: Context,
+        linear: LinearImage,
+        creativeTemp: Float,
+        creativeTint: Float,
+        balanceToFilmStock: Boolean,
+        filmProfile: String,
+    ) {
+        val wb = !CreativeWhiteBalance.isNeutral(creativeTemp, creativeTint)
+        val stock = balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, filmProfile)
+        if (!wb && !stock) return
+        val pixelCount = linear.width * linear.height
+        linear.acquireDataLease().use { lease ->
+            if (wb) {
+                CreativeWhiteBalance.applyInPlace(
+                    lease.data,
+                    pixelCount,
+                    CreativeWhiteBalance.matrix(creativeTemp, creativeTint),
+                )
+            }
+            if (stock) {
+                CreativeWhiteBalance.applyInPlace(
+                    lease.data,
+                    pixelCount,
+                    FilmStockBalance.matrix(ctx, filmProfile),
+                )
+            }
+        }
     }
 }

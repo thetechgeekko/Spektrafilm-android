@@ -393,7 +393,9 @@ internal fun EditorScreen(
         val src = placeholderSource ?: return@LaunchedEffect
         val e = engine ?: return@LaunchedEffect
         if (preview != null) return@LaunchedEffect
-        val look = PlaceholderLook.render(e, src, state, dispatchers.default) ?: return@LaunchedEffect
+        val look = PlaceholderLook.render(
+            ctx.applicationContext, e, src, state, dispatchers.default,
+        ) ?: return@LaunchedEffect
         // Dropped if this effect was restarted meanwhile, or the real render won.
         val cancelled = !isActive
         val published = !cancelled && preview == null
