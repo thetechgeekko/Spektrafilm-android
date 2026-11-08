@@ -88,6 +88,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -241,6 +243,13 @@ internal fun LibraryGrid(
                 kotlinx.coroutines.delay(16)
             }
         }
+        // Where the grid sits on screen. A hold that starts select mode swaps the tab row for
+        // the selection bar, which moves the grid under a still finger; measured in the grid's
+        // own coordinates that reads as a drag. Movement is therefore judged on screen.
+        val gridCoords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+        val onScreen: (Offset) -> Offset = { pos ->
+            gridCoords[0]?.takeIf { it.isAttached }?.localToRoot(pos) ?: pos
+        }
         val dragSelect = Modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -264,7 +273,7 @@ internal fun LibraryGrid(
                 // gesture and its long-press is what selected it), and the range extends only once
                 // the finger itself has moved: a layout shift alone must not turn the hold into a
                 // range across several photos.
-                val anchorAt = currentEvent.changes.firstOrNull { it.id == down.id }?.position ?: down.position
+                val anchorAt = onScreen(currentEvent.changes.firstOrNull { it.id == down.id }?.position ?: down.position)
                 var moved = false
                 dragAnchor = start
                 dragLast = start
@@ -276,7 +285,7 @@ internal fun LibraryGrid(
                         change.consume()
                         if (!change.pressed) break
                         if (!moved) {
-                            moved = (change.position - anchorAt).getDistance() > viewConfiguration.touchSlop
+                            moved = (onScreen(change.position) - anchorAt).getDistance() > viewConfiguration.touchSlop
                             if (!moved) continue
                         }
                         dragPointer = change.position
@@ -294,7 +303,10 @@ internal fun LibraryGrid(
         }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().then(dragSelect),
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { gridCoords[0] = it }
+                .then(dragSelect),
             contentPadding = PaddingValues(
                 start = GRID_SIDE,
                 end = GRID_SIDE,
