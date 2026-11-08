@@ -78,6 +78,84 @@ internal fun markEdited(entries: List<LibraryEntry>, hasEdit: (documentUri: Stri
         if (edited == entry.edited) entry else entry.copy(edited = edited)
     }
 
+/** How the Library orders its frames. */
+internal enum class LibrarySort { DATE, NAME, SIZE }
+
+/** Which frames the Library shows; null in [LibraryQuery.filter] shows them all. */
+internal enum class LibraryFilter { RAW, PHOTO, EDITED, NOT_EDITED }
+
+/**
+ * The user's sort, filter and search over the folder. Sort and filter are remembered across
+ * launches ([LibraryQueryStore]); the search text is not, so a returning user never meets a
+ * grid silently narrowed by a word typed days ago.
+ */
+internal data class LibraryQuery(
+    val sort: LibrarySort = LibrarySort.DATE,
+    /** Newest, Z or largest first. */
+    val descending: Boolean = true,
+    val filter: LibraryFilter? = null,
+    val text: String = "",
+) {
+    /** Something hides frames: a filter or search words. Sort alone never does. */
+    val narrows: Boolean get() = filter != null || text.isNotBlank()
+
+    /** Sort and filter as one stored string; the search text is left out on purpose. */
+    fun encode(): String = listOf(sort.name, if (descending) "desc" else "asc", filter?.name ?: "ALL").joinToString(":")
+
+    companion object {
+        /** Reads [encode]; anything unknown falls back to the default for that part. */
+        fun decode(stored: String?): LibraryQuery {
+            val parts = stored?.split(':').orEmpty()
+            return LibraryQuery(
+                sort = parts.getOrNull(0)?.let { name -> LibrarySort.entries.firstOrNull { it.name == name } } ?: LibrarySort.DATE,
+                descending = parts.getOrNull(1) != "asc",
+                filter = parts.getOrNull(2)?.let { name -> LibraryFilter.entries.firstOrNull { it.name == name } },
+            )
+        }
+    }
+}
+
+/**
+ * The frames [query] shows, in its order. Search matches every word of the text against the
+ * file name, ignoring case. Ties break on the name, then the URI, so the grid never reshuffles
+ * between refreshes. A size the provider did not report (-1) sorts after every known size in
+ * both directions.
+ */
+internal fun applyLibraryQuery(entries: List<LibraryEntry>, query: LibraryQuery): List<LibraryEntry> {
+    val words = query.text.lowercase(Locale.ROOT).split(' ', '\t').filter { it.isNotEmpty() }
+    val shown = entries.filter { entry ->
+        val kept = when (query.filter) {
+            null -> true
+            LibraryFilter.RAW -> entry.isRaw
+            LibraryFilter.PHOTO -> !entry.isRaw
+            LibraryFilter.EDITED -> entry.edited
+            LibraryFilter.NOT_EDITED -> !entry.edited
+        }
+        kept && words.all { entry.name.lowercase(Locale.ROOT).contains(it) }
+    }
+    val byName = compareBy<LibraryEntry> { it.name.lowercase(Locale.ROOT) }.thenBy { it.documentUri }
+    val primary: Comparator<LibraryEntry> = when (query.sort) {
+        LibrarySort.DATE -> compareBy { it.modifiedMs }
+        LibrarySort.NAME -> byName
+        LibrarySort.SIZE -> compareBy { it.sizeBytes }
+    }
+    val ordered = if (query.descending) primary.reversed() else primary
+    val unknownSizeLast = compareBy<LibraryEntry> { query.sort == LibrarySort.SIZE && it.sizeBytes < 0 }
+    return shown.sortedWith(unknownSizeLast.then(ordered).then(byName))
+}
+
+/** Where the Library's sort and filter are remembered. Production: [AppSettings]. */
+internal interface LibraryQueryStore {
+    fun load(): LibraryQuery
+    fun save(query: LibraryQuery)
+
+    /** Remembers nothing (tests, previews). */
+    object None : LibraryQueryStore {
+        override fun load() = LibraryQuery()
+        override fun save(query: LibraryQuery) = Unit
+    }
+}
+
 /** What the Library screen draws. */
 internal data class LibraryUiState(
     /** The chosen folder tree, or null before the user picked one. */
@@ -162,7 +240,31 @@ internal class LibraryViewModel(
      * and sidecar pairings from what those writes left. The app passes one process-wide lock.
      */
     private val writeLock: Mutex = Mutex(),
+    private val queryStore: LibraryQueryStore = LibraryQueryStore.None,
 ) : ViewModel() {
+    private val _query = MutableStateFlow(runCatching { queryStore.load() }.getOrDefault(LibraryQuery()))
+
+    /** Sort, filter and search over the folder ([applyLibraryQuery]). */
+    val query: StateFlow<LibraryQuery> = _query.asStateFlow()
+
+    /** Changes the sort, filter or search; sort and filter are remembered. */
+    fun setQuery(query: LibraryQuery) {
+        val before = _query.value
+        if (query == before) return
+        _query.value = query
+        if (query.encode() != before.encode()) {
+            runCatching { queryStore.save(query) }.onFailure { Diag.w("library query save failed: ${it.message}") }
+        }
+        // A frame the new filter hides cannot stay selected: actions would reach it unseen.
+        if (query.narrows) {
+            val shown = visibleEntries().mapTo(HashSet()) { it.documentUri }
+            _selection.value = _selection.value.filterTo(LinkedHashSet()) { it in shown }
+        }
+    }
+
+    /** The frames on screen, in grid order: the listing after [query]. */
+    fun visibleEntries(): List<LibraryEntry> = applyLibraryQuery(_state.value.entries, _query.value)
+
     private val writeScope: CoroutineScope = writes ?: viewModelScope
     /** The whole last listing (frames and other files), for pairing frames with sidecars. */
     private var lastRows: List<LibraryEntry> = emptyList()
@@ -258,8 +360,9 @@ internal class LibraryViewModel(
         _selection.value = _selection.value.let { if (documentUri in it) it - documentUri else it + documentUri }
     }
 
+    /** Selects every frame on screen; frames hidden by a filter or search stay unselected. */
     fun selectAll() {
-        _selection.value = _state.value.entries.mapTo(LinkedHashSet()) { it.documentUri }
+        _selection.value = visibleEntries().mapTo(LinkedHashSet()) { it.documentUri }
     }
 
     fun clearSelection() {
@@ -341,8 +444,10 @@ internal class LibraryViewModel(
                 lastRowsTree = tree
             }
             if (listing != null) {
-                // A frame that left the folder cannot stay selected.
-                val present = listing.rows.mapTo(HashSet()) { it.documentUri }
+                // A frame that left the folder, or that the active filter or search now hides
+                // (a sidecar import can make an unedited frame edited), cannot stay selected:
+                // a paste would reach it unseen.
+                val present = applyLibraryQuery(listing.rows, _query.value).mapTo(HashSet()) { it.documentUri }
                 _selection.value = _selection.value.filterTo(LinkedHashSet()) { it in present }
             }
             _state.value = if (listing == null) {
@@ -466,6 +571,11 @@ internal class LibraryViewModel(
                         )
                     }.await()
             }
+        }
+
+        fun androidQueryStore(settings: AppSettings): LibraryQueryStore = object : LibraryQueryStore {
+            override fun load() = LibraryQuery.decode(settings.libraryQuery)
+            override fun save(query: LibraryQuery) { settings.libraryQuery = query.encode() }
         }
 
         fun androidLister(context: Context): LibraryLister {

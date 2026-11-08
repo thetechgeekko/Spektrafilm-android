@@ -380,4 +380,52 @@ class LibraryViewModelTest {
         second.saveEditsBesidePhotos(); idle()
         assertEquals(setOf("a.jpg", "b.jpg"), sidecars.saves.single().toSet())
     }
+    private class MemoryQueryStore(var saved: LibraryQuery = LibraryQuery()) : LibraryQueryStore {
+        var saves = 0
+        override fun load() = saved
+        override fun save(query: LibraryQuery) { saves++; saved = query }
+    }
+
+    @Test fun queryIsRestoredAndOnlySortAndFilterChangesAreSaved() {
+        val store = MemoryQueryStore(LibraryQuery(sort = LibrarySort.NAME, descending = false))
+        val model = LibraryViewModel(FakeStore(), { LibraryListing(null, emptyList()) }, Dispatchers.Unconfined, queryStore = store)
+        assertEquals(LibrarySort.NAME, model.query.value.sort)
+        model.setQuery(model.query.value.copy(text = "beach"))
+        assertEquals(0, store.saves)
+        model.setQuery(model.query.value.copy(filter = LibraryFilter.RAW))
+        assertEquals(1, store.saves)
+        assertEquals(LibraryFilter.RAW, store.saved.filter)
+    }
+
+    @Test fun narrowingDropsHiddenFramesFromSelectionAndSelectAllTakesOnlyShownOnes() {
+        val rows = listOf(entry("a.jpg", "image/jpeg", 2), entry("b.dng", "image/x-adobe-dng", 1))
+        val model = vm(FakeStore("tree://a")) { LibraryListing("Roll", rows) }
+        model.refresh(); idle()
+        model.selectAll()
+        assertEquals(2, model.selection.value.size)
+        model.setQuery(LibraryQuery(filter = LibraryFilter.RAW))
+        assertEquals(setOf("content://doc/b.dng"), model.selection.value)
+        assertEquals(listOf("b.dng"), model.visibleEntries().map { it.name })
+        model.clearSelection()
+        model.selectAll()
+        assertEquals(setOf("content://doc/b.dng"), model.selection.value)
+    }
+
+    @Test fun refreshDropsSelectedFramesTheFilterNowHides() {
+        var editedNow = false
+        val rows = listOf(entry("a.jpg", "image/jpeg", 2), entry("b.jpg", "image/jpeg", 1))
+        val model = LibraryViewModel(
+            FakeStore("tree://a"),
+            { LibraryListing("Roll", rows) },
+            Dispatchers.Unconfined,
+            hasEdit = { uri -> editedNow && uri.endsWith("a.jpg") },
+        )
+        model.setQuery(LibraryQuery(filter = LibraryFilter.NOT_EDITED))
+        model.refresh(); idle()
+        model.selectAll()
+        assertEquals(2, model.selection.value.size)
+        editedNow = true
+        model.refresh(); idle()
+        assertEquals(setOf("content://doc/b.jpg"), model.selection.value)
+    }
 }

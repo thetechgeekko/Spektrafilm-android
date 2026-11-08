@@ -36,7 +36,17 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -98,6 +108,7 @@ internal fun LibraryDestination(
     val selection by vm.selection.collectAsStateWithLifecycle()
     val paste by vm.paste.collectAsStateWithLifecycle()
     val sidecarSave by vm.sidecarSave.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     // Re-read on every visit, so frames shot since the last one appear.
@@ -215,6 +226,7 @@ internal fun LibraryDestination(
                     }
                 }
             } else if (state.treeUri != null) {
+                LibrarySortMenu(query, onChange = vm::setQuery)
                 var menuOpen by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -250,6 +262,8 @@ internal fun LibraryDestination(
                 onChooseFolder = choose,
                 onOpen = onOpen,
                 onToggleSelected = vm::toggleSelected,
+                query = query,
+                onQueryChange = vm::setQuery,
             )
             SnackbarHost(
                 snackbar,
@@ -270,6 +284,8 @@ internal fun LibraryScreen(
     onOpen: (Uri) -> Unit,
     selection: Set<String> = emptySet(),
     onToggleSelected: (String) -> Unit = {},
+    query: LibraryQuery = LibraryQuery(),
+    onQueryChange: (LibraryQuery) -> Unit = {},
 ) {
     val choose = onChooseFolder
     when {
@@ -298,7 +314,138 @@ internal fun LibraryScreen(
             action = stringResource(R.string.library_change_folder),
             onAction = choose,
         )
-        else -> LibraryGrid(state.entries, currentUri, selection, onOpen, onToggleSelected)
+        else -> Column(Modifier.fillMaxSize()) {
+            LibraryFindBar(query, onQueryChange)
+            val shown = remember(state.entries, query) { applyLibraryQuery(state.entries, query) }
+            if (shown.isEmpty()) {
+                LibraryMessage(
+                    title = stringResource(R.string.library_no_match_title),
+                    body = stringResource(R.string.library_no_match_body),
+                    action = stringResource(R.string.library_clear_filters),
+                    onAction = { onQueryChange(query.copy(filter = null, text = "")) },
+                )
+            } else {
+                LibraryGrid(shown, currentUri, selection, onOpen, onToggleSelected)
+            }
+        }
+    }
+}
+
+/**
+ * Search field and filter chips above the grid (Pen board, "Library"). One filter at a time,
+ * like the mockup's chip row: "All" clears it. The chip row scrolls sideways on narrow phones
+ * and at large font sizes rather than wrapping into a second row.
+ */
+@Composable
+private fun LibraryFindBar(query: LibraryQuery, onChange: (LibraryQuery) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        val searchLabel = stringResource(R.string.library_search_hint)
+        TextField(
+            value = query.text,
+            onValueChange = { onChange(query.copy(text = it.take(MAX_SEARCH_CHARS))) },
+            singleLine = true,
+            placeholder = { Text(searchLabel) },
+            leadingIcon = { Icon(SpectraIcons.Search, contentDescription = null) },
+            trailingIcon = if (query.text.isEmpty()) null else {
+                {
+                    IconButton(onClick = { onChange(query.copy(text = "")) }) {
+                        Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.library_search_clear))
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            shape = RoundedCornerShape(28.dp),
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .semantics { contentDescription = searchLabel },
+        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LIBRARY_FILTER_CHIPS.forEach { (filter, label) ->
+                val selected = query.filter == filter
+                FilterChip(
+                    selected = selected,
+                    onClick = { onChange(query.copy(filter = if (selected && filter != null) null else filter)) },
+                    label = { Text(stringResource(label)) },
+                    leadingIcon = if (selected && filter != null) {
+                        { Icon(SpectraIcons.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+}
+
+private const val MAX_SEARCH_CHARS = 80
+
+private val LIBRARY_FILTER_CHIPS: List<Pair<LibraryFilter?, Int>> = listOf(
+    null to R.string.library_filter_all,
+    LibraryFilter.RAW to R.string.library_filter_raw,
+    LibraryFilter.PHOTO to R.string.library_filter_photo,
+    LibraryFilter.EDITED to R.string.library_filter_edited,
+    LibraryFilter.NOT_EDITED to R.string.library_filter_not_edited,
+)
+
+/** The app bar's Sort button: what to sort by, then which way. Ticks mark the current pick. */
+@Composable
+private fun LibrarySortMenu(query: LibraryQuery, onChange: (LibraryQuery) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(SpectraIcons.Sort, contentDescription = stringResource(R.string.library_sort))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val tick: @Composable (Boolean) -> Unit = { on ->
+                if (on) Icon(SpectraIcons.Check, contentDescription = null)
+            }
+            listOf(
+                LibrarySort.DATE to R.string.library_sort_date,
+                LibrarySort.NAME to R.string.library_sort_name,
+                LibrarySort.SIZE to R.string.library_sort_size,
+            ).forEach { (sort, label) ->
+                val on = query.sort == sort
+                DropdownMenuItem(
+                    text = { Text(stringResource(label)) },
+                    trailingIcon = { tick(on) },
+                    modifier = Modifier.semantics { selected = on },
+                    onClick = {
+                        open = false
+                        // Names read naturally A to Z; dates and sizes newest or largest first.
+                        onChange(query.copy(sort = sort, descending = if (on) query.descending else sort != LibrarySort.NAME))
+                    },
+                )
+            }
+            HorizontalDivider()
+            val orders = when (query.sort) {
+                LibrarySort.DATE -> listOf(true to R.string.library_order_newest, false to R.string.library_order_oldest)
+                LibrarySort.NAME -> listOf(false to R.string.library_order_a_z, true to R.string.library_order_z_a)
+                LibrarySort.SIZE -> listOf(true to R.string.library_order_largest, false to R.string.library_order_smallest)
+            }
+            orders.forEach { (descending, label) ->
+                val on = query.descending == descending
+                DropdownMenuItem(
+                    text = { Text(stringResource(label)) },
+                    trailingIcon = { tick(on) },
+                    modifier = Modifier.semantics { selected = on },
+                    onClick = { open = false; onChange(query.copy(descending = descending)) },
+                )
+            }
+        }
     }
 }
 

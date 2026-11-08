@@ -209,6 +209,13 @@ class AppSettings private constructor(
             store.edit { if (v == null) it.remove(KEY_LIBRARY_TREE) else it[KEY_LIBRARY_TREE] = v }
         }
 
+    /** The Library's sort and filter, as [LibraryQuery.encode]; null = newest first, all frames. */
+    var libraryQuery: String?
+        get() = store[KEY_LIBRARY_QUERY]
+        set(v) {
+            store.edit { if (v == null) it.remove(KEY_LIBRARY_QUERY) else it[KEY_LIBRARY_QUERY] = v }
+        }
+
     override var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(store[KEY_THEME] ?: ThemeMode.SYSTEM.name) }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -337,6 +344,7 @@ class AppSettings private constructor(
         private const val LEGACY_KEY_BIG_CORES = "big_cores"
         private val KEY_THEME = stringPreferencesKey("theme")
         private val KEY_LIBRARY_TREE = stringPreferencesKey("library_tree_uri")
+        private val KEY_LIBRARY_QUERY = stringPreferencesKey("library_query")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_OUTPUT_CS = stringPreferencesKey("output_color_space")
         private val KEY_PREVIEW_MAX = intPreferencesKey("preview_max_size")

@@ -62,6 +62,8 @@ object SpectraIcons {
     val AspectRatio: ImageVector get() = MaterialSymbols.AspectRatio
     val Rotate: ImageVector get() = MaterialSymbols.RotateRight
     val Cancel: ImageVector get() = MaterialSymbols.Close
+    val Search: ImageVector get() = MaterialSymbols.Search
+    val Sort: ImageVector get() = MaterialSymbols.Sort
     val Confirm: ImageVector get() = MaterialSymbols.Check
     val Back: ImageVector get() = MaterialSymbols.ArrowBack
     val Eyedropper: ImageVector get() = MaterialSymbols.Colorize
