@@ -448,7 +448,7 @@ internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(if (darkroom) DARKROOM_SCRIM else MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+            .background(if (darkroom) SpektraBrand.darkroomScrim else MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
             .pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent() }
             },
@@ -476,7 +476,7 @@ internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
             Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
             Text(
                 stringResource(R.string.editor_export_rendering),
-                color = if (darkroom) DARKROOM_TEXT else MaterialTheme.colorScheme.onSurface,
+                color = if (darkroom) SpektraBrand.onDarkroom else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -484,10 +484,6 @@ internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
         }
     }
 }
-
-/** The darkroom is dark in both themes, like the crop surface. */
-private val DARKROOM_SCRIM = Color(0xF5120A08)
-private val DARKROOM_TEXT = Color(0xFFF2E6DF)
 
 /** How long the "Saved to gallery" hero plays before it collapses into the toolbar. */
 internal const val EXPORT_SAVED_HERO_MS = 2_000L

@@ -73,6 +73,12 @@ internal object SpektraBrand {
     /** Onboarding gradient end stop. */
     val canvasOnboarding = Color(0xFF0A0A12)
 
+    /** Export darkroom (ExportDevelopTray.kt): the safelit room, dark in every theme. */
+    val darkroomScrim = Color(0xF5120A08)
+
+    /** Text on the export darkroom scrim. */
+    val onDarkroom = Color(0xFFF2E6DF)
+
     // --- Content on the always-dark editor surfaces (preview, crop, mask, sampler, top bar) ---
     // These sit on the photo or on a near-black canvas in every theme, so they are fixed rather
     // than taken from the colour scheme: a light theme must not turn the photo chrome dark.
