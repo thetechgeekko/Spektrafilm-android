@@ -2005,94 +2005,33 @@ internal fun EditorScreen(
         }
     }
 
-    // --- hardware keyboard shortcuts (EditorShortcuts.kt) ---
-    // Every shortcut calls the SAME action as its on-screen control. Esc goes through the
-    // back dispatcher, so it closes exactly what Back would (and in the same order), but
-    // only when something is open: at the root Back leaves the app, and Esc must not.
-    val shortcutHandler by rememberUpdatedState<(EditorShortcut) -> Boolean> { shortcut ->
-        // The magnifier is a full-screen overlay in this window (not a dialog), so it
-        // has to block shortcuts too; an undo behind it would invalidate its crop.
-        val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
-        when (shortcut) {
-            EditorShortcut.CLOSE -> {
-                val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
-                if (closable) onBackPressedDispatcher.onBackPressed()
-                closable
-            }
-            EditorShortcut.UNDO -> !overlayOpen && editHistory.canUndo && run { doUndo(); true }
-            EditorShortcut.REDO -> !overlayOpen && editHistory.canRedo && run { doRedo(); true }
-            EditorShortcut.OPEN -> !overlayOpen && run {
-                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                true
-            }
-            EditorShortcut.EXPORT -> !overlayOpen && run { requestExport(); true }
-            EditorShortcut.TOGGLE_COMPARE -> !overlayOpen && run {
-                viewerVm.onAction(EditorViewerAction.ToggleCompare)
-                true
-            }
-            // Delivered to whichever preview is on screen (Viewer.kt), the same transform
-            // as its wheel / + / - controls.
-            EditorShortcut.ZOOM_IN -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.IN); true }
-            EditorShortcut.ZOOM_OUT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.OUT); true }
-            EditorShortcut.ZOOM_FIT -> !overlayOpen && run { viewerVm.requestZoom(ViewerZoom.FIT); true }
-            EditorShortcut.PHOTO_INFO -> !overlayOpen && sourceUri != null && run { openPhotoInfo(); true }
-            EditorShortcut.APPLY_PREVIOUS -> !overlayOpen && previousEdit?.let { applyPreviousEdit(it); true } == true
-        }
-    }
-    DisposableEffect(Unit) {
-        setEditorShortcutHandler { shortcutHandler(it) }
-        onDispose { setEditorShortcutHandler(null) }
-    }
-
-    // --- back handling on the root editor ---
-    // 0) full-screen tool open -> close it; 1) panel open -> close panel;
-    // 2) else the system takes Back (to home).
-    // Above every other rung: with the chrome hidden there is no visible control at
-    // all, so Back has to mean "give me the app back" before it means anything else.
-    BackHandler(enabled = viewerUi.chromeHidden) { viewerVm.onAction(EditorViewerAction.ShowChrome) }
-    // Predictive back on the full-screen tools (crop, mask geometry, eyedropper): while the
-    // swipe is held the tool shrinks away so the user can see Back will close it, and can
-    // still cancel. Committing cancels the tool exactly as its own Cancel button does.
-    androidx.activity.compose.PredictiveBackHandler(
-        enabled = toolUi.cropOpen || toolUi.maskGeometryOpen || toolUi.sampleOpen,
-    ) { progress ->
-        try {
-            progress.collect { overlayBackProgress = it.progress }
-            val tool = toolVm.current
-            when {
-                tool.cropOpen -> toolVm.onAction(EditorToolAction.CloseCrop)
-                tool.maskGeometryOpen -> toolVm.onAction(EditorToolAction.CloseMaskGeometry)
-                tool.sampleOpen -> toolVm.onAction(EditorToolAction.CloseSample)
-            }
-        } catch (e: CancellationException) {
-            // Gesture cancelled: leave the tool open.
-        } finally {
-            overlayBackProgress = 0f
-        }
-    }
-    // Predictive back on the open panel: while the back swipe is in progress the panel
-    // shrinks toward the bottom edge (M3 sheets), so the user sees what Back will do and
-    // can still cancel. Committing closes it; cancelling springs it back.
-    androidx.activity.compose.PredictiveBackHandler(
-        enabled = !toolUi.anyOverlayOpen && !exportMaskVisible && activeCategory != null,
-    ) { progress ->
-        try {
-            progress.collect { panelBackProgress = it.progress }
-            activeCategory = null
-        } catch (e: CancellationException) {
-            // Gesture cancelled: leave the panel open.
-        } finally {
-            panelBackProgress = 0f
-        }
-    }
-    // At the editor root Back is left to the system, so Android 13+ shows the predictive
-    // back-to-home preview and the task simply goes to the background. Nothing is lost:
-    // the session is checkpointed on ON_STOP and restored on the next launch. (This used
-    // to be a "press Back again to exit" trap, which blocks that preview and which M3's
-    // back model -- close the top surface, pop the stack, then exit -- does not have.)
-    // Registered last so it wins: the full-screen grain magnifier sits over everything
-    // above, and Back (or Esc) must close IT, not the panel or overlay hidden beneath.
-    BackHandler(enabled = magnifierOpen) { closeMagnifier() }
+    // Hardware keyboard shortcuts + Back handling (EditorBackAndShortcuts.kt).
+    EditorBackAndShortcuts(
+        toolUi = toolUi,
+        toolVm = toolVm,
+        viewerUi = viewerUi,
+        viewerVm = viewerVm,
+        exportMaskVisible = exportMaskVisible,
+        magnifierOpen = magnifierOpen,
+        activeCategory = activeCategory,
+        onCloseCategory = { activeCategory = null },
+        onBackPressedDispatcher = onBackPressedDispatcher,
+        setEditorShortcutHandler = setEditorShortcutHandler,
+        editHistory = editHistory,
+        doUndo = ::doUndo,
+        doRedo = ::doRedo,
+        openPhotoPicker = {
+            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        requestExport = ::requestExport,
+        hasSource = sourceUri != null,
+        openPhotoInfo = ::openPhotoInfo,
+        previousEdit = previousEdit,
+        applyPreviousEdit = ::applyPreviousEdit,
+        onOverlayBackProgress = { overlayBackProgress = it },
+        onPanelBackProgress = { panelBackProgress = it },
+        closeMagnifier = ::closeMagnifier,
+    )
 
     // ============================ LAYOUT ============================
     // Overlay predicates, shared with the overlay branches below the chrome.
