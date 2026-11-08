@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Private working copies of photos that arrived by a share / "Open with" intent with only a
+     temporary read grant (#508). Served by a NON-exported FileProvider so the editor can keep
+     addressing them as content:// sources; nothing outside the app can open them. -->
+<paths>
+    <files-path name="shared" path="shared-sources/" />
+</paths>

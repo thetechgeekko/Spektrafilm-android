@@ -119,6 +119,18 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaProcessing" />
 
+        <!-- Working copies of photos shared to the app with only a temporary grant (#508,
+             SharedSourceCopies.kt). Not exported and grants nothing: only this app reads them. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.sharedsources"
+            android:exported="false"
+            android:grantUriPermissions="false">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_source_paths" />
+        </provider>
+
         <!-- PackageInstaller session status for an in-app update. Not exported: only the
              explicit PendingIntent UpdateInstaller hands the system installer reaches it. -->
         <receiver

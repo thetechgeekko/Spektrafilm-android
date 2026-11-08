@@ -1104,13 +1104,19 @@ internal fun EditorScreen(
                     // A new photo opens Film & look: picking a stock is the next step for
                     // almost everyone, so it should not cost a tap on the category bar.
                     if (switched) activeCategory = CATEGORY_AFTER_NEW_PHOTO
-                    status = if (ref.accessMode == SourceAccessMode.PERSISTED) {
+                    // A private working copy (#508) is as durable as a persisted grant.
+                    status = if (
+                        ref.accessMode == SourceAccessMode.PERSISTED ||
+                        SharedSourceCopies.isCopy(ctx, ref.uri)
+                    ) {
                         readyStatus
                     } else {
                         ctx.getString(R.string.editor_status_access_temporary, readyStatus)
                     }
                     previewTick++
                     probeLabel?.let(editorProbe::publishProbeSource)
+                    // One working copy at most (#508): drop any that is no longer the source.
+                    launch(dispatchers.io) { SharedSourceCopies.prune(ctx, ref.uri) }
                 }
                 is ReconciledSourceMutation.Rejected -> {
                     Diag.w("source adoption failed: ${outcome.failure.message}")
@@ -1175,9 +1181,9 @@ internal fun EditorScreen(
             snackbarHost.showSnackbar(ctx.getString(snackRes))
         }
     }
-    fun adoptIncomingImage(uri: Uri) {
-        val name = uri.lastPathSegment ?: "raw"
-        val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+    fun adoptIncomingImage(uri: Uri, nameHint: String? = null, mimeHint: String? = null) {
+        val name = nameHint ?: uri.lastPathSegment ?: "raw"
+        val mime = mimeHint ?: runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
         when (detectSourceKind(name, mime)) {
             // MotionCam RAW-video container: recognized (see McrawContainer /
             // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so don't set
@@ -1251,7 +1257,24 @@ internal fun EditorScreen(
             status = ctx.getString(R.string.editor_status_shared_image_unsupported)
             return@LaunchedEffect
         }
-        adoptIncomingImage(incoming)
+        if (SharedSourceCopies.grantIsPersistable(intent)) {
+            adoptIncomingImage(incoming)
+            return@LaunchedEffect
+        }
+        // #508: a temporary grant dies with the process (update, reboot, background kill), so
+        // keep a private working copy while it is still readable and open that instead. If the
+        // copy fails, the original still opens for this session, as before.
+        // Runs on the editor scope, not this effect: clearing incomingImageIntent above
+        // restarts the effect, which would cancel a copy still in flight.
+        scope.launch {
+            val name = incoming.lastPathSegment ?: "raw"
+            val (mime, copy) = withContext(dispatchers.io) {
+                val mime = runCatching { ctx.contentResolver.getType(incoming) }.getOrNull()
+                mime to SharedSourceCopies.copy(ctx, incoming, name, mime)
+            }
+            if (copy == null) Diag.w("shared source copy failed; opening it for this session only")
+            adoptIncomingImage(copy ?: incoming, nameHint = name, mimeHint = mime)
+        }
     }
     // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
     val pendingShortcut by launcherShortcut
