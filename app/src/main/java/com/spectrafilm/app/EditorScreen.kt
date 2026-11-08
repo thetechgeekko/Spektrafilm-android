@@ -438,9 +438,6 @@ internal fun EditorScreen(
         patchSuppressed = { toolVm.current.anyOverlayOpen || viewerVm.current.compare },
     )
     val magnifierOpen by zoom.magnifierOpenState
-    val magnifierBitmap by zoom.magnifierBitmapState
-    val magnifierRendering by zoom.magnifierRenderingState
-    val magnifierStatus by zoom.magnifierStatusState
     val roiOverlay by zoom.roiOverlayState
     val zoomPrewarmEligible = zoom.zoomPrewarmEligible
     fun closeMagnifier() = zoom.closeMagnifier()
@@ -1591,51 +1588,20 @@ internal fun EditorScreen(
                 // every tool on one sideways rail of instrument cards (ToolRail.kt), and a tool
                 // opened from its chip in full, under its own name and reset.
                 val panelContent: @Composable ColumnScope.() -> Unit = {
-                    CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
-                        val open = activeCategory
-                        val detail = railDetail
-                        if (open != null && open.mode == EditorMode.EDIT && detail != null) {
-                            // Only while nothing sits over the panel: the magnifier, crop and the
-                            // other full-screen tools own Back while they are open.
-                            BackHandler(
-                                enabled = !magnifierOpen && !viewerUi.chromeHidden &&
-                                    !toolUi.anyOverlayOpen && !exportMaskVisible,
-                            ) { railDetail = null }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { railDetail = null }) {
-                                    Icon(
-                                        MaterialSymbols.ArrowBack,
-                                        contentDescription = stringResource(R.string.editor_rail_back_to_tools),
-                                    )
-                                }
-                                ToolHeader(
-                                    tool = detail,
-                                    onReset = if (detail in dirty) ({ resetCategory(detail) }) else null,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            toolContent(detail)
-                        } else if (open != null && open.mode == EditorMode.EDIT) {
-                            ToolRail(
-                                tools = stagesOf(EditorMode.EDIT).flatMap { categoriesOf(it) }.filter(::toolShown),
-                                activeStage = open.stage,
-                                startTool = open,
-                                dirty = dirty,
-                                switchOf = { toolSwitch(state, it) },
-                                onScrolledTo = { stage ->
-                                    if (activeCategory?.stage != stage) {
-                                        activeCategory = categoriesOf(stage).first(::toolShown)
-                                    }
-                                },
-                                onOpenTool = { tool ->
-                                    activeCategory = tool
-                                    railDetail = tool
-                                },
-                            ) { tool -> RailToolContent(state, tool, onOpen = { activeCategory = tool; railDetail = tool }) }
-                        } else if (open != null) {
-                            toolContent(open)
-                        }
-                    }
+                    EditorPanelContent(
+                        sliderInteraction = sliderInteraction,
+                        state = state,
+                        activeCategory = activeCategory,
+                        onActiveCategoryChange = { activeCategory = it },
+                        railDetail = railDetail,
+                        onRailDetailChange = { railDetail = it },
+                        backEnabled = !magnifierOpen && !viewerUi.chromeHidden &&
+                            !toolUi.anyOverlayOpen && !exportMaskVisible,
+                        dirty = dirty,
+                        resetCategory = resetCategory,
+                        toolShown = ::toolShown,
+                        toolContent = toolContent,
+                    )
                 }
                 // Measured height of the floating adjustment panel (narrow layout only). The
                 // preview's zoom control is inset by it so it never sits under the panel.
@@ -1755,30 +1721,8 @@ internal fun EditorScreen(
             }
         }
 
-        // --- 100% grain magnifier overlay ---
-        if (magnifierOpen) {
-            // MEMORY: the magnifier crop is a real full-resolution ARGB_8888 render
-            // (~512px native here, but it is the only path that decodes at MAX_EDGE_PX
-            // before cropping). Recycle it deterministically once the overlay leaves
-            // composition (close) or the rendered crop is replaced by a re-render. This
-            // DisposableEffect is scoped INSIDE `if (magnifierOpen)`, so onDispose runs
-            // only after the overlay is no longer composed/drawn — never a use-after-
-            // recycle of the bitmap still on screen. `crop` is the value captured for
-            // THIS effect instance; when `magnifierBitmap` changes (e.g. -> null on a
-            // re-open) or the overlay closes, the captured previous bitmap is freed.
-            val cropToFree = magnifierBitmap
-            DisposableEffect(magnifierBitmap) {
-                onDispose {
-                    if (cropToFree != null && !cropToFree.isRecycled) cropToFree.recycle()
-                }
-            }
-            MagnifierOverlay(
-                crop = magnifierBitmap,
-                rendering = magnifierRendering,
-                status = magnifierStatus,
-                onClose = { closeMagnifier() },
-            )
-        }
+        // --- 100% grain magnifier overlay (EditorZoom.kt) ---
+        EditorMagnifierLayer(zoom)
 
         // The full-screen tools share one wrapper so a held back swipe shrinks whichever
         // is open (see the PredictiveBackHandler above).
