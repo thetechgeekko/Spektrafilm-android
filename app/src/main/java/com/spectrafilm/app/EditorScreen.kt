@@ -365,6 +365,7 @@ internal fun EditorScreen(
     var openPlaceholder by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(sourceUri, sourceKind, sourceAuthorizationRequired) {
         openPlaceholder = null
+        var lookJob: Job? = null
         val uri = sourceUri ?: return@LaunchedEffect
         if (sourceKind == SourceKind.DEMO || sourceAuthorizationRequired) return@LaunchedEffect
         OpenPlaceholder.load(
@@ -376,6 +377,20 @@ internal fun EditorScreen(
         ) { bmp ->
             // A render that already landed wins; a late thumbnail never covers it.
             if (preview == null) openPlaceholder = bmp
+            // Then give the stand-in the photo's film look (PlaceholderLook), so the real
+            // render changes only detail when it lands. A better thumbnail replaces the job.
+            lookJob?.cancel()
+            val e = engine
+            if (e != null && preview == null) {
+                val tick = previewTick
+                lookJob = launch {
+                    val looked = PlaceholderLook.render(e, bmp, state, dispatchers.default)
+                    // Dropped if the real render won, or the settings changed meanwhile.
+                    if (looked != null && preview == null && previewTick == tick) {
+                        openPlaceholder = looked
+                    }
+                }
+            }
         }
     }
     // Keep the stand-in under the fading-in render briefly, then drop it.
