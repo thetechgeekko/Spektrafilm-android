@@ -466,7 +466,7 @@
     <string name="editor_hal_renormalize">Renormalizar</string>
     <string name="editor_hal_renormalize_tooltip">Divide entre (1 + suma de amplitudes de rebote) para conservar el gris medio.</string>
     <string name="editor_coup_title">Carácter de color de la película (acopladores)</string>
-    <string name="editor_coup_desc">Modela la interferencia química de color de la película (acopladores DIR), causa de su separación de color y efectos de borde característicos. ¿Buscas un control de saturación simple? Usa Saturación / Intensidad en Simulación → Salida.</string>
+    <string name="editor_coup_desc">Modela la interferencia química de color de la película (acopladores DIR), causa de su separación de color y efectos de borde característicos. ¿Buscas un control de saturación simple? Usa Saturación / Intensidad en Editar → Color.</string>
     <string name="editor_coup_amount">Intensidad del efecto</string>
     <string name="editor_coup_amount_tooltip">Multiplicador global de la matriz de inhibición de los acopladores DIR.</string>
     <string name="editor_coup_samelayer">Intensidad dentro de la capa</string>
@@ -646,4 +646,10 @@
     <string name="editor_history_other">Otro cambio</string>
     <string name="editor_history_on">sí</string>
     <string name="editor_history_off">no</string>
+    <string name="editor_rail_tool_on">Activado</string>
+    <string name="editor_rail_tool_off">Desactivado</string>
+    <string name="editor_rail_toggle_tool">Activar o desactivar %1$s</string>
+    <string name="editor_rail_open_tool">Abrir ajustes de %1$s</string>
+    <string name="editor_rail_all_settings">Todos los ajustes</string>
+    <string name="editor_rail_back_to_tools">Volver a las herramientas</string>
 </resources>

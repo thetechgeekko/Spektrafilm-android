@@ -426,7 +426,7 @@
     <string name="editor_hal_renormalize">重新归一化</string>
     <string name="editor_hal_renormalize_tooltip">除以（1 + 各次反射幅度之和），以保持中灰。</string>
     <string name="editor_coup_title">胶片色彩特性（成色剂）</string>
-    <string name="editor_coup_desc">模拟胶片的化学色彩串扰（DIR 成色剂）— 这是胶片特有色彩分离和边缘效应的成因。需要常规饱和度控制？请使用模拟 → 输出中的饱和度 / 自然饱和度。</string>
+    <string name="editor_coup_desc">模拟胶片的化学色彩串扰（DIR 成色剂）— 这是胶片特有色彩分离和边缘效应的成因。需要常规饱和度控制？请使用编辑 → 颜色中的饱和度 / 自然饱和度。</string>
     <string name="editor_coup_amount">效果强度</string>
     <string name="editor_coup_amount_tooltip">DIR 成色剂抑制矩阵的全局倍数。</string>
     <string name="editor_coup_samelayer">层内强度</string>
@@ -549,4 +549,10 @@
     <string name="editor_history_other">其他更改</string>
     <string name="editor_history_on">开</string>
     <string name="editor_history_off">关</string>
+    <string name="editor_rail_tool_on">开</string>
+    <string name="editor_rail_tool_off">关</string>
+    <string name="editor_rail_toggle_tool">开启或关闭%1$s</string>
+    <string name="editor_rail_open_tool">打开%1$s设置</string>
+    <string name="editor_rail_all_settings">全部设置</string>
+    <string name="editor_rail_back_to_tools">返回工具</string>
 </resources>

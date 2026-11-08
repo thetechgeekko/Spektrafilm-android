@@ -534,6 +534,8 @@ internal fun Pad2D(
     y: PadAxis,
     modifier: Modifier = Modifier,
     onValueChangeFinished: (() -> Unit)? = null,
+    // The square's side. The tool rail's cards use a smaller pad than the full settings.
+    padSize: androidx.compose.ui.unit.Dp = 132.dp,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -638,7 +640,7 @@ internal fun Pad2D(
 
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box {
-            Canvas(Modifier.size(132.dp).then(gesture).clearAndSetSemantics { }) {
+            Canvas(Modifier.size(padSize).then(gesture).clearAndSetSemantics { }) {
                 val pad = 8.dp.toPx()
                 val w = size.width - 2 * pad
                 val h = size.height - 2 * pad

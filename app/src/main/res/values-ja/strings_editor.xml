@@ -462,7 +462,7 @@
     <string name="editor_hal_renormalize">再正規化</string>
     <string name="editor_hal_renormalize_tooltip">（1 + 反射振幅の合計）で割り、中間グレーを保ちます。</string>
     <string name="editor_coup_title">フィルムの色の個性（カプラー）</string>
-    <string name="editor_coup_desc">フィルムの化学的な色の相互作用（DIRカプラー）を再現します。フィルム特有の色分離とエッジ効果の原因です。単純な彩度調整をお探しなら、シミュレーション → 出力の彩度/自然な彩度を使ってください。</string>
+    <string name="editor_coup_desc">フィルムの化学的な色の相互作用（DIRカプラー）を再現します。フィルム特有の色分離とエッジ効果の原因です。単純な彩度調整をお探しなら、編集 → カラーの彩度/自然な彩度を使ってください。</string>
     <string name="editor_coup_amount">効果の強さ</string>
     <string name="editor_coup_amount_tooltip">DIRカプラーの抑制行列全体に掛ける係数。</string>
     <string name="editor_coup_samelayer">層内の強さ</string>
@@ -642,4 +642,10 @@
     <string name="editor_history_other">その他の変更</string>
     <string name="editor_history_on">オン</string>
     <string name="editor_history_off">オフ</string>
+    <string name="editor_rail_tool_on">オン</string>
+    <string name="editor_rail_tool_off">オフ</string>
+    <string name="editor_rail_toggle_tool">%1$sのオン/オフを切り替え</string>
+    <string name="editor_rail_open_tool">%1$sの設定を開く</string>
+    <string name="editor_rail_all_settings">すべての設定</string>
+    <string name="editor_rail_back_to_tools">ツールに戻る</string>
 </resources>

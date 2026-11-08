@@ -462,7 +462,7 @@
     <string name="editor_hal_renormalize">재정규화</string>
     <string name="editor_hal_renormalize_tooltip">(1 + 반사 진폭의 합)으로 나누어 중간 회색을 유지합니다.</string>
     <string name="editor_coup_title">필름 색 특성 (커플러)</string>
-    <string name="editor_coup_desc">필름의 화학적 색 간섭(DIR 커플러)을 모델링합니다. 필름 특유의 색 분리와 가장자리 효과가 여기서 나옵니다. 단순한 채도 조절을 찾으시나요? 시뮬레이션 → 출력의 채도 / 생동감을 사용하세요.</string>
+    <string name="editor_coup_desc">필름의 화학적 색 간섭(DIR 커플러)을 모델링합니다. 필름 특유의 색 분리와 가장자리 효과가 여기서 나옵니다. 단순한 채도 조절을 찾으시나요? 편집 → 색상의 채도 / 생동감을 사용하세요.</string>
     <string name="editor_coup_amount">효과 강도</string>
     <string name="editor_coup_amount_tooltip">DIR 커플러 억제 행렬에 곱하는 전체 배율입니다.</string>
     <string name="editor_coup_samelayer">층 내부 강도</string>
@@ -642,4 +642,10 @@
     <string name="editor_history_other">기타 변경</string>
     <string name="editor_history_on">켬</string>
     <string name="editor_history_off">끔</string>
+    <string name="editor_rail_tool_on">켜짐</string>
+    <string name="editor_rail_tool_off">꺼짐</string>
+    <string name="editor_rail_toggle_tool">%1$s 켜기/끄기</string>
+    <string name="editor_rail_open_tool">%1$s 설정 열기</string>
+    <string name="editor_rail_all_settings">모든 설정</string>
+    <string name="editor_rail_back_to_tools">도구로 돌아가기</string>
 </resources>

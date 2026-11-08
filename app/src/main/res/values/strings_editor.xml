@@ -540,7 +540,7 @@
 
     <!-- Couplers section -->
     <string name="editor_coup_title">Film color character (couplers)</string>
-    <string name="editor_coup_desc">Models film\'s chemical color crosstalk (DIR couplers) — the cause of film\'s characteristic color separation and edge effects. Looking for a plain saturation control? Use Saturation / Vibrance in Simulation → Output.</string>
+    <string name="editor_coup_desc">Models film\'s chemical color crosstalk (DIR couplers) — the cause of film\'s characteristic color separation and edge effects. Looking for a plain saturation control? Use Saturation / Vibrance in Edit → Color.</string>
     <string name="editor_coup_amount">Effect strength</string>
     <string name="editor_coup_amount_tooltip">Global multiplier on the DIR coupler inhibition matrix.</string>
     <string name="editor_coup_samelayer">Within-layer strength</string>
@@ -736,4 +736,10 @@
     <string name="editor_history_other">Other change</string>
     <string name="editor_history_on">on</string>
     <string name="editor_history_off">off</string>
+    <string name="editor_rail_tool_on">On</string>
+    <string name="editor_rail_tool_off">Off</string>
+    <string name="editor_rail_toggle_tool">Turn %1$s on or off</string>
+    <string name="editor_rail_open_tool">Open %1$s settings</string>
+    <string name="editor_rail_all_settings">All settings</string>
+    <string name="editor_rail_back_to_tools">Back to tools</string>
 </resources>
