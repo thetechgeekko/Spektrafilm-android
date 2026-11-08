@@ -94,6 +94,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -163,11 +164,9 @@ internal fun LibraryDestination(
         importInto(uris, false)
     }
     // The frames a slideshow plays; null when none is up. Not saved: a slideshow is a moment.
+    // It is drawn OVER the browsing UI, not instead of it, so the grid's scroll position and
+    // loaded state are still there when it closes.
     var slideshow by remember { mutableStateOf<List<LibraryEntry>?>(null) }
-    slideshow?.let { frames ->
-        LibrarySlideshow(frames, onClose = { slideshow = null })
-        return
-    }
     val playSlideshow = { frames: List<LibraryEntry> -> if (frames.isNotEmpty()) slideshow = frames }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
     val query by vm.query.collectAsStateWithLifecycle()
@@ -211,15 +210,20 @@ internal fun LibraryDestination(
     // list-detail (#457), the albums in the leading pane and the open album beside them.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthDp = maxWidth.value
-        when {
-            openAlbum == null -> browse(false)
-            listDetailTwoPane(widthDp) -> ListDetailPanes(
-                listWidthDp = sidePaneWidthDp(widthDp),
-                list = { browse(true) },
-                detail = { albumDetail(openAlbum) },
-            )
-            else -> albumDetail(openAlbum)
+        // Hidden from accessibility services while the slideshow covers it.
+        Box(if (slideshow != null) Modifier.fillMaxSize().clearAndSetSemantics {} else Modifier.fillMaxSize()) {
+            when {
+                openAlbum == null -> browse(false)
+                listDetailTwoPane(widthDp) -> ListDetailPanes(
+                    listWidthDp = sidePaneWidthDp(widthDp),
+                    list = { browse(true) },
+                    detail = { albumDetail(openAlbum) },
+                )
+                else -> albumDetail(openAlbum)
+            }
         }
+        // Composed last, so its BackHandler wins over the album's and the Library's.
+        slideshow?.let { frames -> LibrarySlideshow(frames, onClose = { slideshow = null }) }
     }
 }
 
