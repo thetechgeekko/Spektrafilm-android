@@ -168,6 +168,9 @@
     <string name="editor_magnifier">100% 돋보기</string>
     <string name="editor_menu_clipping">클리핑 경고</string>
     <string name="editor_toggle_chrome">편집기 컨트롤 숨기기/보이기</string>
+    <string name="editor_folder_strip_show">폴더 스트립 표시</string>
+    <string name="editor_folder_strip_hide">폴더 스트립 숨기기</string>
+    <string name="editor_folder_strip_frame">%2$d장 중 %1$d번째</string>
     <string name="editor_reset_category">%1$s 재설정</string>
     <string name="editor_reset_edits_confirm_title">모든 편집을 재설정할까요?</string>
     <string name="editor_reset_edits_confirm_body">모든 설정이 기본값으로 돌아가고 이 사진의 저장된 레시피가 지워집니다. 이 작업은 되돌릴 수 없습니다.</string>

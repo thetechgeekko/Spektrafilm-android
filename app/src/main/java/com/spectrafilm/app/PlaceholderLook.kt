@@ -32,8 +32,8 @@ internal object PlaceholderLook {
     const val RENDER_EDGE_PX = 640
 
     /** The edge to render a [width]x[height] thumbnail at: never upscaled past itself. */
-    fun renderEdge(width: Int, height: Int): Int =
-        min(RENDER_EDGE_PX, max(width, height)).coerceAtLeast(1)
+    fun renderEdge(width: Int, height: Int, maxEdge: Int = RENDER_EDGE_PX): Int =
+        min(maxEdge, max(width, height)).coerceAtLeast(1)
 
     /** A finished look render. The caller reports [renderId]'s outcome once it decides. */
     class Look(val bitmap: Bitmap, val renderId: Long)
@@ -50,10 +50,11 @@ internal object PlaceholderLook {
         thumbnail: Bitmap,
         state: ParamsState,
         default: CoroutineDispatcher,
+        maxEdge: Int = RENDER_EDGE_PX,
     ): Look? {
         // Read the Compose-backed settings on the caller's (main) thread.
         val params = state.toParams(
-            previewMaxSizeOverride = renderEdge(thumbnail.width, thumbnail.height),
+            previewMaxSizeOverride = renderEdge(thumbnail.width, thumbnail.height, maxEdge),
             skipGrainHalation = true,
         )
         val cctf = state.savingCctfEncoding

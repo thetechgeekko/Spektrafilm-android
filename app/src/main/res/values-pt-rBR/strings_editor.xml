@@ -172,6 +172,9 @@
     <string name="editor_magnifier">Lupa de 100%</string>
     <string name="editor_menu_clipping">Avisos de recorte</string>
     <string name="editor_toggle_chrome">Ocultar ou mostrar os controles do editor</string>
+    <string name="editor_folder_strip_show">Mostrar a faixa da pasta</string>
+    <string name="editor_folder_strip_hide">Ocultar a faixa da pasta</string>
+    <string name="editor_folder_strip_frame">Foto %1$d de %2$d</string>
     <string name="editor_reset_category">Redefinir %1$s</string>
     <string name="editor_reset_edits_confirm_title">Redefinir todas as edições?</string>
     <string name="editor_reset_edits_confirm_body">Todas as configurações voltam ao padrão e a receita salva desta foto é limpa. Isso não pode ser desfeito.</string>

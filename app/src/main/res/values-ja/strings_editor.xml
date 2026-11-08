@@ -168,6 +168,9 @@
     <string name="editor_magnifier">100%ルーペ</string>
     <string name="editor_menu_clipping">白飛び・黒つぶれ警告</string>
     <string name="editor_toggle_chrome">エディターの操作部を表示/非表示</string>
+    <string name="editor_folder_strip_show">フォルダのストリップを表示</string>
+    <string name="editor_folder_strip_hide">フォルダのストリップを非表示</string>
+    <string name="editor_folder_strip_frame">%2$d 枚中 %1$d 枚目</string>
     <string name="editor_reset_category">%1$sをリセット</string>
     <string name="editor_reset_edits_confirm_title">すべての編集をリセットしますか？</string>
     <string name="editor_reset_edits_confirm_body">すべての設定が既定値に戻り、この写真の保存済みのレシピが消去されます。この操作は元に戻せません。</string>

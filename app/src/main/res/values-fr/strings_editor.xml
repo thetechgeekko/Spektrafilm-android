@@ -172,6 +172,9 @@
     <string name="editor_magnifier">Loupe 100 %</string>
     <string name="editor_menu_clipping">Alertes d’écrêtage</string>
     <string name="editor_toggle_chrome">Masquer ou afficher les réglages de l’éditeur</string>
+    <string name="editor_folder_strip_show">Afficher la bande du dossier</string>
+    <string name="editor_folder_strip_hide">Masquer la bande du dossier</string>
+    <string name="editor_folder_strip_frame">Image %1$d sur %2$d</string>
     <string name="editor_reset_category">Rétablir %1$s</string>
     <string name="editor_reset_edits_confirm_title">Réinitialiser toutes les retouches ?</string>
     <string name="editor_reset_edits_confirm_body">Chaque réglage revient à sa valeur par défaut et la recette enregistrée de cette photo est effacée. Cette action est irréversible.</string>

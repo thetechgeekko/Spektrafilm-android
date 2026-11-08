@@ -39,6 +39,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /**
  * The pinned preview region on the near-black canvas.
@@ -78,6 +83,8 @@ internal fun PreviewRegion(
     peekOriginal: Boolean = false,
     /** Library neighbours a sideways swipe on the photo opens; null when there are none. */
     swipe: PhotoSwipeNeighbours? = null,
+    /** The folder strip, shown from the frame counter; null when there is no folder. */
+    strip: FolderStripModel? = null,
 ) {
     // Accessibility: the canvas gestures (pinch/double-tap zoom, drag to inspect a region,
     // tap to open the 100% grain magnifier) have no widget of their own, so the region is
@@ -133,8 +140,16 @@ internal fun PreviewRegion(
     val latestShown by rememberUpdatedState(preview ?: placeholder)
     val swipeEnabled = swipe != null && (swipe.hasNext || swipe.hasPrevious) &&
         !zoomed && !compareMode && !peekOriginal && (preview != null || placeholder != null)
+    // The folder strip: shown from the counter, hidden while zoomed in. A touch that starts
+    // on it scrolls the strip, never the photo.
+    var stripOpen by rememberSaveable { mutableStateOf(false) }
+    val stripShown = strip != null && stripOpen && !zoomed && !compareMode
+    var stripTopPx by remember { mutableFloatStateOf(Float.POSITIVE_INFINITY) }
+    val latestStripShown by rememberUpdatedState(stripShown)
+    val haptics = LocalHapticFeedback.current
     val swipeModifier = Modifier.photoSwipeGesture(
         enabled = (swipeEnabled || swiping) && !settling,
+        ignoreDownAt = { latestStripShown && it.y >= stripTopPx },
         onStart = {
             swiping = true
             swipeScope.launch { swipeX.stop() }
@@ -158,12 +173,14 @@ internal fun PreviewRegion(
                         // current photo on screen and open the neighbour in place, rather
                         // than sliding out to a blank canvas.
                         swipeX.animateTo(0f, tween(SWIPE_BACK_MS))
+                        haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         nb.onCommit(step)
                     } else if (step != 0 && nb != null) {
                         heldIncoming = incomingThumb
                         swipeX.animateTo(-step * (swipeWidth + swipeGapPx), tween(SWIPE_COMMIT_MS))
                         val leaving = latestShown
                         val leavingKey = nb.sourceKey
+                        haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         nb.onCommit(step)
                         // Hold the neighbour in place until the editor has switched to the new
                         // photo AND it has something on screen (its stand-in or its render),
@@ -389,6 +406,41 @@ internal fun PreviewRegion(
                         },
                 )
             }
+        }
+
+        // The frame counter ("7 / 24") and, when opened from it, the folder strip.
+        if (strip != null && strip.currentIndex >= 0) {
+            FolderStripToggle(
+                position = strip.currentIndex + 1,
+                count = strip.frames.size,
+                open = stripOpen,
+                onToggle = { stripOpen = !stripOpen },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 12.dp),
+            )
+        }
+        if (stripShown && strip != null) {
+            FolderStrip(
+                model = FolderStripModel(
+                    frames = strip.frames,
+                    currentIndex = strip.currentIndex,
+                    looks = strip.looks,
+                    lookKey = strip.lookKey,
+                    paused = strip.paused || swiping,
+                    io = strip.io,
+                    onOpen = { index ->
+                        if (index != strip.currentIndex) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            strip.onOpen(index)
+                        }
+                    },
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = controlsBottomInset + 8.dp)
+                    .onGloballyPositioned { stripTopPx = it.positionInParent().y },
+            )
         }
     }
 }

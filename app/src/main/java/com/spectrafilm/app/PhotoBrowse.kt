@@ -24,6 +24,10 @@ internal object PhotoBrowse {
 
     /** The frame [step] places from [currentUri] (+1 next, -1 previous), or null. */
     fun neighbour(currentUri: String?, step: Int): BrowseFrame? = neighbourIn(frames, currentUri, step)
+
+    /** Where [currentUri] sits in [frames], or -1 when it is not in the folder. */
+    fun indexOf(currentUri: String?): Int =
+        if (currentUri == null) -1 else frames.indexOfFirst { it.uri == currentUri }
 }
 
 /** [PhotoBrowse.neighbour] over an explicit list. Pure: unit-tested. */
