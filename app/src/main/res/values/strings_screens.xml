@@ -325,6 +325,9 @@
         <item quantity="one">%d photo</item>
         <item quantity="other">%d photos</item>
     </plurals>
+    <string name="library_share">Share</string>
+    <string name="library_select_day">Select</string>
+    <string name="library_clear_day">Deselect</string>
     <string name="library_sort">Sort</string>
     <string name="library_sort_date">Date</string>
     <string name="library_sort_name">Name</string>

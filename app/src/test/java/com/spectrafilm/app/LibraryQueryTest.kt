@@ -84,3 +84,34 @@ class LibraryQueryTest {
         assertTrue(LibraryQuery(text = "x").narrows)
     }
 }
+
+class LibrarySelectionRangeTest {
+    private fun e(n: String) = LibraryEntry("u:$n", n, null, 1L, 1L)
+    private val shown = listOf("a", "b", "c", "d", "e").map { e(it) }
+
+    @org.junit.Test fun rangeWorksInEitherDirectionOnTopOfTheBase() {
+        org.junit.Assert.assertEquals(setOf("u:x", "u:b", "u:c", "u:d"), selectionRange(shown, "u:b", "u:d", setOf("u:x")))
+        org.junit.Assert.assertEquals(setOf("u:b", "u:c", "u:d"), selectionRange(shown, "u:d", "u:b", emptySet()))
+        org.junit.Assert.assertEquals(setOf("u:c"), selectionRange(shown, "u:c", "u:c", emptySet()))
+    }
+
+    @org.junit.Test fun draggingBackShrinksBecauseTheRangeStartsFromTheBaseAgain() {
+        val wide = selectionRange(shown, "u:a", "u:e", emptySet())
+        org.junit.Assert.assertEquals(5, wide.size)
+        org.junit.Assert.assertEquals(setOf("u:a", "u:b"), selectionRange(shown, "u:a", "u:b", emptySet()))
+    }
+
+    @org.junit.Test fun hiddenEndsLeaveTheBase() {
+        org.junit.Assert.assertEquals(setOf("u:a"), selectionRange(shown, "u:gone", "u:b", setOf("u:a")))
+    }
+}
+
+class LibraryShareMimeTest {
+    @org.junit.Test fun oneTypeFamilyOrAnything() {
+        org.junit.Assert.assertEquals("image/jpeg", shareMimeType(listOf("image/jpeg", "IMAGE/JPEG")))
+        org.junit.Assert.assertEquals("image/*", shareMimeType(listOf("image/jpeg", "image/x-adobe-dng")))
+        org.junit.Assert.assertEquals("*/*", shareMimeType(listOf("image/jpeg", null)))
+        org.junit.Assert.assertEquals("*/*", shareMimeType(listOf("image/jpeg", "application/octet-stream")))
+        org.junit.Assert.assertEquals("*/*", shareMimeType(emptyList()))
+    }
+}
