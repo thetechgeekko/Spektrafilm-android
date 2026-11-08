@@ -1079,6 +1079,7 @@ internal fun EditorScreen(
         displayName: String,
         readyStatus: String,
         probeLabel: String? = null,
+        ownedCopy: Uri? = null,
     ) {
         val selectionGeneration = sourceMutationGate.begin()
         // The mutation starts in the process-owned runtime before this Activity awaits it.
@@ -1089,6 +1090,16 @@ internal fun EditorScreen(
                 kind.name,
                 AtomicJsonStore.truncateUtf16Safely(displayName, 512),
             )
+        }
+        // #508: the working copy belongs to this acquisition from here on, not to the Activity.
+        // Once the queued mutation settles -- applied, skipped by a newer selection, or rejected --
+        // the process scope releases it; [SharedSourceCopies.delete] keeps the file only when it
+        // became the durable source, so a skipped or failed adoption never leaks a copy.
+        if (ownedCopy != null) {
+            val app = ctx.applicationContext
+            pendingAcquire.invokeOnCompletion {
+                app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, ownedCopy) }
+            }
         }
         scope.launch {
             val outcome = pendingAcquire.await() ?: return@launch
@@ -1183,10 +1194,16 @@ internal fun EditorScreen(
             snackbarHost.showSnackbar(ctx.getString(snackRes))
         }
     }
-    fun adoptIncomingImage(uri: Uri, nameHint: String? = null, mimeHint: String? = null) {
+    fun adoptIncomingImage(uri: Uri, nameHint: String? = null, mimeHint: String? = null, ownedCopy: Uri? = null) {
         val name = nameHint ?: uri.lastPathSegment ?: "raw"
         val mime = mimeHint ?: runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
-        when (detectSourceKind(name, mime)) {
+        val kind = detectSourceKind(name, mime)
+        if (ownedCopy != null && (kind == SourceFileKind.MCRAW || kind == SourceFileKind.VIDEO)) {
+            // Never copied on purpose, but a refused kind must not keep a copy either (#508).
+            val app = ctx.applicationContext
+            app.appContainer.processScope.launch(dispatchers.io) { SharedSourceCopies.delete(app, ownedCopy) }
+        }
+        when (kind) {
             // MotionCam RAW-video container: recognized (see McrawContainer /
             // docs/RESEARCH_MCRAW.md) but native frame decode isn't wired yet, so don't set
             // a RAW source that would fail — tell the user instead.
@@ -1208,6 +1225,7 @@ internal fun EditorScreen(
                 SourceKind.PHOTO,
                 name.substringAfterLast('/'),
                 ctx.getString(R.string.editor_status_photo_selected),
+                ownedCopy = ownedCopy,
             )
             // RAW/DNG, and every ambiguous content URI (e.g. MIUI document IDs with no
             // extension), so a genuine DNG is never misrouted.
@@ -1216,6 +1234,7 @@ internal fun EditorScreen(
                 SourceKind.RAW,
                 ctx.getString(R.string.editor_source_raw_name, name.substringAfterLast('/')),
                 ctx.getString(R.string.editor_status_raw_selected),
+                ownedCopy = ownedCopy,
             )
         }
     }
@@ -1314,7 +1333,12 @@ internal fun EditorScreen(
         if (!imported.copied && !imported.durable) {
             Diag.w("shared source copy failed; opening it for this session only")
         }
-        adoptIncomingImage(imported.source, nameHint = pending.name, mimeHint = imported.mime)
+        adoptIncomingImage(
+            imported.source,
+            nameHint = pending.name,
+            mimeHint = imported.mime,
+            ownedCopy = imported.source.takeIf { imported.copied },
+        )
     }
     // #467: the launcher's "Open photo" shortcut opens the same picker as the Source panel.
     val pendingShortcut by launcherShortcut
