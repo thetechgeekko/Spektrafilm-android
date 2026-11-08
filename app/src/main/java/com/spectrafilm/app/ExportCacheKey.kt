@@ -57,6 +57,8 @@ internal object ExportCacheKey {
         val vibrance: Float,
         val gamutCompress: Float,
         val localAdjustments: List<com.spectrafilm.app.masks.LocalAdjustment>,
+        /** Fingerprint of the skin field the skin masks were bound to; null when no mask needs one. */
+        val skinField: String? = null,
     )
 
     /**
@@ -97,6 +99,8 @@ internal object ExportCacheKey {
             grade.localAdjustments.forEachIndexed { index, adjustment ->
                 line("grade.adjustment.$index", adjustment.toString())
             }
+            // Only present with a skin mask, so every key without one is unchanged.
+            grade.skinField?.let { line("grade.skinField", it) }
 
             // Enumerated rather than delegated: OutputDescriptor.toString() is a summary.
             line("out.format", descriptor.format.name)

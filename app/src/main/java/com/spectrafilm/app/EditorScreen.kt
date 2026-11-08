@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.spectrafilm.app.masks.hasSemantic
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.SpektraEngine
 import com.spectrafilm.engine.SpektraParams
@@ -58,6 +59,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -65,6 +67,8 @@ import androidx.compose.animation.core.animateDpAsState
 
 internal const val OPEN_PLACEHOLDER_FADE_MS = 220
 private const val OPEN_PLACEHOLDER_HOLD_MS = 600L
+/** Wait before finding skin again after its preview decode was superseded by a decode edit. */
+private const val SKIN_RETRY_MS = 250L
 /**
  * True once the editor has restored in this process. Distinguishes a cold start (the first
  * restore) from an Activity recreation (every later one), which is what decides whether a
@@ -1927,6 +1931,34 @@ internal fun EditorScreen(
             engineState = engineState,
             previewState = previewState,
         )
+    }
+
+    // AI skin masks (SkinFields.kt): bind renders to this photo's skin, and find it once a skin
+    // mask exists. Activation runs in composition so no render of a new photo sees the old field.
+    val skinKey = SkinSourceKey(sourceUri?.toString(), sourceKind.name, rotation.degrees)
+    remember(skinKey) { SkinFields.activate(skinKey) }
+    val needsSkin = state.localAdjustments.any { it.mask.hasSemantic }
+    LaunchedEffect(skinKey, needsSkin, sourceRenderAllowed, SkinFields.retryToken) {
+        if (!needsSkin || !sourceRenderAllowed) return@LaunchedEffect
+        // A decode edit (WB, creative temp, ...) supersedes the preview decode this borrows and
+        // cancels the load without cancelling us: try again, still for the same photo.
+        while (true) {
+            val fresh = try {
+                SkinFields.ensure(ctx, skinKey, dispatchers) {
+                    loadSourceCachedForPreview(state.previewMaxSize.coerceAtLeast(256)).use { lease ->
+                        withContext(dispatchers.default) {
+                            Triple(linearToDisplayArgb(lease.image), lease.image.width, lease.image.height)
+                        }
+                    }
+                }
+            } catch (c: CancellationException) {
+                if (!isActive) throw c
+                delay(SKIN_RETRY_MS)
+                continue
+            }
+            if (fresh) previewTick++
+            break
+        }
     }
 
     // Crisp FINAL preview render on settle: re-runs whenever params, source or rotation

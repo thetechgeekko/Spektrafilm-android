@@ -36,6 +36,7 @@ import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.app.masks.LuminanceRange
 import com.spectrafilm.app.masks.Mask
 import com.spectrafilm.app.masks.MaskComponent
+import com.spectrafilm.app.masks.SemanticClass
 import com.spectrafilm.app.masks.TierADelta
 
 @Composable
@@ -65,6 +66,10 @@ fun MasksSection(
                 s.localAdjustments = masks + defaultLinearAdjustment()
                 onSelectedIndexChange(masks.size)
             }) { Text(stringResource(R.string.tool_masks_add_gradient)) }
+            TextButton(onClick = {
+                s.localAdjustments = masks + defaultSkinAdjustment()
+                onSelectedIndexChange(masks.size)
+            }) { Text(stringResource(R.string.tool_masks_add_skin)) }
         }
 
         if (masks.isEmpty()) return@SectionCard
@@ -78,7 +83,13 @@ fun MasksSection(
             s.localAdjustments = masks.toMutableList().also { it[idx] = updated }
         }
 
-        TextButton(onClick = { onEditOnPhoto(idx) }) { Text(stringResource(R.string.tool_masks_position_on_photo)) }
+        val skin = adj.mask.components.firstOrNull()?.shape as? MaskComponent.Semantic
+        // A skin mask has no shape to drag: the photo decides where it is.
+        if (skin == null) {
+            TextButton(onClick = { onEditOnPhoto(idx) }) { Text(stringResource(R.string.tool_masks_position_on_photo)) }
+        } else {
+            SkinStatusRow(SkinFields.status, onRetry = SkinFields::retry)
+        }
 
         // --- Adjustment applied where the mask is opaque (Tier-A, pointwise on the output) ---
         EnhancedSlider(stringResource(R.string.tool_masks_temp), adj.delta.temp, -100f..100f,
@@ -173,6 +184,30 @@ fun MasksSection(
                 { setShape(linear.copy(y1 = it)) }, step = 0.01f, decimals = 2, default = 0.8f, tooltip = endHelp)
         }
 
+        // --- Skin (AI): which skin, and how the selection edge sits ---
+        val skinComp = adj.mask.components.firstOrNull()
+        if (skinComp != null && skin != null) {
+            fun setSkin(v: MaskComponent.Semantic) =
+                set(adj.copy(mask = adj.mask.copy(components = listOf(skinComp.copy(shape = v)))))
+            fun toggle(cls: SemanticClass, on: Boolean) {
+                val next = if (on) skin.classes + cls else skin.classes - cls
+                // At least one kind of skin stays selected; an empty mask would look broken.
+                if (next.isNotEmpty()) setSkin(skin.copy(classes = next))
+            }
+            SwitchRow(stringResource(R.string.tool_masks_skin_face), SemanticClass.FACE_SKIN in skin.classes,
+                { toggle(SemanticClass.FACE_SKIN, it) })
+            SwitchRow(stringResource(R.string.tool_masks_skin_body), SemanticClass.BODY_SKIN in skin.classes,
+                { toggle(SemanticClass.BODY_SKIN, it) })
+            EnhancedSlider(stringResource(R.string.tool_masks_skin_softness), skin.softness, 0f..1f,
+                { setSkin(skin.copy(softness = it)) },
+                step = 0.01f, decimals = 2, default = MaskComponent.Semantic.DEFAULT_SOFTNESS,
+                tooltip = stringResource(R.string.tool_masks_skin_softness_help))
+            EnhancedSlider(stringResource(R.string.tool_masks_skin_expand), skin.expand, -1f..1f,
+                { setSkin(skin.copy(expand = it)) },
+                step = 0.01f, decimals = 2, default = 0f,
+                tooltip = stringResource(R.string.tool_masks_skin_expand_help))
+        }
+
         SwitchRow(stringResource(R.string.tool_masks_invert), adj.mask.invert,
             { set(adj.copy(mask = adj.mask.copy(invert = it))) },
             stringResource(R.string.tool_masks_invert_help))
@@ -253,3 +288,31 @@ private fun defaultLinearAdjustment() = LocalAdjustment(
     Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Linear(0.5f, 0.2f, 0.5f, 0.8f)))),
     TierADelta(),
 )
+
+/** Face and body skin, found on the photo by the on-device model (see SkinFields). */
+private fun defaultSkinAdjustment() = LocalAdjustment(
+    Mask(listOf(Mask.Component(BlendMode.ADD, MaskComponent.Semantic(setOf(SemanticClass.FACE_SKIN, SemanticClass.BODY_SKIN))))),
+    TierADelta(),
+)
+
+/** What the skin finder is doing for this photo, with a retry when it could not run. */
+@Composable
+private fun SkinStatusRow(status: SkinFieldStatus, onRetry: () -> Unit) {
+    val text = when (status) {
+        SkinFieldStatus.Idle, SkinFieldStatus.Finding -> stringResource(R.string.tool_masks_skin_finding)
+        is SkinFieldStatus.Downloading ->
+            stringResource(R.string.tool_masks_skin_downloading, (status.fraction * 100f).toInt())
+        is SkinFieldStatus.Ready ->
+            stringResource(if (status.found) R.string.tool_masks_skin_found else R.string.tool_masks_skin_none)
+        SkinFieldStatus.Unavailable -> stringResource(R.string.tool_masks_skin_unavailable)
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (status == SkinFieldStatus.Unavailable) MaterialTheme.colorScheme.error
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (status == SkinFieldStatus.Unavailable) {
+        TextButton(onClick = onRetry) { Text(stringResource(R.string.tool_masks_skin_retry)) }
+    }
+}

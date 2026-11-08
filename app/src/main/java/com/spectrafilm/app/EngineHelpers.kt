@@ -75,16 +75,17 @@ fun cropLinearImage(src: LinearImage, nx: Float, ny: Float, cropEdge: Int): Line
  */
 fun cropLinearImageRect(
     src: LinearImage, nx: Float, ny: Float, cropW: Int, cropH: Int,
-): LinearImage {
-    val w = src.width
-    val h = src.height
+): LinearImage = cropLinearImageBox(src, centredCropBox(src.width, src.height, nx, ny, cropW, cropH))
+
+/** The box [cropLinearImageRect] cuts from a [w]x[h] image: [cropW]x[cropH] centred on ([nx], [ny]), clamped inside. */
+fun centredCropBox(w: Int, h: Int, nx: Float, ny: Float, cropW: Int, cropH: Int): CropBox {
     val cw = cropW.coerceIn(1, w)
     val ch = cropH.coerceIn(1, h)
     val cxPx = (nx.coerceIn(0f, 1f) * w).toInt()
     val cyPx = (ny.coerceIn(0f, 1f) * h).toInt()
     val x0 = (cxPx - cw / 2).coerceIn(0, w - cw)
     val y0 = (cyPx - ch / 2).coerceIn(0, h - ch)
-    return cropLinearImageBox(src, CropBox(x0, y0, cw, ch))
+    return CropBox(x0, y0, cw, ch)
 }
 
 /** A pixel box inside a [LinearImage]: top-left corner and extent. */

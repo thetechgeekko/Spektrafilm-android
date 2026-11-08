@@ -30,6 +30,34 @@ class SemanticField(
 
     fun has(cls: SemanticClass): Boolean = cls in planes
 
+    /** The highest summed probability of [classes] in any cell: below 0.5 means none were found. */
+    fun peak(classes: Set<SemanticClass>): Float {
+        val present = classes.mapNotNull { planes[it] }
+        if (present.isEmpty()) return 0f
+        var best = 0f
+        for (i in 0 until width * height) {
+            var sum = 0f
+            for (p in present) sum += p[i]
+            if (sum.isFinite() && sum > best) best = sum
+        }
+        return best.coerceIn(0f, 1f)
+    }
+
+    /** SHA-256 over the planes, so a cache key can tell two fields apart without holding them. */
+    fun fingerprint(): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val bytes = java.nio.ByteBuffer.allocate(4 * width * height)
+        digest.update("${width}x$height".toByteArray())
+        for (cls in SemanticClass.entries) {
+            val plane = planes[cls] ?: continue
+            digest.update(cls.wire.toByteArray())
+            bytes.clear()
+            bytes.asFloatBuffer().put(plane)
+            digest.update(bytes.array())
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     /**
      * Bilinear sample of the summed probability of [classes] at source-normalized ([sx], [sy]),
      * clamped to 0..1. Outside the photo, or for classes the field lacks, the probability is 0.

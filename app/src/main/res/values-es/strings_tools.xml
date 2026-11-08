@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">Ajustes locales: una máscara limita todo el conjunto de ajustes (exposición, temperatura/matiz, saturación, tono, contraste, blancos/negros y los controles de detalle) a una zona. Una radial apunta a un punto (iluminar una cara); un degradado se extiende por el encuadre (oscurecer un cielo desde arriba). Se compone sobre la imagen final: el renderizado de la película no se toca.</string>
     <string name="tool_masks_add_radial">+ Máscara radial</string>
     <string name="tool_masks_add_gradient">+ Máscara de degradado</string>
+    <string name="tool_masks_add_skin">Piel (IA)</string>
+    <string name="tool_masks_skin_face">Piel del rostro</string>
+    <string name="tool_masks_skin_body">Piel del cuerpo</string>
+    <string name="tool_masks_skin_softness">Suavidad del borde</string>
+    <string name="tool_masks_skin_softness_help">Con qué suavidad se desvanece la selección en el borde de la piel.</string>
+    <string name="tool_masks_skin_expand">Expandir</string>
+    <string name="tool_masks_skin_expand_help">Amplía (+) o reduce (−) la selección alrededor de la piel.</string>
+    <string name="tool_masks_skin_downloading" formatted="true">Descargando el detector de piel (16 MB, una vez)… %1$d%%</string>
+    <string name="tool_masks_skin_finding">Buscando piel…</string>
+    <string name="tool_masks_skin_found">Piel encontrada en este teléfono. Tu foto nunca se sube.</string>
+    <string name="tool_masks_skin_none">No se encontró ninguna persona en esta foto, así que esta máscara no selecciona nada.</string>
+    <string name="tool_masks_skin_unavailable">No se pudo cargar el detector de piel. Revisa la conexión e inténtalo de nuevo.</string>
+    <string name="tool_masks_skin_retry">Reintentar</string>
     <string name="tool_masks_tab">Máscara %1$d</string>
     <string name="tool_masks_position_on_photo">Colocar en la foto</string>
     <string name="tool_masks_temp">Temp.</string>

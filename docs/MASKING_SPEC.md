@@ -194,6 +194,12 @@ the compiled-in size and SHA-256. Checked against the real model on three portra
 matches an independent numpy one at IoU 0.98-1.00.
 Phone test and skin-tone evaluation: CPU ~50 ms per photo on the test phone, good across all ten Monk
 skin tones in good light, but dark clothing in poor light can read as body skin on darker skin tones.
+In the app (`SkinFields.kt`): Masks offers "Skin (AI)" (face/body toggles, edge softness, expand). The
+editor finds skin once per photo+rotation from the preview decode, only when a skin mask exists, and every
+render site binds through `withSkinField` with the map from the frame it renders to the source photo:
+the engine crop for preview and export, the zoomed region plus that crop for the loupe and magnifier.
+The export cache key carries the field's fingerprint. Not bound yet (the mask selects nothing there):
+half-frame pairs, film-stock thumbnails, and batch export (which applies no masks at all).
 **Excluded:** PDR/generative-remove, AI-denoise, skin-blemish (cloud / desktop-NPU).
 
 ---
