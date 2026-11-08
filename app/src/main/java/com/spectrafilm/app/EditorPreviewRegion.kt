@@ -220,6 +220,9 @@ internal fun PreviewRegion(
         val gpuActive = gpuEnabled && gpuProxy != null && gpuLut != null &&
             !compareMode && !(peekOriginal && before != null) && !showClipping && !gpuBroken && !gpuZoomHandoff &&
             !swiping
+        // The GPU surface is at fit whenever it shows: clear a zoom the CPU viewer reported
+        // (e.g. the stand-in used during a swipe), so swiping is not left disabled.
+        LaunchedEffect(gpuActive) { if (gpuActive) zoomed = false }
         if (gpuActive) GpuPreviewSurface(
             proxy = gpuProxy!!,
             lut = gpuLut!!,
@@ -293,7 +296,8 @@ internal fun PreviewRegion(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = revealAlpha.value },
-                    initialScale = gpuZoomInitial,
+                    // The swipe's stand-in for the GPU surface always starts at fit.
+                    initialScale = if (swiping) 1f else gpuZoomInitial,
                     zoomRequests = zoomRequests,
                     onPointPicked = onPointPicked,
                     // Press and hold the photo for the unedited frame. The bitmap already
