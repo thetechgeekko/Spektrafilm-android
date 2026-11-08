@@ -164,17 +164,21 @@ internal fun LibraryDestination(
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
     val query by vm.query.collectAsStateWithLifecycle()
     val albumDetail: @Composable (Album) -> Unit = { album ->
-        AlbumDetail(
-            album = album,
-            vm = albumsVm,
-            query = query,
-            currentUri = currentUri,
-            snackbar = snackbar,
-            scope = scope,
-            onBack = { albumsVm.clearSelection(); openAlbumId = null },
-            onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
-            onOpen = onOpen,
-        )
+        // Keyed: beside the list another album can be picked while this pane stays up, and
+        // its loaded frames and rename/selection state must not carry over to the new one.
+        key(album.id) {
+            AlbumDetail(
+                album = album,
+                vm = albumsVm,
+                query = query,
+                currentUri = currentUri,
+                snackbar = snackbar,
+                scope = scope,
+                onBack = { albumsVm.clearSelection(); openAlbumId = null },
+                onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
+                onOpen = onOpen,
+            )
+        }
     }
     val browse: @Composable (albumOpen: Boolean) -> Unit = { albumOpen ->
         LibraryFolderAndAlbums(
