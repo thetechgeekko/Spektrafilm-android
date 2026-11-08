@@ -83,6 +83,11 @@ internal fun PreviewRegion(
     peekOriginal: Boolean = false,
     /** Library neighbours a sideways swipe on the photo opens; null when there are none. */
     swipe: PhotoSwipeNeighbours? = null,
+    /**
+     * Set while a sideways drag on the photo adjusts the last control (Edit open, a control
+     * touched); it then takes the sideways drag from [swipe].
+     */
+    scrub: PhotoScrub? = null,
     /** The folder strip, shown from the frame counter; null when there is no folder. */
     strip: FolderStripModel? = null,
 ) {
@@ -138,7 +143,7 @@ internal fun PreviewRegion(
     var settling by remember { mutableStateOf(false) }
     val latestSwipe by rememberUpdatedState(swipe)
     val latestShown by rememberUpdatedState(preview ?: placeholder)
-    val swipeEnabled = swipe != null && (swipe.hasNext || swipe.hasPrevious) &&
+    val swipeEnabled = scrub == null && swipe != null && (swipe.hasNext || swipe.hasPrevious) &&
         !zoomed && !compareMode && !peekOriginal && (preview != null || placeholder != null)
     // The folder strip: shown from the counter, hidden while zoomed in. A touch that starts
     // on it scrolls the strip, never the photo.
@@ -219,7 +224,12 @@ internal fun PreviewRegion(
             // On this outer box, an ancestor of both the GPU surface and the CPU image, so
             // the swipe sees the finger first without hiding either surface's own gestures.
             .onSizeChanged { swipeWidth = it.width.toFloat() }
-            .then(swipeModifier),
+            .then(swipeModifier)
+            .photoScrubGesture(
+                scrub,
+                enabled = !swiping && !settling && !zoomed && !compareMode && !peekOriginal,
+                ignoreDownAt = { latestStripShown && it.y >= stripTopPx },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         val bmp = preview

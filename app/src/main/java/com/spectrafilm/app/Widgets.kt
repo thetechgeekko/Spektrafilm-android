@@ -94,6 +94,13 @@ class SliderReadoutEdit(
     val current: Float,
     /** False once the slider is gone or shows another value: the edit is stale. */
     val isCurrent: () -> Boolean,
+    /**
+     * The control's value now, or null once it has left the screen. Lets a drag on the photo
+     * keep adjusting the last control after its own drag ended (PhotoScrub).
+     */
+    val live: () -> Float? = { null },
+    /** Moves the value without the release step [set] runs; [set] still ends the move. */
+    val move: ((Float) -> Unit)? = null,
     val set: (Float) -> Unit,
 )
 

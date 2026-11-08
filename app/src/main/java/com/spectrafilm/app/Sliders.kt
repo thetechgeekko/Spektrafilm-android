@@ -738,6 +738,8 @@ internal fun rememberReadoutEdit(
                 val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
                 alive[0] && kotlin.math.abs(latestValue.value - current) <= tol
             },
+            live = { if (alive[0]) latestValue.value else null },
+            move = { v -> if (alive[0]) latestChange.value(snap(v, range, step)) },
         ) { v ->
             latestChange.value(snap(v, range, step))
             latestFinished.value?.invoke()

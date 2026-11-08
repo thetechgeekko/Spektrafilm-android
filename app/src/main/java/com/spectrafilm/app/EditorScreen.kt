@@ -339,13 +339,66 @@ internal fun EditorScreen(
     // in EditorScreen would recompose this entire 6600-line composable at 60 Hz while the
     // engine is already running a draft render on the same cores.
     val sliderReadout = remember { mutableStateOf<SliderReadout?>(null) }
+    // The last control a drag reported, which a sideways drag on the photo keeps adjusting
+    // (PhotoScrub). A plain holder, not State, for the same reason as sliderReadout: every
+    // drag frame writes it. Only "is there one" is State, and it flips once.
+    val lastControl = remember { arrayOfNulls<SliderReadout>(1) }
+    val hasLastControl = remember { mutableStateOf(false) }
     val sliderInteraction = remember {
         SliderInteraction(
-            onChange = { readout -> interacting.value = true; sliderReadout.value = readout },
+            onChange = { readout ->
+                interacting.value = true
+                sliderReadout.value = readout
+                if (readout?.edit?.move != null) {
+                    lastControl[0] = readout
+                    if (!hasLastControl.value) hasLastControl.value = true
+                }
+            },
             onFinished = { interacting.value = false },
             // A second finger on the slider row peeks at clipping (the canvas button
             // latches the same overlay without a gesture).
             onMultiTouch = { down -> viewerVm.onAction(EditorViewerAction.SetClipPeek(down)) },
+        )
+    }
+    // Sideways drag on the photo adjusts the last control: the HUD shows it as on the control
+    // itself, and the release settles one history step.
+    val photoScrub = remember {
+        var target: SliderReadout? = null
+        var startValue = 0f
+        var lastValue: Float? = null
+        PhotoScrub(
+            start = {
+                val r = lastControl[0]
+                val v = r?.edit?.live?.invoke()
+                if (r == null || v == null) {
+                    false
+                } else {
+                    target = r
+                    startValue = v
+                    lastValue = null
+                    true
+                }
+            },
+            drag = { dx, widthPx ->
+                val r = target
+                val e = r?.edit
+                if (r != null && e != null) {
+                    val v = scrubValue(startValue, dx, widthPx, e.range, e.step)
+                    if (v != lastValue) {
+                        lastValue = v
+                        e.move?.invoke(v)
+                    }
+                    interacting.value = true
+                    sliderReadout.value = SliderReadout(r.label, formatValue(v, e.decimals))
+                }
+            },
+            end = {
+                val e = target?.edit
+                val v = lastValue
+                if (e != null && v != null) e.set(v)
+                target = null
+                interacting.value = false
+            },
         )
     }
 
@@ -2940,6 +2993,7 @@ internal fun EditorScreen(
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                         swipe = photoSwipe,
+                        scrub = photoScrub.takeIf { editOpen && hasLastControl.value },
                         strip = folderStrip,
                     )
                 }
