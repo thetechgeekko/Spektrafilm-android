@@ -245,6 +245,18 @@ internal object AlbumUndoHold {
 internal interface AlbumStore {
     fun load(): List<Album>
     fun save(albums: List<Album>)
+
+    /** True while a damaged albums file sits quarantined: what it listed is unknown, so keep. */
+    fun hasQuarantined(): Boolean = false
+}
+
+/**
+ * Shared by every [AlbumsViewModel] of the process: [lock] serializes loads and saves, and
+ * [generation] counts saves, so a ViewModel whose albums another one changed (a Library
+ * reopened while an import was still copying) reloads before it edits or shows them.
+ */
+internal class AlbumSync(val lock: Mutex = Mutex()) {
+    val generation = MutableStateFlow(0L)
 }
 
 /** filesDir/albums.json; a damaged file is moved aside (never overwritten) and reads as empty. */
@@ -261,6 +273,9 @@ internal class FileAlbumStore(private val file: File) : AlbumStore {
             emptyList()
         }
     }
+
+    override fun hasQuarantined(): Boolean =
+        file.parentFile?.listFiles()?.any { it.name.startsWith("${file.name}.corrupt-") } ?: false
 
     override fun save(albums: List<Album>) = AtomicJsonStore.withPathLock(file) {
         if (albums.isEmpty()) {
@@ -304,12 +319,16 @@ internal class AlbumsViewModel(
      * Held by every load and save, across every Library visit: a visit that starts while the
      * last one's edits are still saving reads the file only after they land.
      */
-    private val lock: Mutex = Mutex(),
+    private val sync: AlbumSync = AlbumSync(),
     private val importer: AlbumImporter = AlbumImporter { _, _ -> null },
     /** Deletes imported copies no album lists any more; given every album URI. Called on [io]. */
     private val pruneImports: (keep: Set<String>) -> Unit = {},
 ) : ViewModel() {
     private val writeScope: CoroutineScope = writes ?: viewModelScope
+    private val lock: Mutex get() = sync.lock
+
+    /** The [AlbumSync.generation] that [_albums] reflects. */
+    private var seen = -1L
     private val aspectTracker = LibraryAspects(viewModelScope, io, aspectReader)
 
     /** Frame shapes of the open album, for justified rows. */
@@ -330,16 +349,38 @@ internal class AlbumsViewModel(
         viewModelScope.launch {
             lock.withLock {
                 withContext(io) { runCatching { store.load() } }
-                    .onSuccess { _albums.value = it; loaded = true }
+                    .onSuccess { _albums.value = it; loaded = true; seen = sync.generation.value }
                     .onFailure { Diag.w("albums load failed: ${it.message}") }
-                // Only after a good read, and before any import of this session starts.
-                if (loaded) {
+                // Only after a good read, and before any import of this session starts. Not
+                // while a damaged file is quarantined: the copies it listed may be wanted back.
+                val quarantined = loaded && runCatching { withContext(io) { store.hasQuarantined() } }.getOrDefault(true)
+                if (loaded && !quarantined) {
                     val keep = _albums.value.flatMapTo(HashSet()) { album -> album.items.map { it.uri } }
                     withContext(io) { runCatching { pruneImports(keep) } }
                         .onFailure { Diag.w("imported copies prune failed: ${it.message}") }
                 }
             }
         }
+    }
+
+    init {
+        // Another visit saved (an import finishing after the Library was reopened): show it.
+        viewModelScope.launch {
+            sync.generation.collect { generation ->
+                if (generation != seen && loaded) lock.withLock { refresh() }
+            }
+        }
+    }
+
+    /** Under [lock]: rereads the file when another ViewModel saved since this one last did. */
+    private suspend fun refresh(): Boolean {
+        if (seen == sync.generation.value) return true
+        val fresh = withContext(io) { runCatching { store.load() } }
+            .onFailure { Diag.w("albums reload failed: ${it.message}") }
+            .getOrNull() ?: return false
+        _albums.value = fresh
+        seen = sync.generation.value
+        return true
     }
 
     // Grants of frames an album drops are not released here: Undo must still be able to
@@ -350,7 +391,7 @@ internal class AlbumsViewModel(
     private fun edit(change: (List<Album>) -> List<Album>, onResult: (saved: Boolean) -> Unit = {}) {
         writeScope.launch {
             val saved = lock.withLock {
-                if (!loaded) return@withLock false
+                if (!loaded || !refresh()) return@withLock false
                 val before = _albums.value
                 val next = change(before)
                 if (next == before) return@withLock true
@@ -360,7 +401,12 @@ internal class AlbumsViewModel(
                         .onFailure { Diag.w("albums save failed: ${it.message}") }
                         .isSuccess
                 }
-                if (!ok) _albums.value = before
+                if (ok) {
+                    sync.generation.value += 1
+                    seen = sync.generation.value
+                } else {
+                    _albums.value = before
+                }
                 ok
             }
             onResult(saved)

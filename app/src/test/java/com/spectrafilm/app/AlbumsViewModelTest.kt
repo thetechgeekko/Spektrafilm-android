@@ -27,6 +27,8 @@ class AlbumsViewModelTest {
         var failSave: Boolean = false,
     ) : AlbumStore {
         var saves = 0
+        var quarantined = false
+        override fun hasQuarantined() = quarantined
         override fun load(): List<Album> {
             if (failLoad) throw java.io.IOException("busy")
             return saved
@@ -94,7 +96,7 @@ class AlbumsViewModelTest {
     @Test fun undoBringsBackTheAlbumAsTheQueuedEditsLeftIt() {
         val store = FakeStore(listOf(Album("b", "B", 2L, listOf(item(1), item(2)))))
         val lock = Mutex()
-        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = AlbumSync(lock))
         idle()
         // An earlier save still holds the lock while a photo is removed and the album deleted.
         kotlinx.coroutines.runBlocking { lock.lock() }
@@ -111,7 +113,7 @@ class AlbumsViewModelTest {
     @Test fun anAdditionWaitingToBeSavedKeepsItsFolderGrant() {
         val store = FakeStore(listOf(Album("a", "A", 1L)))
         val lock = Mutex()
-        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = AlbumSync(lock))
         idle()
         // Another edit holds the lock, so this one waits; a grant sweep now must keep folder B.
         kotlinx.coroutines.runBlocking { lock.lock() }
@@ -146,7 +148,7 @@ class AlbumsViewModelTest {
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    AlbumsViewModel(store, Dispatchers.Unconfined, newId = { "x" }, writes = writes, lock = lock) as T
+                    AlbumsViewModel(store, Dispatchers.Unconfined, newId = { "x" }, writes = writes, sync = AlbumSync(lock)) as T
             },
         )[AlbumsViewModel::class.java]
         idle() // the first read lands
@@ -156,6 +158,26 @@ class AlbumsViewModelTest {
         lock.unlock()
         idle()
         assertEquals(listOf("Kept"), store.saved.map { it.name })
+    }
+
+    @Test fun twoVisitsEditTheSameAlbumsNotTheirOwnSnapshots() {
+        val store = FakeStore(listOf(Album("a", "A", 1L)))
+        val sync = AlbumSync()
+        fun open() = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, sync = sync)
+        val first = open(); idle()
+        val second = open(); idle() // the Library reopened while the first visit still works
+        first.add("a", listOf(item(1))); idle()
+        // The second visit shows the first one's save, and its own edit keeps it.
+        assertEquals(listOf("content://doc/1"), second.albums.value.single().items.map { it.uri })
+        second.rename("a", "Roll"); idle()
+        assertEquals(listOf(Album("a", "Roll", 1L, listOf(item(1)))), store.saved)
+    }
+
+    @Test fun aQuarantinedAlbumsFileStopsTheCopyPrune() {
+        val store = FakeStore().apply { quarantined = true }
+        var pruned = false
+        vm(store, prune = { pruned = true }); idle()
+        assertTrue(!pruned)
     }
 
     @Test fun removeSelectedDropsThoseFramesAndClearsTheSelection() {
