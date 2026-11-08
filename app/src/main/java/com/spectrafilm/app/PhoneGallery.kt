@@ -78,11 +78,13 @@ internal object PhoneGallery {
 
     /**
      * A MediaStore photo the app can read again after a restart: an external-volume item while
-     * the app may read every photo. Not a photo picker URI (content://media/picker/...), whose
-     * grant is per pick, and not under partial access, which the user can narrow at any time.
+     * the app holds a photos permission. Not a photo picker URI (content://media/picker/...),
+     * whose grant is per pick. Partial access counts too: the editor then keeps the photo's own
+     * URI (and so one recipe for it whatever the access), and if the user later drops it from
+     * the selection, restoring asks for the photo again like any revoked source.
      */
     fun isReadable(context: Context, uri: String): Boolean =
-        uri.startsWith("content://media/external") && access(context) == GalleryAccess.FULL
+        uri.startsWith("content://media/external") && access(context) != GalleryAccess.NONE
 
     /** Width over height as shown, from MediaStore's size and rotation; null when unknown. */
     internal fun aspectOf(width: Int, height: Int, orientation: Int): Float? {
