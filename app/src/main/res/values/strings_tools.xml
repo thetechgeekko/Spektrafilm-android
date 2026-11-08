@@ -200,6 +200,9 @@
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Crop rectangle over the photo. Drag a corner or edge to resize it, drag inside it to move it.</string>
     <string name="tool_crop_reset">Reset crop to the full photo</string>
+    <string name="tool_crop_straighten">Straighten</string>
+    <string name="tool_crop_straighten_desc">Straighten angle. Drag sideways to tilt the photo; double-tap to level it.</string>
+    <string name="tool_crop_straighten_reset">Level the photo (0°)</string>
 
     <!-- Mask position overlay -->
     <string name="tool_mask_geometry_title">Position mask</string>

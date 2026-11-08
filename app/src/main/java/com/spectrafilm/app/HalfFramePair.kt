@@ -331,6 +331,7 @@ private suspend fun renderFrame(
         filmProfile = state.filmProfile,
         rawHotPixels = state.rawHotPixels,
         rawChromaNoise = state.rawChromaNoise,
+        straightenDegrees = state.straightenDegrees,
     )
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image
     var adjustments = state.localAdjustments

@@ -151,6 +151,9 @@
     <string name="tool_crop_aspect_original">原始比例</string>
     <string name="tool_crop_canvas_desc">照片上的裁剪矩形。拖动角点或边缘调整大小，拖动内部移动。</string>
     <string name="tool_crop_reset">重置裁剪为完整照片</string>
+    <string name="tool_crop_straighten">拉直</string>
+    <string name="tool_crop_straighten_desc">拉直角度。左右拖动以倾斜照片，双击恢复水平。</string>
+    <string name="tool_crop_straighten_reset">恢复水平 (0°)</string>
     <string name="tool_mask_geometry_title">定位蒙版</string>
     <string name="tool_mask_geometry_hint">拖动以移动 · 拖动手柄调整径向蒙版大小或移动渐变端点。</string>
     <string name="tool_mask_geometry_canvas_desc">照片上的蒙版。拖动形状以移动；拖动手柄调整径向蒙版大小或移动渐变端点。屏幕阅读器用户可使用蒙版面板中的位置滑块。</string>

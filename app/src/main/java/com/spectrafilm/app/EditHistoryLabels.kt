@@ -17,6 +17,7 @@ import org.json.JSONObject
 internal sealed interface HistoryTag {
     data class Tool(val category: Category) : HistoryTag
     data object Crop : HistoryTag
+    data object Straighten : HistoryTag
     data object Rotate : HistoryTag
     /** A change no tool owns (an older schema key, say). Still an undo step. */
     data object Other : HistoryTag
@@ -65,6 +66,7 @@ internal fun tagForPath(path: String): HistoryTag {
         "filmProfile" -> return HistoryTag.Tool(Category.SIMULATION)
         "printProfile" -> return HistoryTag.Tool(Category.PAPER)
         "input.crop" -> return HistoryTag.Crop
+        "input.straighten" -> return HistoryTag.Straighten
     }
     val section = path.substringBefore('.')
     // An exact "section.key" entry wins over a whole-section one, so camera.diffusion is
@@ -103,8 +105,9 @@ internal fun describeStep(before: EditSnapshot, after: EditSnapshot): HistoryLab
 private fun tagOrder(tag: HistoryTag): Int = when (tag) {
     is HistoryTag.Tool -> tag.category.ordinal
     HistoryTag.Crop -> Category.entries.size
-    HistoryTag.Rotate -> Category.entries.size + 1
-    HistoryTag.Other -> Category.entries.size + 2
+    HistoryTag.Straighten -> Category.entries.size + 1
+    HistoryTag.Rotate -> Category.entries.size + 2
+    HistoryTag.Other -> Category.entries.size + 3
 }
 
 private fun leaf(o: JSONObject, path: String): Any? {
@@ -128,6 +131,7 @@ internal fun historyLabelText(label: HistoryLabel?): String {
         when (tag) {
             is HistoryTag.Tool -> androidx.compose.ui.res.stringResource(tag.category.labelRes)
             HistoryTag.Crop -> androidx.compose.ui.res.stringResource(R.string.tool_crop_title)
+            HistoryTag.Straighten -> androidx.compose.ui.res.stringResource(R.string.tool_crop_straighten)
             HistoryTag.Rotate -> androidx.compose.ui.res.stringResource(R.string.editor_history_rotate)
             HistoryTag.Other -> androidx.compose.ui.res.stringResource(R.string.editor_history_other)
         }

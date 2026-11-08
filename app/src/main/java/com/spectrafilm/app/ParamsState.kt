@@ -82,6 +82,8 @@ class ParamsState {
     var crop by mutableStateOf(false)
     var cropCenter by mutableStateOf(0.5f to 0.5f)
     var cropSize by mutableStateOf(0.1f to 0.1f)
+    /** Free-angle straighten, degrees clockwise (decode-time, not an engine param; Straighten.kt). */
+    var straightenDegrees by mutableFloatStateOf(0f)
 
     // --- Import Raw ---
     var rawWhiteBalance by mutableStateOf(WhiteBalance.AS_SHOT)

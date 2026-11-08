@@ -200,6 +200,10 @@ internal object ProxyDiskCache {
             if (request.chromaNoise > 0f) {
                 append("cnr=").append(request.chromaNoise.toRawBits()).append('\n')
             }
+            // Straighten likewise only when non-zero.
+            if (request.straightenDegrees != 0f) {
+                append("str=").append(request.straightenDegrees.toRawBits()).append('\n')
+            }
         }
         val hash = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
         return hash.toHex()

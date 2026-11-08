@@ -43,6 +43,8 @@ internal data class SourceDecodeRequest(
     val rawHotPixels: Boolean = false,
     /** Opt-in RAW chroma noise reduction strength 0..100 (#259); ignored for non-RAW. */
     val rawChromaNoise: Float = 0f,
+    /** Free-angle straighten, degrees clockwise, applied after [rotation]; see Straighten.kt. */
+    val straightenDegrees: Float = 0f,
 )
 
 internal data class SourceDecodeResult(
@@ -70,7 +72,9 @@ internal fun decodeIdentityOf(request: SourceDecodeRequest): String = with(reque
         "balance=$balanceToFilmStock;film=$filmProfile" +
         // Appended only when on, so every identity minted before #259 is unchanged.
         (if (rawHotPixels) ";hot=1" else "") +
-        (if (rawChromaNoise > 0f) ";cnr=${rawChromaNoise.toRawBits()}" else "")
+        (if (rawChromaNoise > 0f) ";cnr=${rawChromaNoise.toRawBits()}" else "") +
+        // Likewise appended only when non-zero, so unstraightened identities are unchanged.
+        (if (straightenDegrees != 0f) ";str=${straightenDegrees.toRawBits()}" else "")
 }
 
 /**
@@ -181,12 +185,24 @@ internal suspend fun decodeSourceRequest(
         val rotW = based.width
         val rotH = based.height
         val rotT0 = if (request.rotation == SourceRotation.NONE) 0L else System.currentTimeMillis()
-        val rotated = based.rotated(request.rotation, isCancelled)
-        ownedImage = rotated
+        val turned = based.rotated(request.rotation, isCancelled)
+        ownedImage = turned
         if (request.rotation != SourceRotation.NONE) {
             Diag.i(
                 "rotate ms=${System.currentTimeMillis() - rotT0} angle=${request.rotation.degrees} " +
                     "${rotW}x$rotH workers=${defaultRotWorkers(rotW.toLong() * rotH)}",
+            )
+        }
+        val straighten = clampStraighten(request.straightenDegrees)
+        val strT0 = System.currentTimeMillis()
+        val turnedW = turned.width
+        val turnedH = turned.height
+        val rotated = turned.straightened(straighten, isCancelled)
+        ownedImage = rotated
+        if (straighten != 0f) {
+            Diag.i(
+                "straighten ms=${System.currentTimeMillis() - strT0} deg=$straighten " +
+                    "${turnedW}x$turnedH -> ${rotated.width}x${rotated.height}",
             )
         }
         val pixelCount = try {

@@ -32,8 +32,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** What identifies the pixels a field was found on: the photo and how it is turned. */
-internal data class SkinSourceKey(val uri: String?, val kind: String, val rotationDegrees: Int)
+/**
+ * What identifies the pixels a field was found on: the photo and how it is turned, by quarter
+ * turns and by the free straighten angle (both change where the skin sits in the decode).
+ */
+internal data class SkinSourceKey(
+    val uri: String?,
+    val kind: String,
+    val rotationDegrees: Int,
+    val straightenDegrees: Float = 0f,
+)
 
 /** The field for one photo, or null [field] when the finder ran and found no person. */
 internal class SkinFieldEntry(

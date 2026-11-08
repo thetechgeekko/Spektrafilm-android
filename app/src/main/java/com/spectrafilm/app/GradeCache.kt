@@ -109,6 +109,7 @@ internal class GradeCache(
         val maxEdge: Int,
         val hotPixels: Boolean = false,
         val chromaNoise: Float = 0f,
+        val straightenDegrees: Float = 0f,
     )
 
     /**

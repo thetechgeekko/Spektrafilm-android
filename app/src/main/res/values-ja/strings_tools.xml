@@ -183,6 +183,9 @@
     <string name="tool_crop_aspect_original">元の比率</string>
     <string name="tool_crop_canvas_desc">写真上の切り抜き枠。角や辺をドラッグしてサイズを変え、内側をドラッグして移動します。</string>
     <string name="tool_crop_reset">切り抜きを写真全体に戻す</string>
+    <string name="tool_crop_straighten">角度補正</string>
+    <string name="tool_crop_straighten_desc">角度補正。左右にドラッグして写真を傾け、ダブルタップで水平に戻します。</string>
+    <string name="tool_crop_straighten_reset">水平に戻す (0°)</string>
     <string name="tool_mask_geometry_title">マスクを配置</string>
     <string name="tool_mask_geometry_hint">ドラッグで移動 · ハンドルをドラッグで円形のサイズ変更/グラデーションの端を移動。</string>
     <string name="tool_mask_geometry_canvas_desc">写真上のマスク。図形をドラッグして移動し、ハンドルをドラッグして円形のサイズを変えたりグラデーションの端を動かしたりします。スクリーンリーダーでは、マスクパネルの位置スライダーを使ってください。</string>

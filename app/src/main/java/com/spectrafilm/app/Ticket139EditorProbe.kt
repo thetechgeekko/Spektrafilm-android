@@ -105,6 +105,7 @@ internal object Ticket139EditorProbe : EditorProbe {
         "input.crop",
         "input.cropCenter",
         "input.cropSize",
+        "input.straighten",
         "raw.whiteBalance",
         "raw.temperature",
         "raw.tint",
@@ -281,6 +282,7 @@ internal object Ticket139EditorProbe : EditorProbe {
         "input.crop" to flag(true),
         "input.cropCenter" to json("[0.43,0.57]"),
         "input.cropSize" to json("[0.62,0.38]"),
+        "input.straighten" to number("-2.5"),
         "raw.whiteBalance" to text("CUSTOM"),
         "raw.temperature" to number("4875"),
         "raw.tint" to number("0.92"),
@@ -1551,6 +1553,7 @@ internal object Ticket139EditorProbe : EditorProbe {
         crop = true
         cropCenter = 0.43f to 0.57f
         cropSize = 0.62f to 0.38f
+        straightenDegrees = -2.5f
 
         rawWhiteBalance = WhiteBalance.CUSTOM
         rawTemperature = 4_875f

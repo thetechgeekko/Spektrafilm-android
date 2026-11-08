@@ -224,6 +224,7 @@ internal class DecodedSourceCache(
         // the decoded bytes and of the key. Defaults keep pre-#259 keys identical.
         val hotPixels: Boolean = false,
         val chromaNoise: Float = 0f,
+        val straightenDegrees: Float = 0f,
     )
 
     /** Publication authority for one immutable logical decode request. */

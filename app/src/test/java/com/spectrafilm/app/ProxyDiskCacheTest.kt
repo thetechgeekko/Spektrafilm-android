@@ -65,6 +65,15 @@ class ProxyDiskCacheTest {
     }
 
     @Test
+    fun straightenChangesTheKeyOnlyWhenNonZero() {
+        val base = ProxyDiskCache.cacheKey(request(), source, app)
+        assertEquals(base, ProxyDiskCache.cacheKey(request().copy(straightenDegrees = 0f), source, app))
+        val tilted = ProxyDiskCache.cacheKey(request().copy(straightenDegrees = 2.5f), source, app)
+        assertNotEquals(base, tilted)
+        assertNotEquals(tilted, ProxyDiskCache.cacheKey(request().copy(straightenDegrees = -2.5f), source, app))
+    }
+
+    @Test
     fun rawCleanupChangesTheKeyOnlyWhenOn() {
         val base = ProxyDiskCache.cacheKey(request(), source, app)
         // Off is the default spelling: a pre-#259 proxy keeps its key and stays valid.

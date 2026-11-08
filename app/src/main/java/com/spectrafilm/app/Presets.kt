@@ -139,6 +139,7 @@ object Presets {
             remove("crop")
             remove("cropCenter")
             remove("cropSize")
+            remove("straighten")
         }
         fromJson(look, into)
     }
@@ -370,6 +371,7 @@ object Presets {
             put("crop", s.crop)
             pair("cropCenter", s.cropCenter)
             pair("cropSize", s.cropSize)
+            put("straighten", s.straightenDegrees.toDouble())
         })
 
         put("raw", JSONObject().apply {
@@ -609,6 +611,7 @@ object Presets {
             s.crop = i.optBoolean("crop", s.crop)
             s.cropCenter = i.pairOf("cropCenter", s.cropCenter)
             s.cropSize = i.pairOf("cropSize", s.cropSize)
+            s.straightenDegrees = clampStraighten(i.f("straighten", s.straightenDegrees))
         }
 
         o.optJSONObject("raw")?.let { r ->
