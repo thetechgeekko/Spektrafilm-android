@@ -1458,18 +1458,21 @@ internal fun EditorScreen(
     // published only after the terminal checkpoint flushes, and an edit made during that
     // window must still count against it (Codex on #535). Falls back to the state at
     // publication after recreation, which loses the remembered baseline.
-    var exportBaseline by remember { mutableStateOf<Pair<Any?, Category?>?>(null) }
+    // The live edit state (params + rotation) is compared, not the undo history's committed
+    // snapshot, which settles on its own 500 ms debounce and would read as an "edit" when it
+    // catches up after a fast Share (Codex on #535).
+    var exportBaseline by remember { mutableStateOf<Pair<EditSnapshot, Category?>?>(null) }
     LaunchedEffect(exportInFlight) {
-        if (exportInFlight) exportBaseline = session.committedSnapshot.value to activeCategory
+        if (exportInFlight) exportBaseline = snapshotNow() to activeCategory
     }
     if (exportDone && exportUi.lastShare != null) {
         LaunchedEffect(exportUi.lastShare) {
             val base = exportBaseline
-            val committedAtSave = if (base != null) base.first else session.committedSnapshot.value
+            val renderedState = base?.first ?: snapshotNow()
             val categoryAtSave = if (base != null) base.second else activeCategory
             snapshotFlow {
                 interacting.value ||
-                    session.committedSnapshot.value != committedAtSave ||
+                    snapshotNow() != renderedState ||
                     activeCategory != categoryAtSave
             }.first { it }
             exportVm.onAction(ExportAction.DismissResult)
