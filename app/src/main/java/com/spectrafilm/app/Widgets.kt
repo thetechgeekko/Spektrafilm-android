@@ -76,6 +76,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** What a slider is currently reading, for the floating readout over the preview. */
@@ -715,6 +716,8 @@ internal fun ConnectedToggle(
                 style = MaterialTheme.typography.labelLarge,
                 color = if (selected) selectedContent else content,
                 maxLines = 1,
+                // Ellipsize rather than cut the glyphs off mid-letter (#456).
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
