@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -195,13 +196,21 @@ fun EnhancedSlider(
                     anchor = sliderAnchor(default, range),
                 )
             },
-            // Announce "<label>, <value>" rather than a bare percentage.
+            // Announce "<label>, <value>" rather than a bare percentage. The semantics come
+            // FIRST and MERGING: a node's (touch) bounds come from its outermost merging
+            // semantics modifier, and the slider's own progressSemantics merges, so a plain
+            // semantics block here still reported 44dp. Placed outside heightIn, this one
+            // reports the 48dp target. The M3 Expressive slider itself
+            // lays out at its 44dp thumb height (#455: measured 44.2dp on device); its drag
+            // input already gets Compose's 48dp minimum touch area, this makes the
+            // accessibility node say so too. The extra height is centred: the track stays put.
             modifier = Modifier
-                .sliderEndsGestureExclusion(endExclusionPx)
-                .semantics {
+                .semantics(mergeDescendants = true) {
                     contentDescription = label
                     stateDescription = formatted
-                },
+                }
+                .heightIn(min = 48.dp)
+                .sliderEndsGestureExclusion(endExclusionPx),
         )
         if (tooltip != null) {
             Text(
