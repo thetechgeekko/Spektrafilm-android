@@ -217,7 +217,8 @@ internal fun EditorScreen(
     val sourceUri by sourceUriState
     val sourceKindState = remember { derivedStateOf { sourceState.value.kind } }
     val sourceKind by sourceKindState
-    val sourceName by remember { derivedStateOf { sourceState.value.displayName } }
+    val sourceNameState = remember { derivedStateOf { sourceState.value.displayName } }
+    val sourceName by sourceNameState
     val sourceRuntime = remember(ctx.applicationContext) { ctx.appContainer.sources }
     val sourceAccess = sourceRuntime.coordinator
     val sourceMutationGate = sourceRuntime.mutations
@@ -1180,94 +1181,31 @@ internal fun EditorScreen(
     }
     LaunchedEffect(filmGroups, printGroups) { onProfileGroups(filmGroups, printGroups) }
 
-    // What the sheet's Export button (and the pill's Share) runs: the same checks and the
-    // same run either way. [rememberPreset] off for Share, which uses the last preset without
-    // re-marking it (the preset list may not have loaded yet).
-    fun launchEditorExport(exportPresets: ExportPresetDocument, rememberPreset: Boolean = true) {
-        startEditorExport(
-            dispatchers = dispatchers,
-            exportVm = exportVm,
-            exportPresetVm = exportPresetVm,
-            ctx = ctx,
-            scope = scope,
-            state = state,
-            engine = engine,
-            sourceRenderAllowed = sourceRenderAllowed,
-            sourceUri = sourceUri,
-            sourceName = sourceName,
-            exportSourceIdentity = exportSourceIdentity,
-            exportPresets = exportPresets,
-            snackbarHost = snackbarHost,
-            legacyStoragePermission = legacyStoragePermission,
-            mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
-            currentSourceDecodeRequest = ::currentSourceDecodeRequest,
-            checkpointEditorSession = ::checkpointEditorSession,
-            onSettingsAction = onSettingsAction,
-            setStatus = { status = it },
-            rememberPreset = rememberPreset,
-        )
-    }
-    fun openExportSheetIfAllowed() {
-        if (engine != null && sourceRenderAllowed && !previewBusy && !exportVm.current.inFlight) {
-            exportVm.onAction(ExportAction.OpenSheet)
-        }
-    }
-    // The Export FAB stays enabled while a preview render runs (a FAB is never disabled),
-    // so a tap during a render is held and opens the sheet as soon as the render settles.
-    var exportPending by remember { mutableStateOf(false) }
-    fun requestExport() {
-        if (previewBusy) exportPending = true else openExportSheetIfAllowed()
-    }
-    // The pill's Share half: send the file just saved if nothing changed since, otherwise
-    // export with the last-used choices (no sheet) and share the result when it lands.
-    var sharePending by remember { mutableStateOf(false) }
-    fun shareExportIfAllowed() {
-        val current = exportVm.current
-        val last = current.lastShare
-        if (current.done && last != null) {
-            if (!shareExportedFile(ctx, last.first, last.second)) {
-                status = ctx.getString(R.string.editor_status_no_share_target)
-            }
-            return
-        }
-        if (engine == null || !sourceRenderAllowed || previewBusy || current.inFlight || current.sheetOpen) return
-        exportPresetVm.uiState.value.lastUsedPreset?.let { p ->
-            exportVm.onAction(ExportAction.SetOptions(p.options))
-            exportVm.onAction(ExportAction.SetKeepGps(p.keepGps))
-        }
-        exportVm.onAction(ExportAction.ShareWhenDone)
-        launchEditorExport(exportPresetVm.uiState.value, rememberPreset = false)
-        // Nothing started (a permission or settings check stopped it): drop the request so a
-        // later plain export does not open the share sheet.
-        if (!exportVm.current.inFlight) exportVm.onAction(ExportAction.ShareHandled)
-    }
-    fun requestShare() {
-        if (previewBusy) sharePending = true else shareExportIfAllowed()
-    }
-    LaunchedEffect(exportPending, previewBusy) {
-        if (exportPending && !previewBusy) {
-            exportPending = false
-            openExportSheetIfAllowed()
-        }
-    }
-    LaunchedEffect(sharePending, previewBusy) {
-        if (sharePending && !previewBusy) {
-            sharePending = false
-            shareExportIfAllowed()
-        }
-    }
-    // Share reads the last-used preset without opening the sheet, so load the presets once.
-    LaunchedEffect(exportPresetVm) { exportPresetVm.load() }
-    LaunchedEffect(Unit) {
-        if (!editorProbe.isArmed()) return@LaunchedEffect
-        editorProbe.exportProbeRequests.collect { request ->
-            openExportSheetIfAllowed()
-            editorProbe.publishExportProbeResult(
-                request.sequence,
-                exportVm.current.sheetOpen,
-            )
-        }
-    }
+    // Export / Share entry points and their deferral while a render runs (EditorExportActions.kt).
+    val exportActions = rememberEditorExportActions(
+        dispatchers = dispatchers,
+        exportVm = exportVm,
+        exportPresetVm = exportPresetVm,
+        ctx = ctx,
+        scope = scope,
+        state = state,
+        engineState = engineState,
+        previewBusyState = previewBusyState,
+        sourceRenderAllowed = sourceRenderAllowed,
+        sourceUriState = sourceUriState,
+        sourceNameState = sourceNameState,
+        exportSourceIdentity = exportSourceIdentity,
+        snackbarHost = snackbarHost,
+        legacyStoragePermission = legacyStoragePermission,
+        mediaLocationPermissionMissing = ::mediaLocationPermissionMissing,
+        currentSourceDecodeRequest = ::currentSourceDecodeRequest,
+        checkpointEditorSession = ::checkpointEditorSession,
+        onSettingsAction = onSettingsAction,
+        statusState = statusState,
+    )
+    fun launchEditorExport(exportPresets: ExportPresetDocument) = exportActions.launchEditorExport(exportPresets)
+    fun requestExport() = exportActions.requestExport()
+    fun requestShare() = exportActions.requestShare()
 
     // Hardware keyboard shortcuts + Back handling (EditorBackAndShortcuts.kt).
     EditorBackAndShortcuts(
