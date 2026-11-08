@@ -298,7 +298,7 @@ internal fun ExportButton(exporting: Boolean, onClick: () -> Unit) {
                 .semantics { if (exporting) contentDescription = busyLabel },
         ) {
             if (exporting) {
-                SpectraLoadingIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                ExportProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
             } else {
                 Icon(SpectraIcons.Export, contentDescription = null, modifier = Modifier.size(18.dp))
             }

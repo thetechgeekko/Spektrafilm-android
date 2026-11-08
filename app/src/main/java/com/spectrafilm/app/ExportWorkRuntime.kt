@@ -156,6 +156,23 @@ internal object ExportWorkRuntime {
 
     val state: StateFlow<ExportRuntimeState> = mutableState.asStateFlow()
 
+    private val mutableProgress = MutableStateFlow(0f)
+
+    /**
+     * #466: fraction (0..1) of the running export, stage-weighted (ExportProgress.kt), never
+     * decreasing within a run. Reset to 0 when a run launches; meaningful only while [state]
+     * is Running.
+     */
+    val progress: StateFlow<Float> = mutableProgress.asStateFlow()
+
+    /** Records that the running export has entered [stage]. Ignored when nothing runs. */
+    fun reportStage(stage: ExportStage) {
+        synchronized(lock) {
+            if (mutableState.value !is ExportRuntimeState.Running) return
+            mutableProgress.value = mergeExportProgress(mutableProgress.value, stage)
+        }
+    }
+
     fun launch(
         context: Context,
         format: ExportFormat,
@@ -180,6 +197,7 @@ internal object ExportWorkRuntime {
             }
         val runId = ids.incrementAndGet()
         val appContext = context.applicationContext
+        mutableProgress.value = 0f
         mutableState.value = ExportRuntimeState.Running(runId, format, sourceIdentity)
         ExportForegroundService.start(appContext, runId, startedAtMillis)
         val job = scope.launch {
