@@ -432,6 +432,8 @@
     <string name="editor_sim_saturation">Saturation</string>
     <string name="editor_sim_saturation_tooltip">Overall colorfulness of the output. Negative = softer/more muted (tame a too-punchy look); positive = more vivid. Applied after the film render.</string>
     <string name="editor_sim_vibrance">Vibrance</string>
+    <string name="editor_sim_sat_vib_pad">Saturation × Vibrance</string>
+    <string name="editor_sim_print_color_pad">Print filter M × Y</string>
     <string name="editor_sim_vibrance_tooltip">Like Saturation but weighted to muted colors, so already-saturated tones (and skin) shift less. Applied after the film render.</string>
     <string name="editor_sim_gamut_compression">Gamut compression</string>
     <string name="editor_sim_gamut_compression_tooltip">ACES-style: softens the harsh cyan/edge fringe on very saturated colors by pulling them toward neutral. 0 = off. Helps when saturated highlights look unnatural.</string>

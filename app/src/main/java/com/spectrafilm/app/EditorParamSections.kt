@@ -155,12 +155,10 @@ internal fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () 
         // shift being applied, so the direction reads without the number.
         Instrument(InstrumentKind.GRAD_BAR, stringResource(R.string.editor_wb_warmth), s.creativeWbTemp, -100f..100f,
             { s.creativeWbTemp = it }, step = 1f, decimals = 0, default = 0f, gradient = WARMTH_STOPS)
-        Text(stringResource(R.string.editor_wb_warmth_tooltip), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        InstrumentTooltip(stringResource(R.string.editor_wb_warmth_tooltip))
         Instrument(InstrumentKind.GRAD_BAR, stringResource(R.string.editor_wb_tint), s.creativeWbTint, -100f..100f,
             { s.creativeWbTint = it }, step = 1f, decimals = 0, default = 0f, gradient = TINT_STOPS)
-        Text(stringResource(R.string.editor_wb_tint_tooltip), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        InstrumentTooltip(stringResource(R.string.editor_wb_tint_tooltip))
 
         Divider()
         // Balance to film stock (virtual 85-filter): the escape hatch for tungsten stocks, which
@@ -336,9 +334,13 @@ internal fun SimulationSection(
             }
             SimPart.EXPOSURE -> {
                 // Camera exposure, the first thing a photographer reaches for: Edit opens on it.
-                EnhancedSlider(stringResource(R.string.editor_sim_camera_ev), s.exposureCompensationEv, -10f..10f,
-                    { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_camera_ev_tooltip))
+                // Centred, not stretched: the pill's vertical drag must not claim the whole row
+                // from the panel's scroll.
+                Box(Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    Instrument(InstrumentKind.PILL, stringResource(R.string.editor_sim_camera_ev), s.exposureCompensationEv,
+                        -10f..10f, { s.exposureCompensationEv = it }, step = 0.25f, decimals = 2, default = 0f)
+                }
+                InstrumentTooltip(stringResource(R.string.editor_sim_camera_ev_tooltip))
                 AutoExposureControl(
                     autoExposure = s.autoExposure,
                     autoExposureMethod = s.autoExposureMethod,
@@ -390,12 +392,17 @@ internal fun SimulationSection(
                     stringResource(R.string.editor_sim_print_auto_comp_tooltip))
             }
             SimPart.PRINT_COLOR -> {
-                EnhancedSlider(stringResource(R.string.editor_sim_print_y_shift), s.printYFilterShift, -50f..50f, { s.printYFilterShift = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_print_y_shift_tooltip))
-                EnhancedSlider(stringResource(R.string.editor_sim_print_m_shift), s.printMFilterShift, -50f..50f, { s.printMFilterShift = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_print_m_shift_tooltip))
+                // One puck for the enlarger's colour head: magenta across, yellow up.
+                Pad2D(
+                    title = stringResource(R.string.editor_sim_print_color_pad),
+                    x = PadAxis(stringResource(R.string.editor_sim_print_m_shift), s.printMFilterShift, -50f..50f,
+                        { s.printMFilterShift = it }, step = 1f, decimals = 0, default = 0f),
+                    y = PadAxis(stringResource(R.string.editor_sim_print_y_shift), s.printYFilterShift, -50f..50f,
+                        { s.printYFilterShift = it }, step = 1f, decimals = 0, default = 0f),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                InstrumentTooltip(stringResource(R.string.editor_sim_print_m_shift_tooltip))
+                InstrumentTooltip(stringResource(R.string.editor_sim_print_y_shift_tooltip))
             }
             SimPart.ENLARGER -> {
                 GatedBlock(stringResource(R.string.editor_sim_gated_enlarger_blur)) {
@@ -503,12 +510,17 @@ internal fun SimulationSection(
                 // Creative grade (post-engine Oklab chroma; parity-safe). Negative Saturation
                 // mutes a too-punchy look; Vibrance boosts muted colors while sparing
                 // already-saturated ones.
-                EnhancedSlider(stringResource(R.string.editor_sim_saturation), s.saturation, -100f..100f, { s.saturation = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_saturation_tooltip))
-                EnhancedSlider(stringResource(R.string.editor_sim_vibrance), s.vibrance, -100f..100f, { s.vibrance = it },
-                    step = 1f, decimals = 0, default = 0f,
-                    tooltip = stringResource(R.string.editor_sim_vibrance_tooltip))
+                // One puck for both: saturation across, vibrance up.
+                Pad2D(
+                    title = stringResource(R.string.editor_sim_sat_vib_pad),
+                    x = PadAxis(stringResource(R.string.editor_sim_saturation), s.saturation, -100f..100f,
+                        { s.saturation = it }, step = 1f, decimals = 0, default = 0f),
+                    y = PadAxis(stringResource(R.string.editor_sim_vibrance), s.vibrance, -100f..100f,
+                        { s.vibrance = it }, step = 1f, decimals = 0, default = 0f),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                InstrumentTooltip(stringResource(R.string.editor_sim_saturation_tooltip))
+                InstrumentTooltip(stringResource(R.string.editor_sim_vibrance_tooltip))
             }
         }
     }

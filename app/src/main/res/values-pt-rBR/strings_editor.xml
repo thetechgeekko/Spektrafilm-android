@@ -369,6 +369,8 @@
     <string name="editor_sim_saturation">Saturação</string>
     <string name="editor_sim_saturation_tooltip">Vivacidade geral das cores de saída. Negativo = mais suave/apagado (doma um visual marcante demais); positivo = mais vivo. Aplicada após a renderização do filme.</string>
     <string name="editor_sim_vibrance">Vibração</string>
+    <string name="editor_sim_sat_vib_pad">Saturação × Vibração</string>
+    <string name="editor_sim_print_color_pad">Filtros da cópia M × Y</string>
     <string name="editor_sim_vibrance_tooltip">Como a saturação, mas ponderada para cores apagadas, então tons já saturados (e a pele) mudam menos. Aplicada após a renderização do filme.</string>
     <string name="editor_sim_gamut_compression">Compressão de gama</string>
     <string name="editor_sim_gamut_compression_tooltip">Estilo ACES: suaviza a franja ciano/de borda em cores muito saturadas puxando-as para o neutro. 0 = desligada. Ajuda quando realces saturados parecem artificiais.</string>

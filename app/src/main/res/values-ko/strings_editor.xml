@@ -365,6 +365,8 @@
     <string name="editor_sim_saturation">채도</string>
     <string name="editor_sim_saturation_tooltip">출력 전체의 색 선명도. 음수 = 더 부드럽고 차분하게(너무 강한 룩 억제), 양수 = 더 선명하게. 필름 렌더링 후에 적용됩니다.</string>
     <string name="editor_sim_vibrance">생동감</string>
+    <string name="editor_sim_sat_vib_pad">채도 × 생동감</string>
+    <string name="editor_sim_print_color_pad">인화 필터 M × Y</string>
     <string name="editor_sim_vibrance_tooltip">채도와 비슷하지만 차분한 색에 가중치를 두어, 이미 채도가 높은 톤(과 피부)은 덜 변합니다. 필름 렌더링 후에 적용됩니다.</string>
     <string name="editor_sim_gamut_compression">색역 압축</string>
     <string name="editor_sim_gamut_compression_tooltip">ACES 방식: 매우 채도 높은 색의 거친 청록/경계 프린지를 중성 쪽으로 당겨 부드럽게 합니다. 0 = 끔. 채도 높은 하이라이트가 부자연스러울 때 도움이 됩니다.</string>
