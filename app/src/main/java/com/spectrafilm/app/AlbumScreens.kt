@@ -198,6 +198,8 @@ private fun AlbumCover(item: AlbumItem?, modifier: Modifier) {
     val ctx = LocalContext.current
     val uri = item?.uri
     val thumb by produceState<Bitmap?>(uri?.let(LibraryThumbnails::cached), uri) {
+        // produceState keeps its last value when the key changes, so a new cover starts over.
+        value = uri?.let(LibraryThumbnails::cached)
         if (value == null && item != null) {
             val raw = item.toEntry().isRaw
             value = withContext(thumbnailLane) { LibraryThumbnails.load(ctx, item.uri, raw) }
