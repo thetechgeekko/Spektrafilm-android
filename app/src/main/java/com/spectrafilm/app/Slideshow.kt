@@ -44,6 +44,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -53,8 +54,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** How long each frame stays up while playing. */
 private const val SLIDE_MS = 4_000L
@@ -131,13 +136,24 @@ internal fun LibrarySlideshow(frames: List<LibraryEntry>, start: Int = 0, onClos
     val pager = rememberPagerState(initialPage = start.coerceIn(0, frames.lastIndex)) { frames.size }
     var playing by rememberSaveable { mutableStateOf(true) }
     var controls by rememberSaveable { mutableStateOf(true) }
-    // Keyed on the settled page, not currentPage: currentPage flips halfway through the
-    // animation, which would cancel this effect's own scroll and leave the show between
-    // frames. A manual swipe still gets a full SLIDE_MS once it settles.
-    LaunchedEffect(playing, pager.settledPage, frames.size) {
+    // One loop for the whole show rather than an effect keyed on the page: a drag that
+    // interrupts the auto-advance (or settles back on the same page) changes no key, and an
+    // effect keyed on currentPage would cancel its own scroll halfway. Each round waits for
+    // the pager to be idle, then for SLIDE_MS of no touching, then advances; any drag in
+    // between restarts the round, so a manual swipe also gets a full SLIDE_MS.
+    LaunchedEffect(playing, frames.size) {
         if (!playing || frames.size < 2) return@LaunchedEffect
-        delay(SLIDE_MS)
-        pager.animateScrollToPage((pager.settledPage + 1) % frames.size)
+        while (true) {
+            snapshotFlow { pager.isScrollInProgress }.first { !it }
+            val touched = withTimeoutOrNull(SLIDE_MS) { snapshotFlow { pager.isScrollInProgress }.first { it } }
+            if (touched != null) continue
+            try {
+                pager.animateScrollToPage((pager.settledPage + 1) % frames.size)
+            } catch (e: CancellationException) {
+                // A drag took the pager mid-animation; only stop if the show itself closed.
+                ensureActive()
+            }
+        }
     }
     // Controls fade away on their own once the show is running.
     LaunchedEffect(controls, playing) {
