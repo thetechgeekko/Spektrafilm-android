@@ -418,10 +418,12 @@ internal fun EditorScreen(
     // defaults), read through the recipe queue so a just-flushed save of it is seen.
     val neighbourOpeningState: suspend (String) -> ParamsState = { uri ->
         val recipes = ctx.appContainer.recipes
-        val read = Recipes.keyFor(Uri.parse(uri))?.let { key ->
-            RecipeWorkRuntime.submit { recipes.readResult(key) }.await()
+        // peek, not readResult: a speculative read must not quarantine a corrupt recipe and
+        // so hide its warning from the real restore when the photo is opened.
+        val recipe = Recipes.keyFor(Uri.parse(uri))?.let { key ->
+            RecipeWorkRuntime.submit { recipes.peek(key) }.await()
         }
-        openingStateFor(read) { Recipes.resetToDefaults(it, settings, profiles) }
+        openingStateFor(recipe) { Recipes.resetToDefaults(it, settings, profiles) }
     }
     val nextThumb = rememberNeighbourBitmap(
         nextFrame, ctx.applicationContext, engine, neighbourOpeningState,

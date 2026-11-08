@@ -95,16 +95,16 @@ internal fun Modifier.photoSwipeGesture(
 
 /**
  * The settings a photo opens with, as the editor's recipe restore applies them: its saved
- * recipe when it has one, otherwise the defaults a first open gets ([applyDefaults], the
+ * recipe when it reads cleanly, otherwise the defaults a first open gets ([applyDefaults], the
  * user's default settings over a fresh state). Unit-tested.
  */
 internal fun openingStateFor(
-    read: RecipeReadResult?,
+    recipe: RecipeDocument?,
     applyDefaults: (ParamsState) -> Unit,
 ): ParamsState {
     val s = ParamsState()
-    if (read is RecipeReadResult.Loaded) {
-        Presets.decode(read.document.params, s)
+    if (recipe != null) {
+        Presets.decode(recipe.params, s)
     } else {
         applyDefaults(s)
     }

@@ -18,6 +18,9 @@ internal interface RecipeRepository {
 
     fun readResult(key: String?): RecipeReadResult
 
+    /** [key]'s recipe if it reads cleanly, else null; never quarantines (see [Recipes.peek]). */
+    fun peek(key: String?): RecipeDocument? = null
+
     /**
      * Saves pre-serialized [paramsJson] as the recipe for [key]. Returns false, writing
      * nothing, when [expectedGeneration] is given and no longer current.
@@ -55,6 +58,7 @@ internal class FileRecipeRepository(context: Context) : RecipeRepository {
 
     override fun generation(key: String) = Recipes.generation(key)
     override fun readResult(key: String?) = Recipes.readResult(app, key)
+    override fun peek(key: String?) = Recipes.peek(app, key)
     override fun saveJson(
         key: String,
         paramsJson: String,
