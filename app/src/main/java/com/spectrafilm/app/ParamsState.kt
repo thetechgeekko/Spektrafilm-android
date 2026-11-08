@@ -2,9 +2,11 @@
  * Spektrafilm for Android — editable parameter state. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * A flat, Compose-observable mirror of the full SpektraParams tree. Edits update
- * the individual mutableState fields; toParams() rebuilds an immutable SpektraParams
- * and fromParams() loads one back. The grouping/field set tracks the spektrafilm GUI
+ * A flat, Compose-observable mirror of the full SpektraParams tree. Each panel section
+ * is one immutable data class (#452) held in a single MutableState; the flat properties
+ * delegate into it, so an edit replaces that section's value with a copy and
+ * [ParamsState.snapshot] hands out every section at once. toParams() rebuilds an
+ * immutable SpektraParams and loadFrom() loads one back. The grouping/field set tracks the spektrafilm GUI
  * (widget_sections.py / state.py).
  *
  * Unit note: the GUI (and these sliders) express halation.scatter_tail_weight and
@@ -14,11 +16,10 @@
  */
 package com.spectrafilm.app
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.spectrafilm.app.masks.LocalAdjustment
 import com.spectrafilm.engine.CameraParams
 import com.spectrafilm.engine.ColorSpace
@@ -44,6 +45,7 @@ import com.spectrafilm.engine.SpektraParams
 import com.spectrafilm.engine.ToneCurveChannel
 import com.spectrafilm.engine.ToneCurveParams
 import com.spectrafilm.libraw.WhiteBalance
+import kotlin.reflect.KProperty
 
 /** Input color-space option labels matching spektrafilm's RGBColorSpaces enum values. */
 val INPUT_COLOR_SPACES = listOf(
@@ -64,112 +66,136 @@ val AUTO_EXPOSURE_METHODS = listOf(
  * Flat Compose-state mirror of SpektraParams. Construct from a SpektraParams via
  * [loadFrom]; read back with [toParams].
  */
+@Stable
 class ParamsState {
+    // Each section below is one immutable value (#452). The fields are delegates into it,
+    // so callers read and write them as before; [snapshot] returns all of them at once.
+    private val profilesGroup = mutableStateOf(ProfileUiParams())
+    private val inputGroup = mutableStateOf(InputUiParams())
+    private val rawImportGroup = mutableStateOf(RawImportUiParams())
+    private val lookGroup = mutableStateOf(LookUiParams())
+    private val cameraGroup = mutableStateOf(CameraUiParams())
+    private val sceneLatitudeGroup = mutableStateOf(SceneLatitudeUiParams())
+    private val dateStampGroup = mutableStateOf(DateStampUiParams())
+    private val enlargerGroup = mutableStateOf(EnlargerUiParams())
+    private val preflashGroup = mutableStateOf(PreflashUiParams())
+    private val scannerGroup = mutableStateOf(ScannerUiParams())
+    private val outputGroup = mutableStateOf(OutputUiParams())
+    private val grainGroup = mutableStateOf(GrainUiParams())
+    private val halationGroup = mutableStateOf(HalationUiParams())
+    private val couplersGroup = mutableStateOf(CouplersUiParams())
+    private val glareGroup = mutableStateOf(GlareUiParams())
+    private val experimentalGroup = mutableStateOf(ExperimentalUiParams())
+    private val morphGroup = mutableStateOf(MorphUiParams())
+    private val contrastMaskGroup = mutableStateOf(ContrastMaskUiParams())
+    private val toneCurveGroup = mutableStateOf(ToneCurveUiParams())
+    private val displayGroup = mutableStateOf(DisplayUiParams())
+
     // --- profiles (Simulation) ---
-    var filmProfile by mutableStateOf("kodak_portra_400")
-    var printProfile by mutableStateOf("kodak_portra_endura")
+    var filmProfile by profilesGroup.field({ it.filmProfile }) { copy(filmProfile = it) }
+    var printProfile by profilesGroup.field({ it.printProfile }) { copy(printProfile = it) }
 
     // --- Input ---
-    var inputColorSpace by mutableStateOf("ProPhoto RGB")
-    var inputCctfDecoding by mutableStateOf(false)
-    var spectralUpsampling by mutableStateOf(Rgb2Raw.HANATOS2025)
-    var adaptationWindow by mutableStateOf(true)
-    var adaptationSurface by mutableStateOf(false)
-    var spectralGaussianBlur by mutableFloatStateOf(0f)
-    var filterUv by mutableStateOf(Triple(0f, 410f, 8f))
-    var filterIr by mutableStateOf(Triple(0f, 675f, 15f))
-    var upscaleFactor by mutableFloatStateOf(1f)
-    var crop by mutableStateOf(false)
-    var cropCenter by mutableStateOf(0.5f to 0.5f)
-    var cropSize by mutableStateOf(0.1f to 0.1f)
+    var inputColorSpace by inputGroup.field({ it.inputColorSpace }) { copy(inputColorSpace = it) }
+    var inputCctfDecoding by inputGroup.field({ it.inputCctfDecoding }) { copy(inputCctfDecoding = it) }
+    var spectralUpsampling by inputGroup.field({ it.spectralUpsampling }) { copy(spectralUpsampling = it) }
+    var adaptationWindow by inputGroup.field({ it.adaptationWindow }) { copy(adaptationWindow = it) }
+    var adaptationSurface by inputGroup.field({ it.adaptationSurface }) { copy(adaptationSurface = it) }
+    var spectralGaussianBlur by inputGroup.field({ it.spectralGaussianBlur }) { copy(spectralGaussianBlur = it) }
+    var filterUv by inputGroup.field({ it.filterUv }) { copy(filterUv = it) }
+    var filterIr by inputGroup.field({ it.filterIr }) { copy(filterIr = it) }
+    var upscaleFactor by inputGroup.field({ it.upscaleFactor }) { copy(upscaleFactor = it) }
+    var crop by inputGroup.field({ it.crop }) { copy(crop = it) }
+    var cropCenter by inputGroup.field({ it.cropCenter }) { copy(cropCenter = it) }
+    var cropSize by inputGroup.field({ it.cropSize }) { copy(cropSize = it) }
     /** Free-angle straighten, degrees clockwise (decode-time, not an engine param; Straighten.kt). */
-    var straightenDegrees by mutableFloatStateOf(0f)
+    var straightenDegrees by inputGroup.field({ it.straightenDegrees }) { copy(straightenDegrees = it) }
 
     // --- Import Raw ---
-    var rawWhiteBalance by mutableStateOf(WhiteBalance.AS_SHOT)
-    var rawTemperature by mutableFloatStateOf(5500f)
-    var rawTint by mutableFloatStateOf(1f)
+    var rawWhiteBalance by rawImportGroup.field({ it.rawWhiteBalance }) { copy(rawWhiteBalance = it) }
+    var rawTemperature by rawImportGroup.field({ it.rawTemperature }) { copy(rawTemperature = it) }
+    var rawTint by rawImportGroup.field({ it.rawTint }) { copy(rawTint = it) }
     // Opt-in RAW clean-up (#259), applied inside the native decode, RAW-only. Both default
     // OFF so an existing recipe decodes to exactly the bytes it always did.
-    var rawHotPixels by mutableStateOf(false)
-    var rawChromaNoise by mutableFloatStateOf(0f)
+    var rawHotPixels by rawImportGroup.field({ it.rawHotPixels }) { copy(rawHotPixels = it) }
+    var rawChromaNoise by rawImportGroup.field({ it.rawChromaNoise }) { copy(rawChromaNoise = it) }
 
     // --- Creative white balance (all sources; pre-engine Bradford CAT on the linear input). ---
     // Relative push in [-100,100]; 0 = identity. Distinct from the RAW-decode WB above (which is a
     // camera-illuminant correction, RAW-only). NOT a SpektraParams field — applied in loadSource.
-    var creativeWbTemp by mutableFloatStateOf(0f)
-    var creativeWbTint by mutableFloatStateOf(0f)
+    var creativeWbTemp by lookGroup.field({ it.creativeWbTemp }) { copy(creativeWbTemp = it) }
+    var creativeWbTint by lookGroup.field({ it.creativeWbTint }) { copy(creativeWbTint = it) }
 
     // "Balance to film stock" — the virtual 85-filter. When ON, loadSource Bradford-adapts the linear
     // input from the D50 working white to the selected film's reference illuminant (FilmStockBalance),
     // so a tungsten stock (Vision3 200T/500T) renders a daylight scene neutral instead of authentically
     // blue. Default OFF preserves the bit-exact spektrafilm look. NOT a SpektraParams field — a
     // pre-engine input op, so it's part of the decode-cache key (with filmProfile), not toParams().
-    var balanceToFilmStock by mutableStateOf(false)
+    var balanceToFilmStock by lookGroup.field({ it.balanceToFilmStock }) { copy(balanceToFilmStock = it) }
 
     // Creative Contrast [-100,100]; 0 = identity. NOT a SpektraParams field — composed into the
     // master tone curve in toParams (ContrastCurve), so it drives the wired, parity-gated tone-curve
     // stage. Hue-neutral (master = all channels). Lives in the Tone Curve panel; gated by its switch.
-    var contrast by mutableFloatStateOf(0f)
+    var contrast by lookGroup.field({ it.contrast }) { copy(contrast = it) }
 
     // Creative Saturation / Vibrance [-100,100]; 0 = identity. NOT SpektraParams fields — applied as a
     // post-engine Oklab chroma grade on the output buffer (ColorGrade), so the engine + parity suite
     // are untouched. Saturation is uniform; Vibrance weights low-chroma (muted) colors more.
-    var saturation by mutableFloatStateOf(0f)
-    var vibrance by mutableFloatStateOf(0f)
+    var saturation by lookGroup.field({ it.saturation }) { copy(saturation = it) }
+    var vibrance by lookGroup.field({ it.vibrance }) { copy(vibrance = it) }
 
     // ACES-style gamut compression amount [0,100]; 0 = off. NOT a SpektraParams field — a post-engine
     // pass (GamutCompress, via ColorGrade) that softens the harsh cyan/edge fringe on saturated colors.
-    var gamutCompress by mutableFloatStateOf(0f)
+    var gamutCompress by lookGroup.field({ it.gamutCompress }) { copy(gamutCompress = it) }
 
     // Local-adjustment masks (the masking keystone). NOT a SpektraParams field — composited on the
     // engine OUTPUT (MaskCompositor, via simResultToBitmapGraded), so the engine + parity suite are
     // untouched. Empty = global-only (today's behavior). Round-trips in the recipe "masks" block.
-    var localAdjustments by mutableStateOf<List<LocalAdjustment>>(emptyList())
+    var localAdjustments by lookGroup.field({ it.localAdjustments }) { copy(localAdjustments = it) }
 
     // --- Simulation / camera ---
-    var exposureCompensationEv by mutableFloatStateOf(0f)
+    var exposureCompensationEv by cameraGroup.field({ it.exposureCompensationEv }) { copy(exposureCompensationEv = it) }
     // Default ON to match the upstream spektrafilm pipeline (CameraParams.auto_exposure = True): the
     // metered exposure places the scene correctly on the film's per-channel density curves, so a
     // properly-exposed render comes out balanced instead of skewed (e.g. a tungsten stock going blue).
-    var autoExposure by mutableStateOf(true)
-    var autoExposureMethod by mutableStateOf("center_weighted")
-    var filmFormatMm by mutableFloatStateOf(35f)
-    var cameraLensBlurUm by mutableFloatStateOf(0f)
+    var autoExposure by cameraGroup.field({ it.autoExposure }) { copy(autoExposure = it) }
+    var autoExposureMethod by cameraGroup.field({ it.autoExposureMethod }) { copy(autoExposureMethod = it) }
+    var filmFormatMm by cameraGroup.field({ it.filmFormatMm }) { copy(filmFormatMm = it) }
+    var cameraLensBlurUm by cameraGroup.field({ it.cameraLensBlurUm }) { copy(cameraLensBlurUm = it) }
     val cameraDiffusionState = DiffusionState()
     // Opt-in scene latitude (engine model/scene_latitude.h): compresses a scene wider than the
     // film into it before exposure. Off by default, so existing edits render unchanged.
-    var sceneLatitudeActive by mutableStateOf(false)
-    var sceneLatitudeHighlightKnee by mutableFloatStateOf(1f)
-    var sceneLatitudeHighlightRoom by mutableFloatStateOf(2.5f)
-    var sceneLatitudeShadowKnee by mutableFloatStateOf(-2f)
-    var sceneLatitudeShadowRoom by mutableFloatStateOf(0f)
-    var sceneLatitudeRolloff by mutableFloatStateOf(2f)
-    var sceneLatitudeMaxLift by mutableFloatStateOf(4f)
+    var sceneLatitudeActive by sceneLatitudeGroup.field({ it.sceneLatitudeActive }) { copy(sceneLatitudeActive = it) }
+    var sceneLatitudeHighlightKnee by sceneLatitudeGroup.field({ it.sceneLatitudeHighlightKnee }) { copy(sceneLatitudeHighlightKnee = it) }
+    var sceneLatitudeHighlightRoom by sceneLatitudeGroup.field({ it.sceneLatitudeHighlightRoom }) { copy(sceneLatitudeHighlightRoom = it) }
+    var sceneLatitudeShadowKnee by sceneLatitudeGroup.field({ it.sceneLatitudeShadowKnee }) { copy(sceneLatitudeShadowKnee = it) }
+    var sceneLatitudeShadowRoom by sceneLatitudeGroup.field({ it.sceneLatitudeShadowRoom }) { copy(sceneLatitudeShadowRoom = it) }
+    var sceneLatitudeRolloff by sceneLatitudeGroup.field({ it.sceneLatitudeRolloff }) { copy(sceneLatitudeRolloff = it) }
+    var sceneLatitudeMaxLift by sceneLatitudeGroup.field({ it.sceneLatitudeMaxLift }) { copy(sceneLatitudeMaxLift = it) }
     // Opt-in date-back imprint (engine model/date_stamp.h): LED digits exposed onto the
     // negative in a corner of the framed picture. Off by default.
-    var dateStampActive by mutableStateOf(false)
-    var dateStampText by mutableStateOf("")
-    var dateStampCorner by mutableIntStateOf(0)
-    var dateStampHeight by mutableFloatStateOf(0.045f)
-    var dateStampMargin by mutableFloatStateOf(0.05f)
-    var dateStampExposureEv by mutableFloatStateOf(2.5f)
-    var dateStampColor by mutableStateOf(Triple(1.0f, 0.18f, 0.0f))
+    var dateStampActive by dateStampGroup.field({ it.dateStampActive }) { copy(dateStampActive = it) }
+    var dateStampText by dateStampGroup.field({ it.dateStampText }) { copy(dateStampText = it) }
+    var dateStampCorner by dateStampGroup.field({ it.dateStampCorner }) { copy(dateStampCorner = it) }
+    var dateStampHeight by dateStampGroup.field({ it.dateStampHeight }) { copy(dateStampHeight = it) }
+    var dateStampMargin by dateStampGroup.field({ it.dateStampMargin }) { copy(dateStampMargin = it) }
+    var dateStampExposureEv by dateStampGroup.field({ it.dateStampExposureEv }) { copy(dateStampExposureEv = it) }
+    var dateStampColor by dateStampGroup.field({ it.dateStampColor }) { copy(dateStampColor = it) }
 
     // --- Simulation / enlarger (print) ---
-    var printIlluminant by mutableStateOf("TH-KG3")
-    var printExposure by mutableFloatStateOf(1f)
-    var printExposureCompensation by mutableStateOf(true)
-    var printYFilterShift by mutableFloatStateOf(0f)
-    var printMFilterShift by mutableFloatStateOf(0f)
-    var enlargerLensBlur by mutableFloatStateOf(0f)
+    var printIlluminant by enlargerGroup.field({ it.printIlluminant }) { copy(printIlluminant = it) }
+    var printExposure by enlargerGroup.field({ it.printExposure }) { copy(printExposure = it) }
+    var printExposureCompensation by enlargerGroup.field({ it.printExposureCompensation }) { copy(printExposureCompensation = it) }
+    var printYFilterShift by enlargerGroup.field({ it.printYFilterShift }) { copy(printYFilterShift = it) }
+    var printMFilterShift by enlargerGroup.field({ it.printMFilterShift }) { copy(printMFilterShift = it) }
+    var enlargerLensBlur by enlargerGroup.field({ it.enlargerLensBlur }) { copy(enlargerLensBlur = it) }
     val printDiffusionState = DiffusionState()
 
     /**
      * Multigrade contrast grade ("00".."5", [SilverPrint.GRADES]). Read only while the print is a
      * silver paper; a colour print ignores it, so it never moves a colour render.
      */
-    var paperGrade by mutableStateOf(SilverPrint.DEFAULT_GRADE)
+    var paperGrade by enlargerGroup.field({ it.paperGrade }) { copy(paperGrade = it) }
 
     /**
      * The grade [toParams] sends, or null on a colour print. A silver paper takes its grade's
@@ -183,110 +209,110 @@ class ParamsState {
      * again puts it back (SilverPrint.printAfterFilmChange). Held here rather than in the
      * panel so switching editor categories does not drop it. Session-only, not a recipe field.
      */
-    var lastColourPrint by mutableStateOf<String?>(null)
+    var lastColourPrint by enlargerGroup.field({ it.lastColourPrint }) { copy(lastColourPrint = it) }
 
     // --- Preflash ---
-    var preflashExposure by mutableFloatStateOf(0f)
-    var preflashYFilterShift by mutableFloatStateOf(0f)
-    var preflashMFilterShift by mutableFloatStateOf(0f)
+    var preflashExposure by preflashGroup.field({ it.preflashExposure }) { copy(preflashExposure = it) }
+    var preflashYFilterShift by preflashGroup.field({ it.preflashYFilterShift }) { copy(preflashYFilterShift = it) }
+    var preflashMFilterShift by preflashGroup.field({ it.preflashMFilterShift }) { copy(preflashMFilterShift = it) }
 
     // --- Scanner ---
-    var scanLensBlur by mutableFloatStateOf(0f)
-    var scanWhiteCorrection by mutableStateOf(false)
-    var scanWhiteLevel by mutableFloatStateOf(0.98f)
-    var scanBlackCorrection by mutableStateOf(false)
-    var scanBlackLevel by mutableFloatStateOf(0.01f)
-    var scanUnsharpMask by mutableStateOf(0.7f to 0.7f)
+    var scanLensBlur by scannerGroup.field({ it.scanLensBlur }) { copy(scanLensBlur = it) }
+    var scanWhiteCorrection by scannerGroup.field({ it.scanWhiteCorrection }) { copy(scanWhiteCorrection = it) }
+    var scanWhiteLevel by scannerGroup.field({ it.scanWhiteLevel }) { copy(scanWhiteLevel = it) }
+    var scanBlackCorrection by scannerGroup.field({ it.scanBlackCorrection }) { copy(scanBlackCorrection = it) }
+    var scanBlackLevel by scannerGroup.field({ it.scanBlackLevel }) { copy(scanBlackLevel = it) }
+    var scanUnsharpMask by scannerGroup.field({ it.scanUnsharpMask }) { copy(scanUnsharpMask = it) }
 
     // --- Output / saving ---
-    var outputColorSpace by mutableStateOf(ColorSpace.SRGB)
-    var savingCctfEncoding by mutableStateOf(true)
+    var outputColorSpace by outputGroup.field({ it.outputColorSpace }) { copy(outputColorSpace = it) }
+    var savingCctfEncoding by outputGroup.field({ it.savingCctfEncoding }) { copy(savingCctfEncoding = it) }
     // Opt-in gamut compression (default-off => byte-identical to the parity oracle).
-    var outputGamutCompress by mutableStateOf(OutputGamutCompress.LEGACY_CLIP)
-    var inputGamutCompress by mutableStateOf(InputGamutCompress.OFF)
-    var scanFilm by mutableStateOf(false)
+    var outputGamutCompress by outputGroup.field({ it.outputGamutCompress }) { copy(outputGamutCompress = it) }
+    var inputGamutCompress by outputGroup.field({ it.inputGamutCompress }) { copy(inputGamutCompress = it) }
+    var scanFilm by outputGroup.field({ it.scanFilm }) { copy(scanFilm = it) }
 
     // --- Grain ---
-    var grainActive by mutableStateOf(true)
-    var grainSublayersActive by mutableStateOf(true)
-    var grainParticleAreaUm2 by mutableFloatStateOf(0.2f)
-    var grainParticleScale by mutableStateOf(Triple(0.8f, 1f, 2f))
-    var grainParticleScaleLayers by mutableStateOf(Triple(2.5f, 1f, 0.5f))
-    var grainDensityMin by mutableStateOf(Triple(0.07f, 0.08f, 0.12f))
-    var grainUniformity by mutableStateOf(Triple(0.97f, 0.97f, 0.99f))
-    var grainBlur by mutableFloatStateOf(0.65f)
-    var grainBlurDyeCloudsUm by mutableFloatStateOf(1f)
-    var grainMicroStructure by mutableStateOf(0.2f to 30f)
-    var grainNSubLayers by mutableIntStateOf(1)
+    var grainActive by grainGroup.field({ it.grainActive }) { copy(grainActive = it) }
+    var grainSublayersActive by grainGroup.field({ it.grainSublayersActive }) { copy(grainSublayersActive = it) }
+    var grainParticleAreaUm2 by grainGroup.field({ it.grainParticleAreaUm2 }) { copy(grainParticleAreaUm2 = it) }
+    var grainParticleScale by grainGroup.field({ it.grainParticleScale }) { copy(grainParticleScale = it) }
+    var grainParticleScaleLayers by grainGroup.field({ it.grainParticleScaleLayers }) { copy(grainParticleScaleLayers = it) }
+    var grainDensityMin by grainGroup.field({ it.grainDensityMin }) { copy(grainDensityMin = it) }
+    var grainUniformity by grainGroup.field({ it.grainUniformity }) { copy(grainUniformity = it) }
+    var grainBlur by grainGroup.field({ it.grainBlur }) { copy(grainBlur = it) }
+    var grainBlurDyeCloudsUm by grainGroup.field({ it.grainBlurDyeCloudsUm }) { copy(grainBlurDyeCloudsUm = it) }
+    var grainMicroStructure by grainGroup.field({ it.grainMicroStructure }) { copy(grainMicroStructure = it) }
+    var grainNSubLayers by grainGroup.field({ it.grainNSubLayers }) { copy(grainNSubLayers = it) }
 
     // --- Halation (strengths/tail-weight in PERCENT 0-100) ---
-    var halationActive by mutableStateOf(true)
-    var halScatterAmount by mutableFloatStateOf(1f)
-    var halScatterSpatialScale by mutableFloatStateOf(1f)
-    var halHalationAmount by mutableFloatStateOf(1f)
-    var halHalationSpatialScale by mutableFloatStateOf(1f)
-    var halBoostEv by mutableFloatStateOf(0f)
-    var halProtectEv by mutableFloatStateOf(4f)
-    var halBoostRange by mutableFloatStateOf(0.3f)
-    var halScatterCoreUm by mutableStateOf(Triple(2.2f, 2f, 1.6f))
-    var halScatterTailUm by mutableStateOf(Triple(9.3f, 9.7f, 9.1f))
-    var halScatterTailWeightPct by mutableStateOf(Triple(78f, 65f, 67f))
-    var halHalationStrengthPct by mutableStateOf(Triple(5f, 1.5f, 0f))
-    var halFirstSigmaUm by mutableStateOf(Triple(65f, 65f, 65f))
-    var halNBounces by mutableIntStateOf(3)
-    var halBounceDecay by mutableFloatStateOf(0.5f)
-    var halRenormalize by mutableStateOf(true)
+    var halationActive by halationGroup.field({ it.halationActive }) { copy(halationActive = it) }
+    var halScatterAmount by halationGroup.field({ it.halScatterAmount }) { copy(halScatterAmount = it) }
+    var halScatterSpatialScale by halationGroup.field({ it.halScatterSpatialScale }) { copy(halScatterSpatialScale = it) }
+    var halHalationAmount by halationGroup.field({ it.halHalationAmount }) { copy(halHalationAmount = it) }
+    var halHalationSpatialScale by halationGroup.field({ it.halHalationSpatialScale }) { copy(halHalationSpatialScale = it) }
+    var halBoostEv by halationGroup.field({ it.halBoostEv }) { copy(halBoostEv = it) }
+    var halProtectEv by halationGroup.field({ it.halProtectEv }) { copy(halProtectEv = it) }
+    var halBoostRange by halationGroup.field({ it.halBoostRange }) { copy(halBoostRange = it) }
+    var halScatterCoreUm by halationGroup.field({ it.halScatterCoreUm }) { copy(halScatterCoreUm = it) }
+    var halScatterTailUm by halationGroup.field({ it.halScatterTailUm }) { copy(halScatterTailUm = it) }
+    var halScatterTailWeightPct by halationGroup.field({ it.halScatterTailWeightPct }) { copy(halScatterTailWeightPct = it) }
+    var halHalationStrengthPct by halationGroup.field({ it.halHalationStrengthPct }) { copy(halHalationStrengthPct = it) }
+    var halFirstSigmaUm by halationGroup.field({ it.halFirstSigmaUm }) { copy(halFirstSigmaUm = it) }
+    var halNBounces by halationGroup.field({ it.halNBounces }) { copy(halNBounces = it) }
+    var halBounceDecay by halationGroup.field({ it.halBounceDecay }) { copy(halBounceDecay = it) }
+    var halRenormalize by halationGroup.field({ it.halRenormalize }) { copy(halRenormalize = it) }
 
     // --- Couplers (DIR) ---
-    var couplersActive by mutableStateOf(true)
-    var couplersAmount by mutableFloatStateOf(1f)
-    var couplersInhibitionSamelayer by mutableFloatStateOf(1f)
-    var couplersInhibitionInterlayer by mutableFloatStateOf(1f)
-    var couplersGammaSamelayer by mutableStateOf(Triple(0.341f, 0.324f, 0.273f))
-    var couplersGammaRtoGb by mutableStateOf(0.355f to 0.305f)
-    var couplersGammaGtoRb by mutableStateOf(0.154f to 0.358f)
-    var couplersGammaBtoRg by mutableStateOf(0.171f to 0.225f)
-    var couplersDiffusionSizeUm by mutableFloatStateOf(20f)
-    var couplersDiffusionTailUm by mutableFloatStateOf(200f)
-    var couplersDiffusionTailWeight by mutableFloatStateOf(0.06f)
+    var couplersActive by couplersGroup.field({ it.couplersActive }) { copy(couplersActive = it) }
+    var couplersAmount by couplersGroup.field({ it.couplersAmount }) { copy(couplersAmount = it) }
+    var couplersInhibitionSamelayer by couplersGroup.field({ it.couplersInhibitionSamelayer }) { copy(couplersInhibitionSamelayer = it) }
+    var couplersInhibitionInterlayer by couplersGroup.field({ it.couplersInhibitionInterlayer }) { copy(couplersInhibitionInterlayer = it) }
+    var couplersGammaSamelayer by couplersGroup.field({ it.couplersGammaSamelayer }) { copy(couplersGammaSamelayer = it) }
+    var couplersGammaRtoGb by couplersGroup.field({ it.couplersGammaRtoGb }) { copy(couplersGammaRtoGb = it) }
+    var couplersGammaGtoRb by couplersGroup.field({ it.couplersGammaGtoRb }) { copy(couplersGammaGtoRb = it) }
+    var couplersGammaBtoRg by couplersGroup.field({ it.couplersGammaBtoRg }) { copy(couplersGammaBtoRg = it) }
+    var couplersDiffusionSizeUm by couplersGroup.field({ it.couplersDiffusionSizeUm }) { copy(couplersDiffusionSizeUm = it) }
+    var couplersDiffusionTailUm by couplersGroup.field({ it.couplersDiffusionTailUm }) { copy(couplersDiffusionTailUm = it) }
+    var couplersDiffusionTailWeight by couplersGroup.field({ it.couplersDiffusionTailWeight }) { copy(couplersDiffusionTailWeight = it) }
 
     // --- Glare (print) ---
-    var glareActive by mutableStateOf(true)
-    var glarePercent by mutableFloatStateOf(0.03f)
-    var glareRoughness by mutableFloatStateOf(0.7f)
-    var glareBlur by mutableFloatStateOf(0.5f)
+    var glareActive by glareGroup.field({ it.glareActive }) { copy(glareActive = it) }
+    var glarePercent by glareGroup.field({ it.glarePercent }) { copy(glarePercent = it) }
+    var glareRoughness by glareGroup.field({ it.glareRoughness }) { copy(glareRoughness = it) }
+    var glareBlur by glareGroup.field({ it.glareBlur }) { copy(glareBlur = it) }
 
     // --- Experimental ---
-    var filmGammaFactor by mutableFloatStateOf(1f)
-    var printGammaFactor by mutableFloatStateOf(1f)
+    var filmGammaFactor by experimentalGroup.field({ it.filmGammaFactor }) { copy(filmGammaFactor = it) }
+    var printGammaFactor by experimentalGroup.field({ it.printGammaFactor }) { copy(printGammaFactor = it) }
 
     // --- Print curve morph (s023, opt-in) — default off + identity is a strict
     // no-op (the engine uses the stored print density-curve table). ---
-    var morphActive by mutableStateOf(false)
-    var morphGammaFactor by mutableFloatStateOf(1f)
-    var morphGammaFactorFast by mutableFloatStateOf(1f)
-    var morphGammaFactorSlow by mutableFloatStateOf(1f)
-    var morphGammaFactorRed by mutableFloatStateOf(1f)
-    var morphGammaFactorGreen by mutableFloatStateOf(1f)
-    var morphGammaFactorBlue by mutableFloatStateOf(1f)
-    var morphDeveloperExhaustion by mutableFloatStateOf(0f)
+    var morphActive by morphGroup.field({ it.morphActive }) { copy(morphActive = it) }
+    var morphGammaFactor by morphGroup.field({ it.morphGammaFactor }) { copy(morphGammaFactor = it) }
+    var morphGammaFactorFast by morphGroup.field({ it.morphGammaFactorFast }) { copy(morphGammaFactorFast = it) }
+    var morphGammaFactorSlow by morphGroup.field({ it.morphGammaFactorSlow }) { copy(morphGammaFactorSlow = it) }
+    var morphGammaFactorRed by morphGroup.field({ it.morphGammaFactorRed }) { copy(morphGammaFactorRed = it) }
+    var morphGammaFactorGreen by morphGroup.field({ it.morphGammaFactorGreen }) { copy(morphGammaFactorGreen = it) }
+    var morphGammaFactorBlue by morphGroup.field({ it.morphGammaFactorBlue }) { copy(morphGammaFactorBlue = it) }
+    var morphDeveloperExhaustion by morphGroup.field({ it.morphDeveloperExhaustion }) { copy(morphDeveloperExhaustion = it) }
 
     // --- Contrast mask (print, opt-in) — a soft unsharp mask in the enlarger
     // that pulls large bright/dark areas toward the middle. Off = no-op. ---
-    var contrastMaskActive by mutableStateOf(false)
-    var contrastMaskHighlights by mutableFloatStateOf(1.0f)
-    var contrastMaskShadows by mutableFloatStateOf(0.5f)
-    var contrastMaskCore by mutableFloatStateOf(0.25f)
-    var contrastMaskScale by mutableFloatStateOf(0.03f)
+    var contrastMaskActive by contrastMaskGroup.field({ it.contrastMaskActive }) { copy(contrastMaskActive = it) }
+    var contrastMaskHighlights by contrastMaskGroup.field({ it.contrastMaskHighlights }) { copy(contrastMaskHighlights = it) }
+    var contrastMaskShadows by contrastMaskGroup.field({ it.contrastMaskShadows }) { copy(contrastMaskShadows = it) }
+    var contrastMaskCore by contrastMaskGroup.field({ it.contrastMaskCore }) { copy(contrastMaskCore = it) }
+    var contrastMaskScale by contrastMaskGroup.field({ it.contrastMaskScale }) { copy(contrastMaskScale = it) }
 
     // --- Tone curve (Lightroom-style, applied to final display RGB) ---
     // Points are (x, y) in [0,1], x increasing; < 2 points = identity. Inactive by
     // default => the engine skips the stage (bit-exact with no curve).
-    var toneCurveActive by mutableStateOf(false)
-    var toneCurveMaster by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
-    var toneCurveRed by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
-    var toneCurveGreen by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
-    var toneCurveBlue by mutableStateOf<List<Pair<Float, Float>>>(emptyList())
+    var toneCurveActive by toneCurveGroup.field({ it.toneCurveActive }) { copy(toneCurveActive = it) }
+    var toneCurveMaster by toneCurveGroup.field({ it.toneCurveMaster }) { copy(toneCurveMaster = it) }
+    var toneCurveRed by toneCurveGroup.field({ it.toneCurveRed }) { copy(toneCurveRed = it) }
+    var toneCurveGreen by toneCurveGroup.field({ it.toneCurveGreen }) { copy(toneCurveGreen = it) }
+    var toneCurveBlue by toneCurveGroup.field({ it.toneCurveBlue }) { copy(toneCurveBlue = it) }
 
     // --- Display / settings ---
 
@@ -311,21 +337,47 @@ class ParamsState {
      * disk, which keep carrying the field. It is still WRITTEN into the engine params
      * by toParams, exactly as gpuPreview/gpuExport are.
      */
-    var previewMaxSize by mutableIntStateOf(640)
+    var previewMaxSize by displayGroup.field({ it.previewMaxSize }) { copy(previewMaxSize = it) }
 
     /**
      * GPU engine preview (Vulkan, #146). Device/app-level setting seeded from
      * AppSettings.gpuEngine (NOT preset/recipe state — loadFrom leaves it
      * alone). Preview renders only; export ignores it inside the engine.
      */
-    var gpuEngine by mutableStateOf(false)
+    var gpuEngine by displayGroup.field({ it.gpuEngine }) { copy(gpuEngine = it) }
 
     /**
      * EXPERIMENTAL GPU export (Vulkan, #154). Device/app-level setting seeded
      * from AppSettings.gpuExportEngine (NOT preset/recipe state). Applies to
      * full-resolution exports; independent of [gpuEngine].
      */
-    var gpuExport by mutableStateOf(false)
+    var gpuExport by displayGroup.field({ it.gpuExport }) { copy(gpuExport = it) }
+
+    /** Every editing group as one immutable value (the editor's UiState params). */
+    fun snapshot(): EditorParams = EditorParams(
+        profiles = profilesGroup.value,
+        input = inputGroup.value,
+        rawImport = rawImportGroup.value,
+        look = lookGroup.value,
+        camera = cameraGroup.value,
+        sceneLatitude = sceneLatitudeGroup.value,
+        dateStamp = dateStampGroup.value,
+        enlarger = enlargerGroup.value,
+        preflash = preflashGroup.value,
+        scanner = scannerGroup.value,
+        output = outputGroup.value,
+        grain = grainGroup.value,
+        halation = halationGroup.value,
+        couplers = couplersGroup.value,
+        glare = glareGroup.value,
+        experimental = experimentalGroup.value,
+        morph = morphGroup.value,
+        contrastMask = contrastMaskGroup.value,
+        toneCurve = toneCurveGroup.value,
+        display = displayGroup.value,
+        cameraDiffusion = cameraDiffusionState.value,
+        printDiffusion = printDiffusionState.value,
+    )
 
     /** Reset to the engine defaults for the given profile pair. */
     fun loadFrom(p: SpektraParams) {
@@ -725,18 +777,24 @@ class ParamsState {
 }
 
 /** A diffusion-filter sub-section (camera or print stage). */
+@Stable
 class DiffusionState {
-    var active by mutableStateOf(false)
-    var family by mutableStateOf("black_pro_mist")
-    var strength by mutableFloatStateOf(0.5f)
-    var spatialScale by mutableFloatStateOf(1f)
-    var haloWarmth by mutableFloatStateOf(0f)
-    var coreIntensity by mutableFloatStateOf(1f)
-    var coreSize by mutableFloatStateOf(1f)
-    var haloIntensity by mutableFloatStateOf(1f)
-    var haloSize by mutableFloatStateOf(1f)
-    var bloomIntensity by mutableFloatStateOf(1f)
-    var bloomSize by mutableFloatStateOf(1f)
+    private val state = mutableStateOf(DiffusionUiParams())
+
+    /** The whole filter as one immutable value. */
+    val value: DiffusionUiParams get() = state.value
+
+    var active by state.field({ it.active }) { copy(active = it) }
+    var family by state.field({ it.family }) { copy(family = it) }
+    var strength by state.field({ it.strength }) { copy(strength = it) }
+    var spatialScale by state.field({ it.spatialScale }) { copy(spatialScale = it) }
+    var haloWarmth by state.field({ it.haloWarmth }) { copy(haloWarmth = it) }
+    var coreIntensity by state.field({ it.coreIntensity }) { copy(coreIntensity = it) }
+    var coreSize by state.field({ it.coreSize }) { copy(coreSize = it) }
+    var haloIntensity by state.field({ it.haloIntensity }) { copy(haloIntensity = it) }
+    var haloSize by state.field({ it.haloSize }) { copy(haloSize = it) }
+    var bloomIntensity by state.field({ it.bloomIntensity }) { copy(bloomIntensity = it) }
+    var bloomSize by state.field({ it.bloomSize }) { copy(bloomSize = it) }
 
     fun loadFrom(d: DiffusionFilterParams) {
         active = d.active; family = d.filterFamily; strength = d.strength
@@ -763,3 +821,278 @@ private fun Triple<Float, Float, Float>.div100() =
 
 /** The engine's colour enlarger defaults, which a colour print keeps sending unchanged. */
 private val DEFAULT_ENLARGER = EnlargerParams()
+
+/**
+ * Immutable editing groups (#452). Field names match the [ParamsState] properties that
+ * delegate into them, and defaults match the old per-field initial values.
+ */
+@Immutable
+data class ProfileUiParams(
+    val filmProfile: String = "kodak_portra_400",
+    val printProfile: String = "kodak_portra_endura",
+)
+
+@Immutable
+data class InputUiParams(
+    val inputColorSpace: String = "ProPhoto RGB",
+    val inputCctfDecoding: Boolean = false,
+    val spectralUpsampling: Rgb2Raw = Rgb2Raw.HANATOS2025,
+    val adaptationWindow: Boolean = true,
+    val adaptationSurface: Boolean = false,
+    val spectralGaussianBlur: Float = 0f,
+    val filterUv: Triple<Float, Float, Float> = Triple(0f, 410f, 8f),
+    val filterIr: Triple<Float, Float, Float> = Triple(0f, 675f, 15f),
+    val upscaleFactor: Float = 1f,
+    val crop: Boolean = false,
+    val cropCenter: Pair<Float, Float> = 0.5f to 0.5f,
+    val cropSize: Pair<Float, Float> = 0.1f to 0.1f,
+    val straightenDegrees: Float = 0f,
+)
+
+@Immutable
+data class RawImportUiParams(
+    val rawWhiteBalance: WhiteBalance = WhiteBalance.AS_SHOT,
+    val rawTemperature: Float = 5500f,
+    val rawTint: Float = 1f,
+    val rawHotPixels: Boolean = false,
+    val rawChromaNoise: Float = 0f,
+)
+
+@Immutable
+data class LookUiParams(
+    val creativeWbTemp: Float = 0f,
+    val creativeWbTint: Float = 0f,
+    val balanceToFilmStock: Boolean = false,
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
+    val vibrance: Float = 0f,
+    val gamutCompress: Float = 0f,
+    val localAdjustments: List<LocalAdjustment> = emptyList(),
+)
+
+@Immutable
+data class CameraUiParams(
+    val exposureCompensationEv: Float = 0f,
+    val autoExposure: Boolean = true,
+    val autoExposureMethod: String = "center_weighted",
+    val filmFormatMm: Float = 35f,
+    val cameraLensBlurUm: Float = 0f,
+)
+
+@Immutable
+data class SceneLatitudeUiParams(
+    val sceneLatitudeActive: Boolean = false,
+    val sceneLatitudeHighlightKnee: Float = 1f,
+    val sceneLatitudeHighlightRoom: Float = 2.5f,
+    val sceneLatitudeShadowKnee: Float = -2f,
+    val sceneLatitudeShadowRoom: Float = 0f,
+    val sceneLatitudeRolloff: Float = 2f,
+    val sceneLatitudeMaxLift: Float = 4f,
+)
+
+@Immutable
+data class DateStampUiParams(
+    val dateStampActive: Boolean = false,
+    val dateStampText: String = "",
+    val dateStampCorner: Int = 0,
+    val dateStampHeight: Float = 0.045f,
+    val dateStampMargin: Float = 0.05f,
+    val dateStampExposureEv: Float = 2.5f,
+    val dateStampColor: Triple<Float, Float, Float> = Triple(1.0f, 0.18f, 0.0f),
+)
+
+@Immutable
+data class EnlargerUiParams(
+    val printIlluminant: String = "TH-KG3",
+    val printExposure: Float = 1f,
+    val printExposureCompensation: Boolean = true,
+    val printYFilterShift: Float = 0f,
+    val printMFilterShift: Float = 0f,
+    val enlargerLensBlur: Float = 0f,
+    val paperGrade: String = SilverPrint.DEFAULT_GRADE,
+    val lastColourPrint: String? = null,
+)
+
+@Immutable
+data class PreflashUiParams(
+    val preflashExposure: Float = 0f,
+    val preflashYFilterShift: Float = 0f,
+    val preflashMFilterShift: Float = 0f,
+)
+
+@Immutable
+data class ScannerUiParams(
+    val scanLensBlur: Float = 0f,
+    val scanWhiteCorrection: Boolean = false,
+    val scanWhiteLevel: Float = 0.98f,
+    val scanBlackCorrection: Boolean = false,
+    val scanBlackLevel: Float = 0.01f,
+    val scanUnsharpMask: Pair<Float, Float> = 0.7f to 0.7f,
+)
+
+@Immutable
+data class OutputUiParams(
+    val outputColorSpace: ColorSpace = ColorSpace.SRGB,
+    val savingCctfEncoding: Boolean = true,
+    val outputGamutCompress: OutputGamutCompress = OutputGamutCompress.LEGACY_CLIP,
+    val inputGamutCompress: InputGamutCompress = InputGamutCompress.OFF,
+    val scanFilm: Boolean = false,
+)
+
+@Immutable
+data class GrainUiParams(
+    val grainActive: Boolean = true,
+    val grainSublayersActive: Boolean = true,
+    val grainParticleAreaUm2: Float = 0.2f,
+    val grainParticleScale: Triple<Float, Float, Float> = Triple(0.8f, 1f, 2f),
+    val grainParticleScaleLayers: Triple<Float, Float, Float> = Triple(2.5f, 1f, 0.5f),
+    val grainDensityMin: Triple<Float, Float, Float> = Triple(0.07f, 0.08f, 0.12f),
+    val grainUniformity: Triple<Float, Float, Float> = Triple(0.97f, 0.97f, 0.99f),
+    val grainBlur: Float = 0.65f,
+    val grainBlurDyeCloudsUm: Float = 1f,
+    val grainMicroStructure: Pair<Float, Float> = 0.2f to 30f,
+    val grainNSubLayers: Int = 1,
+)
+
+@Immutable
+data class HalationUiParams(
+    val halationActive: Boolean = true,
+    val halScatterAmount: Float = 1f,
+    val halScatterSpatialScale: Float = 1f,
+    val halHalationAmount: Float = 1f,
+    val halHalationSpatialScale: Float = 1f,
+    val halBoostEv: Float = 0f,
+    val halProtectEv: Float = 4f,
+    val halBoostRange: Float = 0.3f,
+    val halScatterCoreUm: Triple<Float, Float, Float> = Triple(2.2f, 2f, 1.6f),
+    val halScatterTailUm: Triple<Float, Float, Float> = Triple(9.3f, 9.7f, 9.1f),
+    val halScatterTailWeightPct: Triple<Float, Float, Float> = Triple(78f, 65f, 67f),
+    val halHalationStrengthPct: Triple<Float, Float, Float> = Triple(5f, 1.5f, 0f),
+    val halFirstSigmaUm: Triple<Float, Float, Float> = Triple(65f, 65f, 65f),
+    val halNBounces: Int = 3,
+    val halBounceDecay: Float = 0.5f,
+    val halRenormalize: Boolean = true,
+)
+
+@Immutable
+data class CouplersUiParams(
+    val couplersActive: Boolean = true,
+    val couplersAmount: Float = 1f,
+    val couplersInhibitionSamelayer: Float = 1f,
+    val couplersInhibitionInterlayer: Float = 1f,
+    val couplersGammaSamelayer: Triple<Float, Float, Float> = Triple(0.341f, 0.324f, 0.273f),
+    val couplersGammaRtoGb: Pair<Float, Float> = 0.355f to 0.305f,
+    val couplersGammaGtoRb: Pair<Float, Float> = 0.154f to 0.358f,
+    val couplersGammaBtoRg: Pair<Float, Float> = 0.171f to 0.225f,
+    val couplersDiffusionSizeUm: Float = 20f,
+    val couplersDiffusionTailUm: Float = 200f,
+    val couplersDiffusionTailWeight: Float = 0.06f,
+)
+
+@Immutable
+data class GlareUiParams(
+    val glareActive: Boolean = true,
+    val glarePercent: Float = 0.03f,
+    val glareRoughness: Float = 0.7f,
+    val glareBlur: Float = 0.5f,
+)
+
+@Immutable
+data class ExperimentalUiParams(
+    val filmGammaFactor: Float = 1f,
+    val printGammaFactor: Float = 1f,
+)
+
+@Immutable
+data class MorphUiParams(
+    val morphActive: Boolean = false,
+    val morphGammaFactor: Float = 1f,
+    val morphGammaFactorFast: Float = 1f,
+    val morphGammaFactorSlow: Float = 1f,
+    val morphGammaFactorRed: Float = 1f,
+    val morphGammaFactorGreen: Float = 1f,
+    val morphGammaFactorBlue: Float = 1f,
+    val morphDeveloperExhaustion: Float = 0f,
+)
+
+@Immutable
+data class ContrastMaskUiParams(
+    val contrastMaskActive: Boolean = false,
+    val contrastMaskHighlights: Float = 1.0f,
+    val contrastMaskShadows: Float = 0.5f,
+    val contrastMaskCore: Float = 0.25f,
+    val contrastMaskScale: Float = 0.03f,
+)
+
+@Immutable
+data class ToneCurveUiParams(
+    val toneCurveActive: Boolean = false,
+    val toneCurveMaster: List<Pair<Float, Float>> = emptyList(),
+    val toneCurveRed: List<Pair<Float, Float>> = emptyList(),
+    val toneCurveGreen: List<Pair<Float, Float>> = emptyList(),
+    val toneCurveBlue: List<Pair<Float, Float>> = emptyList(),
+)
+
+@Immutable
+data class DisplayUiParams(
+    val previewMaxSize: Int = 640,
+    val gpuEngine: Boolean = false,
+    val gpuExport: Boolean = false,
+)
+
+@Immutable
+data class DiffusionUiParams(
+    val active: Boolean = false,
+    val family: String = "black_pro_mist",
+    val strength: Float = 0.5f,
+    val spatialScale: Float = 1f,
+    val haloWarmth: Float = 0f,
+    val coreIntensity: Float = 1f,
+    val coreSize: Float = 1f,
+    val haloIntensity: Float = 1f,
+    val haloSize: Float = 1f,
+    val bloomIntensity: Float = 1f,
+    val bloomSize: Float = 1f,
+)
+
+/** All of [ParamsState] as one immutable value. */
+@Immutable
+data class EditorParams(
+    val profiles: ProfileUiParams,
+    val input: InputUiParams,
+    val rawImport: RawImportUiParams,
+    val look: LookUiParams,
+    val camera: CameraUiParams,
+    val sceneLatitude: SceneLatitudeUiParams,
+    val dateStamp: DateStampUiParams,
+    val enlarger: EnlargerUiParams,
+    val preflash: PreflashUiParams,
+    val scanner: ScannerUiParams,
+    val output: OutputUiParams,
+    val grain: GrainUiParams,
+    val halation: HalationUiParams,
+    val couplers: CouplersUiParams,
+    val glare: GlareUiParams,
+    val experimental: ExperimentalUiParams,
+    val morph: MorphUiParams,
+    val contrastMask: ContrastMaskUiParams,
+    val toneCurve: ToneCurveUiParams,
+    val display: DisplayUiParams,
+    val cameraDiffusion: DiffusionUiParams,
+    val printDiffusion: DiffusionUiParams,
+)
+
+/** A [ParamsState] property stored as one field of an immutable group held in [MutableState]. */
+internal class GroupField<G, T>(
+    private val group: MutableState<G>,
+    private val read: (G) -> T,
+    private val write: G.(T) -> G,
+) {
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): T = read(group.value)
+
+    operator fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
+        group.value = group.value.write(value)
+    }
+}
+
+internal fun <G, T> MutableState<G>.field(read: (G) -> T, write: G.(T) -> G) = GroupField(this, read, write)
