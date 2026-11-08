@@ -54,9 +54,9 @@ class InstrumentMathTest {
     }
 
     @Test
-    fun onlyKnobFaderAndPillDragVertically() {
+    fun onlyKnobFaderPillAndArcGaugeDragVertically() {
         assertEquals(
-            setOf(InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL),
+            setOf(InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE),
             InstrumentKind.entries.filter { it.vertical }.toSet(),
         )
     }

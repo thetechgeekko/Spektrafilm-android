@@ -64,14 +64,14 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Which instrument draws the value. The gesture follows: knob, fader and pill drag up, the
+ * Which instrument draws the value. The gesture follows: knob, fader, pill and arc gauge drag up, the
  * horizontal kinds (gradient bar, meters, lens grid) sideways. METER_HIGH shades what lies
  * above the value (a white level clips the brighter tones), METER_LOW what lies below it.
  */
 internal enum class InstrumentKind {
-    KNOB, FADER, PILL, GRAD_BAR, METER_HIGH, METER_LOW, LENS_GRID;
+    KNOB, FADER, PILL, ARC_GAUGE, GRAD_BAR, METER_HIGH, METER_LOW, LENS_GRID;
 
-    val vertical: Boolean get() = this == KNOB || this == FADER || this == PILL
+    val vertical: Boolean get() = this == KNOB || this == FADER || this == PILL || this == ARC_GAUGE
 }
 
 /** Reference frame the lens grid draws the current format against, in mm (35 mm film). */
@@ -139,6 +139,8 @@ internal fun Instrument(
     default: Float? = null,
     gradient: List<Color> = WARMTH_STOPS,
     onValueChangeFinished: (() -> Unit)? = null,
+    accent: Color? = null,
+    caption: String = label,
 ) {
     val view = LocalView.current
     val interaction = LocalSliderInteraction.current
@@ -163,6 +165,8 @@ internal fun Instrument(
     }
     val latestReset = rememberUpdatedState(reset)
     val resetLabel = stringResource(R.string.widget_value_pill_reset_default, label)
+    val typeLabel = stringResource(R.string.editor_hud_type_value)
+    var typing by remember { mutableStateOf(false) }
     val steps = if (step > 0f) (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0) else 0
 
     val gesture = Modifier
@@ -230,12 +234,18 @@ internal fun Instrument(
                 latestFinished.value?.invoke()
                 true
             }
-            if (reset != null) customActions = listOf(CustomAccessibilityAction(resetLabel) { reset(); true })
+            // Typing an exact value is a custom action, so it is reachable without a drag
+            // (TalkBack adjusts by setProgress and never opens the HUD).
+            customActions = listOfNotNull(
+                CustomAccessibilityAction(typeLabel) { typing = true; true },
+                reset?.let { r -> CustomAccessibilityAction(resetLabel) { r(); true } },
+            )
         }
 
     val f = instrumentFraction(value, range)
     val anchor = instrumentFraction(sliderAnchor(default, range), range)
-    val active = MaterialTheme.colorScheme.primary
+    // An EQ band is a fader in its channel's colour.
+    val active = accent ?: MaterialTheme.colorScheme.primary
     val idle = MaterialTheme.colorScheme.outlineVariant
     val body = MaterialTheme.colorScheme.surfaceContainerHighest
     val ink = MaterialTheme.colorScheme.onSurface
@@ -327,7 +337,7 @@ internal fun Instrument(
                 }
             }
         }
-        InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL -> Column(
+        InstrumentKind.KNOB, InstrumentKind.FADER, InstrumentKind.PILL, InstrumentKind.ARC_GAUGE -> Column(
             modifier.width(76.dp).then(gesture),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -363,6 +373,31 @@ internal fun Instrument(
                         2.5.dp.toPx(),
                         cap = StrokeCap.Round,
                     )
+                }
+            } else if (kind == InstrumentKind.ARC_GAUGE) {
+                // Arc gauge (instrument catalogue: arcGauge): a half-dial lit from the anchor
+                // to the value, with a needle, for an overall strength.
+                Canvas(Modifier.size(width = 72.dp, height = 48.dp)) {
+                    val stroke = 6.dp.toPx()
+                    val r = minOf(size.width / 2, size.height) - stroke
+                    val c = Offset(size.width / 2, size.height - 2.dp.toPx())
+                    val tl = Offset(c.x - r, c.y - r)
+                    val sz = Size(2 * r, 2 * r)
+                    drawArc(idle, 180f, 180f, false, tl, sz, style = Stroke(stroke, cap = StrokeCap.Round))
+                    val lo = minOf(anchor, f)
+                    val hi = maxOf(anchor, f)
+                    if (hi - lo > 1e-4f) {
+                        drawArc(active, 180f + 180f * lo, 180f * (hi - lo), false, tl, sz, style = Stroke(stroke, cap = StrokeCap.Round))
+                    }
+                    val a = PI.toFloat() * (1f + f)
+                    drawLine(
+                        if (dragging) active else ink,
+                        c,
+                        Offset(c.x + cos(a) * (r - 6.dp.toPx()), c.y + sin(a) * (r - 6.dp.toPx())),
+                        2.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawCircle(if (dragging) active else ink, 3.dp.toPx(), c)
                 }
             } else if (kind == InstrumentKind.PILL) {
                 // The exposure pill (instrument catalogue: pill): a wide capsule that fills
@@ -415,7 +450,8 @@ internal fun Instrument(
                 }
             }
             Text(
-                label,
+                // The short name under the instrument; TalkBack and the HUD keep the full label.
+                caption,
                 style = MaterialTheme.typography.labelSmall,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
@@ -423,6 +459,21 @@ internal fun Instrument(
             )
             Text(formatted, style = MaterialTheme.typography.labelMedium, color = valueColor)
         }
+    }
+    if (typing) {
+        NumericEntryDialog(
+            label = label,
+            initial = formatted,
+            range = range,
+            step = step,
+            decimals = decimals,
+            onDismiss = { typing = false },
+            onConfirm = { v ->
+                onValueChange(v)
+                onValueChangeFinished?.invoke()
+                typing = false
+            },
+        )
     }
 }
 
