@@ -165,6 +165,8 @@ internal fun Instrument(
     }
     val latestReset = rememberUpdatedState(reset)
     val resetLabel = stringResource(R.string.widget_value_pill_reset_default, label)
+    val typeLabel = stringResource(R.string.editor_hud_type_value)
+    var typing by remember { mutableStateOf(false) }
     val steps = if (step > 0f) (((range.endInclusive - range.start) / step).roundToInt() - 1).coerceAtLeast(0) else 0
 
     val gesture = Modifier
@@ -232,7 +234,12 @@ internal fun Instrument(
                 latestFinished.value?.invoke()
                 true
             }
-            if (reset != null) customActions = listOf(CustomAccessibilityAction(resetLabel) { reset(); true })
+            // Typing an exact value is a custom action, so it is reachable without a drag
+            // (TalkBack adjusts by setProgress and never opens the HUD).
+            customActions = listOfNotNull(
+                CustomAccessibilityAction(typeLabel) { typing = true; true },
+                reset?.let { r -> CustomAccessibilityAction(resetLabel) { r(); true } },
+            )
         }
 
     val f = instrumentFraction(value, range)
@@ -452,6 +459,21 @@ internal fun Instrument(
             )
             Text(formatted, style = MaterialTheme.typography.labelMedium, color = valueColor)
         }
+    }
+    if (typing) {
+        NumericEntryDialog(
+            label = label,
+            initial = formatted,
+            range = range,
+            step = step,
+            decimals = decimals,
+            onDismiss = { typing = false },
+            onConfirm = { v ->
+                onValueChange(v)
+                onValueChangeFinished?.invoke()
+                typing = false
+            },
+        )
     }
 }
 
