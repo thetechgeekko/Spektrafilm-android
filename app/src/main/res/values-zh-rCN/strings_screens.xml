@@ -221,4 +221,22 @@
     <string name="shortcut_open_photo_long">打开一张照片</string>
     <string name="shortcut_library_short">图库</string>
     <string name="shortcut_library_long">打开图库</string>
+    <string name="help_menu">快速帮助</string>
+    <string name="help_title">快速帮助</string>
+    <string name="help_show_me">指给我看</string>
+    <string name="help_full_guide">阅读完整指南</string>
+    <string name="help_library_title">打开照片</string>
+    <string name="help_library_body">你的照片和相册，一点即达。</string>
+    <string name="help_modes_title">选择模式</string>
+    <string name="help_modes_body">风格、编辑、裁剪和蒙版各有自己的工具。</string>
+    <string name="help_films_title">点选胶片</string>
+    <string name="help_films_body">每个缩略图都显示你的照片用该胶片的效果。</string>
+    <string name="help_compare_title">前后对比</string>
+    <string name="help_compare_body">点按分屏对比，长按查看原图。</string>
+    <string name="help_undo_title">撤销</string>
+    <string name="help_undo_body">点按后退一步，长按查看全部步骤。</string>
+    <string name="help_save_title">保存</string>
+    <string name="help_save_body">以全画质将照片保存到相册。</string>
+    <string name="help_zoom_title">放大</string>
+    <string name="help_zoom_body">双指捏合缩放，点按查看细节。</string>
 </resources>

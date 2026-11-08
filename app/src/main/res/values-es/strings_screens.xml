@@ -305,4 +305,22 @@
     <string name="shortcut_open_photo_long">Abrir una foto</string>
     <string name="shortcut_library_short">Biblioteca</string>
     <string name="shortcut_library_long">Abrir la biblioteca</string>
+    <string name="help_menu">Ayuda rápida</string>
+    <string name="help_title">Ayuda rápida</string>
+    <string name="help_show_me">Muéstramelo</string>
+    <string name="help_full_guide">Leer la guía completa</string>
+    <string name="help_library_title">Abrir una foto</string>
+    <string name="help_library_body">Tus fotos y álbumes, a un toque.</string>
+    <string name="help_modes_title">Elige un modo</string>
+    <string name="help_modes_body">Looks, Editar, Recortar y Máscaras abren sus propias herramientas.</string>
+    <string name="help_films_title">Toca una película</string>
+    <string name="help_films_body">Cada miniatura muestra tu foto con esa película.</string>
+    <string name="help_compare_title">Antes y después</string>
+    <string name="help_compare_body">Toca para vista dividida. Mantén pulsado para ver el original.</string>
+    <string name="help_undo_title">Deshacer</string>
+    <string name="help_undo_body">Toca para volver un paso. Mantén pulsado para ver todos.</string>
+    <string name="help_save_title">Guárdala</string>
+    <string name="help_save_body">Guarda la foto a máxima calidad en tu galería.</string>
+    <string name="help_zoom_title">Acercar</string>
+    <string name="help_zoom_body">Pellizca la foto para hacer zoom. Tócala para ver el detalle.</string>
 </resources>

@@ -295,4 +295,22 @@
     <string name="shortcut_open_photo_long">写真を開く</string>
     <string name="shortcut_library_short">ライブラリ</string>
     <string name="shortcut_library_long">ライブラリを開く</string>
+    <string name="help_menu">クイックヘルプ</string>
+    <string name="help_title">クイックヘルプ</string>
+    <string name="help_show_me">場所を見る</string>
+    <string name="help_full_guide">ガイドをすべて読む</string>
+    <string name="help_library_title">写真を開く</string>
+    <string name="help_library_body">写真とアルバムにワンタップで。</string>
+    <string name="help_modes_title">モードを選ぶ</string>
+    <string name="help_modes_body">ルック、編集、切り抜き、マスクがそれぞれのツールを開きます。</string>
+    <string name="help_films_title">フィルムをタップ</string>
+    <string name="help_films_body">各タイルにそのフィルムで見た写真が表示されます。</string>
+    <string name="help_compare_title">ビフォー・アフター</string>
+    <string name="help_compare_body">タップで分割表示。長押しで元の写真。</string>
+    <string name="help_undo_title">元に戻す</string>
+    <string name="help_undo_body">タップで1つ戻る。長押しで全ステップを表示。</string>
+    <string name="help_save_title">保存</string>
+    <string name="help_save_body">最高画質の写真をギャラリーに保存します。</string>
+    <string name="help_zoom_title">ズーム</string>
+    <string name="help_zoom_body">ピンチでズーム。タップで細部を確認。</string>
 </resources>

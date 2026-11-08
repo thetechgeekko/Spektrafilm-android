@@ -300,4 +300,22 @@
     <string name="shortcut_open_photo_long">Ein Foto öffnen</string>
     <string name="shortcut_library_short">Bibliothek</string>
     <string name="shortcut_library_long">Bibliothek öffnen</string>
+    <string name="help_menu">Kurzhilfe</string>
+    <string name="help_title">Kurzhilfe</string>
+    <string name="help_show_me">Zeigen</string>
+    <string name="help_full_guide">Ganze Anleitung lesen</string>
+    <string name="help_library_title">Foto öffnen</string>
+    <string name="help_library_body">Deine Fotos und Alben, einen Tipp entfernt.</string>
+    <string name="help_modes_title">Modus wählen</string>
+    <string name="help_modes_body">Looks, Bearbeiten, Zuschneiden und Masken öffnen je eigene Werkzeuge.</string>
+    <string name="help_films_title">Film antippen</string>
+    <string name="help_films_body">Jede Kachel zeigt dein Foto mit diesem Film.</string>
+    <string name="help_compare_title">Vorher und nachher</string>
+    <string name="help_compare_body">Tippen für geteilte Ansicht. Halten für das Original.</string>
+    <string name="help_undo_title">Rückgängig</string>
+    <string name="help_undo_body">Tippen für einen Schritt zurück. Halten für alle Schritte.</string>
+    <string name="help_save_title">Speichern</string>
+    <string name="help_save_body">Speichert das Foto in voller Qualität in der Galerie.</string>
+    <string name="help_zoom_title">Zoomen</string>
+    <string name="help_zoom_body">Mit zwei Fingern zoomen. Antippen, um Details zu prüfen.</string>
 </resources>

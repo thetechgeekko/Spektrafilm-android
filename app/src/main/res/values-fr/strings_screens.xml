@@ -305,4 +305,22 @@
     <string name="shortcut_open_photo_long">Ouvrir une photo</string>
     <string name="shortcut_library_short">Bibliothèque</string>
     <string name="shortcut_library_long">Ouvrir la bibliothèque</string>
+    <string name="help_menu">Aide rapide</string>
+    <string name="help_title">Aide rapide</string>
+    <string name="help_show_me">Montrer</string>
+    <string name="help_full_guide">Lire le guide complet</string>
+    <string name="help_library_title">Ouvrir une photo</string>
+    <string name="help_library_body">Vos photos et albums, à portée de doigt.</string>
+    <string name="help_modes_title">Choisir un mode</string>
+    <string name="help_modes_body">Looks, Retouche, Recadrage et Masques ouvrent chacun leurs outils.</string>
+    <string name="help_films_title">Touchez un film</string>
+    <string name="help_films_body">Chaque vignette montre votre photo avec ce film.</string>
+    <string name="help_compare_title">Avant et après</string>
+    <string name="help_compare_body">Touchez pour l\'écran partagé. Maintenez pour voir l\'original.</string>
+    <string name="help_undo_title">Annuler</string>
+    <string name="help_undo_body">Touchez pour revenir d\'un pas. Maintenez pour voir chaque étape.</string>
+    <string name="help_save_title">Enregistrer</string>
+    <string name="help_save_body">Enregistre la photo en pleine qualité dans la galerie.</string>
+    <string name="help_zoom_title">Zoomer</string>
+    <string name="help_zoom_body">Pincez la photo pour zoomer. Touchez-la pour voir le détail.</string>
 </resources>

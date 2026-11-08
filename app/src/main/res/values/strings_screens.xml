@@ -419,4 +419,22 @@
     <string name="shortcut_open_photo_long">Open a photo</string>
     <string name="shortcut_library_short">Library</string>
     <string name="shortcut_library_long">Open the Library</string>
+    <string name="help_menu">Quick help</string>
+    <string name="help_title">Quick help</string>
+    <string name="help_show_me">Show me</string>
+    <string name="help_full_guide">Read the full guide</string>
+    <string name="help_library_title">Open a photo</string>
+    <string name="help_library_body">Your photos and albums, one tap away.</string>
+    <string name="help_modes_title">Choose a mode</string>
+    <string name="help_modes_body">Looks, Edit, Crop and Masks each open their own tools.</string>
+    <string name="help_films_title">Tap a film</string>
+    <string name="help_films_body">Each tile shows your photo through that film.</string>
+    <string name="help_compare_title">Before and after</string>
+    <string name="help_compare_body">Tap for a split view. Hold to see the original.</string>
+    <string name="help_undo_title">Undo</string>
+    <string name="help_undo_body">Tap to step back. Hold to see every step.</string>
+    <string name="help_save_title">Save it</string>
+    <string name="help_save_body">Saves the full-quality photo to your gallery.</string>
+    <string name="help_zoom_title">Zoom in</string>
+    <string name="help_zoom_body">Pinch the photo to zoom. Tap it to check detail.</string>
 </resources>

@@ -160,17 +160,6 @@
     <string name="tool_masks_invert_color">色を反転</string>
     <string name="tool_masks_invert_color_help">範囲の外側の色に適用します。</string>
     <string name="tool_masks_delete">マスクを削除</string>
-    <string name="tool_coach_title">ヒント</string>
-    <string name="tool_coach_category_title">モードを選ぶ</string>
-    <string name="tool_coach_category_body">ルックでフィルムから始め、編集でセクションごとにすべてを調整、切り抜き、マスク。タップすると設定が開きます。</string>
-    <string name="tool_coach_compare_title">ビフォー/アフター</string>
-    <string name="tool_coach_compare_body">比較の分割表示を切り替えて、編集を元の写真と比べられます。</string>
-    <string name="tool_coach_inspect_title" formatted="false">100%で確認</string>
-    <string name="tool_coach_inspect_body">プレビューをタップすると、粒状やディテールをフル解像度で確認できます。</string>
-    <string name="tool_coach_zoom_title">ピンチでズーム</string>
-    <string name="tool_coach_zoom_body">プレビューをピンチやドラッグして、好きな部分を確認できます。</string>
-    <string name="tool_coach_got_it">OK</string>
-    <string name="tool_coach_dismiss">ヒントを閉じる</string>
     <string name="tool_crop_title">切り抜き</string>
     <string name="tool_crop_cancel">切り抜きをキャンセル</string>
     <string name="tool_crop_rotate">90°回転</string>

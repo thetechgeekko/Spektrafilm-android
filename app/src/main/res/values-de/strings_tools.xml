@@ -160,17 +160,6 @@
     <string name="tool_masks_invert_color">Farbe umkehren</string>
     <string name="tool_masks_invert_color_help">Wirkt stattdessen auf die Farben AUSSERHALB des Bereichs.</string>
     <string name="tool_masks_delete">Maske löschen</string>
-    <string name="tool_coach_title">Kurztipps</string>
-    <string name="tool_coach_category_title">Wähle einen Modus</string>
-    <string name="tool_coach_category_body">Looks zum Start mit einem Film, Anpassen für alle Regler nach Bereich, Zuschneiden und Masken. Tippe auf einen, um seine Regler zu öffnen.</string>
-    <string name="tool_coach_compare_title">Vorher / Nachher</string>
-    <string name="tool_coach_compare_body">Schalte die Vergleichsteilung ein, um eine Bearbeitung mit dem Original zu vergleichen.</string>
-    <string name="tool_coach_inspect_title" formatted="false">Bei 100 % prüfen</string>
-    <string name="tool_coach_inspect_body">Tippe auf die Vorschau, um Korn und Details in voller Auflösung zu prüfen.</string>
-    <string name="tool_coach_zoom_title">Zum Zoomen auseinanderziehen</string>
-    <string name="tool_coach_zoom_body">Zieh die Vorschau mit zwei Fingern auseinander und verschiebe sie, um jeden Bereich zu prüfen.</string>
-    <string name="tool_coach_got_it">Verstanden</string>
-    <string name="tool_coach_dismiss">Tipps ausblenden</string>
     <string name="tool_crop_title">Zuschneiden</string>
     <string name="tool_crop_cancel">Zuschnitt abbrechen</string>
     <string name="tool_crop_rotate">90° drehen</string>
