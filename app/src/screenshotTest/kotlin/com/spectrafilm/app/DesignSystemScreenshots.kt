@@ -59,11 +59,11 @@ fun ExportButtonScreenshot() = ExportButtonSample(dark = false)
 // --- Key screens at 2x font scale (#456): review the references for clipped text ---
 
 @PreviewTest
-@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 2200)
+@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 3400)
 @Composable
 fun ExportSheetLargeTextScreenshot() = ExportSheetSample(dark = false)
 
 @PreviewTest
-@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 3200)
+@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 4800)
 @Composable
 fun SettingsLargeTextScreenshot() = SettingsSample(dark = false)

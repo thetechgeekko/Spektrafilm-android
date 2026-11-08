@@ -62,6 +62,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.ColorSpace
 import kotlinx.coroutines.withContext
@@ -376,7 +377,14 @@ fun ExportSheet(
             OutlinedTextField(
                 value = options.customName,
                 onValueChange = { onOptionsChange(options.copy(customName = it)) },
-                label = { Text(stringResource(R.string.tool_export_file_name)) },
+                label = {
+                    // One line: a wrapped label overlaps the outline at large text (#456).
+                    Text(
+                        stringResource(R.string.tool_export_file_name),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 placeholder = { Text(stringResource(R.string.tool_export_file_name_placeholder)) },
                 supportingText = { Text(stringResource(R.string.tool_export_file_name_tokens)) },
                 singleLine = true,
