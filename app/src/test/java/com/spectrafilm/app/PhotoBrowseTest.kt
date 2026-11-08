@@ -69,4 +69,24 @@ class PhotoBrowseTest {
         assertEquals(PhotoSwipeRules.MAX_CORNER_DP, PhotoSwipeRules.cornerDpAt(0.25f), 1e-4f)
         assertEquals(0.5f, PhotoSwipeRules.progress(-500f, 1000f), 0f)
     }
+
+    @Test
+    fun theStripKeepsTheOpenFrameSecondFromTheLeft() {
+        assertEquals(0, folderStripScrollTarget(0))
+        assertEquals(0, folderStripScrollTarget(1))
+        assertEquals(6, folderStripScrollTarget(7))
+    }
+
+    @Test
+    fun theStripFindsTheOpenFrame() {
+        val saved = PhotoBrowse.frames
+        try {
+            PhotoBrowse.frames = frames
+            assertEquals(1, PhotoBrowse.indexOf("content://b"))
+            assertEquals(-1, PhotoBrowse.indexOf("content://z"))
+            assertEquals(-1, PhotoBrowse.indexOf(null))
+        } finally {
+            PhotoBrowse.frames = saved
+        }
+    }
 }

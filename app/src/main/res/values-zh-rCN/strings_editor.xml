@@ -167,6 +167,9 @@
     <string name="editor_magnifier">100% 放大镜</string>
     <string name="editor_menu_clipping">裁切警告</string>
     <string name="editor_toggle_chrome">隐藏或显示编辑控件</string>
+    <string name="editor_folder_strip_show">显示文件夹胶片条</string>
+    <string name="editor_folder_strip_hide">隐藏文件夹胶片条</string>
+    <string name="editor_folder_strip_frame">第 %1$d 张，共 %2$d 张</string>
     <string name="editor_reset_category">重置%1$s</string>
     <string name="editor_reset_edits_confirm_title">重置所有编辑？</string>
     <string name="editor_reset_edits_confirm_body">所有设置将恢复默认值，并清除此照片保存的编辑配方。此操作无法撤销。</string>

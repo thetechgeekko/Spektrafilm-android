@@ -172,6 +172,9 @@
     <string name="editor_magnifier">Lupa al 100 %</string>
     <string name="editor_menu_clipping">Avisos de recorte</string>
     <string name="editor_toggle_chrome">Ocultar o mostrar los controles del editor</string>
+    <string name="editor_folder_strip_show">Mostrar la tira de la carpeta</string>
+    <string name="editor_folder_strip_hide">Ocultar la tira de la carpeta</string>
+    <string name="editor_folder_strip_frame">Foto %1$d de %2$d</string>
     <string name="editor_reset_category">Restablecer %1$s</string>
     <string name="editor_reset_edits_confirm_title">¿Restablecer todas las ediciones?</string>
     <string name="editor_reset_edits_confirm_body">Todos los ajustes vuelven a su valor predeterminado y se borra la receta guardada de esta foto. No se puede deshacer.</string>

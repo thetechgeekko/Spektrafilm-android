@@ -439,6 +439,32 @@ internal fun EditorScreen(
             },
         )
     }
+    // The folder strip (FolderStrip): the same Library folder, each frame drawn in this
+    // photo's current look, opened from the frame counter on the canvas.
+    val stripFrames = remember(currentUriString) { PhotoBrowse.frames }
+    val stripIndex = remember(currentUriString, stripFrames) {
+        stripFrames.indexOfFirst { it.uri == currentUriString }
+    }
+    val stripLooks = remember(engine) {
+        engine?.let { FolderStripLooks(ctx.applicationContext, it, state, dispatchers.default) }
+    }
+    val folderStrip = if (stripIndex < 0 || stripFrames.size < 2) {
+        null
+    } else {
+        FolderStripModel(
+            frames = stripFrames,
+            currentIndex = stripIndex,
+            looks = stripLooks,
+            lookKey = previewTick,
+            paused = previewBusy || interacting.value,
+            io = dispatchers.io,
+            onOpen = { index ->
+                stripFrames.getOrNull(index)?.let { target ->
+                    incomingImageIntent.value = Intent(Intent.ACTION_VIEW, Uri.parse(target.uri))
+                }
+            },
+        )
+    }
     // Keep the stand-in under the fading-in render briefly, then drop it.
     LaunchedEffect(preview != null) {
         if (preview != null && openPlaceholder != null) {
@@ -2880,6 +2906,7 @@ internal fun EditorScreen(
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                         swipe = photoSwipe,
+                        strip = folderStrip,
                     )
                 }
                 // In Edit each stacked tool carries its own reset (ToolHeader); elsewhere the

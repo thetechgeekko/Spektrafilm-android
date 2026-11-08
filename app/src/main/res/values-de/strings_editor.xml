@@ -170,6 +170,9 @@
     <string name="editor_magnifier">100-%-Lupe</string>
     <string name="editor_menu_clipping">Clipping-Warnungen</string>
     <string name="editor_toggle_chrome">Editor-Regler aus- oder einblenden</string>
+    <string name="editor_folder_strip_show">Ordnerleiste einblenden</string>
+    <string name="editor_folder_strip_hide">Ordnerleiste ausblenden</string>
+    <string name="editor_folder_strip_frame">Bild %1$d von %2$d</string>
     <string name="editor_reset_category">%1$s zurücksetzen</string>
     <string name="editor_reset_edits_confirm_title">Alle Bearbeitungen zurücksetzen?</string>
     <string name="editor_reset_edits_confirm_body">Jede Einstellung kehrt auf ihren Standard zurück, und das gespeicherte Rezept für dieses Foto wird gelöscht. Das kann nicht rückgängig gemacht werden.</string>

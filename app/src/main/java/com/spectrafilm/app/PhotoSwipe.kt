@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -39,12 +40,15 @@ internal class PhotoSwipeNeighbours(
  */
 internal fun Modifier.photoSwipeGesture(
     enabled: Boolean,
+    /** A touch that starts where this is true is not a photo swipe (e.g. on the strip). */
+    ignoreDownAt: (Offset) -> Boolean = { false },
     onStart: () -> Unit,
     onDrag: (dx: Float) -> Unit,
     onEnd: (dx: Float, velocityX: Float?) -> Unit,
 ): Modifier = if (!enabled) this else pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        if (ignoreDownAt(down.position)) return@awaitEachGesture
         val tracker = VelocityTracker()
         tracker.addPosition(down.uptimeMillis, down.position)
         var dx = 0f

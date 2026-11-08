@@ -212,6 +212,10 @@
     <string name="editor_menu_clipping">Clipping warnings</string>
     <!-- Single tap on the photo now hides the editor chrome (Lightroom's own gesture). -->
     <string name="editor_toggle_chrome">Hide or show the editor controls</string>
+    <string name="editor_folder_strip_show">Show the folder strip</string>
+    <string name="editor_folder_strip_hide">Hide the folder strip</string>
+    <string name="editor_folder_strip_frame">Frame %1$d of %2$d</string>
+    <string name="editor_folder_strip_counter" translatable="false">%1$d / %2$d</string>
     <!-- Reset just this category back to its neutral defaults. %1$s is the category name. -->
     <string name="editor_reset_category">Reset %1$s</string>
     <!-- Reset all edits clears the undo history along with the edits, so it is the one
