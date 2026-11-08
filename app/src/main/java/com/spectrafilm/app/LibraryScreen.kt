@@ -136,7 +136,6 @@ internal fun LibraryDestination(
     // folder, gallery and album bars, and the finished run's snackbar while the Library is up.
     val export = rememberLibraryExportFlow(snackbar, scope)
     LibraryExportSheet(export)
-    LibraryExportResultEffect(snackbar, scope)
     val importedName = stringResource(R.string.album_imported)
     val importInto: (List<String>, Boolean) -> Unit = { uris, keepGrants ->
         albumsVm.import(uris, keepGrants, importedName) { added, failed ->

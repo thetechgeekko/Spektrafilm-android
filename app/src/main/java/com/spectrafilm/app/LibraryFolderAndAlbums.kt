@@ -316,6 +316,15 @@ internal fun LibraryFolderAndAlbums(
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
                 if (!selecting && !gallerySelecting) LibraryTabs(tab, onTab)
+                // A running export (and then its result), under the tabs so it never covers
+                // them; beside an open album, that pane shows it.
+                if (!albumOpen) {
+                    LibraryExportProgress(
+                        Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .fillMaxWidth(),
+                    )
+                }
                 when (tab) {
                     LibraryTab.FOLDER -> LibraryScreen(
                         state,
@@ -390,15 +399,6 @@ internal fun LibraryFolderAndAlbums(
                         galleryVm.selectAll(galleryShown().map { it.documentUri })
                     }
                 }
-            }
-            // A running export, over the top of the grid; beside an open album, that pane shows it.
-            if (!albumOpen) {
-                LibraryExportProgress(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
-                )
             }
         }
     }
