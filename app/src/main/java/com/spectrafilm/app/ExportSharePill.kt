@@ -52,13 +52,16 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -108,6 +111,12 @@ internal fun ExportSharePill(
     onExport: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Room the pill may take. When the labelled pill does not fit (a 360dp phone, large
+     * text, a long translation), the Export half becomes a 48dp icon button, so the app bar's
+     * other actions never get pushed over each other.
+     */
+    maxWidth: Dp = Dp.Infinity,
 ) {
     val motion = MaterialTheme.motionScheme
     val scheme = MaterialTheme.colorScheme
@@ -148,6 +157,18 @@ internal fun ExportSharePill(
     val busyLabel = stringResource(R.string.editor_exporting)
     val shareLabel = stringResource(R.string.editor_export_share)
     val fill = scheme.primary.copy(alpha = 0.35f)
+    val measurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val density = LocalDensity.current
+    val labelled = remember(exportLabel, labelStyle, density, maxWidth) {
+        if (maxWidth == Dp.Infinity) {
+            true
+        } else {
+            val text = with(density) { measurer.measure(exportLabel, labelStyle).size.width.toDp() }
+            // 4 + 12 + icon 18 + 8 + text + 16 + gap 2 + Share 48 + 4
+            maxWidth >= text + 112.dp
+        }
+    }
 
     Row(
         modifier.padding(horizontal = 4.dp),
@@ -179,7 +200,9 @@ internal fun ExportSharePill(
                 interactionSource = exportInteraction,
                 modifier = Modifier
                     .testTag(EXPORT_PILL_EXPORT_TAG)
+                    .then(if (labelled) Modifier else Modifier.width(SHARE_WIDTH))
                     .semantics {
+                        if (!labelled && !exporting) contentDescription = exportLabel
                         if (exporting) {
                             contentDescription = busyLabel
                             progressBarRangeInfo = ProgressBarRangeInfo(fraction.coerceIn(0f, 1f), 0f..1f)
@@ -189,9 +212,13 @@ internal fun ExportSharePill(
                 Row(
                     Modifier
                         .height(ButtonDefaults.MinHeight)
+                        .then(if (labelled) Modifier else Modifier.width(SHARE_WIDTH))
                         .drawBehind { drawProgressFill(shownFraction, fill) }
-                        .padding(start = 12.dp + exportGrow, end = 16.dp + exportGrow),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(
+                            start = if (labelled) 12.dp + exportGrow else 0.dp,
+                            end = if (labelled) 16.dp + exportGrow else 0.dp,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -200,8 +227,8 @@ internal fun ExportSharePill(
                         modifier = Modifier.size(18.dp),
                     )
                     // The label keeps its width while the percentage shows, so the pill
-                    // never jumps as the export starts and ends.
-                    Box(contentAlignment = Alignment.Center) {
+                    // never jumps as the export starts and ends. Icon-only: the fill alone.
+                    if (labelled) Box(contentAlignment = Alignment.Center) {
                         Text(exportLabel, modifier = Modifier.alpha(if (exporting) 0f else 1f))
                         if (exporting) {
                             Text(

@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasContentDescription
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
@@ -42,7 +44,7 @@ class ExportSharePillUiTest {
         var shares = 0
     }
 
-    private fun show(exporting: Boolean = false): Calls {
+    private fun show(exporting: Boolean = false, maxWidth: Dp = Dp.Infinity): Calls {
         val calls = Calls().apply { this.exporting = exporting }
         compose.setContent {
             MaterialTheme {
@@ -51,6 +53,7 @@ class ExportSharePillUiTest {
                     saved = false,
                     onExport = { calls.exports++ },
                     onShare = { calls.shares++ },
+                    maxWidth = maxWidth,
                 )
             }
         }
@@ -94,5 +97,18 @@ class ExportSharePillUiTest {
         val share = compose.onNodeWithTag(EXPORT_PILL_SHARE_TAG).getBoundsInRoot()
         val gap = share.left - export.right
         assertTrue("gap between halves is $gap", gap >= 0.dp && gap <= 4.dp)
+    }
+
+    /** Codex on #535: on a 360dp bar the pill must not push the other actions over each other. */
+    @Test fun dropsTheLabelWhenTheBarIsTight() {
+        val calls = show(maxWidth = 112.dp)
+        compose.onNode(hasText(str(R.string.editor_action_export))).assertDoesNotExist()
+        val export = compose.onNodeWithTag(EXPORT_PILL_EXPORT_TAG)
+        export.assertContentDescriptionEquals(str(R.string.editor_action_export))
+        val b = export.getBoundsInRoot()
+        assertTrue("icon-only Export is ${b.width}", b.width >= 48.dp && b.width <= 52.dp)
+        export.performClick()
+        compose.waitForIdle()
+        assertEquals(1, calls.exports)
     }
 }

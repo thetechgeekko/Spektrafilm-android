@@ -78,7 +78,7 @@ internal fun EditorTopBar(
     exportSaved: Boolean,
     onShare: () -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .background(
@@ -196,7 +196,15 @@ internal fun EditorTopBar(
             }
             // Hidden, not disabled, when there is nothing to export.
             if (!wide && exportVisible) {
-                ExportSharePill(exporting = exporting, saved = exportSaved, onExport = onExport, onShare = onShare)
+                // Whatever the row's fixed buttons leave: Library, Undo, Redo, Compare and More
+                // at 48dp each plus the row's 4dp padding. The pill drops its label below that.
+                ExportSharePill(
+                    exporting = exporting,
+                    saved = exportSaved,
+                    onExport = onExport,
+                    onShare = onShare,
+                    maxWidth = this@BoxWithConstraints.maxWidth - 248.dp,
+                )
             }
             // M3 app bars carry one or two essential actions: Export, then Undo and Redo.
             // Opening another photo, the view toggles, Settings and About live behind the

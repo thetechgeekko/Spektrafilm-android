@@ -137,8 +137,13 @@ internal class ExportViewModel : ViewModel() {
             ExportAction.CloseSheet -> state.copy(sheetOpen = false)
             is ExportAction.SetOptions -> state.copy(options = action.value)
             is ExportAction.SetKeepGps -> state.copy(keepGps = action.value)
-            is ExportAction.Running ->
-                state.copy(phase = EditorExportPhase.RUNNING, runtimeRunId = action.runId)
+            // A new run replaces the previous result: Share must wait for THIS run's file,
+            // never pick up the one before it.
+            is ExportAction.Running -> state.copy(
+                phase = EditorExportPhase.RUNNING,
+                runtimeRunId = action.runId,
+                lastShare = null,
+            )
             ExportAction.RuntimeIdle ->
                 if (state.phase == EditorExportPhase.RECONCILING) state.copy(runtimeRunId = null) else state
             is ExportAction.RunDisowned ->

@@ -158,4 +158,16 @@ class ExportViewModelTest {
         vm.restore(restored(EditorExportPhase.RUNNING, 2L))
         assertFalse(vm.current.shareWhenDone)
     }
+
+    /** Codex on #535: Share must wait for the new run's file, never send the previous one. */
+    @Test fun aNewRunDropsThePreviousResult() {
+        val vm = vm()
+        vm.onAction(ExportAction.Running(1L))
+        vm.onAction(ExportAction.Terminal(EditorExportPhase.SUCCESS))
+        vm.onAction(ExportAction.SetShare("content://media/1" to "image/jpeg"))
+        vm.onAction(ExportAction.ShareWhenDone)
+        vm.onAction(ExportAction.Running(2L))
+        assertNull(vm.current.lastShare)
+        assertTrue(vm.current.shareWhenDone)
+    }
 }
