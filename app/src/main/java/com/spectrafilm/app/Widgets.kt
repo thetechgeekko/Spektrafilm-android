@@ -92,6 +92,8 @@ class SliderReadoutEdit(
     val step: Float,
     val decimals: Int,
     val current: Float,
+    /** False once the slider is gone or shows another value: the edit is stale. */
+    val isCurrent: () -> Boolean,
     val set: (Float) -> Unit,
 )
 

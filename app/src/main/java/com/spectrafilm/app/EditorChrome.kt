@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -48,8 +49,6 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.onLongClick
-import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -195,10 +194,10 @@ internal fun PressIconButton(
  * An icon button with a second gesture on hold (interaction rules: hold Compare for the
  * original, hold Undo for the history). A tap runs [onClick]; once the press outlasts the
  * long-press timeout [onHoldStart] runs with a haptic tick, and [onHoldEnd] runs when that
- * same finger lifts. [holdLabel] names the hold for TalkBack as a long-click action; a hold
- * that only means "while pressed" (a peek) passes null, because a screen reader has no way
- * to keep it held.
+ * same finger lifts. [holdLabel] names the hold for TalkBack's long-click action; a long
+ * click with no finger down (TalkBack) runs start and end together.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun HoldIconButton(
     onClick: () -> Unit,
@@ -210,57 +209,54 @@ internal fun HoldIconButton(
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val view = androidx.compose.ui.platform.LocalView.current
-    val click = rememberUpdatedState(onClick)
-    val holdStart = rememberUpdatedState(onHoldStart)
+    // combinedClickable, not raw pointer gestures, so the button keeps keyboard / D-pad
+    // focus and activation, the ripple and the long-press haptic. The hold's END is read
+    // from the same interaction source: the Release (or Cancel) of the press that held.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val holdEnd = rememberUpdatedState(onHoldEnd)
-    var pressed by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
+    LaunchedEffect(interaction) {
+        interaction.interactions.collect { i ->
+            if ((i is androidx.compose.foundation.interaction.PressInteraction.Release ||
+                    i is androidx.compose.foundation.interaction.PressInteraction.Cancel) && held
+            ) {
+                held = false
+                holdEnd.value()
+            }
+        }
+    }
+    // The button can leave composition mid-hold (the bar hides); the hold must still end,
+    // or the original would stay on screen with no finger down.
+    DisposableEffect(Unit) {
+        onDispose { if (held) { held = false; holdEnd.value() } }
+    }
     Box(
         modifier
             .minimumInteractiveComponentSize()
             .size(40.dp)
             .scale(if (pressed) 0.88f else 1f)
             .clip(androidx.compose.foundation.shape.CircleShape)
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                // Set by onLongPress, consumed by the same press's release, so a hold's
-                // start and end always arrive as a pair.
-                var heldPress = false
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        // finally: the button can leave composition mid-hold (the bar hides),
-                        // which cancels this coroutine; the hold must still end, or the
-                        // original would stay on screen with no finger down.
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            pressed = false
-                            if (heldPress) {
-                                heldPress = false
-                                holdEnd.value()
-                            }
-                        }
-                    },
-                    onLongPress = {
-                        heldPress = true
-                        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                        holdStart.value()
-                    },
-                    onTap = { click.value() },
-                )
-            }
-            .semantics(mergeDescendants = true) {
-                role = Role.Button
-                if (enabled) {
-                    onClick(label = clickLabel) { click.value(); true }
-                    if (holdLabel != null) {
-                        onLongClick(label = holdLabel) { holdStart.value(); holdEnd.value(); true }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = clickLabel,
+                onLongClickLabel = holdLabel,
+                onLongClick = {
+                    if (pressed) {
+                        held = true
+                        onHoldStart()
+                    } else {
+                        // An accessibility long-click has no finger to lift: run the whole
+                        // hold at once (history opens; a peek has nothing to show).
+                        onHoldStart()
+                        onHoldEnd()
                     }
-                } else {
-                    disabled()
-                }
-            },
+                },
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
@@ -307,10 +303,15 @@ internal fun SliderReadoutPill(
     }
     val edit = r.edit
     val tapLabel = stringResource(R.string.editor_hud_type_value)
+    // A stale edit (its slider gone or retargeted since) closes the HUD instead of typing.
+    fun openTyping() {
+        if (edit == null || dragging) return
+        if (edit.isCurrent()) typing = edit else readout.value = null
+    }
     Surface(
         color = SpektraBrand.scrim.copy(alpha = 0.62f),
         shape = RoundedCornerShape(14.dp),
-        onClick = { if (edit != null && !dragging) typing = edit },
+        onClick = { openTyping() },
         enabled = edit != null && !dragging,
         modifier = Modifier
             .padding(top = 6.dp, end = 6.dp)
@@ -324,7 +325,7 @@ internal fun SliderReadoutPill(
                 if (edit != null && !dragging) {
                     contentDescription = "${r.label} ${r.value}"
                     role = Role.Button
-                    onClick(label = tapLabel) { typing = edit; true }
+                    onClick(label = tapLabel) { openTyping(); true }
                 }
             },
     ) {
@@ -356,7 +357,7 @@ internal fun SliderReadoutPill(
             decimals = e.decimals,
             onDismiss = { typing = null },
             onConfirm = { v ->
-                e.set(v)
+                if (e.isCurrent()) e.set(v)
                 typing = null
                 readout.value = null
             },

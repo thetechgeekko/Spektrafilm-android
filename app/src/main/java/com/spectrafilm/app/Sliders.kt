@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -94,16 +95,30 @@ fun EnhancedSlider(
     val formatted = formatValue(value, decimals)
     // Which detent zone the last drag frame was in, so the haptic tick fires on arrival only.
     val lastZone = remember { mutableStateOf(SliderZone.FREE) }
-    // What the floating readout needs to offer "tap to type" after the finger lifts. It
-    // captures THIS composition's setters, not the latest ones: the same slider slot can be
-    // recomposed for another target (Masks reuses it when the selected mask changes) while
-    // the HUD lingers, and a typed value must land on the control the readout came from.
-    val setNow = onValueChange
-    val finishNow = onValueChangeFinished
+    // What the floating readout needs to offer "tap to type" after the finger lifts. The
+    // setter goes through the LATEST callbacks, because a caller's callback captures its
+    // state (Masks rebuilds the whole mask list from what it closed over), so an old
+    // callback would write back stale state. The edit is only offered while this slider is
+    // still composed and still shows the value the readout reported; a slider slot reused
+    // for another target (another mask selected) or removed fails that and the HUD closes.
+    val latestChange = rememberUpdatedState(onValueChange)
+    val latestFinished = rememberUpdatedState(onValueChangeFinished)
+    val latestValue = rememberUpdatedState(value)
+    val alive = remember { booleanArrayOf(true) }
+    DisposableEffect(Unit) {
+        alive[0] = true
+        onDispose { alive[0] = false }
+    }
     val readoutEdit: (Float) -> SliderReadoutEdit = { current ->
-        SliderReadoutEdit(range, step, decimals, current) { v ->
-            setNow(snap(v, range, step))
-            finishNow?.invoke()
+        SliderReadoutEdit(
+            range, step, decimals, current,
+            isCurrent = {
+                val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
+                alive[0] && kotlin.math.abs(latestValue.value - current) <= tol
+            },
+        ) { v ->
+            latestChange.value(snap(v, range, step))
+            latestFinished.value?.invoke()
         }
     }
     Column(modifier.fillMaxWidth().multiTouchPeek(interaction.onMultiTouch)) {
