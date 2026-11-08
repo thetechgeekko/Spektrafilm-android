@@ -84,7 +84,11 @@ internal object SlideshowFrames {
 
     private fun camera(context: Context, uri: Uri, edge: Int): Bitmap? {
         val loaded = RawCameraPreview.load(context, uri, edge) ?: return null
-        return OpenPlaceholder.applyTransform(loaded.bitmap, placeholderTransform(loaded.orientation, SourceRotation.NONE))
+        return OpenPlaceholder.applyTransform(
+            loaded.bitmap,
+            placeholderTransform(loaded.orientation, SourceRotation.NONE),
+            maxEdge = edge,
+        )
     }
 
     private fun decoded(context: Context, uri: Uri, edge: Int): Bitmap? = runCatching {
@@ -102,7 +106,7 @@ internal object SlideshowFrames {
                 ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL),
             )
         } ?: ExifOrientation.fromExif(ExifInterface.ORIENTATION_NORMAL)
-        OpenPlaceholder.applyTransform(bitmap, placeholderTransform(orientation, SourceRotation.NONE))
+        OpenPlaceholder.applyTransform(bitmap, placeholderTransform(orientation, SourceRotation.NONE), maxEdge = edge)
     }.getOrNull()
 }
 
