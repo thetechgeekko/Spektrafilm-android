@@ -30,7 +30,7 @@ import kotlinx.coroutines.withContext
 internal class LiteRtSkinSegmenter(
     private val store: SkinModelStore,
     private val dispatcher: CoroutineDispatcher,
-) : SkinSegmenter, AutoCloseable {
+) : SkinSegmenter {
 
     private class Loaded(
         val model: CompiledModel,
@@ -63,9 +63,12 @@ internal class LiteRtSkinSegmenter(
             }
         }
 
-    /** Release the model and its buffers. A later [segment] loads them again. */
-    override fun close() {
-        val l = loaded ?: return
+    /**
+     * Release the model and its buffers. Takes the same lock as [segment], so it waits for a running
+     * inference to finish instead of freeing native memory under it. A later [segment] loads them again.
+     */
+    suspend fun close() = lock.withLock {
+        val l = loaded ?: return@withLock
         loaded = null
         l.inputs.forEach { it.close() }
         l.outputs.forEach { it.close() }
