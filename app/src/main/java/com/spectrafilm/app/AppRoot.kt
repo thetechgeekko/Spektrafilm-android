@@ -11,6 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
@@ -127,13 +129,29 @@ private val EditorSavedFallbackSaver = listSaver<EditorSavedFallback, Any>(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun MainActivity.AppRoot(
+internal fun AppRoot(
+    host: AppHost,
     settings: AppSettings,
     settingsUi: SettingsUiState,
     onSettingsAction: (SettingsAction) -> Unit,
     updateUi: UpdateUiState,
     onUpdateAction: (UpdateAction) -> Unit,
 ) {
+    val dispatchers = host.dispatchers
+    val editorVm = host.editorVm
+    val exportVm = host.exportVm
+    val exportPresetVm = host.exportPresetVm
+    val viewerVm = host.viewerVm
+    val toolVm = host.toolVm
+    val presetVm = host.presetVm
+    val filmPreviewVm = host.filmPreviewVm
+    val printPreviewVm = host.printPreviewVm
+    val presetPreviewVm = host.presetPreviewVm
+    val versionsVm = host.versionsVm
+    val incomingImageIntent = host.incomingImageIntent
+    val launcherShortcut = host.launcherShortcut
+    val incomingShareBatch = host.incomingShareBatch
+    val heldDropPermissions = host.heldDropPermissions
     val ctx = LocalContext.current
     // Reads evaluated DURING composition go through LocalResources, not ctx: unlike
     // LocalContext.current.getString it recomposes on a configuration change (locale,
@@ -542,11 +560,11 @@ internal fun MainActivity.AppRoot(
                             viewerVm = viewerVm,
                             incomingImageIntent = incomingImageIntent,
                             launcherShortcut = launcherShortcut,
-                            setEditorShortcutHandler = { editorShortcutHandler = it },
+                            setEditorShortcutHandler = { host.editorShortcutHandler = it },
                             heldDropPermissions = heldDropPermissions,
-                            requestDragAndDropPermissions = { requestDragAndDropPermissions(it) },
-                            lifecycle = this@AppRoot.lifecycle,
-                            onBackPressedDispatcher = onBackPressedDispatcher,
+                            requestDragAndDropPermissions = { host.requestDragAndDropPermissions(it) },
+                            lifecycle = host.lifecycle,
+                            onBackPressedDispatcher = host.onBackPressedDispatcher,
                             settings = settings,
                             restoration = activeRestoration,
                             sessionRestoreNotice = pendingSessionRestoreNotice,
@@ -615,11 +633,11 @@ internal fun MainActivity.AppRoot(
                     // Scoped to this entry (#453): cleared when the Library is popped. Its
                     // writes run on the app's process scope, so leaving never cuts one short.
                     val libraryVm: LibraryViewModel =
-                        viewModel(factory = appContainer.viewModelFactory)
+                        viewModel(factory = ctx.appContainer.viewModelFactory)
                     val albumsVm: AlbumsViewModel =
-                        viewModel(factory = appContainer.viewModelFactory)
+                        viewModel(factory = ctx.appContainer.viewModelFactory)
                     val galleryVm: GalleryViewModel =
-                        viewModel(factory = appContainer.viewModelFactory)
+                        viewModel(factory = ctx.appContainer.viewModelFactory)
                     LibraryDestination(
                         vm = libraryVm,
                         albumsVm = albumsVm,
@@ -742,5 +760,33 @@ internal fun NavScaffold(
                 .padding(padding)
                 .consumeWindowInsets(padding),
         ) { content() }
+    }
+}
+
+/** The app once settings are loaded: theme from the saved settings, then [AppRoot]. */
+@Composable
+internal fun AppContent(host: AppHost, settings: AppSettings) {
+    val settingsVm = host.settingsVm
+    val updateVm = host.updateVm
+    // Theme follows the saved settings state, so a Settings edit re-themes at once.
+    val settingsUi by settingsVm.uiState.collectAsStateWithLifecycle()
+    val dark = when (settingsUi.theme) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val updateUi by updateVm.uiState.collectAsStateWithLifecycle()
+    // Launch-time "what's new" check: at most daily, off in Settings, never on Play.
+    LaunchedEffect(Unit) { updateVm.onAction(UpdateAction.AutoCheck) }
+    SpektraTheme(dark = dark, dynamicColor = settingsUi.dynamicColor) {
+        AppRoot(
+            host = host,
+            settings = settings,
+            settingsUi = settingsUi,
+            onSettingsAction = settingsVm::onAction,
+            updateUi = updateUi,
+            onUpdateAction = updateVm::onAction,
+        )
+        updateUi.offer?.let { offer -> UpdateDialog(offer, updateVm::onAction) }
     }
 }
