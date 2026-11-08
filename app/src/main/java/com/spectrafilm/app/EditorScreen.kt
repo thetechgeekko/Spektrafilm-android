@@ -1229,7 +1229,11 @@ internal fun EditorScreen(
         exportAfterNotificationAnswer[0] = null
         pending?.invoke()
     }
-    /** Runs [export], first asking for notifications if this is the first export to need them. */
+    /**
+     * Runs [export], first asking for notifications if this is the first export to need them.
+     * Every export that runs under the foreground service goes through it: the sheet's Export,
+     * and batch and half-frame pair before their pickers open (Codex on #564).
+     */
     fun exportAskingNotificationsOnce(export: () -> Unit) {
         if (!notificationPermissionMissing() || settings.askedNotificationPermission) {
             export()
@@ -3425,7 +3429,11 @@ internal fun EditorScreen(
                     onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
                     previewBitmap = preview,
                     onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
-                        { requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it } }
+                        {
+                            exportAskingNotificationsOnce {
+                                requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) { status = it }
+                            }
+                        }
                     } else {
                         null
                     },
@@ -3433,7 +3441,11 @@ internal fun EditorScreen(
                         engine != null && sourceUri != null && sourceKind != SourceKind.DEMO &&
                         halfFramePairSupports(exportUi.options)
                     ) {
-                        { requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it } }
+                        {
+                            exportAskingNotificationsOnce {
+                                requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) { status = it }
+                            }
+                        }
                     } else {
                         null
                     },
