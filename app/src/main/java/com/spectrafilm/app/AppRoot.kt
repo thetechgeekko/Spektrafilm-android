@@ -661,13 +661,7 @@ internal fun MainActivity.AppRoot(
         )
 
         if (showOnboarding && screen == Screen.EDITOR) {
-            WelcomeFlow(
-                onFinish = { settings.seenOnboarding = true; showOnboarding = false },
-                onOpenSettings = {
-                    settings.seenOnboarding = true; showOnboarding = false; push(SettingsRoute)
-                },
-                onReportIssue = { Links.open(ctx, Links.NEW_ISSUE) },
-            )
+            WelcomeFlow(onFinish = { settings.seenOnboarding = true; showOnboarding = false })
         }
 
         // Editor coach marks: after onboarding, the first time the editor is shown.

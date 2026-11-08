@@ -15,20 +15,19 @@
     <string name="screen_link_source_code">Source code</string>
 
     <!-- Welcome / onboarding -->
-    <string name="screen_welcome_page1_title">Spectral film simulation,\non your phone</string>
-    <string name="screen_welcome_page1_body">Spektrafilm renders your photos through a physically-modelled film stock and darkroom print — spectrum-accurate, not a preset filter.</string>
-    <string name="screen_welcome_page2_title">How it works</string>
-    <string name="screen_welcome_page2_body">Pick a photo or RAW/DNG → choose a film stock and a print paper → tune the look (grain, halation, couplers, glare) → export at full resolution.</string>
-    <string name="screen_welcome_page3_title">Under the hood</string>
-    <string name="screen_welcome_page3_body">A bit-exact port of the spektrafilm spectral pipeline, RAW decoding via LibRaw and a Material 3 Compose UI. Previews are downscaled for speed; exports render at full resolution.</string>
-    <string name="screen_welcome_page4_title">Credits</string>
-    <string name="screen_welcome_page4_body">Dedicated to the pixls.us community. Film modeling powered by spektrafilm (Andrea Volpato). Thanks to colour-science and LibRaw. Free software under the GPLv3.</string>
+    <string name="screen_intro_look_title">Real film looks</string>
+    <string name="screen_intro_look_body">For your own photos.</string>
+    <string name="screen_intro_tap_title">Tap a film</string>
+    <string name="screen_intro_tap_body">One tap changes the whole look.</string>
+    <string name="screen_intro_save_title">Save it</string>
+    <string name="screen_intro_save_body">Full quality, ready to share.</string>
+    <string name="screen_intro_digital">Digital</string>
+    <string name="screen_intro_saved">Saved</string>
     <string name="screen_welcome_skip">Skip</string>
     <string name="screen_welcome_next">Next</string>
     <string name="screen_welcome_get_started">Get started</string>
     <string name="screen_welcome_page_indicator">Page %1$d of %2$d</string>
     <string name="screen_welcome_author_links" translatable="false">Akshay · instagram.com/akshay.pool · youtube.com/@Akshayishere</string>
-    <string name="screen_welcome_open_settings">Settings</string>
 
     <!-- About -->
     <string name="screen_about_title">About</string>
