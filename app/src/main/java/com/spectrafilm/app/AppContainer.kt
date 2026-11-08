@@ -118,6 +118,7 @@ internal class AppContainer(context: Context) {
                 LibraryViewModel.androidSidecars(app, recipes),
                 writes = processScope,
                 writeLock = libraryWriteLock,
+                queryStore = LibraryViewModel.androidQueryStore(settings),
             )
         },
     )

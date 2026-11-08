@@ -608,9 +608,10 @@ internal fun MainActivity.AppRoot(
                         currentUri = activeRestoration.source.uri,
                         onBack = { pop() },
                         onOpen = { uri ->
-                            // The folder, in grid order, so a sideways swipe on the photo in
-                            // the editor can step to the next or previous frame.
-                            PhotoBrowse.frames = libraryVm.state.value.entries.map {
+                            // The frames on screen, in grid order (after sort, filter and
+                            // search), so a sideways swipe on the photo in the editor steps
+                            // to the next or previous frame the user was looking at.
+                            PhotoBrowse.frames = libraryVm.visibleEntries().map {
                                 BrowseFrame(it.documentUri, it.isRaw)
                             }
                             // The same dispatch as a shared or picked file: the editor

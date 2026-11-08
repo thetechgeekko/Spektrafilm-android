@@ -306,6 +306,26 @@
         <item quantity="one">Saved %1$d. %2$d edit file could not be written.</item>
         <item quantity="other">Saved %1$d. %2$d edit files could not be written.</item>
     </plurals>
+    <string name="library_search_hint">Search file names</string>
+    <string name="library_search_clear">Clear search</string>
+    <string name="library_filter_all">All</string>
+    <string name="library_filter_raw" translatable="false">RAW</string>
+    <string name="library_filter_photo">JPEG and HEIC</string>
+    <string name="library_filter_edited">Edited</string>
+    <string name="library_filter_not_edited">Not edited</string>
+    <string name="library_no_match_title">No photos match</string>
+    <string name="library_no_match_body">Clear the search or pick another filter to see the rest of the folder.</string>
+    <string name="library_clear_filters">Show all photos</string>
+    <string name="library_sort">Sort</string>
+    <string name="library_sort_date">Date</string>
+    <string name="library_sort_name">Name</string>
+    <string name="library_sort_size">File size</string>
+    <string name="library_order_newest">Newest first</string>
+    <string name="library_order_oldest">Oldest first</string>
+    <string name="library_order_a_z">A to Z</string>
+    <string name="library_order_z_a">Z to A</string>
+    <string name="library_order_largest">Largest first</string>
+    <string name="library_order_smallest">Smallest first</string>
     <string name="library_select_action">Select</string>
     <string name="library_select_all">Select all</string>
     <string name="library_paste_edit">Paste edit</string>
