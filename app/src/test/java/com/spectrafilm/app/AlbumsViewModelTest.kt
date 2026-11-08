@@ -77,6 +77,24 @@ class AlbumsViewModelTest {
         assertNull(model.delete("missing"))
     }
 
+    @Test fun anAdditionWaitingToBeSavedKeepsItsFolderGrant() {
+        val store = FakeStore(listOf(Album("a", "A", 1L)))
+        val lock = Mutex()
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        idle()
+        // Another edit holds the lock, so this one waits; a grant sweep now must keep folder B.
+        kotlinx.coroutines.runBlocking { lock.lock() }
+        val fromB = AlbumItem("content://doc/9", "f9.jpg", "image/jpeg", 9L, 1L, "content://tree/b")
+        var added: Int? = -1
+        model.add("a", listOf(fromB)) { added = it }; idle()
+        model.create("New", listOf(fromB.copy(uri = "content://doc/10"))); idle()
+        assertTrue("content://tree/b" in AlbumUndoHold.uris())
+        lock.unlock(); idle()
+        assertEquals(1, added)
+        assertEquals(2, store.saved.size)
+        assertTrue("content://tree/b" !in AlbumUndoHold.uris())
+    }
+
     @Test fun createReportsWhatTheAlbumBoundsAccepted() {
         val store = FakeStore()
         val model = vm(store); idle()

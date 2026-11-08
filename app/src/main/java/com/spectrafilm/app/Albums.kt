@@ -205,7 +205,8 @@ internal object AlbumCodec {
  * Grants of albums deleted while their Undo is still offered. The album is already gone from
  * the file, so without this a grant sweep in that window (e.g. the Library moving to another
  * folder) could revoke a folder only that album used, and Undo would bring back photos that no
- * longer open. Process-wide, like the sweep that reads it.
+ * longer open. Also the items of an addition not yet saved ([holdPending]). Process-wide, like
+ * the sweep that reads it.
  */
 internal object AlbumUndoHold {
     private val held = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
@@ -213,6 +214,19 @@ internal object AlbumUndoHold {
     fun hold(albumId: String, uris: Set<String>) { held[albumId] = uris }
 
     fun release(albumId: String) { held.remove(albumId) }
+
+    private val pending = java.util.concurrent.atomic.AtomicLong()
+
+    /**
+     * Holds the grants of items an edit is about to add, from the tap until the save is done:
+     * the edit runs later, and a sweep in between would see neither the file nor the folder
+     * keeping them. Returns the key for [release].
+     */
+    fun holdPending(items: List<AlbumItem>): String {
+        val key = "pending:${pending.incrementAndGet()}"
+        if (items.isNotEmpty()) held[key] = items.mapTo(HashSet()) { it.treeUri ?: it.uri }
+        return key
+    }
 
     fun uris(): Set<String> = held.values.flatMapTo(HashSet()) { it }
 }
@@ -343,6 +357,7 @@ internal class AlbumsViewModel(
         val id = newId()
         val clean = AlbumOps.cleanName(name)
         var made: Album? = null
+        val hold = AlbumUndoHold.holdPending(items)
         edit(
             change = { albums ->
                 AlbumOps.create(albums, id, clean.ifEmpty { id }, now(), items).also { next ->
@@ -350,6 +365,7 @@ internal class AlbumsViewModel(
                 }
             },
             onResult = { saved ->
+                AlbumUndoHold.release(hold)
                 val album = made.takeIf { saved }
                 onDone(album?.id, album?.items?.size ?: 0)
             },
@@ -383,6 +399,7 @@ internal class AlbumsViewModel(
      */
     fun add(id: String, items: List<AlbumItem>, onDone: (added: Int?) -> Unit = {}) {
         var added = 0
+        val hold = AlbumUndoHold.holdPending(items)
         edit(
             change = { albums ->
                 val before = albums.firstOrNull { it.id == id }?.items?.size ?: 0
@@ -390,7 +407,10 @@ internal class AlbumsViewModel(
                     added = (next.firstOrNull { it.id == id }?.items?.size ?: 0) - before
                 }
             },
-            onResult = { saved -> onDone(added.takeIf { saved }) },
+            onResult = { saved ->
+                AlbumUndoHold.release(hold)
+                onDone(added.takeIf { saved })
+            },
         )
     }
 
