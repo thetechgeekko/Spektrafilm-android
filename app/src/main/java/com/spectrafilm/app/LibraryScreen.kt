@@ -67,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -571,6 +572,10 @@ private fun LibraryGrid(
                             line.row.entries.forEachIndexed { i, entry ->
                                 val w = with(density) { line.row.widths[i].toDp() }
                                 val h = with(density) { line.row.height.toDp() }
+                                // Keyed by file: a row named by its first frame can change its later
+                                // frames on a filter or reflow, and a cell's thumbnail state must
+                                // never carry over to a different file.
+                                key(entry.documentUri) {
                                 LibraryCell(
                                     entry,
                                     current = entry.documentUri == currentUri,
@@ -584,6 +589,7 @@ private fun LibraryGrid(
                                     },
                                     onLongClick = { onToggleSelected(entry.documentUri) },
                                 )
+                                }
                             }
                         }
                     }
