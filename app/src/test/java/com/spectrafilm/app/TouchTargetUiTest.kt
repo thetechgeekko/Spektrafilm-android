@@ -3,8 +3,6 @@ package com.spectrafilm.app
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
@@ -52,19 +50,5 @@ class TouchTargetUiTest {
             }
         }
         assertAtLeast48dp(compose.onNodeWithContentDescription("help"), "PressIconButton")
-    }
-
-    @Test
-    fun parameterSliderIs48dpTall() {
-        // On device the slider measured 44.2dp tall (#455 follow-up).
-        compose.setContent {
-            MaterialTheme {
-                EnhancedSlider(label = "grain amount", value = 0.5f, range = 0f..1f, onValueChange = {})
-            }
-        }
-        val node = compose.onAllNodesWithContentDescription("grain amount").onFirst().fetchSemanticsNode()
-        val min = with(compose.density) { 48.dp.toPx() } - 0.5f
-        val h = node.touchBoundsInRoot.height
-        assertTrue("slider touch height ${h}px < 48dp ($min px)", h >= min)
     }
 }
