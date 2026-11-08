@@ -89,6 +89,19 @@
     <string name="tool_masks_intro">Local adjustments: a mask limits the full adjustment set — exposure, temp/tint, saturation, hue, contrast, whites/blacks, and the detail controls — to one area. A radial targets a spot (brighten a face); a gradient ramps across the frame (darken a sky from the top). Composited on the final image — the film render is untouched.</string>
     <string name="tool_masks_add_radial">+ Radial mask</string>
     <string name="tool_masks_add_gradient">+ Gradient mask</string>
+    <string name="tool_masks_add_skin">Skin (AI)</string>
+    <string name="tool_masks_skin_face">Face skin</string>
+    <string name="tool_masks_skin_body">Body skin</string>
+    <string name="tool_masks_skin_softness">Edge softness</string>
+    <string name="tool_masks_skin_softness_help">How gradually the selection fades out at the edge of the skin.</string>
+    <string name="tool_masks_skin_expand">Expand</string>
+    <string name="tool_masks_skin_expand_help">Grow (+) or shrink (−) the selection around the skin.</string>
+    <string name="tool_masks_skin_downloading" formatted="true">Downloading the skin finder (16 MB, once)… %1$d%%</string>
+    <string name="tool_masks_skin_finding">Finding skin…</string>
+    <string name="tool_masks_skin_found">Skin found on this phone. Your photo is never uploaded.</string>
+    <string name="tool_masks_skin_none">No person found in this photo, so this mask selects nothing.</string>
+    <string name="tool_masks_skin_unavailable">Couldn\'t load the skin finder. Check your connection and try again.</string>
+    <string name="tool_masks_skin_retry">Try again</string>
     <string name="tool_masks_tab">Mask %1$d</string>
     <string name="tool_masks_position_on_photo">Position on photo</string>
     <string name="tool_masks_temp">Temp</string>

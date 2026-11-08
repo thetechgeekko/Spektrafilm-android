@@ -196,4 +196,27 @@ class MaskSemanticTest {
         assertEquals(MaskGesture.Handle.NONE, MaskGesture.pick(skin, 10f, 10f, 100, 100))
         assertSame(skin, MaskGesture.applyDrag(skin, MaskGesture.Handle.MOVE, 0.1f, 0.1f))
     }
+
+    @Test
+    fun peakIsTheHighestSummedProbability() {
+        assertEquals(1f, field.peak(setOf(SemanticClass.FACE_SKIN)), 0f)
+        assertEquals(1f, field.peak(setOf(SemanticClass.BODY_SKIN)), 0f)
+        val faint = SemanticField(2, 1, mapOf(SemanticClass.FACE_SKIN to floatArrayOf(0.1f, 0.3f)))
+        assertEquals(0.3f, faint.peak(setOf(SemanticClass.FACE_SKIN, SemanticClass.BODY_SKIN)), 1e-6f)
+        assertEquals(0f, faint.peak(setOf(SemanticClass.BODY_SKIN)), 0f)
+    }
+
+    @Test
+    fun fingerprintFollowsTheContent() {
+        val same = SemanticField(4, 2, mapOf(
+            SemanticClass.FACE_SKIN to floatArrayOf(1f, 1f, 0f, 0f, 1f, 1f, 0f, 0f),
+            SemanticClass.BODY_SKIN to floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f),
+        ))
+        val other = SemanticField(4, 2, mapOf(
+            SemanticClass.FACE_SKIN to floatArrayOf(1f, 1f, 0f, 0f, 1f, 1f, 0f, 0f),
+            SemanticClass.BODY_SKIN to floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0.5f, 1f),
+        ))
+        assertEquals(field.fingerprint(), same.fingerprint())
+        assertFalse(field.fingerprint() == other.fingerprint())
+    }
 }

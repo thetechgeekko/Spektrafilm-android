@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">부분 보정: 마스크는 노출, 색온도/색조, 채도, 색상, 대비, 흰색/검은색, 디테일 조정 전체를 한 영역으로 제한합니다. 원형은 한 지점을 겨냥하고(얼굴 밝히기 등), 그라디언트는 화면을 가로질러 변합니다(하늘을 위에서부터 어둡게 하기 등). 최종 이미지에 합성되므로 필름 렌더링은 바뀌지 않습니다.</string>
     <string name="tool_masks_add_radial">+ 원형 마스크</string>
     <string name="tool_masks_add_gradient">+ 그라디언트 마스크</string>
+    <string name="tool_masks_add_skin">피부(AI)</string>
+    <string name="tool_masks_skin_face">얼굴 피부</string>
+    <string name="tool_masks_skin_body">몸 피부</string>
+    <string name="tool_masks_skin_softness">가장자리 부드러움</string>
+    <string name="tool_masks_skin_softness_help">피부 가장자리에서 선택 영역이 얼마나 부드럽게 사라지는지 정합니다.</string>
+    <string name="tool_masks_skin_expand">확장</string>
+    <string name="tool_masks_skin_expand_help">피부 주변 선택 영역을 넓히거나(+) 좁힙니다(−).</string>
+    <string name="tool_masks_skin_downloading" formatted="true">피부 감지 모델 다운로드 중(16MB, 한 번만)… %1$d%%</string>
+    <string name="tool_masks_skin_finding">피부를 찾는 중…</string>
+    <string name="tool_masks_skin_found">이 휴대폰에서 피부를 찾았습니다. 사진은 업로드되지 않습니다.</string>
+    <string name="tool_masks_skin_none">이 사진에서 사람을 찾지 못해 이 마스크는 아무것도 선택하지 않습니다.</string>
+    <string name="tool_masks_skin_unavailable">피부 감지 모델을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.</string>
+    <string name="tool_masks_skin_retry">다시 시도</string>
     <string name="tool_masks_tab">마스크 %1$d</string>
     <string name="tool_masks_position_on_photo">사진에서 위치 지정</string>
     <string name="tool_masks_temp">색온도</string>

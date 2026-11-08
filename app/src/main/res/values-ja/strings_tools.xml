@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">部分補正：マスクは、露光量、色温度/色かぶり、彩度、色相、コントラスト、白レベル/黒レベル、ディテールの各調整を一つの範囲に限定します。円形は一点を狙い（顔を明るくするなど）、グラデーションは画面を横切って変化します（空を上から暗くするなど）。最終画像に合成されるため、フィルムのレンダリングには影響しません。</string>
     <string name="tool_masks_add_radial">+ 円形マスク</string>
     <string name="tool_masks_add_gradient">+ グラデーションマスク</string>
+    <string name="tool_masks_add_skin">肌（AI）</string>
+    <string name="tool_masks_skin_face">顔の肌</string>
+    <string name="tool_masks_skin_body">体の肌</string>
+    <string name="tool_masks_skin_softness">境界のぼかし</string>
+    <string name="tool_masks_skin_softness_help">肌の境界で選択範囲がどれだけなだらかに消えるか。</string>
+    <string name="tool_masks_skin_expand">拡張</string>
+    <string name="tool_masks_skin_expand_help">肌の周りの選択範囲を広げる（+）か狭める（−）。</string>
+    <string name="tool_masks_skin_downloading" formatted="true">肌検出モデルをダウンロード中（16 MB、初回のみ）… %1$d%%</string>
+    <string name="tool_masks_skin_finding">肌を検出中…</string>
+    <string name="tool_masks_skin_found">この端末で肌を検出しました。写真がアップロードされることはありません。</string>
+    <string name="tool_masks_skin_none">この写真では人物が見つからないため、このマスクは何も選択しません。</string>
+    <string name="tool_masks_skin_unavailable">肌検出モデルを読み込めませんでした。接続を確認して再試行してください。</string>
+    <string name="tool_masks_skin_retry">再試行</string>
     <string name="tool_masks_tab">マスク %1$d</string>
     <string name="tool_masks_position_on_photo">写真上で配置</string>
     <string name="tool_masks_temp">色温度</string>

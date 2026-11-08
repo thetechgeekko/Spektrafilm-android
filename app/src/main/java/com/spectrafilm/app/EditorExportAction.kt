@@ -18,6 +18,7 @@ import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.material3.SnackbarHostState
 import androidx.core.content.ContextCompat
 import com.spectrafilm.app.masks.MaskCompositor
+import com.spectrafilm.app.masks.hasSemantic
 import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.RenderKind
 import com.spectrafilm.engine.SimResult
@@ -146,7 +147,11 @@ internal fun startEditorExport(
         val exportSaturation = state.saturation
         val exportVibrance = state.vibrance
         val exportGamutCompress = state.gamutCompress
+        // Skin masks are bound here, once, to the field found for this photo; the cache key below
+        // names that field so an export with skin found never reuses one rendered without it.
+        val exportSkin = SkinFields.current()
         val exportAdjustments = state.localAdjustments.toList()
+            .withSkinField(exportParams.io, entry = exportSkin)
         val exportJpegQuality = exportOptions.jpegQuality
         val exportSourceUri = sourceUri
         val exportDecodeRequest = currentSourceDecodeRequest()
@@ -156,7 +161,8 @@ internal fun startEditorExport(
         val exportDecodeIdentity = decodeIdentityOf(exportDecodeRequest)
         val exportGradeKey = ExportCacheKey.Grade(
             exportCctf, exportSaturation, exportVibrance,
-            exportGamutCompress, exportAdjustments,
+            exportGamutCompress, state.localAdjustments.toList(),
+            skinField = if (state.localAdjustments.any { it.mask.hasSemantic }) exportSkin?.fingerprint ?: "none" else null,
         )
         val launched = ExportWorkRuntime.launch(
             context = exportContext,

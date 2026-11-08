@@ -80,7 +80,7 @@ internal suspend fun CoroutineScope.runDraftPreviewPass(
                         gradeBufferToBitmap(scratch, pristine.width,
                             pristine.height, pristine.colorSpace, state.savingCctfEncoding,
                             state.saturation, state.vibrance, state.gamutCompress,
-                            state.localAdjustments)
+                            state.localAdjustments.withSkinField(state.cropIo()))
                     }
                 }
             }
@@ -140,7 +140,7 @@ internal suspend fun CoroutineScope.runDraftPreviewPass(
                     }
                 }.use { res ->
                     renderId = res.renderId
-                    simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments)
+                    simResultToBitmapGraded(res, state.savingCctfEncoding, state.saturation, state.vibrance, state.gamutCompress, state.localAdjustments.withSkinField(state.cropIo()))
                 }
             }
         }
@@ -255,7 +255,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                 gradeBufferToBitmap(scratch, cached.width,
                                     cached.height, cached.colorSpace, state.savingCctfEncoding,
                                     state.saturation, state.vibrance, state.gamutCompress,
-                                    state.localAdjustments)
+                                    state.localAdjustments.withSkinField(state.cropIo()))
                             }
                             after = rendered
                             val submission = Triple(prevBefore, rendered, false)
@@ -319,7 +319,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                         state.saturation,
                                         state.vibrance,
                                         state.gamutCompress,
-                                        state.localAdjustments,
+                                        state.localAdjustments.withSkinField(state.cropIo()),
                                     ).also { bitmap -> after = bitmap }
                                     // The test seam is exactly the completed native settle's
                                     // production completion-before-publication boundary. The

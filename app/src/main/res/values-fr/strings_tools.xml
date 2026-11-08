@@ -76,6 +76,19 @@
     <string name="tool_masks_intro">Réglages locaux : un masque limite l’ensemble des réglages (exposition, température/teinte, saturation, teinte chromatique, contraste, blancs/noirs et réglages de détail) à une zone. Un masque radial cible un point (éclaircir un visage) ; un dégradé traverse le cadre (assombrir un ciel depuis le haut). Composé sur l’image finale : le rendu du film n’est pas modifié.</string>
     <string name="tool_masks_add_radial">+ Masque radial</string>
     <string name="tool_masks_add_gradient">+ Masque dégradé</string>
+    <string name="tool_masks_add_skin">Peau (IA)</string>
+    <string name="tool_masks_skin_face">Peau du visage</string>
+    <string name="tool_masks_skin_body">Peau du corps</string>
+    <string name="tool_masks_skin_softness">Douceur du bord</string>
+    <string name="tool_masks_skin_softness_help">Progressivité avec laquelle la sélection s\'estompe au bord de la peau.</string>
+    <string name="tool_masks_skin_expand">Étendre</string>
+    <string name="tool_masks_skin_expand_help">Agrandir (+) ou réduire (−) la sélection autour de la peau.</string>
+    <string name="tool_masks_skin_downloading" formatted="true">Téléchargement du détecteur de peau (16 Mo, une seule fois)… %1$d %%</string>
+    <string name="tool_masks_skin_finding">Recherche de la peau…</string>
+    <string name="tool_masks_skin_found">Peau trouvée sur ce téléphone. Votre photo n\'est jamais envoyée.</string>
+    <string name="tool_masks_skin_none">Aucune personne trouvée sur cette photo : ce masque ne sélectionne rien.</string>
+    <string name="tool_masks_skin_unavailable">Impossible de charger le détecteur de peau. Vérifiez la connexion et réessayez.</string>
+    <string name="tool_masks_skin_retry">Réessayer</string>
     <string name="tool_masks_tab">Masque %1$d</string>
     <string name="tool_masks_position_on_photo">Placer sur la photo</string>
     <string name="tool_masks_temp">Temp.</string>
