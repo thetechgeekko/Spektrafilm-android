@@ -44,12 +44,13 @@ class SharedSourceCopiesTest {
         assertEquals(listOf("a.jpg"), dir.list()!!.sorted())
     }
 
-    @Test fun pruneKeepsOnlyTheCurrentSource() {
+    @Test fun pruneKeepsTheSourceAndCopiesInFlight() {
         val dir = File(tmp.root, SharedSourceCopies.DIR).apply { mkdirs() }
-        listOf("1-a.jpg", "2-b.jpg", "3-c.jpg.partial").forEach { File(dir, it).writeText("x") }
-        SharedSourceCopies.pruneDir(dir, "2-b.jpg")
-        assertEquals(listOf("2-b.jpg"), dir.list()!!.toList())
-        SharedSourceCopies.pruneDir(dir, null)
+        listOf("1-a.jpg", "2-b.jpg", "3-c.jpg.partial", "4-d.jpg").forEach { File(dir, it).writeText("x") }
+        // 2-b is the source, 3-c is still being written, 4-d finished but is not adopted yet.
+        SharedSourceCopies.pruneDir(dir, setOf("2-b.jpg", "3-c.jpg", "4-d.jpg"))
+        assertEquals(listOf("2-b.jpg", "3-c.jpg.partial", "4-d.jpg"), dir.list()!!.sorted())
+        SharedSourceCopies.pruneDir(dir, emptySet())
         assertTrue(dir.list()!!.isEmpty())
     }
 }

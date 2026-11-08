@@ -1116,7 +1116,7 @@ internal fun EditorScreen(
                     previewTick++
                     probeLabel?.let(editorProbe::publishProbeSource)
                     // One working copy at most (#508): drop any that is no longer the source.
-                    launch(dispatchers.io) { SharedSourceCopies.prune(ctx, ref.uri) }
+                    launch(dispatchers.io) { SharedSourceCopies.prune(ctx) }
                 }
                 is ReconciledSourceMutation.Rejected -> {
                     Diag.w("source adoption failed: ${outcome.failure.message}")

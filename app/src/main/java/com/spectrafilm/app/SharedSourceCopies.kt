@@ -23,8 +23,8 @@ import java.io.InputStream
  * So such a photo is copied once, while the grant is still valid, into app-private storage and
  * the editor adopts the copy through this app's own non-exported FileProvider. The copy is a
  * plain content:// source to the rest of the editor, it survives process death, and nothing
- * outside the app can read it. Only one copy is kept: [prune] removes every copy that is no
- * longer the editor's source.
+ * outside the app can read it. [prune] removes every copy that is neither the editor's current
+ * source nor still in flight, so at most one settled copy remains.
  */
 internal object SharedSourceCopies {
     const val DIR = "shared-sources"
@@ -47,28 +47,46 @@ internal object SharedSourceCopies {
     fun copy(context: Context, uri: Uri, name: String, mime: String?): Uri? {
         val dir = File(context.filesDir, DIR)
         val target = File(dir, copyFileName(System.currentTimeMillis(), name, extensionFor(mime)))
+        // Pending from before the first byte, so a concurrent [prune] spares the .partial file
+        // and the finished copy until it is adopted or discarded.
+        synchronized(lock) { pending += target.name }
         val written = runCatching {
             context.contentResolver.openInputStream(uri)?.use { input -> writeCopy(input, dir, target) }
-        }.getOrNull() ?: return null
-        return runCatching { FileProvider.getUriForFile(context, authority(context), written) }
-            .getOrElse {
-                written.delete()
-                null
+        }.getOrNull()
+        val published = written?.let {
+            runCatching { FileProvider.getUriForFile(context, authority(context), it) }.getOrNull()
+        }
+        if (published == null) {
+            synchronized(lock) {
+                pending -= target.name
+                target.delete()
             }
+        }
+        return published
     }
 
-    /** Deletes every working copy except the one at [keepUri] (null keeps none). Off main. */
-    fun prune(context: Context, keepUri: String?) {
-        val keep = keepUri
+    /**
+     * Deletes every working copy that is neither the editor's DURABLE source (read from the
+     * source store now, under the lock, never from a caller's possibly stale snapshot) nor a
+     * copy still in flight or awaiting adoption. Off main.
+     */
+    fun prune(context: Context) = synchronized(lock) {
+        val current = runCatching { SharedPreferencesSourceRefStore(context).load()?.uri }
+            .getOrElse { return@synchronized } // unknown source: delete nothing
             ?.takeIf { isCopy(context, it) }
             ?.let { Uri.parse(it).lastPathSegment }
-        pruneDir(File(context.filesDir, DIR), keep)
+        current?.let { pending -= it } // adopted: an ordinary source from here on
+        pruneDir(File(context.filesDir, DIR), keep = pending + setOfNotNull(current))
     }
 
     /** Deletes one working copy, e.g. a copy overtaken by a newer selection. Off main. */
     fun delete(context: Context, copy: Uri) {
         if (!isCopy(context, copy.toString())) return
-        copy.lastPathSegment?.let { File(File(context.filesDir, DIR), it).delete() }
+        val name = copy.lastPathSegment ?: return
+        synchronized(lock) {
+            pending -= name
+            File(File(context.filesDir, DIR), name).delete()
+        }
     }
 
     private fun extensionFor(mime: String?): String? =
@@ -109,11 +127,17 @@ internal object SharedSourceCopies {
         return target
     }
 
-    internal fun pruneDir(dir: File, keepName: String?) {
+    /** Deletes every file in [dir] except those named in [keep] and their `.partial` files. */
+    internal fun pruneDir(dir: File, keep: Set<String>) {
         dir.listFiles()?.forEach { file ->
-            if (file.name != keepName) file.delete()
+            if (file.name !in keep && file.name.removeSuffix(".partial") !in keep) file.delete()
         }
     }
 
     private const val MAX_NAME_CHARS = 96
+
+    private val lock = Any()
+
+    /** Copies written or being written but not yet adopted or discarded; guarded by [lock]. */
+    private val pending = mutableSetOf<String>()
 }
