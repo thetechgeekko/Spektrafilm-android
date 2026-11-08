@@ -26,6 +26,14 @@
 -keep class com.spectrafilm.tiffwriter.TiffCancellationToken { *; }
 -keep class com.spectrafilm.pngwriter.PngCancellationToken { *; }
 -keepclasseswithmembernames class * { native <methods>; }
+# LiteRT (on-device skin finder): its native runtime looks up Kotlin/Java classes, fields and
+# methods by name, which R8 cannot see. Keep the whole runtime package rather than trusting its
+# consumer rules -- a wrong guess here fails silently (skin masks just stay empty), see CLAUDE.md.
+-keep class com.google.ai.edge.litert.** { *; }
+# Its Play AI-pack delivery classes reference the Play libraries excluded in build.gradle.kts;
+# that path is never called here (the model comes from SkinModelStore).
+-dontwarn com.google.android.play.**
+-dontwarn com.google.android.gms.**
 
 # ---- Release-candidate instrumentation boundary ----
 # The separately packaged release AndroidTest APK exercises process-death recovery,

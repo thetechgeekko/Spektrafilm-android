@@ -231,6 +231,15 @@ dependencies {
     // Installs the recorded Baseline Profile on sideloaded installs too (GitHub APK, no Play).
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":baselineprofile"))
+    // On-device skin finder for AI masks (CPU only; the model is downloaded on first use, not bundled).
+    // LiteRT 2.x also depends on Google Play's AI-pack / asset delivery (play-services-basement,
+    // Play Core, and through them Room, WorkManager and Guava). That path is only for models shipped
+    // as Play AI packs; this GitHub-distributed GPLv3 app downloads its model itself and never calls
+    // it, so the closed-source Play libraries are kept out of the APK.
+    implementation(libs.litert) {
+        exclude(group = "com.google.android.play")
+        exclude(group = "com.google.android.gms")
+    }
 
     testImplementation(libs.junit)
     // Real org.json on the unit-test classpath (the android.jar stub throws "not
