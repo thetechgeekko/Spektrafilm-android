@@ -170,7 +170,9 @@ internal fun PreviewRegion(
             }
             when {
                 gpuActive -> Unit
-                bmp != null && compareMode && before != null ->
+                // Holding Compare shows the whole original even over the latched split
+                // view; releasing it brings the split back.
+                bmp != null && compareMode && before != null && !peekOriginal ->
                     CompareSlider(before = before, after = bmp)
                 bmp != null -> ZoomableImage(
                     bitmap = bmp,

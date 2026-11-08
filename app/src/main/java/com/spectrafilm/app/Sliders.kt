@@ -94,13 +94,16 @@ fun EnhancedSlider(
     val formatted = formatValue(value, decimals)
     // Which detent zone the last drag frame was in, so the haptic tick fires on arrival only.
     val lastZone = remember { mutableStateOf(SliderZone.FREE) }
-    val latestChange = rememberUpdatedState(onValueChange)
-    val latestFinished = rememberUpdatedState(onValueChangeFinished)
-    // What the floating readout needs to offer "tap to type" after the finger lifts.
+    // What the floating readout needs to offer "tap to type" after the finger lifts. It
+    // captures THIS composition's setters, not the latest ones: the same slider slot can be
+    // recomposed for another target (Masks reuses it when the selected mask changes) while
+    // the HUD lingers, and a typed value must land on the control the readout came from.
+    val setNow = onValueChange
+    val finishNow = onValueChangeFinished
     val readoutEdit: (Float) -> SliderReadoutEdit = { current ->
         SliderReadoutEdit(range, step, decimals, current) { v ->
-            latestChange.value(snap(v, range, step))
-            latestFinished.value?.invoke()
+            setNow(snap(v, range, step))
+            finishNow?.invoke()
         }
     }
     Column(modifier.fillMaxWidth().multiTouchPeek(interaction.onMultiTouch)) {
