@@ -192,7 +192,7 @@ private fun CarouselItemScope.StripTile(
             stock.label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = Color.White,
+            color = SpektraBrand.onCanvas,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
@@ -204,7 +204,7 @@ private fun CarouselItemScope.StripTile(
                     val range = (info.maxSize - info.minSize).coerceAtLeast(1f)
                     alpha = ((info.size - info.minSize) / range * 2f - 0.6f).coerceIn(0f, 1f)
                 }
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                .background(Brush.verticalGradient(listOf(Color.Transparent, SpektraBrand.scrim.copy(alpha = 0.6f))))
                 .padding(start = 14.dp, end = 10.dp, top = 18.dp, bottom = 10.dp),
         )
     }
