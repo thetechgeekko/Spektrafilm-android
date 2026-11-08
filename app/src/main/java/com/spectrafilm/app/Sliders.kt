@@ -95,32 +95,7 @@ fun EnhancedSlider(
     val formatted = formatValue(value, decimals)
     // Which detent zone the last drag frame was in, so the haptic tick fires on arrival only.
     val lastZone = remember { mutableStateOf(SliderZone.FREE) }
-    // What the floating readout needs to offer "tap to type" after the finger lifts. The
-    // setter goes through the LATEST callbacks, because a caller's callback captures its
-    // state (Masks rebuilds the whole mask list from what it closed over), so an old
-    // callback would write back stale state. The edit is only offered while this slider is
-    // still composed and still shows the value the readout reported; a slider slot reused
-    // for another target (another mask selected) or removed fails that and the HUD closes.
-    val latestChange = rememberUpdatedState(onValueChange)
-    val latestFinished = rememberUpdatedState(onValueChangeFinished)
-    val latestValue = rememberUpdatedState(value)
-    val alive = remember { booleanArrayOf(true) }
-    DisposableEffect(Unit) {
-        alive[0] = true
-        onDispose { alive[0] = false }
-    }
-    val readoutEdit: (Float) -> SliderReadoutEdit = { current ->
-        SliderReadoutEdit(
-            range, step, decimals, current,
-            isCurrent = {
-                val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
-                alive[0] && kotlin.math.abs(latestValue.value - current) <= tol
-            },
-        ) { v ->
-            latestChange.value(snap(v, range, step))
-            latestFinished.value?.invoke()
-        }
-    }
+    val readoutEdit = rememberReadoutEdit(value, range, step, decimals, onValueChange, onValueChangeFinished)
     Column(modifier.fillMaxWidth().multiTouchPeek(interaction.onMultiTouch)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -515,7 +490,7 @@ internal fun fineDragAdvance(
     return (current + dragPx * perPx).coerceIn(range.start, range.endInclusive)
 }
 
-private fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float): Float {
+internal fun snap(v: Float, range: ClosedFloatingPointRange<Float>, step: Float): Float {
     if (step <= 0f) return v.coerceIn(range.start, range.endInclusive)
     val snapped = range.start + (((v - range.start) / step).roundToInt()) * step
     return snapped.coerceIn(range.start, range.endInclusive)
@@ -729,4 +704,43 @@ internal fun detentZone(value: Float, default: Float?, range: ClosedFloatingPoin
     default != null && value == default -> SliderZone.DEFAULT
     value <= range.start || value >= range.endInclusive -> SliderZone.END
     else -> SliderZone.FREE
+}
+
+/**
+ * What the floating readout needs to offer "tap to type" after the finger lifts, for one
+ * control. The setter goes through the LATEST callbacks, because a caller's callback
+ * captures its state (Masks rebuilds the whole mask list from what it closed over), so an
+ * old callback would write back stale state. The edit is only offered while the control is
+ * still composed and still shows the value the readout reported; a slot reused for another
+ * target (another mask selected) or removed fails that and the HUD closes.
+ */
+@Composable
+internal fun rememberReadoutEdit(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    decimals: Int,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)?,
+): (Float) -> SliderReadoutEdit {
+    val latestChange = rememberUpdatedState(onValueChange)
+    val latestFinished = rememberUpdatedState(onValueChangeFinished)
+    val latestValue = rememberUpdatedState(value)
+    val alive = remember { booleanArrayOf(true) }
+    DisposableEffect(Unit) {
+        alive[0] = true
+        onDispose { alive[0] = false }
+    }
+    return { current ->
+        SliderReadoutEdit(
+            range, step, decimals, current,
+            isCurrent = {
+                val tol = maxOf(step / 2f, (range.endInclusive - range.start) * 1e-4f)
+                alive[0] && kotlin.math.abs(latestValue.value - current) <= tol
+            },
+        ) { v ->
+            latestChange.value(snap(v, range, step))
+            latestFinished.value?.invoke()
+        }
+    }
 }

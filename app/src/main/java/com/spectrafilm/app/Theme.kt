@@ -73,6 +73,13 @@ internal object SpektraBrand {
     /** Onboarding gradient end stop. */
     val canvasOnboarding = Color(0xFF0A0A12)
 
+    /**
+     * White-balance gradient bars (Instruments.kt): cool to warm, and green to magenta.
+     * Fixed, not themed, because the bar shows the colour shift being applied to the photo.
+     */
+    val warmthStops = listOf(Color(0xFF4F86D9), Color(0xFFD8D2C8), Color(0xFFF0A443))
+    val tintStops = listOf(Color(0xFF4CAF6A), Color(0xFFCFC8D0), Color(0xFFC04FB0))
+
     /** Export darkroom (ExportDevelopTray.kt): the safelit room, dark in every theme. */
     val darkroomScrim = Color(0xF5120A08)
 

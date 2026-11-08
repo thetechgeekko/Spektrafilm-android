@@ -151,12 +151,16 @@ internal fun ImportRawSection(s: ParamsState, isRaw: Boolean, onPickNeutral: () 
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        EnhancedSlider(stringResource(R.string.editor_wb_warmth), s.creativeWbTemp, -100f..100f, { s.creativeWbTemp = it },
-            step = 1f, decimals = 0, default = 0f,
-            tooltip = stringResource(R.string.editor_wb_warmth_tooltip))
-        EnhancedSlider(stringResource(R.string.editor_wb_tint), s.creativeWbTint, -100f..100f, { s.creativeWbTint = it },
-            step = 1f, decimals = 0, default = 0f,
-            tooltip = stringResource(R.string.editor_wb_tint_tooltip))
+        // Gradient bars (instrument catalogue: gradBar): the colour under the thumb is the
+        // shift being applied, so the direction reads without the number.
+        Instrument(InstrumentKind.GRAD_BAR, stringResource(R.string.editor_wb_warmth), s.creativeWbTemp, -100f..100f,
+            { s.creativeWbTemp = it }, step = 1f, decimals = 0, default = 0f, gradient = WARMTH_STOPS)
+        Text(stringResource(R.string.editor_wb_warmth_tooltip), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Instrument(InstrumentKind.GRAD_BAR, stringResource(R.string.editor_wb_tint), s.creativeWbTint, -100f..100f,
+            { s.creativeWbTint = it }, step = 1f, decimals = 0, default = 0f, gradient = TINT_STOPS)
+        Text(stringResource(R.string.editor_wb_tint_tooltip), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Divider()
         // Balance to film stock (virtual 85-filter): the escape hatch for tungsten stocks, which

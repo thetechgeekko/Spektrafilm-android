@@ -297,22 +297,30 @@ internal fun HalationSection(s: ParamsState) {
     SectionCard(stringResource(R.string.editor_hal_title), expanded, { expanded = it }, enabledSwitch = s.halationActive,
         onEnabledChange = { s.halationActive = it }, help = ParamHelpText.forKey(ParamHelpText.HALATION)) {
         var advanced by remember { mutableStateOf(false) }
-        // Basic: glow strength + size, the scatter strength, and the highlight boost.
-        EnhancedSlider(stringResource(R.string.editor_hal_amount), s.halHalationAmount, 0f..4f, { s.halHalationAmount = it },
-            step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_hal_amount_tooltip),
-            default = PARAM_DEFAULTS.halHalationAmount)
-        EnhancedSlider(stringResource(R.string.editor_hal_spatial_scale), s.halHalationSpatialScale, 0f..4f,
-            { s.halHalationSpatialScale = it }, step = 0.1f, decimals = 2,
-            tooltip = stringResource(R.string.editor_hal_spatial_scale_tooltip),
-            default = PARAM_DEFAULTS.halHalationSpatialScale)
-        EnhancedSlider(stringResource(R.string.editor_hal_scatter_amount), s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
-            step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_hal_scatter_amount_tooltip),
-            default = PARAM_DEFAULTS.halScatterAmount)
-        EnhancedSlider(stringResource(R.string.editor_hal_boost_ev), s.halBoostEv, 0f..6f, { s.halBoostEv = it },
-            step = 0.5f, decimals = 1,
-            tooltip = stringResource(R.string.editor_hal_boost_ev_tooltip), default = PARAM_DEFAULTS.halBoostEv)
+        // Basic: glow strength + size, the scatter strength, and the highlight boost, as a
+        // row of knobs (instrument catalogue: rotKnob). Drag up or down; a row shows the hint
+        // of the knob last touched.
+        val halAmount = stringResource(R.string.editor_hal_amount)
+        val halScale = stringResource(R.string.editor_hal_spatial_scale)
+        val halScatter = stringResource(R.string.editor_hal_scatter_amount)
+        val halBoost = stringResource(R.string.editor_hal_boost_ev)
+        InstrumentRow(
+            hints = mapOf(
+                halAmount to stringResource(R.string.editor_hal_amount_tooltip),
+                halScale to stringResource(R.string.editor_hal_spatial_scale_tooltip),
+                halScatter to stringResource(R.string.editor_hal_scatter_amount_tooltip),
+                halBoost to stringResource(R.string.editor_hal_boost_ev_tooltip),
+            ),
+        ) {
+            Instrument(InstrumentKind.KNOB, halAmount, s.halHalationAmount, 0f..4f, { s.halHalationAmount = it },
+                step = 0.05f, decimals = 2, default = PARAM_DEFAULTS.halHalationAmount)
+            Instrument(InstrumentKind.KNOB, halScale, s.halHalationSpatialScale, 0f..4f, { s.halHalationSpatialScale = it },
+                step = 0.1f, decimals = 2, default = PARAM_DEFAULTS.halHalationSpatialScale)
+            Instrument(InstrumentKind.KNOB, halScatter, s.halScatterAmount, 0f..4f, { s.halScatterAmount = it },
+                step = 0.05f, decimals = 2, default = PARAM_DEFAULTS.halScatterAmount)
+            Instrument(InstrumentKind.KNOB, halBoost, s.halBoostEv, 0f..6f, { s.halBoostEv = it },
+                step = 0.5f, decimals = 1, default = PARAM_DEFAULTS.halBoostEv)
+        }
         AdvancedToggle(advanced) { advanced = it }
         if (advanced) {
             EnhancedSlider(stringResource(R.string.editor_hal_scatter_spatial_scale), s.halScatterSpatialScale, 0f..4f,
@@ -425,17 +433,23 @@ internal fun GlareSection(s: ParamsState) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        EnhancedSlider(stringResource(R.string.editor_glare_percent), s.glarePercent, 0f..1f, { s.glarePercent = it },
-            step = 0.01f, decimals = 2,
-            tooltip = stringResource(R.string.editor_glare_percent_tooltip),
-            default = PARAM_DEFAULTS.glarePercent)
-        EnhancedSlider(stringResource(R.string.editor_glare_roughness), s.glareRoughness, 0f..1f, { s.glareRoughness = it },
-            step = 0.05f, decimals = 2,
-            tooltip = stringResource(R.string.editor_glare_roughness_tooltip),
-            default = PARAM_DEFAULTS.glareRoughness)
-        EnhancedSlider(stringResource(R.string.editor_glare_blur), s.glareBlur, 0f..10f, { s.glareBlur = it },
-            step = 0.1f, decimals = 2,
-            tooltip = stringResource(R.string.editor_glare_blur_tooltip), default = PARAM_DEFAULTS.glareBlur)
+        val glareAmount = stringResource(R.string.editor_glare_percent)
+        val glareRough = stringResource(R.string.editor_glare_roughness)
+        val glareBlur = stringResource(R.string.editor_glare_blur)
+        InstrumentRow(
+            hints = mapOf(
+                glareAmount to stringResource(R.string.editor_glare_percent_tooltip),
+                glareRough to stringResource(R.string.editor_glare_roughness_tooltip),
+                glareBlur to stringResource(R.string.editor_glare_blur_tooltip),
+            ),
+        ) {
+            Instrument(InstrumentKind.KNOB, glareAmount, s.glarePercent, 0f..1f, { s.glarePercent = it },
+                step = 0.01f, decimals = 2, default = PARAM_DEFAULTS.glarePercent)
+            Instrument(InstrumentKind.KNOB, glareRough, s.glareRoughness, 0f..1f, { s.glareRoughness = it },
+                step = 0.05f, decimals = 2, default = PARAM_DEFAULTS.glareRoughness)
+            Instrument(InstrumentKind.KNOB, glareBlur, s.glareBlur, 0f..10f, { s.glareBlur = it },
+                step = 0.1f, decimals = 2, default = PARAM_DEFAULTS.glareBlur)
+        }
     }
 }
 
