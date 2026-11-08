@@ -158,6 +158,8 @@ internal object SpektraBrand {
     val introTouch = Color(0xE6FFFFFF)
     val introTouchHalo = Color(0x33FFFFFF)
     val introChipScrim = Color(0xB30F0E10)
+    val introChipText = Color(0xFFECE6EE)
+    val introChipAccent = Color(0xFFFFB95C)
 
     /** Onboarding backdrop / film-strip emblem, violet -> red. */
     val spectrum = listOf(

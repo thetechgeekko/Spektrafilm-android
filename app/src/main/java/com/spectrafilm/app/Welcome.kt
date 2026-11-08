@@ -25,20 +25,22 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -217,42 +219,48 @@ private fun IntroPageContent(page: IntroPage, index: Int, scene: ImageBitmap, an
     val saved = stringResource(R.string.screen_intro_saved)
     val measurer = rememberTextMeasurer()
 
-    Column(
-        Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Canvas(
+    // The art takes what is left after the words, so a landscape or split-screen window
+    // still shows the title and body; a window too short for both scrolls.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val side = minOf(maxWidth, 360.dp, (maxHeight - 150.dp).coerceAtLeast(96.dp))
+        Column(
             Modifier
                 .fillMaxWidth()
-                .widthIn(max = 360.dp)
-                .aspectRatio(1f)
-                // Decorative: the title and body below carry the meaning for TalkBack.
-                .clearAndSetSemantics { },
+                .heightIn(min = maxHeight)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            when (index) {
-                0 -> drawWipe(scene, phase, colors, measurer, digital)
-                1 -> drawTapAFilm(scene, phase, colors, measurer)
-                else -> drawSaveIt(scene, phase, colors, measurer, saved)
+            Canvas(
+                Modifier
+                    .size(side)
+                    // Decorative: the title and body below carry the meaning for TalkBack.
+                    .clearAndSetSemantics { },
+            ) {
+                when (index) {
+                    0 -> drawWipe(scene, phase, colors, measurer, digital)
+                    1 -> drawTapAFilm(scene, phase, colors, measurer)
+                    else -> drawSaveIt(scene, phase, colors, measurer, saved)
+                }
             }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                stringResource(page.title),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(page.body),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 320.dp),
+            )
         }
-        Spacer(Modifier.height(28.dp))
-        Text(
-            stringResource(page.title),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.semantics { heading() },
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            stringResource(page.body),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(320.dp),
-        )
     }
 }
 
@@ -413,8 +421,10 @@ private fun DrawScope.drawWipe(scene: ImageBitmap, phase: Float, colors: IntroCo
     val dx = x + w * k
     drawLine(SpektraBrand.introDivider, Offset(dx, y), Offset(dx, y + h), strokeWidth = 3.dp.toPx())
     drawCircle(SpektraBrand.introDivider, radius = 11.dp.toPx(), center = Offset(dx, y + h / 2))
-    chip(measurer, digital, x + 10.dp.toPx(), y + h - 10.dp.toPx(), colors.text, alignEnd = false)
-    chip(measurer, IntroLook.PORTRA.label, x + w - 10.dp.toPx(), y + h - 10.dp.toPx(), colors.accent, alignEnd = true)
+    // The film look fills the left of the divider, so it is labelled on the left. The chips
+    // sit on the photo, which is dark in either theme: fixed light text, not theme roles.
+    chip(measurer, IntroLook.PORTRA.label, x + 10.dp.toPx(), y + h - 10.dp.toPx(), SpektraBrand.introChipAccent, alignEnd = false)
+    chip(measurer, digital, x + w - 10.dp.toPx(), y + h - 10.dp.toPx(), SpektraBrand.introChipText, alignEnd = true)
 }
 
 /* ---------------------------------------------------------------- page 2: tap a film */
