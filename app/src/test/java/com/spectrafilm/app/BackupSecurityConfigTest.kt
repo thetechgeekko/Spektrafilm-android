@@ -85,11 +85,17 @@ class BackupSecurityConfigTest {
         for (forbidden in listOf(
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.READ_LOGS",
-            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VIDEO",
             "android.permission.MANAGE_EXTERNAL_STORAGE",
         )) {
             assertFalse("unexpected permission $forbidden", forbidden in permissions)
         }
+        // The Library's Gallery tab reads the phone's photos (images only), and the legacy
+        // storage permission is capped at the last release that needs it.
+        assertTrue("android.permission.READ_MEDIA_IMAGES" in permissions)
+        val legacyRead = elements(manifest.documentElement, "uses-permission")
+            .single { it.getAttributeNS(android, "name") == "android.permission.READ_EXTERNAL_STORAGE" }
+        assertEquals("32", legacyRead.getAttributeNS(android, "maxSdkVersion"))
         // In-app update (docs/UPDATER_SECURITY.md): the permission is declared, and the
         // installer status receiver must not be reachable by other apps.
         assertTrue("android.permission.REQUEST_INSTALL_PACKAGES" in permissions)
