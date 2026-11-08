@@ -111,6 +111,21 @@ This software is based in part on the work of the Independent JPEG Group.
   upstream `LICENSE.md` and `README.ijg`. Only the libjpeg API is linked; the
   TurboJPEG API is not built.
 
+## On-device skin finder: LiteRT and the Selfie Multiclass model
+
+AI skin masks run Google's **LiteRT** runtime (`com.google.ai.edge.litert:litert`), linked
+unmodified from its published Android package, on the CPU.
+
+- Upstream: https://github.com/google-ai-edge/LiteRT
+- License: Apache License 2.0
+
+The segmentation model, Google's MediaPipe **Selfie Multiclass (256x256)**, is not part of the
+app. It is downloaded unmodified from Google's model storage the first time a skin mask is used,
+and kept only if it matches a pinned SHA-256. It runs on the device; no photo leaves it.
+
+- Model card and terms: https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter
+- License: Apache License 2.0
+
 ## Icons: Material Symbols
 
 The app's icons are Google's **Material Symbols** (Outlined, weight 400, 24 px), built into

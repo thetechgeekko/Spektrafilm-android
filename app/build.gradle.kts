@@ -230,6 +230,8 @@ dependencies {
     // Installs the recorded Baseline Profile on sideloaded installs too (GitHub APK, no Play).
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":baselineprofile"))
+    // On-device skin finder for AI masks (CPU only; the model is downloaded on first use, not bundled).
+    implementation(libs.litert)
 
     testImplementation(libs.junit)
     // Real org.json on the unit-test classpath (the android.jar stub throws "not
