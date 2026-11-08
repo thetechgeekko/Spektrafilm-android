@@ -183,6 +183,9 @@
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Cadre de recadrage sur la photo. Faites glisser un coin ou un bord pour le redimensionner, et faites glisser à l’intérieur pour le déplacer.</string>
     <string name="tool_crop_reset">Rétablir le recadrage sur la photo entière</string>
+    <string name="tool_crop_straighten">Redresser</string>
+    <string name="tool_crop_straighten_desc">Angle de redressement. Faites glisser horizontalement pour incliner la photo ; touchez deux fois pour la remettre à niveau.</string>
+    <string name="tool_crop_straighten_reset">Remettre la photo à niveau (0°)</string>
     <string name="tool_mask_geometry_title">Placer le masque</string>
     <string name="tool_mask_geometry_hint">Glissez pour déplacer · glissez une poignée pour redimensionner le radial / déplacer une extrémité du dégradé.</string>
     <string name="tool_mask_geometry_canvas_desc">Masque sur la photo. Faites glisser la forme pour la déplacer ; faites glisser une poignée pour redimensionner un radial ou déplacer une extrémité d’un dégradé. Les curseurs de position du panneau Masques sont l’alternative pour les lecteurs d’écran.</string>

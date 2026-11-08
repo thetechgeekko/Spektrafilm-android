@@ -183,6 +183,9 @@
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Zuschnittrahmen über dem Foto. Zieh an einer Ecke oder Kante, um die Größe zu ändern, und zieh im Inneren, um ihn zu verschieben.</string>
     <string name="tool_crop_reset">Zuschnitt auf das ganze Foto zurücksetzen</string>
+    <string name="tool_crop_straighten">Begradigen</string>
+    <string name="tool_crop_straighten_desc">Begradigungswinkel. Seitlich ziehen, um das Foto zu neigen; doppelt tippen zum Zurücksetzen.</string>
+    <string name="tool_crop_straighten_reset">Foto ausrichten (0°)</string>
     <string name="tool_mask_geometry_title">Maske platzieren</string>
     <string name="tool_mask_geometry_hint">Ziehen zum Verschieben · an einem Griff ziehen, um die radiale Maske zu skalieren / ein Verlaufsende zu verschieben.</string>
     <string name="tool_mask_geometry_canvas_desc">Maske über dem Foto. Zieh die Form, um sie zu verschieben; zieh an einem Griff, um eine radiale Maske zu skalieren oder ein Verlaufsende zu verschieben. Die Positionsregler im Masken-Bereich sind die Alternative für Screenreader.</string>

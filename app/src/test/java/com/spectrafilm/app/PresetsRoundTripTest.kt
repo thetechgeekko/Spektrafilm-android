@@ -86,6 +86,25 @@ class PresetsRoundTripTest {
     }
 
     @Test
+    fun roundTrip_preservesStraighten_andOldRecipesStayLevel() {
+        val dst = ParamsState()
+        Presets.decode(JSONObject(Presets.toJsonString(ParamsState().apply { straightenDegrees = -3.25f })), dst)
+        assertEquals(-3.25f, dst.straightenDegrees, 0f)
+
+        val old = JSONObject(Presets.toJsonString(ParamsState()))
+        old.getJSONObject("input").remove("straighten")
+        val fromOld = ParamsState()
+        Presets.decode(old, fromOld)
+        assertEquals(0f, fromOld.straightenDegrees, 0f)
+
+        val wild = JSONObject(Presets.toJsonString(ParamsState()))
+        wild.getJSONObject("input").put("straighten", 400.0)
+        val clamped = ParamsState()
+        Presets.decode(wild, clamped)
+        assertEquals(STRAIGHTEN_MAX_DEGREES, clamped.straightenDegrees, 0f)
+    }
+
+    @Test
     fun roundTrip_preservesSceneLatitude_andReachesEngineParams() {
         val src = ParamsState().apply {
             sceneLatitudeActive = true

@@ -183,6 +183,9 @@
     <string name="tool_crop_aspect_original">원본</string>
     <string name="tool_crop_canvas_desc">사진 위의 자르기 사각형. 모서리나 가장자리를 드래그해 크기를 바꾸고, 안쪽을 드래그해 이동합니다.</string>
     <string name="tool_crop_reset">자르기를 사진 전체로 재설정</string>
+    <string name="tool_crop_straighten">수평 보정</string>
+    <string name="tool_crop_straighten_desc">수평 보정 각도. 좌우로 드래그해 사진을 기울이고, 두 번 탭하면 수평으로 돌아갑니다.</string>
+    <string name="tool_crop_straighten_reset">수평으로 되돌리기 (0°)</string>
     <string name="tool_mask_geometry_title">마스크 위치 지정</string>
     <string name="tool_mask_geometry_hint">드래그로 이동 · 핸들을 드래그해 원형 크기 조절/그라디언트 끝 이동.</string>
     <string name="tool_mask_geometry_canvas_desc">사진 위의 마스크. 모양을 드래그해 이동하고, 핸들을 드래그해 원형 크기를 바꾸거나 그라디언트 끝을 옮깁니다. 스크린 리더 사용 시에는 마스크 패널의 위치 슬라이더를 사용하세요.</string>

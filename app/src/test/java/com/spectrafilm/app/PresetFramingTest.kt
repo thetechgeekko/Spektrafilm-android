@@ -24,6 +24,7 @@ class PresetFramingTest {
         crop = true
         cropCenter = 0.25f to 0.75f
         cropSize = 0.4f to 0.3f
+        straightenDegrees = 1.5f
         contrast = 0.5f
     }
 
@@ -34,6 +35,7 @@ class PresetFramingTest {
                 crop = true
                 cropCenter = 0.9f to 0.1f
                 cropSize = 0.2f to 0.2f
+                straightenDegrees = -7f
                 contrast = 1.25f
             },
         )
@@ -44,6 +46,7 @@ class PresetFramingTest {
         assertTrue(live.crop)
         assertEquals(0.25f to 0.75f, live.cropCenter)
         assertEquals(0.4f to 0.3f, live.cropSize)
+        assertEquals("straighten is framing too", 1.5f, live.straightenDegrees, 0f)
     }
 
     @Test
@@ -54,6 +57,7 @@ class PresetFramingTest {
 
         assertEquals(false, live.crop)
         assertEquals(0.5f to 0.5f, live.cropCenter)
+        assertEquals(0f, live.straightenDegrees, 0f)
     }
 
     @Test

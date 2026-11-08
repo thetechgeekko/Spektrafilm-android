@@ -1690,6 +1690,7 @@ internal fun EditorScreen(
             filmProfile = state.filmProfile,
             rawHotPixels = state.rawHotPixels,
             rawChromaNoise = state.rawChromaNoise,
+            straightenDegrees = state.straightenDegrees,
         )
     }
 
@@ -1721,6 +1722,7 @@ internal fun EditorScreen(
                 maxEdge = maxEdge,
                 hotPixels = decode.rawHotPixels,
                 chromaNoise = decode.rawChromaNoise,
+                straightenDegrees = decode.straightenDegrees,
             )
             // Begin publication authority in the same main-thread turn as the snapshot. An
             // older caller cannot resume later and reorder itself ahead of a newer UI state.
@@ -2082,6 +2084,7 @@ internal fun EditorScreen(
                 creativeTint = state.creativeWbTint, filmBalance = filmBalance,
                 rotationDegrees = rotation.degrees, maxEdge = fullEdge,
                 hotPixels = state.rawHotPixels, chromaNoise = state.rawChromaNoise,
+                straightenDegrees = state.straightenDegrees,
             ),
         )
     }
@@ -2232,7 +2235,7 @@ internal fun EditorScreen(
     // add a post-engine control you must add it to ALL THREE effects below.
     LaunchedEffect(snapshot, sourceUri, sourceKind, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise,
+        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) { previewTick++ }
@@ -2285,7 +2288,7 @@ internal fun EditorScreen(
     LaunchedEffect(snapshot, recipeKey, recipeReady, defaultsJson, rotation,
         recipeAccess,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise,
+        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {
@@ -2328,7 +2331,7 @@ internal fun EditorScreen(
     // undid more than the user did.
     LaunchedEffect(snapshot, recipeKey, recipeReady, rotation,
         state.rawWhiteBalance, state.rawTemperature, state.rawTint,
-        state.rawHotPixels, state.rawChromaNoise,
+        state.rawHotPixels, state.rawChromaNoise, state.straightenDegrees,
         state.creativeWbTemp, state.creativeWbTint, state.balanceToFilmStock,
         state.localAdjustments,
         state.saturation, state.vibrance, state.gamutCompress) {

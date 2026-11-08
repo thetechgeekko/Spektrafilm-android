@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference
 // never reallocated on the ART heap outside the process budget.
 private const val ROT_OFFHEAP_THRESHOLD_FLOATS = 16_000_000  // ~64 MB of float32
 
-private fun allocRotBuf(floats: Int): Pair<ByteBuffer, AutoCloseable?> {
+internal fun allocRotBuf(floats: Int): Pair<ByteBuffer, AutoCloseable?> {
     if (floats > ROT_OFFHEAP_THRESHOLD_FLOATS) {
         val owner = NativeBufferOwner.allocate(floats.toLong() * 4)
         val lease = owner.acquireDataLease()
@@ -42,7 +42,7 @@ private fun allocRotBuf(floats: Int): Pair<ByteBuffer, AutoCloseable?> {
     return ByteBuffer.allocateDirect(bytes.toInt()).order(ByteOrder.nativeOrder()) to null
 }
 
-private fun checkedRotationBytes(width: Int, height: Int): Int {
+internal fun checkedRotationBytes(width: Int, height: Int): Int {
     require(width > 0 && height > 0) { "invalid rotation dimensions ${width}x$height" }
     val bytes = try {
         Math.multiplyExact(
@@ -58,7 +58,7 @@ private fun checkedRotationBytes(width: Int, height: Int): Int {
     return bytes.toInt()
 }
 
-private fun LinearImage.checkedRotationSourceWindow(data: ByteBuffer): ByteBuffer {
+internal fun LinearImage.checkedRotationSourceWindow(data: ByteBuffer): ByteBuffer {
     val requiredBytes = checkedRotationBytes(width, height)
     val logical = data.duplicate().order(ByteOrder.nativeOrder())
     require(logical.remaining() >= requiredBytes) {

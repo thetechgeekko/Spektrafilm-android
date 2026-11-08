@@ -46,6 +46,7 @@ class LookSyncTest {
         assertFalse(merged.getJSONObject("input").has("crop"))
         assertFalse(merged.getJSONObject("input").has("cropCenter"))
         assertFalse(merged.getJSONObject("input").has("cropSize"))
+        assertFalse(merged.getJSONObject("input").has("straighten"))
         // Still a document the recipe codec accepts.
         Presets.parseImportJson(merged.toString())
     }

@@ -57,6 +57,7 @@ class EditHistoryLabelsTest {
         // Whole-section tools own every key inside them.
         assertEquals(HistoryTag.Tool(Category.GRAIN), tagForPath("grain.blur"))
         assertEquals(HistoryTag.Crop, tagForPath("input.crop"))
+        assertEquals(HistoryTag.Straighten, tagForPath("input.straighten"))
         assertEquals(HistoryTag.Other, tagForPath("nonsense"))
     }
 

@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 internal object LookSync {
     /** Keys of `input` that describe one photo's framing, not its look. */
-    private val FRAMING_INPUT_KEYS = listOf("crop", "cropCenter", "cropSize")
+    private val FRAMING_INPUT_KEYS = listOf("crop", "cropCenter", "cropSize", "straighten")
 
     /**
      * [source]'s look with [target]'s framing: a new object, neither argument is changed.

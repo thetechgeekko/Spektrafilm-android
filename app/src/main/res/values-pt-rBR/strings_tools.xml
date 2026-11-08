@@ -183,6 +183,9 @@
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Retângulo de corte sobre a foto. Arraste um canto ou uma borda para redimensionar e arraste por dentro para mover.</string>
     <string name="tool_crop_reset">Redefinir o corte para a foto inteira</string>
+    <string name="tool_crop_straighten">Endireitar</string>
+    <string name="tool_crop_straighten_desc">Ângulo de endireitamento. Arraste na horizontal para inclinar a foto; toque duas vezes para nivelá-la.</string>
+    <string name="tool_crop_straighten_reset">Nivelar a foto (0°)</string>
     <string name="tool_mask_geometry_title">Posicionar máscara</string>
     <string name="tool_mask_geometry_hint">Arraste para mover · arraste uma alça para redimensionar a radial / mover uma ponta do gradiente.</string>
     <string name="tool_mask_geometry_canvas_desc">Máscara sobre a foto. Arraste a forma para movê-la; arraste uma alça para redimensionar uma radial ou mover uma ponta de um gradiente. Os controles de posição no painel Máscaras são a alternativa para leitores de tela.</string>

@@ -120,13 +120,15 @@ internal fun InputSection(s: ParamsState, onEditCrop: () -> Unit) {
         }
         // Granular reset scope (Lightroom-style): restore just crop + upscale to
         // engine defaults, leaving the rest of the edit untouched.
-        val geometryDirty = s.crop || s.upscaleFactor != PARAM_DEFAULTS.upscaleFactor
+        val geometryDirty = s.crop || s.straightenDegrees != 0f ||
+            s.upscaleFactor != PARAM_DEFAULTS.upscaleFactor
         if (geometryDirty) {
             OutlinedButton(
                 onClick = {
                     s.crop = false
                     s.cropCenter = 0.5f to 0.5f
                     s.cropSize = 0.1f to 0.1f
+                    s.straightenDegrees = 0f
                     s.upscaleFactor = PARAM_DEFAULTS.upscaleFactor
                 },
                 modifier = Modifier.fillMaxWidth(),

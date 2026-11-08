@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -83,6 +84,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.max
@@ -134,8 +137,9 @@ fun CropOverlay(
     initialCenter: Pair<Float, Float>,
     initialSize: Pair<Float, Float>,
     onRotate: () -> Unit,
-    onConfirm: (crop: Boolean, center: Pair<Float, Float>, size: Pair<Float, Float>) -> Unit,
+    onConfirm: (crop: Boolean, center: Pair<Float, Float>, size: Pair<Float, Float>, straighten: Float) -> Unit,
     onCancel: () -> Unit,
+    initialStraighten: Float = 0f,
 ) {
     val imgW = bitmap.width.toFloat().coerceAtLeast(1f)
     val imgH = bitmap.height.toFloat().coerceAtLeast(1f)
@@ -165,6 +169,11 @@ fun CropOverlay(
             }
         )
     }
+
+    // The straighten draft. [bitmap] is already rendered at [initialStraighten], so the canvas
+    // shows only the difference, turned and zoomed to cover the frame (the same largest
+    // same-aspect cut the decode makes); the exact image arrives with the re-render on Done.
+    var straighten by remember { mutableFloatStateOf(clampStraighten(initialStraighten)) }
 
     var aspect by remember { mutableStateOf(CropAspect.FREE) }
     // Fixed ratios follow the photo's own orientation by default, so the common case
@@ -246,14 +255,14 @@ fun CropOverlay(
                             val isFull = r.left <= 0.001f && r.top <= 0.001f &&
                                 r.right >= 0.999f && r.bottom >= 0.999f
                             if (isFull) {
-                                onConfirm(false, 0.5f to 0.5f, initialSize)
+                                onConfirm(false, 0.5f to 0.5f, initialSize, straighten)
                             } else {
                                 val cx = (r.left + r.right) / 2f
                                 val cy = (r.top + r.bottom) / 2f
                                 // size in fractions of the LONG side (see file header).
                                 val sx = (w * imgW / maxDim)
                                 val sy = (h * imgH / maxDim)
-                                onConfirm(true, cx to cy, sx to sy)
+                                onConfirm(true, cx to cy, sx to sy, straighten)
                             }
                         },
                     ) {
@@ -333,12 +342,28 @@ fun CropOverlay(
                         },
                 ) {
                     // image
-                    Canvas(Modifier.fillMaxSize()) {
-                        drawImageFit(image)
-                        drawCropChrome(rect)
+                    Canvas(Modifier.fillMaxSize().clipToBounds()) {
+                        val delta = straighten - clampStraighten(initialStraighten)
+                        if (delta == 0f) {
+                            drawImageFit(image)
+                        } else {
+                            val cover = (1.0 / straightenScale(bitmap.width, bitmap.height, delta)).toFloat()
+                            val pivot = center
+                            withTransform({
+                                rotate(delta, pivot)
+                                scale(cover, cover, pivot)
+                            }) { drawImageFit(image) }
+                        }
+                        drawCropChrome(rect, fineGrid = delta != 0f)
                     }
                 }
             }
+
+            StraightenRuler(
+                degrees = straighten,
+                onChange = { straighten = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 8.dp),
+            )
 
             // --- aspect ratio: M3 connected button group (single select) + orientation ---
             val aspectGroupDesc = stringResource(R.string.tool_crop_aspect_group)
@@ -569,7 +594,7 @@ private fun DrawScope.drawImageFit(image: ImageBitmap) {
 }
 
 /** Dim outside the crop, draw the rule-of-thirds grid, the border and corner handles. */
-private fun DrawScope.drawCropChrome(rect: Rect) {
+private fun DrawScope.drawCropChrome(rect: Rect, fineGrid: Boolean = false) {
     val w = size.width; val h = size.height
     val l = rect.left * w; val t = rect.top * h
     val r = rect.right * w; val b = rect.bottom * h
@@ -582,6 +607,17 @@ private fun DrawScope.drawCropChrome(rect: Rect) {
     // Rule-of-thirds grid.
     val grid = SpektraBrand.onCanvas.copy(alpha = 0.45f)
     val cw = (r - l); val ch = (b - t)
+    // While straightening, a finer grid to line horizons and verticals up against.
+    if (fineGrid) {
+        val fine = SpektraBrand.onCanvas.copy(alpha = 0.22f)
+        for (i in 1 until 9) {
+            if (i % 3 == 0) continue
+            val gx = l + cw * i / 9f
+            drawLine(fine, Offset(gx, t), Offset(gx, b), strokeWidth = 1f)
+            val gy = t + ch * i / 9f
+            drawLine(fine, Offset(l, gy), Offset(r, gy), strokeWidth = 1f)
+        }
+    }
     for (i in 1..2) {
         val gx = l + cw * i / 3f
         drawLine(grid, Offset(gx, t), Offset(gx, b), strokeWidth = 1.5f)

@@ -52,11 +52,13 @@ internal fun EditorToolOverlays(
             initialCrop = state.crop,
             initialCenter = state.cropCenter,
             initialSize = state.cropSize,
+            initialStraighten = state.straightenDegrees,
             onRotate = { rotation = rotation.next() },
-            onConfirm = { crop, center, size ->
+            onConfirm = { crop, center, size, straighten ->
                 state.crop = crop
                 state.cropCenter = center
                 state.cropSize = size
+                state.straightenDegrees = straighten
                 toolVm.onAction(EditorToolAction.CloseCrop)
                 previewTick++
             },
