@@ -294,16 +294,21 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     val digest = prerenderDigest ?: withContext(dispatchers.io) {
         ExportCacheKey.digestSource { app.contentResolver.openInputStream(activeUri) }
     }?.also { prerenderDigest = it } ?: return
-    val store = RenderPayloads.of(app)
-    val key = RenderPayloads.key(
-        ExportCacheKey.Source(
-            digest.first, digest.second, EXPORT_MAX_EDGE_PX, decodeIdentityOf(request),
-        ),
-        params,
-        descriptor.engineColorSpace,
-        ExportCaches.contractVersionOf(app),
-    )
-    if (store.holds(key) || !RenderPayloads.shouldPrerender(app)) return
+    // #492: opening the store, the contract version and the holds() probe all read files
+    // (StrictMode caught up to ~39 ms on Main per idle pass), so they run on IO.
+    val (store, key, held) = withContext(dispatchers.io) {
+        val store = RenderPayloads.of(app)
+        val key = RenderPayloads.key(
+            ExportCacheKey.Source(
+                digest.first, digest.second, EXPORT_MAX_EDGE_PX, decodeIdentityOf(request),
+            ),
+            params,
+            descriptor.engineColorSpace,
+            ExportCaches.contractVersionOf(app),
+        )
+        Triple(store, key, store.holds(key))
+    }
+    if (held || !RenderPayloads.shouldPrerender(app)) return
     val startedMs = System.currentTimeMillis()
     // #270: the render runs as a tracked flight, not as this effect's child, so an
     // export of this very edit can join it instead of throwing it away (see
