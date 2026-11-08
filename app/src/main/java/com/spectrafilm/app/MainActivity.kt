@@ -159,6 +159,12 @@ class MainActivity : ComponentActivity() {
         val settings = appContainer.settings
         installSplashScreen().setKeepOnScreenCondition { !settings.isLoaded }
         enableEdgeToEdge()
+        // Debug builds: Compose crashes carry the composable call stack, not only framework
+        // frames (an applier crash otherwise names no app code at all).
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            @OptIn(androidx.compose.runtime.ExperimentalComposeRuntimeApi::class)
+            androidx.compose.runtime.Composer.setDiagnosticStackTraceEnabled(true)
+        }
         super.onCreate(savedInstanceState)
         incomingImageIntent.value = intent
         // Only on a fresh launch: a recreated Activity still holds the shortcut intent, and
