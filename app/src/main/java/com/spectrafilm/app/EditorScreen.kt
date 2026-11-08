@@ -2764,25 +2764,52 @@ internal fun EditorScreen(
                         )
                     }
                 }
+                // Edit's tool open in full (every control and its help), or null for the rail.
+                var railDetail by rememberSaveable { mutableStateOf<Category?>(null) }
+                // A tab tapped or the panel closed returns to the rail.
+                LaunchedEffect(activeCategory?.stage) {
+                    if (railDetail != null && railDetail?.stage != activeCategory?.stage) railDetail = null
+                }
                 // The open panel's body. Looks and Masks show the one picked tool; Edit shows
-                // every tool of the open section stacked, each under its own name and reset.
+                // every tool on one sideways rail of instrument cards (ToolRail.kt), and a tool
+                // opened from its chip in full, under its own name and reset.
                 val panelContent: @Composable ColumnScope.() -> Unit = {
                     CompositionLocalProvider(LocalSliderInteraction provides sliderInteraction) {
                         val open = activeCategory
-                        if (open != null && open.mode == EditorMode.EDIT) {
-                            categoriesOf(open.stage).filter(::toolShown).forEachIndexed { i, tool ->
-                                if (i > 0) {
-                                    HorizontalDivider(
-                                        Modifier.padding(vertical = 6.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant,
+                        val detail = railDetail
+                        if (open != null && open.mode == EditorMode.EDIT && detail != null) {
+                            BackHandler { railDetail = null }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { railDetail = null }) {
+                                    Icon(
+                                        MaterialSymbols.ArrowBack,
+                                        contentDescription = stringResource(R.string.editor_rail_back_to_tools),
                                     )
                                 }
                                 ToolHeader(
-                                    tool = tool,
-                                    onReset = if (tool in dirty) ({ resetCategory(tool) }) else null,
+                                    tool = detail,
+                                    onReset = if (detail in dirty) ({ resetCategory(detail) }) else null,
+                                    modifier = Modifier.weight(1f),
                                 )
-                                toolContent(tool)
                             }
+                            toolContent(detail)
+                        } else if (open != null && open.mode == EditorMode.EDIT) {
+                            ToolRail(
+                                tools = stagesOf(EditorMode.EDIT).flatMap { categoriesOf(it) }.filter(::toolShown),
+                                activeStage = open.stage,
+                                startTool = open,
+                                dirty = dirty,
+                                switchOf = { toolSwitch(state, it) },
+                                onScrolledTo = { stage ->
+                                    if (activeCategory?.stage != stage) {
+                                        activeCategory = categoriesOf(stage).first(::toolShown)
+                                    }
+                                },
+                                onOpenTool = { tool ->
+                                    activeCategory = tool
+                                    railDetail = tool
+                                },
+                            ) { tool -> RailToolContent(state, tool, onOpen = { activeCategory = tool; railDetail = tool }) }
                         } else if (open != null) {
                             toolContent(open)
                         }

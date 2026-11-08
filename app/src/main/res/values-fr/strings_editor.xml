@@ -463,7 +463,7 @@
     <string name="editor_hal_renormalize">Renormaliser</string>
     <string name="editor_hal_renormalize_tooltip">Divise par (1 + somme des amplitudes des rebonds) pour préserver le gris moyen.</string>
     <string name="editor_coup_title">Caractère colorimétrique du film (coupleurs)</string>
-    <string name="editor_coup_desc">Modélise la diaphonie chimique des couleurs du film (coupleurs DIR), à l’origine de la séparation des couleurs et des effets de bord typiques du film. Vous cherchez un simple réglage de saturation ? Utilisez Saturation / Vibrance dans Simulation → Sortie.</string>
+    <string name="editor_coup_desc">Modélise la diaphonie chimique des couleurs du film (coupleurs DIR), à l’origine de la séparation des couleurs et des effets de bord typiques du film. Vous cherchez un simple réglage de saturation ? Utilisez Saturation / Vibrance dans Réglages → Couleur.</string>
     <string name="editor_coup_amount">Intensité de l’effet</string>
     <string name="editor_coup_amount_tooltip">Multiplicateur global de la matrice d’inhibition des coupleurs DIR.</string>
     <string name="editor_coup_samelayer">Intensité intra-couche</string>
@@ -643,4 +643,10 @@
     <string name="editor_history_other">Autre modification</string>
     <string name="editor_history_on">activé</string>
     <string name="editor_history_off">désactivé</string>
+    <string name="editor_rail_tool_on">Activé</string>
+    <string name="editor_rail_tool_off">Désactivé</string>
+    <string name="editor_rail_toggle_tool">Activer ou désactiver %1$s</string>
+    <string name="editor_rail_open_tool">Ouvrir les réglages de %1$s</string>
+    <string name="editor_rail_all_settings">Tous les réglages</string>
+    <string name="editor_rail_back_to_tools">Retour aux outils</string>
 </resources>

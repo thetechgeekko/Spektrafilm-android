@@ -461,7 +461,7 @@
     <string name="editor_hal_renormalize">Renormieren</string>
     <string name="editor_hal_renormalize_tooltip">Teilt durch (1 + Summe der Reflexionsamplituden), damit Mittelgrau erhalten bleibt.</string>
     <string name="editor_coup_title">Farbcharakter des Films (Kuppler)</string>
-    <string name="editor_coup_desc">Modelliert das chemische Farbübersprechen des Films (DIR-Kuppler), die Ursache der typischen Farbtrennung und Kanteneffekte von Film. Suchst du einen einfachen Sättigungsregler? Nimm Sättigung / Dynamik unter Simulation → Ausgabe.</string>
+    <string name="editor_coup_desc">Modelliert das chemische Farbübersprechen des Films (DIR-Kuppler), die Ursache der typischen Farbtrennung und Kanteneffekte von Film. Suchst du einen einfachen Sättigungsregler? Nimm Sättigung / Dynamik unter Anpassen → Farbe.</string>
     <string name="editor_coup_amount">Effektstärke</string>
     <string name="editor_coup_amount_tooltip">Globaler Multiplikator auf die Hemmungsmatrix der DIR-Kuppler.</string>
     <string name="editor_coup_samelayer">Stärke innerhalb der Schicht</string>
@@ -641,4 +641,10 @@
     <string name="editor_history_other">Andere Änderung</string>
     <string name="editor_history_on">an</string>
     <string name="editor_history_off">aus</string>
+    <string name="editor_rail_tool_on">An</string>
+    <string name="editor_rail_tool_off">Aus</string>
+    <string name="editor_rail_toggle_tool">%1$s ein- oder ausschalten</string>
+    <string name="editor_rail_open_tool">Einstellungen für %1$s öffnen</string>
+    <string name="editor_rail_all_settings">Alle Einstellungen</string>
+    <string name="editor_rail_back_to_tools">Zurück zu den Werkzeugen</string>
 </resources>
