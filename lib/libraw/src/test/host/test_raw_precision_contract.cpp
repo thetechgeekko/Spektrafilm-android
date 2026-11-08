@@ -1750,6 +1750,36 @@ int main() {
                 " fractional non-first LinearRaw BlackLevel decodes as its nearest integer",
             describe(fractionalRationalArray));
     }
+    // Samsung's 50 MP LinearRaw DNGs write BlackLevelRepeatDim 2x2 with the
+    // same per-sample black in every cell (12 zeros). That spatial matrix is
+    // only nominal, so it collapses to one cell before LibRaw open and decodes
+    // exactly like the 1x1 file; a matrix that really varies stays refused
+    // (see the spatial LinearRaw case above).
+    {
+      sfraw::hosttest::PrecisionDngOptions uniformCells = typedLinear;
+      uniformCells.blackRepeatWidth = 2U;
+      uniformCells.blackRepeatHeight = 2U;
+      uniformCells.blackPattern = {64U, 80U, 96U, 64U, 80U, 96U,
+                                   64U, 80U, 96U, 64U, 80U, 96U};
+      const spectrafilm::DecodeResult uniformResult = decodeBytes(
+          sfraw::hosttest::makePrecisionUncompressedDng(uniformCells));
+      const spectrafilm::DecodeResult singleCell = decodeBytes(
+          sfraw::hosttest::makePrecisionUncompressedDng(typedLinear));
+      check(sameDecode(uniformResult, singleCell),
+            endian +
+                " uniform 2x2 LinearRaw BlackLevel matrix decodes as its single cell",
+            describe(uniformResult));
+
+      sfraw::hosttest::PrecisionDngOptions variedCells = uniformCells;
+      variedCells.blackPattern[4] = 81U;
+      const spectrafilm::DecodeResult variedResult = decodeBytes(
+          sfraw::hosttest::makePrecisionUncompressedDng(variedCells));
+      check(!variedResult.ok &&
+                variedResult.status ==
+                    spectrafilm::SFRAW_ERR_PRECISION_METADATA,
+            endian + " a 2x2 LinearRaw BlackLevel matrix that varies stays refused",
+            describe(variedResult));
+    }
     const struct {
       std::uint32_t numerator;
       std::uint32_t denominator;

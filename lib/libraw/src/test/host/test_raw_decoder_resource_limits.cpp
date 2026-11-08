@@ -90,6 +90,20 @@ int main() {
             spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
                                                      3 * kGiB - 1) == 24 * kMiB,
         "32 MiPixel tier requires both memory thresholds");
+  check(spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB,
+                                                4 * kGiB) == 64 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB - 1,
+                                                     4 * kGiB) == 32 * kMiB &&
+            spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB,
+                                                     4 * kGiB - 1) == 32 * kMiB,
+        "64 MiPixel tier (50 MP phone DNGs) requires both memory thresholds");
+  check(spectrafilm::largeBayerHalfOutputLimit(64 * kMiB) == 32 * kMiB &&
+            spectrafilm::largeBayerHalfOutputLimit(24 * kMiB) == 24 * kMiB,
+        "the large-Bayer half path keeps its 32 MiPixel bounds on the 64 tier");
+  check(spectrafilm::linearRawStoreMiB(64 * kMiB) == 576U &&
+            spectrafilm::linearRawStoreMiB(32 * kMiB) == 320U &&
+            spectrafilm::linearRawStoreMiB(12 * kMiB) == 160U,
+        "LinearRaw store holds four 16-bit planes of the tier plus margin");
   check(spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB,
                                                 2 * kGiB) == 24 * kMiB &&
             spectrafilm::decodePixelLimitForMemory(true, 6 * kGiB - 1,

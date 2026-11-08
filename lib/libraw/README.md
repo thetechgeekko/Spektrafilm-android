@@ -293,8 +293,10 @@ A source of known size within 64 MiB keeps the faster in-memory read and writes
 nothing to storage. The three-argument fd overload, InputStream,
 ByteArray, and ByteBuffer paths retain their 64 MiB in-memory ceiling.
 
-Native output admission is 8 MiPixels on 32-bit and 12/24/32 MiPixels on
-64-bit according to total/available RAM. Only the highest tier can admit
+Native output admission is 8 MiPixels on 32-bit and 12/24/32/64 MiPixels on
+64-bit according to total/available RAM. Non-Bayer sources that fit get a
+raw-store cap of 8 bytes per admitted pixel plus 64 MiB. Only the 32 tier (and
+the 64 tier, with the 32 tier's bounds) can admit
 a qualified Bayer source up to 128 MiPixels for half-size output, with a
 320 MiB raw-store cap; other requests retain 128 MiB. Layout, margins, aspect,
 padded output, and post-unpack single-plane geometry are checked independently.

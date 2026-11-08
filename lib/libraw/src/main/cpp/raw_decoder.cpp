@@ -211,6 +211,20 @@ struct PrimaryImageInfo {
     std::array<std::uint32_t, kMaxFractionalBlackPayloads>
         fractionalBlackIfds{};
     std::size_t fractionalBlackIfdCount = 0U;
+    // LinearRaw IFDs whose BlackLevelRepeatDim is larger than 1x1 but whose
+    // BlackLevel holds the same per-sample value in every repeat cell (Samsung
+    // 50 MP LinearRaw DNGs write 2x2 x 3 zeros). That is exactly a 1x1 model,
+    // so prepareLibRawInput() rewrites it to 1x1 before open_buffer().
+    static constexpr std::size_t kMaxCollapsibleLinearBlacks = 10U;
+    struct CollapsibleLinearBlack {
+        std::uint32_t repeatEntry = 0U;  // BlackLevelRepeatDim IFD entry
+        std::uint32_t blackEntry = 0U;   // BlackLevel IFD entry
+        std::uint32_t samples = 0U;      // SamplesPerPixel (3 or 4)
+    };
+    std::array<CollapsibleLinearBlack, kMaxCollapsibleLinearBlacks>
+        collapsibleLinearBlacks{};
+    std::size_t collapsibleLinearBlackCount = 0U;
+    bool collapsibleLinearBlackOverflow = false;
 };
 
 struct IfdCandidate {
@@ -280,6 +294,11 @@ struct ScanState {
     std::array<std::uint32_t, PrimaryImageInfo::kMaxFractionalBlackPayloads>
         fractionalBlackIfds{};
     std::size_t fractionalBlackIfdCount = 0U;
+    std::array<PrimaryImageInfo::CollapsibleLinearBlack,
+               PrimaryImageInfo::kMaxCollapsibleLinearBlacks>
+        collapsibleLinearBlacks{};
+    std::size_t collapsibleLinearBlackCount = 0U;
+    bool collapsibleLinearBlackOverflow = false;
 };
 
 struct IfdDecode {
@@ -287,6 +306,7 @@ struct IfdDecode {
     size_t bitsEntry = std::numeric_limits<size_t>::max();
     size_t sampleFormatEntry = std::numeric_limits<size_t>::max();
     size_t blackLevelEntry = std::numeric_limits<size_t>::max();
+    size_t blackRepeatEntry = std::numeric_limits<size_t>::max();
     size_t whiteLevelEntry = std::numeric_limits<size_t>::max();
     size_t colorMatrix1Entry = std::numeric_limits<size_t>::max();
     size_t colorMatrix2Entry = std::numeric_limits<size_t>::max();
@@ -648,6 +668,7 @@ inline void decodeBoundedIfdEntry(const Reader& r, size_t entry,
                 candidate.blackRepeatRows = static_cast<int>(r.u16(valueAt));
                 candidate.blackRepeatColumns =
                     static_cast<int>(r.u16(valueAt + 2U));
+                decoded.blackRepeatEntry = entry;
             }
             break;
         case 0xC61A: {  // BlackLevel
@@ -861,6 +882,82 @@ inline void evaluateDependencySafety(const Reader& r, IfdDecode& decoded,
     }
 }
 
+// True when a LinearRaw BlackLevel laid out as rows x columns x samples (DNG
+// order: row, then column, then sample) holds the same value for each sample
+// in every repeat cell, i.e. it is exactly the 1x1 per-sample model. RATIONAL
+// values compare by value (cross-multiplied), not by their spelling.
+inline bool linearBlackUniformAcrossCells(const Reader& r, size_t entry,
+                                          uint16_t type, uint32_t count,
+                                          uint32_t samples) {
+    if ((type != 3U && type != 4U && type != 5U) || samples == 0U ||
+        count % samples != 0U ||
+        !entryPayloadInBounds(
+            r, entry, type, count,
+            static_cast<uint32_t>(
+                RawPrecisionDescriptor::kMaxBlackPatternEntries))) {
+        return false;
+    }
+    const std::size_t elementBytes = tiffTypeWidth(type);
+    const std::size_t totalBytes = static_cast<std::size_t>(count) * elementBytes;
+    const std::size_t valuesAt = totalBytes <= 4U
+        ? entry + 8U
+        : static_cast<std::size_t>(r.u32(entry + 8U));
+    const auto read = [&](uint32_t index, std::uint64_t* num, std::uint64_t* den) {
+        const std::size_t at =
+            valuesAt + static_cast<std::size_t>(index) * elementBytes;
+        if (type == 3U) { *num = r.u16(at); *den = 1U; }
+        else if (type == 4U) { *num = r.u32(at); *den = 1U; }
+        else { *num = r.u32(at); *den = r.u32(at + 4U); }
+        return *den != 0U;
+    };
+    for (uint32_t index = samples; index < count; ++index) {
+        std::uint64_t n0 = 0U, d0 = 0U, n1 = 0U, d1 = 0U;
+        if (!read(index % samples, &n0, &d0) || !read(index, &n1, &d1)) return false;
+        if (n0 * d1 != n1 * d0) return false;
+    }
+    return true;
+}
+
+// Record a LinearRaw IFD whose BlackLevelRepeatDim/BlackLevel pair is a 1x1
+// per-sample model spelled as a larger repeat (see PrimaryImageInfo::
+// collapsibleLinearBlacks). Every other shape is left to the normal checks.
+inline void recordCollapsibleLinearBlack(const Reader& r,
+                                         const IfdDecode& decoded,
+                                         ScanState& state) {
+    const IfdCandidate& candidate = decoded.candidate;
+    if (candidate.photometric != 34892 || !decoded.sawBlackRepeatDimensions ||
+        !candidate.hasBlackLevel ||
+        decoded.blackRepeatEntry == std::numeric_limits<size_t>::max() ||
+        decoded.blackLevelEntry == std::numeric_limits<size_t>::max() ||
+        candidate.samplesPerPixel < 3 || candidate.samplesPerPixel > 4 ||
+        candidate.blackRepeatRows <= 0 || candidate.blackRepeatColumns <= 0) {
+        return;
+    }
+    const std::uint64_t cells =
+        static_cast<std::uint64_t>(candidate.blackRepeatRows) *
+        static_cast<std::uint64_t>(candidate.blackRepeatColumns);
+    const auto samples = static_cast<std::uint32_t>(candidate.samplesPerPixel);
+    if (cells <= 1U ||
+        cells * samples > RawPrecisionDescriptor::kMaxBlackPatternEntries ||
+        decoded.blackLevelCount != cells * samples ||
+        // The rewrite keeps the values where they are and shortens the
+        // count, so the shortened payload must still be stored by offset.
+        tiffTypeWidth(decoded.blackLevelType) * samples <= 4U ||
+        !linearBlackUniformAcrossCells(r, decoded.blackLevelEntry,
+                                       decoded.blackLevelType,
+                                       decoded.blackLevelCount, samples)) {
+        return;
+    }
+    if (state.collapsibleLinearBlackCount ==
+        state.collapsibleLinearBlacks.size()) {
+        state.collapsibleLinearBlackOverflow = true;
+        return;
+    }
+    state.collapsibleLinearBlacks[state.collapsibleLinearBlackCount++] = {
+        static_cast<std::uint32_t>(decoded.blackRepeatEntry),
+        static_cast<std::uint32_t>(decoded.blackLevelEntry), samples};
+}
+
 // Qualify the bounded per-image descriptor independently from dependency
 // safety. No field from a preview or sibling is inherited into this candidate.
 inline void qualifySemanticCandidate(const Reader& r, IfdDecode& decoded) {
@@ -1003,6 +1100,7 @@ inline void walkIfd(const Reader& r, uint32_t ifdOff, ScanState& state,
     // belongs to, so the offset must be known before aggregation sets it.
     decoded.candidate.ifdOffset = ifdOff;
     evaluateDependencySafety(r, decoded, state);
+    recordCollapsibleLinearBlack(r, decoded, state);
     qualifySemanticCandidate(r, decoded);
     aggregateSemanticCandidate(decoded, ifdOff, state);
     for (std::size_t s = 0U; s < decoded.subIfdCount; ++s) {
@@ -1105,6 +1203,9 @@ inline PrimaryImageInfo primaryImageInfoOf(const uint8_t* data, size_t len,
     info.fractionalBlackPayloadCount = state.fractionalBlackPayloadCount;
     info.fractionalBlackIfds = state.fractionalBlackIfds;
     info.fractionalBlackIfdCount = state.fractionalBlackIfdCount;
+    info.collapsibleLinearBlacks = state.collapsibleLinearBlacks;
+    info.collapsibleLinearBlackCount = state.collapsibleLinearBlackCount;
+    info.collapsibleLinearBlackOverflow = state.collapsibleLinearBlackOverflow;
 
     const CandidateSelection selection =
         selectCandidate(state, decodedRawWidth, decodedRawHeight);
@@ -1366,7 +1467,8 @@ bool largeBayerHalfAllowed(LibRaw& raw, const DecodeOptions& options,
          data.float3_image == nullptr && data.float4_image == nullptr);
     return qualifiedLargeBayerHalfGeometry(
         {s.raw_width, s.raw_height, s.width, s.height,
-         s.left_margin, s.top_margin, s.pixel_aspect}, pixelLimit,
+         s.left_margin, s.top_margin, s.pixel_aspect},
+        largeBayerHalfOutputLimit(pixelLimit),
         options.halfSize, id.filters, id.colors,
         afterUnpack ? data.ioparams.fuji_width
                     : raw.get_internal_data_pointer()->internal_output_params.fuji_width,
@@ -1389,8 +1491,13 @@ void selectRawStoreLimit(LibRaw& raw, const DecodeOptions& options,
                          uint64_t pixelLimit) {
     if (declaredDecodeDimensionsExceedLimit(raw.imgdata.sizes, pixelLimit) &&
         largeBayerHalfAllowed(raw, options, pixelLimit, false))
+        raw.imgdata.rawparams.max_raw_memory_mb = std::max(
+            kMaxRawMemoryMb,
+            largeBayerRawStoreMiB(largeBayerHalfOutputLimit(pixelLimit)));
+    else if (!declaredDecodeDimensionsExceedLimit(raw.imgdata.sizes, pixelLimit) &&
+             raw.imgdata.idata.filters == 0 && raw.imgdata.idata.colors >= 3)
         raw.imgdata.rawparams.max_raw_memory_mb =
-            std::max(kMaxRawMemoryMb, largeBayerRawStoreMiB(pixelLimit));
+            std::max(kMaxRawMemoryMb, linearRawStoreMiB(pixelLimit));
 }
 
 DecodeResult dimensionLimitFailure(uint64_t pixelLimit) {
@@ -1456,7 +1563,8 @@ bool prepareLibRawInput(const uint8_t** input, size_t* inputLength,
     *rounded = RoundedBlackIfds{};
     const dngsniff::PrimaryImageInfo first =
         dngsniff::primaryImageInfoOf(*input, *inputLength);
-    if (first.recognizedTiff && first.fractionalBlackPayloadCount != 0U) {
+    if (first.recognizedTiff && (first.fractionalBlackPayloadCount != 0U ||
+                                 first.collapsibleLinearBlackCount != 0U)) {
         if (owned->data() != *input) {
             owned->assign(*input, *input + *inputLength);
         }
@@ -1474,6 +1582,15 @@ bool prepareLibRawInput(const uint8_t** input, size_t* inputLength,
                 bytes[at + 1U] = static_cast<uint8_t>(value >> 8);
                 bytes[at + 2U] = static_cast<uint8_t>(value >> 16);
                 bytes[at + 3U] = static_cast<uint8_t>(value >> 24);
+            }
+        };
+        const auto put16 = [&](size_t at, std::uint16_t value) {
+            if (bigEndian) {
+                bytes[at] = static_cast<uint8_t>(value >> 8);
+                bytes[at + 1U] = static_cast<uint8_t>(value);
+            } else {
+                bytes[at] = static_cast<uint8_t>(value);
+                bytes[at + 1U] = static_cast<uint8_t>(value >> 8);
             }
         };
         dngsniff::Reader reader;
@@ -1505,9 +1622,28 @@ bool prepareLibRawInput(const uint8_t** input, size_t* inputLength,
                 put32(at + 4U, 1U);
             }
         }
+        // A uniform LinearRaw black repeat becomes the 1x1 model it already
+        // is: BlackLevelRepeatDim (1, 1) and BlackLevel shortened to its first
+        // repeat cell's per-sample values, which stay where they are stored.
+        for (std::size_t index = 0U;
+             index < first.collapsibleLinearBlackCount; ++index) {
+            const auto& collapse = first.collapsibleLinearBlacks[index];
+            if (!reader.in(collapse.repeatEntry, 12U) ||
+                !reader.in(collapse.blackEntry, 12U) ||
+                reader.u16(collapse.repeatEntry) != 0xC619U ||
+                reader.u16(collapse.blackEntry) != 0xC61AU) {
+                *failure = precisionMetadataFailure(
+                    "DNG LinearRaw BlackLevel repeat is out of bounds before LibRaw open");
+                return false;
+            }
+            put16(collapse.repeatEntry + 8U, 1U);
+            put16(collapse.repeatEntry + 10U, 1U);
+            put32(collapse.blackEntry + 4U, collapse.samples);
+        }
         const dngsniff::PrimaryImageInfo second =
             dngsniff::primaryImageInfoOf(bytes, length);
-        if (second.fractionalBlackPayloadCount != 0U) {
+        if (second.fractionalBlackPayloadCount != 0U ||
+            second.collapsibleLinearBlackCount != 0U) {
             *failure = precisionMetadataFailure(
                 "DNG BlackLevel normalization did not converge before LibRaw open");
             return false;

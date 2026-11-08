@@ -114,6 +114,16 @@ internal fun rawFallbackSupported(status: DecodeStatus): Boolean =
         else -> false
     }
 
+/**
+ * Whether a RAW the native route refused for MEMORY may still open through the platform
+ * decoder. Only at preview scale: a 50 MP LinearRaw DNG is over the decode budget of a phone
+ * with less headroom, and refusing to open it at all is worse than showing it. At export
+ * scale the platform decoder has produced a corrupt full-resolution image from such a DNG,
+ * so an export fails honestly instead of publishing that.
+ */
+internal fun rawMemoryFallbackSupported(status: DecodeStatus, maxEdge: Int): Boolean =
+    status == DecodeStatus.NO_MEMORY && maxEdge <= HALF_DECODE_EDGE_THRESHOLD
+
 internal suspend fun decodeSourceRequest(
     request: SourceDecodeRequest,
     maxEdge: Int,
@@ -159,7 +169,8 @@ internal suspend fun decodeSourceRequest(
                     it.initCause(failure)
                 }
             }
-            val fallbackSupported = rawFallbackSupported(failure.status)
+            val fallbackSupported = rawFallbackSupported(failure.status) ||
+                rawMemoryFallbackSupported(failure.status, maxEdge)
             if (!fallbackSupported) throw failure
             usedPlatformFallback = true
             applyExifBaseline = true

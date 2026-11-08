@@ -21,6 +21,14 @@ constexpr std::uint64_t decodePixelLimitForMemory(
     if (!is64Bit) return 8ULL * kMiB;
     // Missing or inconsistent telemetry must not raise the fixed baseline.
     if (totalBytes == 0 || availableBytes > totalBytes) return 12ULL * kMiB;
+    // 50 MP phone sensors (Samsung's LinearRaw DNGs are 8160 x 6120, 47.6
+    // MiPixels) need more than 32. Their peak is ~2.3 GiB native (16-bit
+    // store, LibRaw image, make_mem_image copy, float RGB), so only phones
+    // with clear headroom get it; everyone else keeps the 32 tier.
+    if (totalBytes >= 10ULL * kGiB &&
+        availableBytes >= 4ULL * kGiB) {
+        return 64ULL * kMiB;
+    }
     if (totalBytes >= 8ULL * kGiB &&
         availableBytes >= 3ULL * kGiB) {
         return 32ULL * kMiB;
@@ -44,6 +52,25 @@ constexpr unsigned kLargeBayerRawStoreMiB =
     largeBayerRawStoreMiB(32ULL * 1024ULL * 1024ULL);
 static_assert(kLargeBayerRawStoreMiB == 320U,
               "the 32 MiPixel tier's raw store is unchanged");
+
+// The large-Bayer half-size path was sized for tiers up to 32 MiPixels; a
+// higher tier keeps that path's bounds instead of quadrupling them.
+constexpr std::uint64_t largeBayerHalfOutputLimit(
+    std::uint64_t pixelLimit) noexcept {
+    constexpr std::uint64_t kCap = 32ULL * 1024ULL * 1024ULL;
+    return pixelLimit < kCap ? pixelLimit : kCap;
+}
+
+// A non-Bayer source (LinearRaw DNG, three- or four-colour) unpacks into up to
+// four 16-bit planes per pixel, so the fixed 128 MiB store refused every such
+// file over ~16 MP even when its geometry fit the tier. Size the store from the
+// tier instead: 8 bytes per admitted pixel plus the same 64 MiB margin.
+constexpr unsigned linearRawStoreMiB(std::uint64_t pixelLimit) noexcept {
+    constexpr std::uint64_t kMi = 1024ULL * 1024ULL;
+    return static_cast<unsigned>((pixelLimit * 8U) / kMi + 64U);
+}
+static_assert(linearRawStoreMiB(64ULL * 1024ULL * 1024ULL) == 576U,
+              "64 MiPixel tier: 512 MiB of planes plus margin");
 
 struct DecodeGeometry {
     std::uint64_t rawWidth, rawHeight, width, height;
