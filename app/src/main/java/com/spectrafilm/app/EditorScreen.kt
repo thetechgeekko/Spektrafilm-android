@@ -2778,7 +2778,12 @@ internal fun EditorScreen(
                         val open = activeCategory
                         val detail = railDetail
                         if (open != null && open.mode == EditorMode.EDIT && detail != null) {
-                            BackHandler { railDetail = null }
+                            // Only while nothing sits over the panel: the magnifier, crop and the
+                            // other full-screen tools own Back while they are open.
+                            BackHandler(
+                                enabled = !magnifierOpen && !viewerUi.chromeHidden &&
+                                    !toolUi.anyOverlayOpen && !exportMaskVisible,
+                            ) { railDetail = null }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { railDetail = null }) {
                                     Icon(
