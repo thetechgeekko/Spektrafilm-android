@@ -386,24 +386,28 @@ internal fun EditorScreen(
         }
     }
     // Give the stand-in the photo's film look (PlaceholderLook), so the real render changes
-    // only detail when it lands. Re-runs for a better thumbnail and when the engine becomes
-    // ready, so a thumbnail that beat the engine still gets its look.
-    LaunchedEffect(placeholderSource, engine) {
+    // only detail when it lands. Re-runs for a better thumbnail, when the engine becomes
+    // ready (a thumbnail that beat the engine still gets its look) and on every settings
+    // change (a recipe restore that lands after the thumbnail re-grades it).
+    LaunchedEffect(placeholderSource, engine, previewTick) {
         val src = placeholderSource ?: return@LaunchedEffect
         val e = engine ?: return@LaunchedEffect
         if (preview != null) return@LaunchedEffect
-        val tick = previewTick
-        val looked = PlaceholderLook.render(e, src, state, dispatchers.default)
-        // Dropped if the real render won, the settings changed, or the source moved on.
-        if (looked != null && preview == null && previewTick == tick && placeholderSource === src) {
-            openPlaceholder = looked
-        }
+        val look = PlaceholderLook.render(e, src, state, dispatchers.default) ?: return@LaunchedEffect
+        // Dropped if this effect was restarted meanwhile, or the real render won.
+        val cancelled = !isActive
+        val published = !cancelled && preview == null
+        if (published) openPlaceholder = look.bitmap
+        PlaceholderLook.report(look, published = published, cancelled = cancelled)
     }
     // Keep the stand-in under the fading-in render briefly, then drop it.
     LaunchedEffect(preview != null) {
         if (preview != null && openPlaceholder != null) {
             delay(OPEN_PLACEHOLDER_HOLD_MS)
-            if (preview != null) openPlaceholder = null
+            if (preview != null) {
+                openPlaceholder = null
+                placeholderSource = null
+            }
         }
     }
 

@@ -10,6 +10,7 @@ import com.spectrafilm.engine.RenderKind
 import com.spectrafilm.engine.SimResult
 import com.spectrafilm.engine.SpektraEngine
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
@@ -32,16 +33,21 @@ internal object PlaceholderLook {
     fun renderEdge(width: Int, height: Int): Int =
         min(RENDER_EDGE_PX, max(width, height)).coerceAtLeast(1)
 
+    /** A finished look render. The caller reports [renderId]'s outcome once it decides. */
+    class Look(val bitmap: Bitmap, val renderId: Long)
+
     /**
      * Render [thumbnail] in the look of [state]'s current settings. Returns null on any
-     * failure: the plain thumbnail then simply stays up, as before.
+     * failure: the plain thumbnail then simply stays up, as before. The render is small and
+     * runs to completion even if the caller is cancelled, so the caller always gets the
+     * render id back and can report it (see [report]).
      */
     suspend fun render(
         engine: SpektraEngine,
         thumbnail: Bitmap,
         state: ParamsState,
         default: CoroutineDispatcher,
-    ): Bitmap? {
+    ): Look? {
         // Read the Compose-backed settings on the caller's (main) thread.
         val params = state.toParams(
             previewMaxSizeOverride = renderEdge(thumbnail.width, thumbnail.height),
@@ -51,7 +57,7 @@ internal object PlaceholderLook {
         val saturation = state.saturation
         val vibrance = state.vibrance
         val gamutCompress = state.gamutCompress
-        return withContext(default) {
+        return withContext(default + NonCancellable) {
             runCatching {
                 val src = if (thumbnail.config == Bitmap.Config.HARDWARE) {
                     thumbnail.copy(Bitmap.Config.ARGB_8888, false)
@@ -61,18 +67,32 @@ internal object PlaceholderLook {
                 val startNs = System.nanoTime()
                 bitmapToLinearProPhoto(src).use { linear ->
                     engine.simulatePreview(linear, params, RenderKind.PREVIEW).use { res ->
-                        val out = simResultToBitmapGraded(
-                            res, cctf, saturation, vibrance, gamutCompress,
-                        )
-                        SimResult.reportOutcome(res.renderId, AppRenderOutcome.CONSUMED)
+                        val out = runCatching {
+                            simResultToBitmapGraded(res, cctf, saturation, vibrance, gamutCompress)
+                        }.getOrElse {
+                            SimResult.reportOutcome(res.renderId, AppRenderOutcome.FAILED)
+                            throw it
+                        }
                         Diag.i(
                             "open placeholder look ${out.width}x${out.height} " +
                                 "ms=${(System.nanoTime() - startNs) / 1_000_000L}",
                         )
-                        out
+                        Look(out, res.renderId)
                     }
                 }
             }.onFailure { Diag.w("open placeholder look failed: ${it.message}") }.getOrNull()
         }
+    }
+
+    /** Report a look render as shown ([published]) or dropped, or cancelled with its caller. */
+    fun report(look: Look, published: Boolean, cancelled: Boolean) {
+        SimResult.reportOutcome(
+            look.renderId,
+            when {
+                published -> AppRenderOutcome.CONSUMED
+                cancelled -> AppRenderOutcome.CANCELLED
+                else -> AppRenderOutcome.SUPERSEDED
+            },
+        )
     }
 }
