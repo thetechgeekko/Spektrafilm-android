@@ -49,4 +49,16 @@ class EditorLayoutTest {
         // A 915dp-wide landscape phone is already an expanded window: fixed 360dp pane.
         assertEquals(360f, sidePaneWidthDp(915f), 0f)
     }
+
+    @Test
+    fun breakpoints_comeFromWindowSizeClass_atTheM3Edges() {
+        // #457: the edges are WindowManager's, and they land where the hand-rolled numbers did.
+        assertEquals(EditorPaneMode.BOTTOM_SHEET, editorPaneMode(839f, 1000f))
+        assertEquals(EditorPaneMode.SIDE_PANE, editorPaneMode(840f, 1000f))
+        assertEquals(EditorPaneMode.SIDE_PANE, editorPaneMode(700f, 479f)) // compact height, landscape
+        assertEquals(EditorPaneMode.BOTTOM_SHEET, editorPaneMode(700f, 480f)) // medium height
+        assertEquals(360f, sidePaneWidthDp(1199.5f), 0f)
+        assertEquals(false, settingsTwoPane(839f))
+        assertEquals(true, settingsTwoPane(840f))
+    }
 }

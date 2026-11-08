@@ -226,6 +226,7 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.window)
+    implementation(libs.androidx.window.core)
     implementation(libs.androidx.core.splashscreen)
     // Installs the recorded Baseline Profile on sideloaded installs too (GitHub APK, no Play).
     implementation(libs.androidx.profileinstaller)

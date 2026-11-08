@@ -53,6 +53,8 @@ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-man
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
+# WindowSizeClass breakpoints for the editor and Settings layouts (#457); was runtime-only.
+androidx-window-core = { group = "androidx.window", name = "window-core", version.ref = "window" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
