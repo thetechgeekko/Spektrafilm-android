@@ -14,10 +14,12 @@ import org.junit.Test
  * file uses: a method rule `[HSP]+L<class>;?->name(args)ret` or a class rule `L<class>;`.
  */
 class BaselineProfileTest {
-    private val file = File("src/main/baseline-prof.txt")
+    // #459 (#504) moved the profile to the Baseline Profile plugin's generated location.
+    private val file = File("src/main/generated/baselineProfiles/baseline-prof.txt")
 
-    private val methodRule = Regex("""^[HSP]{1,3}L[\w/*$]+;?->[\w*<>$]+\([\w/;\[*$]*\)[\w/;\[*$]+$""")
-    private val classRule = Regex("""^L[\w/*$]+;$""")
+    // '-' appears in recorded R8 synthetic names (`$r8$lambda$gcIK6Em3026em-cFe...`).
+    private val methodRule = Regex("""^[HSP]{1,3}L[\w/*$-]+;?->[\w*<>$-]+\([\w/;\[*$-]*\)[\w/;\[*$-]+$""")
+    private val classRule = Regex("""^L[\w/*$-]+;$""")
 
     private fun rules() = file.readLines().map { it.trim() }
         .filter { it.isNotEmpty() && !it.startsWith("#") }
