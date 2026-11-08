@@ -45,6 +45,8 @@ object MaskGesture {
                 near(px, py, shape.x1 * w, shape.y1 * h) -> Handle.P1
                 else -> Handle.MOVE
             }
+            // AI selections follow the photo's content; they have no geometry to drag.
+            is MaskComponent.Semantic, is BoundSemantic -> Handle.NONE
         }
     }
 
@@ -69,6 +71,7 @@ object MaskGesture {
             )
             else -> shape
         }
+        is MaskComponent.Semantic, is BoundSemantic -> shape
     }
 
     private fun c01(v: Float) = v.coerceIn(0f, 1f)

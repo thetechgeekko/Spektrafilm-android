@@ -1,7 +1,10 @@
-# Spektrafilm mask-set JSON v1
+# Spektrafilm mask-set JSON v1 and v2
 
-> Stable interchange contract for `org.spektrafilm.mask-set`, version 1. The machine-readable
-> canonical schema is [schema/spektrafilm-mask-v1.schema.json](schema/spektrafilm-mask-v1.schema.json).
+> Stable interchange contract for `org.spektrafilm.mask-set`, versions 1 and 2. The machine-readable
+> canonical schemas are [schema/spektrafilm-mask-v1.schema.json](schema/spektrafilm-mask-v1.schema.json)
+> and [schema/spektrafilm-mask-v2.schema.json](schema/spektrafilm-mask-v2.schema.json). Version 2 is
+> version 1 plus the [semantic](#semantic) shape; writers emit version 2 only when a document contains
+> one, so every geometric-only document stays readable by v1 readers.
 
 A mask-set document stores ordered local adjustments. Each adjustment pairs a geometric/range mask
 with a post-engine adjustment delta. Presets embed this document at their top-level `masks` property;
@@ -84,13 +87,13 @@ Object property order is not significant. Adjustment and component array order i
 | Field | Type | Contract |
 |---|---|---|
 | `schema` | string | Must equal `org.spektrafilm.mask-set`. |
-| `version` | integer | Must equal `1`. |
+| `version` | integer | `1`, or `2` when any component has a `semantic` shape. |
 | `adjustments` | array | Ordered local adjustments; zero to 64 entries. |
 | `adjustments[].delta` | object | Values applied where the final mask alpha is non-zero. |
 | `adjustments[].mask` | object | Ordered components plus optional mask-wide range refinements. |
 
-Canonical v1 writers must emit every field marked required by the JSON Schema and must not add
-unversioned properties. A future wire change requires a new version and migration path.
+Canonical writers must emit every field marked required by the JSON Schema for the version they write
+and must not add unversioned properties. A future wire change requires a new version and migration path.
 
 ## Mask composition
 
@@ -120,7 +123,7 @@ nothing. An empty inverted mask selects the whole image at the specified opacity
 ## Shapes
 
 Coordinates are resolution-independent image coordinates. Producers normally keep coordinates and
-radii in `0..1`, use positive radial radii, and keep feather/value in `0..1`. The v1 decoder requires
+radii in `0..1`, use positive radial radii, and keep feather/value in `0..1`. The decoder requires
 values that remain finite after conversion to a 32-bit Float. The canonical schema therefore limits
 every numeric field to `-3.4028235e38..3.4028235e38`, but it does not add narrower semantic bounds that
 the implementation does not reject. Runtime behavior such as final-alpha and feather clamping still
@@ -159,6 +162,33 @@ This is an ellipse centered at `(cx,cy)`, rotated by `angleDeg`. Feather control
 falloff band. Runtime evaluation clamps feather to `0.001..1` and handles a near-zero radius without a
 division by zero.
 
+### Semantic
+
+Version 2 only.
+
+```json
+{
+  "type": "semantic",
+  "classes": ["face_skin", "body_skin"],
+  "softness": 0.5,
+  "expand": 0
+}
+```
+
+An AI selection made by the on-device segmenter. The document stores only the intent: which
+`classes` to select (one or both of `face_skin` and `body_skin`, no duplicates, written in that
+order), how wide the edge is (`softness`, normally `0..1`), and how far to grow (`expand` > 0) or
+shrink (`expand` < 0) the selection (normally `-1..1`). It never stores pixels, so applying a preset
+to another photo selects that photo's skin.
+
+At render time the summed class probability `p` from the segmenter is mapped to coverage with
+`smoothstep((p - lo) / (hi - lo))`, where `lo = max(0, t - w/2)`, `hi = min(1, t + w/2)`,
+`w = 0.02 + 0.48*softness` and `t = 0.5 - 0.4*expand` (both inputs clamped to their normal ranges).
+The clip keeps `p = 0` at zero coverage and `p = 1` at full coverage for every setting. Until the
+segmenter has run on the photo, the whole mask holding the semantic component selects nothing, even
+when it or the component is inverted. The probabilities live in source-photo coordinates, so a semantic
+selection stays on the same content when the photo is cropped.
+
 ## Range refinements
 
 `lumRange` contains `min`, `max`, `feather`, and `invert`. It applies a trapezoid gate to encoded output
@@ -166,7 +196,7 @@ luminance: full coverage between `min` and `max`, with a smooth falloff over `fe
 
 `colorRange` contains sampled encoded RGB values `r`, `g`, and `b`, plus `tolerance`, `feather`, and
 `invert`. It compares color in a Rec.709-weighted chroma plane so luminance changes are handled
-separately. Both refinements are mask-wide in schema v1.
+separately. Both refinements are mask-wide in schema v1 and v2.
 
 ## Adjustment delta
 
@@ -185,8 +215,11 @@ Zero is a no-op for every delta field.
 
 The current reader accepts two top-level forms:
 
-1. the v1 object documented here; and
+1. the v1 and v2 objects documented here; and
 2. the legacy v0 bare adjustments array written by earlier builds.
+
+A `semantic` shape inside a version 1 document (or a legacy array) is rejected, as are unknown,
+duplicate or missing semantic classes.
 
 At the mask-codec boundary, a missing/null value decodes to an empty adjustment list. A preset that
 omits its `masks` key leaves caller-owned state unchanged, so interoperable preset writers must emit the
@@ -209,9 +242,10 @@ stricter where they overlap.
 
 ## Interoperability checklist
 
-- Validate output with [the v1 JSON Schema](schema/spektrafilm-mask-v1.schema.json).
+- Validate output with [the v1 JSON Schema](schema/spektrafilm-mask-v1.schema.json), or with
+  [the v2 JSON Schema](schema/spektrafilm-mask-v2.schema.json) when it contains a semantic shape.
 - Preserve array order and exact case for `ADD`, `SUBTRACT`, and `INTERSECT`.
 - Emit ordinary JSON numbers inside `-3.4028235e38..3.4028235e38`; do not emit `NaN` or infinities.
 - Use normalized image coordinates for portable geometry.
-- Keep range refinements at mask level for v1.
+- Keep range refinements at mask level for v1 and v2.
 - Increment the document version instead of silently changing field meaning.

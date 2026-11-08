@@ -66,6 +66,56 @@ sealed interface MaskComponent {
             return smoothstep(t)
         }
     }
+
+    /**
+     * AI (semantic) selection, e.g. skin. Stores the user's INTENT only — which [classes] to select,
+     * how [softness] the edge is, how far to [expand] (+) or contract (−) — never pixels, so a preset or
+     * recipe carrying it re-selects on every new photo and batch export.
+     *
+     * On its own it selects nothing ([alphaAt] is 0): the compositor first swaps it for a
+     * [BoundSemantic] that holds the segmenter's probability field for the current photo and the map
+     * from the output frame back to the source photo (see [Mask.bindSemantic]). Until a field is ready
+     * the mask is therefore inert, never wrong: [Mask.alphaAt] returns 0 for a mask that still holds an
+     * unbound semantic component, so inverting it cannot turn a local edit into a global one.
+     *
+     * [softness] in 0..1 widens the transition band; [expand] in −1..1 moves the selection threshold.
+     */
+    data class Semantic(
+        val classes: Set<SemanticClass>,
+        val softness: Float = DEFAULT_SOFTNESS,
+        val expand: Float = 0f,
+    ) : MaskComponent {
+        override fun alphaAt(nx: Float, ny: Float): Float = 0f
+
+        /** Map a summed class probability [p] in 0..1 to coverage, per [softness] and [expand]. */
+        fun coverage(p: Float): Float {
+            if (!p.isFinite()) return 0f
+            val width = 0.02f + 0.48f * softness.coerceIn(0f, 1f)
+            val threshold = 0.5f - 0.4f * expand.coerceIn(-1f, 1f)
+            // The band is clipped to 0..1 so p = 0 (background, a missing class, outside the photo)
+            // always gives 0 and p = 1 always gives 1, at every softness/expand.
+            val lo = maxOf(0f, threshold - 0.5f * width)
+            val hi = minOf(1f, threshold + 0.5f * width)
+            return smoothstep((p - lo) / (hi - lo))
+        }
+
+        companion object {
+            const val DEFAULT_SOFTNESS = 0.5f
+        }
+    }
+}
+
+/**
+ * Classes the on-device segmenter labels. [wire] is the stable JSON name (never rename it); the
+ * model's channel order lives with the segmenter, not here.
+ */
+enum class SemanticClass(val wire: String) {
+    FACE_SKIN("face_skin"),
+    BODY_SKIN("body_skin");
+
+    companion object {
+        fun fromWire(name: String): SemanticClass? = entries.firstOrNull { it.wire == name }
+    }
 }
 
 /**
@@ -93,6 +143,9 @@ data class Mask(
 
     /** Fold the components at a normalized coordinate → final alpha in [0,1]. */
     fun alphaAt(nx: Float, ny: Float): Float {
+        // An unresolved AI selection (no segmentation for this photo yet) makes the WHOLE mask inert,
+        // before any inversion: otherwise an inverted semantic component would select everything.
+        if (components.any { it.shape is MaskComponent.Semantic }) return 0f
         var a = 0f
         for (comp in components) {
             var c = comp.shape.alphaAt(nx, ny).coerceIn(0f, 1f)

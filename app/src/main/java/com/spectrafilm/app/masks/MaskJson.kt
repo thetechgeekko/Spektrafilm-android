@@ -18,7 +18,10 @@ import java.math.BigInteger
 object MaskJson {
 
     const val SCHEMA_ID = "org.spektrafilm.mask-set"
+    /** Version written for documents with only geometric shapes (readable by every v1 reader). */
     const val SCHEMA_VERSION = 1
+    /** Version written when any component is semantic; v1-only readers reject the whole mask set. */
+    const val SCHEMA_VERSION_SEMANTIC = 2
     const val MAX_ADJUSTMENTS = 64
     const val MAX_COMPONENTS_PER_MASK = 32
 
@@ -37,9 +40,10 @@ object MaskJson {
                 put("mask", maskToJson(adj.mask))
             })
         }
+        val semantic = adjustments.any { it.mask.hasSemantic }
         return JSONObject().apply {
             put("schema", SCHEMA_ID)
-            put("version", SCHEMA_VERSION)
+            put("version", if (semantic) SCHEMA_VERSION_SEMANTIC else SCHEMA_VERSION)
             put("adjustments", arr)
         }
     }
@@ -47,13 +51,16 @@ object MaskJson {
     /** Accepts the current object document and the shipped legacy bare-array v0 form. */
     fun fromJson(value: Any?): List<LocalAdjustment> {
         if (value == null || value === JSONObject.NULL) return emptyList()
+        var version = SCHEMA_VERSION
         val arr = when (value) {
             is JSONArray -> value // legacy recipes/presets written before schema v1
             is JSONObject -> {
                 require(value.optString("schema") == SCHEMA_ID) { "unsupported mask schema" }
                 val rawVersion = value.opt("version")
-                require(isExactSchemaVersion(rawVersion)) {
-                    "unsupported mask schema version: $rawVersion"
+                version = when {
+                    isExactSchemaVersion(rawVersion, SCHEMA_VERSION) -> SCHEMA_VERSION
+                    isExactSchemaVersion(rawVersion, SCHEMA_VERSION_SEMANTIC) -> SCHEMA_VERSION_SEMANTIC
+                    else -> throw IllegalArgumentException("unsupported mask schema version: $rawVersion")
                 }
                 value.optJSONArray("adjustments")
                     ?: throw IllegalArgumentException("mask document has no adjustments array")
@@ -69,16 +76,19 @@ object MaskJson {
                 ?: throw IllegalArgumentException("mask adjustment $i is not an object")
             out.add(LocalAdjustment(maskFromJson(o.optJSONObject("mask")), deltaFromJson(o.optJSONObject("delta"))))
         }
+        require(version >= SCHEMA_VERSION_SEMANTIC || out.none { it.mask.hasSemantic }) {
+            "semantic mask shapes need mask schema version $SCHEMA_VERSION_SEMANTIC"
+        }
         return out
     }
 
     /** Do not use JSONObject.optInt: it coerces strings/fractions and can truncate large longs. */
-    private fun isExactSchemaVersion(value: Any?): Boolean = when (value) {
-        is Byte, is Short, is Int, is Long -> (value as Number).toLong() == SCHEMA_VERSION.toLong()
-        is Float -> value.isFinite() && value == SCHEMA_VERSION.toFloat()
-        is Double -> value.isFinite() && value == SCHEMA_VERSION.toDouble()
-        is BigInteger -> value == BigInteger.valueOf(SCHEMA_VERSION.toLong())
-        is BigDecimal -> value.compareTo(BigDecimal.valueOf(SCHEMA_VERSION.toLong())) == 0
+    private fun isExactSchemaVersion(value: Any?, expected: Int): Boolean = when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong() == expected.toLong()
+        is Float -> value.isFinite() && value == expected.toFloat()
+        is Double -> value.isFinite() && value == expected.toDouble()
+        is BigInteger -> value == BigInteger.valueOf(expected.toLong())
+        is BigDecimal -> value.compareTo(BigDecimal.valueOf(expected.toLong())) == 0
         else -> false
     }
 
@@ -173,6 +183,35 @@ object MaskJson {
             put("rx", s.rx.toDouble()); put("ry", s.ry.toDouble())
             put("feather", s.feather.toDouble()); put("angleDeg", s.angleDeg.toDouble())
         }
+        is MaskComponent.Semantic -> semanticToJson(s)
+        // Runtime-only binding: persist the intent, never the per-photo field.
+        is BoundSemantic -> semanticToJson(s.intent)
+    }
+
+    private fun semanticToJson(s: MaskComponent.Semantic) = JSONObject().apply {
+        put("type", "semantic")
+        // Enum order, not set order, so equal intents serialize identically.
+        put("classes", JSONArray().apply { for (c in SemanticClass.entries) if (c in s.classes) put(c.wire) })
+        put("softness", s.softness.toDouble()); put("expand", s.expand.toDouble())
+    }
+
+    private fun semanticFromJson(o: JSONObject): MaskComponent.Semantic {
+        val arr = o.optJSONArray("classes")
+            ?: throw IllegalArgumentException("semantic mask has no classes array")
+        require(arr.length() in 1..SemanticClass.entries.size) { "semantic mask class count out of range" }
+        val classes = LinkedHashSet<SemanticClass>()
+        for (i in 0 until arr.length()) {
+            val name = arr.opt(i) as? String
+                ?: throw IllegalArgumentException("semantic mask class $i is not a string")
+            val cls = SemanticClass.fromWire(name)
+                ?: throw IllegalArgumentException("unsupported semantic mask class: $name")
+            require(classes.add(cls)) { "duplicate semantic mask class: $name" }
+        }
+        return MaskComponent.Semantic(
+            classes = classes,
+            softness = f(o, "softness", MaskComponent.Semantic.DEFAULT_SOFTNESS),
+            expand = f(o, "expand"),
+        )
     }
 
     private fun shapeFromJson(o: JSONObject?): MaskComponent {
@@ -183,6 +222,7 @@ object MaskJson {
                 f(o, "cx", 0.5f), f(o, "cy", 0.5f), f(o, "rx", 0.25f), f(o, "ry", 0.25f),
                 f(o, "feather", 0.5f), f(o, "angleDeg"),
             )
+            "semantic" -> semanticFromJson(o)
             else -> throw IllegalArgumentException("unsupported mask shape: $type")
         }
     }

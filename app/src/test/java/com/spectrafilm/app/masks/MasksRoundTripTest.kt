@@ -124,4 +124,77 @@ class MasksRoundTripTest {
             MaskJson.fromJson(tooManyComponents)
         }
     }
+
+    private val skinAdjustment = LocalAdjustment(
+        Mask(
+            listOf(
+                Mask.Component(
+                    BlendMode.ADD,
+                    MaskComponent.Semantic(setOf(SemanticClass.BODY_SKIN, SemanticClass.FACE_SKIN), softness = 0.3f, expand = -0.2f),
+                ),
+                Mask.Component(BlendMode.INTERSECT, MaskComponent.Radial(0.5f, 0.4f, 0.3f, 0.3f)),
+            ),
+        ),
+        TierADelta(texture = -30f, clarity = -10f),
+    )
+
+    @Test
+    fun semanticMask_roundTripsAsVersion2() {
+        val json = MaskJson.toJson(listOf(skinAdjustment))
+        assertEquals(MaskJson.SCHEMA_VERSION_SEMANTIC, json.getInt("version"))
+        val shape = json.getJSONArray("adjustments").getJSONObject(0).getJSONObject("mask")
+            .getJSONArray("components").getJSONObject(0).getJSONObject("shape")
+        assertEquals("semantic", shape.getString("type"))
+        // Canonical class order, whatever order the set was built in.
+        assertEquals(listOf("face_skin", "body_skin"), List(shape.getJSONArray("classes").length()) { shape.getJSONArray("classes").getString(it) })
+        assertEquals(listOf(skinAdjustment), MaskJson.fromJson(JSONObject(json.toString())))
+    }
+
+    @Test
+    fun geometricOnlyMasks_stayVersion1() {
+        assertEquals(MaskJson.SCHEMA_VERSION, MaskJson.toJson(sample).getInt("version"))
+    }
+
+    @Test
+    fun boundSemantic_serializesItsIntentOnly() {
+        val field = SemanticField(1, 1, mapOf(SemanticClass.FACE_SKIN to floatArrayOf(1f)))
+        val bound = listOf(skinAdjustment).bindSemantic(field, FrameMap.IDENTITY)
+        assertTrue(bound[0].mask.components[0].shape is BoundSemantic)
+        assertEquals(
+            MaskJson.toJson(listOf(skinAdjustment)).toString(),
+            MaskJson.toJson(bound).toString(),
+        )
+    }
+
+    @Test
+    fun semanticShapeInVersion1Document_isRejected() {
+        val json = MaskJson.toJson(listOf(skinAdjustment)).put("version", 1)
+        assertThrows(IllegalArgumentException::class.java) { MaskJson.fromJson(json) }
+    }
+
+    @Test
+    fun semanticShape_rejectsUnknownDuplicateOrMissingClasses() {
+        fun withClasses(classes: JSONArray?): JSONObject {
+            val json = JSONObject(MaskJson.toJson(listOf(skinAdjustment)).toString())
+            val shape = json.getJSONArray("adjustments").getJSONObject(0).getJSONObject("mask")
+                .getJSONArray("components").getJSONObject(0).getJSONObject("shape")
+            if (classes == null) shape.remove("classes") else shape.put("classes", classes)
+            return json
+        }
+        for (bad in listOf(
+            JSONArray().put("hair"),
+            JSONArray().put("face_skin").put("face_skin"),
+            JSONArray(),
+            JSONArray().put(3),
+            null,
+        )) {
+            assertThrows("classes=$bad", IllegalArgumentException::class.java) { MaskJson.fromJson(withClasses(bad)) }
+        }
+    }
+
+    @Test
+    fun version3_isStillRejected() {
+        val json = MaskJson.toJson(listOf(skinAdjustment)).put("version", 3)
+        assertThrows(IllegalArgumentException::class.java) { MaskJson.fromJson(json) }
+    }
 }
