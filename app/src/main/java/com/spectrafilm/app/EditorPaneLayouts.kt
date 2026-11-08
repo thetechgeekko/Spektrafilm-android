@@ -100,6 +100,7 @@ internal fun EditorWideLayout(
                 content = panelContent,
             )
         }
+    }
 }
 
 /**

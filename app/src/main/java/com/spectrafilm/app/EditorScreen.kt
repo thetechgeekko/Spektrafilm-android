@@ -2960,7 +2960,6 @@ internal fun EditorScreen(
                         openSection = openSection,
                         panelContent = panelContent,
                     )
-                    }
                 } else {
                     EditorNarrowLayout(
                         chromeHidden = viewerUi.chromeHidden,

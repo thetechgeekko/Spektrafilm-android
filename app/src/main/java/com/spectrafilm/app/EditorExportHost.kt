@@ -179,7 +179,7 @@ internal fun EditorExportSheetHost(
             onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
                 {
                     exportAskingNotificationsOnce {
-                        requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker) setStatus
+                        requestBatchExport(exportVm, ctx, legacyStoragePermission, batchPicker, setStatus)
                     }
                 }
             } else {
@@ -191,7 +191,7 @@ internal fun EditorExportSheetHost(
             ) {
                 {
                     exportAskingNotificationsOnce {
-                        requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker) setStatus
+                        requestHalfFramePair(exportVm, ctx, legacyStoragePermission, pairPicker, setStatus)
                     }
                 }
             } else {
