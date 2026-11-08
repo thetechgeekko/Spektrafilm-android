@@ -311,36 +311,52 @@ internal class AlbumsViewModel(
 
     // Grants of frames an album drops are not released here: Undo must still be able to
     // read them, and the next grant reconciliation releases whatever no album retains.
-    private fun edit(change: (List<Album>) -> List<Album>) =
+    //
+    // Shown at once, then saved; a save that fails (a full disk) puts the albums back as they
+    // were and tells [onResult] false, so no screen reports a change that is not on disk.
+    private fun edit(change: (List<Album>) -> List<Album>, onResult: (saved: Boolean) -> Unit = {}) {
         writeScope.launch {
-            lock.withLock {
-                if (!loaded) return@withLock
-                val next = change(_albums.value)
-                if (next == _albums.value) return@withLock
+            val saved = lock.withLock {
+                if (!loaded) return@withLock false
+                val before = _albums.value
+                val next = change(before)
+                if (next == before) return@withLock true
                 _albums.value = next
-                withContext(io) {
-                    runCatching { store.save(next) }.onFailure { Diag.w("albums save failed: ${it.message}") }
+                val ok = withContext(io) {
+                    runCatching { store.save(next) }
+                        .onFailure { Diag.w("albums save failed: ${it.message}") }
+                        .isSuccess
                 }
+                if (!ok) _albums.value = before
+                ok
             }
+            onResult(saved)
         }
+    }
 
     /**
      * A new album holding [items] (maybe none). [onDone] gets its id and how many items it took
      * (the album and total bounds can cut a big selection short), or a null id when no album
-     * could be made (too many albums, or the albums file is unreadable this session).
+     * could be made (too many albums, the albums file unreadable this session, or not saved).
      */
     fun create(name: String, items: List<AlbumItem> = emptyList(), onDone: (id: String?, added: Int) -> Unit = { _, _ -> }) {
         val id = newId()
         val clean = AlbumOps.cleanName(name)
         var made: Album? = null
-        edit { albums ->
-            AlbumOps.create(albums, id, clean.ifEmpty { id }, now(), items).also { next ->
-                made = next.firstOrNull { it.id == id }
-            }
-        }.invokeOnCompletion { if (it == null) onDone(made?.id, made?.items?.size ?: 0) }
+        edit(
+            change = { albums ->
+                AlbumOps.create(albums, id, clean.ifEmpty { id }, now(), items).also { next ->
+                    made = next.firstOrNull { it.id == id }
+                }
+            },
+            onResult = { saved ->
+                val album = made.takeIf { saved }
+                onDone(album?.id, album?.items?.size ?: 0)
+            },
+        )
     }
 
-    fun rename(id: String, name: String) = edit { AlbumOps.rename(it, id, name) }
+    fun rename(id: String, name: String) = edit({ AlbumOps.rename(it, id, name) })
 
     /** Deletes the album and returns what Undo needs, or null when there is no such album. */
     fun delete(id: String): Pair<Album, Int>? {
@@ -349,40 +365,46 @@ internal class AlbumsViewModel(
         val album = _albums.value[index]
         // Held before the album leaves the file, so no sweep can fall between the two.
         AlbumUndoHold.hold(album.id, AlbumOps.retainedUris(listOf(album)))
-        edit { AlbumOps.delete(it, id) }
+        edit({ AlbumOps.delete(it, id) })
         return album to index
     }
 
     /** Puts a deleted album back; its grants were held until now ([AlbumUndoHold]). */
     fun undoDelete(album: Album, index: Int) {
-        edit { AlbumOps.restore(it, album, index) }.invokeOnCompletion { AlbumUndoHold.release(album.id) }
+        edit({ AlbumOps.restore(it, album, index) }) { AlbumUndoHold.release(album.id) }
     }
 
     /** The Undo offer for a deleted album ended unused: its grants may go at the next sweep. */
     fun undoExpired(album: Album) = AlbumUndoHold.release(album.id)
 
-    /** Adds [items]; [onDone] gets how many were new and fitted (0 when the album is full). */
-    fun add(id: String, items: List<AlbumItem>, onDone: (added: Int) -> Unit = {}) {
+    /**
+     * Adds [items]; [onDone] gets how many were new and fitted (0 when the album is full), or
+     * null when the change could not be saved.
+     */
+    fun add(id: String, items: List<AlbumItem>, onDone: (added: Int?) -> Unit = {}) {
         var added = 0
-        edit { albums ->
-            val before = albums.firstOrNull { it.id == id }?.items?.size ?: 0
-            AlbumOps.add(albums, id, items).also { next ->
-                added = (next.firstOrNull { it.id == id }?.items?.size ?: 0) - before
-            }
-        }.invokeOnCompletion { if (it == null) onDone(added) }
+        edit(
+            change = { albums ->
+                val before = albums.firstOrNull { it.id == id }?.items?.size ?: 0
+                AlbumOps.add(albums, id, items).also { next ->
+                    added = (next.firstOrNull { it.id == id }?.items?.size ?: 0) - before
+                }
+            },
+            onResult = { saved -> onDone(added.takeIf { saved }) },
+        )
     }
 
     fun removeSelected(id: String): Int {
         val picked = _selection.value
         if (picked.isEmpty()) return 0
         _selection.value = emptySet()
-        edit { AlbumOps.remove(it, id, picked) }
+        edit({ AlbumOps.remove(it, id, picked) })
         return picked.size
     }
 
     fun setCover(id: String, uri: String) {
         _selection.value = emptySet()
-        edit { AlbumOps.setCover(it, id, uri) }
+        edit({ AlbumOps.setCover(it, id, uri) })
     }
 
     fun toggleSelected(uri: String) {

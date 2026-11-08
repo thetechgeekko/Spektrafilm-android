@@ -21,13 +21,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class AlbumsViewModelTest {
-    private class FakeStore(var saved: List<Album> = emptyList(), val failLoad: Boolean = false) : AlbumStore {
+    private class FakeStore(
+        var saved: List<Album> = emptyList(),
+        val failLoad: Boolean = false,
+        var failSave: Boolean = false,
+    ) : AlbumStore {
         var saves = 0
         override fun load(): List<Album> {
             if (failLoad) throw java.io.IOException("busy")
             return saved
         }
-        override fun save(albums: List<Album>) { saves++; saved = albums }
+        override fun save(albums: List<Album>) {
+            saves++
+            if (failSave) throw java.io.IOException("no space")
+            saved = albums
+        }
     }
 
     private fun item(n: Int) = AlbumItem("content://doc/$n", "f$n.jpg", "image/jpeg", n.toLong(), 1L, "content://tree/a")
@@ -109,6 +117,20 @@ class AlbumsViewModelTest {
         assertEquals(2, model.removeSelected("a")); idle()
         assertEquals(listOf(item(2)), store.saved[0].items)
         assertTrue(model.selection.value.isEmpty())
+    }
+
+    @Test fun aFailedSaveIsUndoneOnScreenAndReported() {
+        val store = FakeStore(listOf(Album("a", "A", 1L, listOf(item(1)))))
+        val model = vm(store); idle()
+        store.failSave = true
+        var added: Int? = -1
+        model.add("a", listOf(item(2))) { added = it }; idle()
+        assertNull(added)
+        assertEquals(listOf(item(1)), model.albums.value.single().items)
+        var created: String? = "unset"
+        model.create("New", listOf(item(3))) { newId, _ -> created = newId }; idle()
+        assertNull(created)
+        assertEquals(listOf("a"), model.albums.value.map { it.id })
     }
 
     @Test fun aFailedReadNeverOverwritesTheFile() {

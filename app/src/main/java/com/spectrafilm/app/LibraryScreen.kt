@@ -360,11 +360,14 @@ private fun LibraryFolderAndAlbums(
             )
         }
     }
-    val added = { name: String, count: Int ->
-        vm.clearSelection()
+    val added = { name: String, count: Int? ->
+        // Unsaved: the selection stays, so trying again needs no reselecting.
+        if (count != null) vm.clearSelection()
         scope.launch {
             snackbar.showSnackbar(
-                if (count == 0) {
+                if (count == null) {
+                    ctx.getString(R.string.album_save_failed)
+                } else if (count == 0) {
                     ctx.getString(R.string.album_full)
                 } else {
                     ctx.resources.getQuantityString(R.plurals.album_added, count, count, name)
