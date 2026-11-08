@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.app.masks.BlendMode
+import com.spectrafilm.app.masks.BoundSemantic
 import com.spectrafilm.app.masks.Mask
 import com.spectrafilm.app.masks.MaskComponent
 import com.spectrafilm.app.masks.MaskGesture
@@ -219,5 +220,7 @@ private fun DrawScope.drawMaskChrome(shape: MaskComponent) {
             drawCircle(handle, 11f, p0)
             drawCircle(handle, 11f, p1)
         }
+        // An AI selection has no handles; it is shown by the mask overlay itself.
+        is MaskComponent.Semantic, is BoundSemantic -> Unit
     }
 }

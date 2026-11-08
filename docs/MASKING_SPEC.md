@@ -181,9 +181,13 @@ luma as guide** (`RefineMask`) → soft α stored as a `cr_mask_image` component
 **Geometry not baked** — store the *intent* ("subject"/"sky"), **recompute α on apply / image change**,
 cache by image fingerprint.
 
-**Our plan:** an AI mask = a `MaskComponent.Raster(alpha,w,h)`. Bundle small Subject+Sky `.tflite` under
-`app/src/main/assets/`; run on the existing decode/simulate background executor (GPU delegate optional);
-guided-filter refine on output luma (the one new spatial primitive — reused by Class-S Clarity/Dehaze).
+**Our plan (2026-11-08, skin first):** an AI mask = a `MaskComponent.Semantic` that stores only the intent
+(classes, softness, expand; mask-set JSON v2). At render time it is bound to a `SemanticField` (per-class
+probabilities in source-photo space) through a `FrameMap` (crop) as a runtime-only `BoundSemantic`
+(`masks/MaskSemantic.kt`). The field comes from Google's Selfie Multiclass model (face/body skin, hair,
+clothes; Apache 2.0) on standalone LiteRT, CPU, downloaded on first use; guided-filter refine on luma.
+Phone test and skin-tone evaluation: CPU ~50 ms per photo on the test phone, good across all ten Monk
+skin tones in good light, but dark clothing in poor light can read as body skin on darker skin tones.
 **Excluded:** PDR/generative-remove, AI-denoise, skin-blemish (cloud / desktop-NPU).
 
 ---
