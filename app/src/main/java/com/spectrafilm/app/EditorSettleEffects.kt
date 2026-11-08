@@ -22,9 +22,9 @@ import kotlinx.coroutines.flow.drop
 @Composable
 @NonRestartableComposable
 internal fun EditorSettleEffects(
+    screen: EditorScreenState,
     ctx: Context,
     session: EditorSession,
-    state: ParamsState,
     exportVm: ExportViewModel,
     snapshot: SpektraParams,
     recipeKey: String?,
@@ -41,17 +41,18 @@ internal fun EditorSettleEffects(
     presetUi: PresetUiState,
     recipeEditEpoch: RecipeEditEpoch,
     recipeRepo: RecipeRepository,
-    defaultsJsonState: MutableState<String?>,
-    hasRecipeState: MutableState<Boolean>,
     recipeAccessState: MutableState<EditorRecipeAccess>,
-    recipeReadyState: MutableState<Boolean>,
-    rotationState: MutableState<SourceRotation>,
-    sourceState: State<EditorSourceState>,
     statusState: MutableState<String>,
     onLiveCursorMutated: () -> Unit,
     checkpointEditorSession: () -> Boolean,
     currentSessionCheckpoint: () -> Boolean,
 ) {
+    val defaultsJsonState = screen.defaultsJsonState
+    val hasRecipeState = screen.hasRecipeState
+    val recipeReadyState = screen.recipeReadyState
+    val state = session.params
+    val rotationState = session.rotation
+    val sourceState = session.source
     // --- Non-destructive recipe: debounced auto-save ---
     // Grade fields included for the same reason as the render trigger above:
     // Presets.toJsonString already SERIALIZES them, so the recipe content was

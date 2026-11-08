@@ -29,21 +29,22 @@ import kotlinx.coroutines.withContext
 
 /** Observes the process-owned export runtime; see the comment at its LaunchedEffect in EditorScreen. */
 internal suspend fun CoroutineScope.runExportRuntimeObserver(
+    screen: EditorScreenState,
     dispatchers: AppDispatchers,
     exportVm: ExportViewModel,
     ctx: Context,
     exportSourceIdentity: ExportSourceIdentity,
-    publicationGate: RenderPublicationGate,
-    sessionCheckpointAction: Array<(() -> Boolean)?>,
     exportRuntimeStateState: State<ExportRuntimeState>,
-    exportPublicationState: MutableState<Pair<Long, RenderPublicationTicket>?>,
-    lastHandledExportRunState: MutableLongState,
-    recipeReadyState: MutableState<Boolean>,
-    previewState: MutableState<Bitmap?>,
     statusState: MutableState<String>,
-    snackbarHost: SnackbarHostState,
     messageScope: CoroutineScope,
 ) {
+    val publicationGate = screen.publicationGate
+    val sessionCheckpointAction = screen.sessionCheckpointAction
+    val exportPublicationState = screen.exportPublicationState
+    val lastHandledExportRunState = screen.lastHandledExportRunState
+    val recipeReadyState = screen.recipeReadyState
+    val previewState = screen.previewState
+    val snackbarHost = screen.snackbarHost
     val exportRuntimeState by exportRuntimeStateState
     var exportPublication by exportPublicationState
     var lastHandledExportRun by lastHandledExportRunState

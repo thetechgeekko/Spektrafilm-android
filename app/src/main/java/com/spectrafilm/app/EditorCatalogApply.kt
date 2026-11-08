@@ -29,11 +29,11 @@ import androidx.compose.runtime.setValue
  * can start with un-restored params.
  */
 internal fun applyEditorCatalog(
+    screen: EditorScreenState,
     loaded: EditorCatalog,
     ctx: Context,
     session: EditorSession,
     settings: AppSettings,
-    state: ParamsState,
     toolVm: EditorToolViewModel,
     presetVm: PresetViewModel,
     initialRestoredSession: EditorSessionDocument?,
@@ -42,10 +42,11 @@ internal fun applyEditorCatalog(
     sourceKind: SourceKind,
     refreshPresets: () -> Unit,
     statusState: MutableState<String>,
-    defaultsJsonState: MutableState<String?>,
-    recipeReadyState: MutableState<Boolean>,
-    previewTickState: MutableIntState,
 ) {
+    val defaultsJsonState = screen.defaultsJsonState
+    val recipeReadyState = screen.recipeReadyState
+    val previewTickState = screen.previewTickState
+    val state = session.params
     var status by statusState
     var defaultsJson by defaultsJsonState
     var recipeReady by recipeReadyState

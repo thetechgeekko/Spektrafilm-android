@@ -24,22 +24,24 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 internal fun EditorToolOverlays(
+    screen: EditorScreenState,
+    session: EditorSession,
     dispatchers: AppDispatchers,
     toolVm: EditorToolViewModel,
     ctx: Context,
     scope: CoroutineScope,
-    state: ParamsState,
     toolUi: EditorToolUiState,
     cropBmp: Bitmap?,
     cropShown: Boolean,
     maskGeometryShown: Boolean,
     sampleReady: Boolean,
     loadSourceCachedForZoom: suspend (maxEdge: Int) -> DecodedSourceCache.Lease,
-    previewTickState: MutableIntState,
-    rotationState: MutableState<SourceRotation>,
     statusState: MutableState<String>,
-    snackbarHost: SnackbarHostState,
 ) {
+    val previewTickState = screen.previewTickState
+    val snackbarHost = screen.snackbarHost
+    val state = session.params
+    val rotationState = session.rotation
     var previewTick by previewTickState
     var rotation by rotationState
     var status by statusState

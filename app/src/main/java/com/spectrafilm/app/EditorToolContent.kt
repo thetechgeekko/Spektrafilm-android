@@ -22,14 +22,13 @@ import kotlinx.coroutines.CoroutineScope
 
 @Composable
 internal fun ColumnScope.EditorToolContent(
+    screen: EditorScreenState,
     tool: Category,
     ctx: Context,
     scope: CoroutineScope,
     dispatchers: AppDispatchers,
-    state: ParamsState,
     settings: AppSettings,
     session: EditorSession,
-    snackbarHost: SnackbarHostState,
     toolVm: EditorToolViewModel,
     toolUi: EditorToolUiState,
     viewerVm: EditorViewerViewModel,
@@ -59,16 +58,7 @@ internal fun ColumnScope.EditorToolContent(
     presetExporter: ManagedActivityResultLauncher<String, Uri?>,
     savedPresetExporter: ManagedActivityResultLauncher<String, Uri?>,
     lutExporter: ManagedActivityResultLauncher<String, Uri?>,
-    presetListState: MutableState<List<String>>,
-    presetBaselineJsonState: MutableState<String?>,
-    lastBuiltInOutputState: MutableState<String?>,
-    lastBuiltInIdState: MutableState<String?>,
-    bakingLutState: MutableState<Boolean>,
-    pendingLutTextState: MutableState<String?>,
-    pendingPresetExportState: MutableState<String?>,
-    rotationState: MutableState<SourceRotation>,
     statusState: MutableState<String>,
-    previewTickState: MutableIntState,
     engineState: State<SpektraEngine?>,
     applyWithAmount: (baseOverride: String?, apply: () -> Unit) -> Unit,
     previousEdit: PreviousEdit?,
@@ -76,19 +66,30 @@ internal fun ColumnScope.EditorToolContent(
     sourceRuntime: SourceAccessRuntime,
     recipeRepo: RecipeRepository,
     recipeEditEpoch: RecipeEditEpoch,
-    editHistory: EditHistory,
     photoPicker: ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?>,
     rawPicker: ManagedActivityResultLauncher<Array<String>, Uri?>,
-    sourceState: State<EditorSourceState>,
-    hasRecipeState: MutableState<Boolean>,
     recipeAccessState: MutableState<EditorRecipeAccess>,
-    committedSnapshotState: MutableState<EditSnapshot?>,
-    restoringState: MutableState<Boolean>,
     profilesState: State<List<String>>,
     retireSourceResources: () -> Unit,
     resetEditorCursorForSourceChange: () -> Unit,
     reconcileVisibleSourceAfterFailure: (SourceRestoreResult?) -> Unit,
 ) {
+    val snackbarHost = screen.snackbarHost
+    val presetListState = screen.presetListState
+    val presetBaselineJsonState = screen.presetBaselineJsonState
+    val lastBuiltInOutputState = screen.lastBuiltInOutputState
+    val lastBuiltInIdState = screen.lastBuiltInIdState
+    val bakingLutState = screen.bakingLutState
+    val pendingLutTextState = screen.pendingLutTextState
+    val pendingPresetExportState = screen.pendingPresetExportState
+    val previewTickState = screen.previewTickState
+    val hasRecipeState = screen.hasRecipeState
+    val state = session.params
+    val rotationState = session.rotation
+    val editHistory = session.history
+    val sourceState = session.source
+    val committedSnapshotState = session.committedSnapshot
+    val restoringState = session.restoring
     val simPart: SimPart? = when (tool) {
         Category.SIMULATION -> SimPart.FILM_STOCK
         Category.PAPER -> SimPart.PAPER

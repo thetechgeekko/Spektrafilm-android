@@ -38,36 +38,22 @@ private const val SKIN_RETRY_MS = 250L
 @Composable
 @NonRestartableComposable
 internal fun EditorPreviewEffects(
+    screen: EditorScreenState,
+    session: EditorSession,
     ctx: Context,
     dispatchers: AppDispatchers,
-    state: ParamsState,
     settings: AppSettings,
     toolVm: EditorToolViewModel,
     viewerVm: EditorViewerViewModel,
     exportVm: ExportViewModel,
     engineState: State<SpektraEngine?>,
-    sourceState: State<EditorSourceState>,
     sourceUriState: State<Uri?>,
     sourceKindState: State<SourceKind>,
     sourceRenderAllowed: Boolean,
-    rotationState: State<SourceRotation>,
-    previewTickState: MutableIntState,
     previewRevision: Long,
-    publicationGate: RenderPublicationGate,
-    gradeCache: GradeCache,
-    sourceCache: DecodedSourceCache,
     interacting: MutableState<Boolean>,
-    previewState: MutableState<Bitmap?>,
-    beforePreviewState: MutableState<Bitmap?>,
-    decodingState: MutableState<Boolean>,
-    lastRenderMsState: MutableState<Long?>,
-    previewBusyState: MutableState<Boolean>,
-    renderErrState: MutableState<String?>,
     statusState: MutableState<String>,
     gpuEnabled: Boolean,
-    gpuGainState: MutableFloatState,
-    gpuLutState: MutableState<CubeLut?>,
-    gpuProxyLeaseState: MutableState<DecodedSourceCache.Lease?>,
     zoomPrewarmEligible: Boolean,
     snapshot: SpektraParams,
     exportOptions: ExportOptions,
@@ -80,6 +66,22 @@ internal fun EditorPreviewEffects(
     cachedSourceDecodeRequest: suspend (DecodedSourceCache, Int) -> CachedSourceDecodeRequest,
     loadSourceCachedForPreview: suspend (Int) -> DecodedSourceCache.Lease,
 ) {
+    val previewTickState = screen.previewTickState
+    val publicationGate = screen.publicationGate
+    val gradeCache = screen.gradeCache
+    val sourceCache = screen.sourceCache
+    val previewState = screen.previewState
+    val beforePreviewState = screen.beforePreviewState
+    val decodingState = screen.decodingState
+    val lastRenderMsState = screen.lastRenderMsState
+    val previewBusyState = screen.previewBusyState
+    val renderErrState = screen.renderErrState
+    val gpuGainState = screen.gpuGainState
+    val gpuLutState = screen.gpuLutState
+    val gpuProxyLeaseState = screen.gpuProxyLeaseState
+    val state = session.params
+    val sourceState = session.source
+    val rotationState = session.rotation
     val engine by engineState
     val sourceUri by sourceUriState
     val sourceKind by sourceKindState
