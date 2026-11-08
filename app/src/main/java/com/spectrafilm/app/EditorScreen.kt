@@ -414,12 +414,21 @@ internal fun EditorScreen(
     val currentUriString = sourceUri?.toString()
     val nextFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, 1) }
     val previousFrame = remember(currentUriString) { PhotoBrowse.neighbour(currentUriString, -1) }
+    // Each neighbour is graded with the settings it will open with (its own recipe, else the
+    // defaults), read through the recipe queue so a just-flushed save of it is seen.
+    val neighbourOpeningState: suspend (String) -> ParamsState = { uri ->
+        val recipes = ctx.appContainer.recipes
+        val read = Recipes.keyFor(Uri.parse(uri))?.let { key ->
+            RecipeWorkRuntime.submit { recipes.readResult(key) }.await()
+        }
+        openingStateFor(read) { Recipes.resetToDefaults(it, settings, profiles) }
+    }
     val nextThumb = rememberNeighbourBitmap(
-        nextFrame, ctx.applicationContext, engine, state, previewTick,
+        nextFrame, ctx.applicationContext, engine, neighbourOpeningState,
         busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
     )
     val previousThumb = rememberNeighbourBitmap(
-        previousFrame, ctx.applicationContext, engine, state, previewTick,
+        previousFrame, ctx.applicationContext, engine, neighbourOpeningState,
         busy = { previewBusy || interacting.value }, io = dispatchers.io, default = dispatchers.default,
     )
     val photoSwipe = if (nextFrame == null && previousFrame == null) {

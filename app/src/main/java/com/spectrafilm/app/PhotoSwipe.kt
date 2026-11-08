@@ -94,18 +94,35 @@ internal fun Modifier.photoSwipeGesture(
 }
 
 /**
+ * The settings a photo opens with, as the editor's recipe restore applies them: its saved
+ * recipe when it has one, otherwise the defaults a first open gets ([applyDefaults], the
+ * user's default settings over a fresh state). Unit-tested.
+ */
+internal fun openingStateFor(
+    read: RecipeReadResult?,
+    applyDefaults: (ParamsState) -> Unit,
+): ParamsState {
+    val s = ParamsState()
+    if (read is RecipeReadResult.Loaded) {
+        Presets.decode(read.document.params, s)
+    } else {
+        applyDefaults(s)
+    }
+    return s
+}
+
+/**
  * The bitmap a neighbour slides in with: its grid thumbnail at once, then (once the
- * interactive preview is idle) that thumbnail in the open photo's current film look, so the
- * photo that lands already wears the look instead of shifting into it a moment later.
- * Re-graded when [lookKey] (the settings) changes; the previous look stays up meanwhile.
+ * interactive preview is idle) that thumbnail in the neighbour's OWN look, the settings
+ * [openingState] says it will open with. So the photo that lands already looks like itself
+ * instead of wearing the open photo's look and jumping to its own a moment later.
  */
 @Composable
 internal fun rememberNeighbourBitmap(
     frame: BrowseFrame?,
     context: Context,
     engine: SpektraEngine?,
-    state: ParamsState,
-    lookKey: Int,
+    openingState: suspend (uri: String) -> ParamsState,
     busy: () -> Boolean,
     io: CoroutineDispatcher,
     default: CoroutineDispatcher,
@@ -119,14 +136,15 @@ internal fun rememberNeighbourBitmap(
         }
     }
     // (uri, look) so a look never outlives the frame it was rendered for.
-    val look by produceState<Pair<String, Bitmap>?>(null, frame, thumb, engine, lookKey) {
+    val look by produceState<Pair<String, Bitmap>?>(null, frame, thumb, engine) {
         if (value?.first != frame?.uri) value = null
         val f = frame ?: return@produceState
         val t = thumb ?: return@produceState
         val e = engine ?: return@produceState
+        val own = openingState(f.uri)
         // Let the render the user is waiting for go first.
         snapshotFlow { busy() }.first { !it }
-        val rendered = PlaceholderLook.render(context, e, t, state, default) ?: return@produceState
+        val rendered = PlaceholderLook.render(context, e, t, own, default) ?: return@produceState
         val active = isActive
         if (active) value = f.uri to rendered.bitmap
         PlaceholderLook.report(rendered, published = active, cancelled = !active)
