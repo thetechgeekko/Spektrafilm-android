@@ -1452,10 +1452,21 @@ internal fun EditorScreen(
     // A saved result stays "current" (the pill's Share sends that file again) until the
     // user's next edit -- a slider drag or any settled change -- or a move to another tool
     // panel, so Share never sends a file the photo has since moved on from.
-    if (exportDone) {
-        LaunchedEffect(Unit) {
-            val committedAtSave = session.committedSnapshot.value
-            val categoryAtSave = activeCategory
+    //
+    // The baseline is what the run RENDERED, taken when it starts (the render mask blocks every
+    // edit until it ends), never what the editor holds when the result lands: the result is
+    // published only after the terminal checkpoint flushes, and an edit made during that
+    // window must still count against it (Codex on #535). Falls back to the state at
+    // publication after recreation, which loses the remembered baseline.
+    var exportBaseline by remember { mutableStateOf<Pair<Any?, Category?>?>(null) }
+    LaunchedEffect(exportInFlight) {
+        if (exportInFlight) exportBaseline = session.committedSnapshot.value to activeCategory
+    }
+    if (exportDone && exportUi.lastShare != null) {
+        LaunchedEffect(exportUi.lastShare) {
+            val base = exportBaseline
+            val committedAtSave = if (base != null) base.first else session.committedSnapshot.value
+            val categoryAtSave = if (base != null) base.second else activeCategory
             snapshotFlow {
                 interacting.value ||
                     session.committedSnapshot.value != committedAtSave ||
