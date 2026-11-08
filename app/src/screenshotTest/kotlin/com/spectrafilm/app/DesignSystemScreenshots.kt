@@ -55,3 +55,21 @@ fun SectionCardScreenshot() = SectionCardSample(dark = androidx.compose.foundati
 @Preview
 @Composable
 fun ExportButtonScreenshot() = ExportButtonSample(dark = false)
+
+// --- Key screens at 2x font scale (#456): review the references for clipped text ---
+
+@PreviewTest
+@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 3000)
+@Composable
+fun ExportSheetLargeTextScreenshot() = ExportSheetSample(dark = false)
+
+@PreviewTest
+@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 3000)
+@Composable
+fun SettingsLargeTextScreenshot() = SettingsSample(dark = false)
+
+// Renders stop at about 3000dp, short of the whole Settings list at 2x: this one shows its end.
+@PreviewTest
+@Preview(name = "2x", fontScale = 2f, widthDp = 360, heightDp = 3000)
+@Composable
+fun SettingsEndLargeTextScreenshot() = SettingsSample(dark = false, scrolledToEnd = true)
