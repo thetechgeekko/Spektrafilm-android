@@ -45,6 +45,15 @@ class AppSettings private constructor(
         get() = store[KEY_SEEN_ONBOARDING] ?: false
         set(v) { store.edit { it[KEY_SEEN_ONBOARDING] = v } }
 
+    /**
+     * Whether the app has already asked for POST_NOTIFICATIONS (at the first Export tap). It is
+     * asked once; after that the system setting is the user's to change, and the app never
+     * prompts again on its own.
+     */
+    var askedNotificationPermission: Boolean
+        get() = store[KEY_ASKED_NOTIFICATIONS] ?: false
+        set(v) { store.edit { it[KEY_ASKED_NOTIFICATIONS] = v } }
+
     /** Whether the one-time editor coach-mark overlay (tap-to-edit / compare / 100%) was shown. */
     var seenEditorCoach: Boolean
         get() = store[KEY_SEEN_EDITOR_COACH] ?: false
@@ -357,6 +366,8 @@ class AppSettings private constructor(
         // New in DataStore only; never lived in SharedPreferences, so not in MIGRATED_KEYS.
         private val KEY_EXPORT_BORDER = stringPreferencesKey("export_border")
         private val KEY_FULL_SCREEN = booleanPreferencesKey("full_screen_editing")
+        // New in DataStore only, like KEY_EXPORT_BORDER: not in MIGRATED_KEYS.
+        private val KEY_ASKED_NOTIFICATIONS = booleanPreferencesKey("asked_notification_permission")
 
         /** Every key that moves from SharedPreferences to DataStore (all but big cores). */
         private val MIGRATED_KEYS: Set<String> = setOf(
