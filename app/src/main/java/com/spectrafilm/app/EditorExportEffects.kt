@@ -29,9 +29,9 @@ import kotlinx.coroutines.withContext
 
 /** Observes the process-owned export runtime; see the comment at its LaunchedEffect in EditorScreen. */
 internal suspend fun CoroutineScope.runExportRuntimeObserver(
-    screen: EditorScreenState,
     dispatchers: AppDispatchers,
     exportVm: ExportViewModel,
+    screen: EditorScreenState,
     ctx: Context,
     exportSourceIdentity: ExportSourceIdentity,
     exportRuntimeStateState: State<ExportRuntimeState>,
