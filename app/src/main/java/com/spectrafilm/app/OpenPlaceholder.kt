@@ -168,10 +168,13 @@ internal object OpenPlaceholder {
         }
     }.getOrNull() ?: OrientationMeta(ExifOrientation.NONE, 0, 0)
 
-    /** Applies [t] and the [TARGET_EDGE_PX] cap in one pass; recycles [src] if it was copied. */
-    internal fun applyTransform(src: Bitmap, t: PlaceholderTransform): Bitmap {
+    /**
+     * Applies [t] and the [maxEdge] cap (the placeholder's [TARGET_EDGE_PX] unless a caller
+     * such as the slideshow needs screen size) in one pass; recycles [src] if it was copied.
+     */
+    internal fun applyTransform(src: Bitmap, t: PlaceholderTransform, maxEdge: Int = TARGET_EDGE_PX): Bitmap {
         val longest = max(src.width, src.height)
-        val scale = if (longest > TARGET_EDGE_PX) TARGET_EDGE_PX.toFloat() / longest else 1f
+        val scale = if (longest > maxEdge) maxEdge.toFloat() / longest else 1f
         if (t.isIdentity && scale == 1f) return src
         val m = Matrix()
         if (scale != 1f) m.postScale(scale, scale)

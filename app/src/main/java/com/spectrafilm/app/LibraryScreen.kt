@@ -94,6 +94,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -162,6 +163,11 @@ internal fun LibraryDestination(
         onSharedInTaken()
         importInto(uris, false)
     }
+    // The frames a slideshow plays; null when none is up. Not saved: a slideshow is a moment.
+    // It is drawn OVER the browsing UI, not instead of it, so the grid's scroll position and
+    // loaded state are still there when it closes.
+    var slideshow by remember { mutableStateOf<List<LibraryEntry>?>(null) }
+    val playSlideshow = { frames: List<LibraryEntry> -> if (frames.isNotEmpty()) slideshow = frames }
     val openAlbum = openAlbumId?.let { id -> albums.firstOrNull { it.id == id } }
     val query by vm.query.collectAsStateWithLifecycle()
     val albumDetail: @Composable (Album) -> Unit = { album ->
@@ -178,6 +184,7 @@ internal fun LibraryDestination(
                 onBack = { albumsVm.clearSelection(); openAlbumId = null },
                 onGoToFolder = { openAlbumId = null; tab = LibraryTab.FOLDER },
                 onOpen = onOpen,
+                onSlideshow = playSlideshow,
             )
         }
     }
@@ -195,6 +202,7 @@ internal fun LibraryDestination(
             },
             onOpenAlbum = { id -> albumsVm.clearSelection(); openAlbumId = id },
             snackbar, scope, onBack, onOpen, importInto,
+            onSlideshow = playSlideshow,
             albumOpen = albumOpen,
         )
     }
@@ -202,15 +210,20 @@ internal fun LibraryDestination(
     // list-detail (#457), the albums in the leading pane and the open album beside them.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthDp = maxWidth.value
-        when {
-            openAlbum == null -> browse(false)
-            listDetailTwoPane(widthDp) -> ListDetailPanes(
-                listWidthDp = sidePaneWidthDp(widthDp),
-                list = { browse(true) },
-                detail = { albumDetail(openAlbum) },
-            )
-            else -> albumDetail(openAlbum)
+        // Hidden from accessibility services while the slideshow covers it.
+        Box(if (slideshow != null) Modifier.fillMaxSize().clearAndSetSemantics {} else Modifier.fillMaxSize()) {
+            when {
+                openAlbum == null -> browse(false)
+                listDetailTwoPane(widthDp) -> ListDetailPanes(
+                    listWidthDp = sidePaneWidthDp(widthDp),
+                    list = { browse(true) },
+                    detail = { albumDetail(openAlbum) },
+                )
+                else -> albumDetail(openAlbum)
+            }
         }
+        // Composed last, so its BackHandler wins over the album's and the Library's.
+        slideshow?.let { frames -> LibrarySlideshow(frames, onClose = { slideshow = null }) }
     }
 }
 
@@ -231,6 +244,7 @@ private fun LibraryFolderAndAlbums(
     onBack: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
     importInto: (uris: List<String>, keepGrants: Boolean) -> Unit,
+    onSlideshow: (List<LibraryEntry>) -> Unit,
     /** An album is open in the detail pane beside this one: Back and snackbars are its. */
     albumOpen: Boolean = false,
 ) {
@@ -380,6 +394,9 @@ private fun LibraryFolderAndAlbums(
                     }
                 }
             } else if (tab == LibraryTab.GALLERY && !gallerySelecting && galleryState.entries.isNotEmpty()) {
+                IconButton(onClick = { onSlideshow(galleryShown()) }) {
+                    Icon(SpectraIcons.Slideshow, contentDescription = stringResource(R.string.slideshow))
+                }
                 LibraryViewToggle(query, onChange = vm::setQuery)
                 LibrarySortMenu(query, onChange = vm::setQuery)
             } else if (state.treeUri != null && tab == LibraryTab.FOLDER) {
@@ -391,6 +408,12 @@ private fun LibraryFolderAndAlbums(
                         Icon(SpectraIcons.More, contentDescription = stringResource(R.string.editor_action_more))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.slideshow)) },
+                            leadingIcon = { Icon(SpectraIcons.Slideshow, contentDescription = null) },
+                            enabled = state.entries.isNotEmpty(),
+                            onClick = { menuOpen = false; onSlideshow(vm.visibleEntries()) },
+                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_refresh)) },
                             onClick = { menuOpen = false; vm.refresh() },

@@ -331,6 +331,7 @@ internal fun AlbumDetail(
     onBack: () -> Unit,
     onGoToFolder: () -> Unit,
     onOpen: (uri: Uri, frames: List<LibraryEntry>) -> Unit,
+    onSlideshow: (List<LibraryEntry>) -> Unit,
 ) {
     val ctx = LocalContext.current
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -358,6 +359,12 @@ internal fun AlbumDetail(
                         Icon(SpectraIcons.More, contentDescription = stringResource(R.string.editor_action_more))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.slideshow)) },
+                            leadingIcon = { Icon(SpectraIcons.Slideshow, contentDescription = null) },
+                            enabled = !shown.isNullOrEmpty(),
+                            onClick = { menuOpen = false; shown?.let(onSlideshow) },
+                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.album_rename)) },
                             onClick = { menuOpen = false; renaming = true },
