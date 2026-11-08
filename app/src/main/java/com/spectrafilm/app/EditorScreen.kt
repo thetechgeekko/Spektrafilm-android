@@ -341,17 +341,19 @@ internal fun EditorScreen(
     val sliderReadout = remember { mutableStateOf<SliderReadout?>(null) }
     // The last control a drag reported, which a sideways drag on the photo keeps adjusting
     // (PhotoScrub). A plain holder, not State, for the same reason as sliderReadout: every
-    // drag frame writes it. Only "is there one" is State, and it flips once.
+    // drag frame writes it. What is observed is the control's own liveness State, which only
+    // changes hands when another control is dragged.
     val lastControl = remember { arrayOfNulls<SliderReadout>(1) }
-    val hasLastControl = remember { mutableStateOf(false) }
+    val lastControlAlive = remember { mutableStateOf<State<Boolean>?>(null) }
     val sliderInteraction = remember {
         SliderInteraction(
             onChange = { readout ->
                 interacting.value = true
                 sliderReadout.value = readout
-                if (readout?.edit?.move != null) {
+                val edit = readout?.edit
+                if (edit?.move != null && edit.alive != null) {
                     lastControl[0] = readout
-                    if (!hasLastControl.value) hasLastControl.value = true
+                    if (lastControlAlive.value !== edit.alive) lastControlAlive.value = edit.alive
                 }
             },
             onFinished = { interacting.value = false },
@@ -2993,7 +2995,9 @@ internal fun EditorScreen(
                         onRoiSettled = { renderRoi(it) },
                         onRoiCleared = { clearRoi() },
                         swipe = photoSwipe,
-                        scrub = photoScrub.takeIf { editOpen && hasLastControl.value },
+                        // Only while that control is still on screen: once it scrolls off the rail or its
+                        // panel closes, the sideways drag goes back to the next/previous photo.
+                        scrub = photoScrub.takeIf { editOpen && lastControlAlive.value?.value == true },
                         strip = folderStrip,
                     )
                 }

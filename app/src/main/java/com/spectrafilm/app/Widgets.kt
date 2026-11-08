@@ -99,6 +99,11 @@ class SliderReadoutEdit(
      * keep adjusting the last control after its own drag ended (PhotoScrub).
      */
     val live: () -> Float? = { null },
+    /**
+     * Whether the control is still on screen, as State, one object per control: the editor
+     * observes it so a photo drag is only offered while there is a control to adjust.
+     */
+    val alive: androidx.compose.runtime.State<Boolean>? = null,
     /** Moves the value without the release step [set] runs; [set] still ends the move. */
     val move: ((Float) -> Unit)? = null,
     val set: (Float) -> Unit,
