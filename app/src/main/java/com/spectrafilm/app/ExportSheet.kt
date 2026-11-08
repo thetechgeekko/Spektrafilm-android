@@ -45,6 +45,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -96,6 +98,8 @@ fun ExportSheet(
      * that is not possible right now. The caller picks the second photo.
      */
     onHalfFramePair: (() -> Unit)? = null,
+    /** False draws the same body on a plain surface: for previews and screenshot tests (#456). */
+    inSheet: Boolean = true,
 ) {
     var savingPreset by remember { mutableStateOf(false) }
     var managingPresets by remember { mutableStateOf(false) }
@@ -103,7 +107,7 @@ fun ExportSheet(
     // it. LocalResources is the lint-approved read and, unlike LocalContext.current.getString,
     // recomposes when the configuration changes (locale, font scale).
     val resources = LocalResources.current
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ExportSheetFrame(inSheet, onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -459,6 +463,17 @@ fun ExportSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
+    }
+}
+
+/** The modal sheet in the app; a plain surface where a window cannot open (layoutlib). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExportSheetFrame(inSheet: Boolean, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    if (inSheet) {
+        ModalBottomSheet(onDismissRequest = onDismiss, content = content)
+    } else {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) { Column(content = content) }
     }
 }
 
