@@ -319,13 +319,23 @@ internal fun StageRail(
     modifier: Modifier = Modifier,
     onCrop: (() -> Unit)? = null,
     lastEdit: Category? = null,
+    /** Share sits right under the Export FAB, the rail's form of the top bar's pill. */
+    onShare: (() -> Unit)? = null,
 ) {
     val modifiedState = stringResource(R.string.editor_category_modified)
     NavigationRail(
         modifier = modifier.fillMaxHeight(),
         containerColor = MaterialTheme.colorScheme.surface,
         header = {
-            if (exportVisible) ExportFab(exporting = exporting, onClick = onExport)
+            if (exportVisible) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(CONNECTED_GAP * 2),
+                ) {
+                    ExportFab(exporting = exporting, onClick = onExport)
+                    if (onShare != null) ExportShareSmallFab(exporting = exporting, onClick = onShare)
+                }
+            }
             Spacer(Modifier.height(12.dp))
         },
     ) {
@@ -394,33 +404,3 @@ internal fun ToolList(
     }
 }
 
-/**
- * The editor's primary action in the top app bar on compact and medium windows (the kit's
- * filled "Export" button). Hidden, not disabled, when there is nothing to export; shows the
- * loading indicator while an export runs and ignores taps.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-internal fun ExportButton(exporting: Boolean, onClick: () -> Unit) {
-    val label = stringResource(R.string.editor_action_export)
-    val busyLabel = stringResource(R.string.editor_exporting)
-    TextTooltip(stringResource(R.string.editor_tooltip_export_gallery)) {
-        // Press morph: full round at rest, squarer while pressed (M3 Expressive button shapes).
-        Button(
-            onClick = { if (!exporting) onClick() },
-            shapes = ButtonDefaults.shapes(),
-            contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
-            modifier = Modifier
-                .padding(horizontal = 4.dp)
-                .semantics { if (exporting) contentDescription = busyLabel },
-        ) {
-            if (exporting) {
-                ExportProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
-            } else {
-                Icon(SpectraIcons.Export, contentDescription = null, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(label)
-        }
-    }
-}

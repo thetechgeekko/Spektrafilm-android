@@ -48,14 +48,17 @@ internal fun startEditorExport(
     checkpointEditorSession: () -> Boolean,
     onSettingsAction: (SettingsAction) -> Unit,
     setStatus: (String) -> Unit,
+    rememberPreset: Boolean = true,
 ) {
     val exportOptions = exportVm.current.options
     val exportKeepGps = exportVm.current.keepGps
     // The next sheet opens with this preset (or with none, if the choices
     // no longer match one).
-    exportPresetVm.markUsed(
-        exportPresets.presets.firstOrNull { it.matches(exportOptions, exportKeepGps) }?.name,
-    )
+    if (rememberPreset) {
+        exportPresetVm.markUsed(
+            exportPresets.presets.firstOrNull { it.matches(exportOptions, exportKeepGps) }?.name,
+        )
+    }
     if (!sourceRenderAllowed) {
         exportVm.onAction(ExportAction.CloseSheet)
         setStatus(ctx.getString(R.string.editor_status_source_access_required))

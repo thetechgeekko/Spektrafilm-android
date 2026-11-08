@@ -10,15 +10,6 @@ package com.spectrafilm.app
 import android.graphics.Bitmap
 import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,14 +20,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -47,7 +32,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------
@@ -431,7 +415,8 @@ internal fun SourcePanel(
 /**
  * The full-screen render mask. Rendering really is modal: the export reads the live edit
  * state, so this swallows every pointer event until it finishes or is cancelled. The result
- * is NOT shown here -- see [ExportSavedMoment], which leaves the editor usable.
+ * is NOT shown here: the editor announces it with a Snackbar and the pill's check, and the
+ * editor stays usable.
  */
 @Composable
 internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
@@ -472,7 +457,9 @@ internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!darkroom) SpectraLoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
+            // The export's progress as a filling pill, the same one the Export button showed
+            // (no spinning circle, user 2026-11-08).
+            ExportProgressPill(onDarkroom = darkroom)
             Button(onClick = onCancel) { Text(stringResource(R.string.editor_export_cancel)) }
             Text(
                 stringResource(R.string.editor_export_rendering),
@@ -485,227 +472,3 @@ internal fun ExportMask(onCancel: () -> Unit, photo: Bitmap? = null) {
     }
 }
 
-/** How long the "Saved to gallery" hero plays before it collapses into the toolbar. */
-internal const val EXPORT_SAVED_HERO_MS = 2_000L
-
-internal const val EXPORT_SAVED_CLOSE_TAG = "export-saved-close"
-
-/** The editor top bar's 64dp plus an 8dp gap: the toolbar floats on the photo, below it. */
-internal val EXPORT_SAVED_TOOLBAR_TOP = 72.dp
-
-/**
- * How long a result toolbar WITHOUT actions stays before it goes away on its own. A toolbar that
- * carries Share / Open never times out (M3: an action must not live only on something that
- * auto-dismisses, the same rule that makes an action Snackbar indefinite); the editor dismisses
- * it on the user's next edit or navigation instead.
- */
-internal const val EXPORT_SAVED_TOOLBAR_MS = 6_000L
-
-/**
- * The export result, in two beats. First the hero (Pen board, "Export saved"): the morphing
- * check and the emphasized headline, which plays for [EXPORT_SAVED_HERO_MS] or until any tap
- * or Back. Then it collapses into a floating toolbar with Share / Open / close that does not
- * block the editor. With an action on it, it stays until used, closed, or the caller dismisses
- * it (next edit or navigation); with none, it goes away after [EXPORT_SAVED_TOOLBAR_MS].
- *
- * Only the hero beat is modal; [collapsed] is hoisted so the editor can stop treating the
- * result as an open overlay the moment it collapses. Both timeouts go through the system's
- * accessibility timeout ("Time to take action"), like a Snackbar with an action, so a
- * TalkBack user gets the time they asked for.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-internal fun ExportSavedMoment(
-    collapsed: Boolean,
-    onCollapse: () -> Unit,
-    onDismiss: () -> Unit,
-    onShare: (() -> Unit)?,
-    onOpen: (() -> Unit)?,
-) {
-    val a11y = LocalAccessibilityManager.current
-    val heroMs = a11y?.calculateRecommendedTimeoutMillis(
-        EXPORT_SAVED_HERO_MS, containsIcons = true, containsText = true,
-    ) ?: EXPORT_SAVED_HERO_MS
-    val toolbarMs = a11y?.calculateRecommendedTimeoutMillis(
-        EXPORT_SAVED_TOOLBAR_MS, containsIcons = true, containsText = true, containsControls = true,
-    ) ?: EXPORT_SAVED_TOOLBAR_MS
-    val collapse by rememberUpdatedState(onCollapse)
-    val dismiss by rememberUpdatedState(onDismiss)
-    val hasActions = onShare != null || onOpen != null
-    LaunchedEffect(collapsed, hasActions) {
-        if (!collapsed) {
-            delay(heroMs)
-            collapse()
-        } else if (!hasActions) {
-            delay(toolbarMs)
-            dismiss()
-        }
-    }
-    if (!collapsed) {
-        ExportSavedHeroBeat(onCollapse = onCollapse)
-    } else {
-        ExportSavedToolbar(onDismiss = onDismiss, onShare = onShare, onOpen = onOpen)
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ExportSavedHeroBeat(onCollapse: () -> Unit) {
-    BackHandler(enabled = true) { onCollapse() }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-            // Any tap skips straight to the toolbar; no ripple on a full-screen scrim.
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClickLabel = stringResource(R.string.editor_export_done),
-                onClick = onCollapse,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ExportSavedHero()
-            Text(
-                stringResource(R.string.editor_export_saved),
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.displaySmallEmphasized,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.semantics {
-                    heading()
-                    liveRegion = LiveRegionMode.Polite
-                },
-            )
-            Text(
-                "Pictures/Spektrafilm",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ExportSavedToolbar(
-    onDismiss: () -> Unit,
-    onShare: (() -> Unit)?,
-    onOpen: (() -> Unit)?,
-) {
-    val motion = MaterialTheme.motionScheme
-    val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
-    // Floats over the top of the photo, just under the 64dp top bar: never over the tool
-    // panel or the category bar (M3: a floating toolbar does not share the bottom edge with a
-    // navigation bar). The Box has no pointer handlers, so everything around the toolbar
-    // still reaches the editor.
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(top = EXPORT_SAVED_TOOLBAR_TOP, start = 16.dp, end = 16.dp),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        AnimatedVisibility(
-            visibleState = shown,
-            enter = scaleIn(motion.fastSpatialSpec(), initialScale = 0.6f) + fadeIn(motion.fastEffectsSpec()),
-            exit = scaleOut(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
-        ) {
-            // Text actions need roughly 300dp of row at 1x text; below that (narrow window,
-            // large text, long translation) Share and Open become labelled icon buttons, so
-            // every control keeps its 48dp target instead of being squeezed off the toolbar.
-            val textActions = maxWidth >= 300.dp * LocalDensity.current.fontScale
-            HorizontalFloatingToolbar(
-                expanded = true,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            ) {
-                Icon(
-                    SpectraIcons.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-                Text(
-                    stringResource(R.string.editor_export_saved),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // Weighted (not filling) so it is measured AFTER the actions: the label
-                    // ellipsizes and Share / Open / close keep their full size.
-                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
-                )
-                val share = stringResource(R.string.editor_export_share)
-                val open = stringResource(R.string.editor_export_open)
-                if (onShare != null) {
-                    if (textActions) {
-                        FilledTonalButton(onClick = { onShare(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                            Text(share)
-                        }
-                    } else {
-                        FilledTonalIconButton(onClick = { onShare(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                            Icon(MaterialSymbols.IosShare, contentDescription = share)
-                        }
-                    }
-                }
-                if (onOpen != null) {
-                    if (textActions) {
-                        TextButton(onClick = { onOpen(); onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                            Text(open)
-                        }
-                    } else {
-                        IconButton(onClick = { onOpen(); onDismiss() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                            Icon(MaterialSymbols.OpenInNew, contentDescription = open)
-                        }
-                    }
-                }
-                // The toolbar lays icon buttons out at their 40dp container; pin the 48dp target.
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(EXPORT_SAVED_CLOSE_TAG),
-                ) {
-                    Icon(SpectraIcons.Cancel, contentDescription = stringResource(R.string.editor_export_done))
-                }
-            }
-        }
-    }
-}
-
-/** The "Export saved" hero: a cookie shape springs in and settles, holding a check. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ExportSavedHero() {
-    val motion = MaterialTheme.motionScheme
-    val scale = remember { Animatable(0.4f) }
-    val spin = remember { Animatable(-90f) }
-    LaunchedEffect(Unit) {
-        launch { scale.animateTo(1f, motion.slowSpatialSpec()) }
-        spin.animateTo(0f, motion.slowSpatialSpec())
-    }
-    Box(
-        Modifier
-            .size(112.dp)
-            .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
-                rotationZ = spin.value
-            }
-            .clip(MaterialShapes.Cookie9Sided.toShape())
-            .background(MaterialTheme.colorScheme.primaryContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            SpectraIcons.Check,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier
-                .size(48.dp)
-                .graphicsLayer { rotationZ = -spin.value },
-        )
-    }
-}

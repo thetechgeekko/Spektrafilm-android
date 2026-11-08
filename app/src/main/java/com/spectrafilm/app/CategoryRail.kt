@@ -60,6 +60,26 @@ internal fun ExportFab(exporting: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Share beside the rail's Export FAB: exports with the last-used choices and opens the share
+ * sheet (or shares the file just saved). Same rules as the FAB: never disabled, inert while
+ * an export runs.
+ */
+@Composable
+internal fun ExportShareSmallFab(exporting: Boolean, onClick: () -> Unit) {
+    val label = stringResource(R.string.editor_export_share)
+    TextTooltip(label) {
+        SmallFloatingActionButton(
+            onClick = { if (!exporting) onClick() },
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.semantics { contentDescription = label },
+        ) {
+            Icon(SpectraIcons.Share, contentDescription = null)
+        }
+    }
+}
+
 /** Bottom-bar icons for the editor's modes. */
 internal fun modeIcon(mode: EditorMode) = when (mode) {
     EditorMode.LOOKS -> SpectraIcons.StageLook
