@@ -1,43 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Spektrafilm for Android. GPLv3.
-  Monochrome layer for Material You themed icons: the film frame silhouette
-  rendered as a single tintable shape.
+  Monochrome layer for Android 13+ themed icons: the lamp as one solid
+  silhouette with the strip cut through it and the sprocket holes left standing. Same
+  geometry as ic_launcher_foreground, inside the 66dp safe zone.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
-    android:viewportHeight="108"
-    android:tint="#000000">
+    android:viewportHeight="108">
 
-    <!-- Film body outline -->
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:fillColor="#00000000"
-        android:pathData="M28,24 L80,24 A6,6 0 0 1 86,30 L86,78 A6,6 0 0 1 80,84 L28,84 A6,6 0 0 1 22,78 L22,30 A6,6 0 0 1 28,24 Z" />
-
-    <!-- Exposed frame window -->
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:fillColor="#00000000"
-        android:pathData="M35,38 h36 v32 h-36 Z" />
-
-    <!-- Sprocket holes (top) -->
-    <path android:fillColor="#FFFFFF" android:pathData="M27,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M36,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M45,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M54,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M63,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M72,29 h5 v5 h-5 Z" />
-
-    <!-- Sprocket holes (bottom) -->
-    <path android:fillColor="#FFFFFF" android:pathData="M27,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M36,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M45,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M54,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M63,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M72,74 h5 v5 h-5 Z" />
+    <!-- Clip everything to the lamp: the strip reads as a gap through it -->
+    <group>
+        <clip-path android:pathData="M30,54 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0 Z" />
+        <group
+            android:pivotX="54"
+            android:pivotY="54"
+            android:rotation="-24">
+            <path
+                android:fillColor="#FFFFFF"
+                android:fillType="evenOdd"
+                android:pathData="M0,0 H108 V108 H0 Z M26,47 h56 a2,2 0 0 1 2,2 v10 a2,2 0 0 1 -2,2 h-56 a2,2 0 0 1 -2,-2 v-10 a2,2 0 0 1 2,-2 Z" />
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
+        </group>
+    </group>
 </vector>

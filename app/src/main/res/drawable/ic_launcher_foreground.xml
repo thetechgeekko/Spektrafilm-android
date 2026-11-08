@@ -1,49 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Spektrafilm for Android. GPLv3.
-  Adaptive-icon foreground: a 35mm film frame with sprocket holes and a
-  spectral (rainbow) strip across the exposed frame. Drawn inside the 108x108
-  viewport, kept within the ~66dp adaptive safe zone (margins ~21).
+  Adaptive-icon foreground, "Safelight": the amber safelight of a darkroom with a
+  strip of negative crossing it. The brand amber (#C8892B, the seed of the M3 scheme in
+  Theme.kt) is the light you print by. Everything sits inside the 66dp safe zone (a circle
+  of radius 33 around 54,54): the lamp is r=24, the rotated strip reaches r~31, and the
+  glow fades to nothing by r=34. Also the splash-screen icon (themes.xml).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Film body (rounded dark strip) -->
-    <path
-        android:fillColor="#1C2530"
-        android:pathData="M28,24 L80,24 A6,6 0 0 1 86,30 L86,78 A6,6 0 0 1 80,84 L28,84 A6,6 0 0 1 22,78 L22,30 A6,6 0 0 1 28,24 Z" />
+    <!-- Glow around the lamp -->
+    <path android:pathData="M20,54 a34,34 0 1 0 68,0 a34,34 0 1 0 -68,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="34">
+                <item android:offset="0" android:color="#8CC8892B" />
+                <item android:offset="1" android:color="#00C8892B" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Spectral strip: 6 vertical bands forming the exposed frame -->
-    <path android:fillColor="#FF3B30" android:pathData="M35,38 h6 v32 h-6 Z" />
-    <path android:fillColor="#FF9500" android:pathData="M41,38 h6 v32 h-6 Z" />
-    <path android:fillColor="#FFCC00" android:pathData="M47,38 h6 v32 h-6 Z" />
-    <path android:fillColor="#34C759" android:pathData="M53,38 h6 v32 h-6 Z" />
-    <path android:fillColor="#007AFF" android:pathData="M59,38 h6 v32 h-6 Z" />
-    <path android:fillColor="#AF52DE" android:pathData="M65,38 h6 v32 h-6 Z" />
+    <!-- Safelight lens -->
+    <path android:pathData="M30,54 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="48"
+                android:centerY="46"
+                android:gradientRadius="30">
+                <item android:offset="0" android:color="#FFF6BC70" />
+                <item android:offset="1" android:color="#FFC8892B" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Frame outline around the spectral window -->
-    <path
-        android:strokeColor="#0E141B"
-        android:strokeWidth="2"
-        android:fillColor="#00000000"
-        android:pathData="M35,38 h36 v32 h-36 Z" />
-
-    <!-- Sprocket holes (top row) -->
-    <path android:fillColor="#0E141B" android:pathData="M27,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M36,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M45,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M54,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M63,29 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M72,29 h5 v5 h-5 Z" />
-
-    <!-- Sprocket holes (bottom row) -->
-    <path android:fillColor="#0E141B" android:pathData="M27,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M36,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M45,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M54,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M63,74 h5 v5 h-5 Z" />
-    <path android:fillColor="#0E141B" android:pathData="M72,74 h5 v5 h-5 Z" />
+    <!-- Strip of negative across the lamp, with its sprocket holes lit from behind -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-24">
+        <path
+            android:fillColor="#141414"
+            android:fillType="evenOdd"
+            android:pathData="M26,47 h56 a2,2 0 0 1 2,2 v10 a2,2 0 0 1 -2,2 h-56 a2,2 0 0 1 -2,-2 v-10 a2,2 0 0 1 2,-2 Z M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
+        <path
+            android:fillColor="#F6BC70"
+            android:pathData="M32,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M40.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M49,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M57.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M66,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z M74.5,50.5 h2.5 a1,1 0 0 1 1,1 v5 a1,1 0 0 1 -1,1 h-2.5 a1,1 0 0 1 -1,-1 v-5 a1,1 0 0 1 1,-1 Z" />
+    </group>
 </vector>

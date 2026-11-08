@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Spektrafilm for Android. GPLv3.
+  Status-bar icon for the export notification: the monochrome lamp without its
+  sprocket holes (too small to read at 24dp), cropped to a 24dp canvas (the system tints it; only alpha matters).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64"
+    android:tint="?attr/colorControlNormal">
+
+    <group
+        android:translateX="-22"
+        android:translateY="-22">
+        <!-- Clip everything to the lamp: the strip reads as a gap through it -->
+        <group>
+            <clip-path android:pathData="M30,54 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0 Z" />
+            <group
+                android:pivotX="54"
+                android:pivotY="54"
+                android:rotation="-24">
+                <path
+                    android:fillColor="#FFFFFF"
+                    android:fillType="evenOdd"
+                    android:pathData="M0,0 H108 V108 H0 Z M26,47 h56 a2,2 0 0 1 2,2 v10 a2,2 0 0 1 -2,2 h-56 a2,2 0 0 1 -2,-2 v-10 a2,2 0 0 1 2,-2 Z" />
+            </group>
+        </group>
+    </group>
+</vector>
