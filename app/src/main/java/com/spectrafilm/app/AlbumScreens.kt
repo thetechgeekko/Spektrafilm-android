@@ -359,11 +359,10 @@ internal fun AlbumDetail(
                             text = { Text(stringResource(R.string.album_delete)) },
                             onClick = {
                                 menuOpen = false
-                                val undo = vm.delete(album.id) ?: return@DropdownMenuItem
                                 onBack()
-                                scope.launch {
+                                vm.delete(album.id) { deleted, index ->
                                     var undone = false
-                                    try {
+                                    scope.launch {
                                         val choice = snackbar.showSnackbar(
                                             message = ctx.getString(R.string.album_deleted),
                                             actionLabel = ctx.getString(R.string.album_undo),
@@ -371,11 +370,11 @@ internal fun AlbumDetail(
                                         )
                                         if (choice == SnackbarResult.ActionPerformed) {
                                             undone = true
-                                            vm.undoDelete(undo.first, undo.second)
+                                            vm.undoDelete(deleted, index)
                                         }
-                                    } finally {
-                                        // Also when the Library is left with the offer still up.
-                                        if (!undone) vm.undoExpired(undo.first)
+                                    }.invokeOnCompletion {
+                                        // Also when the Library was left first, or with the offer up.
+                                        if (!undone) vm.undoExpired(deleted)
                                     }
                                 }
                             },

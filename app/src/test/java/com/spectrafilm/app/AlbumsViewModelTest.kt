@@ -64,17 +64,38 @@ class AlbumsViewModelTest {
     @Test fun deleteThenUndoRestoresTheAlbumInPlace() {
         val store = FakeStore(listOf(Album("a", "A", 1L), Album("b", "B", 2L, listOf(item(1))), Album("c", "C", 3L)))
         val model = vm(store); idle()
-        val undo = model.delete("b"); idle()
+        var undo: Pair<Album, Int>? = null
+        model.delete("b") { album, index -> undo = album to index }; idle()
         assertEquals(listOf("a", "c"), store.saved.map { it.id })
         // Until Undo is taken or lapses, the grant sweep still keeps the deleted album's folder.
         assertTrue("content://tree/a" in AlbumUndoHold.uris())
-        model.undoDelete(undo!!.first, undo.second); idle()
+        model.undoDelete(undo!!.first, undo!!.second); idle()
         assertEquals(listOf("a", "b", "c"), store.saved.map { it.id })
         assertTrue(AlbumUndoHold.uris().isEmpty())
-        val again = model.delete("b"); idle()
-        model.undoExpired(again!!.first)
+        var again: Album? = null
+        model.delete("b") { album, _ -> again = album }; idle()
+        model.undoExpired(again!!)
         assertTrue(AlbumUndoHold.uris().isEmpty())
-        assertNull(model.delete("missing"))
+        var missing = false
+        model.delete("missing") { _, _ -> missing = true }; idle()
+        assertTrue(!missing)
+    }
+
+    @Test fun undoBringsBackTheAlbumAsTheQueuedEditsLeftIt() {
+        val store = FakeStore(listOf(Album("b", "B", 2L, listOf(item(1), item(2)))))
+        val lock = Mutex()
+        val model = AlbumsViewModel(store, Dispatchers.Unconfined, now = { 7L }, newId = { "id${ids++}" }, lock = lock)
+        idle()
+        // An earlier save still holds the lock while a photo is removed and the album deleted.
+        kotlinx.coroutines.runBlocking { lock.lock() }
+        model.toggleSelected("content://doc/1")
+        model.removeSelected("b")
+        var undo: Pair<Album, Int>? = null
+        model.delete("b") { album, index -> undo = album to index }; idle()
+        lock.unlock(); idle()
+        assertEquals(listOf("content://doc/2"), undo!!.first.items.map { it.uri })
+        model.undoDelete(undo!!.first, undo!!.second); idle()
+        assertEquals(listOf("content://doc/2"), store.saved.single().items.map { it.uri })
     }
 
     @Test fun anAdditionWaitingToBeSavedKeepsItsFolderGrant() {
