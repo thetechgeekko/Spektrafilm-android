@@ -91,11 +91,14 @@ int main() {
                                                      3 * kGiB - 1) == 24 * kMiB,
         "32 MiPixel tier requires both memory thresholds");
   check(spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB,
-                                                4 * kGiB) == 64 * kMiB &&
+                                                5 * kGiB / 2) == 64 * kMiB &&
             spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB - 1,
                                                      4 * kGiB) == 32 * kMiB &&
             spectrafilm::decodePixelLimitForMemory(true, 10 * kGiB,
-                                                     4 * kGiB - 1) == 32 * kMiB,
+                                                     5 * kGiB / 2 - 1) == 24 * kMiB &&
+            // The SM-S948W at export time: 11.35 GB total, 2.93 GB available.
+            spectrafilm::decodePixelLimitForMemory(true, 11623403520ULL,
+                                                     2930000000ULL) == 64 * kMiB,
         "64 MiPixel tier (50 MP phone DNGs) requires both memory thresholds");
   check(spectrafilm::largeBayerHalfOutputLimit(64 * kMiB) == 32 * kMiB &&
             spectrafilm::largeBayerHalfOutputLimit(24 * kMiB) == 24 * kMiB,
@@ -122,7 +125,7 @@ int main() {
   check(spectrafilm::decodePixelLimitForMemory(true, 8 * kGiB,
                                                 2 * kGiB - 1) == 12 * kMiB &&
             spectrafilm::decodePixelLimitForMemory(true, 16 * kGiB,
-                                                     3 * kGiB - 1) == 24 * kMiB,
+                                                     5 * kGiB / 2 - 1) == 24 * kMiB,
         "extra total RAM cannot replace the available-RAM thresholds");
 
   using spectrafilm::DecodeGeometry;

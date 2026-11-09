@@ -312,7 +312,7 @@ processed geometry against one pixel limit chosen at the start of each decode.
 The limit is 8 MiPixels on 32-bit devices. On 64-bit devices it is 12 MiPixels
 by default, 24 MiPixels with at least 6 GiB total and 2 GiB available RAM, or
 32 MiPixels with at least 8 GiB total and 3 GiB available RAM, or 64 MiPixels
-with at least 10 GiB total and 4 GiB available RAM (enough for a 50 MP phone
+with at least 10 GiB total and 2.5 GiB available RAM (enough for a 50 MP phone
 DNG such as Samsung's 8160 x 6120 LinearRaw). Missing or
 inconsistent memory information keeps the 12 MiPixel baseline. The 32 MiPixel
 ceiling is 33,554,432 pixels; it is a budget threshold, not evidence that a
