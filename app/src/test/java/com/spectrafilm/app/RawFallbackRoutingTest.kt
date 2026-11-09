@@ -47,4 +47,16 @@ class RawFallbackRoutingTest {
         // a DNG LibRaw merely fails to recognise lost its second route entirely.
         assertTrue(rawFallbackSupported(DecodeStatus.FILE_UNSUPPORTED))
     }
+
+    @Test
+    fun memoryRefusalOpensThePreviewButNeverTheExport() {
+        // A 50 MP LinearRaw DNG is over a smaller phone's decode budget. The preview may come
+        // from the platform decoder; an export must not, because that decoder produced a
+        // corrupt full-resolution image from exactly such a file.
+        assertTrue(rawMemoryFallbackSupported(DecodeStatus.NO_MEMORY, 1024))
+        assertTrue(rawMemoryFallbackSupported(DecodeStatus.NO_MEMORY, HALF_DECODE_EDGE_THRESHOLD))
+        assertFalse(rawMemoryFallbackSupported(DecodeStatus.NO_MEMORY, HALF_DECODE_EDGE_THRESHOLD + 1))
+        assertFalse(rawMemoryFallbackSupported(DecodeStatus.NO_MEMORY, Int.MAX_VALUE))
+        assertFalse(rawMemoryFallbackSupported(DecodeStatus.UNPACK, 1024))
+    }
 }

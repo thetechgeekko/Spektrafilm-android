@@ -154,7 +154,7 @@ private const val MIN_RAW_FALLBACK_EDGE = 512
  * interactive proxy). Above it (export-scale), decode full-res. The preview/magnifier cap
  * (MAX_EDGE_PX = 2048) sits below this; EXPORT_MAX_EDGE_PX is far above.
  */
-private const val HALF_DECODE_EDGE_THRESHOLD = 4096
+internal const val HALF_DECODE_EDGE_THRESHOLD = 4096
 
 /** Single RAW decode + box-downsample attempt at a specific [maxEdge] (see [decodeRawToLinear]). */
 private fun decodeRawAtEdge(
