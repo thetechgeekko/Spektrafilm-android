@@ -666,8 +666,10 @@ void expose_impl(const Src& src, int width, int height,
     // GPU EXPOSE (#218). Tried first in both branches; on refusal nothing has
     // been written and the CPU loop below runs over the same memory. The latch
     // is off unless the caller set it, so the default route is unchanged.
+    // The banded pre-pass measures the CPU irradiance, so it stays on the CPU.
+    const bool measure_boost_max = params.halation.boost_max_out != nullptr;
     const bool gpu_expose_ok =
-        params.allow_gpu_filming &&
+        params.allow_gpu_filming && !measure_boost_max &&
         !params.scene_latitude.engaged() &&  // the GPU expose has no latitude stage
         !params.date_stamp.engaged() &&      // ...and no date-back imprint
         tc_lut.shape.size() == 3 &&
@@ -746,6 +748,13 @@ void expose_impl(const Src& src, int width, int height,
     // scatter/halation sigmas under deactivate_spatial_effects (params_builder.py),
     // never boost_ev, so the boost fires whenever boost_ev > 0. boost_ev == 0
     // (schema/UI default) is a strict identity -> default goldens stay bit-exact.
+    if (measure_boost_max) {
+        // Banded pre-pass (spektra.cpp run_banded): report this band's share of
+        // the frame maximum the boost scales by, and stop. Nothing downstream
+        // runs on a measuring render, so log_raw_out is deliberately unwritten.
+        *params.halation.boost_max_out = highlight_boost_max(raw, width, height);
+        return;
+    }
     { ScopedStage _t(STG_HIGHLIGHT_BOOST);
       apply_highlight_boost(raw, width, height, params.halation,
                             params.allow_gpu_filming); }

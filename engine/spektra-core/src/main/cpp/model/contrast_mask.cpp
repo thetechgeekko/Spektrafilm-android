@@ -118,39 +118,88 @@ void contrast_mask_grid_size(int w, int h, double scale, int* gw, int* gh) {
     *gh = std::max(1, static_cast<int>(std::lround(static_cast<double>(h) * cells / long_edge)));
 }
 
-void contrast_mask_apply(double* y, int width, int height, const double preflash[3],
-                         double mult, const ContrastMaskParams& m) {
-    if (!m.engaged() || width <= 0 || height <= 0 || !(mult > 0.0)) return;
-    int gw = 0, gh = 0;
-    contrast_mask_grid_size(width, height, m.scale, &gw, &gh);
-    const int cells = std::max(gw, gh);
+void contrast_mask_accum_init(ContrastMaskAccum* acc, int frame_width, int frame_height,
+                              const ContrastMaskParams& m) {
+    acc->frame_width = frame_width;
+    acc->frame_height = frame_height;
+    contrast_mask_grid_size(frame_width, frame_height, m.scale, &acc->gw, &acc->gh);
+    acc->sum.assign(static_cast<size_t>(acc->gw) * acc->gh, 0.0);
+    acc->sum2.assign(acc->sum.size(), 0.0);
+}
 
-    // 1. Cell means of x and x^2. Cells partition the frame, so every pixel counts once.
-    std::vector<double> grid(static_cast<size_t>(gw) * gh);
-    std::vector<double> grid2(grid.size());
+namespace {
+// Frame rows of cell row cy: [y0, y1).
+inline void cell_rows(int cy, int gh, int height, int* y0, int* y1) {
+    *y0 = static_cast<int>(static_cast<long long>(cy) * height / gh);
+    *y1 = std::min(height, std::max(
+        static_cast<int>(static_cast<long long>(cy + 1) * height / gh), *y0 + 1));
+}
+inline void cell_cols(int cx, int gw, int width, int* x0, int* x1) {
+    *x0 = static_cast<int>(static_cast<long long>(cx) * width / gw);
+    *x1 = std::min(width, std::max(
+        static_cast<int>(static_cast<long long>(cx + 1) * width / gw), *x0 + 1));
+}
+}  // namespace
+
+void contrast_mask_accumulate(const double* y, int row_begin, int row_end, int frame_y0,
+                              const double preflash[3], double mult, ContrastMaskAccum* acc) {
+    const int width = acc->frame_width, height = acc->frame_height;
+    const int gw = acc->gw, gh = acc->gh;
+    const int f0 = frame_y0 + row_begin, f1 = frame_y0 + row_end;
+    if (f1 <= f0) return;
+    // Cells partition the frame, so every pixel counts once. Parallel over cell
+    // rows: each cell is written by one worker, its sums growing row by row.
     parallel_for(0, gh, [&](int lo, int hi) {
         for (int cy = lo; cy < hi; ++cy) {
-            const int y0 = static_cast<int>(static_cast<long long>(cy) * height / gh);
-            const int y1 = std::min(height, std::max(
-                static_cast<int>(static_cast<long long>(cy + 1) * height / gh), y0 + 1));
+            int y0 = 0, y1 = 0;
+            cell_rows(cy, gh, height, &y0, &y1);
+            const int r0 = std::max(y0, f0), r1 = std::min(y1, f1);
+            if (r1 <= r0) continue;
             for (int cx = 0; cx < gw; ++cx) {
-                const int x0 = static_cast<int>(static_cast<long long>(cx) * width / gw);
-                const int x1 = std::min(width, std::max(
-                    static_cast<int>(static_cast<long long>(cx + 1) * width / gw), x0 + 1));
-                double acc = 0.0, acc2 = 0.0;
-                for (int py = y0; py < y1; ++py)
+                int x0 = 0, x1 = 0;
+                cell_cols(cx, gw, width, &x0, &x1);
+                const size_t ci = static_cast<size_t>(cy) * gw + cx;
+                double a = acc->sum[ci], a2 = acc->sum2[ci];
+                for (int py = r0; py < r1; ++py)
                     for (int px = x0; px < x1; ++px) {
                         const double xv = pixel_x(
-                            y + (static_cast<size_t>(py) * width + px) * 3, preflash, mult);
-                        acc += xv;
-                        acc2 += xv * xv;
+                            y + (static_cast<size_t>(py - frame_y0) * width + px) * 3,
+                            preflash, mult);
+                        a += xv;
+                        a2 += xv * xv;
                     }
-                const double inv = 1.0 / static_cast<double>((x1 - x0) * (y1 - y0));
-                grid[static_cast<size_t>(cy) * gw + cx] = acc * inv;
-                grid2[static_cast<size_t>(cy) * gw + cx] = acc2 * inv;
+                acc->sum[ci] = a;
+                acc->sum2[ci] = a2;
             }
         }
     });
+}
+
+void contrast_mask_finish(const ContrastMaskAccum& acc, const ContrastMaskParams& m,
+                          ContrastMaskGrid* out) {
+    const int width = acc.frame_width, height = acc.frame_height;
+    const int gw = acc.gw, gh = acc.gh;
+    const int cells = std::max(gw, gh);
+    out->frame_width = width;
+    out->frame_height = height;
+    out->gw = gw;
+    out->gh = gh;
+
+    // 1. Cell means of x and x^2.
+    std::vector<double> grid(static_cast<size_t>(gw) * gh);
+    std::vector<double> grid2(grid.size());
+    for (int cy = 0; cy < gh; ++cy) {
+        int y0 = 0, y1 = 0;
+        cell_rows(cy, gh, height, &y0, &y1);
+        for (int cx = 0; cx < gw; ++cx) {
+            int x0 = 0, x1 = 0;
+            cell_cols(cx, gw, width, &x0, &x1);
+            const size_t ci = static_cast<size_t>(cy) * gw + cx;
+            const double inv = 1.0 / static_cast<double>((x1 - x0) * (y1 - y0));
+            grid[ci] = acc.sum[ci] * inv;
+            grid2[ci] = acc.sum2[ci] * inv;
+        }
+    }
 
     // 2. The base: an edge-aware (guided-filter) blur of x, guided by x itself.
     //    Where a window holds one large area, the base is its smooth mean, exactly
@@ -173,12 +222,22 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
     // the edge-following `a` is not spread thin across the whole blur radius.
     gaussian_grid(coef_a, gw, gh, std::max(0.5, 0.25 * sigma));
     gaussian_grid(grid, gw, gh, std::max(0.5, 0.25 * sigma));
+    out->a = std::move(coef_a);
+    out->b = std::move(grid);
+}
 
+void contrast_mask_apply_grid(double* y, int height, int frame_y0, const double preflash[3],
+                              double mult, const ContrastMaskParams& m,
+                              const ContrastMaskGrid& g) {
+    const int width = g.frame_width, fh = g.frame_height, gw = g.gw, gh = g.gh;
+    const std::vector<double>& coef_a = g.a;
+    const std::vector<double>& grid = g.b;
     // 3. Per pixel: bilinear base, bounded shift, gain on the image exposure
-    //    only (the pre-flash is re-added unscaled).
+    //    only (the pre-flash is re-added unscaled). Coordinates are FRAME rows.
     parallel_for(0, height, [&](int lo, int hi) {
-        for (int py = lo; py < hi; ++py) {
-            const double v = std::clamp((py + 0.5) * gh / height - 0.5, 0.0,
+        for (int ly = lo; ly < hi; ++ly) {
+            const int py = frame_y0 + ly;
+            const double v = std::clamp((py + 0.5) * gh / fh - 0.5, 0.0,
                                         static_cast<double>(gh - 1));
             const int v0 = static_cast<int>(std::floor(v));
             const int v1 = std::min(v0 + 1, gh - 1);
@@ -191,11 +250,11 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
                 const double tu = u - u0;
                 const size_t r0 = static_cast<size_t>(v0) * gw;
                 const size_t r1 = static_cast<size_t>(v1) * gw;
-                auto bilerp = [&](const std::vector<double>& g) {
-                    return (g[r0 + u0] * (1.0 - tu) + g[r0 + u1] * tu) * (1.0 - tv) +
-                           (g[r1 + u0] * (1.0 - tu) + g[r1 + u1] * tu) * tv;
+                auto bilerp = [&](const std::vector<double>& gr) {
+                    return (gr[r0 + u0] * (1.0 - tu) + gr[r0 + u1] * tu) * (1.0 - tv) +
+                           (gr[r1 + u0] * (1.0 - tu) + gr[r1 + u1] * tu) * tv;
                 };
-                double* yp = y + (static_cast<size_t>(py) * width + px) * 3;
+                double* yp = y + (static_cast<size_t>(ly) * width + px) * 3;
                 const double b = bilerp(coef_a) * pixel_x(yp, preflash, mult) + bilerp(grid);
                 const double d = contrast_mask_delta(b, m);
                 if (d == 0.0) continue;  // inside the core: untouched, byte for byte
@@ -207,6 +266,17 @@ void contrast_mask_apply(double* y, int width, int height, const double preflash
             }
         }
     });
+}
+
+void contrast_mask_apply(double* y, int width, int height, const double preflash[3],
+                         double mult, const ContrastMaskParams& m) {
+    if (!m.engaged() || width <= 0 || height <= 0 || !(mult > 0.0)) return;
+    ContrastMaskAccum acc;
+    contrast_mask_accum_init(&acc, width, height, m);
+    contrast_mask_accumulate(y, 0, height, 0, preflash, mult, &acc);
+    ContrastMaskGrid grid;
+    contrast_mask_finish(acc, m, &grid);
+    contrast_mask_apply_grid(y, height, 0, preflash, mult, m, grid);
 }
 
 }  // namespace spk

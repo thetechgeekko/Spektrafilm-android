@@ -30,7 +30,12 @@
 #ifndef SPK_MODEL_CONTRAST_MASK_H
 #define SPK_MODEL_CONTRAST_MASK_H
 
+#include <vector>
+
 namespace spk {
+
+struct ContrastMaskAccum;
+struct ContrastMaskGrid;
 
 struct ContrastMaskParams {
     bool active = false;
@@ -49,7 +54,50 @@ struct ContrastMaskParams {
     bool engaged() const {
         return active && (highlights > 0.0 || shadows > 0.0) && scale > 0.0;
     }
+
+    // Banded renders only (spektra.cpp run_banded); all zero / null otherwise.
+    // The mask's grid is a function of the WHOLE frame's exposure, so a band is
+    // rendered twice: pass 1 adds its own rows into the frame's cell sums
+    // (`accum`) and stops, pass 2 applies the finished frame grid (`grid`).
+    // frame_width > 0 marks a band: the plane handed to the mask is rows
+    // [frame_y0, frame_y0 + height) of a frame_width x frame_height frame, and
+    // only its band-local rows [core_begin, core_end) belong to it.
+    int frame_width = 0;
+    int frame_height = 0;
+    int frame_y0 = 0;
+    int core_begin = 0;
+    int core_end = 0;
+    ContrastMaskAccum* accum = nullptr;
+    const ContrastMaskGrid* grid = nullptr;
 };
+
+// Per-cell sums of x and x^2 over a frame, filled row by row. Every cell's sums
+// grow in raster order (rows ascending, then columns), whether the rows arrive
+// in one call or band by band, so a banded frame gets the same sums as a whole
+// one from the same pixels.
+struct ContrastMaskAccum {
+    int frame_width = 0, frame_height = 0, gw = 0, gh = 0;
+    std::vector<double> sum, sum2;
+};
+
+// The finished mask: per-cell guided-filter coefficients for a frame.
+struct ContrastMaskGrid {
+    int frame_width = 0, frame_height = 0, gw = 0, gh = 0;
+    std::vector<double> a, b;
+};
+
+void contrast_mask_accum_init(ContrastMaskAccum* acc, int frame_width, int frame_height,
+                              const ContrastMaskParams& m);
+// Adds frame rows [frame_y0 + row_begin, frame_y0 + row_end) -- rows
+// [row_begin, row_end) of the band-local plane `y` -- to the cell sums.
+void contrast_mask_accumulate(const double* y, int row_begin, int row_end, int frame_y0,
+                              const double preflash[3], double mult, ContrastMaskAccum* acc);
+void contrast_mask_finish(const ContrastMaskAccum& acc, const ContrastMaskParams& m,
+                          ContrastMaskGrid* grid);
+// Applies `grid` to `height` rows of `y` that start at frame row `frame_y0`.
+void contrast_mask_apply_grid(double* y, int height, int frame_y0, const double preflash[3],
+                              double mult, const ContrastMaskParams& m,
+                              const ContrastMaskGrid& grid);
 
 // The bounded exposure shift, in stops, for a blurred base `b` (stops from
 // mid-grey). Exactly 0 inside [-core, core] and on a branch whose amount is 0.

@@ -570,8 +570,26 @@ void print_expose(const Profile& film, const Profile& print_profile,
 
     if (mask) {
         const double mult = params.print_exposure * params.bw_exposure_correction;
-        contrast_mask_apply(mask_y.data(), width, height, preflash_raw, mult,
-                            params.contrast_mask);
+        const ContrastMaskParams& cm = params.contrast_mask;
+        if (cm.frame_width > 0 && cm.accum) {
+            // Banded pass 1 (spektra.cpp run_banded): this band's own rows go
+            // into the frame's cell sums, and the render stops here.
+            // log_raw_print_out is deliberately left unwritten.
+            if (mult > 0.0) {
+                contrast_mask_accumulate(mask_y.data(), cm.core_begin, cm.core_end,
+                                         cm.frame_y0, preflash_raw, mult, cm.accum);
+            }
+            return;
+        }
+        if (cm.frame_width > 0 && cm.grid) {
+            // Banded pass 2: the finished frame grid, at frame coordinates.
+            if (mult > 0.0) {
+                contrast_mask_apply_grid(mask_y.data(), height, cm.frame_y0, preflash_raw,
+                                         mult, cm, *cm.grid);
+            }
+        } else {
+            contrast_mask_apply(mask_y.data(), width, height, preflash_raw, mult, cm);
+        }
         // The same tail as the per-pixel loop above, on the masked exposure.
         const double* my = mask_y.data();
         parallel_for(0, npix, [&](int lo, int hi) {

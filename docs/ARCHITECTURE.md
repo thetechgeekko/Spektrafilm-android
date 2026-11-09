@@ -132,11 +132,21 @@ bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
   and date-back position pinned, and only its own rows are copied into the output;
 - grain and glare are re-seeded per band (statistically the same field, different bytes);
 - the band layout depends only on frame size and params, never on free memory;
-- frame-wide effects fall back to the whole-frame render: highlight boost, camera/enlarger
-  diffusion filters, contrast mask, and engine crop/rescale;
+- highlight boost bands: its curve is scaled by the frame's brightest pre-boost value, and
+  everything before it is per pixel, so a pre-pass runs the bands' own expose over the band
+  cores, takes that maximum, and hands it to every band (`BandFrame::boost_frame_max`);
+- engine crop bands: the bands cover the crop box (`crop_box`), with pixel size and
+  auto-exposure taken from the uncropped input exactly as the whole-frame crop takes them;
+  rows are used in place for a full-width crop and copied one band at a time otherwise;
+- the contrast mask bands (print route): its grid averages the print exposure over the whole
+  frame, so a pass renders every band up to the print exposure and adds its core rows to the
+  frame's cell sums (each cell's sums grow in raster order either way), then the bands render
+  with the finished grid. Costs a second filming + print-exposure pass per band;
+- frame-wide effects that still fall back to the whole-frame render: camera/enlarger
+  diffusion filters and engine rescale;
 - a whole-frame render above `spk_set_whole_frame_pixel_limit` fails with `SPK_ERR_OOM`
   (an `OutOfMemoryError` in Kotlin) instead of starting. The app sets 32 MiP, the largest RAW
-  decode tier before banding, so a 50 MP frame with a frame-wide effect is refused, not
+  decode tier before banding, so a 50 MP frame with a diffusion filter is refused, not
   rendered into an lmkd kill (#589).
 
 Measured on the 50 MP frame (host, 4 cores): peak RSS 4.3 GB → 2.0 GB including the input and

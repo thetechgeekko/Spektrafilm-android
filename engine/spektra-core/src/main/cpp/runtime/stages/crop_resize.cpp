@@ -300,9 +300,8 @@ void rescale_cubic_rgb(const double* in, int w, int h, double factor,
 //   if x0[0]+sz[0] > H: x0[0] = H - sz[0]
 //   if x0[1]+sz[1] > W: x0[1] = W - sz[1]
 //   crop = image[x0[0]:x0[0]+sz[0], x0[1]:x0[1]+sz[1], :]
-static void crop_image(const double* in, int h, int w,
-                       const double center[2], const double size[2],
-                       std::vector<double>* out, int* out_w, int* out_h) {
+void crop_box(int h, int w, const double center[2], const double size[2],
+              int* row0, int* col0, int* out_h, int* out_w) {
     const double shape0 = static_cast<double>(h);  // rows
     const double shape1 = static_cast<double>(w);  // cols
     const double max_shape = shape0 > shape1 ? shape0 : shape1;
@@ -346,7 +345,17 @@ static void crop_image(const double* in, int h, int w,
     int ch = 0, cw = 0;
     np_slice(x00, sz0, h, &r0, &ch);
     np_slice(x01, sz1, w, &c0, &cw);
+    *row0 = static_cast<int>(r0);
+    *col0 = static_cast<int>(c0);
+    *out_h = ch;
+    *out_w = cw;
+}
 
+static void crop_image(const double* in, int h, int w,
+                       const double center[2], const double size[2],
+                       std::vector<double>* out, int* out_w, int* out_h) {
+    int r0 = 0, c0 = 0, ch = 0, cw = 0;
+    crop_box(h, w, center, size, &r0, &c0, &ch, &cw);
     out->assign(static_cast<size_t>(ch) * cw * 3, 0.0);
     for (int y = 0; y < ch; ++y) {
         for (int x = 0; x < cw; ++x) {

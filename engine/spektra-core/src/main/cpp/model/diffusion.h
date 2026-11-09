@@ -43,6 +43,15 @@ struct HalationParams {
     double boost_ev = 0.0;
     double boost_range = 0.3;
     double protect_ev = 4.0;
+    // Banded renders only (spektra.cpp run_banded). The boost curve is scaled by
+    // the brightest pre-boost value in the WHOLE frame, so a band must not derive
+    // it from its own rows. > 0: use this as that maximum instead of scanning
+    // `raw`. Left at 0 everywhere else, which keeps every other route unchanged.
+    double boost_frame_max = 0.0;
+    // Banded pre-pass only: when non-null, expose() computes the pre-boost
+    // irradiance, stores its maximum here, and stops before the boost (the
+    // log_raw output is NOT written). run_banded max-reduces it over the bands.
+    double* boost_max_out = nullptr;
 
     // In-emulsion scatter (core Gaussian + exponential tail).
     double scatter_amount = 1.0;
@@ -80,6 +89,10 @@ struct HalationParams {
 // route needs a frame-wide maximum, so it is two dispatches with the scalars
 // derived on the host in f64 between them; on any refusal -- including the
 // identities the CPU short-circuits -- nothing is written and the CPU map runs.
+// np.max(raw) over a (h, w, 3) irradiance image, as apply_highlight_boost scales
+// by it. Parallel and byte-identical for any worker count (max is associative).
+double highlight_boost_max(const double* raw, int w, int h);
+
 void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params,
                            bool allow_gpu = false);
 
