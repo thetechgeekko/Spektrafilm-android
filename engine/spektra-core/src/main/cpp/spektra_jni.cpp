@@ -1364,6 +1364,20 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
 
     auto native_reservation = g_allocations.reserve(
         out_bytes, spk::memory::MemoryStage::JniSimResult);
+    if (!native_reservation && spk_gpu_release_resources() != 0) {
+        // The render's GPU staging (grow-only, sized by its largest pass) is
+        // still charged to the budget here. A banded 50 MP export left 1.7 GB
+        // of it standing and was denied its own 600 MB output, after the
+        // render had already finished. Releasing is output-neutral (rebuilt
+        // lazily), so drop it and charge the result again.
+        native_reservation = g_allocations.reserve(
+            out_bytes, spk::memory::MemoryStage::JniSimResult);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "Spektra",
+                            "gpu resources released to admit the render result: %s",
+                            native_reservation ? "admitted" : "still denied");
+#endif
+    }
     if (!native_reservation) {
         spk_image_free(&out);
         throw_native_oom(env);
