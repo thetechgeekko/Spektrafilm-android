@@ -3548,6 +3548,10 @@ struct BandPlan {
     bool active = false;
     int core_rows = 0;
     int margin_rows = 0;
+    // Reach of the effects after the film (enlarger diffusion near part, print
+    // glare, scanner blur/unsharp). With film-density reuse the print passes
+    // read stored film rows, so they need only this margin, not margin_rows.
+    int print_margin_rows = 0;
     int bands = 0;
     double pixel_size_um = 0.0;
     // The region of the input the bands cover: the crop box when the engine crop
@@ -3626,6 +3630,21 @@ int band_margin_rows(const spk_params* p, double pixel_size_um) {
     return static_cast<int>(std::ceil(reach)) + 8;
 }
 
+// The part of band_margin_rows that acts after the film stage (scan glare,
+// print glare, scanner lens blur and unsharp), plus the same 8-row pad.
+int band_print_margin_rows(const spk_params* p) {
+    double reach = 0.0;
+    auto take = [&](double sigma_px) {
+        if (!std::isfinite(sigma_px) || !(sigma_px > 0.0)) return;
+        reach = std::max(reach, band_margin_sigmas(sigma_px, kLinearLightGain) * sigma_px);
+    };
+    take(p->glare_blur);
+    take(p->print_glare_blur);
+    take(p->scanner_lens_blur);
+    take(p->scanner_unsharp[0]);
+    return static_cast<int>(std::ceil(reach)) + 8;
+}
+
 BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     BandPlan plan;
     // Invalid geometry (a NaN or out-of-range crop, a bad upscale) never bands:
@@ -3669,6 +3688,7 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     const int longest = in->width > in->height ? in->width : in->height;
     const double pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
     int margin = band_margin_rows(p, pixel_size_um);
+    int print_margin = band_print_margin_rows(p);
     if (camera_diffusion) {
         // The near kernel is exact out to its half-width, and the effects after
         // it (lens blur, halation, couplers, ...) read its output that far again.
@@ -3684,9 +3704,12 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
         spk::DiffusionFilterParams d;
         apply_user_diffusion_filter(d, p, /*is_camera=*/false);
         plan.enlarger_far_factor = spk::diffusion_far_factor(w, h);
-        margin += spk::diffusion_band_near_radius(d, pixel_size_um, w, h,
-                                                  plan.enlarger_far_factor);
+        const int near = spk::diffusion_band_near_radius(d, pixel_size_um, w, h,
+                                                         plan.enlarger_far_factor);
+        margin += near;
+        print_margin += near;
     }
+    plan.print_margin_rows = std::min(print_margin, margin);
     const int64_t band_pixels = g_band_pixels.load(std::memory_order_relaxed);
     int band_rows = static_cast<int>(std::min<int64_t>(band_pixels / w, h));
     int core = band_rows - 2 * margin;
@@ -3914,6 +3937,19 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     // the contrast mask. So a pass renders every band with margins up to the
     // print exposure -- after the mask grid above -- and feeds its core rows into
     // the coarse frame; the bands then filter with it.
+    // With film-density reuse the passes below read stored film rows, so their
+    // bands need only the print-side margin: same band size, much bigger core,
+    // fewer bands. Without reuse they rerun the film side and keep the full plan.
+    int pass_core = plan.core_rows, pass_margin = plan.margin_rows, pass_bands = plan.bands;
+    if (reuse_film) {
+        const int band_rows = plan.core_rows + 2 * plan.margin_rows;
+        pass_margin = plan.print_margin_rows;
+        int core = band_rows - 2 * pass_margin;
+        if (core < pass_margin) core = pass_margin;
+        if (core < 16) core = 16;
+        pass_core = core;
+        pass_bands = (h + core - 1) / core;
+    }
     spk::DiffusionFarField enlarger_far;
     if (enlarger_pass) {
         spk::DiffusionFilterParams d;
@@ -3922,12 +3958,12 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                                     plan.enlarger_far_factor)) {
             band.enlarger_far = &enlarger_far;
             band.enlarger_far_accumulate = true;
-            for (int i = 0; i < plan.bands; ++i) {
+            for (int i = 0; i < pass_bands; ++i) {
                 if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
-                const int core0 = i * plan.core_rows;
-                const int core1 = std::min(h, core0 + plan.core_rows);
-                const int y0 = std::max(0, core0 - plan.margin_rows);
-                const int y1 = std::min(h, core1 + plan.margin_rows);
+                const int core0 = i * pass_core;
+                const int core1 = std::min(h, core0 + pass_core);
+                const int y0 = std::max(0, core0 - pass_margin);
+                const int y1 = std::min(h, core1 + pass_margin);
                 band.index = i;
                 band.core_begin = core0 - y0;
                 band.core_end = core1 - y0;
@@ -3943,12 +3979,12 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             g_diffusion_prepasses.fetch_add(1, std::memory_order_relaxed);
         }
     }
-    for (int i = 0; i < plan.bands; ++i) {
+    for (int i = 0; i < pass_bands; ++i) {
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
-        const int core0 = i * plan.core_rows;
-        const int core1 = std::min(h, core0 + plan.core_rows);
-        const int y0 = std::max(0, core0 - plan.margin_rows);
-        const int y1 = std::min(h, core1 + plan.margin_rows);
+        const int core0 = i * pass_core;
+        const int core1 = std::min(h, core0 + pass_core);
+        const int y0 = std::max(0, core0 - pass_margin);
+        const int y1 = std::min(h, core1 + pass_margin);
         band.index = i;
         band.core_begin = core0 - y0;
         band.core_end = core1 - y0;
@@ -3971,10 +4007,10 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             return st != SPK_OK ? st : SPK_ERR_INTERNAL;
         }
         g_bands_rendered.fetch_add(1, std::memory_order_relaxed);
-        if (reuse_film && i + 1 < plan.bands) {
+        if (reuse_film && i + 1 < pass_bands) {
             // The next band's top margin is this band's last rows of film density.
             const int next_core0 = core1;
-            const int next_y0 = std::max(0, next_core0 - plan.margin_rows);
+            const int next_y0 = std::max(0, next_core0 - pass_margin);
             if (next_y0 < core0) return SPK_ERR_INTERNAL;  // margin wider than a core
             carry.assign(frame.get() + static_cast<size_t>(next_y0) * row_floats,
                          frame.get() + static_cast<size_t>(next_core0) * row_floats);
