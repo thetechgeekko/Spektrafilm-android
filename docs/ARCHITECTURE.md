@@ -133,7 +133,11 @@ bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
 - grain and glare are re-seeded per band (statistically the same field, different bytes);
 - the band layout depends only on frame size and params, never on free memory;
 - frame-wide effects fall back to the whole-frame render: highlight boost, camera/enlarger
-  diffusion filters, contrast mask, and engine crop/rescale.
+  diffusion filters, contrast mask, and engine crop/rescale;
+- a whole-frame render above `spk_set_whole_frame_pixel_limit` fails with `SPK_ERR_OOM`
+  (an `OutOfMemoryError` in Kotlin) instead of starting. The app sets 32 MiP, the largest RAW
+  decode tier before banding, so a 50 MP frame with a frame-wide effect is refused, not
+  rendered into an lmkd kill (#589).
 
 Measured on the 50 MP frame (host, 4 cores): peak RSS 4.3 GB → 2.0 GB including the input and
 output frames, render time 84 s → 178 s from the margin rows. `test_band_render` holds banded

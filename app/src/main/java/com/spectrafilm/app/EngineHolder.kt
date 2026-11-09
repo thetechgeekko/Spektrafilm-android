@@ -28,6 +28,9 @@ import com.spectrafilm.engine.SpektraEngine
  * under it (use-after-free). A single immutable engine per process avoids both the
  * leak and that race.
  */
+/** Largest frame the engine may render whole; see [SpektraEngine.setWholeFramePixelLimit]. */
+internal const val WHOLE_FRAME_PIXEL_LIMIT: Long = 32L * 1024L * 1024L
+
 object EngineHolder {
     @Volatile private var instance: SpektraEngine? = null
 
@@ -62,6 +65,11 @@ object EngineHolder {
         // allowance. (The app no longer requests largeHeap at all; #465 measured exports at
         // under 14 MB of ART heap.)
         AppMemoryBudget.configure(app)
+        // Frames above 16 MiPixels render in bands, but a frame-wide effect keeps one whole.
+        // 32 MiPixels was the largest RAW decode tier before banding (#588) let 50 MP frames
+        // in, and a whole 50 MP render was what lmkd killed; above it such a render fails
+        // with OutOfMemoryError instead (#589).
+        SpektraEngine.setWholeFramePixelLimit(WHOLE_FRAME_PIXEL_LIMIT)
         // Apply the stored core-affinity choice before the first render. The engine
         // gates this on an env var, which a running JVM cannot set for itself, so it
         // has to be pushed in from here. Cheap and side-effect-free when off.

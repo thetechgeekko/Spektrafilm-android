@@ -17,7 +17,7 @@ all three public stages (and the wavelet path when OpenMP is available). A
 compile-time and runtime assertion prevents a 0.21.x library from satisfying
 the test. The production-wrapper CTest also exercises the 64 MiB encoded-input,
 128/320 MiB Bayer and tier-scaled LinearRaw raw-store policy, device-RAM-based
-8/12/24/32 MiPixel admission,
+8/12/24/32/64 MiPixel admission,
 qualified Bayer half-size geometry, ActiveArea, DefaultScale, ICC, and cumulative
 metadata guards with positive controls. Its fd snapshot cases additionally cover
 encoded data beyond 64 MiB (the actual sensor strip is relocated past that

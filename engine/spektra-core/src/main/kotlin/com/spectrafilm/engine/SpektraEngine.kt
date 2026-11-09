@@ -809,6 +809,17 @@ class SpektraEngine private constructor(
         @JvmStatic fun setBigCores(mode: Int) = nativeSetBigCores(mode)
 
         /**
+         * Largest frame, in pixels, the engine may render whole. Frames above 16 MiPixels
+         * render in bands with a bounded working set; settings that need the whole frame
+         * (highlight boost, a diffusion filter, the contrast mask, engine crop/rescale)
+         * keep a frame out of bands, and above this limit such a render fails with
+         * [OutOfMemoryError] instead of running the device out of memory. 0 = no limit.
+         * Process-wide.
+         */
+        @JvmStatic fun setWholeFramePixelLimit(maxPixels: Long) =
+            nativeSetWholeFramePixelLimit(maxPixels)
+
+        /**
          * Persistent render worker pool (#182): 1 = on, 0 = off (a std::thread
          * fork-join per map, the pre-#182 behaviour), -1 = defer to the
          * `SPK_PARALLEL_POOL` env var (unset = on, the default since the #182
@@ -875,6 +886,7 @@ class SpektraEngine private constructor(
             nativeDebugMarshalledParams(params)
 
         @JvmStatic private external fun nativeSetBigCores(mode: Int)
+        @JvmStatic private external fun nativeSetWholeFramePixelLimit(maxPixels: Long)
         @JvmStatic private external fun nativeSetParallelPool(mode: Int)
         @JvmStatic private external fun nativeParallelPoolWorkers(): Int
         @JvmStatic private external fun nativeSetParallelChunksPerWorker(n: Int)
