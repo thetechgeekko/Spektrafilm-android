@@ -114,7 +114,10 @@ function(sfraw_add_libjpeg_turbo target_name)
                 ANDROID_NDK CMAKE_ANDROID_ARCH_ABI CMAKE_ANDROID_NDK
                 CMAKE_SYSTEM_NAME CMAKE_SYSTEM_VERSION CMAKE_SYSTEM_PROCESSOR)
             if (DEFINED ${_var} AND NOT "${${_var}}" STREQUAL "")
-                list(APPEND _args "-D${_var}=${${_var}}")
+                # Forward slashes: a Windows path's backslashes are read as
+                # escapes when the sub-build's configure script is parsed.
+                file(TO_CMAKE_PATH "${${_var}}" _value)
+                list(APPEND _args "-D${_var}=${_value}")
             endif ()
         endforeach ()
     endif ()
