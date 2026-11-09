@@ -220,16 +220,27 @@ public:
 
     // Admission is one CAS against the process total. A failed admission never
     // changes current bytes, but records the rejected request for diagnostics.
+    // A denied request first asks the registered reclaimer (if any) to drop
+    // idle, rebuildable memory -- the GPU context's grow-only caches -- and is
+    // retried once when it reports that it freed something.
     MemoryReservation try_reserve(std::uint64_t bytes, MemoryDomain domain,
                                   MemoryStage stage) noexcept {
         if (bytes == 0) return {};
         domain = sanitized_domain(domain);
         stage = sanitized_stage(stage);
 
+        bool reclaimed = false;
         std::uint64_t current = total_.current_bytes.load(std::memory_order_relaxed);
         for (;;) {
             const std::uint64_t limit = limit_bytes_.load(std::memory_order_acquire);
             if (bytes > limit || current > limit - bytes) {
+                if (!reclaimed && bytes <= limit) {
+                    reclaimed = true;
+                    if (run_reclaimer()) {
+                        current = total_.current_bytes.load(std::memory_order_relaxed);
+                        continue;
+                    }
+                }
                 note_denial(domain, stage, bytes);
                 return {};
             }
@@ -249,6 +260,13 @@ public:
     // requests are denied until current usage again fits below the new limit.
     void set_limit_bytes(std::uint64_t limit_bytes) noexcept {
         limit_bytes_.store(limit_bytes, std::memory_order_release);
+    }
+
+    // Reclaimer: frees idle cached memory and returns true if it released any.
+    // It must never block on a lock the denied caller may hold.
+    using Reclaimer = bool (*)() noexcept;
+    void set_reclaimer(Reclaimer reclaimer) noexcept {
+        reclaimer_.store(reclaimer, std::memory_order_release);
     }
 
     std::uint64_t limit_bytes() const noexcept {
@@ -337,6 +355,18 @@ private:
         };
     }
 
+    bool run_reclaimer() noexcept {
+        // The reclaimer releases reservations, never takes new ones; the guard
+        // keeps a reclaimer that did allocate from recursing.
+        static thread_local bool in_reclaim = false;
+        const Reclaimer reclaimer = reclaimer_.load(std::memory_order_acquire);
+        if (reclaimer == nullptr || in_reclaim) return false;
+        in_reclaim = true;
+        const bool freed = reclaimer();
+        in_reclaim = false;
+        return freed;
+    }
+
     void note_denial(MemoryDomain domain, MemoryStage stage,
                      std::uint64_t bytes) noexcept {
         for (AtomicCounter* counter :
@@ -356,6 +386,7 @@ private:
     }
 
     std::atomic<std::uint64_t> limit_bytes_;
+    std::atomic<Reclaimer> reclaimer_{nullptr};
     AtomicCounter total_{};
     std::array<AtomicCounter, kMemoryDomainCount> domains_{};
     std::array<AtomicCounter, kMemoryStageCount> stages_{};

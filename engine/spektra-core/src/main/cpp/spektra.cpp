@@ -1165,6 +1165,19 @@ struct BandFrame {
     // rows [core_begin, core_end).
     spk::DiffusionFarField* enlarger_far = nullptr;
     bool enlarger_far_accumulate = false;
+    // Film-density reuse (print route). The film side (expose + develop: camera
+    // diffusion, halation, DIR couplers, grain) is identical in every pass after
+    // the pre-passes, so one pass stores its core rows in a frame-sized plane and
+    // the later passes read their rows back instead of recomputing them.
+    // film_store: write this band's core rows at frame row y0 + core_begin.
+    // film_only: stop after storing (no print or scan).
+    // film_in_top/film_in_rest: the band's film density is the first
+    // film_in_top_rows rows from film_in_top, then the rest from film_in_rest.
+    float* film_store = nullptr;
+    bool film_only = false;
+    const float* film_in_top = nullptr;
+    int film_in_top_rows = 0;
+    const float* film_in_rest = nullptr;
 };
 
 // Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
@@ -2862,9 +2875,14 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         eng, p, print_stochastic, bw_corr);
     if (band) sparams.glare_seed = static_cast<uint64_t>(band->index);
 
-    const char* pointwise_ineligible = pointwise_route_ineligibility(
-        p, film, prnt, tc_lut, fparams, pparams, sparams, final_rgb,
-        tap_log_raw, tap_film_density_cmy, tap_print_density_cmy, npix);
+    const bool band_film_reuse =
+        band && (band->film_in_rest != nullptr || band->film_store != nullptr);
+    const char* pointwise_ineligible =
+        band_film_reuse
+            ? "band_film_reuse"
+            : pointwise_route_ineligibility(
+                  p, film, prnt, tc_lut, fparams, pparams, sparams, final_rgb,
+                  tap_log_raw, tap_film_density_cmy, tap_print_density_cmy, npix);
     if (pointwise_ineligible) {
         note_pointwise_diagnostics(p->allow_gpu_scan != 0, false,
                                    pointwise_ineligible);
@@ -3227,7 +3245,20 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     }
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
 
-    if (!film_cache_hit) {
+    if (band && band->film_in_rest) {
+        // Banded film-density reuse: an earlier pass already ran the film side.
+        const size_t row_elems = static_cast<size_t>(width) * 3;
+        const size_t top_elems =
+            static_cast<size_t>(std::max(0, band->film_in_top_rows)) * row_elems;
+        if (top_elems > out_elems) return SPK_ERR_INTERNAL;
+        film_density_cmy.resize(out_elems);
+        if (top_elems > 0) {
+            std::memcpy(film_density_cmy.data(), band->film_in_top, top_elems * sizeof(float));
+        }
+        std::memcpy(film_density_cmy.data() + top_elems, band->film_in_rest,
+                    (out_elems - top_elems) * sizeof(float));
+        { std::vector<double>().swap(pin.rgb); }
+    } else if (!film_cache_hit) {
         std::vector<float> film_log_raw(out_elems);
         if (pin.direct) {
             spk::expose_f32_gain(in->data, pin.gain, width, height, fparams,
@@ -3252,6 +3283,19 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
                      film_density_cmy.data(),
                      &film_log_raw);  // last read inside develop (#300)
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
+        if (band && band->film_store) {
+            const size_t row_elems = static_cast<size_t>(width) * 3;
+            const int rows = band->core_end - band->core_begin;
+            if (band->core_begin < 0 || rows < 0 || band->core_end > height) {
+                return SPK_ERR_INTERNAL;
+            }
+            std::memcpy(band->film_store +
+                            static_cast<size_t>(band->y0 + band->core_begin) * row_elems,
+                        film_density_cmy.data() +
+                            static_cast<size_t>(band->core_begin) * row_elems,
+                        static_cast<size_t>(rows) * row_elems * sizeof(float));
+            if (band->film_only) return SPK_OK;
+        }
         if (use_film_cache) {
             // Store {width, height, film_density_cmy} + key under the lock, count miss.
             std::lock_guard<std::mutex> g(eng->film_cache_mutex);
@@ -3494,6 +3538,9 @@ std::atomic<uint64_t> g_bands_rendered{0};
 std::atomic<uint64_t> g_boost_prepasses{0};
 std::atomic<uint64_t> g_mask_prepasses{0};
 std::atomic<uint64_t> g_diffusion_prepasses{0};
+std::atomic<uint64_t> g_film_reuse_passes{0};
+std::atomic<int> g_film_reuse{1};
+bool film_reuse_enabled() { return g_film_reuse.load(std::memory_order_relaxed) != 0; }
 
 struct BandPlan {
     bool active = false;
@@ -3796,7 +3843,43 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     mask_params.shadows = static_cast<double>(p->contrast_mask_shadows);
     mask_params.core = static_cast<double>(p->contrast_mask_core);
     mask_params.scale = static_cast<double>(p->contrast_mask_scale);
-    if (!p->scan_film && mask_params.engaged()) {
+    const bool mask_pass = !p->scan_film && mask_params.engaged();
+    const bool enlarger_pass =
+        !p->scan_film && p->enlarger_diffusion_active != 0 && plan.enlarger_far_factor > 0;
+    // Film-density reuse: with a mask or enlarger pre-pass the film side would
+    // otherwise run two or three times per band. The first of those passes
+    // stores each band's core film density in `frame` (frame-sized, and unused
+    // until the final pass writes its output there); the later passes read it.
+    const bool reuse_film = film_reuse_enabled() && (mask_pass || enlarger_pass);
+    std::vector<float> carry;  // the final pass's top margin rows, saved before overwrite
+    if (reuse_film && !mask_pass) {
+        band.film_store = frame.get();
+        band.film_only = true;
+        for (int i = 0; i < plan.bands; ++i) {
+            if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
+            const int core0 = i * plan.core_rows;
+            const int core1 = std::min(h, core0 + plan.core_rows);
+            const int y0 = std::max(0, core0 - plan.margin_rows);
+            const int y1 = std::min(h, core1 + plan.margin_rows);
+            band.index = i;
+            band.core_begin = core0 - y0;
+            band.core_end = core1 - y0;
+            std::vector<float> unused;
+            int ow = 0, oh = 0;
+            const spk_status st = render(y0, y1, &unused, &ow, &oh);
+            if (st != SPK_OK) return st;
+        }
+        band.film_store = nullptr;
+        band.film_only = false;
+        g_film_reuse_passes.fetch_add(1, std::memory_order_relaxed);
+    }
+    auto read_stored_film = [&](int y0) {
+        band.film_in_top = nullptr;
+        band.film_in_top_rows = 0;
+        band.film_in_rest = frame.get() + static_cast<size_t>(y0) * row_floats;
+    };
+    if (mask_pass) {
+        if (reuse_film) band.film_store = frame.get();
         spk::contrast_mask_accum_init(&mask_accum, w, h, mask_params);
         band.mask_accum = &mask_accum;
         for (int i = 0; i < plan.bands; ++i) {
@@ -3814,6 +3897,10 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             if (st != SPK_OK) return st;
         }
         band.mask_accum = nullptr;
+        if (reuse_film) {
+            band.film_store = nullptr;
+            g_film_reuse_passes.fetch_add(1, std::memory_order_relaxed);
+        }
         spk::contrast_mask_finish(mask_accum, mask_params, &mask_grid);
         std::vector<double>().swap(mask_accum.sum);
         std::vector<double>().swap(mask_accum.sum2);
@@ -3826,7 +3913,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     // print exposure -- after the mask grid above -- and feeds its core rows into
     // the coarse frame; the bands then filter with it.
     spk::DiffusionFarField enlarger_far;
-    if (!p->scan_film && p->enlarger_diffusion_active != 0 && plan.enlarger_far_factor > 0) {
+    if (enlarger_pass) {
         spk::DiffusionFilterParams d;
         apply_user_diffusion_filter(d, p, /*is_camera=*/false);
         if (spk::diffusion_far_init(d, plan.pixel_size_um, w, h, &enlarger_far,
@@ -3842,11 +3929,13 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                 band.index = i;
                 band.core_begin = core0 - y0;
                 band.core_end = core1 - y0;
+                if (reuse_film) read_stored_film(y0);
                 std::vector<float> unused;
                 int ow = 0, oh = 0;
                 const spk_status st = render(y0, y1, &unused, &ow, &oh);
                 if (st != SPK_OK) return st;
             }
+            band.film_in_rest = nullptr;
             band.enlarger_far_accumulate = false;
             spk::diffusion_far_finish(&enlarger_far);
             g_diffusion_prepasses.fetch_add(1, std::memory_order_relaxed);
@@ -3861,6 +3950,17 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
         band.index = i;
         band.core_begin = core0 - y0;
         band.core_end = core1 - y0;
+        if (reuse_film) {
+            // Rows above core0 were overwritten by the previous band's output;
+            // they come from `carry`, saved before that write.
+            const int top = core0 - y0;
+            if (top > 0 && carry.size() != static_cast<size_t>(top) * row_floats) {
+                return SPK_ERR_INTERNAL;
+            }
+            band.film_in_top = top > 0 ? carry.data() : nullptr;
+            band.film_in_top_rows = top;
+            band.film_in_rest = frame.get() + static_cast<size_t>(core0) * row_floats;
+        }
         std::vector<float> rgb;
         int ow = w, oh = y1 - y0;
         const spk_status st = render(y0, y1, &rgb, &ow, &oh);
@@ -3869,6 +3969,14 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             return st != SPK_OK ? st : SPK_ERR_INTERNAL;
         }
         g_bands_rendered.fetch_add(1, std::memory_order_relaxed);
+        if (reuse_film && i + 1 < plan.bands) {
+            // The next band's top margin is this band's last rows of film density.
+            const int next_core0 = core1;
+            const int next_y0 = std::max(0, next_core0 - plan.margin_rows);
+            if (next_y0 < core0) return SPK_ERR_INTERNAL;  // margin wider than a core
+            carry.assign(frame.get() + static_cast<size_t>(next_y0) * row_floats,
+                         frame.get() + static_cast<size_t>(next_core0) * row_floats);
+        }
         std::memcpy(frame.get() + static_cast<size_t>(core0) * row_floats,
                     rgb.data() + static_cast<size_t>(core0 - y0) * row_floats,
                     row_floats * static_cast<size_t>(core1 - core0) * sizeof(float));
@@ -4284,6 +4392,14 @@ uint64_t spk_band_render_bands(void) {
 
 uint64_t spk_band_boost_prepasses(void) {
     return g_boost_prepasses.load(std::memory_order_relaxed);
+}
+
+uint64_t spk_band_film_reuse_passes(void) {
+    return g_film_reuse_passes.load(std::memory_order_relaxed);
+}
+
+void spk_set_band_film_reuse(int enabled) {
+    g_film_reuse.store(enabled != 0 ? 1 : 0, std::memory_order_relaxed);
 }
 
 uint64_t spk_band_mask_prepasses(void) {

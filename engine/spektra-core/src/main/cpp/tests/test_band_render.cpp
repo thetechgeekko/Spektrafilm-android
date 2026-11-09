@@ -708,6 +708,45 @@ int main(int argc, char** argv) {
         if (!ok1 || !ok8) return 1;
         expect(!differs(t1, t8), "banded camera diffusion: 1 vs 8 threads byte-identical");
     }
+    // F4: film-density reuse. With a mask or enlarger pre-pass the film side runs
+    // once and later passes read it back; deterministic stacks must match the
+    // recomputing render at the parity bar, and stay thread-identical.
+    for (int mode = 0; mode < 3; ++mode) {
+        spk_params p;
+        base_params(&p, false, false);
+        set_diffusion(&p);
+        p.halation_boost_ev = 2.0f;
+        if (mode != 1) {
+            p.contrast_mask_active = 1;
+            p.contrast_mask_highlights = 0.5f;
+            p.contrast_mask_shadows = 0.3f;
+        }
+        if (mode != 0) {
+            p.enlarger_diffusion_active = 1;
+            p.enlarger_diffusion_strength = 0.5f;
+        }
+        const char* label = mode == 0   ? "F4 reuse: mask"
+                            : mode == 1 ? "F4 reuse: enlarger diffusion"
+                                        : "F4 reuse: mask + enlarger diffusion";
+        std::vector<float> recomputed, reused, t1, t8;
+        spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+        spk_set_band_film_reuse(0);
+        const uint64_t reuse0 = spk_band_film_reuse_passes();
+        const bool ok0 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &recomputed);
+        expect(spk_band_film_reuse_passes() == reuse0, "reuse off: no reuse pass");
+        spk_set_band_film_reuse(1);
+        const bool ok1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &reused);
+        expect(spk_band_film_reuse_passes() == reuse0 + 1, "reuse on: one reuse pass");
+        setenv("SPK_NUM_THREADS", "1", 1);
+        const bool okt1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &t1);
+        setenv("SPK_NUM_THREADS", "8", 1);
+        const bool okt8 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &t8);
+        unsetenv("SPK_NUM_THREADS");
+        spk_set_whole_frame_pixel_limit(0);
+        if (!ok0 || !ok1 || !okt1 || !okt8) return 1;
+        compare(label, reused, recomputed);
+        expect(!differs(t1, t8), "film reuse: 1 vs 8 threads byte-identical");
+    }
 
     spk_engine_destroy(eng);
     if (g_failures) {
