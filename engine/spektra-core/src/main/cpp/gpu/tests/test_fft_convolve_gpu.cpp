@@ -491,6 +491,51 @@ void run_wiring() {
     check(again == cpu, "latch off is byte-identical to the CPU path");
 }
 
+// The banded near/far filter (frames above the whole-frame limit) offers its
+// near convolution to the same GPU pass. Same contract as run_wiring: latch on
+// differs by f32 rounding and stays in the band, latch off is the CPU path.
+void run_banded_wiring() {
+    const int w = 512, h = 384;
+    std::vector<double> base(static_cast<size_t>(w) * h * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c)
+                base[(static_cast<size_t>(y) * w + x) * 3 + c] =
+                    0.05 + 0.3 * (static_cast<double>(x) / w) + 0.1 * c +
+                    ((x % 41 == 0 && y % 31 == 0) ? 30.0 : 0.0);
+    spk::DiffusionFilterParams p;
+    p.active = true;
+    p.strength = 1.0;
+    p.spatial_scale = 1.0;
+    spk::DiffusionFarField far;
+    if (!spk::diffusion_far_init(p, 5.0, w, h, &far, 4)) {
+        check(false, "banded: far field init");
+        return;
+    }
+    spk::diffusion_far_accumulate(base.data(), w, h, 0, &far);
+    spk::diffusion_far_finish(&far);
+    // One interior band: rows [y0, y0 + bh) of the frame.
+    const int y0 = 64, bh = 256;
+    const size_t off = static_cast<size_t>(y0) * w * 3, n = static_cast<size_t>(bh) * w * 3;
+    std::vector<double> cpu(base.begin() + off, base.begin() + off + n), gpu = cpu, again = cpu;
+    spk::apply_diffusion_filter_banded(cpu.data(), w, bh, y0, far, /*allow_gpu_fft=*/false);
+    spk::apply_diffusion_filter_banded(gpu.data(), w, bh, y0, far, /*allow_gpu_fft=*/true);
+    spk::apply_diffusion_filter_banded(again.data(), w, bh, y0, far, /*allow_gpu_fft=*/false);
+    double max_abs = 0.0, peak = 0.0;
+    bool differs = false;
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        if (cpu[i] != gpu[i]) differs = true;
+        max_abs = std::max(max_abs, std::fabs(cpu[i] - gpu[i]));
+        peak = std::max(peak, std::fabs(cpu[i]));
+    }
+    if (differs) g_engaged = true;
+    std::printf("  banded wiring: near_r=%d differs=%d  max_abs %.3e  peak %.4g  bar %.3e\n",
+                far.near_radius, differs ? 1 : 0, max_abs, peak, 1e-4 * peak);
+    check(differs, "banded: latch reaches the GPU pass (renders are not identical)");
+    check(max_abs <= 1e-4 * peak, "banded: wired GPU render stays inside the parity band");
+    check(again == cpu, "banded: latch off is byte-identical to the CPU path");
+}
+
 }  // namespace
 
 int main() {
@@ -526,6 +571,7 @@ int main() {
 
     run_refusals();
     run_wiring();
+    run_banded_wiring();
 
     std::printf("engaged=%d\n", g_engaged ? 1 : 0);
     if (g_failures == 0) std::printf("test_fft_convolve_gpu: ALL OK\n");

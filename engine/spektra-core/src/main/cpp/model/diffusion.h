@@ -246,9 +246,11 @@ void diffusion_far_finish(DiffusionFarField* far);
 
 // Filter one band in place: rows [frame_y0, frame_y0 + h) of the frame, with
 // at least near_radius rows of real frame above and below every row the caller
-// keeps (or the frame edge).
+// keeps (or the frame edge). `allow_gpu_fft` offers the near convolution to
+// gpu::fft_convolve first, exactly as apply_diffusion_filter_um does.
 void apply_diffusion_filter_banded(double* raw, int w, int h, int frame_y0,
-                                   const DiffusionFarField& far);
+                                   const DiffusionFarField& far,
+                                   bool allow_gpu_fft = false);
 
 
 // ---------------------------------------------------------------------------

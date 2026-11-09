@@ -226,6 +226,10 @@ struct PrintingParams {
     // CPU integral for that frame. Default false: an untouched PrintingParams
     // is the CPU path.
     bool allow_gpu = false;
+    // INTERNAL: offer the enlarger diffusion filter's convolution to the GPU FFT
+    // (the same operator in f32, as FilmingParams::allow_gpu_diffusion_fft does
+    // for the camera filter). Refusal falls back to the CPU transform.
+    bool allow_gpu_diffusion_fft = false;
 
     double filtered_illuminant[81] = {0.0};
     double exposure_factor_midgray = 1.0;
