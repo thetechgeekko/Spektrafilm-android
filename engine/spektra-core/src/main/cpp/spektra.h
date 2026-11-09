@@ -489,6 +489,12 @@ uint64_t spk_band_render_bands(void);
 uint64_t spk_band_boost_prepasses(void);
 /* Contrast-mask frame-grid pre-passes run by banded renders (diagnostics). */
 uint64_t spk_band_mask_prepasses(void);
+/* Banded print-route renders whose mask or enlarger pre-pass stored the film
+ * density once for the later passes to reuse (diagnostics). */
+uint64_t spk_band_film_reuse_passes(void);
+/* Film-density reuse across band passes: 1 (default) on, 0 off (tests compare
+ * the two). Process-wide. */
+void spk_set_band_film_reuse(int enabled);
 /* Diffusion-filter (camera or enlarger) coarse-frame pre-passes run by banded
  * renders (diagnostics). */
 uint64_t spk_band_diffusion_prepasses(void);
