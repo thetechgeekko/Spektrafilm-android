@@ -3622,4 +3622,53 @@ Notes:
   `status=speed-profile`. Time to first frame did not move. Any gain would show in a measure that ends
   when the editor is actually usable (`reportFullyDrawn`), which has not been measured yet.
 
+## 34. 50 MP all-effects export: worker priority, GPU clocks, band geometry (2026-11-09)
+
+**Setup:** release APKs (R8, debug-key signed), phone R5GL13Z3S6L, a synthetic 8704x5802 JPEG. Every
+effect is on: halation with Boost EV, grain, camera and enlarger Black Pro-Mist, contrast mask, and a crop.
+Export is Ultra HDR at maximum resolution. Every run starts at thermal status 0.
+
+**Worker priority (#270's nice 10) is not the limit.** I built main at `d48deb9` twice, the only
+difference being `parallel_set_worker_nice(0)` for exports:
+
+| build | battery at start | export | print_expose | halation GPU sum | dir GPU sum |
+|---|---|---|---|---|---|
+| nice 10 (shipping) | 31.2 °C | 105.3 s | 25.2 s | 22.8 s | 16.6 s |
+| nice 0 | 31.2 °C | 103.6 s | 25.2 s | 22.8 s | 16.5 s |
+
+That is 1.6% apart, within the run-to-run spread. Every stage matches. So #270's UI protection costs
+nothing on this export, and it stays.
+
+**GPU clocks are already up.** I sampled `/sys/class/kgsl/kgsl-3d0/clock_mhz` and
+`gpu_busy_percentage` once a second during a 103.5 s export (10 s means):
+
+```
+  0-20 s   324-465 MHz   0-25 % busy   (decode, filming, boost/camera pre-passes)
+ 30-80 s   850-1275 MHz  46-62 % busy  (band passes: halation, DIR, grain, print)
+ 90-120 s  305-549 MHz   28-36 % busy  (tail, gain map, encode)
+```
+
+During the band passes the GPU runs at or near its 1.1-1.3 GHz ceiling and is about half busy. The
+other half it waits on CPU work between dispatches. An ADPF hint that raises clocks has little left to
+win. What is left is the CPU work between GPU passes and the number of passes.
+
+**Band geometry is the lever** (host lavapipe, same frame, reuse on, 32 MiP whole-frame limit):
+
+| band size | bands | time | host RSS |
+|---|---|---|---|
+| 12 MiP (default) | 7 | 172 s | 5.6 GB |
+| 24 MiP | 6 | 155 s | 5.8 GB |
+| 36 MiP | 3 | 106 s | 6.9 GB |
+
+The phone's band working set is about 138 B per band pixel. Its log shows `stage heap mb` peak 2993 MiB
+at 12 MiP, minus the input and output frames. So 36 MiP bands do not fit. The margin is the waste:
+about 900 rows on each side of a ~1480-row band, all of it the film side's scatter tail. #597 gives the
+print passes only the print-side margin. That takes the final pass from 7 bands to 3, with no memory
+cost. On the phone, cooled, the export went from 103.5-105.3 s to 90.7 s.
+
+**Not adopted: evicting other kernels' GPU caches on a refused allocation (#596).** It made halation
+take its whole-band route (`bands2` instead of `bands10`). But the FFT and halation buffers then evicted
+each other in every band: `camera_diffusion` went from 16.5 s to 26.3 s, and the export from about 124 s
+to 145.7 s.
+
 *Film modeling powered by spektrafilm (GPLv3).*
