@@ -810,11 +810,13 @@ class SpektraEngine private constructor(
 
         /**
          * Largest frame, in pixels, the engine may render whole. Frames above 16 MiPixels
-         * render in bands with a bounded working set; settings that need the whole frame
-         * (highlight boost, a diffusion filter, the contrast mask, engine crop/rescale)
-         * keep a frame out of bands, and above this limit such a render fails with
-         * [OutOfMemoryError] instead of running the device out of memory. 0 = no limit.
-         * Process-wide.
+         * render in bands with a bounded working set; highlight boost, the contrast mask
+         * and engine crop band exactly. The camera diffusion filter renders whole up to
+         * this limit and above it in bands with a near/far split of its kernel (within
+         * 0.1-0.4% of the whole filter, not bit-exact). Settings that still need the
+         * whole frame (the enlarger diffusion filter, engine rescale) keep a frame out of
+         * bands, and above this limit such a render fails with [OutOfMemoryError]
+         * instead of running the device out of memory. 0 = no limit. Process-wide.
          */
         @JvmStatic fun setWholeFramePixelLimit(maxPixels: Long) =
             nativeSetWholeFramePixelLimit(maxPixels)

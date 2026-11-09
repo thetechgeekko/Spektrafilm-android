@@ -26,11 +26,21 @@
  *      full-width crop (rows used in place), crop + boost and mask + crop +
  *      boost; one pre-pass of each kind exactly when it applies; 1-vs-8
  *      threads byte-identical.
- *   D2. A frame-wide effect that still cannot band (camera diffusion) falls
- *      back: the "banded" call is byte-identical to the whole-frame render.
+ *   D2. Frame-wide effects that do not band fall back: the "banded" call is
+ *      byte-identical to the whole-frame render, for the enlarger diffusion
+ *      filter always and for the camera diffusion filter at or below the
+ *      whole-frame limit (and with no limit).
  *   E. The whole-frame limit: above spk_set_whole_frame_pixel_limit a frame
- *      that cannot band (camera diffusion) fails with SPK_ERR_OOM and an empty
- *      output, a frame that bands still renders, and 0 lifts the limit.
+ *      that cannot band (enlarger diffusion) fails with SPK_ERR_OOM and an
+ *      empty output, a frame that bands still renders, and 0 lifts the limit.
+ *   F. Above the whole-frame limit the camera diffusion filter bands with the
+ *      near/far split of model/diffusion.h, which is NOT bit-exact: on the
+ *      irradiance it is held to |log10(banded/whole)| <= 1e-3 worst and 1e-4
+ *      RMS against apply_diffusion_filter_um (four families, f = 4 and 8, a
+ *      scene of small highlights up to 8 stops over a dark floor; 3e-3 / 2e-4
+ *      where a thin frame caps the kernel at a twelfth of its reach), and end to end to a
+ *      measured output bound, both routes, with and without highlight boost;
+ *      one coarse-frame pre-pass per render; 1-vs-8 threads byte-identical.
  *
  * Build from the cpp root like the other e2e gates:
  *   g++ -std=c++17 -O2 -pthread -I. tests/test_band_render.cpp spektra.cpp \
@@ -38,7 +48,9 @@
  *     runtime/*.cpp runtime/stages/*.cpp -o /tmp/test_band_render
  * Run: /tmp/test_band_render <asset_dir>
  */
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -47,6 +59,7 @@
 #include <vector>
 
 #include "spektra.h"
+#include "model/diffusion.h"
 
 namespace {
 
@@ -56,6 +69,10 @@ constexpr int kH = 1440;
 constexpr int64_t kNeverBand = static_cast<int64_t>(1) << 40;
 
 int g_failures = 0;
+// End-to-end bound for the banded camera diffusion filter (F2), set from the
+// measured error with headroom; the irradiance-level bound is F1's.
+constexpr double kDiffusionOutMaxAbs = 2e-3;
+constexpr double kDiffusionOutRms = 5e-5;
 
 void expect(bool ok, const char* what) {
     std::printf("[%s] %s\n", what, ok ? "PASS" : "FAIL");
@@ -402,11 +419,41 @@ int main(int argc, char** argv) {
         expect(!differs(banded, whole), "camera diffusion falls back (byte-identical)");
     }
 
+    {
+        spk_params p;
+        base_params(&p, false, false);
+        p.enlarger_diffusion_active = 1;
+        p.enlarger_diffusion_strength = 0.5f;
+        std::vector<float> whole, banded;
+        if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
+        const uint64_t before = spk_band_render_bands();
+        if (!render(eng, frame, p, 1, static_cast<int64_t>(kW) * 400, &banded)) return 1;
+        expect(spk_band_render_bands() == before, "enlarger diffusion renders no bands");
+        expect(!differs(banded, whole), "enlarger diffusion falls back (byte-identical)");
+    }
+    {
+        // At the whole-frame limit the camera diffusion filter still renders whole.
+        spk_params p;
+        base_params(&p, false, false);
+        set_diffusion(&p);
+        std::vector<float> whole, banded;
+        if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
+        spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH);
+        const uint64_t before = spk_band_render_bands();
+        const bool ok = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 400, &banded);
+        spk_set_whole_frame_pixel_limit(0);
+        if (!ok) return 1;
+        expect(spk_band_render_bands() == before,
+               "camera diffusion at the whole-frame limit renders no bands");
+        expect(!differs(banded, whole), "camera diffusion at the limit is exact");
+    }
+
     // E: a frame that must render whole is refused above the whole-frame limit.
     {
         spk_params boost;
         base_params(&boost, false, false);
-        set_diffusion(&boost);
+        boost.enlarger_diffusion_active = 1;
+        boost.enlarger_diffusion_strength = 0.5f;
         spk_params plain;
         base_params(&plain, false, false);
         spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};
@@ -434,6 +481,145 @@ int main(int argc, char** argv) {
         const spk_status lifted = spk_simulate(eng, &in, &boost, &o);
         expect(lifted == SPK_OK, "limit 0 lifts the refusal");
         spk_image_free(&o);
+    }
+
+    // F1: the banded diffusion filter against the whole-frame one, on the
+    // irradiance. Small highlights up to 8 stops over a dark floor are where a
+    // coarse far term errs most: their light lands on pixels hundreds of times
+    // darker.
+    {
+        const int W = 2000, H = 1500;
+        std::vector<double> img(static_cast<size_t>(W) * H * 3);
+        uint64_t rng = 0x9e3779b97f4a7c15ull;
+        auto uni = [&]() {
+            rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+            return static_cast<double>(rng >> 11) / 9007199254740992.0;
+        };
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                for (int c = 0; c < 3; ++c) {
+                    const double v = 0.18 * (0.5 + 0.5 * std::sin(x * 0.01 + c) *
+                                                      std::cos(y * 0.013)) +
+                                     0.05 * uni();
+                    img[(static_cast<size_t>(y) * W + x) * 3 + c] = v > 0.002 ? v : 0.002;
+                }
+        for (int k = 0; k < 60; ++k) {
+            const int cx = static_cast<int>(uni() * W), cy = static_cast<int>(uni() * H);
+            const double a = std::pow(2.0, uni() * 8.0);
+            const int rr = 1 + static_cast<int>(uni() * 10.0);
+            for (int y = std::max(0, cy - rr); y < std::min(H, cy + rr); ++y)
+                for (int x = std::max(0, cx - rr); x < std::min(W, cx + rr); ++x)
+                    for (int c = 0; c < 3; ++c)
+                        img[(static_cast<size_t>(y) * W + x) * 3 + c] += a;
+        }
+        // Pixel sizes put the whole-frame radius cap (min(w,h)/2-1 = 749) at about
+        // half the kernel's natural reach, as at 50-200 MP; the last case caps it
+        // at a twelfth (a thin panorama crop), where the cut is still bright and
+        // the coarse far term blurs it, so it gets its own, looser bound.
+        struct Case { spk::DiffusionFamily fam; double px; int f; double worst, rms; };
+        const Case cases[] = {
+            {spk::DiffusionFamily::kBlackProMist, 5.1, 4, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kProMist, 8.7, 4, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kGlimmerglass, 3.5, 4, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kCinebloom, 13.4, 4, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kBlackProMist, 5.1, 8, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kCinebloom, 13.4, 8, 1e-3, 1e-4},
+            {spk::DiffusionFamily::kCinebloom, 2.2, 4, 3e-3, 2e-4},
+        };
+        for (const Case& c : cases) {
+            spk::DiffusionFilterParams d;
+            d.active = true;
+            d.family = c.fam;
+            d.strength = 0.5;
+            std::vector<double> whole = img;
+            spk::apply_diffusion_filter_um(whole.data(), W, H, d, c.px, false);
+            spk::DiffusionFarField far;
+            if (!spk::diffusion_far_init(d, c.px, W, H, &far, c.f)) {
+                expect(false, "diffusion_far_init");
+                continue;
+            }
+            const int core = 400, m = far.near_radius;
+            for (int c0 = 0; c0 < H; c0 += core) {
+                const int c1 = std::min(H, c0 + core);
+                spk::diffusion_far_accumulate(img.data() + static_cast<size_t>(c0) * W * 3,
+                                              W, c1 - c0, c0, &far);
+            }
+            spk::diffusion_far_finish(&far);
+            std::vector<double> out(img.size());
+            for (int c0 = 0; c0 < H; c0 += core) {
+                const int c1 = std::min(H, c0 + core);
+                const int y0 = std::max(0, c0 - m), y1 = std::min(H, c1 + m);
+                std::vector<double> b(img.begin() + static_cast<ptrdiff_t>(y0) * W * 3,
+                                      img.begin() + static_cast<ptrdiff_t>(y1) * W * 3);
+                spk::apply_diffusion_filter_banded(b.data(), W, y1 - y0, y0, far);
+                std::copy(b.begin() + static_cast<ptrdiff_t>(c0 - y0) * W * 3,
+                          b.begin() + static_cast<ptrdiff_t>(c1 - y0) * W * 3,
+                          out.begin() + static_cast<ptrdiff_t>(c0) * W * 3);
+            }
+            double worst = 0.0, sse = 0.0;
+            for (size_t i = 0; i < out.size(); ++i) {
+                const double l = std::fabs(std::log10(out[i] / whole[i]));
+                if (!(l <= worst)) worst = l;  // NaN counts as worst
+                sse += l * l;
+            }
+            const double rms = std::sqrt(sse / static_cast<double>(out.size()));
+            const bool ok = worst <= c.worst && rms <= c.rms;
+            std::printf("[F1 family %d px %.2f f=%d R=%d near=%d] log10 worst=%.2e rms=%.2e -> %s\n",
+                        static_cast<int>(c.fam), c.px, c.f, far.radius, far.near_radius,
+                        worst, rms, ok ? "PASS" : "FAIL");
+            if (!ok) ++g_failures;
+        }
+    }
+
+    // F2: end to end. Above the whole-frame limit the camera diffusion filter
+    // bands (one coarse-frame pre-pass), close to the whole render.
+    for (int scan_film = 0; scan_film <= 1; ++scan_film) {
+        for (int boost = 0; boost <= 1; ++boost) {
+            spk_params p;
+            base_params(&p, scan_film != 0, false);
+            set_diffusion(&p);
+            if (boost) p.halation_boost_ev = 2.0f;
+            std::vector<float> whole, banded;
+            if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
+            spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+            const uint64_t bands0 = spk_band_render_bands();
+            const uint64_t pre0 = spk_band_diffusion_prepasses();
+            const bool ok = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 700, &banded);
+            spk_set_whole_frame_pixel_limit(0);
+            if (!ok) return 1;
+            char label[96];
+            std::snprintf(label, sizeof(label), "F2 camera diffusion %s%s",
+                          scan_film ? "scan_film" : "print", boost ? " + boost" : "");
+            expect(spk_band_render_bands() > bands0 + 1, label);
+            expect(spk_band_diffusion_prepasses() == pre0 + 1, "one diffusion pre-pass");
+            double max_abs = 0.0, sse = 0.0;
+            for (size_t i = 0; i < whole.size(); ++i) {
+                const double dd = std::fabs(static_cast<double>(banded[i]) - whole[i]);
+                if (!(dd <= max_abs)) max_abs = dd;
+                sse += dd * dd;
+            }
+            const double rms = std::sqrt(sse / static_cast<double>(whole.size()));
+            const bool close = max_abs <= kDiffusionOutMaxAbs && rms <= kDiffusionOutRms;
+            std::printf("[%s] max_abs=%.3e rms=%.3e -> %s\n", label, max_abs, rms,
+                        close ? "PASS" : "FAIL");
+            if (!close) ++g_failures;
+        }
+    }
+    {
+        spk_params p;
+        base_params(&p, false, false);
+        set_diffusion(&p);
+        p.halation_boost_ev = 2.0f;
+        std::vector<float> t1, t8;
+        spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+        setenv("SPK_NUM_THREADS", "1", 1);
+        const bool ok1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 700, &t1);
+        setenv("SPK_NUM_THREADS", "8", 1);
+        const bool ok8 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 700, &t8);
+        unsetenv("SPK_NUM_THREADS");
+        spk_set_whole_frame_pixel_limit(0);
+        if (!ok1 || !ok8) return 1;
+        expect(!differs(t1, t8), "banded camera diffusion: 1 vs 8 threads byte-identical");
     }
 
     spk_engine_destroy(eng);
