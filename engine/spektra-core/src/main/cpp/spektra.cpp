@@ -1128,10 +1128,42 @@ inline bool one_shot_render(const spk_params* p) noexcept {
     return p->disable_buffer_memos != 0 || p->gpu_export != 0;
 }
 
+// One horizontal band of a frame too large to render whole (see
+// spk_simulate_cancellable and plan_band_render). The band is rendered as its
+// own image -- its rows plus a margin above and below wide enough to hold every
+// spatial effect's reach -- with everything that would otherwise be derived from
+// the band pinned to the FRAME: the pixel size (from the frame's long edge), the
+// auto-exposure gain (metered on the whole frame), the date-back position, and a
+// per-band salt on the stochastic seeds so grain and glare do not repeat band
+// after band.
+struct BandFrame {
+    int frame_width = 0;
+    int frame_height = 0;
+    int y0 = 0;           // first frame row of this band, margin included
+    int index = 0;        // band number, salts the grain and glare seeds
+    double pixel_size_um = 0.0;
+    double gain = 1.0;    // whole-frame auto-exposure gain (1 when AE is off)
+};
+
+// Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
+// so a step of 1000 never lands on another channel's or sublayer's seed.
+constexpr int kBandGrainSeedStep = 1000;
+
 void preprocess_geometry(const spk_image* in, const spk_params* p,
                          PreprocessedInput* out, int* width, int* height,
-                         double* pixel_size_um) {
+                         double* pixel_size_um,
+                         const BandFrame* band = nullptr) {
     const int w = in->width, h = in->height;
+    if (band) {
+        // Banded renders are one-shot with no-op geometry (plan_band_render
+        // checks both), so this is the direct form with the frame's numbers.
+        out->direct = true;
+        out->gain = band->gain;
+        *width = w;
+        *height = h;
+        *pixel_size_um = band->pixel_size_um;
+        return;
+    }
     const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
     const int longest = w > h ? w : h;
     *pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
@@ -2029,7 +2061,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
                          std::vector<float>* tap_density_cmy,
                          int* out_w = nullptr, int* out_h = nullptr,
                          spk_cancel_check cancel = nullptr,
-                         void* cancel_user_data = nullptr) try {
+                         void* cancel_user_data = nullptr,
+                         const BandFrame* band = nullptr) try {
     if (!eng || !p || !valid_preprocess_geometry(in, p)) {
         return SPK_ERR_BAD_ARGS;
     }
@@ -2051,7 +2084,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     int width = 0, height = 0;
     double resize_pixel_size_um = 0.0;
     { spk::ScopedStage _t(spk::STG_PREPROCESS);
-      preprocess_geometry(in, p, &pin, &width, &height, &resize_pixel_size_um); }
+      preprocess_geometry(in, p, &pin, &width, &height, &resize_pixel_size_um,
+                          band); }
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
     const int npix = width * height;
     if (out_w) *out_w = width;
@@ -2092,6 +2126,11 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     apply_user_scene_latitude(fparams.scene_latitude, p);
     apply_user_date_stamp(fparams.date_stamp, p);
+    if (band) {
+        fparams.date_stamp.frame_width = band->frame_width;
+        fparams.date_stamp.frame_height = band->frame_height;
+        fparams.date_stamp.frame_y0 = band->y0;
+    }
     const float g = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = g;
     fparams.density_curve_gamma[1] = g;
@@ -2177,6 +2216,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         // normalized density curves.
         spk::digest_grain_params(fparams);
         apply_user_grain(fparams.grain, p);
+        if (band) fparams.grain.seed_offset += band->index * kBandGrainSeedStep;
     }
     if (halation_on) {
         spk::digest_halation_params(fparams, film.use.c_str(),
@@ -2325,6 +2365,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // 6) scan(): density_cmy -> display RGB (output_color_space, CCTF per params).
     spk::ScanningParams sparams;
     sparams.scan_film = true;
+    if (band) sparams.glare_seed = static_cast<uint64_t>(band->index);
     // GPU preview fast-path (#146): set only when spk_simulate_preview latched
     // allow_gpu_scan; scan() re-gates on frame eligibility + the self-check.
     sparams.allow_gpu = (p->allow_gpu_scan != 0);
@@ -2392,7 +2433,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
                      std::vector<float>* tap_print_density_cmy,
                      int* out_w = nullptr, int* out_h = nullptr,
                      spk_cancel_check cancel = nullptr,
-                     void* cancel_user_data = nullptr) try {
+                     void* cancel_user_data = nullptr,
+                     const BandFrame* band = nullptr) try {
     if (!eng || !p || !valid_preprocess_geometry(in, p)) {
         return SPK_ERR_BAD_ARGS;
     }
@@ -2415,7 +2457,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     int width = 0, height = 0;
     double resize_pixel_size_um = 0.0;
     { spk::ScopedStage _t(spk::STG_PREPROCESS);
-      preprocess_geometry(in, p, &pin, &width, &height, &resize_pixel_size_um); }
+      preprocess_geometry(in, p, &pin, &width, &height, &resize_pixel_size_um,
+                          band); }
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
     const int npix = width * height;
     if (out_w) *out_w = width;
@@ -2661,6 +2704,11 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     fparams.exposure_compensation_ev = p->exposure_compensation_ev;
     apply_user_scene_latitude(fparams.scene_latitude, p);
     apply_user_date_stamp(fparams.date_stamp, p);
+    if (band) {
+        fparams.date_stamp.frame_width = band->frame_width;
+        fparams.date_stamp.frame_height = band->frame_height;
+        fparams.date_stamp.frame_y0 = band->y0;
+    }
     const float fg = p->density_curve_gamma != 0.0f ? p->density_curve_gamma : 1.0f;
     fparams.density_curve_gamma[0] = fg;
     fparams.density_curve_gamma[1] = fg;
@@ -2732,6 +2780,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         // scan route wires it. Deterministic seed; stays serial.
         spk::digest_grain_params(fparams);
         apply_user_grain(fparams.grain, p);
+        if (band) fparams.grain.seed_offset += band->index * kBandGrainSeedStep;
     }
     if (print_halation_on) {
         spk::digest_halation_params(fparams, film.use.c_str(),
@@ -2752,6 +2801,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // The same object is reused unchanged by the CPU fallback below.
     spk::ScanningParams sparams = build_print_scanning_params(
         eng, p, print_stochastic, bw_corr);
+    if (band) sparams.glare_seed = static_cast<uint64_t>(band->index);
 
     const char* pointwise_ineligible = pointwise_route_ineligibility(
         p, film, prnt, tc_lut, fparams, pparams, sparams, final_rgb,
@@ -3315,6 +3365,217 @@ void downscale_bilinear(const float* src, int sw, int sh,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Band rendering: bounded memory for very large exports.
+//
+// A full-resolution render holds several whole-frame buffers at once (the
+// float64 irradiance for halation, film and print densities, the scan output,
+// spatial scratch): ~74 bytes per pixel on top of the caller's input, measured
+// on a 50 MP Samsung DNG on the host (heap 2.9 GiB, RSS 4.1 GiB). That took an
+// 11 GB phone down. Above kBandMinPixels a one-shot render therefore runs as
+// horizontal bands: each band is its rows plus a margin above and below that
+// covers every spatial effect's reach, rendered as its own image with the
+// frame's pixel size, auto-exposure gain and date-back position pinned (see
+// BandFrame), and only its own rows are kept. The engine's working set then
+// follows the band, not the frame.
+//
+// Output: every spatial filter here is a Gaussian (FIR, or IIR for sigma > 3)
+// or a fixed Gaussian mixture, so a row further than the margin from the band
+// edge sees the same neighbourhood it would in the whole frame, and differs
+// only by the IIR filters' exponentially small edge term. test_band_render
+// holds banded output to the parity tolerance against the whole-frame render.
+// Grain and glare are stochastic and are re-seeded per band: statistically the
+// same field, not the same bytes. The band layout is a function of the frame
+// size and the params only -- never of free memory -- so an export renders
+// identically on every device.
+//
+// Effects whose reach is frame-wide fall back to the whole-frame render: the
+// highlight boost (normalises to the frame's maximum), the camera and enlarger
+// diffusion filters (kernels up to half the frame) and the contrast mask
+// (blur sigma is a fraction of the frame's long edge). So does any engine
+// crop/rescale, which changes the frame before filming.
+
+constexpr int64_t kBandMinPixelsDefault = 16LL * 1024 * 1024;
+constexpr int64_t kBandPixelsDefault = 12LL * 1024 * 1024;
+// Edge error each Gaussian component may leave at the margin, relative to its
+// weight in the output. A component of weight a gets a margin of k sigma with
+// a * exp(-k^2 / 2) = kBandEdgeError, clamped to [kBandMinSigmas,
+// kBandMaxSigmas]: a full-weight blur gets ~5 sigma, the faint wide tail of an
+// exponential mixture ~3.4. test_band_render measures the result (~2e-5 at
+// worst against the 1e-4 parity bar).
+constexpr double kBandEdgeError = 3e-6;
+constexpr double kBandMinSigmas = 3.0;
+constexpr double kBandMaxSigmas = 6.0;
+// fast_exponential_filter's fixed n=3 Gaussian mixture (exponential_filter.cpp).
+constexpr double kExpMixSigmaRatio[3] = {0.5360, 1.5236, 2.7684};
+constexpr double kExpMixAmplitude[3] = {0.1633, 0.6496, 0.1870};
+
+std::atomic<int64_t> g_band_min_pixels{kBandMinPixelsDefault};
+std::atomic<int64_t> g_band_pixels{kBandPixelsDefault};
+std::atomic<uint64_t> g_bands_rendered{0};
+
+struct BandPlan {
+    bool active = false;
+    int core_rows = 0;
+    int margin_rows = 0;
+    int bands = 0;
+    double pixel_size_um = 0.0;
+};
+
+// Rows of margin a band needs so every enabled spatial effect's edge term stays
+// under kBandEdgeError. Conservative: an effect counts when its flag is on,
+// whatever its strength, and only the faint tails of exponential mixtures get
+// a weight below 1.
+int band_margin_rows(const spk_params* p, double pixel_size_um) {
+    double reach = 0.0;
+    auto take = [&](double sigma_px, double weight) {
+        if (!std::isfinite(sigma_px) || !(sigma_px > 0.0)) return;
+        if (!std::isfinite(weight) || !(weight > 0.0)) return;
+        double k = weight > kBandEdgeError
+                       ? std::sqrt(2.0 * std::log(weight / kBandEdgeError))
+                       : kBandMinSigmas;
+        k = std::min(std::max(k, kBandMinSigmas), kBandMaxSigmas);
+        reach = std::max(reach, k * sigma_px);
+    };
+    auto take_exp = [&](double decay_px, double weight) {
+        for (int i = 0; i < 3; ++i) {
+            take(decay_px * kExpMixSigmaRatio[i], weight * kExpMixAmplitude[i]);
+        }
+    };
+    const double inv = 1.0 / pixel_size_um;
+    if (p->halation_active) {
+        const double ss = p->halation_scatter_spatial_scale;
+        for (int c = 0; c < 3; ++c) {
+            const double tw = std::min(std::max<double>(p->halation_scatter_tail_weight[c], 0.0), 1.0);
+            take(p->halation_scatter_core_um[c] * ss * inv, 1.0);
+            take_exp(p->halation_scatter_tail_um[c] * ss * inv, std::max(tw, 1e-3));
+            const int n = p->halation_n_bounces > 1 ? p->halation_n_bounces : 1;
+            take(p->halation_first_sigma_um[c] * p->halation_halation_spatial_scale * inv *
+                     std::sqrt(static_cast<double>(n)),
+                 1.0);
+        }
+    }
+    take(p->lens_blur_um * inv, 1.0);
+    if (p->dir_couplers_active) {
+        const double tw = std::min(std::max<double>(p->dir_diffusion_tail_weight, 0.0), 1.0);
+        take(p->dir_diffusion_size_um * inv, 1.0);
+        take_exp(p->dir_diffusion_tail_um * inv, std::max(tw, 1e-3));
+    }
+    if (p->grain_active) {
+        take(p->grain_blur, 1.0);
+        take(p->grain_blur_dye_clouds_um * inv, 1.0);
+        take(p->grain_micro_structure[0] * inv, 1.0);
+    }
+    take(p->glare_blur, 1.0);
+    take(p->print_glare_blur, 1.0);
+    take(p->enlarger_lens_blur, 1.0);
+    take(p->scanner_lens_blur, 1.0);
+    take(p->scanner_unsharp[0], 1.0);
+    return static_cast<int>(std::ceil(reach)) + 8;
+}
+
+BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
+    BandPlan plan;
+    const int w = in->width, h = in->height;
+    const int64_t npix = static_cast<int64_t>(w) * h;
+    if (npix <= g_band_min_pixels.load(std::memory_order_relaxed)) return plan;
+    if (!one_shot_render(p)) return plan;
+    const bool geometry_noop =
+        (p->crop == 0) && (p->upscale_factor == 1.0f || p->upscale_factor == 0.0f);
+    if (!geometry_noop) return plan;
+    if (p->halation_boost_ev > 0.0f || p->camera_diffusion_active ||
+        p->enlarger_diffusion_active || p->contrast_mask_active) {
+        return plan;
+    }
+    const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
+    const int longest = w > h ? w : h;
+    const double pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
+    const int margin = band_margin_rows(p, pixel_size_um);
+    const int64_t band_pixels = g_band_pixels.load(std::memory_order_relaxed);
+    int band_rows = static_cast<int>(std::min<int64_t>(band_pixels / w, h));
+    int core = band_rows - 2 * margin;
+    // A band must keep at least as many rows as it throws away, or the extra
+    // passes cost more than banding saves.
+    if (core < margin) core = margin;
+    if (core < 16) core = 16;
+    if (core + 2 * margin >= h) return plan;  // one band would be the frame
+    plan.active = true;
+    plan.core_rows = core;
+    plan.margin_rows = margin;
+    plan.bands = (h + core - 1) / core;
+    plan.pixel_size_um = pixel_size_um;
+    return plan;
+}
+
+// Whole-frame auto-exposure gain, metered exactly as preprocess_geometry's
+// direct form meters it.
+double band_auto_exposure_gain(const spk_image* in, const spk_params* p) {
+    if (p->auto_exposure == 0) return 1.0;
+    spk::AeMethod method = spk::AeMethod::kCenterWeighted;
+    bool known = true;
+    if (p->auto_exposure_method != nullptr) {
+        known = spk::ae_method_from_string(p->auto_exposure_method, &method);
+    }
+    const double ev = spk::measure_auto_exposure_ev_f32(
+        in->data, in->width, in->height, spk::AeColorSpace::kProPhotoRGB,
+        /*apply_cctf_decoding=*/p->input_cctf_decoding != 0, method, known);
+    return std::pow(2.0, ev);
+}
+
+// Render `in` band by band into a freshly malloc'd frame (see BandPlan).
+spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
+                      const BandPlan& plan, spk_image* out,
+                      spk_cancel_check cancel, void* cancel_user_data) try {
+    const int w = in->width, h = in->height;
+    const size_t row_floats = static_cast<size_t>(w) * 3;
+    float* frame = static_cast<float*>(
+        std::malloc(row_floats * static_cast<size_t>(h) * sizeof(float)));
+    if (!frame) return SPK_ERR_OOM;
+    BandFrame band;
+    band.frame_width = w;
+    band.frame_height = h;
+    band.pixel_size_um = plan.pixel_size_um;
+    band.gain = band_auto_exposure_gain(in, p);
+    for (int i = 0; i < plan.bands; ++i) {
+        if (cancellation_requested(cancel, cancel_user_data)) {
+            std::free(frame);
+            return SPK_ERR_CANCELLED;
+        }
+        const int core0 = i * plan.core_rows;
+        const int core1 = std::min(h, core0 + plan.core_rows);
+        const int y0 = std::max(0, core0 - plan.margin_rows);
+        const int y1 = std::min(h, core1 + plan.margin_rows);
+        band.y0 = y0;
+        band.index = i;
+        const spk_image sub{in->data + static_cast<size_t>(y0) * row_floats, w, y1 - y0,
+                            in->color_space};
+        std::vector<float> rgb;
+        int ow = w, oh = y1 - y0;
+        const spk_status st =
+            p->scan_film
+                ? run_scan_film(eng, &sub, p, &rgb, nullptr, nullptr, &ow, &oh, cancel,
+                                cancel_user_data, &band)
+                : run_print(eng, &sub, p, &rgb, nullptr, nullptr, nullptr, &ow, &oh,
+                            cancel, cancel_user_data, &band);
+        if (st != SPK_OK || ow != w || oh != y1 - y0 ||
+            rgb.size() != row_floats * static_cast<size_t>(oh)) {
+            std::free(frame);
+            return st != SPK_OK ? st : SPK_ERR_INTERNAL;
+        }
+        g_bands_rendered.fetch_add(1, std::memory_order_relaxed);
+        std::memcpy(frame + static_cast<size_t>(core0) * row_floats,
+                    rgb.data() + static_cast<size_t>(core0 - y0) * row_floats,
+                    row_floats * static_cast<size_t>(core1 - core0) * sizeof(float));
+    }
+    out->data = frame;
+    out->width = w;
+    out->height = h;
+    out->color_space = static_cast<int>(p->output_color_space);
+    return SPK_OK;
+} catch (const std::bad_alloc&) {
+    return SPK_ERR_OOM;
+}
+
 }  // namespace
 
 extern "C" {
@@ -3699,6 +3960,17 @@ int spk_engine_tc_lut_cache_stats_json(spk_engine* eng, char* buf, int cap) {
     return written;
 }
 
+void spk_set_band_render_limits(int64_t min_pixels, int64_t band_pixels) {
+    g_band_min_pixels.store(min_pixels > 0 ? min_pixels : kBandMinPixelsDefault,
+                            std::memory_order_relaxed);
+    g_band_pixels.store(band_pixels > 0 ? band_pixels : kBandPixelsDefault,
+                        std::memory_order_relaxed);
+}
+
+uint64_t spk_band_render_bands(void) {
+    return g_bands_rendered.load(std::memory_order_relaxed);
+}
+
 spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* p,
                         spk_image* out) {
     return spk_simulate_cancellable(eng, in, p, out, nullptr, nullptr);
@@ -3734,6 +4006,11 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
         gpu_export_params = *p;
         gpu_export_params.allow_gpu_scan = 1;
         p = &gpu_export_params;
+    }
+    const BandPlan band_plan = plan_band_render(in, p);
+    if (band_plan.active) {
+        return timing.finish(
+            run_banded(eng, in, p, band_plan, out, cancel, cancel_user_data));
     }
     std::vector<float> rgb;
     spk_status st;

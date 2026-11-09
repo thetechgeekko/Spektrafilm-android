@@ -739,6 +739,13 @@ jobs:
           # c1d0e44. Pre-fix the engine sat ~1.8e-2 from this golden. Also asserts
           # spatial on-vs-off and SPK_NUM_THREADS 1-vs-8 byte-identical output.
           build_run test_print_spatial_e2e "$ASSET" "$G/print_portra_spatial" tests/scan_portra_input_rgb.f64 "$G"
+          # BAND RENDERING: exports above 16 MiP render as overlapping horizontal
+          # bands so the working set follows the band, not the frame. Forces
+          # banding on a small frame and holds it to the parity tolerance against
+          # the whole-frame render on both routes (every spatial effect on, AE and
+          # a date stamp across band edges), 1-vs-8-thread identity, grain/glare
+          # reproducibility and statistics, and the frame-wide-effect fallback.
+          build_run test_band_render "$ASSET"
           # STATISTICAL GRAIN GATES (previously local-only — the one stage the
           # byte-exact goldens structurally cannot cover, since its RNG stream
           # differs from the oracle's). test_grain: non-sublayer grain — mean
