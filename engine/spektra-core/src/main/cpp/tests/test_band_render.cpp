@@ -737,8 +737,18 @@ int main(int argc, char** argv) {
         const uint64_t bands_b = spk_band_render_bands();
         expect(spk_band_film_reuse_passes() == reuse0, "reuse off: no reuse pass");
         spk_set_band_film_reuse(1);
+        const uint64_t film_a = spk_band_film_pass_bands();
         const bool ok1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &reused);
         const uint64_t bands_c = spk_band_render_bands();
+        const uint64_t film_bands = spk_band_film_pass_bands() - film_a;
+        // The film pass stops before the enlarger filter, so with that filter on
+        // it uses the film margin: the same band size covers the frame in fewer
+        // bands than the full plan (the recompute's final pass).
+        std::printf("  film-pass bands: reuse %llu, full plan %llu\n",
+                    static_cast<unsigned long long>(film_bands),
+                    static_cast<unsigned long long>(bands_b - bands_a));
+        if (mode != 0) expect(film_bands < bands_b - bands_a, "reuse: film pass uses the film margin");
+        else expect(film_bands == bands_b - bands_a, "reuse, mask only: film pass keeps the full plan");
         expect(spk_band_film_reuse_passes() == reuse0 + 1, "reuse on: one reuse pass");
         // The print passes need only the print-side margin, so the same band
         // size covers the frame in fewer final bands.
