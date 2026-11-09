@@ -141,6 +141,9 @@ struct DiffusionFilterParams {
     DiffusionFarField* band_far = nullptr;
     bool band_accumulate = false;
     int band_frame_y0 = 0;
+    // Band-local rows [band_core_begin, band_core_end) the accumulating pass
+    // feeds (the enlarger pass renders bands with their margins; 0/0 = all rows).
+    int band_core_begin = 0, band_core_end = 0;
 };
 
 // apply_diffusion_filter_um: in-place on the float64 raw irradiance image `raw`,

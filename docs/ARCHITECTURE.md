@@ -142,7 +142,7 @@ bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
   frame, so a pass renders every band up to the print exposure and adds its core rows to the
   frame's cell sums (each cell's sums grow in raster order either way), then the bands render
   with the finished grid. Costs a second filming + print-exposure pass per band;
-- the camera diffusion filter renders whole (exactly) up to `spk_set_whole_frame_pixel_limit`,
+- the camera and enlarger diffusion filters render whole (exactly) up to `spk_set_whole_frame_pixel_limit`,
   and bands only above it, where the whole filter cannot run. Its kernel reaches ~0.36 of the
   short side, so the band form splits it by radius (`model/diffusion.h`): a near part (the core
   plus halo/bloom under a Gaussian window of rt = 10f, truncated at 3.5 rt) convolved per band at full
@@ -152,18 +152,20 @@ bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
   highlight boost) builds the coarse frame. NOT bit-exact: on a real-size 50 MP frame with
   highlights 8 stops over a dark floor the irradiance is within 4.2e-4 in log10 (0.1 %) worst,
   RMS 1.4e-5 (Black Pro-Mist; Cinebloom 2.2e-4). Band margin grows by the near radius (140 px at
-  f = 4, 280 at f = 8);
-- frame-wide effects that still fall back to the whole-frame render: the enlarger diffusion
-  filter and engine rescale;
+  f = 4, 280 at f = 8). The enlarger filter (print route) works the same way on the print
+  irradiance; its coarse frame comes from a pass that renders every band with margins up to the
+  print exposure, after the contrast-mask grid when the mask is on. Pass order: boost max, camera
+  coarse frame, mask grid, enlarger coarse frame, final;
+- the frame-wide effect that still falls back to the whole-frame render: engine rescale;
 - a whole-frame render above `spk_set_whole_frame_pixel_limit` fails with `SPK_ERR_OOM`
   (an `OutOfMemoryError` in Kotlin) instead of starting. The app sets 32 MiP, the largest RAW
-  decode tier before banding, so a 50 MP frame with the enlarger diffusion filter is refused,
-  not rendered into an lmkd kill (#589).
+  decode tier before banding, so a 50 MP frame with engine rescale is refused, not rendered
+  into an lmkd kill (#589).
 
 Measured on the 50 MP frame (host, 4 cores): peak RSS 4.3 GB → 2.0 GB including the input and
 output frames, render time 84 s → 178 s from the margin rows. `test_band_render` holds banded
 output to the parity tolerance against the whole-frame render (measured max_abs ~2e-5, rms ~1e-6)
-on both routes, plus thread identity and the fallbacks; the banded camera diffusion filter is
+on both routes, plus thread identity and the fallbacks; the banded diffusion filters are
 held to |log10| ≤ 1e-3 worst / 1e-4 RMS against the whole filter on the irradiance and to a
 measured output bound end to end. The JNI layer adopts the engine's output
 frame instead of copying it, which removed a second full frame at the end of every render.

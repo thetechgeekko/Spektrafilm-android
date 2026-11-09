@@ -31,7 +31,7 @@
  *      filter always and for the camera diffusion filter at or below the
  *      whole-frame limit (and with no limit).
  *   E. The whole-frame limit: above spk_set_whole_frame_pixel_limit a frame
- *      that cannot band (enlarger diffusion) fails with SPK_ERR_OOM and an
+ *      that cannot band (engine rescale) fails with SPK_ERR_OOM and an
  *      empty output, a frame that bands still renders, and 0 lifts the limit.
  *   F. Above the whole-frame limit the camera diffusion filter bands with the
  *      near/far split of model/diffusion.h, which is NOT bit-exact: on the
@@ -41,6 +41,10 @@
  *      where a thin frame caps the kernel at a twelfth of its reach), and end to end to a
  *      measured output bound, both routes, with and without highlight boost;
  *      one coarse-frame pre-pass per render; 1-vs-8 threads byte-identical.
+ *   F3. The enlarger diffusion filter bands the same way on the print route,
+ *      alone and stacked with the camera filter, the contrast mask and the
+ *      boost (two diffusion pre-passes after the mask grid); output bound and
+ *      1-vs-8 thread identity as F2.
  *
  * Build from the cpp root like the other e2e gates:
  *   g++ -std=c++17 -O2 -pthread -I. tests/test_band_render.cpp spektra.cpp \
@@ -452,8 +456,7 @@ int main(int argc, char** argv) {
     {
         spk_params boost;
         base_params(&boost, false, false);
-        boost.enlarger_diffusion_active = 1;
-        boost.enlarger_diffusion_strength = 0.5f;
+        boost.upscale_factor = 0.5f;  // engine rescale needs the whole frame
         spk_params plain;
         base_params(&plain, false, false);
         spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};
@@ -634,6 +637,59 @@ int main(int argc, char** argv) {
             std::printf("[%s] max_abs=%.3e rms=%.3e -> %s\n", label, max_abs, rms,
                         close ? "PASS" : "FAIL");
             if (!close) ++g_failures;
+        }
+    }
+    // F3: the enlarger diffusion filter, alone and stacked with everything that
+    // has a frame-wide pre-pass.
+    for (int stack = 0; stack <= 1; ++stack) {
+        spk_params p;
+        base_params(&p, false, false);
+        p.enlarger_diffusion_active = 1;
+        p.enlarger_diffusion_strength = 0.5f;
+        if (stack) {
+            set_diffusion(&p);
+            p.halation_boost_ev = 2.0f;
+            p.contrast_mask_active = 1;
+            p.contrast_mask_highlights = 0.5f;
+            p.contrast_mask_shadows = 0.3f;
+        }
+        std::vector<float> whole, banded;
+        if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
+        spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+        const uint64_t bands0 = spk_band_render_bands();
+        const uint64_t pre0 = spk_band_diffusion_prepasses();
+        const uint64_t mask0 = spk_band_mask_prepasses();
+        const bool ok = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &banded);
+        spk_set_whole_frame_pixel_limit(0);
+        if (!ok) return 1;
+        const char* label = stack ? "F3 enlarger + camera diffusion + mask + boost"
+                                  : "F3 enlarger diffusion";
+        expect(spk_band_render_bands() > bands0 + 1, label);
+        expect(spk_band_diffusion_prepasses() == pre0 + (stack ? 2u : 1u),
+               "diffusion pre-pass count");
+        expect(spk_band_mask_prepasses() == mask0 + (stack ? 1u : 0u), "mask pre-pass count");
+        double max_abs = 0.0, sse = 0.0;
+        for (size_t i = 0; i < whole.size(); ++i) {
+            const double dd = std::fabs(static_cast<double>(banded[i]) - whole[i]);
+            if (!(dd <= max_abs)) max_abs = dd;
+            sse += dd * dd;
+        }
+        const double rms = std::sqrt(sse / static_cast<double>(whole.size()));
+        const bool close = max_abs <= kDiffusionOutMaxAbs && rms <= kDiffusionOutRms;
+        std::printf("[%s] max_abs=%.3e rms=%.3e -> %s\n", label, max_abs, rms,
+                    close ? "PASS" : "FAIL");
+        if (!close) ++g_failures;
+        if (stack) {
+            std::vector<float> t1, t8;
+            spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+            setenv("SPK_NUM_THREADS", "1", 1);
+            const bool ok1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &t1);
+            setenv("SPK_NUM_THREADS", "8", 1);
+            const bool ok8 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &t8);
+            unsetenv("SPK_NUM_THREADS");
+            spk_set_whole_frame_pixel_limit(0);
+            if (!ok1 || !ok8) return 1;
+            expect(!differs(t1, t8), "banded stacked diffusion: 1 vs 8 threads byte-identical");
         }
     }
     {

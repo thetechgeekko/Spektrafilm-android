@@ -135,7 +135,7 @@ contrast rising 00 -> 5, grade 2 equals the database pack, and grain-on thread i
 `spatial_decouple_e2e` (per-effect spatial gating: lens blur ON / halation OFF),
 `print_spatial_e2e` (print-route filming spatial branch),
 `band_render` (exports above 16 MiP render as overlapping horizontal bands: banded vs whole within the
-parity tolerance on both routes incl. highlight boost, engine crop and the contrast mask, thread identity, grain/glare statistics, frame-wide-effect fallback; above the whole-frame limit the camera diffusion filter bands with a near/far kernel split that is NOT bit-exact, gated at |log10| <= 1e-3 vs the whole filter),
+parity tolerance on both routes incl. highlight boost, engine crop and the contrast mask, thread identity, grain/glare statistics, frame-wide-effect fallback; above the whole-frame limit the camera and enlarger diffusion filters band with a near/far kernel split that is NOT bit-exact, gated at |log10| <= 1e-3 vs the whole filter),
 **`test_parallel`** (thread-invariance, fresh engine per thread count), and the
 statistical grain gates `test_grain` + `test_grain_sublayer` (+ `test_glare_sampler`, which gates the viewing-glare field's two generators against the
 lognormal model, and `test_normal_generator`, which gates `StatsRng::normal()` ITSELF -- moments,
