@@ -365,6 +365,26 @@ int main(int argc, char** argv) {
         expect(!differs(t1, t8), "mask + crop + boost banded 1-vs-8 threads byte-identical");
     }
 
+    // D1: an invalid crop never reaches the band planner; it is rejected as before.
+    {
+        spk_params p;
+        base_params(&p, false, false);
+        p.crop = 1;
+        p.crop_center[0] = 0.5f;
+        p.crop_center[1] = 0.5f;
+        p.crop_size[0] = std::nanf("");
+        p.crop_size[1] = 0.5f;
+        spk_set_band_render_limits(1, static_cast<int64_t>(kW) * 300);
+        spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};
+        spk_image o{};
+        const uint64_t before = spk_band_render_bands();
+        const spk_status st = spk_simulate(eng, &in, &p, &o);
+        spk_set_band_render_limits(0, 0);
+        expect(st == SPK_ERR_BAD_ARGS, "NaN crop size -> SPK_ERR_BAD_ARGS");
+        expect(spk_band_render_bands() == before, "NaN crop renders no bands");
+        spk_image_free(&o);
+    }
+
     // D2: a frame-wide effect that cannot band falls back to the whole frame.
     auto set_diffusion = [](spk_params* q) {
         q->camera_diffusion_active = 1;

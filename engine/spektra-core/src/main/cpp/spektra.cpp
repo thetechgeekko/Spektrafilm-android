@@ -3546,6 +3546,10 @@ int band_margin_rows(const spk_params* p, double pixel_size_um) {
 
 BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     BandPlan plan;
+    // Invalid geometry (a NaN or out-of-range crop, a bad upscale) never bands:
+    // the whole-frame route rejects it with SPK_ERR_BAD_ARGS, and crop_box must
+    // not see unchecked values.
+    if (!valid_preprocess_geometry(in, p)) return plan;
     if (!one_shot_render(p)) return plan;
     // Engine upscale resamples the whole frame; crop alone is a pixel box.
     if (!(p->upscale_factor == 1.0f || p->upscale_factor == 0.0f)) return plan;
