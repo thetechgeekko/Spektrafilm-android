@@ -3397,15 +3397,24 @@ void downscale_bilinear(const float* src, int sw, int sh,
 
 constexpr int64_t kBandMinPixelsDefault = 16LL * 1024 * 1024;
 constexpr int64_t kBandPixelsDefault = 12LL * 1024 * 1024;
-// Edge error each Gaussian component may leave at the margin, relative to its
-// weight in the output. A component of weight a gets a margin of k sigma with
-// a * exp(-k^2 / 2) = kBandEdgeError, clamped to [kBandMinSigmas,
-// kBandMaxSigmas]: a full-weight blur gets ~5 sigma, the faint wide tail of an
-// exponential mixture ~3.4. test_band_render measures the result (~2e-5 at
-// worst against the 1e-4 parity bar).
-constexpr double kBandEdgeError = 3e-6;
-constexpr double kBandMinSigmas = 3.0;
-constexpr double kBandMaxSigmas = 6.0;
+// Margins. A Gaussian with sigma >= 3 px runs as a Young-van Vliet IIR, whose
+// band-edge error decays exponentially, not like a Gaussian tail: measured on
+// unit-amplitude noise (gaussian_blur_plane / _d, sigma 4..60, worst case),
+// the error left d = k sigma inside a band is kIirEdgeError[i] at kIirEdgeK[i].
+// Each blur component of weight a, in a stage whose error reaches the output
+// amplified by up to g, gets the smallest k with
+// a * g * err(k) <= kBandOutputError. FIR blurs (sigma < 3) are exact beyond
+// their 3-4 sigma radius. g is kLinearLightGain for blurs on linear light (the
+// camera's irradiance, the print exposure, the scanner's output RGB), where a
+// highlight many stops over mid grey next to a shadow magnifies an edge error
+// on its way through the log and the output curve (measured ~35x with a lamp
+// 6 stops over); 1 for blurs in the film's density domain (DIR couplers).
+// test_band_render holds each effect alone to the parity bar.
+constexpr double kIirEdgeK[] = {3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0};
+constexpr double kIirEdgeError[] = {1.7e-3, 1.5e-3, 6.2e-4, 1.1e-4, 7.4e-6, 1.4e-6, 3.0e-8};
+constexpr double kBandOutputError = 1e-5;
+constexpr double kLinearLightGain = 64.0;
+constexpr double kHalationPresetSigmaMaxUm = 65.0;  // runtime/params.cpp: still 65, cine 50
 // fast_exponential_filter's fixed n=3 Gaussian mixture (exponential_filter.cpp).
 constexpr double kExpMixSigmaRatio[3] = {0.5360, 1.5236, 2.7684};
 constexpr double kExpMixAmplitude[3] = {0.1633, 0.6496, 0.1870};
@@ -3422,55 +3431,70 @@ struct BandPlan {
     double pixel_size_um = 0.0;
 };
 
-// Rows of margin a band needs so every enabled spatial effect's edge term stays
-// under kBandEdgeError. Conservative: an effect counts when its flag is on,
-// whatever its strength, and only the faint tails of exponential mixtures get
-// a weight below 1.
+// Sigmas a component of weight*gain needs as its band margin (see kIirEdgeK).
+double band_margin_sigmas(double sigma_px, double weight_gain) {
+    if (sigma_px < 3.0) return 4.5;  // FIR: radius int(truncate*sigma+0.5), truncate <= 4
+    const double target = kBandOutputError / weight_gain;
+    const int n = static_cast<int>(sizeof(kIirEdgeK) / sizeof(kIirEdgeK[0]));
+    if (kIirEdgeError[0] <= target) return kIirEdgeK[0];
+    for (int i = 1; i < n; ++i) {
+        if (kIirEdgeError[i] <= target) {
+            // Log-linear between the two measured points around the target.
+            const double l0 = std::log(kIirEdgeError[i - 1]), l1 = std::log(kIirEdgeError[i]);
+            const double t = (l0 - std::log(target)) / (l0 - l1);
+            return kIirEdgeK[i - 1] + t * (kIirEdgeK[i] - kIirEdgeK[i - 1]);
+        }
+    }
+    return kIirEdgeK[n - 1];
+}
+
+// Rows of margin a band needs so no enabled spatial effect's edge term reaches
+// the output above kBandOutputError. Conservative: an effect counts when its
+// flag is on, whatever its strength; only the faint tails of exponential
+// mixtures get a weight below 1.
 int band_margin_rows(const spk_params* p, double pixel_size_um) {
     double reach = 0.0;
-    auto take = [&](double sigma_px, double weight) {
+    auto take = [&](double sigma_px, double weight, double gain) {
         if (!std::isfinite(sigma_px) || !(sigma_px > 0.0)) return;
         if (!std::isfinite(weight) || !(weight > 0.0)) return;
-        double k = weight > kBandEdgeError
-                       ? std::sqrt(2.0 * std::log(weight / kBandEdgeError))
-                       : kBandMinSigmas;
-        k = std::min(std::max(k, kBandMinSigmas), kBandMaxSigmas);
-        reach = std::max(reach, k * sigma_px);
+        reach = std::max(reach, band_margin_sigmas(sigma_px, weight * gain) * sigma_px);
     };
-    auto take_exp = [&](double decay_px, double weight) {
+    auto take_exp = [&](double decay_px, double weight, double gain) {
         for (int i = 0; i < 3; ++i) {
-            take(decay_px * kExpMixSigmaRatio[i], weight * kExpMixAmplitude[i]);
+            take(decay_px * kExpMixSigmaRatio[i], weight * kExpMixAmplitude[i], gain);
         }
     };
     const double inv = 1.0 / pixel_size_um;
     if (p->halation_active) {
         const double ss = p->halation_scatter_spatial_scale;
+        // The halation sigma comes from the film's preset, not from
+        // halation_first_sigma_um (apply_user_halation leaves it baked).
+        const int n = p->halation_n_bounces > 1 ? p->halation_n_bounces : 1;
+        take(kHalationPresetSigmaMaxUm * p->halation_halation_spatial_scale * inv *
+                 std::sqrt(static_cast<double>(n)),
+             1.0, kLinearLightGain);
         for (int c = 0; c < 3; ++c) {
             const double tw = std::min(std::max<double>(p->halation_scatter_tail_weight[c], 0.0), 1.0);
-            take(p->halation_scatter_core_um[c] * ss * inv, 1.0);
-            take_exp(p->halation_scatter_tail_um[c] * ss * inv, std::max(tw, 1e-3));
-            const int n = p->halation_n_bounces > 1 ? p->halation_n_bounces : 1;
-            take(p->halation_first_sigma_um[c] * p->halation_halation_spatial_scale * inv *
-                     std::sqrt(static_cast<double>(n)),
-                 1.0);
+            take(p->halation_scatter_core_um[c] * ss * inv, 1.0, kLinearLightGain);
+            take_exp(p->halation_scatter_tail_um[c] * ss * inv, std::max(tw, 1e-3),
+                     kLinearLightGain);
         }
     }
-    take(p->lens_blur_um * inv, 1.0);
+    take(p->lens_blur_um * inv, 1.0, kLinearLightGain);
     if (p->dir_couplers_active) {
         const double tw = std::min(std::max<double>(p->dir_diffusion_tail_weight, 0.0), 1.0);
-        take(p->dir_diffusion_size_um * inv, 1.0);
-        take_exp(p->dir_diffusion_tail_um * inv, std::max(tw, 1e-3));
+        take(p->dir_diffusion_size_um * inv, 1.0, 1.0);
+        take_exp(p->dir_diffusion_tail_um * inv, std::max(tw, 1e-3), 1.0);
     }
     if (p->grain_active) {
-        take(p->grain_blur, 1.0);
-        take(p->grain_blur_dye_clouds_um * inv, 1.0);
-        take(p->grain_micro_structure[0] * inv, 1.0);
+        take(p->grain_blur, 1.0, 1.0);
+        take(p->grain_blur_dye_clouds_um * inv, 1.0, 1.0);
+        take(p->grain_micro_structure[0] * inv, 1.0, 1.0);
     }
-    take(p->glare_blur, 1.0);
-    take(p->print_glare_blur, 1.0);
-    take(p->enlarger_lens_blur, 1.0);
-    take(p->scanner_lens_blur, 1.0);
-    take(p->scanner_unsharp[0], 1.0);
+    take(p->glare_blur, 1.0, kLinearLightGain);
+    take(p->print_glare_blur, 1.0, kLinearLightGain);
+    take(p->scanner_lens_blur, 1.0, kLinearLightGain);
+    take(p->scanner_unsharp[0], 1.0, kLinearLightGain);
     return static_cast<int>(std::ceil(reach)) + 8;
 }
 
@@ -3528,8 +3552,12 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                       spk_cancel_check cancel, void* cancel_user_data) try {
     const int w = in->width, h = in->height;
     const size_t row_floats = static_cast<size_t>(w) * 3;
-    float* frame = static_cast<float*>(
-        std::malloc(row_floats * static_cast<size_t>(h) * sizeof(float)));
+    // Owned until it is handed to `out`, so every exit -- including a
+    // bad_alloc out of the metering or a band -- releases it.
+    std::unique_ptr<float, void (*)(void*)> frame(
+        static_cast<float*>(
+            std::malloc(row_floats * static_cast<size_t>(h) * sizeof(float))),
+        std::free);
     if (!frame) return SPK_ERR_OOM;
     BandFrame band;
     band.frame_width = w;
@@ -3537,10 +3565,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     band.pixel_size_um = plan.pixel_size_um;
     band.gain = band_auto_exposure_gain(in, p);
     for (int i = 0; i < plan.bands; ++i) {
-        if (cancellation_requested(cancel, cancel_user_data)) {
-            std::free(frame);
-            return SPK_ERR_CANCELLED;
-        }
+        if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         const int core0 = i * plan.core_rows;
         const int core1 = std::min(h, core0 + plan.core_rows);
         const int y0 = std::max(0, core0 - plan.margin_rows);
@@ -3559,15 +3584,14 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                             cancel, cancel_user_data, &band);
         if (st != SPK_OK || ow != w || oh != y1 - y0 ||
             rgb.size() != row_floats * static_cast<size_t>(oh)) {
-            std::free(frame);
             return st != SPK_OK ? st : SPK_ERR_INTERNAL;
         }
         g_bands_rendered.fetch_add(1, std::memory_order_relaxed);
-        std::memcpy(frame + static_cast<size_t>(core0) * row_floats,
+        std::memcpy(frame.get() + static_cast<size_t>(core0) * row_floats,
                     rgb.data() + static_cast<size_t>(core0 - y0) * row_floats,
                     row_floats * static_cast<size_t>(core1 - core0) * sizeof(float));
     }
-    out->data = frame;
+    out->data = frame.release();
     out->width = w;
     out->height = h;
     out->color_space = static_cast<int>(p->output_color_space);

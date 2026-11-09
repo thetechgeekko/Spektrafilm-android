@@ -8,8 +8,8 @@
  * synthetic frame through spk_set_band_render_limits and checks:
  *
  *   A. Deterministic effects (grain/glare off), every spatial effect ON and
- *      wide (halation + scatter, DIR diffusion, camera lens blur, enlarger and
- *      scanner blur, scanner unsharp), auto exposure ON and a date-back imprint
+ *      wide (halation + scatter, DIR diffusion, camera lens blur, scanner
+ *      blur, scanner unsharp), then each wide blur alone, auto exposure ON and a date-back imprint
  *      straddling a band edge: banded output is within the parity tolerance
  *      (max_abs <= 1e-4, rms <= 1e-5) of the whole-frame render, on BOTH the
  *      print and the scan_film routes, for two band heights.
@@ -91,7 +91,6 @@ void base_params(spk_params* p, bool scan_film, bool stochastic) {
     p->halation_active = 1;
     p->dir_couplers_active = 1;
     p->lens_blur_um = 40.0f;
-    p->enlarger_lens_blur = 2.0f;
     p->scanner_lens_blur = 1.5f;
     p->auto_exposure = 1;
     p->output_color_space = SPK_CS_SRGB;
@@ -175,6 +174,48 @@ int main(int argc, char** argv) {
                           static_cast<long long>(band / kW));
             std::printf("  %s: %llu bands\n", label, static_cast<unsigned long long>(bands));
             expect(bands >= 3, "frame rendered as 3+ bands");
+            compare(label, banded, whole);
+        }
+    }
+
+    // A2: one wide spatial effect at a time, so a generous margin needed by
+    // another effect (the DIR tail) cannot hide a short one. Each blur here is
+    // wide enough to run as an IIR, whose band-edge error decays exponentially.
+    struct Isolated {
+        const char* name;
+        void (*set)(spk_params*);
+    };
+    const Isolated isolated[] = {
+        {"scanner lens blur 20 px",
+         [](spk_params* q) { q->scanner_lens_blur = 20.0f; }},
+        {"scanner unsharp sigma 12 px",
+         [](spk_params* q) { q->scanner_unsharp[0] = 12.0f; q->scanner_unsharp[1] = 1.0f; }},
+        {"camera lens blur 400 um",
+         [](spk_params* q) { q->lens_blur_um = 400.0f; }},
+        {"DIR couplers only", [](spk_params* q) { q->dir_couplers_active = 1; }},
+        {"halation only", [](spk_params* q) { q->halation_active = 1; }},
+    };
+    for (const Isolated& c : isolated) {
+        for (int route = 0; route < 2; ++route) {
+            spk_params p;
+            base_params(&p, route == 1, /*stochastic=*/false);
+            p.halation_active = 0;
+            p.dir_couplers_active = 0;
+            p.lens_blur_um = 0.0f;
+            p.scanner_lens_blur = 0.0f;
+            p.scanner_unsharp[0] = 0.0f;
+            p.date_stamp_active = 0;
+            c.set(&p);
+            std::vector<float> whole, banded;
+            if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
+            const uint64_t before = spk_band_render_bands();
+            if (!render(eng, frame, p, 1, static_cast<int64_t>(kW) * 400, &banded)) return 1;
+            const uint64_t bands = spk_band_render_bands() - before;
+            char label[128];
+            std::snprintf(label, sizeof label, "%s, %s (%llu bands)", c.name,
+                          route ? "scan_film" : "print",
+                          static_cast<unsigned long long>(bands));
+            expect(bands >= 2, "isolated effect rendered as 2+ bands");
             compare(label, banded, whole);
         }
     }
