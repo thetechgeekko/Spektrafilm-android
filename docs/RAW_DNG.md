@@ -311,9 +311,10 @@ Native full-resolution decode admission also checks declared, adjusted, and
 processed geometry against one pixel limit chosen at the start of each decode.
 The limit is 8 MiPixels on 32-bit devices. On 64-bit devices it is 12 MiPixels
 by default, 24 MiPixels with at least 6 GiB total and 2 GiB available RAM, or
-32 MiPixels with at least 8 GiB total and 3 GiB available RAM, or 64 MiPixels
-with at least 10 GiB total and 2.5 GiB available RAM (enough for a 50 MP phone
-DNG such as Samsung's 8160 x 6120 LinearRaw). Missing or
+32 MiPixels with at least 8 GiB total and 3 GiB available RAM. (A 64 MiPixel
+tier for 50 MP phone DNGs was tried and withdrawn: the decode fit, but the
+full-resolution render after it was killed by lmkd on an 11 GB phone. It returns
+with a bounded, tiled render.) Missing or
 inconsistent memory information keeps the 12 MiPixel baseline. The 32 MiPixel
 ceiling is 33,554,432 pixels; it is a budget threshold, not evidence that a
 33-megapixel camera file has passed device testing.
@@ -324,12 +325,11 @@ half-size and aspect-adjusted output must still fit 32 MiPixels. These large
 requests receive a 320 MiB LibRaw raw-store cap instead of 128 MiB. After unpack,
 the geometry/layout that LibRaw restores for processing is checked again, including
 a single integer RAW plane. X-Trans, linear, rotated Fuji and multi-plane layouts
-do not receive this exception. Full-size 102 MP output remains rejected. The 64
-MiPixel tier keeps this path's 32 MiPixel bounds.
+do not receive this exception. Full-size 102 MP output remains rejected.
 
 A non-Bayer (LinearRaw, three- or four-colour) source whose geometry fits the tier
 gets a raw-store cap of 8 bytes per admitted pixel plus 64 MiB (320 MiB on the 32
-tier, 576 MiB on the 64 tier), because LibRaw stores up to four 16-bit planes for
+tier), because LibRaw stores up to four 16-bit planes for
 it; the fixed 128 MiB cap refused every such file over about 16 MP. A LinearRaw
 BlackLevelRepeatDim matrix whose cells all carry the same per-sample black (Samsung
 writes 2x2 of zeros) is collapsed to one cell before LibRaw open; a matrix that
