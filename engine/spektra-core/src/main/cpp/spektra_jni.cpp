@@ -90,6 +90,18 @@ void throw_status(JNIEnv* env, spk_status st) noexcept {
         if (n > 0) used += static_cast<size_t>(n);
         if (used >= sizeof(msg)) msg[sizeof(msg) - 1] = '\0';
     }
+    // An engine-side refusal for memory (a frame too large to render whole on
+    // this device) is the same condition as a failed allocation, so callers
+    // that stand down after an OutOfMemoryError see it as one.
+    if (st == SPK_ERR_OOM && !env->ExceptionCheck()) {
+        jclass cls = env->FindClass("java/lang/OutOfMemoryError");
+        if (cls) {
+            env->ThrowNew(cls, msg);
+            env->DeleteLocalRef(cls);
+            return;
+        }
+        env->ExceptionClear();
+    }
     if (st == SPK_ERR_CANCELLED && !env->ExceptionCheck()) {
         jclass cls = env->FindClass("java/util/concurrent/CancellationException");
         if (cls) {
@@ -1885,6 +1897,22 @@ JNI(jstring, nativeMemoryBudgetSnapshotJson)(JNIEnv* env,
  */
 JNI(void, nativeSetBigCores)(JNIEnv* env, jclass /*clazz*/, jint mode) try {
     spk_set_big_cores(static_cast<int>(mode));
+} catch (const std::bad_alloc&) {
+    throw_native_oom(env);
+} catch (const std::exception& e) {
+    throw_cpp_exception(env, e);
+} catch (...) {
+    throw_unknown_cpp_exception(env);
+}
+
+/*
+ * Largest frame the engine may render whole (#589). Frames above the band
+ * threshold render in bands; this caps the ones that cannot (frame-wide
+ * effects). Process-wide; 0 = no limit.
+ */
+JNI(void, nativeSetWholeFramePixelLimit)(JNIEnv* env, jclass /*clazz*/,
+                                         jlong maxPixels) try {
+    spk_set_whole_frame_pixel_limit(static_cast<int64_t>(maxPixels));
 } catch (const std::bad_alloc&) {
     throw_native_oom(env);
 } catch (const std::exception& e) {

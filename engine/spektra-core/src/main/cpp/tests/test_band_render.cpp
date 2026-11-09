@@ -19,6 +19,9 @@
  *      re-seeded per band, so bytes differ, statistics must not).
  *   D. Frame-wide effects fall back: with the highlight boost on, the "banded"
  *      call is byte-identical to the whole-frame render.
+ *   E. The whole-frame limit: above spk_set_whole_frame_pixel_limit a frame
+ *      that cannot band (highlight boost) fails with SPK_ERR_OOM and an empty
+ *      output, a frame that bands still renders, and 0 lifts the limit.
  *
  * Build from the cpp root like the other e2e gates:
  *   g++ -std=c++17 -O2 -pthread -I. tests/test_band_render.cpp spektra.cpp \
@@ -266,6 +269,40 @@ int main(int argc, char** argv) {
         if (!render(eng, frame, p, 1, static_cast<int64_t>(kW) * 400, &banded)) return 1;
         expect(spk_band_render_bands() == before, "highlight boost renders no bands");
         expect(!differs(banded, whole), "highlight boost falls back (byte-identical)");
+    }
+
+    // E: a frame that must render whole is refused above the whole-frame limit.
+    {
+        spk_params boost;
+        base_params(&boost, false, false);
+        boost.halation_boost_ev = 1.0f;
+        spk_params plain;
+        base_params(&plain, false, false);
+        spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};
+        const int64_t limit = static_cast<int64_t>(kW) * kH - 1;
+
+        spk_set_whole_frame_pixel_limit(limit);
+        spk_set_band_render_limits(1, static_cast<int64_t>(kW) * 400);
+        spk_image o{};
+        const spk_status refused = spk_simulate(eng, &in, &boost, &o);
+        expect(refused == SPK_ERR_OOM, "unbandable frame above the limit -> SPK_ERR_OOM");
+        expect(o.data == nullptr && o.width == 0 && o.height == 0,
+               "refused render leaves the output empty");
+        const spk_status banded = spk_simulate(eng, &in, &plain, &o);
+        expect(banded == SPK_OK && o.data != nullptr,
+               "bandable frame above the limit still renders");
+        spk_image_free(&o);
+        spk_set_band_render_limits(0, 0);
+
+        spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH);
+        const spk_status at_limit = spk_simulate(eng, &in, &boost, &o);
+        expect(at_limit == SPK_OK, "frame AT the limit renders whole");
+        spk_image_free(&o);
+
+        spk_set_whole_frame_pixel_limit(0);
+        const spk_status lifted = spk_simulate(eng, &in, &boost, &o);
+        expect(lifted == SPK_OK, "limit 0 lifts the refusal");
+        spk_image_free(&o);
     }
 
     spk_engine_destroy(eng);

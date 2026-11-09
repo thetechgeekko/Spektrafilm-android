@@ -3421,6 +3421,11 @@ constexpr double kExpMixAmplitude[3] = {0.1633, 0.6496, 0.1870};
 
 std::atomic<int64_t> g_band_min_pixels{kBandMinPixelsDefault};
 std::atomic<int64_t> g_band_pixels{kBandPixelsDefault};
+// Largest frame spk_simulate may render whole (0 = no limit). A frame above it
+// that cannot be banded is refused with SPK_ERR_OOM instead of being rendered
+// with several full-frame buffers live at once. The host keeps no limit; the
+// app sets one from what the device survived before banding existed.
+std::atomic<int64_t> g_whole_frame_pixel_limit{0};
 std::atomic<uint64_t> g_bands_rendered{0};
 
 struct BandPlan {
@@ -3991,6 +3996,11 @@ void spk_set_band_render_limits(int64_t min_pixels, int64_t band_pixels) {
                         std::memory_order_relaxed);
 }
 
+void spk_set_whole_frame_pixel_limit(int64_t max_pixels) {
+    g_whole_frame_pixel_limit.store(max_pixels > 0 ? max_pixels : 0,
+                                    std::memory_order_relaxed);
+}
+
 uint64_t spk_band_render_bands(void) {
     return g_bands_rendered.load(std::memory_order_relaxed);
 }
@@ -4035,6 +4045,21 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
     if (band_plan.active) {
         return timing.finish(
             run_banded(eng, in, p, band_plan, out, cancel, cancel_user_data));
+    }
+    const int64_t whole_limit =
+        g_whole_frame_pixel_limit.load(std::memory_order_relaxed);
+    if (whole_limit > 0 &&
+        static_cast<int64_t>(in->width) * in->height > whole_limit) {
+        // Highlight boost, the diffusion filters, the contrast mask and engine
+        // crop/rescale need the whole frame, so they keep a frame this size
+        // out of bands -- and a whole 50 MP render was what drove a phone
+        // into lmkd. Refuse it here, typed, rather than let the system kill
+        // the process partway through.
+        set_last_error_message(
+            "frame too large to render whole on this device with the active "
+            "frame-wide effects (highlight boost, diffusion filter, contrast "
+            "mask, crop or rescale)");
+        return timing.finish(SPK_ERR_OOM);
     }
     std::vector<float> rgb;
     spk_status st;
