@@ -732,11 +732,20 @@ int main(int argc, char** argv) {
         spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
         spk_set_band_film_reuse(0);
         const uint64_t reuse0 = spk_band_film_reuse_passes();
+        const uint64_t bands_a = spk_band_render_bands();
         const bool ok0 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &recomputed);
+        const uint64_t bands_b = spk_band_render_bands();
         expect(spk_band_film_reuse_passes() == reuse0, "reuse off: no reuse pass");
         spk_set_band_film_reuse(1);
         const bool ok1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &reused);
+        const uint64_t bands_c = spk_band_render_bands();
         expect(spk_band_film_reuse_passes() == reuse0 + 1, "reuse on: one reuse pass");
+        // The print passes need only the print-side margin, so the same band
+        // size covers the frame in fewer final bands.
+        std::printf("  final bands: recompute %llu, reuse %llu\n",
+                    static_cast<unsigned long long>(bands_b - bands_a),
+                    static_cast<unsigned long long>(bands_c - bands_b));
+        expect(bands_c - bands_b < bands_b - bands_a, "reuse: fewer final bands");
         setenv("SPK_NUM_THREADS", "1", 1);
         const bool okt1 = render(eng, frame, p, 1, static_cast<int64_t>(kW) * 900, &t1);
         setenv("SPK_NUM_THREADS", "8", 1);
