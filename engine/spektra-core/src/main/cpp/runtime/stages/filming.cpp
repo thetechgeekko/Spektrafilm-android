@@ -864,9 +864,16 @@ void expose_staged(const Src& src, int width, int height, const FilmingParams& p
                    const NdArray& tc_lut, float* log_raw_out, const double* gpu_rgb_f64,
                    const float* gpu_rgb_f32, double gpu_gain) {
     DateStampMask date;
-    if (params.date_stamp.engaged())
-        date = build_date_stamp_mask(params.date_stamp, width, height,
-                                     params.exposure_compensation_ev);
+    if (params.date_stamp.engaged()) {
+        // A band of a larger frame places the imprint in FRAME coordinates and
+        // shifts it into the band's rows; at() returns 0 outside the box.
+        const bool banded = params.date_stamp.frame_width > 0;
+        date = build_date_stamp_mask(
+            params.date_stamp, banded ? params.date_stamp.frame_width : width,
+            banded ? params.date_stamp.frame_height : height,
+            params.exposure_compensation_ev);
+        if (banded) date.y0 -= params.date_stamp.frame_y0;
+    }
     const bool latitude = params.scene_latitude.engaged();
     if (!date.empty()) {
         if (latitude) {

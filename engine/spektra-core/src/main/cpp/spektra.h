@@ -470,6 +470,14 @@ spk_status spk_simulate_cancellable(spk_engine*, const spk_image* in,
                                     const spk_params*, spk_image* out,
                                     spk_cancel_check, void* cancel_user_data);
 
+/* Band rendering limits (testing and diagnostics). spk_simulate renders a one-shot
+ * frame larger than `min_pixels` as horizontal bands of about `band_pixels`
+ * (margins included), so its working set follows the band instead of the frame.
+ * Values <= 0 restore the defaults (16 MiP and 12 MiP). Process-wide. */
+void spk_set_band_render_limits(int64_t min_pixels, int64_t band_pixels);
+/* Bands rendered by spk_simulate since the process started (diagnostics). */
+uint64_t spk_band_render_bands(void);
+
 /* Downscaled fast path (to params.preview_max_size) for interactive tuning. */
 spk_status spk_simulate_preview(spk_engine*, const spk_image* in, const spk_params*, spk_image* out);
 spk_status spk_simulate_preview_cancellable(spk_engine*, const spk_image* in,

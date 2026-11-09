@@ -44,6 +44,12 @@ struct DateStampParams {
     double margin = 0.05;          // inset from the corner, fraction of the short edge
     double exposure_ev = 2.5;      // LED brightness, stops above mid-grey
     double color[3] = {1.0, 0.18, 0.0};  // LED colour, linear ProPhoto (normalised to Y)
+    // Band rendering (spk_simulate on a very large frame renders it as horizontal
+    // bands): the full frame this band belongs to and the band's first frame row.
+    // frame_width == 0 means the rendered image IS the frame.
+    int frame_width = 0;
+    int frame_height = 0;
+    int frame_y0 = 0;
 
     bool engaged() const;
 };

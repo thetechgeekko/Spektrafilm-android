@@ -118,6 +118,29 @@ identity across worker counts for the same build. It does not imply cross-build/
 CPU/GPU equality, or complete container SHA identity. The authoritative levels are in
 [BIT_IDENTICAL_EXPORT_ROADMAP.md](BIT_IDENTICAL_EXPORT_ROADMAP.md).
 
+### Band rendering for very large exports
+
+A whole-frame render holds several full-resolution buffers at once (float64 irradiance for
+halation, film and print densities, scan output, spatial scratch). On a 50 MP Samsung DNG
+the host measured 4.3 GB peak RSS with app defaults, and the same render on an 11 GB phone
+ended in an lmkd kill. So `spk_simulate` renders a one-shot frame above 16 MiP as horizontal
+bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
+
+- each band is ~12 MiP: its own rows plus a margin above and below that covers every enabled
+  spatial effect's reach (per blur component, sized from the measured IIR edge-error decay: up to ~11 sigma for a full-weight blur on linear light);
+- the band renders as its own image with the frame's pixel size, whole-frame auto-exposure gain
+  and date-back position pinned, and only its own rows are copied into the output;
+- grain and glare are re-seeded per band (statistically the same field, different bytes);
+- the band layout depends only on frame size and params, never on free memory;
+- frame-wide effects fall back to the whole-frame render: highlight boost, camera/enlarger
+  diffusion filters, contrast mask, and engine crop/rescale.
+
+Measured on the 50 MP frame (host, 4 cores): peak RSS 4.3 GB → 2.0 GB including the input and
+output frames, render time 84 s → 178 s from the margin rows. `test_band_render` holds banded
+output to the parity tolerance against the whole-frame render (measured max_abs ~2e-5, rms ~1e-6)
+on both routes, plus thread identity and the fallbacks. The JNI layer adopts the engine's output
+frame instead of copying it, which removed a second full frame at the end of every render.
+
 ## CPU and Vulkan routes
 
 ### Strict Exact CPU

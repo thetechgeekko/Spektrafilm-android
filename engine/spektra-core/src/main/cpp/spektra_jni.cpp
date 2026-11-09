@@ -1357,27 +1357,13 @@ JNI(jobject, nativeSimulate)(JNIEnv* env, jobject /*thiz*/, jlong handle,
         throw_native_oom(env);
         return nullptr;
     }
-    void* native_buf = std::malloc(out_bytes);
-    if (!native_buf) {
-        spk_image_free(&out);
-        jclass oom = env->FindClass("java/lang/OutOfMemoryError");
-        if (oom) env->ThrowNew(oom, "spektra: failed to allocate native output buffer");
-        else throw_runtime(env, "spektra: failed to allocate native output buffer");
-        return nullptr;
-    }
-    if (!spk::jni::copy_bytes_cancellable(
-            native_buf, out.data, out_bytes, cancellation_probe.callback(),
-            cancellation_probe.context())) {
-        std::free(native_buf);
-        spk_image_free(&out);
-        timing.finish(SPK_ERR_CANCELLED);
-        if (!env->ExceptionCheck()) throw_status(env, SPK_ERR_CANCELLED);
-        return nullptr;
-    }
-
-    // Capture dims BEFORE freeing the engine-side image.
+    // Adopt the engine's frame instead of copying it: spk_simulate mallocs the
+    // result and spk_image_free is std::free, which is exactly how the token
+    // release frees native_buf. A copy held two full frames at once (1.1 GB at
+    // 50 MP) for nothing.
+    void* native_buf = out.data;
     int out_w = out.width, out_h = out.height, out_cs = out.color_space;
-    spk_image_free(&out);  // engine-side copy no longer needed
+    out = {};
 
     jobject outBuf = env->NewDirectByteBuffer(
         native_buf, static_cast<jlong>(out_bytes));
