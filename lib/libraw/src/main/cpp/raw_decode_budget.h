@@ -22,11 +22,14 @@ constexpr std::uint64_t decodePixelLimitForMemory(
     // Missing or inconsistent telemetry must not raise the fixed baseline.
     if (totalBytes == 0 || availableBytes > totalBytes) return 12ULL * kMiB;
     // 50 MP phone sensors (Samsung's LinearRaw DNGs are 8160 x 6120, 47.6
-    // MiPixels) need more than 32. Their peak is ~2.3 GiB native (16-bit
-    // store, LibRaw image, make_mem_image copy, float RGB), so only phones
-    // with clear headroom get it; everyone else keeps the 32 tier.
+    // MiPixels) need more than 32. A host decode of that file peaks at 1.9 GiB
+    // RSS (16-bit store, LibRaw image, make_mem_image copy, float RGB). The
+    // SM-S948W (11.35 GB) showed 2.93 GB MemAvailable with the editor open at
+    // export time, so a 4 GiB gate refused the very phone that shoots these
+    // files. 2.5 GiB covers the measured peak plus margin, and a 10 GiB phone
+    // can also reclaim cached apps; everyone else keeps the lower tiers.
     if (totalBytes >= 10ULL * kGiB &&
-        availableBytes >= 4ULL * kGiB) {
+        availableBytes >= 5ULL * kGiB / 2ULL) {
         return 64ULL * kMiB;
     }
     if (totalBytes >= 8ULL * kGiB &&
