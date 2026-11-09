@@ -6,6 +6,7 @@ package com.spectrafilm.app
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import com.spectrafilm.engine.AppRenderOutcome
 import com.spectrafilm.engine.LinearImage
 import com.spectrafilm.engine.RenderKind
@@ -69,7 +70,10 @@ internal object PlaceholderLook {
         val filmProfile = state.filmProfile
         return withContext(default + NonCancellable) {
             runCatching {
-                val src = if (thumbnail.config == Bitmap.Config.HARDWARE) {
+                val src = if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    thumbnail.config == Bitmap.Config.HARDWARE
+                ) {
                     thumbnail.copy(Bitmap.Config.ARGB_8888, false)
                 } else {
                     thumbnail
