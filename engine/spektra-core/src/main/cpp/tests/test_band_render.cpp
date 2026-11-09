@@ -17,10 +17,16 @@
  *   C. Stochastic effects ON (grain + glare): a repeat is byte-identical, and
  *      the banded frame keeps the whole frame's mean per channel (grain is
  *      re-seeded per band, so bytes differ, statistics must not).
- *   D. Frame-wide effects fall back: with the highlight boost on, the "banded"
- *      call is byte-identical to the whole-frame render.
+ *   D. Highlight boost and engine crop band too: the boost takes the frame
+ *      maximum from a pre-pass over the band cores, and a crop bands its pixel
+ *      box with pixel size and auto exposure pinned to the uncropped input.
+ *      Banded is within the parity tolerance of whole, both routes, for a
+ *      narrow crop (rows copied per band), a full-width crop (rows used in
+ *      place) and crop + boost together; 1-vs-8 threads byte-identical.
+ *   D2. A frame-wide effect that still cannot band (the contrast mask) falls
+ *      back: the "banded" call is byte-identical to the whole-frame render.
  *   E. The whole-frame limit: above spk_set_whole_frame_pixel_limit a frame
- *      that cannot band (highlight boost) fails with SPK_ERR_OOM and an empty
+ *      that cannot band (contrast mask) fails with SPK_ERR_OOM and an empty
  *      output, a frame that bands still renders, and 0 lifts the limit.
  *
  * Build from the cpp root like the other e2e gates:
@@ -108,25 +114,29 @@ void base_params(spk_params* p, bool scan_film, bool stochastic) {
     p->date_stamp_height = 0.12f;
 }
 
+// Renders `frame`; the output must be `ew` x `eh` (the input size by default,
+// the crop box when the engine crop is on).
 bool render(spk_engine* eng, const std::vector<float>& frame, const spk_params& p,
-            int64_t min_pixels, int64_t band_pixels, std::vector<float>* out) {
+            int64_t min_pixels, int64_t band_pixels, std::vector<float>* out,
+            int ew = kW, int eh = kH) {
     spk_set_band_render_limits(min_pixels, band_pixels);
     spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};
     spk_image o{};
     const spk_status st = spk_simulate(eng, &in, &p, &o);
     spk_set_band_render_limits(0, 0);
-    if (st != SPK_OK || o.width != kW || o.height != kH) {
-        std::printf("render failed: status %d (%dx%d)\n", st, o.width, o.height);
+    if (st != SPK_OK || o.width != ew || o.height != eh) {
+        std::printf("render failed: status %d (%dx%d, wanted %dx%d)\n", st, o.width,
+                    o.height, ew, eh);
         spk_image_free(&o);
         return false;
     }
-    out->assign(o.data, o.data + static_cast<size_t>(kW) * kH * 3);
+    out->assign(o.data, o.data + static_cast<size_t>(ew) * eh * 3);
     spk_image_free(&o);
     return true;
 }
 
 void compare(const char* label, const std::vector<float>& got,
-             const std::vector<float>& ref) {
+             const std::vector<float>& ref, int width = kW) {
     double max_abs = 0.0, sse = 0.0;
     size_t worst = 0;
     for (size_t i = 0; i < ref.size(); ++i) {
@@ -137,7 +147,7 @@ void compare(const char* label, const std::vector<float>& got,
     const double rms = std::sqrt(sse / static_cast<double>(ref.size()));
     const bool ok = max_abs <= 1e-4 && rms <= 1e-5;
     std::printf("[%s] max_abs=%.3e rms=%.3e worst row=%zu -> %s\n", label, max_abs, rms,
-                worst / 3 / kW, ok ? "PASS" : "FAIL");
+                worst / 3 / static_cast<size_t>(width), ok ? "PASS" : "FAIL");
     if (!ok) ++g_failures;
 }
 
@@ -258,24 +268,106 @@ int main(int argc, char** argv) {
         expect(means_ok, "grain+glare banded keeps per-channel means (2e-3)");
     }
 
-    // D: a frame-wide effect falls back to the whole-frame render.
+    // D: highlight boost and engine crop band, and match the whole frame.
+    struct Banded {
+        const char* name;
+        bool boost;
+        bool crop;
+        float crop_w;  // crop_size x, a fraction of the long side (kH)
+        int ew, eh;    // the expected output (crop box) size
+    };
+    // Long side 1440: size 0.4 x 0.6 -> 576 x 864 px; 0.7 x 0.75 asks for 1008
+    // columns, which the crop clips to the full 960 width (rows used in place).
+    const Banded banded_cases[] = {
+        {"highlight boost", true, false, 0.0f, kW, kH},
+        {"crop 576x864", false, true, 0.4f, 576, 864},
+        {"crop full width 960x1080", false, true, 0.7f, kW, 1080},
+        {"crop 576x864 + highlight boost", true, true, 0.4f, 576, 864},
+    };
+    for (const Banded& c : banded_cases) {
+        for (int route = 0; route < 2; ++route) {
+            spk_params p;
+            base_params(&p, route == 1, /*stochastic=*/false);
+            if (c.boost) {
+                p.halation_boost_ev = 1.5f;
+                p.halation_protect_ev = 0.5f;  // lets the boost reach the mid tones too
+            }
+            if (c.crop) {
+                p.crop = 1;
+                p.crop_center[0] = 0.45f;
+                p.crop_center[1] = 0.55f;
+                p.crop_size[0] = c.crop_w;
+                p.crop_size[1] = c.crop_w == 0.4f ? 0.6f : 0.75f;
+            }
+            std::vector<float> whole, banded;
+            if (!render(eng, frame, p, kNeverBand, 0, &whole, c.ew, c.eh)) return 1;
+            const uint64_t before = spk_band_render_bands();
+            const uint64_t pre_before = spk_band_boost_prepasses();
+            const int64_t band = static_cast<int64_t>(c.ew) * 300;
+            if (!render(eng, frame, p, 1, band, &banded, c.ew, c.eh)) return 1;
+            const uint64_t bands = spk_band_render_bands() - before;
+            const uint64_t pre = spk_band_boost_prepasses() - pre_before;
+            char label[160];
+            std::snprintf(label, sizeof label, "%s, %s (%llu bands)", c.name,
+                          route ? "scan_film" : "print",
+                          static_cast<unsigned long long>(bands));
+            expect(bands >= 2, "rendered as 2+ bands");
+            expect(pre == (c.boost ? 1u : 0u), "one boost pre-pass exactly when boosted");
+            expect(differs(banded, std::vector<float>(banded.size(), 0.0f)),
+                   "banded output is not blank");
+            compare(label, banded, whole, c.ew);
+            if (c.boost && !c.crop) {
+                // The boost must actually change the picture, or the case above
+                // proves nothing about the pre-pass.
+                spk_params q = p;
+                q.halation_boost_ev = 0.0f;
+                std::vector<float> plain;
+                if (!render(eng, frame, q, kNeverBand, 0, &plain)) return 1;
+                expect(differs(plain, whole), "highlight boost changes the render");
+            }
+        }
+    }
     {
         spk_params p;
         base_params(&p, false, false);
-        p.halation_boost_ev = 1.0f;
+        p.halation_boost_ev = 1.5f;
+        p.crop = 1;
+        p.crop_center[0] = 0.45f;
+        p.crop_center[1] = 0.55f;
+        p.crop_size[0] = 0.4f;
+        p.crop_size[1] = 0.6f;
+        std::vector<float> t1, t8;
+        setenv("SPK_NUM_THREADS", "1", 1);
+        if (!render(eng, frame, p, 1, 576 * 300, &t1, 576, 864)) return 1;
+        setenv("SPK_NUM_THREADS", "8", 1);
+        if (!render(eng, frame, p, 1, 576 * 300, &t8, 576, 864)) return 1;
+        unsetenv("SPK_NUM_THREADS");
+        expect(!differs(t1, t8), "crop + boost banded 1-vs-8 threads byte-identical");
+    }
+
+    // D2: a frame-wide effect that cannot band falls back to the whole frame.
+    auto set_mask = [](spk_params* q) {
+        q->contrast_mask_active = 1;
+        q->contrast_mask_highlights = 1.0f;
+        q->contrast_mask_shadows = 1.0f;
+    };
+    {
+        spk_params p;
+        base_params(&p, false, false);
+        set_mask(&p);
         std::vector<float> whole, banded;
         if (!render(eng, frame, p, kNeverBand, 0, &whole)) return 1;
         const uint64_t before = spk_band_render_bands();
         if (!render(eng, frame, p, 1, static_cast<int64_t>(kW) * 400, &banded)) return 1;
-        expect(spk_band_render_bands() == before, "highlight boost renders no bands");
-        expect(!differs(banded, whole), "highlight boost falls back (byte-identical)");
+        expect(spk_band_render_bands() == before, "contrast mask renders no bands");
+        expect(!differs(banded, whole), "contrast mask falls back (byte-identical)");
     }
 
     // E: a frame that must render whole is refused above the whole-frame limit.
     {
         spk_params boost;
         base_params(&boost, false, false);
-        boost.halation_boost_ev = 1.0f;
+        set_mask(&boost);
         spk_params plain;
         base_params(&plain, false, false);
         spk_image in{const_cast<float*>(frame.data()), kW, kH, SPK_CS_PROPHOTO};

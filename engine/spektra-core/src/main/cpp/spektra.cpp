@@ -1143,6 +1143,11 @@ struct BandFrame {
     int index = 0;        // band number, salts the grain and glare seeds
     double pixel_size_um = 0.0;
     double gain = 1.0;    // whole-frame auto-exposure gain (1 when AE is off)
+    // Highlight boost: the frame's brightest pre-boost value (0 = boost off), and,
+    // on the pre-pass that measures it, where this band reports its own maximum.
+    // A measuring render stops right after expose and produces no pixels.
+    double boost_frame_max = 0.0;
+    double* boost_max_out = nullptr;
 };
 
 // Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
@@ -2235,6 +2240,10 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     fparams.halation.boost_ev = p->halation_boost_ev;
     fparams.halation.boost_range = p->halation_boost_range;
     fparams.halation.protect_ev = p->halation_protect_ev;
+    if (band) {
+        fparams.halation.boost_frame_max = band->boost_frame_max;
+        fparams.halation.boost_max_out = band->boost_max_out;
+    }
 
     // 3) Build (or reuse the engine-cached) Hanatos2025 filming tc_lut (D55
     //    reference illuminant). Cached by film id — byte-identical to rebuilding
@@ -2331,6 +2340,8 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
             spk::expose(pin.rgb.data(), width, height, fparams, tc_lut,
                         log_raw.data());
         }
+        // The highlight-boost pre-pass of a banded render ends here (BandFrame).
+        if (band && band->boost_max_out) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (tap_log_raw) *tap_log_raw = log_raw;
 
@@ -2796,6 +2807,10 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     fparams.halation.boost_ev = p->halation_boost_ev;
     fparams.halation.boost_range = p->halation_boost_range;
     fparams.halation.protect_ev = p->halation_protect_ev;
+    if (band) {
+        fparams.halation.boost_frame_max = band->boost_frame_max;
+        fparams.halation.boost_max_out = band->boost_max_out;
+    }
     // Build scan settings before the film memo so the conservative resident
     // route can prove that its three shaders cover the whole requested frame.
     // The same object is reused unchanged by the CPU fallback below.
@@ -3177,6 +3192,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             spk::expose(pin.rgb.data(), width, height, fparams, tc_lut,
                         film_log_raw.data());
         }
+        // The highlight-boost pre-pass of a banded render ends here (BandFrame).
+        if (band && band->boost_max_out) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (tap_log_raw) *tap_log_raw = film_log_raw;
 
@@ -3427,6 +3444,7 @@ std::atomic<int64_t> g_band_pixels{kBandPixelsDefault};
 // app sets one from what the device survived before banding existed.
 std::atomic<int64_t> g_whole_frame_pixel_limit{0};
 std::atomic<uint64_t> g_bands_rendered{0};
+std::atomic<uint64_t> g_boost_prepasses{0};
 
 struct BandPlan {
     bool active = false;
@@ -3434,6 +3452,10 @@ struct BandPlan {
     int margin_rows = 0;
     int bands = 0;
     double pixel_size_um = 0.0;
+    // The region of the input the bands cover: the crop box when the engine crop
+    // is on, else the whole input. Pixel size and auto-exposure still come from
+    // the WHOLE input, exactly as preprocess_geometry derives them before it crops.
+    int row0 = 0, col0 = 0, width = 0, height = 0;
 };
 
 // Sigmas a component of weight*gain needs as its band margin (see kIirEdgeK).
@@ -3505,19 +3527,26 @@ int band_margin_rows(const spk_params* p, double pixel_size_um) {
 
 BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     BandPlan plan;
-    const int w = in->width, h = in->height;
-    const int64_t npix = static_cast<int64_t>(w) * h;
-    if (npix <= g_band_min_pixels.load(std::memory_order_relaxed)) return plan;
     if (!one_shot_render(p)) return plan;
-    const bool geometry_noop =
-        (p->crop == 0) && (p->upscale_factor == 1.0f || p->upscale_factor == 0.0f);
-    if (!geometry_noop) return plan;
-    if (p->halation_boost_ev > 0.0f || p->camera_diffusion_active ||
-        p->enlarger_diffusion_active || p->contrast_mask_active) {
+    // Engine upscale resamples the whole frame; crop alone is a pixel box.
+    if (!(p->upscale_factor == 1.0f || p->upscale_factor == 0.0f)) return plan;
+    // Highlight boost bands too: run_banded measures the frame maximum first.
+    if (p->camera_diffusion_active || p->enlarger_diffusion_active ||
+        p->contrast_mask_active) {
         return plan;
     }
+    int row0 = 0, col0 = 0, w = in->width, h = in->height;
+    if (p->crop != 0) {
+        const spk::CropResizeParams cr = build_crop_resize(p);
+        spk::crop_box(in->height, in->width, cr.crop_center, cr.crop_size, &row0, &col0,
+                      &h, &w);
+        if (w <= 0 || h <= 0) return plan;
+    }
+    const int64_t npix = static_cast<int64_t>(w) * h;
+    if (npix <= g_band_min_pixels.load(std::memory_order_relaxed)) return plan;
+    // pixel_size_um comes from the UNCROPPED input (crop never changes it).
     const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
-    const int longest = w > h ? w : h;
+    const int longest = in->width > in->height ? in->width : in->height;
     const double pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
     const int margin = band_margin_rows(p, pixel_size_um);
     const int64_t band_pixels = g_band_pixels.load(std::memory_order_relaxed);
@@ -3533,6 +3562,10 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     plan.margin_rows = margin;
     plan.bands = (h + core - 1) / core;
     plan.pixel_size_um = pixel_size_um;
+    plan.row0 = row0;
+    plan.col0 = col0;
+    plan.width = w;
+    plan.height = h;
     return plan;
 }
 
@@ -3551,11 +3584,32 @@ double band_auto_exposure_gain(const spk_image* in, const spk_params* p) {
     return std::pow(2.0, ev);
 }
 
+// The rows [y0, y1) of the band region (the crop box, or the whole input) as an
+// image of its own. Without a crop, or with one spanning the full width, the
+// rows are already contiguous in the input and are used in place; otherwise
+// they are copied into `scratch` (one band's worth, never the frame).
+spk_image band_rows(const spk_image* in, const BandPlan& plan, int y0, int y1,
+                    std::vector<float>* scratch) {
+    const size_t in_row = static_cast<size_t>(in->width) * 3;
+    const size_t row = static_cast<size_t>(plan.width) * 3;
+    const float* first = in->data + static_cast<size_t>(plan.row0 + y0) * in_row +
+                         static_cast<size_t>(plan.col0) * 3;
+    if (plan.width == in->width) {
+        return spk_image{const_cast<float*>(first), plan.width, y1 - y0, in->color_space};
+    }
+    scratch->resize(row * static_cast<size_t>(y1 - y0));
+    for (int y = 0; y < y1 - y0; ++y) {
+        std::memcpy(scratch->data() + static_cast<size_t>(y) * row,
+                    first + static_cast<size_t>(y) * in_row, row * sizeof(float));
+    }
+    return spk_image{scratch->data(), plan.width, y1 - y0, in->color_space};
+}
+
 // Render `in` band by band into a freshly malloc'd frame (see BandPlan).
 spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                       const BandPlan& plan, spk_image* out,
                       spk_cancel_check cancel, void* cancel_user_data) try {
-    const int w = in->width, h = in->height;
+    const int w = plan.width, h = plan.height;
     const size_t row_floats = static_cast<size_t>(w) * 3;
     // Owned until it is handed to `out`, so every exit -- including a
     // bad_alloc out of the metering or a band -- releases it.
@@ -3564,29 +3618,64 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             std::malloc(row_floats * static_cast<size_t>(h) * sizeof(float))),
         std::free);
     if (!frame) return SPK_ERR_OOM;
+    // The bands render as one-shot, no-op-geometry frames: the crop is applied
+    // here by choosing their rows, and the frame-derived numbers ride BandFrame.
+    spk_params bp = *p;
+    bp.crop = 0;
+    bp.upscale_factor = 1.0f;
     BandFrame band;
     band.frame_width = w;
     band.frame_height = h;
     band.pixel_size_um = plan.pixel_size_um;
-    band.gain = band_auto_exposure_gain(in, p);
+    band.gain = band_auto_exposure_gain(in, p);  // metered on the uncropped input
+    std::vector<float> scratch;
+    auto render = [&](int y0, int y1, std::vector<float>* rgb, int* ow, int* oh) {
+        const spk_image sub = band_rows(in, plan, y0, y1, &scratch);
+        band.y0 = y0;
+        *ow = w;
+        *oh = y1 - y0;
+        return bp.scan_film
+                   ? run_scan_film(eng, &sub, &bp, rgb, nullptr, nullptr, ow, oh, cancel,
+                                   cancel_user_data, &band)
+                   : run_print(eng, &sub, &bp, rgb, nullptr, nullptr, nullptr, ow, oh,
+                               cancel, cancel_user_data, &band);
+    };
+    if (p->halation_boost_ev > 0.0f) {
+        // Highlight boost scales by the brightest pre-boost irradiance in the
+        // frame, and everything before it is per pixel. So measure it on the
+        // band cores first -- they partition the frame -- through the very
+        // expose the bands run, then hand it to every band: byte-identical to
+        // the maximum a whole-frame render takes.
+        double frame_max = 0.0;
+        for (int i = 0; i < plan.bands; ++i) {
+            if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
+            const int core0 = i * plan.core_rows;
+            const int core1 = std::min(h, core0 + plan.core_rows);
+            double band_max = 0.0;
+            band.index = i;
+            band.boost_max_out = &band_max;
+            std::vector<float> unused;
+            int ow = 0, oh = 0;
+            const spk_status st = render(core0, core1, &unused, &ow, &oh);
+            band.boost_max_out = nullptr;
+            if (st != SPK_OK) return st;
+            if (i == 0 || band_max > frame_max) frame_max = band_max;
+        }
+        g_boost_prepasses.fetch_add(1, std::memory_order_relaxed);
+        // 0 would read as "derive per band"; a frame whose maximum is 0 renders
+        // to zeros either way (apply_highlight_boost's max_raw == 0 branch).
+        band.boost_frame_max = frame_max;
+    }
     for (int i = 0; i < plan.bands; ++i) {
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         const int core0 = i * plan.core_rows;
         const int core1 = std::min(h, core0 + plan.core_rows);
         const int y0 = std::max(0, core0 - plan.margin_rows);
         const int y1 = std::min(h, core1 + plan.margin_rows);
-        band.y0 = y0;
         band.index = i;
-        const spk_image sub{in->data + static_cast<size_t>(y0) * row_floats, w, y1 - y0,
-                            in->color_space};
         std::vector<float> rgb;
         int ow = w, oh = y1 - y0;
-        const spk_status st =
-            p->scan_film
-                ? run_scan_film(eng, &sub, p, &rgb, nullptr, nullptr, &ow, &oh, cancel,
-                                cancel_user_data, &band)
-                : run_print(eng, &sub, p, &rgb, nullptr, nullptr, nullptr, &ow, &oh,
-                            cancel, cancel_user_data, &band);
+        const spk_status st = render(y0, y1, &rgb, &ow, &oh);
         if (st != SPK_OK || ow != w || oh != y1 - y0 ||
             rgb.size() != row_floats * static_cast<size_t>(oh)) {
             return st != SPK_OK ? st : SPK_ERR_INTERNAL;
@@ -4005,6 +4094,10 @@ uint64_t spk_band_render_bands(void) {
     return g_bands_rendered.load(std::memory_order_relaxed);
 }
 
+uint64_t spk_band_boost_prepasses(void) {
+    return g_boost_prepasses.load(std::memory_order_relaxed);
+}
+
 spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* p,
                         spk_image* out) {
     return spk_simulate_cancellable(eng, in, p, out, nullptr, nullptr);
@@ -4050,15 +4143,13 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
         g_whole_frame_pixel_limit.load(std::memory_order_relaxed);
     if (whole_limit > 0 &&
         static_cast<int64_t>(in->width) * in->height > whole_limit) {
-        // Highlight boost, the diffusion filters, the contrast mask and engine
-        // crop/rescale need the whole frame, so they keep a frame this size
-        // out of bands -- and a whole 50 MP render was what drove a phone
-        // into lmkd. Refuse it here, typed, rather than let the system kill
-        // the process partway through.
+        // The diffusion filters, the contrast mask and engine rescale need the
+        // whole frame, so they keep a frame this size out of bands -- and a
+        // whole 50 MP render was what drove a phone into lmkd. Refuse it here,
+        // typed, rather than let the system kill the process partway through.
         set_last_error_message(
             "frame too large to render whole on this device with the active "
-            "frame-wide effects (highlight boost, diffusion filter, contrast "
-            "mask, crop or rescale)");
+            "frame-wide effects (diffusion filter, contrast mask or rescale)");
         return timing.finish(SPK_ERR_OOM);
     }
     std::vector<float> rgb;

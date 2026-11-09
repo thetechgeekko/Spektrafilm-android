@@ -71,6 +71,13 @@ struct CropResizeParams {
 //
 // With the default params this copies `in` to `out` unchanged and leaves
 // out_w/out_h == w/h and pixel_size_um untouched.
+// The pixel box crop_and_rescale's crop cuts out of an h x w image: first row,
+// first column, rows, columns. Exactly the box the crop copies, exposed so the
+// banded export can render a crop strip by strip without building the
+// whole-frame cropped copy.
+void crop_box(int h, int w, const double center[2], const double size[2],
+              int* row0, int* col0, int* out_h, int* out_w);
+
 void crop_and_rescale(const double* in, int w, int h,
                       const CropResizeParams& params,
                       std::vector<double>* out, int* out_w, int* out_h,

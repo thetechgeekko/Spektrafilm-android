@@ -1301,6 +1301,24 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
     });
 }
 
+double highlight_boost_max(const double* raw, int w, int h) {
+    if (w <= 0 || h <= 0) return 0.0;
+    std::vector<double> row_max(static_cast<size_t>(h));
+    parallel_for_weighted(0, h, w * 3, [&](int lo, int hi) {
+        for (int y = lo; y < hi; ++y) {
+            const double* row = raw + static_cast<size_t>(y) * w * 3;
+            double m = row[0];
+            for (int i = 1; i < w * 3; ++i)
+                if (row[i] > m) m = row[i];
+            row_max[static_cast<size_t>(y)] = m;
+        }
+    });
+    double max_raw = row_max[0];
+    for (int y = 1; y < h; ++y)
+        if (row_max[static_cast<size_t>(y)] > max_raw) max_raw = row_max[static_cast<size_t>(y)];
+    return max_raw;
+}
+
 void apply_highlight_boost(double* raw, int w, int h, const HalationParams& params,
                            bool allow_gpu) {
     // Port of spektrafilm/utils/numba_boost_hightlights.py::boost_highlights, called
@@ -1310,7 +1328,10 @@ void apply_highlight_boost(double* raw, int w, int h, const HalationParams& para
     const double boost_ev = params.boost_ev;
     if (boost_ev <= 0.0) return;
     if (w <= 0 || h <= 0) return;
-    if (allow_gpu) {
+    // A band of a larger frame carries the frame's maximum; the GPU pass derives
+    // its own from the rows it sees, so it would scale a band differently.
+    const bool frame_max_given = params.boost_frame_max > 0.0;
+    if (allow_gpu && !frame_max_given) {
         gpu::FilmingStageDiagnostics gd{};
         if (gpu::highlight_boost(raw, w, h, boost_ev, params.boost_range,
                                  params.protect_ev, &gd))
@@ -1329,19 +1350,8 @@ void apply_highlight_boost(double* raw, int w, int h, const HalationParams& para
     //
     // It used to be a serial scan over w*h*3 doubles -- 37.5M elements at a
     // 12.5 MP export, on one core -- which was most of this stage.
-    std::vector<double> row_max(static_cast<size_t>(h));
-    parallel_for_weighted(0, h, w * 3, [&](int lo, int hi) {
-        for (int y = lo; y < hi; ++y) {
-            const double* row = raw + static_cast<size_t>(y) * w * 3;
-            double m = row[0];
-            for (int i = 1; i < w * 3; ++i)
-                if (row[i] > m) m = row[i];
-            row_max[static_cast<size_t>(y)] = m;
-        }
-    });
-    double max_raw = row_max[0];
-    for (int y = 1; y < h; ++y)
-        if (row_max[static_cast<size_t>(y)] > max_raw) max_raw = row_max[static_cast<size_t>(y)];
+    const double max_raw =
+        frame_max_given ? params.boost_frame_max : highlight_boost_max(raw, w, h);
     if (max_raw == 0.0) {
         for (size_t i = 0; i < total; ++i) raw[i] = 0.0;
         return;
