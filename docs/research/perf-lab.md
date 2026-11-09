@@ -3708,4 +3708,47 @@ shipped. Untested: the pool runs at nice 10 for exports (#270), and the hint may
 background-priority threads. Combining it with nice 0 is the remaining variant.
 The code is on a local branch only.
 
+**Hint + nice 0 (follow-up).** I ran the same session with the export workers at nice 0 instead of
+#270's nice 10. Runs alternate against main at `0019e80`, three each, all from a cool start. Jank comes
+from `dumpsys gfxinfo`, reset before each export:
+
+| run | build | export | big cores | janky frames | 90th pct frame |
+|---|---|---|---|---|---|
+| n_m1 | main | 86.6 s | 2023 MHz | 0.66 % | 13 ms |
+| n_h1 | hint + nice 0 | 87.9 s | 2000 MHz | 0.52 % | 13 ms |
+| n_m2 | main | 86.7 s | 2038 MHz | 0.59 % | 13 ms |
+| n_h2 | hint + nice 0 | 95.5 s | 1564 MHz | 0.72 % | 12 ms |
+| n_m3 | main | 87.3 s | 2253 MHz | 0.68 % | 13 ms |
+| n_h3 | hint + nice 0 | 86.8 s | 2192 MHz | 0.58 % | 14 ms |
+
+The median is 86.7 s for main and 87.9 s for the hint with nice 0. The clocks did not move either, so
+the combination is dropped too. Jank is the same either way.
+
+## 36. Halide AOT on the print-expose spectral integral: slower on the phone (2026-11-09)
+
+**What was compared.** The CPU form of `print_expose`'s 81-band integral, against a Halide 21.0.0
+pipeline with the same arithmetic. The engine form sums `exp10(-(d·cd + base)) · illum · sens` per pixel
+with the floor and the midgray factor. The Halide pipeline ports the engine's own `exp10` polynomial, so
+the comparison is scheduling, not libm. It vectorises across pixels, with the 81 lights computed per
+64-pixel tile and the three sums unrolled. Both run single-threaded on 2 M synthetic pixels, with 5
+interleaved repeats and the best time kept. The output matches to max_rel 6.5e-16 everywhere.
+
+| where | engine | Halide | speedup |
+|---|---|---|---|
+| host x86, both 2-lane (SSE2 vs Halide `sse41`) | 2324 ms | 1024 ms | 2.27x |
+| host x86, both wide (`-march=native` vs `avx2-fma`) | 2136 ms | 979 ms | 2.18x |
+| **phone, big core (cpu7), vector width 2** | 313 ms | 636 ms | **0.49x** |
+| phone, big core, vector width 4 | 324 ms | 575 ms | 0.56x |
+| phone, big core, vector width 8 | 342 ms | 550 ms | 0.62x |
+| phone, little core (cpu0), vector width 2 | 439 ms | 789 ms | 0.56x |
+
+The phone bench is an `arm-64-android` AOT library linked into a bench built with the shipping
+`-O3 -ffast-math -fno-finite-math-only`. On the phone the engine's NEON `exp10_vec` loop is about twice
+as fast as Halide's. The host's 2x went the other way and does not predict the device, as in §21. The
+1.5x adoption bar is not met, so Halide stays out.
+
+This CPU integral is also not what a GPU export runs. There the GPU computes the integral, and the
+CPU part of `print_expose` is the tail around it. That tail took the `log10` of the GPU result for the
+loop to raise straight back to `10^`. Removing that round trip is a separate change.
+
 *Film modeling powered by spektrafilm (GPLv3).*
