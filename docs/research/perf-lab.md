@@ -3652,6 +3652,11 @@ During the band passes the GPU runs at or near its 1.1-1.3 GHz ceiling and is ab
 other half it waits on CPU work between dispatches. An ADPF hint that raises clocks has little left to
 win. What is left is the CPU work between GPU passes and the number of passes.
 
+> **CORRECTION (§35).** That conclusion read GPU clocks only. The CPU is not at its ceiling during the
+> band passes: big cores average 2.0-2.5 GHz of 4.4. An ADPF hint was therefore worth testing, and §35
+> tests it. It did not raise the CPU clocks on this phone, so the practical conclusion stands. The reason
+> given here was wrong.
+
 **Band geometry is the lever** (host lavapipe, same frame, reuse on, 32 MiP whole-frame limit):
 
 | band size | bands | time | host RSS |
@@ -3670,5 +3675,37 @@ cost. On the phone, cooled, the export went from 103.5-105.3 s to 90.7 s.
 take its whole-band route (`bands2` instead of `bands10`). But the FFT and halation buffers then evicted
 each other in every band: `camera_diffusion` went from 16.5 s to 26.3 s, and the export from about 124 s
 to 145.7 s.
+
+## 35. CPU clocks during the 50 MP export, and an ADPF hint that did not raise them (2026-11-09)
+
+**Why it came up.** #599 makes the GPU halation and DIR passes about twice as fast: device time drops
+from 15.6-16.3 s to 7.4-7.5 s and from 12.1-13.0 s to 5.0-5.2 s. The export total barely moved. I
+sampled `cpufreq/policy0` and `policy6` `scaling_cur_freq` once a second alongside the GPU clock. With
+the GPU less busy, the governor ran the CPU lower through the band passes. Big cores fell from 2.2-2.5 GHz
+to 1.6-1.9 GHz, little cores from about 2.4 to about 2.0 GHz. The CPU-bound grain and print stages slowed
+by 3-6 s. So the CPU is well below its 4.4 GHz big-core ceiling. That is what §34 missed.
+
+**The hint.** An NDK `APerformanceHint` session, looked up at run time because it is API 33+ and minSdk
+is 24. It covers the parallel pool's 7 worker threads, which the pool records as it starts them. A
+heartbeat thread reports every 50 ms tick against a 20 ms target, so every report runs past target. The
+app turns it on only inside `ExportWorkRuntime` around a user-started export, never for the idle
+pre-render. Logcat confirmed the session: `export performance hint on over 7 pool threads`.
+
+**Measurement.** Main at `0019e80` vs main plus the hint, release APKs. Runs alternate, and each starts
+cool: thermal status 0, battery ≤ 31.1 °C. Clocks are means over the band-pass window (seconds 25-80):
+
+| run | build | export | big cores | little cores | GPU busy |
+|---|---|---|---|---|---|
+| m1 | main | 73.7 s (battery 29.3 °C) | 2509 MHz | 2414 MHz | 46 % |
+| a1 | hint | 86.0 s | 2172 MHz | 2227 MHz | 52 % |
+| m2 | main | 86.9 s | 2253 MHz | 2372 MHz | 52 % |
+| a2 | hint | 88.1 s | 2028 MHz | 2333 MHz | 53 % |
+| m3 | main | 87.1 s | 2002 MHz | 2447 MHz | 53 % |
+| a3 | hint | 106.3 s | 1618 MHz | 1815 MHz | 48 % |
+
+The median is 86.9 s for main and 88.1 s for the hint. The hint did not raise the clocks, so it was not
+shipped. Untested: the pool runs at nice 10 for exports (#270), and the hint may be discounted for
+background-priority threads. Combining it with nice 0 is the remaining variant.
+The code is on a local branch only.
 
 *Film modeling powered by spektrafilm (GPLv3).*
