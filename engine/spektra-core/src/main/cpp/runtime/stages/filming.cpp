@@ -668,8 +668,10 @@ void expose_impl(const Src& src, int width, int height,
     // is off unless the caller set it, so the default route is unchanged.
     // The banded pre-pass measures the CPU irradiance, so it stays on the CPU.
     const bool measure_boost_max = params.halation.boost_max_out != nullptr;
+    const bool banded_diffusion = params.diffusion_filter.active &&
+                                  params.diffusion_filter.band_far != nullptr;
     const bool gpu_expose_ok =
-        params.allow_gpu_filming && !measure_boost_max &&
+        params.allow_gpu_filming && !measure_boost_max && !banded_diffusion &&
         !params.scene_latitude.engaged() &&  // the GPU expose has no latitude stage
         !params.date_stamp.engaged() &&      // ...and no date-back imprint
         tc_lut.shape.size() == 3 &&
@@ -767,7 +769,19 @@ void expose_impl(const Src& src, int width, int height,
     // diffusion_filter.active — the oracle's ONLY gate (deactivate_spatial_effects
     // is expressed by the digest zeroing .active, params_builder.py). No-op unless
     // active (schema default false), so default params stay bit-exact.
-    if (params.diffusion_filter.active) {
+    if (banded_diffusion) {
+        // One band of a frame above the whole-frame capacity (spektra.cpp
+        // run_banded): the near/far split of diffusion.h. The accumulating
+        // pre-pass only feeds this band's rows to the coarse frame and stops;
+        // like the boost pre-pass it leaves log_raw_out unwritten.
+        const DiffusionFilterParams& d = params.diffusion_filter;
+        if (d.band_accumulate) {
+            diffusion_far_accumulate(raw, width, height, d.band_frame_y0, d.band_far);
+            return;
+        }
+        ScopedStage _t(STG_DIFFUSION);
+        apply_diffusion_filter_banded(raw, width, height, d.band_frame_y0, *d.band_far);
+    } else if (params.diffusion_filter.active) {
         ScopedStage _t(STG_DIFFUSION);
         // Off by default and nothing sets the latch -- see params.h for the device
         // numbers that took it off the Fast GPU route. The GPU pass returns false

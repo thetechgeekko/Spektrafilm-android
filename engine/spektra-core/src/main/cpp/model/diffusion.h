@@ -33,6 +33,8 @@
 
 namespace spk {
 
+struct DiffusionFarField;
+
 // Halation parameters, mirroring the digested
 // spektrafilm.runtime.params_schema.HalationParams fields consumed by
 // apply_halation_um. Per-channel arrays are RGB-ordered.
@@ -131,6 +133,14 @@ struct DiffusionFilterParams {
     double halo_size = 1.0;
     double bloom_intensity = 1.0;
     double bloom_size = 1.0;
+    // Banded renders above the whole-frame capacity only (spektra.cpp
+    // run_banded). Non-null: the image is one band of a larger frame starting at
+    // frame row band_frame_y0, and the filter runs the near/far split below
+    // instead of the whole-frame convolution. band_accumulate = this is the
+    // pre-pass that feeds the band's rows into the coarse frame instead.
+    DiffusionFarField* band_far = nullptr;
+    bool band_accumulate = false;
+    int band_frame_y0 = 0;
 };
 
 // apply_diffusion_filter_um: in-place on the float64 raw irradiance image `raw`,
@@ -162,6 +172,81 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
                                const DiffusionFilterParams& params,
                                double pixel_size_um,
                                bool allow_gpu_fft = false);
+
+// ---------------------------------------------------------------------------
+// BANDED DIFFUSION FILTER (frames above the whole-frame capacity).
+//
+// The filter's kernel reaches ~0.36 of the frame's short side (8 x the widest
+// bloom lambda, capped at min(w,h)/2-1), so a band cannot hold it: at 200 MP
+// it is ~11,800 px wide. Above the device's whole-frame limit the kernel is
+// split by radius instead:
+//
+//   near(r) = core(r) * gc(r) + (halo+bloom)(r) * g(r)              band
+//   far(r)  = core(r) * (1 - gc(r)) + (halo+bloom)(r) * (1 - g(r))  coarse
+//   gc(r)   = exp(-(r / (0.8 near radius))^8): flat-topped, so the core stays
+//             exact and only the tail of a core widened by core_size /
+//             spatial_scale moves to the far part (the split keeps the mass)
+//   g(r)    = exp(-(r/rt)^2),  rt = 10 f
+//
+// The near part is truncated at 3.5 rt (where g is e^-12) and convolved per band at full
+// resolution (the band margin covers it). The far part has a hole where the
+// kernel's cusp is, so it is smooth at the scale of f: it runs on a copy of the
+// whole frame box-downsampled by f (4..8), with the coarse kernel's mass pinned
+// to the fine one's, and is read back with a bilinear interpolation. Both are
+// normalised by the full fine kernel's sum, as the whole-frame filter is.
+//
+// NOT bit-exact. Measured against the whole-frame filter (NumPy prototype,
+// Black Pro-Mist / Pro-Mist / Cinebloom at 12, 50 and 200 MP pixel sizes):
+// worst |log10(banded/whole)| 9.6e-4 (0.22 %), RMS <= 9.4e-5. So it is used
+// only where the whole-frame filter cannot run at all; test_band_render gates
+// the C++ against apply_diffusion_filter_um.
+// ---------------------------------------------------------------------------
+struct DiffusionFarField {
+    int frame_width = 0, frame_height = 0;
+    int factor = 0;        // f: fine pixels per coarse cell side
+    int radius = 0;        // R: the whole-frame filter's radius (fine px)
+    int near_radius = 0;   // near kernel half-width (fine px)
+    int coarse_radius = 0; // R / f
+    int pad = 0;           // fine pixels of reflect padding around the frame
+    int cells_x = 0, cells_y = 0;  // padded coarse grid
+    double p_s = 0.0;
+    std::vector<std::vector<double>> near_kernel;    // [3][(2*near_radius+1)^2]
+    std::vector<std::vector<double>> coarse_kernel;  // [3][(2*coarse_radius+1)^2]
+    std::vector<float> accum;   // pass 0: cells_y*cells_x*3 fine-pixel sums
+    int out_w = 0, out_h = 0;
+    std::vector<double> field;  // out_h*out_w*3: far term at the coarse centres
+    bool ready = false;
+};
+
+// The coarse factor diffusion_far_init picks for a frame (0 = auto).
+int diffusion_far_factor(int frame_w, int frame_h);
+
+// Near-kernel half-width the banded filter needs for this frame, i.e. the band
+// margin it requires; 0 when the filter is inactive.
+int diffusion_band_near_radius(const DiffusionFilterParams& params, double pixel_size_um,
+                               int frame_w, int frame_h, int factor = 0);
+
+// Set up `far` for a frame: kernels, normalisation and the empty coarse grid.
+// Returns false when the filter is inactive (then nothing is banded for it).
+bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_um,
+                        int frame_w, int frame_h, DiffusionFarField* far,
+                        int factor = 0);
+
+// Pass 0: add rows [frame_y0, frame_y0 + h) of the frame's pre-filter
+// irradiance (w = frame width) to the coarse grid. Bands must partition the
+// frame; each is added once, in any order fixed by the caller.
+void diffusion_far_accumulate(const double* raw, int w, int h, int frame_y0,
+                              DiffusionFarField* far);
+
+// Convolve the coarse grid with the far kernel (frees the grid).
+void diffusion_far_finish(DiffusionFarField* far);
+
+// Filter one band in place: rows [frame_y0, frame_y0 + h) of the frame, with
+// at least near_radius rows of real frame above and below every row the caller
+// keeps (or the frame edge).
+void apply_diffusion_filter_banded(double* raw, int w, int h, int frame_y0,
+                                   const DiffusionFarField& far);
+
 
 // ---------------------------------------------------------------------------
 // Separable Gaussian-mixture approximation of the diffusion PSF (#213).

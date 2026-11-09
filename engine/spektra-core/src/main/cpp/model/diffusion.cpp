@@ -1387,4 +1387,342 @@ void apply_highlight_boost(double* raw, int w, int h, const HalationParams& para
     });
 }
 
+
+// ---------------------------------------------------------------------------
+// Banded diffusion filter (see diffusion.h). Planning and kernels are f64, and
+// every reduction runs in a fixed order, so the result is byte-identical for
+// any worker count.
+// ---------------------------------------------------------------------------
+namespace {
+
+double far_exp_sum(double r, const std::vector<double>& lambdas_px,
+                   const std::vector<double>& weights) {
+    double total = 0.0;
+    for (size_t k = 0; k < lambdas_px.size(); ++k) {
+        const double lk = lambdas_px[k] > 1e-6 ? lambdas_px[k] : 1e-6;
+        total += weights[k] * std::exp(-r / lk) / (2.0 * M_PI * lk * lk);
+    }
+    return total;
+}
+
+// The three per-channel radial profiles at r: core (shared), and the
+// halo+bloom "wide" part per channel.
+void far_profiles(const DiffusionSetup& S, double r, double* core, double wide[3]) {
+    *core = S.cfg.w_c * far_exp_sum(r, S.core_lambdas, S.core_weights);
+    const double bloom = S.cfg.w_b * far_exp_sum(r, S.bloom_lambdas, S.bloom_weights);
+    for (int c = 0; c < 3; ++c)
+        wide[c] = S.cfg.w_h * far_exp_sum(r, S.halo_lambdas, S.halo_per_ch[c]) + bloom;
+}
+
+int reflect_index(int p, int n) {
+    if (n == 1) return 0;
+    const int period = 2 * (n - 1);
+    int m = p % period;
+    if (m < 0) m += period;
+    return m < n ? m : period - m;
+}
+
+// Convolve one channel of `src` (h x w, interleaved by 3) with a centred
+// (2r+1)^2 kernel over a reflect-padded copy, adding into `out` (h x w x 3).
+void convolve_reflect_channel(const double* src, int w, int h, int c,
+                              const std::vector<double>& kern, int r,
+                              double* out) {
+    const int ks = 2 * r + 1;
+    const int pw = w + 2 * r, ph = h + 2 * r;
+    std::vector<double> padded(static_cast<size_t>(pw) * ph);
+    parallel_for_weighted(0, ph, pw, [&](int lo, int hi) {
+        for (int yy = lo; yy < hi; ++yy) {
+            const int sy = reflect_index(yy - r, h);
+            for (int xx = 0; xx < pw; ++xx) {
+                const int sx = reflect_index(xx - r, w);
+                padded[static_cast<size_t>(yy) * pw + xx] =
+                    src[(static_cast<size_t>(sy) * w + sx) * 3 + c];
+            }
+        }
+    });
+    int cap = 0;
+    const memory::MemoryReservation scratch = reserve_fft_scratch(w, h, ks, &cap);
+    if (!scratch) throw std::bad_alloc{};
+    if (!fft_convolve_same(padded.data(), pw, ph, kern.data(), ks, w, h, out,
+                           /*out_stride=*/3, /*out_offset=*/c, cap))
+        throw std::logic_error("banded diffusion FFT rejected valid geometry");
+}
+
+}  // namespace
+
+// rt = kFarHole * f: the far part's Gaussian hole. Measured (prototype and the
+// C++ gate): 10 keeps the near kernel small (3.5 rt) at a worst error well
+// inside 1e-3 in log10; 16 is ~2x more accurate at 2.6x the near-kernel area.
+constexpr double kFarHole = 10.0;
+
+int diffusion_far_factor(int frame_w, int frame_h) {
+    // About 4 M coarse cells, between the two factors the error bound was
+    // measured at (f = 4 at 50 MP, f = 8 at 200 MP).
+    const double npix = static_cast<double>(frame_w) * frame_h;
+    int f = static_cast<int>(std::ceil(std::sqrt(npix / 4.0e6)));
+    if (f < 4) f = 4;
+    if (f > 8) f = 8;
+    return f;
+}
+
+int diffusion_band_near_radius(const DiffusionFilterParams& params, double pixel_size_um,
+                               int frame_w, int frame_h, int factor) {
+    DiffusionSetup S;
+    if (!diffusion_setup(params, pixel_size_um, frame_w, frame_h, &S)) return 0;
+    const int f = factor > 0 ? factor : diffusion_far_factor(frame_w, frame_h);
+    const int near_r = static_cast<int>(std::ceil(3.5 * kFarHole * f));
+    return near_r < S.radius ? near_r : S.radius;
+}
+
+bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_um,
+                        int frame_w, int frame_h, DiffusionFarField* far, int factor) {
+    *far = DiffusionFarField{};
+    DiffusionSetup S;
+    if (!diffusion_setup(params, pixel_size_um, frame_w, frame_h, &S)) return false;
+    const int f = factor > 0 ? factor : diffusion_far_factor(frame_w, frame_h);
+    const double rt = kFarHole * f;
+    const int R = S.radius;
+    far->frame_width = frame_w;
+    far->frame_height = frame_h;
+    far->factor = f;
+    far->radius = R;
+    far->near_radius = diffusion_band_near_radius(params, pixel_size_um, frame_w, frame_h, f);
+    far->coarse_radius = R / f;
+    far->pad = (far->coarse_radius + 2) * f;
+    far->cells_x = (frame_w + 2 * far->pad + f - 1) / f;
+    far->cells_y = (frame_h + 2 * far->pad + f - 1) / f;
+    far->p_s = S.p_s;
+    auto hole = [rt](double r) { return std::exp(-(r / rt) * (r / rt)); };
+    // The core stays exact out to most of the near radius and hands its tail
+    // (non-zero only for a core widened by core_size / spatial_scale) to the far
+    // part through a flat-topped window, so the split keeps the kernel's mass.
+    // At the near radius the window is e^-6, so truncating the near kernel there
+    // drops a negligible sliver of an already small core tail.
+    const double core_rc = 0.8 * far->near_radius;
+    auto core_window = [core_rc](double r) {
+        if (core_rc <= 0.0) return 0.0;
+        const double q = (r / core_rc) * (r / core_rc);
+        return std::exp(-q * q * q * q);
+    };
+
+    // Sums over the whole-frame filter's full (2R+1)^2 grid, by octant: the
+    // kernel is radial, so each (x, y) with 0 <= y <= x stands for up to eight
+    // cells. Per-row partials, then a serial reduction in row order.
+    std::vector<double> part(static_cast<size_t>(R + 1) * 6, 0.0);
+    parallel_for_weighted(0, R + 1, R + 1, [&](int lo, int hi) {
+        for (int x = lo; x < hi; ++x) {
+            double* acc = &part[static_cast<size_t>(x) * 6];
+            for (int y = 0; y <= x; ++y) {
+                const double m = (x == 0) ? 1.0 : ((y == 0 || y == x) ? 4.0 : 8.0);
+                const double r = std::sqrt(static_cast<double>(x) * x +
+                                           static_cast<double>(y) * y);
+                double core, wide[3];
+                far_profiles(S, r, &core, wide);
+                const double g = hole(r), gc = core_window(r);
+                for (int c = 0; c < 3; ++c) {
+                    acc[c] += m * (core + wide[c]);          // full kernel
+                    acc[3 + c] += m * (core * (1.0 - gc) + wide[c] * (1.0 - g));  // far part
+                }
+            }
+        }
+    });
+    double total[3] = {0, 0, 0}, far_total[3] = {0, 0, 0};
+    for (int x = 0; x <= R; ++x)
+        for (int c = 0; c < 3; ++c) {
+            total[c] += part[static_cast<size_t>(x) * 6 + c];
+            far_total[c] += part[static_cast<size_t>(x) * 6 + 3 + c];
+        }
+
+    // Near kernel at full resolution, normalised by the full kernel's sum.
+    const int nr = far->near_radius, nks = 2 * nr + 1;
+    far->near_kernel.assign(3, std::vector<double>(static_cast<size_t>(nks) * nks));
+    parallel_for_weighted(0, nks, nks, [&](int lo, int hi) {
+        for (int yy = lo; yy < hi; ++yy)
+            for (int xx = 0; xx < nks; ++xx) {
+                const double dx = xx - nr, dy = yy - nr;
+                const double r = std::sqrt(dx * dx + dy * dy);
+                double core, wide[3];
+                far_profiles(S, r, &core, wide);
+                const double g = hole(r), gc = core_window(r);
+                const size_t i = static_cast<size_t>(yy) * nks + xx;
+                for (int c = 0; c < 3; ++c)
+                    far->near_kernel[c][i] = (core * gc + wide[c] * g) / total[c];
+            }
+    });
+
+    // Coarse far kernel sampled at the coarse spacing, its mass pinned to the
+    // fine far part's: it multiplies box MEANS, each standing for f^2 taps.
+    const int rc = far->coarse_radius, cks = 2 * rc + 1;
+    auto far_value = [&](double r, double out[3]) {
+        double core, wide[3];
+        far_profiles(S, r, &core, wide);
+        const double g = hole(r);
+        const double gc = core_window(r);
+        for (int c = 0; c < 3; ++c) out[c] = core * (1.0 - gc) + wide[c] * (1.0 - g);
+    };
+    far->coarse_kernel.assign(3, std::vector<double>(static_cast<size_t>(cks) * cks));
+    for (int yy = 0; yy < cks; ++yy)
+        for (int xx = 0; xx < cks; ++xx) {
+            const double dx = static_cast<double>(xx - rc) * f;
+            const double dy = static_cast<double>(yy - rc) * f;
+            const double r = std::sqrt(dx * dx + dy * dy);
+            double fv[3];
+            far_value(r, fv);
+            {
+                // The tent splat and the bilinear read each blur the far term by a
+                // tent of variance f^2/6 per axis; to second order that is
+                // (f^2/6) * Laplacian, so take it out of the kernel up front.
+                // Measured: cuts the worst error ~3x (1.1e-3 -> 3.3e-4 in log10).
+                const double hh = 0.5, rr = r > hh ? r : hh;
+                double fp[3], fm[3], f0[3];
+                far_value(rr + hh, fp);
+                far_value(rr - hh, fm);
+                far_value(rr, f0);
+                for (int c = 0; c < 3; ++c) {
+                    const double lap = (fp[c] - 2.0 * f0[c] + fm[c]) / (hh * hh) +
+                                       (fp[c] - fm[c]) / (2.0 * hh * rr);
+                    fv[c] -= (static_cast<double>(f) * f / 6.0) * lap;
+                }
+            }
+            for (int c = 0; c < 3; ++c)
+                far->coarse_kernel[c][static_cast<size_t>(yy) * cks + xx] = fv[c];
+        }
+    for (int c = 0; c < 3; ++c) {
+        double s = 0.0;
+        for (double v : far->coarse_kernel[c]) s += v;
+        const double scale = s > 0.0 ? (far_total[c] / total[c]) / s : 0.0;
+        for (double& v : far->coarse_kernel[c]) v *= scale;
+    }
+    far->accum.assign(static_cast<size_t>(far->cells_x) * far->cells_y * 3, 0.0f);
+    return true;
+}
+
+void diffusion_far_accumulate(const double* raw, int w, int h, int frame_y0,
+                              DiffusionFarField* far) {
+    if (!far || far->accum.empty() || w != far->frame_width || h <= 0) return;
+    // Tent splat, not a box: every (reflect-padded) fine pixel adds to the two
+    // nearest coarse centres per axis with linear weights. A box would snap a
+    // point highlight to its cell, shifting the far term by up to f/2 pixels
+    // where its gradient is steepest; the tent keeps the centroid, and the
+    // bilinear read in apply_diffusion_filter_banded is its transpose.
+    const int f = far->factor, P = far->pad;
+    const int W = far->frame_width, H = far->frame_height;
+    const int cx = far->cells_x;
+    const double half = (f - 1) * 0.5;
+    struct Tap { int src; double wgt; };
+    // Per coarse index k (either axis): the padded fine coordinates within one
+    // cell spacing of centre k, with their weights.
+    auto taps_for = [&](int k, int n_src, std::vector<Tap>* out) {
+        out->clear();
+        for (int q = (k - 1) * f - P; q <= (k + 1) * f - P + f; ++q) {
+            const double u = (q + P - half) / f;
+            const double wgt = 1.0 - std::fabs(u - k);
+            if (wgt > 0.0) out->push_back({reflect_index(q, n_src), wgt});
+        }
+    };
+    std::vector<std::vector<Tap>> col_taps(static_cast<size_t>(cx));
+    for (int k = 0; k < cx; ++k) taps_for(k, W, &col_taps[static_cast<size_t>(k)]);
+    // One coarse row per task; within it the fine rows add in a fixed order.
+    parallel_for_weighted(0, far->cells_y, cx * f * 4, [&](int lo, int hi) {
+        std::vector<double> rowsum(static_cast<size_t>(cx) * 3);
+        std::vector<Tap> row_taps;
+        for (int j = lo; j < hi; ++j) {
+            taps_for(j, H, &row_taps);
+            bool any = false;
+            std::fill(rowsum.begin(), rowsum.end(), 0.0);
+            for (const Tap& rt : row_taps) {
+                if (rt.src < frame_y0 || rt.src >= frame_y0 + h) continue;
+                any = true;
+                const double* row = raw + static_cast<size_t>(rt.src - frame_y0) * w * 3;
+                for (int k = 0; k < cx; ++k) {
+                    double a0 = 0, a1 = 0, a2 = 0;
+                    for (const Tap& ct : col_taps[static_cast<size_t>(k)]) {
+                        const double* px = row + static_cast<size_t>(ct.src) * 3;
+                        a0 += px[0] * ct.wgt;
+                        a1 += px[1] * ct.wgt;
+                        a2 += px[2] * ct.wgt;
+                    }
+                    rowsum[static_cast<size_t>(k) * 3 + 0] += a0 * rt.wgt;
+                    rowsum[static_cast<size_t>(k) * 3 + 1] += a1 * rt.wgt;
+                    rowsum[static_cast<size_t>(k) * 3 + 2] += a2 * rt.wgt;
+                }
+            }
+            if (!any) continue;
+            float* dst = &far->accum[static_cast<size_t>(j) * cx * 3];
+            for (size_t i = 0; i < rowsum.size(); ++i)
+                dst[i] = static_cast<float>(static_cast<double>(dst[i]) + rowsum[i]);
+        }
+    });
+}
+
+void diffusion_far_finish(DiffusionFarField* far) {
+    if (!far || far->accum.empty()) return;
+    const int f = far->factor, rc = far->coarse_radius, cks = 2 * rc + 1;
+    const int cx = far->cells_x, cy = far->cells_y;
+    far->out_w = cx - 2 * rc;
+    far->out_h = cy - 2 * rc;
+    far->field.assign(static_cast<size_t>(far->out_w) * far->out_h * 3, 0.0);
+    const double inv = 1.0 / (static_cast<double>(f) * f);
+    std::vector<double> plane(static_cast<size_t>(cx) * cy);
+    for (int c = 0; c < 3; ++c) {
+        for (size_t i = 0; i < plane.size(); ++i)
+            plane[i] = static_cast<double>(far->accum[i * 3 + c]) * inv;
+        int cap = 0;
+        const memory::MemoryReservation scratch =
+            reserve_fft_scratch(far->out_w, far->out_h, cks, &cap);
+        if (!scratch) throw std::bad_alloc{};
+        if (!fft_convolve_same(plane.data(), cx, cy, far->coarse_kernel[c].data(), cks,
+                               far->out_w, far->out_h, far->field.data(), 3, c, cap))
+            throw std::logic_error("coarse diffusion FFT rejected valid geometry");
+    }
+    std::vector<float>().swap(far->accum);
+    far->ready = true;
+}
+
+void apply_diffusion_filter_banded(double* raw, int w, int h, int frame_y0,
+                                   const DiffusionFarField& far) {
+    if (!far.ready || w != far.frame_width || h <= 0) return;
+    const size_t n = static_cast<size_t>(w) * h * 3;
+    std::vector<double> blurred(n);
+    for (int c = 0; c < 3; ++c)
+        convolve_reflect_channel(raw, w, h, c, far.near_kernel[c], far.near_radius,
+                                 blurred.data());
+    // Far term: bilinear from the coarse centres. Output cell o sits at padded
+    // cell o + rc, whose centre is fine coordinate (o+rc)*f - pad + (f-1)/2.
+    const int f = far.factor, rc = far.coarse_radius, P = far.pad;
+    const double half = (f - 1) * 0.5;
+    auto coord = [&](int x, int n_out, int* i0, int* i1, double* t) {
+        double v = (x + P - half) / f - rc;
+        if (v < 0.0) v = 0.0;
+        if (v > n_out - 1) v = n_out - 1;
+        *i0 = static_cast<int>(std::floor(v));
+        *i1 = *i0 + 1 < n_out ? *i0 + 1 : *i0;
+        *t = v - *i0;
+    };
+    std::vector<int> x0(static_cast<size_t>(w)), x1(static_cast<size_t>(w));
+    std::vector<double> tx(static_cast<size_t>(w));
+    for (int x = 0; x < w; ++x) coord(x, far.out_w, &x0[x], &x1[x], &tx[x]);
+    const double p_s = far.p_s;
+    parallel_for_weighted(0, h, w, [&](int lo, int hi) {
+        for (int y = lo; y < hi; ++y) {
+            int y0i, y1i;
+            double ty;
+            coord(frame_y0 + y, far.out_h, &y0i, &y1i, &ty);
+            const double* r0 = &far.field[static_cast<size_t>(y0i) * far.out_w * 3];
+            const double* r1 = &far.field[static_cast<size_t>(y1i) * far.out_w * 3];
+            for (int x = 0; x < w; ++x) {
+                const size_t a = static_cast<size_t>(x0[x]) * 3, b = static_cast<size_t>(x1[x]) * 3;
+                const double t = tx[x];
+                for (int c = 0; c < 3; ++c) {
+                    const double top = r0[a + c] * (1.0 - t) + r0[b + c] * t;
+                    const double bot = r1[a + c] * (1.0 - t) + r1[b + c] * t;
+                    const double farv = top * (1.0 - ty) + bot * ty;
+                    const size_t i = (static_cast<size_t>(y) * w + x) * 3 + c;
+                    raw[i] = (1.0 - p_s) * raw[i] + p_s * (blurred[i] + farv);
+                }
+            }
+        }
+    });
+}
+
 }  // namespace spk

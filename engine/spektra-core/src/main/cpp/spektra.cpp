@@ -1155,6 +1155,11 @@ struct BandFrame {
     int core_begin = 0, core_end = 0;
     spk::ContrastMaskAccum* mask_accum = nullptr;
     const spk::ContrastMaskGrid* mask_grid = nullptr;
+    // Camera diffusion filter above the whole-frame capacity (diffusion.h's
+    // near/far split). With camera_far_accumulate, the band feeds its rows to the
+    // coarse frame and stops after expose; otherwise it filters with the field.
+    spk::DiffusionFarField* camera_far = nullptr;
+    bool camera_far_accumulate = false;
 };
 
 // Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
@@ -2155,6 +2160,11 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // (plus strength/scale inside apply_diffusion_filter_um), matching the
     // oracle's gate on diffusion_filter.active alone.
     apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
+    if (band && band->camera_far) {
+        fparams.diffusion_filter.band_far = band->camera_far;
+        fparams.diffusion_filter.band_accumulate = band->camera_far_accumulate;
+        fparams.diffusion_filter.band_frame_y0 = band->y0;
+    }
     // Camera lens blur (camera.lens_blur_um) — applied in expose() between the
     // diffusion filter and halation; self-gated on lens_blur_um > 0. Default
     // 0.0 µm => strict no-op, so default params stay bit-exact.
@@ -2347,8 +2357,9 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
             spk::expose(pin.rgb.data(), width, height, fparams, tc_lut,
                         log_raw.data());
         }
-        // The highlight-boost pre-pass of a banded render ends here (BandFrame).
-        if (band && band->boost_max_out) return SPK_OK;
+        // The highlight-boost and camera-diffusion pre-passes of a banded render
+        // end here (BandFrame).
+        if (band && (band->boost_max_out || band->camera_far_accumulate)) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (tap_log_raw) *tap_log_raw = log_raw;
 
@@ -2742,6 +2753,11 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     fparams.density_curve_gamma[2] = fg;
     apply_user_dir_couplers(fparams.dir_couplers, p);
     apply_user_diffusion_filter(fparams.diffusion_filter, p, /*is_camera=*/true);
+    if (band && band->camera_far) {
+        fparams.diffusion_filter.band_far = band->camera_far;
+        fparams.diffusion_filter.band_accumulate = band->camera_far_accumulate;
+        fparams.diffusion_filter.band_frame_y0 = band->y0;
+    }
     fparams.lens_blur_um = static_cast<double>(p->lens_blur_um);
     fparams.pixel_size_um = resize_pixel_size_um;
     // The Fast GPU route. ONE latch, three consumers, so that extending it is a
@@ -3208,8 +3224,9 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             spk::expose(pin.rgb.data(), width, height, fparams, tc_lut,
                         film_log_raw.data());
         }
-        // The highlight-boost pre-pass of a banded render ends here (BandFrame).
-        if (band && band->boost_max_out) return SPK_OK;
+        // The highlight-boost and camera-diffusion pre-passes of a banded render
+        // end here (BandFrame).
+        if (band && (band->boost_max_out || band->camera_far_accumulate)) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         if (tap_log_raw) *tap_log_raw = film_log_raw;
 
@@ -3464,6 +3481,7 @@ std::atomic<int64_t> g_whole_frame_pixel_limit{0};
 std::atomic<uint64_t> g_bands_rendered{0};
 std::atomic<uint64_t> g_boost_prepasses{0};
 std::atomic<uint64_t> g_mask_prepasses{0};
+std::atomic<uint64_t> g_diffusion_prepasses{0};
 
 struct BandPlan {
     bool active = false;
@@ -3475,6 +3493,8 @@ struct BandPlan {
     // is on, else the whole input. Pixel size and auto-exposure still come from
     // the WHOLE input, exactly as preprocess_geometry derives them before it crops.
     int row0 = 0, col0 = 0, width = 0, height = 0;
+    // Coarse factor of the banded camera diffusion filter (0 = not banded).
+    int camera_far_factor = 0;
 };
 
 // Sigmas a component of weight*gain needs as its band margin (see kIirEdgeK).
@@ -3555,7 +3575,19 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     if (!(p->upscale_factor == 1.0f || p->upscale_factor == 0.0f)) return plan;
     // Highlight boost and the contrast mask band too: run_banded measures the
     // frame maximum and the mask's frame grid in pre-passes first.
-    if (p->camera_diffusion_active || p->enlarger_diffusion_active) return plan;
+    if (p->enlarger_diffusion_active) return plan;
+    // The camera diffusion filter bands only where the whole-frame filter cannot
+    // run at all (above the device's whole-frame limit): its banded form is the
+    // near/far split of diffusion.h, close to the exact filter but not bit-exact.
+    // Below the limit the frame renders whole and exactly.
+    const int64_t whole_limit = g_whole_frame_pixel_limit.load(std::memory_order_relaxed);
+    const bool camera_diffusion = p->camera_diffusion_active != 0;
+    if (camera_diffusion &&
+        (whole_limit <= 0 ||
+         static_cast<int64_t>(in->width) * in->height <= whole_limit ||
+         !valid_diffusion_family(p->camera_diffusion_family))) {
+        return plan;
+    }
     int row0 = 0, col0 = 0, w = in->width, h = in->height;
     if (p->crop != 0) {
         const spk::CropResizeParams cr = build_crop_resize(p);
@@ -3569,7 +3601,16 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     const double fmm = p->film_format_mm > 0.0f ? p->film_format_mm : 35.0;
     const int longest = in->width > in->height ? in->width : in->height;
     const double pixel_size_um = fmm * 1000.0 / static_cast<double>(longest);
-    const int margin = band_margin_rows(p, pixel_size_um);
+    int margin = band_margin_rows(p, pixel_size_um);
+    if (camera_diffusion) {
+        // The near kernel is exact out to its half-width, and the effects after
+        // it (lens blur, halation, couplers, ...) read its output that far again.
+        spk::DiffusionFilterParams d;
+        apply_user_diffusion_filter(d, p, /*is_camera=*/true);
+        plan.camera_far_factor = spk::diffusion_far_factor(w, h);
+        margin += spk::diffusion_band_near_radius(d, pixel_size_um, w, h,
+                                                  plan.camera_far_factor);
+    }
     const int64_t band_pixels = g_band_pixels.load(std::memory_order_relaxed);
     int band_rows = static_cast<int>(std::min<int64_t>(band_pixels / w, h));
     int core = band_rows - 2 * margin;
@@ -3686,6 +3727,33 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
         // 0 would read as "derive per band"; a frame whose maximum is 0 renders
         // to zeros either way (apply_highlight_boost's max_raw == 0 branch).
         band.boost_frame_max = frame_max;
+    }
+    // Camera diffusion filter: the far part of its kernel needs the whole frame,
+    // so pass 0 feeds every band's core rows -- after the highlight boost, with
+    // the frame maximum above -- into a coarse copy of the frame, which is then
+    // convolved once. The bands then filter with it (diffusion.h).
+    spk::DiffusionFarField camera_far;
+    if (p->camera_diffusion_active != 0 && plan.camera_far_factor > 0) {
+        spk::DiffusionFilterParams d;
+        apply_user_diffusion_filter(d, p, /*is_camera=*/true);
+        if (spk::diffusion_far_init(d, plan.pixel_size_um, w, h, &camera_far,
+                                    plan.camera_far_factor)) {
+            band.camera_far = &camera_far;
+            band.camera_far_accumulate = true;
+            for (int i = 0; i < plan.bands; ++i) {
+                if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
+                const int core0 = i * plan.core_rows;
+                const int core1 = std::min(h, core0 + plan.core_rows);
+                band.index = i;
+                std::vector<float> unused;
+                int ow = 0, oh = 0;
+                const spk_status st = render(core0, core1, &unused, &ow, &oh);
+                if (st != SPK_OK) return st;
+            }
+            band.camera_far_accumulate = false;
+            spk::diffusion_far_finish(&camera_far);
+            g_diffusion_prepasses.fetch_add(1, std::memory_order_relaxed);
+        }
     }
     // The contrast mask's grid averages the print exposure over the WHOLE frame.
     // Pass 1 renders every band (margins included, so its spatial effects are
@@ -4163,6 +4231,10 @@ uint64_t spk_band_mask_prepasses(void) {
     return g_mask_prepasses.load(std::memory_order_relaxed);
 }
 
+uint64_t spk_band_diffusion_prepasses(void) {
+    return g_diffusion_prepasses.load(std::memory_order_relaxed);
+}
+
 spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* p,
                         spk_image* out) {
     return spk_simulate_cancellable(eng, in, p, out, nullptr, nullptr);
@@ -4214,7 +4286,7 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
         // let the system kill the process partway through.
         set_last_error_message(
             "frame too large to render whole on this device with the active "
-            "frame-wide effects (diffusion filter or rescale)");
+            "frame-wide effects (enlarger diffusion filter or rescale)");
         return timing.finish(SPK_ERR_OOM);
     }
     std::vector<float> rgb;
