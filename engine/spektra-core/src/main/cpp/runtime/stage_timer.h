@@ -177,7 +177,37 @@ struct GpuHalationTimingSnapshot {
     double upload_ms = 0.0;
     double gpu_ms = 0.0;
     double readback_ms = 0.0;
+    // Across every call of the render (a banded render calls once per band):
+    // how many were attempted and engaged, the summed transfer + device time,
+    // and the reason of the last call that fell back.
+    uint32_t calls = 0;
+    uint32_t engaged_calls = 0;
+    double total_ms = 0.0;
+    double max_call_ms = 0.0;
+    const char* last_fallback = "-";
 };
+
+inline void stage_timing_fill_gpu_halation(GpuHalationTimingSnapshot& h, bool attempted,
+                                           bool engaged, const char* reason, uint32_t bands,
+                                           uint32_t dispatches, double upload_ms,
+                                           double gpu_ms, double readback_ms) {
+    h.attempted = attempted;
+    h.engaged = engaged;
+    h.reason = reason ? reason : "unknown";
+    h.bands = bands;
+    h.dispatches = dispatches;
+    h.upload_ms = upload_ms;
+    h.gpu_ms = gpu_ms;
+    h.readback_ms = readback_ms;
+    if (attempted) {
+        ++h.calls;
+        if (engaged) ++h.engaged_calls;
+        else h.last_fallback = h.reason;
+        const double call_ms = upload_ms + gpu_ms + readback_ms;
+        h.total_ms += call_ms;
+        if (call_ms > h.max_call_ms) h.max_call_ms = call_ms;
+    }
+}
 
 // Render-local observability for the GPU spectral scan/print dispatches. One
 // export drives dispatch_scan several times and each call slices the frame, so
@@ -376,15 +406,8 @@ inline void stage_timing_note_gpu_halation(
     uint32_t dispatches, double upload_ms, double gpu_ms, double readback_ms) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
-    GpuHalationTimingSnapshot& h = state.current.gpu_halation;
-    h.attempted = attempted;
-    h.engaged = engaged;
-    h.reason = reason ? reason : "unknown";
-    h.bands = bands;
-    h.dispatches = dispatches;
-    h.upload_ms = upload_ms;
-    h.gpu_ms = gpu_ms;
-    h.readback_ms = readback_ms;
+    stage_timing_fill_gpu_halation(state.current.gpu_halation, attempted, engaged, reason,
+                                   bands, dispatches, upload_ms, gpu_ms, readback_ms);
 }
 
 // Accumulating, unlike the halation notes: dispatch_scan is called several
@@ -467,15 +490,8 @@ inline void stage_timing_note_gpu_dir_diffusion(
     uint32_t dispatches, double upload_ms, double gpu_ms, double readback_ms) {
     StageTimingThreadState& state = stage_timing_state();
     if (state.depth <= 0) return;
-    GpuHalationTimingSnapshot& h = state.current.gpu_dir_diffusion;
-    h.attempted = attempted;
-    h.engaged = engaged;
-    h.reason = reason ? reason : "unknown";
-    h.bands = bands;
-    h.dispatches = dispatches;
-    h.upload_ms = upload_ms;
-    h.gpu_ms = gpu_ms;
-    h.readback_ms = readback_ms;
+    stage_timing_fill_gpu_halation(state.current.gpu_dir_diffusion, attempted, engaged,
+                                   reason, bands, dispatches, upload_ms, gpu_ms, readback_ms);
 }
 
 inline void stage_timing_note_gpu_pointwise(
@@ -644,12 +660,14 @@ inline int stage_timings_format(char* buf, int cap) {
     for (int i = 0; i < 2; ++i) {
         if (!notes[i]->attempted || off >= cap - 1) continue;
         int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%s%s=%s/%s/bands%u/up%.1f/gpu%.1f/down%.1f",
+                              "%s%s=%s/%s/bands%u/up%.1f/gpu%.1f/down%.1f/calls%u/eng%u/sum%.1f/max%.1f/fb:%s",
                               off ? " " : "", labels[i],
                               notes[i]->engaged ? "engaged" : "fallback",
                               notes[i]->reason, notes[i]->bands,
                               notes[i]->upload_ms, notes[i]->gpu_ms,
-                              notes[i]->readback_ms);
+                              notes[i]->readback_ms, notes[i]->calls,
+                              notes[i]->engaged_calls, notes[i]->total_ms,
+                              notes[i]->max_call_ms, notes[i]->last_fallback);
         if (n > 0) off += n;
     }
     if (snapshot.gpu_grain_attempted && off < cap - 1) {
