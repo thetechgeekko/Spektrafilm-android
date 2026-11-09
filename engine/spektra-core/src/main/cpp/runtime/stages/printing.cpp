@@ -609,9 +609,27 @@ void print_expose(const Profile& film, const Profile& print_profile,
         });
     }
 
+    const DiffusionFilterParams& df = params.diffusion_filter;
+    if (diffusion && df.band_far && df.band_accumulate) {
+        // Banded pre-pass (spektra.cpp run_banded): this band's core rows of the
+        // print irradiance go into the coarse frame, and the render stops here.
+        // log_raw_print_out is deliberately left unwritten.
+        const int c0 = df.band_core_end > df.band_core_begin ? df.band_core_begin : 0;
+        const int c1 = df.band_core_end > df.band_core_begin ? df.band_core_end : height;
+        diffusion_far_accumulate(raw_buf.data() + static_cast<size_t>(c0) * width * 3,
+                                 width, c1 - c0, df.band_frame_y0 + c0, df.band_far);
+        return;
+    }
     if (diffusion) {
-        apply_diffusion_filter_um(raw_buf.data(), width, height,
-                                  params.diffusion_filter, params.pixel_size_um);
+        if (df.band_far) {
+            // One band of a frame above the whole-frame capacity: the near/far
+            // split of model/diffusion.h with the frame's coarse far field.
+            apply_diffusion_filter_banded(raw_buf.data(), width, height,
+                                          df.band_frame_y0, *df.band_far);
+        } else {
+            apply_diffusion_filter_um(raw_buf.data(), width, height,
+                                      params.diffusion_filter, params.pixel_size_um);
+        }
         const size_t total = static_cast<size_t>(npix) * 3;
         // Per-element map with disjoint writes -> deterministic chunks. Only
         // reached when the print diffusion filter is on, so it is not on the

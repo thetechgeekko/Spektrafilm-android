@@ -476,11 +476,11 @@ spk_status spk_simulate_cancellable(spk_engine*, const spk_image* in,
  * Values <= 0 restore the defaults (16 MiP and 12 MiP). Process-wide. */
 void spk_set_band_render_limits(int64_t min_pixels, int64_t band_pixels);
 /* Largest frame, in pixels, that spk_simulate may render whole (not in bands).
- * A larger frame whose settings rule banding out -- the enlarger diffusion
- * filter, engine rescale, or a non-one-shot render -- fails with SPK_ERR_OOM
- * instead. Above it the camera diffusion filter renders in bands with its
+ * A larger frame whose settings rule banding out -- engine rescale or a
+ * non-one-shot render -- fails with SPK_ERR_OOM instead. Above it the camera
+ * and enlarger diffusion filters render in bands with their
  * near/far split (model/diffusion.h, close to but not bit-exact with the whole
- * filter); at or below it, it renders whole. 0 (the default) means no limit.
+ * filter); at or below it, they render whole. 0 (the default) means no limit.
  * Process-wide. */
 void spk_set_whole_frame_pixel_limit(int64_t max_pixels);
 /* Bands rendered by spk_simulate since the process started (diagnostics). */
@@ -489,7 +489,8 @@ uint64_t spk_band_render_bands(void);
 uint64_t spk_band_boost_prepasses(void);
 /* Contrast-mask frame-grid pre-passes run by banded renders (diagnostics). */
 uint64_t spk_band_mask_prepasses(void);
-/* Camera-diffusion coarse-frame pre-passes run by banded renders (diagnostics). */
+/* Diffusion-filter (camera or enlarger) coarse-frame pre-passes run by banded
+ * renders (diagnostics). */
 uint64_t spk_band_diffusion_prepasses(void);
 
 /* Downscaled fast path (to params.preview_max_size) for interactive tuning. */
