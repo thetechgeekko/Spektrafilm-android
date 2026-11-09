@@ -21,11 +21,21 @@ constexpr std::uint64_t decodePixelLimitForMemory(
     if (!is64Bit) return 8ULL * kMiB;
     // Missing or inconsistent telemetry must not raise the fixed baseline.
     if (totalBytes == 0 || availableBytes > totalBytes) return 12ULL * kMiB;
-    // No tier above 32 MiPixels: a 64 tier (#584/#585) let a 50 MP Samsung
-    // DNG decode on the SM-S948W, but the full-resolution engine render that
-    // follows held ~2.1 GB RSS plus ~6.4 GB swap and lmkd killed the app (and
-    // other apps) in the foreground. Bring it back only with a bounded
-    // (tiled) render behind it.
+    // 50 MP phone sensors (Samsung's LinearRaw DNGs are 8160 x 6120, 47.6
+    // MiPixels) need more than 32. A host decode of that file peaks at 1.9 GiB
+    // RSS (16-bit store, LibRaw image, make_mem_image copy, float RGB). The
+    // SM-S948W (11.35 GB) showed 2.93 GB MemAvailable with the editor open at
+    // export time, so a 4 GiB gate refused the very phone that shoots these
+    // files. 2.5 GiB covers the measured peak plus margin, and a 10 GiB phone
+    // can also reclaim cached apps; everyone else keeps the lower tiers.
+    // This bounds the DECODE only. The engine render after it needs ~140 B/px
+    // and is bounded separately: the app area-averages an export-scale source
+    // to engineRenderPixelCap() before rendering (ExportPixelCap.kt), since an
+    // unbounded 50 MP render was killed by lmkd on this phone.
+    if (totalBytes >= 10ULL * kGiB &&
+        availableBytes >= 5ULL * kGiB / 2ULL) {
+        return 64ULL * kMiB;
+    }
     if (totalBytes >= 8ULL * kGiB &&
         availableBytes >= 3ULL * kGiB) {
         return 32ULL * kMiB;

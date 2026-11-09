@@ -147,7 +147,7 @@ internal suspend fun decodeSourceRequest(
     var applyExifBaseline = request.kind != SourceKind.RAW
     var usedPlatformFallback = false
     val rawMemoryDegraded = java.util.concurrent.atomic.AtomicBoolean(false)
-    val image = when (request.kind) {
+    val decodedImage = when (request.kind) {
         SourceKind.RAW -> try {
             runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
                 decodeRawToLinear(
@@ -191,6 +191,31 @@ internal suspend fun decodeSourceRequest(
             isCancelled,
         )
         SourceKind.DEMO -> syntheticLinearImage(256)
+    }
+    // Export scale only: a preview never comes near the cap, and the cap is about the engine's
+    // full-resolution render, not the decode (see ExportPixelCap.kt).
+    val image = if (maxEdge > HALF_DECODE_EDGE_THRESHOLD) {
+        val cap = engineRenderPixelCap(AppMemoryBudget.configure(request.context).physicalBytes)
+        val target = reducedToFit(decodedImage.width, decodedImage.height, cap)
+        if (target == null) {
+            decodedImage
+        } else {
+            val reduced = try {
+                decodedImage.areaDownscaled(target.first, target.second, isCancelled)
+            } finally {
+                decodedImage.close()
+            }
+            // Smaller than asked for: never disk-cache it as the full decode.
+            rawMemoryDegraded.set(true)
+            Diag.i(
+                "export source reduced to fit render memory: " +
+                    "${decodedImage.width}x${decodedImage.height} -> ${reduced.width}x${reduced.height} " +
+                    "(cap ${cap / 1_000_000} MP)",
+            )
+            reduced
+        }
+    } else {
+        decodedImage
     }
     var ownedImage: LinearImage? = image
     try {
