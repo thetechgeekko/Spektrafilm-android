@@ -171,8 +171,10 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <atomic>
 #include <mutex>
 #include <new>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -822,10 +824,42 @@ struct Ctx {
 // kills app processes without running static destructors anyway. destroyScan()
 // exists for mid-process FAILURE recovery, where the device is alive and the
 // calls are safe.
-std::mutex& gpu_mutex() { static std::mutex m; return m; }
+// A std::mutex that knows its owner, so the memory-budget reclaimer can tell a
+// denial raised inside a GPU call (lock held by this thread: skip) from one on
+// another thread (try_lock, never block).
+class GpuMutex {
+public:
+    void lock() {
+        m_.lock();
+        owner_.store(std::this_thread::get_id(), std::memory_order_relaxed);
+    }
+    bool try_lock() {
+        if (!m_.try_lock()) return false;
+        owner_.store(std::this_thread::get_id(), std::memory_order_relaxed);
+        return true;
+    }
+    void unlock() {
+        owner_.store(std::thread::id(), std::memory_order_relaxed);
+        m_.unlock();
+    }
+    bool held_by_this_thread() const {
+        return owner_.load(std::memory_order_relaxed) == std::this_thread::get_id();
+    }
+
+private:
+    std::mutex m_;
+    std::atomic<std::thread::id> owner_{};
+};
+GpuMutex& gpu_mutex() { static GpuMutex m; return m; }
 Ctx* g_ctx = nullptr;  // guarded by gpu_mutex(); see ctx()
+bool release_resources_locked();
+bool reclaim_for_budget() noexcept;
 Ctx& ctx() {
-    if (!g_ctx) { g_ctx = new Ctx(); g_ctx->init(); }
+    if (!g_ctx) {
+        g_ctx = new Ctx();
+        g_ctx->init();
+        if (g_ctx->ok) spk::memory::process_memory_budget().set_reclaimer(&reclaim_for_budget);
+    }
     return *g_ctx;
 }
 
@@ -1225,7 +1259,7 @@ bool render_pointwise_chain(const PointwiseChainRequest& request,
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(gpu_mutex());
+    std::lock_guard<GpuMutex> lock(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) {
         d.fallback_reason = PointwiseFallbackReason::unavailable;
@@ -1500,12 +1534,12 @@ bool render_pointwise_chain(const PointwiseChainRequest& request,
 }
 
 bool available() {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     return ctx().ok;
 }
 
-bool release_resources() {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+namespace {
+bool release_resources_locked() {
     // Never create a context just to tear it down.
     Ctx* c = g_ctx;
     if (!c || !c->ok || !c->device) return false;
@@ -1519,14 +1553,45 @@ bool release_resources() {
     return true;
 }
 
+std::uint64_t gpu_reserved_bytes_now() {
+    const auto s = spk::memory::process_memory_budget().snapshot();
+    return s.domains[static_cast<std::size_t>(spk::memory::MemoryDomain::GpuHost)].current_bytes +
+           s.domains[static_cast<std::size_t>(spk::memory::MemoryDomain::GpuDevice)].current_bytes;
+}
+
+// Budget reclaimer: a denied CPU or GPU request anywhere in the process drops
+// the idle grow-only GPU caches (output-neutral, rebuilt lazily) and retries.
+// Skipped while this thread is inside a GPU call, or another thread is.
+bool reclaim_for_budget() noexcept {
+    GpuMutex& m = gpu_mutex();
+    if (m.held_by_this_thread() || !m.try_lock()) return false;
+    std::lock_guard<GpuMutex> lk(m, std::adopt_lock);
+    const std::uint64_t before = gpu_reserved_bytes_now();
+    if (before == 0 || !release_resources_locked()) return false;
+    const std::uint64_t after = gpu_reserved_bytes_now();
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "spektra",
+                        "gpu caches reclaimed for a denied reservation: %llu -> %llu bytes",
+                        static_cast<unsigned long long>(before),
+                        static_cast<unsigned long long>(after));
+#endif
+    return after < before;
+}
+}  // namespace
+
+bool release_resources() {
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
+    return release_resources_locked();
+}
+
 bool low_priority_queue() {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     const Ctx& c = ctx();
     return c.ok && c.lowPriorityQueue;
 }
 
 bool cctf_encode_srgb(float* data, size_t n) {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok || data == nullptr || n == 0) return false;
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(n) * sizeof(float);
@@ -1804,7 +1869,7 @@ static bool dispatch_scan(Ctx& c, Ctx::Kernel& s, const uint32_t* spv, size_t sp
 
 bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
                    const float* dye, const float* icmf, const float* xyz2rgb) {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     return dispatch_scan(c, c.scanFused, kScanSpectralSpv, sizeof(kScanSpectralSpv),
                          cmy, rgb, npix, dye, icmf, xyz2rgb);
@@ -1812,7 +1877,7 @@ bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
 
 bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
                           const float* dye, const float* icmf, const float* xyz2rgb) {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     return dispatch_scan(c, c.scanLin, kScanSpectralLinSpv, sizeof(kScanSpectralLinSpv),
                          cmy, rgb, npix, dye, icmf, xyz2rgb);
@@ -1943,7 +2008,7 @@ bool grain_sample(const GrainSampleRequest& request, float* out_rgb,
     if (request.width < 2u * maxRadius + 1u || request.height < 2u * maxRadius + 1u)
         return give_up("frame-smaller-than-kernel");
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
     const VkPhysicalDeviceLimits& limits = c.properties.limits;
@@ -2205,7 +2270,7 @@ bool frame_open(const double* rgb, int width, int height,
     const uint64_t comps = static_cast<uint64_t>(width) * height * 3;
     if (comps > UINT32_MAX) return give_up("frame-too-large");
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
     if (c.frame.open) return give_up("already-open");
@@ -2249,7 +2314,7 @@ bool frame_close(double* rgb, FrameDiagnostics* diagnostics) {
     };
     if (rgb == nullptr) return give_up("invalid-request");
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok || !c.frame.open) return give_up("not-open");
     const uint64_t comps =
@@ -2275,7 +2340,7 @@ bool frame_close(double* rgb, FrameDiagnostics* diagnostics) {
 }
 
 void frame_discard() {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return;
     // The plane stays allocated -- it is grow-only scratch like every other
@@ -2285,7 +2350,7 @@ void frame_discard() {
 }
 
 bool frame_active(int width, int height) {
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     return c.ok && c.frame.open && c.frame.width == width && c.frame.height == height;
 }
@@ -2405,7 +2470,7 @@ bool run_filming_stage(const FilmingStageRun& r, FilmingStageDiagnostics* diagno
     if (needs_table && r.tc_count == 0 && r.curve_count == 0)
         return give_up("null-table");
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
 
@@ -2888,7 +2953,7 @@ bool highlight_boost(double* rgb, int width, int height, double boost_ev,
     // scan produces regardless of how the workgroups divided the plane.
     double max_raw = 0.0;
     {
-        std::lock_guard<std::mutex> lk(gpu_mutex());
+        std::lock_guard<GpuMutex> lk(gpu_mutex());
         Ctx& c = ctx();
         const float* partial = static_cast<const float*>(c.filmK.cmfB.mapped);
         if (partial == nullptr) return give_up("dispatch-failed");
@@ -3122,7 +3187,7 @@ bool fft_convolve(const FftConvolveRequest& r, double* out,
     const int block_x = tnx - ks + 1;
     const int block_y = tny - ks + 1;
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
     const VkPhysicalDeviceLimits& limits = c.properties.limits;
@@ -4527,7 +4592,7 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
     d = {};
     bool ok = false;
     try {
-        std::lock_guard<std::mutex> lk(gpu_mutex());
+        std::lock_guard<GpuMutex> lk(gpu_mutex());
         Ctx& c = ctx();
         ok = halation_scatter_locked(c, request, out_rgb, d);
         // A refusal decided before any Vulkan call (bad request, sigma or slice
@@ -4554,7 +4619,7 @@ bool halation_scatter(const HalationScatterRequest& request, double* out_rgb,
         d.reason = "exception";
         ok = false;
         try {
-            std::lock_guard<std::mutex> lk(gpu_mutex());
+            std::lock_guard<GpuMutex> lk(gpu_mutex());
             ctx().destroyHalation();
         } catch (...) {
         }
@@ -4674,7 +4739,7 @@ bool gaussian_blur_rgb_f32(float* rgb, int width, int height,
     HalationScatterDiagnostics diagnostics{};
     bool ok = false;
     try {
-        std::lock_guard<std::mutex> lk(gpu_mutex());
+        std::lock_guard<GpuMutex> lk(gpu_mutex());
         Ctx& c = ctx();
         ok = halation_scatter_locked(c, request, nullptr, diagnostics, out.data());
         if (!ok && (std::strcmp(diagnostics.reason, "pipeline-failed") == 0 ||
@@ -4812,7 +4877,7 @@ bool glare_field(float* field, int width, int height, const GlareRequest& reques
 
     const uint32_t npix = static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
 
-    std::lock_guard<std::mutex> lk(gpu_mutex());
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
     Ctx& c = ctx();
     if (!c.ok) return give_up("gpu-unavailable");
     const VkPhysicalDeviceLimits& limits = c.properties.limits;

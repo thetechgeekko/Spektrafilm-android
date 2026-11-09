@@ -111,6 +111,37 @@ int main() {
            std::numeric_limits<std::uint64_t>::max() - 7);
     nearly_all.reset();
 
+    // A denial runs the reclaimer once and retries; a reclaimer that frees
+    // nothing (or a request larger than the ceiling) is denied as before.
+    {
+        static MemoryBudget reclaim_budget(100);
+        static spk::memory::MemoryReservation idle_cache;
+        static int reclaim_calls = 0;
+        reclaim_calls = 0;
+        idle_cache = reclaim_budget.try_reserve(80, MemoryDomain::GpuHost, MemoryStage::Gpu);
+        assert(idle_cache);
+        // Without a reclaimer the old behaviour holds.
+        assert(!reclaim_budget.try_reserve(40, MemoryDomain::JniOwned, MemoryStage::JniSimResult));
+        reclaim_budget.set_reclaimer([]() noexcept {
+            ++reclaim_calls;
+            // A reclaimer that allocates is never re-entered.
+            assert(!reclaim_budget.try_reserve(1000, MemoryDomain::Unknown, MemoryStage::Unknown));
+            const bool had = static_cast<bool>(idle_cache);
+            idle_cache.reset();
+            return had;
+        });
+        auto admitted = reclaim_budget.try_reserve(40, MemoryDomain::JniOwned, MemoryStage::JniSimResult);
+        assert(admitted);
+        assert(reclaim_calls == 1);
+        assert(reclaim_budget.snapshot().total.current_bytes == 40);
+        auto too_big = reclaim_budget.try_reserve(70, MemoryDomain::NativeScratch, MemoryStage::Spatial);
+        assert(!too_big);
+        assert(reclaim_calls == 2);  // ran, freed nothing, denied
+        assert(!reclaim_budget.try_reserve(101, MemoryDomain::NativeScratch, MemoryStage::Spatial));
+        assert(reclaim_calls == 2);  // larger than the ceiling: no reclaim
+        reclaim_budget.set_reclaimer(nullptr);
+    }
+
     MemoryBudget invalid_tag_budget(1);
     auto sanitized_tags = invalid_tag_budget.try_reserve(
         1, static_cast<MemoryDomain>(255), static_cast<MemoryStage>(255));
