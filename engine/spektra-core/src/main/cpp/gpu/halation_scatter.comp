@@ -423,23 +423,23 @@ void main() {
     return;
   }
   if (params.operation == kOpLineInPlace || params.operation == kOpLineYAccumulate) {
-    const uint line = gl_WorkGroupID.x * kThreadsPerGroup + gl_LocalInvocationIndex;
+    // One thread per (column, channel), channel fastest: three times the
+    // threads of one-per-column, and neighbouring threads touch neighbouring
+    // words. Each channel's recursion is the same arithmetic as before.
+    const uint t = gl_WorkGroupID.x * kThreadsPerGroup + gl_LocalInvocationIndex;
+    const uint line = t / 3u;
+    const uint c = t - line * 3u;
     if (line >= params.width || params.height == 0u) {
       return;
     }
     const uint slot = blurSlot();
-    if (params.operation == kOpLineInPlace) {
-      for (uint c = 0u; c < 3u; ++c) {
-        if (blurIsIir(slot, c)) {
-          iirColumnInPlace(line, params.height, slot, c);
-        }
-      }
+    if (!blurIsIir(slot, c)) {
       return;
     }
-    for (uint c = 0u; c < 3u; ++c) {
-      if (blurIsIir(slot, c)) {
-        iirColumnAccumulate(line, params.height, slot, c, blurWeight(slot, c));
-      }
+    if (params.operation == kOpLineInPlace) {
+      iirColumnInPlace(line, params.height, slot, c);
+    } else {
+      iirColumnAccumulate(line, params.height, slot, c, blurWeight(slot, c));
     }
     return;
   }

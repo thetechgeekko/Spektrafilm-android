@@ -183,6 +183,9 @@ struct GpuHalationTimingSnapshot {
     uint32_t calls = 0;
     uint32_t engaged_calls = 0;
     double total_ms = 0.0;
+    double up_sum_ms = 0.0;
+    double gpu_sum_ms = 0.0;
+    double down_sum_ms = 0.0;
     double max_call_ms = 0.0;
     const char* last_fallback = "-";
 };
@@ -205,6 +208,9 @@ inline void stage_timing_fill_gpu_halation(GpuHalationTimingSnapshot& h, bool at
         else h.last_fallback = h.reason;
         const double call_ms = upload_ms + gpu_ms + readback_ms;
         h.total_ms += call_ms;
+        h.up_sum_ms += upload_ms;
+        h.gpu_sum_ms += gpu_ms;
+        h.down_sum_ms += readback_ms;
         if (call_ms > h.max_call_ms) h.max_call_ms = call_ms;
     }
 }
@@ -660,14 +666,17 @@ inline int stage_timings_format(char* buf, int cap) {
     for (int i = 0; i < 2; ++i) {
         if (!notes[i]->attempted || off >= cap - 1) continue;
         int n = std::snprintf(buf + off, static_cast<size_t>(cap - off),
-                              "%s%s=%s/%s/bands%u/up%.1f/gpu%.1f/down%.1f/calls%u/eng%u/sum%.1f/max%.1f/fb:%s",
+                              "%s%s=%s/%s/bands%u/up%.1f/gpu%.1f/down%.1f/calls%u/eng%u/sum%.1f/max%.1f/fb:%s"
+                              "/sumup%.1f/sumgpu%.1f/sumdown%.1f",
                               off ? " " : "", labels[i],
                               notes[i]->engaged ? "engaged" : "fallback",
                               notes[i]->reason, notes[i]->bands,
                               notes[i]->upload_ms, notes[i]->gpu_ms,
                               notes[i]->readback_ms, notes[i]->calls,
                               notes[i]->engaged_calls, notes[i]->total_ms,
-                              notes[i]->max_call_ms, notes[i]->last_fallback);
+                              notes[i]->max_call_ms, notes[i]->last_fallback,
+                              notes[i]->up_sum_ms, notes[i]->gpu_sum_ms,
+                              notes[i]->down_sum_ms);
         if (n > 0) off += n;
     }
     if (snapshot.gpu_grain_attempted && off < cap - 1) {

@@ -3656,7 +3656,7 @@ static_assert(sizeof(HalationPush) == 104, "push block must match halation_scatt
 constexpr uint32_t kHalOpClear = 0u;
 constexpr uint32_t kHalOpScatterResolve = 4u;
 constexpr uint32_t kHalOpBounceResolveRaw = 10u;
-constexpr uint32_t kHalOpLineInPlace = 12u;      // IIR channels, one thread per column, in place on buf1
+constexpr uint32_t kHalOpLineInPlace = 12u;      // IIR, one thread per (column, channel), in place on buf1
 constexpr uint32_t kHalOpLineYAccumulate = 13u;  // IIR channels, buf1 += w * blur(in0), buf3 scratch
 constexpr uint32_t kHalOpFirX = 14u;             // FIR channels, per pixel
 constexpr uint32_t kHalOpFirYAccumulate = 16u;
@@ -3981,7 +3981,7 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     // dispatch limits.
     auto groups_ok = [&](uint32_t w, uint32_t h) {
         const uint32_t m = std::max(w, h);
-        return (m + kHalLineThreads - 1u) / kHalLineThreads <= lim.maxComputeWorkGroupCount[0] &&
+        return (3ull * m + kHalLineThreads - 1u) / kHalLineThreads <= lim.maxComputeWorkGroupCount[0] &&
                (m + kHalTransposeTile - 1u) / kHalTransposeTile <=
                    std::min(lim.maxComputeWorkGroupCount[0], lim.maxComputeWorkGroupCount[1]) &&
                (w + kHalGroupX - 1u) / kHalGroupX <= lim.maxComputeWorkGroupCount[0] &&
@@ -4252,7 +4252,8 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         vkCmdBindDescriptorSets(k.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, k.pl, 0, 1, &k.dsets[set], 0, nullptr);
         vkCmdPushConstants(k.cmd, k.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HalationPush), &push);
         if (op == kHalOpLineInPlace || op == kHalOpLineYAccumulate) {
-            vkCmdDispatch(k.cmd, (width + kHalLineThreads - 1u) / kHalLineThreads, 1, 1);
+            // One thread per (column, channel).
+            vkCmdDispatch(k.cmd, (width * 3u + kHalLineThreads - 1u) / kHalLineThreads, 1, 1);
         } else if (op == kHalOpTranspose) {
             vkCmdDispatch(k.cmd, (width + kHalTransposeTile - 1u) / kHalTransposeTile,
                           (height + kHalTransposeTile - 1u) / kHalTransposeTile, 1);
