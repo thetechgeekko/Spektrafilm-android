@@ -780,7 +780,8 @@ void expose_impl(const Src& src, int width, int height,
             return;
         }
         ScopedStage _t(STG_DIFFUSION);
-        apply_diffusion_filter_banded(raw, width, height, d.band_frame_y0, *d.band_far);
+        apply_diffusion_filter_banded(raw, width, height, d.band_frame_y0, *d.band_far,
+                                      params.allow_gpu_diffusion_fft);
     } else if (params.diffusion_filter.active) {
         ScopedStage _t(STG_DIFFUSION);
         // Off by default and nothing sets the latch -- see params.h for the device

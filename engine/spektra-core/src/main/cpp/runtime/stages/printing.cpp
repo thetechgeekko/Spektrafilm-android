@@ -625,10 +625,12 @@ void print_expose(const Profile& film, const Profile& print_profile,
             // One band of a frame above the whole-frame capacity: the near/far
             // split of model/diffusion.h with the frame's coarse far field.
             apply_diffusion_filter_banded(raw_buf.data(), width, height,
-                                          df.band_frame_y0, *df.band_far);
+                                          df.band_frame_y0, *df.band_far,
+                                          params.allow_gpu_diffusion_fft);
         } else {
             apply_diffusion_filter_um(raw_buf.data(), width, height,
-                                      params.diffusion_filter, params.pixel_size_um);
+                                      params.diffusion_filter, params.pixel_size_um,
+                                      params.allow_gpu_diffusion_fft);
         }
         const size_t total = static_cast<size_t>(npix) * 3;
         // Per-element map with disjoint writes -> deterministic chunks. Only

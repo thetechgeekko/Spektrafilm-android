@@ -1680,13 +1680,50 @@ void diffusion_far_finish(DiffusionFarField* far) {
 }
 
 void apply_diffusion_filter_banded(double* raw, int w, int h, int frame_y0,
-                                   const DiffusionFarField& far) {
+                                   const DiffusionFarField& far, bool allow_gpu_fft) {
     if (!far.ready || w != far.frame_width || h <= 0) return;
     const size_t n = static_cast<size_t>(w) * h * 3;
     std::vector<double> blurred(n);
-    for (int c = 0; c < 3; ++c)
+    const int ks = 2 * far.near_radius + 1;
+    bool gpu_done[3] = {false, false, false};
+    if (allow_gpu_fft) {
+        // The near convolution on the GPU FFT (#216's operator, f32): channels
+        // 0+1 paired, then 2. On refusal nothing is written and that channel
+        // runs on the CPU transform below.
+        const uint64_t budgets[2] = {gpu::kFftGpuMaxElements, gpu::kFftGpuMaxElements / 2};
+        for (int c = 0; c < 3; c += 2) {
+            gpu::FftConvolveRequest gr;
+            gr.src_rgb = raw;
+            gr.width = w;
+            gr.height = h;
+            gr.channel = c;
+            gr.kern = far.near_kernel[c].data();
+            gr.ks = ks;
+            gr.out_stride = 3;
+            gr.out_offset = c;
+            if (c == 0) {
+                gr.channel2 = 1;
+                gr.kern2 = far.near_kernel[1].data();
+                gr.out_offset2 = 1;
+            }
+            gpu::FftConvolveDiagnostics gd{};
+            for (uint64_t budget : budgets) {
+                gr.max_elements = budget;
+                if (gpu::fft_convolve(gr, blurred.data(), &gd)) {
+                    gpu_done[c] = true;
+                    if (c == 0) gpu_done[1] = true;
+                    break;
+                }
+            }
+            note_gpu_fft(c, gd);
+            if (c == 0) note_gpu_fft(1, gd, /*count=*/false);
+        }
+    }
+    for (int c = 0; c < 3; ++c) {
+        if (gpu_done[c]) continue;
         convolve_reflect_channel(raw, w, h, c, far.near_kernel[c], far.near_radius,
                                  blurred.data());
+    }
     // Far term: bilinear from the coarse centres. Output cell o sits at padded
     // cell o + rc, whose centre is fine coordinate (o+rc)*f - pad + (f-1)/2.
     const int f = far.factor, rc = far.coarse_radius, P = far.pad;

@@ -2810,6 +2810,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // -- that latch carries the Gaussian-mixture SURROGATE, whose measured error
     // is 18-37%, and the two must never share a flag.
     fparams.allow_gpu_diffusion_fft = fast_gpu_route;
+    // The enlarger diffusion filter is the same operator on the print side.
+    pparams.allow_gpu_diffusion_fft = fast_gpu_route;
     // The pointwise filming halves (#218), same latch again: same operator,
     // f32 instead of f64, tolerance-bounded and never parity evidence.
     fparams.allow_gpu_filming = fast_gpu_route;
