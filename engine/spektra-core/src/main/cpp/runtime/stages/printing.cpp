@@ -340,8 +340,11 @@ void print_expose(const Profile& film, const Profile& print_profile,
                                                dye.data(), icmf.data(),
                                                kIdentity)) {
                 // The kernel stops at `raw`; the constant tail (midgray factor,
-                // preflash 3-vector, log10 floor) is pointwise and stays on the
-                // CPU, exactly as the direct path computes it.
+                // preflash 3-vector, floor) is pointwise and stays on the CPU.
+                // It stores the linear exposure y = fmax(raw, 0) + 1e-10 itself,
+                // not log10(y) for the loop below to raise back to 10^: the same
+                // round trip the direct path drops (#203), two libm calls per
+                // channel per pixel on every banded print pass.
                 lut_lr.resize(static_cast<size_t>(npix) * 3);
                 double* const lr = lut_lr.data();
                 const double efm = params.exposure_factor_midgray;
@@ -353,8 +356,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
                                     gpu_raw[static_cast<size_t>(p) * 3 + k]) *
                                     efm +
                                 preflash_raw[k];
-                            lr[static_cast<size_t>(p) * 3 + k] =
-                                std::log10(std::fmax(raw, 0.0) + 1e-10);
+                            lr[static_cast<size_t>(p) * 3 + k] = std::fmax(raw, 0.0) + 1e-10;
                         }
                 });
                 gpu_lr_done = true;
@@ -452,8 +454,8 @@ void print_expose(const Profile& film, const Profile& print_profile,
                                     lut_lr.data());
     }
 
-    // True when lut_lr carries a precomputed log_raw plane, from EITHER the
-    // opt-in enlarger LUT or the GPU offload above.
+    // True when lut_lr is precomputed: log_raw from the opt-in enlarger LUT, or
+    // (gpu_lr_done) the linear exposure from the GPU offload above.
     const bool lr_precomputed = params.use_enlarger_lut || gpu_lr_done;
 
     // The Python reference runs the whole spectral chain in float64 and stores
@@ -465,7 +467,13 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // byte-exact path — its exp10_vec SIMD is left untouched).
         // y = 10^log_raw_print, the linear print exposure the tail multiplies.
         double y0, y1, y2;
-        if (lr_precomputed) {
+        if (gpu_lr_done) {
+            // The GPU offload left the linear exposure itself (see above).
+            const double* gy = lut_lr.data() + static_cast<size_t>(p) * 3;
+            y0 = gy[0];
+            y1 = gy[1];
+            y2 = gy[2];
+        } else if (lr_precomputed) {
             // An interpolated log value: exponentiate it, as expose() does.
             const double* lr = lut_lr.data() + static_cast<size_t>(p) * 3;
             y0 = std::pow(10.0, lr[0]);
