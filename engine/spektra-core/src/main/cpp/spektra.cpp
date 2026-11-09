@@ -62,6 +62,7 @@
 #include "kernels/parallel.h"     // spk_set_big_cores -> parallel_set_big_cores
 #include "model/color_output.h"
 #include "model/density_curves.h"
+#include "model/contrast_mask.h"
 #include "model/diffusion.h"
 #include "model/color_filters.h"
 #include "model/spectral.h"
@@ -1148,6 +1149,12 @@ struct BandFrame {
     // A measuring render stops right after expose and produces no pixels.
     double boost_frame_max = 0.0;
     double* boost_max_out = nullptr;
+    // Contrast mask (print route): pass 1 adds the band's core rows -- band-local
+    // [core_begin, core_end) -- to the frame's cell sums and stops after the
+    // print exposure; pass 2 applies the finished frame grid.
+    int core_begin = 0, core_end = 0;
+    spk::ContrastMaskAccum* mask_accum = nullptr;
+    const spk::ContrastMaskGrid* mask_grid = nullptr;
 };
 
 // Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
@@ -2655,6 +2662,15 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     pparams.contrast_mask.shadows = static_cast<double>(p->contrast_mask_shadows);
     pparams.contrast_mask.core = static_cast<double>(p->contrast_mask_core);
     pparams.contrast_mask.scale = static_cast<double>(p->contrast_mask_scale);
+    if (band) {
+        pparams.contrast_mask.frame_width = band->frame_width;
+        pparams.contrast_mask.frame_height = band->frame_height;
+        pparams.contrast_mask.frame_y0 = band->y0;
+        pparams.contrast_mask.core_begin = band->core_begin;
+        pparams.contrast_mask.core_end = band->core_end;
+        pparams.contrast_mask.accum = band->mask_accum;
+        pparams.contrast_mask.grid = band->mask_grid;
+    }
 
     // Scanner BLACK/WHITE correction (print route). Active only when a correction is
     // enabled AND the print paper is NEGATIVE (color_reference.py's
@@ -3255,6 +3271,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         std::vector<float> print_log_raw(out_elems);
         spk::print_expose(film, prnt, pparams, film_density_cmy.data(), width, height,
                           print_log_raw.data());
+        // The contrast-mask pass 1 of a banded render ends here (BandFrame).
+        if (band && band->mask_accum) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         // film_density_cmy's last read was print_expose (the tap copy was taken
         // above; the memo store below uses pd_key only) — at 12 MP this
@@ -3445,6 +3463,7 @@ std::atomic<int64_t> g_band_pixels{kBandPixelsDefault};
 std::atomic<int64_t> g_whole_frame_pixel_limit{0};
 std::atomic<uint64_t> g_bands_rendered{0};
 std::atomic<uint64_t> g_boost_prepasses{0};
+std::atomic<uint64_t> g_mask_prepasses{0};
 
 struct BandPlan {
     bool active = false;
@@ -3530,11 +3549,9 @@ BandPlan plan_band_render(const spk_image* in, const spk_params* p) {
     if (!one_shot_render(p)) return plan;
     // Engine upscale resamples the whole frame; crop alone is a pixel box.
     if (!(p->upscale_factor == 1.0f || p->upscale_factor == 0.0f)) return plan;
-    // Highlight boost bands too: run_banded measures the frame maximum first.
-    if (p->camera_diffusion_active || p->enlarger_diffusion_active ||
-        p->contrast_mask_active) {
-        return plan;
-    }
+    // Highlight boost and the contrast mask band too: run_banded measures the
+    // frame maximum and the mask's frame grid in pre-passes first.
+    if (p->camera_diffusion_active || p->enlarger_diffusion_active) return plan;
     int row0 = 0, col0 = 0, w = in->width, h = in->height;
     if (p->crop != 0) {
         const spk::CropResizeParams cr = build_crop_resize(p);
@@ -3666,6 +3683,44 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
         // to zeros either way (apply_highlight_boost's max_raw == 0 branch).
         band.boost_frame_max = frame_max;
     }
+    // The contrast mask's grid averages the print exposure over the WHOLE frame.
+    // Pass 1 renders every band (margins included, so its spatial effects are
+    // what pass 2 will see) up to the print exposure and adds its core rows to
+    // the frame's cell sums; the cores partition the frame and every cell's sums
+    // grow in raster order, so the grid is the one a whole-frame render builds
+    // from the same exposure. Print route only: scan_film has no print stage.
+    spk::ContrastMaskAccum mask_accum;
+    spk::ContrastMaskGrid mask_grid;
+    spk::ContrastMaskParams mask_params;
+    mask_params.active = p->contrast_mask_active != 0;
+    mask_params.highlights = static_cast<double>(p->contrast_mask_highlights);
+    mask_params.shadows = static_cast<double>(p->contrast_mask_shadows);
+    mask_params.core = static_cast<double>(p->contrast_mask_core);
+    mask_params.scale = static_cast<double>(p->contrast_mask_scale);
+    if (!p->scan_film && mask_params.engaged()) {
+        spk::contrast_mask_accum_init(&mask_accum, w, h, mask_params);
+        band.mask_accum = &mask_accum;
+        for (int i = 0; i < plan.bands; ++i) {
+            if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
+            const int core0 = i * plan.core_rows;
+            const int core1 = std::min(h, core0 + plan.core_rows);
+            const int y0 = std::max(0, core0 - plan.margin_rows);
+            const int y1 = std::min(h, core1 + plan.margin_rows);
+            band.index = i;
+            band.core_begin = core0 - y0;
+            band.core_end = core1 - y0;
+            std::vector<float> unused;
+            int ow = 0, oh = 0;
+            const spk_status st = render(y0, y1, &unused, &ow, &oh);
+            if (st != SPK_OK) return st;
+        }
+        band.mask_accum = nullptr;
+        spk::contrast_mask_finish(mask_accum, mask_params, &mask_grid);
+        std::vector<double>().swap(mask_accum.sum);
+        std::vector<double>().swap(mask_accum.sum2);
+        band.mask_grid = &mask_grid;
+        g_mask_prepasses.fetch_add(1, std::memory_order_relaxed);
+    }
     for (int i = 0; i < plan.bands; ++i) {
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         const int core0 = i * plan.core_rows;
@@ -3673,6 +3728,8 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
         const int y0 = std::max(0, core0 - plan.margin_rows);
         const int y1 = std::min(h, core1 + plan.margin_rows);
         band.index = i;
+        band.core_begin = core0 - y0;
+        band.core_end = core1 - y0;
         std::vector<float> rgb;
         int ow = w, oh = y1 - y0;
         const spk_status st = render(y0, y1, &rgb, &ow, &oh);
@@ -4098,6 +4155,10 @@ uint64_t spk_band_boost_prepasses(void) {
     return g_boost_prepasses.load(std::memory_order_relaxed);
 }
 
+uint64_t spk_band_mask_prepasses(void) {
+    return g_mask_prepasses.load(std::memory_order_relaxed);
+}
+
 spk_status spk_simulate(spk_engine* eng, const spk_image* in, const spk_params* p,
                         spk_image* out) {
     return spk_simulate_cancellable(eng, in, p, out, nullptr, nullptr);
@@ -4143,13 +4204,13 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
         g_whole_frame_pixel_limit.load(std::memory_order_relaxed);
     if (whole_limit > 0 &&
         static_cast<int64_t>(in->width) * in->height > whole_limit) {
-        // The diffusion filters, the contrast mask and engine rescale need the
-        // whole frame, so they keep a frame this size out of bands -- and a
-        // whole 50 MP render was what drove a phone into lmkd. Refuse it here,
-        // typed, rather than let the system kill the process partway through.
+        // The diffusion filters and engine rescale need the whole frame, so
+        // they keep a frame this size out of bands -- and a whole 50 MP render
+        // was what drove a phone into lmkd. Refuse it here, typed, rather than
+        // let the system kill the process partway through.
         set_last_error_message(
             "frame too large to render whole on this device with the active "
-            "frame-wide effects (diffusion filter, contrast mask or rescale)");
+            "frame-wide effects (diffusion filter or rescale)");
         return timing.finish(SPK_ERR_OOM);
     }
     std::vector<float> rgb;
