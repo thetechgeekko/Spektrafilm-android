@@ -516,7 +516,8 @@ int main(int argc, char** argv) {
         // half the kernel's natural reach, as at 50-200 MP; the last case caps it
         // at a twelfth (a thin panorama crop), where the cut is still bright and
         // the coarse far term blurs it, so it gets its own, looser bound.
-        struct Case { spk::DiffusionFamily fam; double px; int f; double worst, rms; };
+        struct Case { spk::DiffusionFamily fam; double px; int f; double worst, rms;
+                      double scale = 1.0, core_size = 1.0; };
         const Case cases[] = {
             {spk::DiffusionFamily::kBlackProMist, 5.1, 4, 1e-3, 1e-4},
             {spk::DiffusionFamily::kProMist, 8.7, 4, 1e-3, 1e-4},
@@ -525,12 +526,17 @@ int main(int argc, char** argv) {
             {spk::DiffusionFamily::kBlackProMist, 5.1, 8, 1e-3, 1e-4},
             {spk::DiffusionFamily::kCinebloom, 13.4, 8, 1e-3, 1e-4},
             {spk::DiffusionFamily::kCinebloom, 2.2, 4, 3e-3, 2e-4},
+            // Widened core (the editor allows spatial scale and core size up to
+            // 4): its tail must reach the far part, or it loses mass.
+            {spk::DiffusionFamily::kBlackProMist, 20.4, 4, 1e-3, 1e-4, 4.0, 4.0},
         };
         for (const Case& c : cases) {
             spk::DiffusionFilterParams d;
             d.active = true;
             d.family = c.fam;
             d.strength = 0.5;
+            d.spatial_scale = c.scale;
+            d.core_size = c.core_size;
             std::vector<double> whole = img;
             spk::apply_diffusion_filter_um(whole.data(), W, H, d, c.px, false);
             spk::DiffusionFarField far;
@@ -568,6 +574,31 @@ int main(int argc, char** argv) {
                         static_cast<int>(c.fam), c.px, c.f, far.radius, far.near_radius,
                         worst, rms, ok ? "PASS" : "FAIL");
             if (!ok) ++g_failures;
+        }
+    }
+
+    // F1b: the split keeps the kernel's mass, so a flat field stays flat (a
+    // widened core included).
+    {
+        const int W = 1200, H = 900;
+        spk::DiffusionFilterParams d;
+        d.active = true;
+        d.strength = 0.5;
+        d.spatial_scale = 4.0;
+        d.core_size = 4.0;
+        spk::DiffusionFarField far;
+        if (spk::diffusion_far_init(d, 4.16, W, H, &far, 4)) {
+            std::vector<double> flat(static_cast<size_t>(W) * H * 3, 1.0);
+            spk::diffusion_far_accumulate(flat.data(), W, H, 0, &far);
+            spk::diffusion_far_finish(&far);
+            spk::apply_diffusion_filter_banded(flat.data(), W, H, 0, far);
+            double worst = 0.0;
+            for (double v : flat) worst = std::max(worst, std::fabs(v - 1.0));
+            std::printf("[F1b flat field, widened core] worst |out-1|=%.2e -> %s\n", worst,
+                        worst <= 1e-6 ? "PASS" : "FAIL");
+            if (!(worst <= 1e-6)) ++g_failures;
+        } else {
+            expect(false, "diffusion_far_init (flat)");
         }
     }
 

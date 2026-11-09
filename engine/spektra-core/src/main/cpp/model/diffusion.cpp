@@ -1493,6 +1493,17 @@ bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_u
     far->cells_y = (frame_h + 2 * far->pad + f - 1) / f;
     far->p_s = S.p_s;
     auto hole = [rt](double r) { return std::exp(-(r / rt) * (r / rt)); };
+    // The core stays exact out to most of the near radius and hands its tail
+    // (non-zero only for a core widened by core_size / spatial_scale) to the far
+    // part through a flat-topped window, so the split keeps the kernel's mass.
+    // At the near radius the window is e^-6, so truncating the near kernel there
+    // drops a negligible sliver of an already small core tail.
+    const double core_rc = 0.8 * far->near_radius;
+    auto core_window = [core_rc](double r) {
+        if (core_rc <= 0.0) return 0.0;
+        const double q = (r / core_rc) * (r / core_rc);
+        return std::exp(-q * q * q * q);
+    };
 
     // Sums over the whole-frame filter's full (2R+1)^2 grid, by octant: the
     // kernel is radial, so each (x, y) with 0 <= y <= x stands for up to eight
@@ -1507,10 +1518,10 @@ bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_u
                                            static_cast<double>(y) * y);
                 double core, wide[3];
                 far_profiles(S, r, &core, wide);
-                const double g = hole(r);
+                const double g = hole(r), gc = core_window(r);
                 for (int c = 0; c < 3; ++c) {
                     acc[c] += m * (core + wide[c]);          // full kernel
-                    acc[3 + c] += m * wide[c] * (1.0 - g);   // far part
+                    acc[3 + c] += m * (core * (1.0 - gc) + wide[c] * (1.0 - g));  // far part
                 }
             }
         }
@@ -1532,10 +1543,10 @@ bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_u
                 const double r = std::sqrt(dx * dx + dy * dy);
                 double core, wide[3];
                 far_profiles(S, r, &core, wide);
-                const double g = hole(r);
+                const double g = hole(r), gc = core_window(r);
                 const size_t i = static_cast<size_t>(yy) * nks + xx;
                 for (int c = 0; c < 3; ++c)
-                    far->near_kernel[c][i] = (core + wide[c] * g) / total[c];
+                    far->near_kernel[c][i] = (core * gc + wide[c] * g) / total[c];
             }
     });
 
@@ -1546,7 +1557,8 @@ bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_u
         double core, wide[3];
         far_profiles(S, r, &core, wide);
         const double g = hole(r);
-        for (int c = 0; c < 3; ++c) out[c] = wide[c] * (1.0 - g);
+        const double gc = core_window(r);
+        for (int c = 0; c < 3; ++c) out[c] = core * (1.0 - gc) + wide[c] * (1.0 - g);
     };
     far->coarse_kernel.assign(3, std::vector<double>(static_cast<size_t>(cks) * cks));
     for (int yy = 0; yy < cks; ++yy)

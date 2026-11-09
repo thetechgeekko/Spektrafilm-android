@@ -144,9 +144,9 @@ bands (`plan_band_render` / `run_banded` in `spektra.cpp`):
   with the finished grid. Costs a second filming + print-exposure pass per band;
 - the camera diffusion filter renders whole (exactly) up to `spk_set_whole_frame_pixel_limit`,
   and bands only above it, where the whole filter cannot run. Its kernel reaches ~0.36 of the
-  short side, so the band form splits it by radius (`model/diffusion.h`): a near part (core plus
-  halo/bloom under a Gaussian window of rt = 10f, truncated at 3.5 rt) convolved per band at full
-  resolution, and a smooth far part convolved once on a copy of the frame tent-splatted down by
+  short side, so the band form splits it by radius (`model/diffusion.h`): a near part (the core
+  plus halo/bloom under a Gaussian window of rt = 10f, truncated at 3.5 rt) convolved per band at full
+  resolution, and the smooth rest (including the tail of a widened core, so the split keeps the kernel's mass) convolved once on a copy of the frame tent-splatted down by
   f = 4..8 (about 4 M coarse cells), with the coarse kernel's mass pinned and a second-order
   (f²/6)·Laplacian correction, read back bilinearly. A pass over the band cores (after the
   highlight boost) builds the coarse frame. NOT bit-exact: on a real-size 50 MP frame with

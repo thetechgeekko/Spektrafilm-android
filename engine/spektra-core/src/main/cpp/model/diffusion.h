@@ -181,11 +181,14 @@ void apply_diffusion_filter_um(double* raw, int w, int h,
 // it is ~11,800 px wide. Above the device's whole-frame limit the kernel is
 // split by radius instead:
 //
-//   near(r) = core(r) + (halo+bloom)(r) * g(r)        exact, on the band
-//   far(r)  = (halo+bloom)(r) * (1 - g(r))            smooth, on a coarse frame
+//   near(r) = core(r) * gc(r) + (halo+bloom)(r) * g(r)              band
+//   far(r)  = core(r) * (1 - gc(r)) + (halo+bloom)(r) * (1 - g(r))  coarse
+//   gc(r)   = exp(-(r / (0.8 near radius))^8): flat-topped, so the core stays
+//             exact and only the tail of a core widened by core_size /
+//             spatial_scale moves to the far part (the split keeps the mass)
 //   g(r)    = exp(-(r/rt)^2),  rt = 10 f
 //
-// The near part is truncated at 3.5 rt and convolved per band at full
+// The near part is truncated at 3.5 rt (where g is e^-12) and convolved per band at full
 // resolution (the band margin covers it). The far part has a hole where the
 // kernel's cusp is, so it is smooth at the scale of f: it runs on a copy of the
 // whole frame box-downsampled by f (4..8), with the coarse kernel's mass pinned
