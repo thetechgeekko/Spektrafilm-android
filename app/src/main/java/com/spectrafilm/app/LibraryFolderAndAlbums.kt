@@ -89,6 +89,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -132,6 +133,7 @@ internal fun LibraryFolderAndAlbums(
     val query by vm.query.collectAsStateWithLifecycle()
     val aspects by vm.aspects.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
+    val res = LocalResources.current
     val openFrame = { uri: Uri -> onOpen(uri, vm.visibleEntries()) }
     // Re-read on every visit, so frames shot since the last one appear.
     LaunchedEffect(Unit) { vm.refresh() }
@@ -149,10 +151,10 @@ internal fun LibraryFolderAndAlbums(
     LaunchedEffect(outcome) {
         if (outcome == null) return@LaunchedEffect
         val message = when {
-            outcome.noSource -> ctx.getString(R.string.library_paste_no_source)
+            outcome.noSource -> res.getString(R.string.library_paste_no_source)
             outcome.skipped == 0 ->
-                ctx.resources.getQuantityString(R.plurals.library_paste_done, outcome.applied, outcome.applied)
-            else -> ctx.resources.getQuantityString(
+                res.getQuantityString(R.plurals.library_paste_done, outcome.applied, outcome.applied)
+            else -> res.getQuantityString(
                 R.plurals.library_paste_partial,
                 outcome.skipped,
                 outcome.applied,
@@ -206,18 +208,18 @@ internal fun LibraryFolderAndAlbums(
                 // The folder was granted read-only (or before writing was offered): choosing
                 // it again in the system picker grants write, and the save then finishes.
                 val choice = snackbar.showSnackbar(
-                    message = ctx.getString(R.string.library_sidecars_need_access),
-                    actionLabel = ctx.getString(R.string.library_choose_folder),
+                    message = res.getString(R.string.library_sidecars_need_access),
+                    actionLabel = res.getString(R.string.library_choose_folder),
                     withDismissAction = true,
                     duration = SnackbarDuration.Long,
                 )
                 if (choice == SnackbarResult.ActionPerformed) choose()
             } else {
                 val message = when {
-                    saved.saved == 0 && saved.failed == 0 -> ctx.getString(R.string.library_sidecars_none)
+                    saved.saved == 0 && saved.failed == 0 -> res.getString(R.string.library_sidecars_none)
                     saved.failed == 0 ->
-                        ctx.resources.getQuantityString(R.plurals.library_sidecars_saved, saved.saved, saved.saved)
-                    else -> ctx.resources.getQuantityString(
+                        res.getQuantityString(R.plurals.library_sidecars_saved, saved.saved, saved.saved)
+                    else -> res.getQuantityString(
                         R.plurals.library_sidecars_partial,
                         saved.failed,
                         saved.saved,
@@ -422,11 +424,11 @@ internal fun LibraryFolderAndAlbums(
         scope.launch {
             snackbar.showSnackbar(
                 if (count == null) {
-                    ctx.getString(R.string.album_save_failed)
+                    res.getString(R.string.album_save_failed)
                 } else if (count == 0) {
-                    ctx.getString(R.string.album_full)
+                    res.getString(R.string.album_full)
                 } else {
-                    ctx.resources.getQuantityString(R.plurals.album_added, count, count, name)
+                    res.getQuantityString(R.plurals.album_added, count, count, name)
                 },
             )
         }
@@ -454,7 +456,7 @@ internal fun LibraryFolderAndAlbums(
                 newAlbumFor = null
                 albumsVm.create(name, items) { id, count ->
                     when {
-                        id == null -> scope.launch { snackbar.showSnackbar(ctx.getString(R.string.album_create_failed)) }
+                        id == null -> scope.launch { snackbar.showSnackbar(res.getString(R.string.album_create_failed)) }
                         items.isEmpty() -> onOpenAlbum(id)
                         else -> added(AlbumOps.cleanName(name), count)
                     }

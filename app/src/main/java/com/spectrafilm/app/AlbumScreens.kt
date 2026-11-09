@@ -67,6 +67,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -336,6 +337,7 @@ internal fun AlbumDetail(
     onExport: (frames: List<LibraryEntry>, onStarted: () -> Unit) -> Unit = { _, _ -> },
 ) {
     val ctx = LocalContext.current
+    val res = LocalResources.current
     val selection by vm.selection.collectAsStateWithLifecycle()
     val aspects by vm.aspects.collectAsStateWithLifecycle()
     val entries by produceState<List<LibraryEntry>?>(null, album.items) { value = vm.entriesOf(album) }
@@ -380,8 +382,8 @@ internal fun AlbumDetail(
                                     var undone = false
                                     scope.launch {
                                         val choice = snackbar.showSnackbar(
-                                            message = ctx.getString(R.string.album_deleted),
-                                            actionLabel = ctx.getString(R.string.album_undo),
+                                            message = res.getString(R.string.album_deleted),
+                                            actionLabel = res.getString(R.string.album_undo),
                                             duration = SnackbarDuration.Long,
                                         )
                                         if (choice == SnackbarResult.ActionPerformed) {
@@ -441,13 +443,13 @@ internal fun AlbumDetail(
                         val removed = vm.removeSelected(album.id)
                         scope.launch {
                             snackbar.showSnackbar(
-                                ctx.resources.getQuantityString(R.plurals.album_removed, removed, removed),
+                                res.getQuantityString(R.plurals.album_removed, removed, removed),
                             )
                         }
                     }
                     LibraryBarAction(SpectraIcons.SetCover, R.string.album_set_cover, selection.size == 1) {
                         vm.setCover(album.id, selection.first())
-                        scope.launch { snackbar.showSnackbar(ctx.getString(R.string.album_cover_set)) }
+                        scope.launch { snackbar.showSnackbar(res.getString(R.string.album_cover_set)) }
                     }
                     LibraryBarAction(SpectraIcons.Export, R.string.tool_export_action, true) {
                         onExport(shown.filter { it.documentUri in selection }, vm::clearSelection)

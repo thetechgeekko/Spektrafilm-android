@@ -91,6 +91,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -132,6 +133,7 @@ internal fun LibraryDestination(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    val res = LocalResources.current
     // Export of selected frames, each with its own edit (LibraryExport.kt): one flow for the
     // folder, gallery and album bars, and the finished run's snackbar while the Library is up.
     val export = rememberLibraryExportFlow(snackbar, scope)
@@ -141,17 +143,17 @@ internal fun LibraryDestination(
         albumsVm.import(uris, keepGrants, importedName) { added, failed ->
             scope.launch {
                 val message = when {
-                    added == null -> ctx.getString(R.string.album_save_failed)
-                    added > 0 && failed > 0 -> ctx.resources.getQuantityString(
+                    added == null -> res.getString(R.string.album_save_failed)
+                    added > 0 && failed > 0 -> res.getQuantityString(
                         R.plurals.album_imported_partial, failed, added, importedName, failed,
                     )
-                    added > 0 -> ctx.resources.getQuantityString(R.plurals.album_added, added, added, importedName)
-                    failed > 0 -> ctx.resources.getQuantityString(R.plurals.album_import_failed, failed, failed)
-                    else -> ctx.getString(R.string.album_import_already, importedName)
+                    added > 0 -> res.getQuantityString(R.plurals.album_added, added, added, importedName)
+                    failed > 0 -> res.getQuantityString(R.plurals.album_import_failed, failed, failed)
+                    else -> res.getString(R.string.album_import_already, importedName)
                 }
                 val choice = snackbar.showSnackbar(
                     message = message,
-                    actionLabel = ctx.getString(R.string.album_view).takeIf { (added ?: 0) > 0 },
+                    actionLabel = res.getString(R.string.album_view).takeIf { (added ?: 0) > 0 },
                     duration = SnackbarDuration.Long,
                 )
                 if (choice == SnackbarResult.ActionPerformed) {
