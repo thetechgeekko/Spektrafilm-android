@@ -536,6 +536,97 @@ void run_banded_wiring() {
     check(again == cpu, "banded: latch off is byte-identical to the CPU path");
 }
 
+// The banded filter's coarse far field on the GPU (diffusion_far_finish with
+// allow_gpu_fft): its field against the CPU transform's, the banded filter built
+// on it against the same filter built on the CPU field, and both against the
+// exact whole-frame filter (the GPU field may not widen the split's own error).
+void run_far_field() {
+    const int W = 960, H = 720;
+    std::vector<double> img(static_cast<size_t>(W) * H * 3);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x)
+            for (int c = 0; c < 3; ++c) {
+                double v = 0.04 + 0.2 * (static_cast<double>(x) / W) + 0.05 * c +
+                           0.03 * std::sin(0.07 * x + 0.05 * y);
+                const int dx = x % 160 - 80, dy = y % 120 - 60;
+                if (dx * dx + dy * dy < 100) v += 40.0;
+                img[(static_cast<size_t>(y) * W + x) * 3 + c] = v;
+            }
+    struct Case { spk::DiffusionFamily fam; double px; int f; };
+    const Case cases[] = {
+        {spk::DiffusionFamily::kBlackProMist, 5.1, 4},
+        {spk::DiffusionFamily::kProMist, 8.7, 4},
+        {spk::DiffusionFamily::kCinebloom, 13.4, 8},
+    };
+    for (const Case& c : cases) {
+        spk::DiffusionFilterParams d;
+        d.active = true;
+        d.family = c.fam;
+        d.strength = 0.5;
+        spk::DiffusionFarField far_cpu, far_gpu;
+        if (!spk::diffusion_far_init(d, c.px, W, H, &far_cpu, c.f) ||
+            !spk::diffusion_far_init(d, c.px, W, H, &far_gpu, c.f)) {
+            check(false, "far field: init");
+            continue;
+        }
+        spk::diffusion_far_accumulate(img.data(), W, H, 0, &far_cpu);
+        spk::diffusion_far_accumulate(img.data(), W, H, 0, &far_gpu);
+        spk::diffusion_far_finish(&far_cpu, /*allow_gpu_fft=*/false);
+        spk::diffusion_far_finish(&far_gpu, /*allow_gpu_fft=*/true);
+        double field_max = 0.0, field_peak = 0.0;
+        bool differs = far_cpu.field.size() != far_gpu.field.size();
+        for (size_t i = 0; !differs && i < far_cpu.field.size(); ++i) {
+            if (far_cpu.field[i] != far_gpu.field[i]) differs = true;
+        }
+        for (size_t i = 0; i < std::min(far_cpu.field.size(), far_gpu.field.size()); ++i) {
+            field_max = std::max(field_max, std::fabs(far_cpu.field[i] - far_gpu.field[i]));
+            field_peak = std::max(field_peak, std::fabs(far_cpu.field[i]));
+        }
+        if (differs) g_engaged = true;
+        std::vector<double> whole = img;
+        spk::apply_diffusion_filter_um(whole.data(), W, H, d, c.px, false);
+        auto banded = [&](const spk::DiffusionFarField& far) {
+            std::vector<double> out(img.size());
+            const int core = 200, m = far.near_radius;
+            for (int c0 = 0; c0 < H; c0 += core) {
+                const int c1 = std::min(H, c0 + core);
+                const int y0 = std::max(0, c0 - m), y1 = std::min(H, c1 + m);
+                std::vector<double> b(img.begin() + static_cast<ptrdiff_t>(y0) * W * 3,
+                                      img.begin() + static_cast<ptrdiff_t>(y1) * W * 3);
+                spk::apply_diffusion_filter_banded(b.data(), W, y1 - y0, y0, far, false);
+                std::copy(b.begin() + static_cast<ptrdiff_t>(c0 - y0) * W * 3,
+                          b.begin() + static_cast<ptrdiff_t>(c1 - y0) * W * 3,
+                          out.begin() + static_cast<ptrdiff_t>(c0) * W * 3);
+            }
+            return out;
+        };
+        auto log_err = [](const std::vector<double>& a, const std::vector<double>& b, double* rms) {
+            double worst = 0.0, sse = 0.0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                const double l = std::fabs(std::log10(a[i] / b[i]));
+                if (!(l <= worst)) worst = l;  // NaN counts as worst
+                sse += l * l;
+            }
+            *rms = std::sqrt(sse / static_cast<double>(a.size()));
+            return worst;
+        };
+        const std::vector<double> out = banded(far_gpu), out_cpu = banded(far_cpu);
+        double rms = 0.0, rms_cpu = 0.0, rms_gc = 0.0;
+        const double worst = log_err(out, whole, &rms);
+        const double worst_cpu = log_err(out_cpu, whole, &rms_cpu);
+        const double worst_gc = log_err(out, out_cpu, &rms_gc);
+        std::printf("  far field family %d px %.1f f=%d R=%d: gpu differs=%d field max_abs %.3e (peak %.4g)"
+                    "  banded log10 worst: gpu-vs-cpu field %.2e, vs whole %.2e (cpu field %.2e)\n",
+                    static_cast<int>(c.fam), c.px, c.f, far_gpu.radius, differs ? 1 : 0, field_max,
+                    field_peak, worst_gc, worst, worst_cpu);
+        check(differs, "far field: the GPU transform ran (fields are not identical)");
+        check(field_max <= 1e-4 * field_peak, "far field: GPU field within 1e-4 of the CPU field's peak");
+        check(worst_gc <= 1e-5, "far field: banded filter on the GPU field within 1e-5 (log10) of the CPU field's");
+        check(worst <= worst_cpu + 1e-5 && rms <= rms_cpu + 1e-6,
+              "far field: the GPU field does not widen the banded split's error vs the whole filter");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -572,6 +663,7 @@ int main() {
     run_refusals();
     run_wiring();
     run_banded_wiring();
+    run_far_field();
 
     std::printf("engaged=%d\n", g_engaged ? 1 : 0);
     if (g_failures == 0) std::printf("test_fft_convolve_gpu: ALL OK\n");

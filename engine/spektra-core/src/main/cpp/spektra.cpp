@@ -3893,7 +3893,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                 if (st != SPK_OK) return st;
             }
             band.camera_far_accumulate = false;
-            spk::diffusion_far_finish(&camera_far);
+            spk::diffusion_far_finish(&camera_far, p->allow_gpu_scan != 0);
             g_diffusion_prepasses.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -4029,7 +4029,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             }
             band.film_in_rest = nullptr;
             band.enlarger_far_accumulate = false;
-            spk::diffusion_far_finish(&enlarger_far);
+            spk::diffusion_far_finish(&enlarger_far, p->allow_gpu_scan != 0);
             g_diffusion_prepasses.fetch_add(1, std::memory_order_relaxed);
         }
     }
