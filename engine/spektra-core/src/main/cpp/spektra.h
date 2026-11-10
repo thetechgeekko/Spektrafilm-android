@@ -492,8 +492,6 @@ uint64_t spk_band_mask_prepasses(void);
 /* Banded print-route renders whose mask or enlarger pre-pass stored the film
  * density once for the later passes to reuse (diagnostics). */
 uint64_t spk_band_film_reuse_passes(void);
-/* Bands the film-side pass of those renders ran, summed (diagnostics). */
-uint64_t spk_band_film_pass_bands(void);
 /* Film-density reuse across band passes: 1 (default) on, 0 off (tests compare
  * the two). Process-wide. */
 void spk_set_band_film_reuse(int enabled);
