@@ -38,6 +38,37 @@ class ExportTransactionTest {
     }
 
     @Test
+    fun commit_stageContentChangedAfterEncodingIsRejectedAndNeverPublished() {
+        // Same length, different bytes: only the digest taken while copying can see this,
+        // since commit no longer re-hashes the stage up front.
+        val artifact = artifact("changed-content.bin", byteArrayOf(1, 3, 3, 7, 9))
+        artifact.file.writeBytes(byteArrayOf(9, 7, 3, 3, 1))
+        val backend = FakePendingExportBackend()
+        val journal = FakePendingExportJournal()
+
+        expectFailure { ExportTransaction(backend, journal).commit(artifact, destination()) }
+
+        assertEquals(0, backend.totalPublishCalls)
+        assertEquals(1, backend.totalDeleteCalls)
+        assertTrue(journal.tokens().isEmpty())
+        assertTrue(backend.states.values.all { it == StoredExportState.MISSING })
+    }
+
+    @Test
+    fun commit_stageLengthChangedAfterEncodingFailsBeforeReservation() {
+        val artifact = artifact("changed-length.bin", byteArrayOf(1, 3, 3, 7, 9))
+        artifact.file.writeBytes(byteArrayOf(1, 3, 3))
+        val backend = FakePendingExportBackend()
+        val journal = FakePendingExportJournal()
+
+        expectFailure { ExportTransaction(backend, journal).commit(artifact, destination()) }
+
+        assertEquals(0, backend.totalReserveCalls)
+        assertEquals(0, backend.totalPublishCalls)
+        assertTrue(journal.tokens().isEmpty())
+    }
+
+    @Test
     fun commit_copyFailureDeletesPendingRowAndRetiresJournalEntry() {
         val backend = FakePendingExportBackend().apply { failWriteAfterBytes = 2 }
         val journal = FakePendingExportJournal()
