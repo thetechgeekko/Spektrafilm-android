@@ -2,7 +2,35 @@
 
 ## Unreleased
 
-## v0.12.0 (versionCode 14) — 2026-11-08 — a real Library, a new Edit rail, on-device skin masks
+## v1.0.0 (versionCode 15) — 2026-11-10 — full-resolution exports with every effect, Crop and Frame tabs
+
+**Major: first stable release. No breaking change to saved edits.** v0.12.0 below was prepared
+but never published on its own; everything listed there ships for the first time in v1.0.0.
+
+### Highlights
+
+- **Full-size exports with every effect on:** very large exports (50 MP and up) now render as
+  overlapping bands, so halation, diffusion, highlight boost, crop and the contrast mask all run at
+  full resolution without running out of memory (#588-#597, #604, #614, #617). A seam sweep gate
+  checks banded renders against the whole frame (#615).
+- **Faster big exports on the GPU:** banded and enlarger diffusion, halation, grain sublayers, the
+  contrast-mask gain and the print integral run on the GPU, with fewer buffer clears and smaller
+  caches (#595, #599, #602, #605-#607, #611, #612, #618-#621).
+- **RAW:** Samsung 50 MP LinearRaw DNGs and Lightroom panorama DNGs decode natively at full size;
+  RAW exports are refused below the real size, admitted against free memory, and LibRaw frees its
+  buffers earlier (#584, #589, #622, #624, #625).
+- **Crop is a tab** in the editor instead of a full-screen overlay (#613).
+- **Frame tab:** more frame styles, width, colour, fit-to-aspect, captions under the photo and
+  editable edge markings (#623, #626).
+- **Smoother editing:** the speculative pre-render waits for the preview to settle and for memory,
+  sized from the measured render (#628, #629).
+- **Library:** album export layout, selection ring and remembered sheet; drag-select fixes (#579-#581).
+- **Fixes:** Settings no longer stalls up to 2 s when leaving (#610); export stops re-hashing the
+  staged file before every commit (#609); lint is clean (#603).
+- **Under the hood:** the editor screen split into a state holder and stateless parts (#578, #583),
+  and the GPU gates run automatically when native render code changes (#608).
+
+## v0.12.0 (versionCode 14, never published) — 2026-11-08 — a real Library, a new Edit rail, on-device skin masks
 
 **Minor: new screens and features, no breaking change to saved edits.**
 

@@ -68,13 +68,13 @@ executable source for direct review:
 
 | Fact | Current value | Executable source |
 |---|---|---|
-| App version | `0.12.0` / versionCode `14` | `app/build.gradle.kts` |
+| App version | `1.0.0` / versionCode `15` | `app/build.gradle.kts` |
 | Android SDK | min 24, target 36, compile 37 | Gradle module build files |
 | Build system | AGP `9.5.0`, Kotlin `2.4.21`, Gradle `9.6.1` | version catalog + wrapper properties (AGP built-in Kotlin; JDK 21 locally, in CI and in release) |
 | Native toolchain | NDK `28.2.13676358`, CMake `3.22.1` | Gradle + CI/release workflows |
 | Android build tools | `36.0.0` | app Gradle + CI/release workflows |
 | RAW decoder | authenticated, patched LibRaw `0.22.2`; X3F disabled pending qualification | `LibRawVendor.cmake` + domain record |
-| Engine gate | 50 cases at O2 and shipping `-O3 -ffast-math -fno-finite-math-only` | `.github/workflows/ci.yml` |
+| Engine gate | 51 cases at O2 and shipping `-O3 -ffast-math -fno-finite-math-only` | `.github/workflows/ci.yml` |
 | Public release | `v0.10.0` (tagged 2026-09-14); the production-grade release gate is #138 | release checklist + live production map |
 
 Target/compile SDK 36 is current-tree truth (raised under #171 for Android 16 behavior and the Google Play API-36 policy; both channels ship the same target), not release approval. The owner has selected a free
