@@ -202,7 +202,7 @@ internal object Ticket139EditorProbe : EditorProbe {
     }
 
     /**
-     * Called once by the real CropOverlay instance after its remembered local draft exists. This is
+     * Called once by the real CropCanvas after its remembered CropDraft exists. This is
      * inert outside the fixed #139 oracle and independently verifies that the draft equals the
      * committed crop passed into the Composable.
      */

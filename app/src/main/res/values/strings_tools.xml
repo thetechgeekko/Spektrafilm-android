@@ -178,14 +178,13 @@
 
     <!-- Crop overlay -->
     <string name="tool_crop_title">Crop</string>
-    <string name="tool_crop_cancel">Cancel crop</string>
     <string name="tool_crop_rotate">Rotate 90°</string>
-    <string name="tool_crop_apply">Apply crop</string>
     <string name="tool_crop_aspect_group">Aspect ratio</string>
     <string name="tool_crop_aspect_free">Free</string>
     <string name="tool_crop_portrait">Portrait ratios</string>
     <string name="tool_crop_landscape">Landscape ratios</string>
-    <string name="tool_crop_orientation_flip">switch orientation</string>
+    <string name="tool_crop_orient_portrait">Portrait</string>
+    <string name="tool_crop_orient_landscape">Landscape</string>
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Crop rectangle over the photo. Drag a corner or edge to resize it, drag inside it to move it.</string>
     <string name="tool_crop_reset">Reset crop to the full photo</string>

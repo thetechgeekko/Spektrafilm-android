@@ -57,6 +57,8 @@ internal fun EditorTopBar(
     hasPhoto: Boolean,
     onCrop: () -> Unit,
     compare: Boolean,
+    /** Compare and hold-for-original have a photo to act on (off while the Crop tab draws its own canvas). */
+    compareEnabled: Boolean = hasPhoto,
     histogram: Boolean,
     clipWarnings: Boolean,
     onToggleCompare: () -> Unit,
@@ -213,7 +215,7 @@ internal fun EditorTopBar(
                 onClick = onToggleCompare,
                 onHoldStart = { onPeekOriginal(true) },
                 onHoldEnd = { onPeekOriginal(false) },
-                enabled = hasPhoto,
+                enabled = compareEnabled,
                 modifier = fade
                     .helpSpot(LocalQuickHelp.current, HelpSpot.COMPARE)
                     .semantics { toggleableState = ToggleableState(compare) },
@@ -221,7 +223,7 @@ internal fun EditorTopBar(
                 Icon(
                     SpectraIcons.Compare, contentDescription = stringResource(R.string.editor_compare),
                     tint = when {
-                        !hasPhoto -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        !compareEnabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                         compare -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.onSurface
                     },
@@ -276,7 +278,7 @@ internal fun EditorTopBar(
                     // own bar button now (tap: split view, hold: the original), except when
                     // the bar sits beside a camera cutout with no room for it.
                     if (!compareInBar) {
-                        ViewToggleItem(stringResource(R.string.editor_compare), SpectraIcons.Compare, compare, hasPhoto) {
+                        ViewToggleItem(stringResource(R.string.editor_compare), SpectraIcons.Compare, compare, compareEnabled) {
                             menuOpen = false; onToggleCompare()
                         }
                     }

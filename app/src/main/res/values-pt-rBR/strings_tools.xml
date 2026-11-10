@@ -161,14 +161,13 @@
     <string name="tool_masks_invert_color_help">Afeta as cores FORA da faixa.</string>
     <string name="tool_masks_delete">Excluir máscara</string>
     <string name="tool_crop_title">Cortar</string>
-    <string name="tool_crop_cancel">Cancelar corte</string>
     <string name="tool_crop_rotate">Girar 90°</string>
-    <string name="tool_crop_apply">Aplicar corte</string>
     <string name="tool_crop_aspect_group">Proporção</string>
     <string name="tool_crop_aspect_free">Livre</string>
     <string name="tool_crop_portrait">Proporções verticais</string>
     <string name="tool_crop_landscape">Proporções horizontais</string>
-    <string name="tool_crop_orientation_flip">alternar orientação</string>
+    <string name="tool_crop_orient_portrait">Retrato</string>
+    <string name="tool_crop_orient_landscape">Paisagem</string>
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Retângulo de corte sobre a foto. Arraste um canto ou uma borda para redimensionar e arraste por dentro para mover.</string>
     <string name="tool_crop_reset">Redefinir o corte para a foto inteira</string>

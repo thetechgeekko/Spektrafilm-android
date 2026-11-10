@@ -320,6 +320,42 @@ internal fun EditorScreen(
     remember { toolVm.restore(restoredOverlay, restoredTool?.maskIndex ?: 0); true }
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
+    // The Crop tab's in-progress draft (CropTool.kt), published from the layout below. Leaving
+    // the tab writes it to the recipe in one go, so the history records ONE undo step; an
+    // untouched draft writes nothing. Every way out of the tab goes through here.
+    val cropDraftRef = remember { mutableStateOf<CropDraft?>(null) }
+    // Bumped to throw the pending draft away (Undo while it holds an edit): a key of the draft.
+    var cropDraftEpoch by remember { mutableIntStateOf(0) }
+    // Write a touched draft to the recipe. A saved export no longer shows the photo, so its
+    // result is dropped right here: Share straight after must not send the old file (the
+    // snapshot watcher that normally does this only runs a frame later).
+    fun commitCropDraft() {
+        val c = cropDraftRef.value?.takeIf { it.touched }?.commit() ?: return
+        state.crop = c.crop
+        state.cropCenter = c.center
+        state.cropSize = c.size
+        state.straightenDegrees = c.straighten
+        cropDraftRef.value = null
+        if (exportVm.current.done) exportVm.onAction(ExportAction.DismissResult)
+    }
+    fun closeCrop() {
+        if (!toolVm.current.cropOpen) return
+        commitCropDraft()
+        cropDraftRef.value = null
+        toolVm.onAction(EditorToolAction.CloseCrop)
+    }
+    // An edit still only in the Crop tab's draft: Undo takes that back before the history.
+    fun discardCropDraft(): Boolean {
+        if (cropDraftRef.value?.touched != true) return false
+        cropDraftRef.value = null
+        cropDraftEpoch++
+        return true
+    }
+    // The Crop item in the bottom bar / rail: open the tab, or leave it when it is open.
+    fun toggleCrop() {
+        if (toolVm.current.cropOpen) closeCrop() else toolVm.onAction(EditorToolAction.OpenCrop)
+    }
+
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
@@ -403,6 +439,23 @@ internal fun EditorScreen(
     // active adjustment category (null = panel closed); hoisted to AppRoot so it
     // survives navigation to Settings/About and back.
     var activeCategory by activeCategoryState
+    // The Crop tab replaces whatever panel was open, and opening or leaving it re-renders the
+    // preview: while it is open the preview is drawn without the engine crop
+    // (EditorPreviewEffects), so the crop frame can sit on the whole photo.
+    val cropOpenNow = toolUi.cropOpen
+    var cropOpenSeen by remember { mutableStateOf(cropOpenNow) }
+    LaunchedEffect(cropOpenNow) {
+        if (cropOpenNow) activeCategory = null
+        if (cropOpenNow != cropOpenSeen) {
+            cropOpenSeen = cropOpenNow
+            previewTick++
+        }
+    }
+    // Opening any other tab leaves the Crop tab first, keeping its draft.
+    val openCategory: (Category?) -> Unit = { category ->
+        if (category != null) closeCrop()
+        activeCategory = category
+    }
     // 0..1 while a predictive-back swipe is closing the open panel; drives its shrink.
     var panelBackProgress by screen.panelBackProgressState
 
@@ -483,6 +536,10 @@ internal fun EditorScreen(
     fun snapshotNow(): EditSnapshot = session.snapshot()
 
     fun doUndo() {
+        if (discardCropDraft()) {
+            status = ctx.getString(R.string.editor_status_undo)
+            return
+        }
         session.undo() ?: return
         liveCursorMutated = true
         previewTick++
@@ -490,6 +547,9 @@ internal fun EditorScreen(
     }
 
     fun doRedo() {
+        // Redo would restore a recipe over a crop draft that never entered history, and the
+        // draft's new adjustments would be lost for good: Redo waits until the draft is committed.
+        if (cropDraftRef.value?.touched == true) return
         session.redo() ?: return
         liveCursorMutated = true
         previewTick++
@@ -501,6 +561,7 @@ internal fun EditorScreen(
 
     /** Walks undo or redo from the live state at [from] to timeline index [to]. */
     fun jumpHistory(from: Int, to: Int) {
+        discardCropDraft()
         var moved = false
         repeat(from - to) { if (session.undo() != null) moved = true }
         repeat(to - from) { if (session.redo() != null) moved = true }
@@ -704,7 +765,12 @@ internal fun EditorScreen(
         readyStatus: String,
         probeLabel: String? = null,
         ownedCopy: Uri? = null,
-    ) = sourceAdoption.adoptSource(uri, kind, displayName, readyStatus, probeLabel, ownedCopy)
+    ) {
+        // A crop draft belongs to the photo on screen: commit it before a new photo (picker,
+        // share or launcher shortcut) resets the cursor, so going back keeps the crop.
+        closeCrop()
+        sourceAdoption.adoptSource(uri, kind, displayName, readyStatus, probeLabel, ownedCopy)
+    }
 
     LaunchedEffect(Unit) {
         if (!editorProbe.isArmed()) return@LaunchedEffect
@@ -1002,15 +1068,18 @@ internal fun EditorScreen(
         magnifierOpen = magnifierOpen,
         activeCategory = activeCategory,
         onCloseCategory = { activeCategory = null },
+        onCloseCrop = ::closeCrop,
+        cropDraftPending = cropDraftRef.value?.touched == true,
         onBackPressedDispatcher = onBackPressedDispatcher,
         setEditorShortcutHandler = setEditorShortcutHandler,
         editHistory = editHistory,
         doUndo = ::doUndo,
         doRedo = ::doRedo,
         openPhotoPicker = {
+            closeCrop()
             photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         },
-        requestExport = ::requestExport,
+        requestExport = { closeCrop(); requestExport() },
         hasSource = sourceUri != null,
         openPhotoInfo = ::openPhotoInfo,
         previousEdit = previousEdit,
@@ -1087,8 +1156,22 @@ internal fun EditorScreen(
             reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
         )
     }
+    // The Crop tab draws its frame on the photo only once the preview on screen is the
+    // crop-free render; until then it shows the photo as it was and a loading panel.
+    val cropFreePreview by screen.cropFreePreviewState
+    val cropCanvasBmp = preview?.takeIf { toolUi.cropOpen && it === cropFreePreview && !it.isRecycled }
+    val cropDraft = cropCanvasBmp?.let {
+        rememberCropDraft(it, state.crop, state.cropCenter, state.cropSize, state.straightenDegrees, cropDraftEpoch)
+    }
+    SideEffect { cropDraftRef.value = if (toolUi.cropOpen) cropDraft else null }
     val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
-        PreviewRegion(
+        val cropBitmap = cropCanvasBmp
+        val draft = cropDraft
+        if (cropBitmap != null && draft != null) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+                CropCanvas(bitmap = cropBitmap, draft = draft, bottomInset = panelInset)
+            }
+        } else PreviewRegion(
             zoomRequests = viewerVm.zoomRequests,
             controlsBottomInset = panelInset,
             peekOriginal = viewerUi.originalPeek,
@@ -1130,7 +1213,6 @@ internal fun EditorScreen(
     // ============================ LAYOUT ============================
     // Overlay predicates, shared with the overlay branches below the chrome.
     val cropBmp = preview
-    val cropShown = toolUi.cropOpen && cropBmp != null
     val maskGeometryShown = toolUi.maskGeometryOpen && cropBmp != null &&
         toolUi.maskIndex in state.localAdjustments.indices
     val sampleMask = state.localAdjustments.getOrNull(toolUi.maskIndex)?.mask
@@ -1141,12 +1223,14 @@ internal fun EditorScreen(
         )
     // #181: a full-screen tool overlay is modal. Compose overlays share the window, so the
     // chrome beneath would otherwise stay reachable by TalkBack explore-by-touch.
-    val modalOverlayShown = magnifierOpen || cropShown || maskGeometryShown || sampleReady
+    val modalOverlayShown = magnifierOpen || maskGeometryShown || sampleReady
 
     // --- drag and drop a photo in (ImageDrop.kt) ---
     // Same adoption path as a shared/opened photo. Refused while a modal tool overlay or
     // an export is up, exactly when the Open button is out of reach too.
-    val acceptDrop by rememberUpdatedState(!modalOverlayShown && !exportMaskVisible && !exportInFlight)
+    val acceptDrop by rememberUpdatedState(
+        !modalOverlayShown && !toolUi.cropOpen && !exportMaskVisible && !exportInFlight,
+    )
     val onImageDrop by rememberUpdatedState<(DragAndDropEvent) -> Boolean> { event ->
         val dragEvent = event.toAndroidDragEvent()
         val uri = droppedContentUri(dragEvent.clipData)
@@ -1167,8 +1251,8 @@ internal fun EditorScreen(
         onDropImage = { onImageDrop(it) },
         topBar = { wide ->
             if (!viewerUi.chromeHidden) EditorTopBar(
-                canUndo = editHistory.canUndo,
-                canRedo = editHistory.canRedo,
+                canUndo = editHistory.canUndo || cropDraft?.touched == true,
+                canRedo = editHistory.canRedo && cropDraft?.touched != true,
                 onUndo = { doUndo() },
                 onRedo = { doRedo() },
                 onShowHistory = { historySheet = historyTimeline(editHistory.snapshotState(), snapshotNow()) },
@@ -1176,19 +1260,23 @@ internal fun EditorScreen(
                 fading = interacting,
                 onOpenSource = {
                     // Open the SAME photo picker the Source panel uses (no app exit).
+                    closeCrop()
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
                 onOpenSettings = {
+                    closeCrop()
                     checkpointEditorSession()
                     onOpenSettings()
                 },
                 onOpenAbout = {
+                    closeCrop()
                     checkpointEditorSession()
                     onOpenAbout()
                 },
                 onOpenLibrary = {
+                    closeCrop()
                     checkpointEditorSession()
                     // Paste edit in the Library reads this photo's recipe.
                     flushRecipeBeforeLeaving(
@@ -1201,7 +1289,9 @@ internal fun EditorScreen(
                 // The canvas tools that used to float on the photo (EditorPreviewRegion.kt).
                 hasPhoto = preview != null || gpuProxy != null,
                 onCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
-                compare = viewerUi.compare,
+                // The Crop canvas has no split view or original peek, so Compare rests while it shows.
+                compare = viewerUi.compare && cropDraft == null,
+                compareEnabled = (preview != null || gpuProxy != null) && cropDraft == null,
                 histogram = viewerUi.histogram,
                 clipWarnings = viewerUi.clipWarnings,
                 onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
@@ -1219,9 +1309,9 @@ internal fun EditorScreen(
                 // only defers the tap (see openExportSheetIfAllowed).
                 exportVisible = engine != null && sourceRenderAllowed,
                 exporting = exportInFlight,
-                onExport = { requestExport() },
+                onExport = { closeCrop(); requestExport() },
                 exportSaved = exportDone,
-                onShare = { requestShare() },
+                onShare = { closeCrop(); requestShare() },
             )
         },
         body = { wide, foldingFeature ->
@@ -1230,7 +1320,7 @@ internal fun EditorScreen(
                 state = state,
                 onParamsChanged = { previewTick++ },
                 activeCategory = activeCategory,
-                onActiveCategoryChange = { activeCategory = it },
+                onActiveCategoryChange = openCategory,
                 toolShown = ::toolShown,
                 wide = wide,
                 chromeHidden = viewerUi.chromeHidden,
@@ -1242,11 +1332,19 @@ internal fun EditorScreen(
                 panelBackProgress = panelBackProgress,
                 exportVisible = engine != null && sourceRenderAllowed,
                 exportInFlight = exportInFlight,
-                onExport = { requestExport() },
-                onShare = { requestShare() },
-                onOpenCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                onExport = { closeCrop(); requestExport() },
+                onShare = { closeCrop(); requestShare() },
+                onOpenCrop = ::toggleCrop,
                 toolContent = toolContent,
                 previewRegion = previewRegion,
+                cropOpen = toolUi.cropOpen,
+                cropPanelContent = {
+                    CropPanelContent(
+                        draft = cropDraft,
+                        // Keep what was set so far: the rotated frame re-seeds from the recipe.
+                        onRotate = { commitCropDraft(); rotation = rotation.next() },
+                    )
+                },
             )
         },
         overlays = {
@@ -1265,7 +1363,6 @@ internal fun EditorScreen(
                     session = session,
                     toolUi = toolUi,
                     cropBmp = cropBmp,
-                    cropShown = cropShown,
                     maskGeometryShown = maskGeometryShown,
                     sampleReady = sampleReady,
                     loadSourceCachedForZoom = { loadSourceCachedForZoom(it) },

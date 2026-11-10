@@ -192,7 +192,8 @@
     <string name="tool_export_sharpen_high">高</string>
     <string name="tool_crop_portrait">竖幅比例</string>
     <string name="tool_crop_landscape">横幅比例</string>
-    <string name="tool_crop_orientation_flip">切换方向</string>
+    <string name="tool_crop_orient_portrait">竖幅</string>
+    <string name="tool_crop_orient_landscape">横幅</string>
     <!-- Photo info sheet -->
     <string name="photo_info_title">照片信息</string>
     <string name="photo_info_group_camera">相机</string>

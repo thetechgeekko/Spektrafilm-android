@@ -161,14 +161,13 @@
     <string name="tool_masks_invert_color_help">Afecta en su lugar a los colores FUERA del rango.</string>
     <string name="tool_masks_delete">Eliminar máscara</string>
     <string name="tool_crop_title">Recortar</string>
-    <string name="tool_crop_cancel">Cancelar recorte</string>
     <string name="tool_crop_rotate">Girar 90°</string>
-    <string name="tool_crop_apply">Aplicar recorte</string>
     <string name="tool_crop_aspect_group">Relación de aspecto</string>
     <string name="tool_crop_aspect_free">Libre</string>
     <string name="tool_crop_portrait">Proporciones verticales</string>
     <string name="tool_crop_landscape">Proporciones horizontales</string>
-    <string name="tool_crop_orientation_flip">cambiar orientación</string>
+    <string name="tool_crop_orient_portrait">Vertical</string>
+    <string name="tool_crop_orient_landscape">Horizontal</string>
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Rectángulo de recorte sobre la foto. Arrastra una esquina o un borde para cambiar su tamaño y arrastra dentro para moverlo.</string>
     <string name="tool_crop_reset">Restablecer el recorte a la foto completa</string>
