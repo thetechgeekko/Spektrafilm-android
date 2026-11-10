@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">미리보기의 %1$s가 %2$s에서 잘립니다: 날아간 하이라이트, 뭉개진 그림자 또는 색 공간 밖의 색입니다. 사진의 클리핑 버튼으로 위치를 확인할 수 있습니다.</string>
     <string name="tool_export_proof_wide">이 화면은 %1$s의 모든 색을 표시하지 못할 수 있습니다. 파일에는 남아 있지만 미리보기에서는 잘려서 표시됩니다.</string>
     <string name="tool_export_proof_sharpen">출력 샤프닝은 이후 파일에 적용되며 조금 더 잘릴 수 있습니다.</string>
+    <string name="tool_export_border_instant">인스턴트</string>
+    <string name="tool_export_border_mat">갤러리 매트</string>
+    <string name="tool_export_border_half">하프 프레임</string>
+    <string name="tool_export_border_rough">거친 검은 테두리</string>
+    <string name="frame_style">스타일</string>
+    <string name="frame_width">테두리 폭</string>
+    <string name="frame_color">색</string>
+    <string name="frame_color_style">스타일 기본값</string>
+    <string name="frame_color_white">페이퍼 화이트</string>
+    <string name="frame_color_cream">따뜻한 크림</string>
+    <string name="frame_color_grey">회색</string>
+    <string name="frame_color_black">검정</string>
+    <string name="frame_color_photo">사진에서</string>
+    <string name="frame_aspect">비율 맞추기</string>
+    <string name="frame_aspect_original">원본</string>
+    <string name="frame_aspect_note">이 비율이 되도록 프레임을 넓힙니다. 사진은 잘리지 않습니다.</string>
+    <string name="frame_strip_color_note">필름 스트립은 필름 베이스 색을 유지합니다. 색은 비율 여백에 쓰입니다.</string>
+    <string name="frame_export_note">프레임은 내보낼 때 더해집니다. Ultra HDR, JPEG, PNG에 들어가며, 고비트 심도 형식은 사진만 내보냅니다.</string>
+    <string name="frame_preview_cd">선택한 프레임이 있는 사진</string>
 </resources>

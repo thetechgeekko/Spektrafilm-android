@@ -607,6 +607,10 @@
     <string name="editor_section_effects_hint">グレア、レンズぼかし、日付写し込み</string>
     <string name="editor_section_detail">ディテール</string>
     <string name="editor_section_detail_hint">スキャンのシャープとレベル、RAWクリーンアップ</string>
+    <string name="editor_section_frame">フレーム</string>
+    <string name="editor_section_frame_hint">写真のまわりの縁、色、縦横比</string>
+    <string name="editor_category_frame">フレーム</string>
+    <string name="editor_hint_frame">写真のまわりにプリントの余白やフィルムストリップを付けます（書き出し時）</string>
     <string name="editor_section_output">出力</string>
     <string name="editor_section_output_hint">色空間、色域、プレビュー</string>
     <string name="editor_section_lab">ラボ</string>

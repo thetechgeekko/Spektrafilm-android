@@ -191,6 +191,7 @@ internal fun categoryHint(c: Category) = stringResource(
         Category.DATE_STAMP -> R.string.editor_hint_date_stamp
         Category.SCANNER -> R.string.editor_hint_scanner
         Category.RAW_CLEANUP -> R.string.editor_hint_raw_cleanup
+        Category.FRAME -> R.string.editor_hint_frame
         Category.OUTPUT -> R.string.editor_hint_output
         Category.DISPLAY -> R.string.editor_hint_display
         Category.INPUT -> R.string.editor_hint_input
@@ -224,6 +225,7 @@ internal fun categoryIcon(c: Category) = when (c) {
     Category.DATE_STAMP -> MaterialSymbols.CameraRoll
     Category.SCANNER -> MaterialSymbols.DocumentScanner
     Category.RAW_CLEANUP -> MaterialSymbols.RawOn
+    Category.FRAME -> MaterialSymbols.FilterFrames
     Category.OUTPUT -> SpectraIcons.Output
     Category.DISPLAY -> SpectraIcons.Display
     Category.INPUT -> SpectraIcons.Input

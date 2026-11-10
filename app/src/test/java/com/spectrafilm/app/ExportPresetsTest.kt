@@ -19,6 +19,7 @@ class ExportPresetsTest {
     private val insta = ExportOptions(
         ExportFormat.JPEG, 90, ExportSize.MEDIUM, 0, "{name}_{film}",
         border = FilmBorder.entries.last(), sharpen = OutputSharpen.STANDARD,
+        frame = FrameLook(0.1f, FrameColor.CREAM, FrameAspect.PORTRAIT_4_5),
     )
     private val print = ExportOptions(ExportFormat.TIFF, 95, ExportSize.FULL, 0, "", sharpen = OutputSharpen.NONE)
 

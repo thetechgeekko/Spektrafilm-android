@@ -611,6 +611,10 @@
     <string name="editor_section_effects_hint">Voile, flou d’objectif et date incrustée</string>
     <string name="editor_section_detail">Détail</string>
     <string name="editor_section_detail_hint">Netteté et niveaux de numérisation, nettoyage RAW</string>
+    <string name="editor_section_frame">Cadre</string>
+    <string name="editor_section_frame_hint">Bordure, couleur et format autour de la photo</string>
+    <string name="editor_category_frame">Cadre</string>
+    <string name="editor_hint_frame">Une marge de tirage ou une bande de film autour de la photo, ajoutée à l\'export</string>
     <string name="editor_section_output">Sortie</string>
     <string name="editor_section_output_hint">Espace colorimétrique, gamut et aperçu</string>
     <string name="editor_section_lab">Labo</string>

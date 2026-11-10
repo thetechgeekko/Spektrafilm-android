@@ -36,6 +36,8 @@ interface SettingsStore {
     var exportKeepGps: Boolean
     /** Film border the export sheet starts with (the last one used). */
     var exportBorder: FilmBorder
+    /** Width, colour and aspect of that border (the Frame tab's last settings). */
+    var exportFrame: FrameLook
 }
 
 internal data class SettingsUiState(
@@ -76,6 +78,7 @@ internal sealed interface SettingsAction {
     data class SetExportQuality(val value: Int) : SettingsAction
     data class SetKeepGps(val value: Boolean) : SettingsAction
     data class SetExportBorder(val value: FilmBorder) : SettingsAction
+    data class SetExportFrame(val value: FrameLook) : SettingsAction
 }
 
 internal class SettingsViewModel(
@@ -101,6 +104,7 @@ internal class SettingsViewModel(
             is SettingsAction.SetExportQuality -> store.exportQuality = action.value
             is SettingsAction.SetKeepGps -> store.exportKeepGps = action.value
             is SettingsAction.SetExportBorder -> store.exportBorder = action.value
+            is SettingsAction.SetExportFrame -> store.exportFrame = action.value
         }
         // Re-read rather than echo the action: the store clamps (quality 1..100, draft
         // 128..512), and the UI must show what was actually saved.

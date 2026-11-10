@@ -611,6 +611,10 @@
     <string name="editor_section_effects_hint">Destello, desenfoque de objetivo y fecha impresa</string>
     <string name="editor_section_detail">Detalle</string>
     <string name="editor_section_detail_hint">Enfoque y niveles del escaneo, limpieza RAW</string>
+    <string name="editor_section_frame">Marco</string>
+    <string name="editor_section_frame_hint">Borde, color y proporción alrededor de la foto</string>
+    <string name="editor_category_frame">Marco</string>
+    <string name="editor_hint_frame">Un borde de copia o una tira de película alrededor de la foto, añadido al exportar</string>
     <string name="editor_section_output">Salida</string>
     <string name="editor_section_output_hint">Espacio de color, gama y vista previa</string>
     <string name="editor_section_lab">Lab</string>

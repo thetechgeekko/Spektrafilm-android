@@ -20,6 +20,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.spectrafilm.engine.ColorSpace
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 
@@ -303,6 +304,11 @@ class AppSettings private constructor(
         get() = FilmBorder.parse(store[KEY_EXPORT_BORDER])
         set(v) { store.edit { it[KEY_EXPORT_BORDER] = v.name } }
 
+    override var exportFrame: FrameLook
+        get() = runCatching { FrameLook.fromJson(store[KEY_EXPORT_FRAME]?.let(::JSONObject)) }
+            .getOrDefault(FrameLook())
+        set(v) { store.edit { it[KEY_EXPORT_FRAME] = v.toJson().toString() } }
+
     /** Whether saved settings have been read; see [SettingsDataStore.awaitLoaded]. */
     val isLoaded: Boolean get() = store.isLoaded
 
@@ -365,6 +371,8 @@ class AppSettings private constructor(
         private val KEY_EXPORT_KEEP_GPS = booleanPreferencesKey("export_keep_gps")
         // New in DataStore only; never lived in SharedPreferences, so not in MIGRATED_KEYS.
         private val KEY_EXPORT_BORDER = stringPreferencesKey("export_border")
+        // New in DataStore only, like KEY_EXPORT_BORDER: not in MIGRATED_KEYS.
+        private val KEY_EXPORT_FRAME = stringPreferencesKey("export_frame")
         private val KEY_FULL_SCREEN = booleanPreferencesKey("full_screen_editing")
         // New in DataStore only, like KEY_EXPORT_BORDER: not in MIGRATED_KEYS.
         private val KEY_ASKED_NOTIFICATIONS = booleanPreferencesKey("asked_notification_permission")

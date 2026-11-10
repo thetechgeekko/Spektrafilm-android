@@ -73,6 +73,8 @@ internal fun ColumnScope.EditorToolContent(
     retireSourceResources: () -> Unit,
     resetEditorCursorForSourceChange: () -> Unit,
     reconcileVisibleSourceAfterFailure: (SourceRestoreResult?) -> Unit,
+    exportOptions: ExportOptions,
+    onExportOptionsChange: (ExportOptions) -> Unit,
 ) {
     val snackbarHost = screen.snackbarHost
     val presetListState = screen.presetListState
@@ -159,6 +161,12 @@ internal fun ColumnScope.EditorToolContent(
             },
         )
         Category.DISPLAY -> DisplaySection(state)
+        Category.FRAME -> FrameControls(
+            spec = exportOptions.frameSpec,
+            onChange = { onExportOptionsChange(exportOptions.withFrame(it)) },
+            preview = preview,
+            frameless = exportOptions.effectiveFrame().isNone && !exportOptions.frameSpec.isNone,
+        )
         Category.PRESETS -> EditorPresetPanel(
             dispatchers = dispatchers,
             presetVm = presetVm,

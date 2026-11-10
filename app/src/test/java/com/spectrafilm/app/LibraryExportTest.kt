@@ -82,7 +82,8 @@ class LibraryExportTest {
     fun `the sheet's last choices come back after a restart, without the file name`() {
         val chosen = ExportOptions(
             ExportFormat.JPEG, 80, ExportSize.MEDIUM, 2048, "trip",
-            border = FilmBorder.NONE, sharpen = OutputSharpen.values().last(),
+            border = FilmBorder.INSTANT, sharpen = OutputSharpen.values().last(),
+            frame = FrameLook(0.04f, FrameColor.FROM_PHOTO, FrameAspect.SQUARE),
         )
         val fallback = libraryExportDefaults(ExportFormat.ULTRA_HDR, 95, FilmBorder.NONE)
         val back = decodeLibraryExportOptions(encodeLibraryExportOptions(chosen), fallback)

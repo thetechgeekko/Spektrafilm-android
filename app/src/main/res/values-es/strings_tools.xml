@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">El %1$s de la vista previa se recorta en %2$s: luces quemadas, sombras empastadas o colores fuera del espacio. El botón de recorte sobre la foto muestra dónde.</string>
     <string name="tool_export_proof_wide">Es posible que esta pantalla no muestre todos los colores de %1$s. El archivo los conserva; la vista previa los muestra recortados.</string>
     <string name="tool_export_proof_sharpen">El enfoque de salida se aplica al archivo después y puede recortar un poco más.</string>
+    <string name="tool_export_border_instant">Foto instantánea</string>
+    <string name="tool_export_border_mat">Paspartú de galería</string>
+    <string name="tool_export_border_half">Tira de medio formato</string>
+    <string name="tool_export_border_rough">Borde limado</string>
+    <string name="frame_style">Estilo</string>
+    <string name="frame_width">Ancho del borde</string>
+    <string name="frame_color">Color</string>
+    <string name="frame_color_style">Del estilo</string>
+    <string name="frame_color_white">Blanco papel</string>
+    <string name="frame_color_cream">Crema cálido</string>
+    <string name="frame_color_grey">Gris</string>
+    <string name="frame_color_black">Negro</string>
+    <string name="frame_color_photo">De la foto</string>
+    <string name="frame_aspect">Ajustar a proporción</string>
+    <string name="frame_aspect_original">Original</string>
+    <string name="frame_aspect_note">Rellena el marco hasta esta forma. La foto nunca se recorta.</string>
+    <string name="frame_strip_color_note">Las tiras de película conservan su base. El color rellena el espacio de la proporción.</string>
+    <string name="frame_export_note">El marco se añade al exportar. Ultra HDR, JPEG y PNG lo incluyen; los formatos de alta profundidad de bits exportan la foto sola.</string>
+    <string name="frame_preview_cd">Foto con el marco elegido</string>
 </resources>

@@ -24,6 +24,7 @@ class AppViewModelFactoryTest {
         override var exportQuality = 95
         override var exportKeepGps = false
         override var exportBorder = FilmBorder.NONE
+        override var exportFrame = FrameLook()
     }
 
     private var settingsBuilt = 0

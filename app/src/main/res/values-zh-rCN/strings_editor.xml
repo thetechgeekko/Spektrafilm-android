@@ -514,6 +514,10 @@
     <string name="editor_section_effects_hint">眩光、镜头模糊和日期印记</string>
     <string name="editor_section_detail">细节</string>
     <string name="editor_section_detail_hint">扫描锐化与色阶、RAW 清理</string>
+    <string name="editor_section_frame">边框</string>
+    <string name="editor_section_frame_hint">照片四周的边框、颜色与比例</string>
+    <string name="editor_category_frame">边框</string>
+    <string name="editor_hint_frame">导出时在照片四周加上相纸白边或胶片片条</string>
     <string name="editor_section_output">输出</string>
     <string name="editor_section_output_hint">色彩空间、色域和预览</string>
     <string name="editor_section_lab">实验室</string>

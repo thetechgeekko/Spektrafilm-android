@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">%1$s da prévia é cortado em %2$s: realces estourados, sombras empastadas ou cores fora do espaço. O botão de recorte na foto mostra onde.</string>
     <string name="tool_export_proof_wide">Esta tela pode não mostrar todas as cores de %1$s. O arquivo as mantém; a prévia as mostra cortadas.</string>
     <string name="tool_export_proof_sharpen">A nitidez de saída é aplicada ao arquivo depois e pode cortar um pouco mais.</string>
+    <string name="tool_export_border_instant">Foto instantânea</string>
+    <string name="tool_export_border_mat">Passe-partout</string>
+    <string name="tool_export_border_half">Tira meio-quadro</string>
+    <string name="tool_export_border_rough">Borda limada</string>
+    <string name="frame_style">Estilo</string>
+    <string name="frame_width">Largura da borda</string>
+    <string name="frame_color">Cor</string>
+    <string name="frame_color_style">Do estilo</string>
+    <string name="frame_color_white">Branco papel</string>
+    <string name="frame_color_cream">Creme quente</string>
+    <string name="frame_color_grey">Cinza</string>
+    <string name="frame_color_black">Preto</string>
+    <string name="frame_color_photo">Da foto</string>
+    <string name="frame_aspect">Ajustar à proporção</string>
+    <string name="frame_aspect_original">Original</string>
+    <string name="frame_aspect_note">Preenche a moldura até esse formato. A foto nunca é cortada.</string>
+    <string name="frame_strip_color_note">Tiras de filme mantêm a base do filme. A cor preenche o espaço da proporção.</string>
+    <string name="frame_export_note">A moldura é adicionada ao exportar. Ultra HDR, JPEG e PNG a incluem; formatos de alta profundidade de bits exportam só a foto.</string>
+    <string name="frame_preview_cd">Foto com a moldura escolhida</string>
 </resources>

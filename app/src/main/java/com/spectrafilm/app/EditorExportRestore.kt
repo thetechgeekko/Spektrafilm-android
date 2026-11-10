@@ -57,6 +57,7 @@ internal fun rememberEditorExportRestore(
                 2048,
                 "",
                 settings.exportBorder,
+                frame = settings.exportFrame,
             ),
             keepGps = settings.exportKeepGps,
             phase = EditorExportPhase.IDLE,

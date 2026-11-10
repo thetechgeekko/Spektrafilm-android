@@ -120,6 +120,7 @@ internal fun startEditorExport(
         onSettingsAction(SettingsAction.SetExportQuality(exportOptions.jpegQuality))
         onSettingsAction(SettingsAction.SetKeepGps(exportKeepGps))
         onSettingsAction(SettingsAction.SetExportBorder(exportOptions.border))
+        onSettingsAction(SettingsAction.SetExportFrame(exportOptions.frame))
         val fmt = outputDescriptor.format
         val exportFmt = fmt
         val baseName = exportBaseName(
@@ -133,6 +134,7 @@ internal fun startEditorExport(
         )
         val longEdge = exportOptions.targetLongEdge()
         val exportBorder = exportOptions.effectiveBorder()
+        val exportFrame = exportOptions.effectiveFrame()
         val exportSharpen = exportOptions.effectiveSharpen()
         val keepGps = exportKeepGps
         // Wall-clock breadcrumbs for the on-device baseline capture
@@ -236,6 +238,7 @@ internal fun startEditorExport(
                             exportBorder,
                             exportContract,
                             exportSharpen,
+                            exportFrame.look,
                         )
                     }
                     // Pre-encode identity: the same payload serves every
@@ -412,7 +415,7 @@ internal fun startEditorExport(
                                 // 2048 px wide: shrink the photo to leave room.
                                 val photoEdge = longEdge?.let { edge ->
                                     FilmBorderGeometry.photoLongEdgeFor(
-                                        exportBorder, full.width, full.height, edge,
+                                        exportFrame, full.width, full.height, edge,
                                     )
                                 }
                                 val sized = photoEdge?.let { edge ->
@@ -437,7 +440,7 @@ internal fun startEditorExport(
                                 // Frame number is stable per source, so the
                                 // cache key's source hash already covers it.
                                 val borderLayout = FilmBorderGeometry.layout(
-                                    exportBorder,
+                                    exportFrame,
                                     sized.width,
                                     sized.height,
                                     FilmBorderGeometry.frameNumberFor(
@@ -545,7 +548,13 @@ internal fun startEditorExport(
                         }
                     }
                 }
-                val retainedBitmap = runCatching {
+                // A framed export is not handed back as the editor preview: the preview
+                // is the photo alone, and the Frame tab paints the frame around it, so
+                // a framed bitmap there would come back with a second frame.
+                val retainedBitmap = if (!exportFrame.isNone) {
+                    runCatching { bitmap?.recycle() }
+                    null
+                } else runCatching {
                     bitmap?.let { full ->
                         scaleBitmapToLongEdge(full, 2_048).also { proxy ->
                             if (proxy !== full) full.recycle()

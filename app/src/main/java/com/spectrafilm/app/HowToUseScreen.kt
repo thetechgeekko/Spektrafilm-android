@@ -304,6 +304,7 @@ private fun categoryHowtoName(c: Category): Int = when (c) {
     Category.LENS_BLUR -> R.string.editor_category_lens_blur
     Category.DATE_STAMP -> R.string.editor_category_date_stamp
     Category.RAW_CLEANUP -> R.string.editor_category_raw_cleanup
+    Category.FRAME -> R.string.editor_category_frame
     Category.OUTPUT -> R.string.editor_sim_tab_output
     Category.COUPLERS -> R.string.screen_howto_cat_couplers
     Category.PREFLASH -> R.string.screen_howto_cat_preflash
@@ -338,6 +339,7 @@ private fun categoryHowtoDesc(c: Category): Int = when (c) {
     Category.LENS_BLUR -> R.string.editor_hint_lens_blur
     Category.DATE_STAMP -> R.string.editor_hint_date_stamp
     Category.RAW_CLEANUP -> R.string.editor_hint_raw_cleanup
+    Category.FRAME -> R.string.editor_hint_frame
     Category.COUPLERS -> R.string.screen_howto_cat_couplers_desc
     Category.PREFLASH -> R.string.screen_howto_cat_preflash_desc
     Category.CONTRAST_MASK -> R.string.screen_howto_cat_contrast_mask_desc

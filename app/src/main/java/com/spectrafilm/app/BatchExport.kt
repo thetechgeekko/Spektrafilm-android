@@ -291,7 +291,7 @@ private suspend fun exportBatchPhoto(
     }
     val cctf = descriptor.engineCctfEncoding ?: false
     val longEdge = options.targetLongEdge()
-    val border = options.effectiveBorder()
+    val border = options.effectiveFrame()
     val sharpen = options.effectiveSharpen()
     val baseName = batchExportBaseName(
         options.customName,

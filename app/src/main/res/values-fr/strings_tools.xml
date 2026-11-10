@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">%1$s de l\'aperçu est écrêté en %2$s : hautes lumières brûlées, ombres bouchées ou couleurs hors de l\'espace. Le bouton d\'écrêtage sur la photo montre où.</string>
     <string name="tool_export_proof_wide">Cet écran n\'affiche peut-être pas toutes les couleurs de %1$s. Le fichier les conserve ; l\'aperçu les affiche écrêtées.</string>
     <string name="tool_export_proof_sharpen">L\'accentuation de sortie est appliquée au fichier ensuite et peut écrêter un peu plus.</string>
+    <string name="tool_export_border_instant">Tirage instantané</string>
+    <string name="tool_export_border_mat">Passe-partout</string>
+    <string name="tool_export_border_half">Bande demi-format</string>
+    <string name="tool_export_border_rough">Bord limé</string>
+    <string name="frame_style">Style</string>
+    <string name="frame_width">Largeur de la bordure</string>
+    <string name="frame_color">Couleur</string>
+    <string name="frame_color_style">Selon le style</string>
+    <string name="frame_color_white">Blanc papier</string>
+    <string name="frame_color_cream">Crème chaud</string>
+    <string name="frame_color_grey">Gris</string>
+    <string name="frame_color_black">Noir</string>
+    <string name="frame_color_photo">D\'après la photo</string>
+    <string name="frame_aspect">Ajuster au format</string>
+    <string name="frame_aspect_original">Original</string>
+    <string name="frame_aspect_note">Complète le cadre jusqu\'à ce format. La photo n\'est jamais recadrée.</string>
+    <string name="frame_strip_color_note">Les bandes de film gardent leur support. La couleur remplit l\'espace ajouté pour le format.</string>
+    <string name="frame_export_note">Le cadre est ajouté à l\'export. Ultra HDR, JPEG et PNG le portent ; les formats à haute profondeur exportent la photo seule.</string>
+    <string name="frame_preview_cd">Photo avec le cadre choisi</string>
 </resources>

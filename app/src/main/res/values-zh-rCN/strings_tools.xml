@@ -182,4 +182,23 @@
     <string name="tool_curve_reset_all">全部重置</string>
     <string name="tool_curve_editor_desc">色调曲线编辑器。点按添加控制点，拖动控制点调整曲线，双击控制点删除。曲线塑形仅支持触控；屏幕阅读器用户请使用对比度滑块和重置通道。</string>
     <string name="tool_curve_points_state">%1$d 个控制点</string>
+    <string name="tool_export_border_instant">拍立得</string>
+    <string name="tool_export_border_mat">画廊卡纸</string>
+    <string name="tool_export_border_half">半格片条</string>
+    <string name="tool_export_border_rough">粗糙锉边</string>
+    <string name="frame_style">样式</string>
+    <string name="frame_width">边框宽度</string>
+    <string name="frame_color">颜色</string>
+    <string name="frame_color_style">样式默认</string>
+    <string name="frame_color_white">相纸白</string>
+    <string name="frame_color_cream">暖奶油色</string>
+    <string name="frame_color_grey">灰色</string>
+    <string name="frame_color_black">黑色</string>
+    <string name="frame_color_photo">取自照片</string>
+    <string name="frame_aspect">适配比例</string>
+    <string name="frame_aspect_original">原始</string>
+    <string name="frame_aspect_note">把边框扩展到这个比例，照片不会被裁切。</string>
+    <string name="frame_strip_color_note">胶片片条保持片基颜色，所选颜色用于比例填充。</string>
+    <string name="frame_export_note">边框在导出时添加。Ultra HDR、JPEG 和 PNG 会带上边框；高位深格式只导出照片本身。</string>
+    <string name="frame_preview_cd">带所选边框的照片</string>
 </resources>

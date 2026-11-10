@@ -259,7 +259,7 @@ private suspend fun exportPair(
             runCatching { frame.recycle() }
             owned.remove(frame)
         }
-        val border = options.effectiveBorder()
+        val border = options.effectiveFrame()
         val photoEdge = options.targetLongEdge()?.let { edge ->
             FilmBorderGeometry.photoLongEdgeFor(border, pair.width, pair.height, edge)
         }

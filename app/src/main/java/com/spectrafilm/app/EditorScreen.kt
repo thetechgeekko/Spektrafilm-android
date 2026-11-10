@@ -1154,6 +1154,8 @@ internal fun EditorScreen(
             retireSourceResources = ::retireSourceResources,
             resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
             reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
+            exportOptions = exportOptions,
+            onExportOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
         )
     }
     // The Crop tab draws its frame on the photo only once the preview on screen is the
@@ -1164,13 +1166,21 @@ internal fun EditorScreen(
         rememberCropDraft(it, state.crop, state.cropCenter, state.cropSize, state.straightenDegrees, cropDraftEpoch)
     }
     SideEffect { cropDraftRef.value = if (toolUi.cropOpen) cropDraft else null }
+    // The Frame tab shows the photo with its frame, painted by the export's own renderer.
+    val frameCanvasBmp = preview?.takeIf {
+        activeCategory == Category.FRAME && !it.isRecycled && !exportOptions.frameSpec.isNone
+    }
+    val ownCanvas = cropDraft != null || frameCanvasBmp != null
     val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
         val cropBitmap = cropCanvasBmp
         val draft = cropDraft
+        val framePreview = frameCanvasBmp
         if (cropBitmap != null && draft != null) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                 CropCanvas(bitmap = cropBitmap, draft = draft, bottomInset = panelInset)
             }
+        } else if (framePreview != null) {
+            FramedPreviewCanvas(preview = framePreview, spec = exportOptions.frameSpec, bottomInset = panelInset)
         } else PreviewRegion(
             zoomRequests = viewerVm.zoomRequests,
             controlsBottomInset = panelInset,
@@ -1289,11 +1299,13 @@ internal fun EditorScreen(
                 // The canvas tools that used to float on the photo (EditorPreviewRegion.kt).
                 hasPhoto = preview != null || gpuProxy != null,
                 onCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
-                // The Crop canvas has no split view or original peek, so Compare rests while it shows.
-                compare = viewerUi.compare && cropDraft == null,
-                compareEnabled = (preview != null || gpuProxy != null) && cropDraft == null,
-                histogram = viewerUi.histogram,
-                clipWarnings = viewerUi.clipWarnings,
+                // The Crop and Frame canvases have no split view, original peek, histogram or
+                // clipping overlay, so those toggles rest while either shows.
+                compare = viewerUi.compare && !ownCanvas,
+                compareEnabled = (preview != null || gpuProxy != null) && !ownCanvas,
+                viewTogglesEnabled = (preview != null || gpuProxy != null) && !ownCanvas,
+                histogram = viewerUi.histogram && !ownCanvas,
+                clipWarnings = viewerUi.clipWarnings && !ownCanvas,
                 onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },
                 onToggleHistogram = { viewerVm.onAction(EditorViewerAction.ToggleHistogram) },
                 onToggleClipWarnings = { viewerVm.onAction(EditorViewerAction.ToggleClipWarnings) },
