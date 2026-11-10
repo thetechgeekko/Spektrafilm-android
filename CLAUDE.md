@@ -270,8 +270,10 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   `gpu::available()` is false there and every GPU branch is dead. A 50/50 parity
   run is therefore NOT evidence for a change under `gpu/`. The gates that see it
   are `tests/test_gpu_host.cpp`, `gpu/tests/test_halation_gpu.cpp` and
-  `gpu/tests/test_grain_gpu.cpp`, which need a Vulkan ICD; CI runs them in the
-  "Engine (C++ host build)" job under lavapipe (a CPU rasterizer, so they gate
+  `gpu/tests/test_grain_gpu.cpp` (and the rest of `gpu/tests/`), which need a Vulkan
+  ICD; `tools/gpu_gates/run_gpu_gates.sh` runs all of them, automatically via
+  `gpu-gates.yml` on any native-render change and in ci.yml's "Engine (C++ host build)"
+  job, under lavapipe (a CPU rasterizer, so they gate
   correctness and NOT performance). This used to be CI-only because the WSL box
   had no Vulkan headers. It does not need root: the lavapipe ICD and
   `libvulkan.so.1` are already installed, and Vulkan-Headers is header-only —
