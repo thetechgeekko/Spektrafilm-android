@@ -101,10 +101,10 @@ g++ -std=c++17 -O2 -pthread -I. -I../../../../../tools/parity \
 A test passes when its output contains no `FAIL` line. `tools/parity/run_engine_parity.sh`
 builds and runs the whole suite locally with the same argv as CI (it fails loudly if its table
 drifts from the workflow's `build_run` count). `engine-parity` is a **two-leg matrix** — the same
-50 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
+51 tests at `-O2` and at the shipping `-O3 -ffast-math -fno-finite-math-only`, because the release
 APK's numerics were otherwise never gated. A plain local run reproduces the `-O2` leg only; for the
 other, prefix `SPK_PARITY_EXTRA_FLAGS="-O3 -ffast-math -fno-finite-math-only"`. CI `engine-parity`
-gates (50 tests):
+gates (51 tests):
 `simulate_e2e` (goldens + BOTH film-density memos + the print-density memo + per-param key
 completeness), `filming`, `spatial`, `crop_resize`, `downscale` (minification AA prefilter),
 `autoexposure`, `small_preview_aa` (AE metering downscale AA), `diffusion` (+`_e2e`),
@@ -136,6 +136,7 @@ contrast rising 00 -> 5, grade 2 equals the database pack, and grain-on thread i
 `print_spatial_e2e` (print-route filming spatial branch),
 `band_render` (exports above 16 MiP render as overlapping horizontal bands: banded vs whole within the
 parity tolerance on both routes incl. highlight boost, engine crop and the contrast mask, thread identity, grain/glare statistics, frame-wide-effect fallback; above the whole-frame limit the camera and enlarger diffusion filters band with a near/far kernel split that is NOT bit-exact, gated at |log10| <= 1e-3 vs the whole filter),
+`band_seam_sweep` (banded vs WHOLE-frame render across the spatial-reach space -- halation, camera diffusion near/far split, highlight boost, DIR diffusion, lens blur, date-back, engine crop -- failing on any row whose mean |banded - whole| exceeds the bar, so a band-margin seam like #604's cannot ship),
 **`test_parallel`** (thread-invariance, fresh engine per thread count), and the
 statistical grain gates `test_grain` + `test_grain_sublayer` (+ `test_glare_sampler`, which gates the viewing-glare field's two generators against the
 lognormal model, and `test_normal_generator`, which gates `StatsRng::normal()` ITSELF -- moments,
@@ -154,7 +155,7 @@ per-test argv is in `.github/workflows/ci.yml` — copy from there rather than g
 - Engine `CMAKE_CXX_FLAGS_RELEASE` is `-O3 -ffast-math -fno-finite-math-only`.
   **`-fno-finite-math-only` is required** — the scanning stage relies on NaN propagation through
   `density_to_light` to match spektrafilm's profile null handling. Do not strip it.
-  All 50 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
+  All 51 gates pass at these flags as well as at `-O2`; note this holds for the **band**, not for
   byte-equality between the two builds — `-ffast-math` reassociates, which is exactly what
   invalidated a Highway f64 byte-identity claim proven only at `-O2` (`docs/research/perf-lab.md` §14).
 - `tools/parity/` is the standalone `.spkvec` golden-vector comparator (CMake + ctest self-test,
@@ -186,7 +187,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 
 ## Conventions / gotchas
 
-- Current version: `versionCode 14` / `versionName 0.12.0`, `minSdk 24`, `targetSdk 36`,
+- Current version: `versionCode 15` / `versionName 1.0.0`, `minSdk 24`, `targetSdk 36`,
   `compileSdk 37` (`:app` only — set when material3 `1.5.0-alpha28` pulled Compose 1.13
   alphas that required android-37; every other module stays on 36). material3 is now
   `1.5.0-rc01` on stable Compose 1.12.0 (#292, #384); whether `:app` can drop back to 36 is
@@ -212,7 +213,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
   parity suite will NOT catch it if you forget.** The host parity build compiles with a
   glob (`kernels/*.cpp model/*.cpp ...`, see the build line above); the Android build
   enumerates every source explicitly. A file missing from CMakeLists therefore passes all
-  50 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
+  51 gates locally and fails only at the Android `ninja ... spektra` step, as an undefined
   reference. Check a new source the way CI links: `g++ -std=c++17 -O2 -pthread -fPIC
   -shared -I. <CMakeLists sources, minus spektra_jni.cpp> -Wl,--no-undefined -o /tmp/x.so`.
   (Cost a red CI run on `551c57f`.)
@@ -267,7 +268,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 - **Attribution "Film modeling powered by spektrafilm" must stay** (GPLv3 requirement).
 - **The GPU gates CAN be run locally, and must be — parity does not cover GPU code.**
   `tools/parity/run_engine_parity.sh` compiles WITHOUT `SPK_ENABLE_VULKAN`, so
-  `gpu::available()` is false there and every GPU branch is dead. A 50/50 parity
+  `gpu::available()` is false there and every GPU branch is dead. A 51/51 parity
   run is therefore NOT evidence for a change under `gpu/`. The gates that see it
   are `tests/test_gpu_host.cpp`, `gpu/tests/test_halation_gpu.cpp` and
   `gpu/tests/test_grain_gpu.cpp` (and the rest of `gpu/tests/`), which need a Vulkan
