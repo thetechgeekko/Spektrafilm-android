@@ -2,11 +2,6 @@
 
 ## Unreleased
 
-- **Documentation rewritten for 1.0.** A new README with real phone screens, and six user guides
-  in `docs/` (getting started, editing, films and papers, exporting, how it works, FAQ). The
-  maintainer contracts are folded into `docs/MAINTAINERS.md`; about 70 research notes, audits and
-  plans were removed and stay in git history.
-
 ## v1.0.0 (versionCode 15) — 2026-11-10 — full-resolution exports with every effect, Crop and Frame tabs
 
 **Major: first stable release. No breaking change to saved edits.** v0.12.0 below was prepared
@@ -32,6 +27,10 @@ but never published on its own; everything listed there ships for the first time
 - **Library:** album export layout, selection ring and remembered sheet; drag-select fixes (#579-#581).
 - **Fixes:** Settings no longer stalls up to 2 s when leaving (#610); export stops re-hashing the
   staged file before every commit (#609); lint is clean (#603).
+- **Documentation rewritten for 1.0.** A new README with real phone screens, and six user guides
+  in `docs/` (getting started, editing, films and papers, exporting, how it works, FAQ). The
+  maintainer contracts are folded into `docs/MAINTAINERS.md`; about 70 research notes, audits and
+  plans were removed and stay in git history.
 - **Under the hood:** the editor screen split into a state holder and stateless parts (#578, #583),
   and the GPU gates run automatically when native render code changes (#608).
 
