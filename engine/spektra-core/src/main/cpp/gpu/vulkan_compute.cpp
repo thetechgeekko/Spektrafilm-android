@@ -165,6 +165,7 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <android/log.h>
 #endif
 
+#include <memory>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -4945,14 +4946,13 @@ bool gaussian_blur_rgb(double* rgb, int width, int height,
     request.halation_n_bounces = 0;
 
     const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
-    std::vector<double> out;
-    try {
-        out.resize(total);
-    } catch (const std::bad_alloc&) {
-        return false;
-    }
+    // Uninitialised: on success the pass writes every element, and on failure
+    // or a no-op nobody reads it (a zero-filled 23 MP band was ~560 MB of
+    // single-threaded memset).
+    std::unique_ptr<double[]> out(new (std::nothrow) double[total]);
+    if (!out) return false;
     HalationScatterDiagnostics diagnostics{};
-    const bool ok = halation_scatter(request, out.data(), &diagnostics);
+    const bool ok = halation_scatter(request, out.get(), &diagnostics);
     if (!ok || !diagnostics.engaged) return false;
     parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
         for (int i = lo; i < hi; ++i) rgb[i] = out[i];

@@ -38,6 +38,7 @@
 
 #include "gpu/vulkan_compute.h"
 #include "kernels/parallel.h"
+#include "runtime/memory_budget.h"
 #include "kernels/exponential_filter.h"
 #include "model/diffusion.h"
 #include "model/glare.h"
@@ -236,6 +237,27 @@ int main() {
     std::printf("1-row staging bands: ok=%d bands=%u\n", bandedOk ? 1 : 0, db.bands);
     check(bandedOk && db.bands == static_cast<uint32_t>(h) && bytes_eq(gpu, gpuBanded),
           "one-row staging bands give the same bytes as the host-chosen band");
+
+    // A whole frame the process memory budget cannot hold: the four whole-frame
+    // work buffers are refused at admission, and the pass must take the banded
+    // route -- not fail to the CPU, and not change a byte.
+    {
+        auto& budget = spk::memory::process_memory_budget();
+        spk::gpu::release_resources();
+        const uint64_t frameBytes = static_cast<uint64_t>(w) * h * 12u;
+        const uint64_t oldLimit = budget.limit_bytes();
+        budget.set_limit_bytes(budget.snapshot().total.current_bytes + 3u * frameBytes);
+        std::vector<double> gpuRefused(raw.size());
+        spk::gpu::HalationScatterDiagnostics dr{};
+        const bool refusedOk = spk::gpu::halation_scatter(r, gpuRefused.data(), &dr);
+        budget.set_limit_bytes(oldLimit);
+        spk::gpu::release_resources();
+        std::printf("whole-frame work refused by the budget: ok=%d reason=%s bands=%u\n",
+                    refusedOk ? 1 : 0, dr.reason ? dr.reason : "-", dr.bands);
+        check(refusedOk && dr.engaged && std::strcmp(dr.reason, "banded") == 0 &&
+                  bytes_eq(gpu, gpuRefused),
+              "budget-refused whole-frame work falls back to the banded route, same bytes");
+    }
 
     // Submissions (#270): the pass is split into several queue submissions so
     // the compositor is not starved. One dispatch per submission and the whole

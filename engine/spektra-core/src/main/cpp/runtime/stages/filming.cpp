@@ -98,14 +98,13 @@ bool gpu_diffusion_pass(double* raw, int width, int height,
     request.halation_n_bounces = 0;
 
     const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
-    std::vector<double> out;
-    try {
-        out.resize(total);
-    } catch (const std::bad_alloc&) {
-        return false;
-    }
+    // Uninitialised: on success the pass writes every element, and on failure
+    // or a no-op nobody reads it (a zero-filled 23 MP band was ~560 MB of
+    // single-threaded memset).
+    std::unique_ptr<double[]> out(new (std::nothrow) double[total]);
+    if (!out) return false;
     gpu::HalationScatterDiagnostics diagnostics{};
-    const bool ok = gpu::halation_scatter(request, out.data(), &diagnostics);
+    const bool ok = gpu::halation_scatter(request, out.get(), &diagnostics);
     stage_timing_note_gpu_halation(diagnostics.attempted, diagnostics.engaged,
                                    diagnostics.reason, diagnostics.bands,
                                    diagnostics.dispatches, diagnostics.upload_ms,
@@ -153,14 +152,13 @@ bool gpu_halation_pass(double* raw, int width, int height,
         request.halation_first_sigma_um[c] = p.halation_first_sigma_um[c];
     }
     const size_t total = static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
-    std::vector<double> out;
-    try {
-        out.resize(total);
-    } catch (const std::bad_alloc&) {
-        return false;
-    }
+    // Uninitialised: on success the pass writes every element, and on failure
+    // or a no-op nobody reads it (a zero-filled 23 MP band was ~560 MB of
+    // single-threaded memset).
+    std::unique_ptr<double[]> out(new (std::nothrow) double[total]);
+    if (!out) return false;
     gpu::HalationScatterDiagnostics diagnostics{};
-    const bool ok = gpu::halation_scatter(request, out.data(), &diagnostics);
+    const bool ok = gpu::halation_scatter(request, out.get(), &diagnostics);
     stage_timing_note_gpu_halation(diagnostics.attempted, diagnostics.engaged,
                                    diagnostics.reason, diagnostics.bands,
                                    diagnostics.dispatches, diagnostics.upload_ms,

@@ -12,6 +12,7 @@
  */
 #include "model/couplers.h"
 
+#include <memory>
 #include <cmath>
 #include <new>
 #include <vector>
@@ -372,7 +373,8 @@ void apply_density_correction_dir_couplers_spatial(
     // ---- compute_exposure_correction_dir_couplers (diffusion ON) ----
     // correction[p,c] = sum_k silver[p,k] * M[k,c]   (full array, float64)
     // Per-pixel independent -> deterministic parallel chunks (byte-identical).
-    std::vector<double> correction(static_cast<size_t>(npix) * 3);
+    // Uninitialised: the loop below writes every element.
+    std::unique_ptr<double[]> correction(new double[static_cast<size_t>(npix) * 3]);
     parallel_for(0, npix, [&](int lo, int hi) {
         for (int p = lo; p < hi; ++p) {
             double silver[3];
@@ -404,7 +406,7 @@ void apply_density_correction_dir_couplers_spatial(
     bool diffused_on_gpu = false;
     if (params.allow_gpu_diffusion && gpu::available()) {
         gpu::HalationScatterRequest request{};
-        request.raw_rgb = correction.data();
+        request.raw_rgb = correction.get();
         request.width = w;
         request.height = h;
         request.pixel_size_um = pixel_size_um;
@@ -416,15 +418,11 @@ void apply_density_correction_dir_couplers_spatial(
             request.scatter_tail_um[c] = params.diffusion_tail_um;
             request.scatter_tail_weight[c] = tail_w;
         }
-        std::vector<double> diffused;
-        bool allocated = true;
-        try {
-            diffused.resize(static_cast<size_t>(npix) * 3);
-        } catch (const std::bad_alloc&) {
-            allocated = false;
-        }
+        // Uninitialised: written whole when the pass succeeds, unread otherwise.
+        std::unique_ptr<double[]> diffused(new (std::nothrow) double[static_cast<size_t>(npix) * 3]);
+        const bool allocated = diffused != nullptr;
         gpu::HalationScatterDiagnostics diagnostics{};
-        const bool ok = allocated && gpu::halation_scatter(request, diffused.data(), &diagnostics);
+        const bool ok = allocated && gpu::halation_scatter(request, diffused.get(), &diagnostics);
         stage_timing_note_gpu_dir_diffusion(diagnostics.attempted, diagnostics.engaged,
                                             diagnostics.reason, diagnostics.bands,
                                             diagnostics.dispatches, diagnostics.upload_ms,
