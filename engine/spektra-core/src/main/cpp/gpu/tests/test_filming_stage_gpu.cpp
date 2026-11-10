@@ -563,6 +563,20 @@ void layers_case(bool positive) {
     check(max_abs <= 1e-4 * std::max(peak, 1.0),
           positive ? "grain layers match the CPU (positive film)"
                    : "grain layers match the CPU (negative film)");
+
+    // A band over the device's storage range goes over in row chunks. Cap the
+    // range at two rows so this frame takes five chunks (the last one short),
+    // and require the same bytes as the single dispatch.
+    spk::gpu::set_grain_layers_range_cap_for_testing(
+        static_cast<uint64_t>(w) * 9u * sizeof(float) * 2u);
+    std::vector<float> chunked(static_cast<size_t>(npix) * 9, -3.0f);
+    spk::gpu::FilmingStageDiagnostics dc{};
+    const bool okc = spk::gpu::grain_layers(density.data(), npix, w, h, ndc.data(),
+                                            curves.data(), n, positive, chunked.data(), &dc);
+    spk::gpu::set_grain_layers_range_cap_for_testing(0);
+    check(okc && chunked == gpu,
+          positive ? "grain layers in row chunks byte-identical (positive film)"
+                   : "grain layers in row chunks byte-identical (negative film)");
 }
 
 // THE PER-CHANNEL CONSTANT SUBTRACT (#223): grain's `out -= density_min[c]`.

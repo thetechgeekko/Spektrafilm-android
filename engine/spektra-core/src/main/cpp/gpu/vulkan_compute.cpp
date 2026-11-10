@@ -118,6 +118,7 @@ bool grain_layers(const float*, uint32_t, int, int, const float*, const float*,
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
 }
+void set_grain_layers_range_cap_for_testing(uint64_t) {}
 bool exposure_log10(const double*, float*, int, int, FilmingStageDiagnostics* d) {
     if (d) { *d = FilmingStageDiagnostics{}; d->attempted = true; d->reason = "vulkan-disabled"; }
     return false;
@@ -2783,6 +2784,12 @@ bool subtract_per_channel(const float* src, float* dst, int width, int height,
     return true;
 }
 
+static std::atomic<uint64_t> g_grain_layers_range_cap{0};
+
+void set_grain_layers_range_cap_for_testing(uint64_t bytes) {
+    g_grain_layers_range_cap.store(bytes, std::memory_order_relaxed);
+}
+
 bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height,
                   const float* density_curves, const float* density_curves_layers,
                   uint32_t points, bool positive_film, float* out,
@@ -2814,21 +2821,47 @@ bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height
     std::memcpy(table.data() + layersOff, density_curves_layers,
                 static_cast<size_t>(points) * 9 * sizeof(float));
 
-    FilmingStageRun r;
-    r.mode = kFilmModeLayers;
-    r.flags = positive_film ? kFilmFlagPositive : 0u;
-    r.npix = npix;
-    r.width = width;
-    r.height = height;
-    r.src_f32 = density_cmy;
-    r.dst_f32 = out;
-    r.dst_elems = static_cast<size_t>(npix) * 9;
-    r.curve_axis = table.data();
-    r.curve_count = static_cast<size_t>(points) * 12;
-    r.curve_single_block = true;
-    r.n = static_cast<int32_t>(points);
-    r.L = 2;
-    if (!run_filming_stage(r, &d)) return give_up(d.reason);
+    // The output is nine floats a pixel, so a large band exceeds the device's
+    // maxStorageBufferRange (a 23 MP band is 843 MB) and was refused whole.
+    // Every pixel is independent, so the band goes over in row chunks that each
+    // fit; a refused chunk fails the call and the caller redoes it on the CPU.
+    uint64_t max_range = 0;
+    {
+        std::lock_guard<GpuMutex> lk(gpu_mutex());
+        const Ctx& c = ctx();
+        if (!c.ok) return give_up("gpu-unavailable");
+        max_range = c.properties.limits.maxStorageBufferRange;
+    }
+    const uint64_t cap = g_grain_layers_range_cap.load(std::memory_order_relaxed);
+    if (cap > 0 && cap < max_range) max_range = cap;
+    const uint64_t row_bytes = static_cast<uint64_t>(width) * 9u * sizeof(float);
+    const bool frame_rows = static_cast<uint64_t>(width) * static_cast<uint64_t>(height) == npix;
+    int rows_per_chunk = height;
+    if (frame_rows && row_bytes > 0 && static_cast<uint64_t>(height) * row_bytes > max_range) {
+        rows_per_chunk = static_cast<int>(max_range / row_bytes);
+        if (rows_per_chunk < 1) return give_up("buffer-too-large");
+    }
+    for (int y0 = 0; y0 < height; y0 += rows_per_chunk) {
+        const int rows = height - y0 < rows_per_chunk ? height - y0 : rows_per_chunk;
+        const size_t px0 = static_cast<size_t>(y0) * static_cast<size_t>(width);
+        FilmingStageRun r;
+        r.mode = kFilmModeLayers;
+        r.flags = positive_film ? kFilmFlagPositive : 0u;
+        r.npix = rows_per_chunk == height ? npix
+                                          : static_cast<uint32_t>(rows) * static_cast<uint32_t>(width);
+        r.width = width;
+        r.height = rows_per_chunk == height ? height : rows;
+        r.src_f32 = density_cmy + px0 * 3;
+        r.dst_f32 = out + px0 * 9;
+        r.dst_elems = static_cast<size_t>(r.npix) * 9;
+        r.curve_axis = table.data();
+        r.curve_count = static_cast<size_t>(points) * 12;
+        r.curve_single_block = true;
+        r.n = static_cast<int32_t>(points);
+        r.L = 2;
+        if (!run_filming_stage(r, &d)) return give_up(d.reason);
+        if (rows_per_chunk == height) break;
+    }
     if (diagnostics) *diagnostics = d;
     return true;
 }

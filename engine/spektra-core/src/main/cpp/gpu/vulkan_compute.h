@@ -479,6 +479,10 @@ bool grain_layers(const float* density_cmy, uint32_t npix, int width, int height
                   const float* density_curves, const float* density_curves_layers,
                   uint32_t points, bool positive_film, float* out,
                   FilmingStageDiagnostics* diagnostics);
+// Testing only: caps the storage-buffer range grain_layers plans its row chunks
+// against, so a small frame exercises the chunked path. 0 (default) = the
+// device limit. Process-wide.
+void set_grain_layers_range_cap_for_testing(uint64_t bytes);
 
 // THE EXPOSURE BRIDGE on the GPU (#222; filming_stage.comp mode 6).
 //
