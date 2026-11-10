@@ -176,6 +176,7 @@ internal fun EditorExportSheetHost(
             onKeepGpsChange = { exportVm.onAction(ExportAction.SetKeepGps(it)) },
             onDismiss = { exportVm.onAction(ExportAction.CloseSheet) },
             previewBitmap = preview,
+            frameCaption = rememberFrameCaption(exportUi.options.frame, sourceUri, state.filmProfile),
             onBatchExport = if (engine != null && batchSupports(exportUi.options)) {
                 {
                     exportAskingNotificationsOnce {

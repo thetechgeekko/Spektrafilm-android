@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">Filmstreifen behalten ihre Filmbasis. Die Farbe füllt den Rand für das Seitenverhältnis.</string>
     <string name="frame_export_note">Der Rahmen wird beim Export hinzugefügt. Ultra HDR, JPEG und PNG enthalten ihn; Formate mit hoher Bittiefe exportieren das reine Foto.</string>
     <string name="frame_preview_cd">Foto mit dem gewählten Rahmen</string>
+    <string name="frame_caption">Bildunterschrift</string>
+    <string name="frame_caption_none">Keine</string>
+    <string name="frame_caption_shot">Aufnahmedaten</string>
+    <string name="frame_caption_date">Datum</string>
+    <string name="frame_caption_stock">Filmsorte</string>
+    <string name="frame_caption_custom">Eigene</string>
+    <string name="frame_caption_text">Text der Bildunterschrift</string>
+    <string name="frame_caption_missing">Dieses Foto hat keine Angaben für diese Bildunterschrift, daher wird keine hinzugefügt.</string>
+    <string name="frame_font_sans">Serifenlos</string>
+    <string name="frame_font_serif">Serif</string>
+    <string name="frame_font_mono">Mono</string>
+    <string name="frame_markings">Randbeschriftung</string>
+    <string name="frame_markings_show">Randbeschriftung zeigen</string>
+    <string name="frame_markings_label">Randtext</string>
+    <string name="frame_number">Bildnummer</string>
+    <string name="frame_number_note">0 nimmt eine Nummer aus dem Foto.</string>
 </resources>

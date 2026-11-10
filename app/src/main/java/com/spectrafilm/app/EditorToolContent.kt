@@ -75,6 +75,8 @@ internal fun ColumnScope.EditorToolContent(
     reconcileVisibleSourceAfterFailure: (SourceRestoreResult?) -> Unit,
     exportOptions: ExportOptions,
     onExportOptionsChange: (ExportOptions) -> Unit,
+    /** The frame caption as worded for this photo (null: none, or nothing to word it with). */
+    frameCaption: String? = null,
 ) {
     val snackbarHost = screen.snackbarHost
     val presetListState = screen.presetListState
@@ -166,6 +168,8 @@ internal fun ColumnScope.EditorToolContent(
             onChange = { onExportOptionsChange(exportOptions.withFrame(it)) },
             preview = preview,
             frameless = exportOptions.effectiveFrame().isNone && !exportOptions.frameSpec.isNone,
+            caption = frameCaption,
+            captionKnown = preview != null,
         )
         Category.PRESETS -> EditorPresetPanel(
             dispatchers = dispatchers,

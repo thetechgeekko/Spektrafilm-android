@@ -180,4 +180,142 @@ class FrameLookTest {
         assertEquals(0.25f, FrameLook.fromJson(org.json.JSONObject("""{"width":9}""")).width)
         assertNotEquals(FrameSpec(FilmBorder.INSTANT).key(), FrameSpec(FilmBorder.INSTANT, look).key())
     }
+
+    @Test
+    fun `a caption sits centred below the photo on every paper style and never on a strip`() {
+        val look = FrameLook(caption = CaptionKind.CUSTOM, captionText = "Kodak trip, 2026")
+        for (style in FilmBorder.entries) for ((w, h) in listOf(3000 to 2000, 2000 to 3000, 1000 to 1000)) {
+            val spec = FrameSpec(style, look)
+            val plain = FilmBorderGeometry.layout(FrameSpec(style), w, h, 3)
+            val l = FilmBorderGeometry.layout(spec, w, h, 3, caption = "Kodak trip, 2026")!!
+            val tag = "$style $w x $h"
+            val caption = l.texts.filter { it.centered }
+            if (style.isStrip) {
+                assertTrue(tag, caption.isEmpty())
+                assertEquals(tag, plain, l)
+                continue
+            }
+            assertEquals(tag, 1, caption.size)
+            val t = caption.single()
+            assertEquals(tag, l.outWidth / 2, t.x)
+            assertEquals(tag, CaptionFont.SANS, t.font)
+            // Below the photo, inside the output, and no wider than the frame.
+            assertTrue(tag, t.baseline - t.size > l.image.bottom)
+            assertTrue(tag, t.baseline <= l.outHeight)
+            assertTrue(tag, FilmBorderGeometry.captionRunLength(t.text, t.size) <= t.maxWidth)
+            assertTrue(tag, t.maxWidth <= l.outWidth)
+            // The photo has not moved or grown.
+            assertEquals(tag, w, l.image.width)
+            assertEquals(tag, h, l.image.height)
+            // Below any ink: every ink point is above the cap line.
+            for (p in l.inkOutline) assertTrue(tag, p.y < t.baseline - t.size)
+            if (style == FilmBorder.INSTANT) {
+                assertEquals(tag, plain!!.outHeight, l.outHeight)
+            } else {
+                assertTrue(tag, l.outHeight > (plain?.outHeight ?: h))
+            }
+        }
+    }
+
+    @Test
+    fun `no caption text adds nothing, and a long caption shrinks or is left off`() {
+        val look = FrameLook(caption = CaptionKind.SHOT_INFO)
+        assertEquals(
+            FilmBorderGeometry.layout(FilmBorder.PRINT_WHITE, 3000, 2000, 1),
+            FilmBorderGeometry.layout(FrameSpec(FilmBorder.PRINT_WHITE, look), 3000, 2000, 1, caption = null),
+        )
+        // A caption with nothing to say over a bare photo adds nothing at all.
+        assertEquals(
+            3000 to 2000,
+            FilmBorderGeometry.layout(FrameSpec(FilmBorder.NONE, look), 3000, 2000, 1, caption = "  ")
+                ?.let { it.outWidth to it.outHeight } ?: (3000 to 2000),
+        )
+        val long = "x".repeat(FrameLook.CAPTION_MAX)
+        val l = FilmBorderGeometry.layout(FrameSpec(FilmBorder.PRINT_WHITE, look), 1000, 1000, 1, caption = long)!!
+        val t = l.texts.single()
+        assertTrue(FilmBorderGeometry.captionRunLength(t.text, t.size) <= t.maxWidth)
+        // Wide (CJK) characters count a full em, so a CJK caption gets a smaller cap than a
+        // Latin one of the same length.
+        fun cap(text: String) = FilmBorderGeometry.layout(
+            FrameSpec(FilmBorder.PRINT_WHITE, look), 1000, 1000, 1, caption = text,
+        )!!.texts.single()
+        val latin = cap("x".repeat(40))
+        val cjk = cap("写".repeat(40))
+        assertTrue("${cjk.size} < ${latin.size}", cjk.size < latin.size)
+        assertTrue(FilmBorderGeometry.captionRunLength(cjk.text, cjk.size) <= cjk.maxWidth)
+        val tiny = FilmBorderGeometry.layout(FrameSpec(FilmBorder.PRINT_WHITE, look), 40, 30, 1, caption = long)!!
+        assertTrue(tiny.texts.isEmpty())
+    }
+
+    @Test
+    fun `a caption on no frame becomes a paper band under the photo`() {
+        val spec = FrameSpec(FilmBorder.NONE, FrameLook(caption = CaptionKind.FILM_STOCK))
+        assertFalse(spec.isNone)
+        val l = FilmBorderGeometry.layout(spec, 3000, 2000, 1, caption = "Portra 400")!!
+        assertEquals(BorderRect(0, 0, 3000, 2000), l.image)
+        assertEquals(3000, l.outWidth)
+        assertTrue(l.outHeight > 2000)
+        assertEquals(FilmBorderGeometry.PAPER_WHITE, l.frameColor)
+        assertEquals(FilmBorderGeometry.FILED_BLACK, l.texts.single().color)
+    }
+
+    @Test
+    fun `the size limit counts the caption band`() {
+        val spec = FrameSpec(FilmBorder.PRINT_WHITE, FrameLook(caption = CaptionKind.CUSTOM))
+        for ((w, h) in listOf(6000 to 4000, 4000 to 6000)) {
+            val edge = FilmBorderGeometry.photoLongEdgeFor(spec, w, h, 2048, "A caption")
+            val (sw, sh) = scaledDimensions(w, h, edge)
+            val (ow, oh) = FilmBorderGeometry.outputSize(spec, sw, sh, "A caption")
+            assertTrue("$w x $h -> $ow x $oh", max(ow, oh) <= 2048)
+        }
+    }
+
+    @Test
+    fun `edge markings can be hidden, relabelled and renumbered`() {
+        val strip = { look: FrameLook -> FilmBorderGeometry.layout(FrameSpec(FilmBorder.STRIP_135, look), 3000, 2000, 7)!! }
+        val default = strip(FrameLook())
+        assertTrue(default.texts.any { it.text.startsWith(FilmBorderGeometry.EDGE_LABEL) })
+        assertTrue(default.texts.any { it.text == "7A" })
+
+        val hidden = strip(FrameLook(edgeMarkings = false))
+        assertTrue(hidden.texts.isEmpty())
+        assertEquals(default.holes, hidden.holes)
+        assertEquals(default.image, hidden.image)
+
+        val custom = strip(FrameLook(edgeLabel = "my roll", frameNumber = 24))
+        assertTrue(custom.texts.any { it.text == "MY ROLL" })
+        assertTrue(custom.texts.any { it.text == "24A" })
+        assertTrue(custom.texts.none { it.text.startsWith(FilmBorderGeometry.EDGE_LABEL) })
+        for (t in custom.texts) {
+            assertTrue(t.x + FilmBorderGeometry.textRunLength(t.text, t.size) <= custom.outWidth)
+        }
+    }
+
+    @Test
+    fun `caption and marking settings round-trip and change the cache key`() {
+        val look = FrameLook(
+            caption = CaptionKind.CUSTOM,
+            captionText = "Lisbon",
+            captionFont = CaptionFont.SERIF,
+            edgeMarkings = false,
+            edgeLabel = "ROLL 3",
+            frameNumber = 12,
+        )
+        assertEquals(look, FrameLook.fromJson(org.json.JSONObject(look.toJson().toString())))
+        assertNotEquals(FrameSpec(FilmBorder.PRINT_WHITE).key(), FrameSpec(FilmBorder.PRINT_WHITE, look).key())
+        assertNotEquals(
+            FrameSpec(FilmBorder.PRINT_WHITE, look).key(),
+            FrameSpec(FilmBorder.PRINT_WHITE, look.copy(captionText = "Porto")).key(),
+        )
+        // Lenient: junk numbers and labels fall back or are cleaned.
+        val junk = FrameLook.fromJson(
+            org.json.JSONObject("""{"caption":"NOPE","frameNumber":500,"edgeLabel":"  héllo\u0007 ","captionFont":"X"}"""),
+        )
+        assertEquals(CaptionKind.NONE, junk.caption)
+        assertNull(junk.frameNumber)
+        assertEquals("HLLO", junk.edgeLabel)
+        assertEquals(CaptionFont.SANS, junk.captionFont)
+        // A look without the new keys (written before captions) is the same as before.
+        assertEquals(FrameLook(), FrameLook.fromJson(org.json.JSONObject("""{"color":"STYLE","aspect":"ORIGINAL"}""")))
+    }
 }

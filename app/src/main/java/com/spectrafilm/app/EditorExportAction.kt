@@ -135,6 +135,8 @@ internal fun startEditorExport(
         val longEdge = exportOptions.targetLongEdge()
         val exportBorder = exportOptions.effectiveBorder()
         val exportFrame = exportOptions.effectiveFrame()
+        // Read on the caller's thread with the rest of the editor state; the caption uses it.
+        val frameStock = StockCatalog.displayName(ctx, state.filmProfile)
         val exportSharpen = exportOptions.effectiveSharpen()
         val keepGps = exportKeepGps
         // Wall-clock breadcrumbs for the on-device baseline capture
@@ -326,6 +328,12 @@ internal fun startEditorExport(
                             readSourceExif(exportContext, exportSourceUri, keepGps = keepGps)
                         }
                         phExif = System.currentTimeMillis() - tExif0
+                        // The frame caption is worded from this photo's EXIF and film stock.
+                        val frameCaption = FrameCaptions.text(
+                            exportFrame.look,
+                            srcExif.tags,
+                            frameStock,
+                        )
                         // `simulate` is the engine plus JNI marshalling and the
                         // ~140 MB result allocation/wrap. #163's outer native
                         // timing now covers that whole boundary; this Kotlin phase
@@ -415,7 +423,7 @@ internal fun startEditorExport(
                                 // 2048 px wide: shrink the photo to leave room.
                                 val photoEdge = longEdge?.let { edge ->
                                     FilmBorderGeometry.photoLongEdgeFor(
-                                        exportFrame, full.width, full.height, edge,
+                                        exportFrame, full.width, full.height, edge, frameCaption,
                                     )
                                 }
                                 val sized = photoEdge?.let { edge ->
@@ -446,6 +454,7 @@ internal fun startEditorExport(
                                     FilmBorderGeometry.frameNumberFor(
                                         exportSource?.contentSha256,
                                     ),
+                                    frameCaption,
                                 )
                                 val framed = borderLayout?.let { layout ->
                                     FilmBorderRenderer.render(sized, layout).also {

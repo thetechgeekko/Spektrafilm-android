@@ -88,6 +88,8 @@ fun ExportSheet(
     onDeletePreset: (String) -> Unit = {},
     /** Current editor preview, for the film-border thumbnail. Read only, never recycled here. */
     previewBitmap: Bitmap? = null,
+    /** The frame caption as worded for the open photo, or null (none, or no single photo). */
+    frameCaption: String? = null,
     /**
      * Apply this edit and these export settings to more photos (batch export), or null when
      * that is not possible right now. The sheet only offers it; the caller picks the photos.
@@ -368,6 +370,8 @@ fun ExportSheet(
                 options = options,
                 onOptionsChange = onOptionsChange,
                 previewBitmap = previewBitmap,
+                caption = frameCaption,
+                captionKnown = !manyPhotos,
             )
 
             if (!isSceneLinear && !manyPhotos) {
@@ -517,6 +521,8 @@ private fun FilmBorderSection(
     options: ExportOptions,
     onOptionsChange: (ExportOptions) -> Unit,
     previewBitmap: Bitmap?,
+    caption: String?,
+    captionKnown: Boolean,
 ) {
     Text(
         stringResource(R.string.tool_export_border_heading),
@@ -537,6 +543,8 @@ private fun FilmBorderSection(
         onChange = { onOptionsChange(options.withFrame(it)) },
         preview = previewBitmap,
         frameless = false,
+        caption = caption,
+        captionKnown = captionKnown,
     )
     if (options.frameSpec.isNone) return
     Text(
@@ -547,7 +555,7 @@ private fun FilmBorderSection(
     // A small framed copy of the current preview, painted by the same code as the export, so
     // what the sheet shows is what the file gets. Painted off the main thread under a preview
     // read lease, not in composition (#270); the old thumbnail stays up until the new one is ready.
-    rememberFramedPreview(previewBitmap, options.frameSpec, BORDER_THUMB_EDGE)?.let { framed ->
+    rememberFramedPreview(previewBitmap, options.frameSpec, BORDER_THUMB_EDGE, caption)?.let { framed ->
         Image(
             bitmap = framed.asImageBitmap(),
             contentDescription = stringResource(
