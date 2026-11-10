@@ -42,6 +42,8 @@ internal fun EditorWideLayout(
     editSections: List<Stage>,
     openSection: (Stage) -> Unit,
     panelContent: @Composable ColumnScope.() -> Unit,
+    cropOpen: Boolean = false,
+    cropPanelContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     Row(Modifier.fillMaxSize()) {
         // --- STAGE RAIL (expanded windows), Export as its FAB ---
@@ -56,6 +58,7 @@ internal fun EditorWideLayout(
                 exporting = exportInFlight,
                 onExport = onExport,
                 onShare = onShare,
+                cropSelected = cropOpen,
             )
         }
         Column(
@@ -75,11 +78,13 @@ internal fun EditorWideLayout(
         // A Row sibling, deliberately not animated: the preview keeps its
         // height, and the panel's one-shot width change never becomes the
         // per-frame GLSurfaceView resize the narrow branch guards against.
-        val sideCategory = activeCategory
+        val sideCategory = activeCategory?.takeIf { !cropOpen }
         // Book posture on a device with a physical gap: keep the gap empty so
         // neither the photo nor the tools sit under it.
         if (bookAligned && bookHingeGap > 0.dp) Spacer(Modifier.width(bookHingeGap))
-        if (sideCategory == null && bookAligned) {
+        if (cropOpen) {
+            CropPanel(sideWidth = sidePaneWidth, content = cropPanelContent)
+        } else if (sideCategory == null && bookAligned) {
             // Panel closed in book posture: the photo still keeps to its own
             // screen rather than straddling the fold; the tools' screen stays
             // empty until a category is opened again.
@@ -128,6 +133,8 @@ internal fun EditorNarrowLayout(
     editSections: List<Stage>,
     openSection: (Stage) -> Unit,
     panelContent: @Composable ColumnScope.() -> Unit,
+    cropOpen: Boolean = false,
+    cropPanelContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         // --- PREVIEW (pinned, weight) ---
@@ -163,10 +170,19 @@ internal fun EditorNarrowLayout(
             // forced GPU preview off) and jolted the CPU preview too; a
             // constant-height preview fixes both and unblocks GPU.
             PanelOverlay(
-                visible = activeCategory != null && !chromeHidden,
+                visible = (activeCategory != null || cropOpen) && !chromeHidden,
                 dimming = interacting,
             ) {
-                AdjustmentPanel(
+                // The Crop tab uses the same floating spot, so the photo and the bottom bar
+                // stay exactly where they are when it opens.
+                if (cropOpen) {
+                    CropPanel(
+                        modifier = Modifier
+                            .widthIn(max = SHEET_MAX_WIDTH_DP.dp)
+                            .onSizeChanged { onPanelHeightChange(it.height) },
+                        content = cropPanelContent,
+                    )
+                } else AdjustmentPanel(
                     modifier = Modifier
                         // M3 bottom sheet max width; centred in wider windows.
                         .widthIn(max = SHEET_MAX_WIDTH_DP.dp)
@@ -216,6 +232,7 @@ internal fun EditorNarrowLayout(
                 onOpen = { onActiveCategoryChange(it) },
                 onCrop = openCrop,
                 lastEdit = lastEdit,
+                cropSelected = cropOpen,
             )
         }
     }

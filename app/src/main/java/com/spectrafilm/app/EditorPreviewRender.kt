@@ -182,6 +182,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
     engineState: State<SpektraEngine?>,
     previewState: MutableState<Bitmap?>,
     beforePreviewState: MutableState<Bitmap?>,
+    cropFreePreviewState: MutableState<Bitmap?>,
     decodingState: MutableState<Boolean>,
     lastRenderMsState: MutableState<Long?>,
     previewBusyState: MutableState<Boolean>,
@@ -255,7 +256,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                 gradeBufferToBitmap(scratch, cached.width,
                                     cached.height, cached.colorSpace, state.savingCctfEncoding,
                                     state.saturation, state.vibrance, state.gamutCompress,
-                                    state.localAdjustments.withSkinField(state.cropIo()))
+                                    state.localAdjustments.withSkinField(cacheKey.engineParams.io))
                             }
                             after = rendered
                             val submission = Triple(prevBefore, rendered, false)
@@ -319,7 +320,7 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
                                         state.saturation,
                                         state.vibrance,
                                         state.gamutCompress,
-                                        state.localAdjustments.withSkinField(state.cropIo()),
+                                        state.localAdjustments.withSkinField(cacheKey.engineParams.io),
                                     ).also { bitmap -> after = bitmap }
                                     // The test seam is exactly the completed native settle's
                                     // production completion-before-publication boundary. The
@@ -379,6 +380,8 @@ internal suspend fun CoroutineScope.runFinalPreviewPass(
         }
         result.onSuccess { (before, after, _) ->
             beforePreview = before; preview = after
+            // The Crop tab draws on this frame only when it was rendered without the crop.
+            cropFreePreviewState.value = after.takeIf { !cacheKey.engineParams.io.crop }
             SimResult.reportOutcome(renderId, AppRenderOutcome.CONSUMED)
             editorProbe.publishLivePreview(previewProbeLabel)
             lastRenderMs = System.currentTimeMillis() - renderStart

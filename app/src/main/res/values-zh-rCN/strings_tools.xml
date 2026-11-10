@@ -132,9 +132,7 @@
     <string name="tool_masks_invert_color_help">改为作用于范围以外的颜色。</string>
     <string name="tool_masks_delete">删除蒙版</string>
     <string name="tool_crop_title">裁剪</string>
-    <string name="tool_crop_cancel">取消裁剪</string>
     <string name="tool_crop_rotate">旋转 90°</string>
-    <string name="tool_crop_apply">应用裁剪</string>
     <string name="tool_crop_aspect_group">宽高比</string>
     <string name="tool_crop_aspect_free">自由</string>
     <string name="tool_crop_aspect_original">原始比例</string>

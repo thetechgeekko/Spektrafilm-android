@@ -320,6 +320,26 @@ internal fun EditorScreen(
     remember { toolVm.restore(restoredOverlay, restoredTool?.maskIndex ?: 0); true }
     val toolUi by toolVm.uiState.collectAsStateWithLifecycle()
 
+    // The Crop tab's in-progress draft (CropTool.kt), published from the layout below. Leaving
+    // the tab writes it to the recipe in one go, so the history records ONE undo step; an
+    // untouched draft writes nothing. Every way out of the tab goes through here.
+    val cropDraftRef = remember { mutableStateOf<CropDraft?>(null) }
+    fun closeCrop() {
+        if (!toolVm.current.cropOpen) return
+        cropDraftRef.value?.takeIf { it.touched }?.commit()?.let { c ->
+            state.crop = c.crop
+            state.cropCenter = c.center
+            state.cropSize = c.size
+            state.straightenDegrees = c.straighten
+        }
+        cropDraftRef.value = null
+        toolVm.onAction(EditorToolAction.CloseCrop)
+    }
+    // The Crop item in the bottom bar / rail: open the tab, or leave it when it is open.
+    fun toggleCrop() {
+        if (toolVm.current.cropOpen) closeCrop() else toolVm.onAction(EditorToolAction.OpenCrop)
+    }
+
     // Lightroom's single tap on the photo: everything but the picture gets out of the way
     // (viewerUi.chromeHidden). Deliberately NOT animated. Hiding the top bar and the rail
     // changes the preview's height, and the preview is a weight(1f) sibling — animating
@@ -403,6 +423,23 @@ internal fun EditorScreen(
     // active adjustment category (null = panel closed); hoisted to AppRoot so it
     // survives navigation to Settings/About and back.
     var activeCategory by activeCategoryState
+    // The Crop tab replaces whatever panel was open, and opening or leaving it re-renders the
+    // preview: while it is open the preview is drawn without the engine crop
+    // (EditorPreviewEffects), so the crop frame can sit on the whole photo.
+    val cropOpenNow = toolUi.cropOpen
+    var cropOpenSeen by remember { mutableStateOf(cropOpenNow) }
+    LaunchedEffect(cropOpenNow) {
+        if (cropOpenNow) activeCategory = null
+        if (cropOpenNow != cropOpenSeen) {
+            cropOpenSeen = cropOpenNow
+            previewTick++
+        }
+    }
+    // Opening any other tab leaves the Crop tab first, keeping its draft.
+    val openCategory: (Category?) -> Unit = { category ->
+        if (category != null) closeCrop()
+        activeCategory = category
+    }
     // 0..1 while a predictive-back swipe is closing the open panel; drives its shrink.
     var panelBackProgress by screen.panelBackProgressState
 
@@ -1002,6 +1039,7 @@ internal fun EditorScreen(
         magnifierOpen = magnifierOpen,
         activeCategory = activeCategory,
         onCloseCategory = { activeCategory = null },
+        onCloseCrop = ::closeCrop,
         onBackPressedDispatcher = onBackPressedDispatcher,
         setEditorShortcutHandler = setEditorShortcutHandler,
         editHistory = editHistory,
@@ -1010,7 +1048,7 @@ internal fun EditorScreen(
         openPhotoPicker = {
             photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         },
-        requestExport = ::requestExport,
+        requestExport = { closeCrop(); requestExport() },
         hasSource = sourceUri != null,
         openPhotoInfo = ::openPhotoInfo,
         previousEdit = previousEdit,
@@ -1087,8 +1125,22 @@ internal fun EditorScreen(
             reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
         )
     }
+    // The Crop tab draws its frame on the photo only once the preview on screen is the
+    // crop-free render; until then it shows the photo as it was and a loading panel.
+    val cropFreePreview by screen.cropFreePreviewState
+    val cropCanvasBmp = preview?.takeIf { toolUi.cropOpen && it === cropFreePreview && !it.isRecycled }
+    val cropDraft = cropCanvasBmp?.let {
+        rememberCropDraft(it, state.crop, state.cropCenter, state.cropSize, state.straightenDegrees)
+    }
+    SideEffect { cropDraftRef.value = if (toolUi.cropOpen) cropDraft else null }
     val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
-        PreviewRegion(
+        val cropBitmap = cropCanvasBmp
+        val draft = cropDraft
+        if (cropBitmap != null && draft != null) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+                CropCanvas(bitmap = cropBitmap, draft = draft, bottomInset = panelInset)
+            }
+        } else PreviewRegion(
             zoomRequests = viewerVm.zoomRequests,
             controlsBottomInset = panelInset,
             peekOriginal = viewerUi.originalPeek,
@@ -1130,7 +1182,6 @@ internal fun EditorScreen(
     // ============================ LAYOUT ============================
     // Overlay predicates, shared with the overlay branches below the chrome.
     val cropBmp = preview
-    val cropShown = toolUi.cropOpen && cropBmp != null
     val maskGeometryShown = toolUi.maskGeometryOpen && cropBmp != null &&
         toolUi.maskIndex in state.localAdjustments.indices
     val sampleMask = state.localAdjustments.getOrNull(toolUi.maskIndex)?.mask
@@ -1141,12 +1192,14 @@ internal fun EditorScreen(
         )
     // #181: a full-screen tool overlay is modal. Compose overlays share the window, so the
     // chrome beneath would otherwise stay reachable by TalkBack explore-by-touch.
-    val modalOverlayShown = magnifierOpen || cropShown || maskGeometryShown || sampleReady
+    val modalOverlayShown = magnifierOpen || maskGeometryShown || sampleReady
 
     // --- drag and drop a photo in (ImageDrop.kt) ---
     // Same adoption path as a shared/opened photo. Refused while a modal tool overlay or
     // an export is up, exactly when the Open button is out of reach too.
-    val acceptDrop by rememberUpdatedState(!modalOverlayShown && !exportMaskVisible && !exportInFlight)
+    val acceptDrop by rememberUpdatedState(
+        !modalOverlayShown && !toolUi.cropOpen && !exportMaskVisible && !exportInFlight,
+    )
     val onImageDrop by rememberUpdatedState<(DragAndDropEvent) -> Boolean> { event ->
         val dragEvent = event.toAndroidDragEvent()
         val uri = droppedContentUri(dragEvent.clipData)
@@ -1181,14 +1234,17 @@ internal fun EditorScreen(
                     )
                 },
                 onOpenSettings = {
+                    closeCrop()
                     checkpointEditorSession()
                     onOpenSettings()
                 },
                 onOpenAbout = {
+                    closeCrop()
                     checkpointEditorSession()
                     onOpenAbout()
                 },
                 onOpenLibrary = {
+                    closeCrop()
                     checkpointEditorSession()
                     // Paste edit in the Library reads this photo's recipe.
                     flushRecipeBeforeLeaving(
@@ -1219,9 +1275,9 @@ internal fun EditorScreen(
                 // only defers the tap (see openExportSheetIfAllowed).
                 exportVisible = engine != null && sourceRenderAllowed,
                 exporting = exportInFlight,
-                onExport = { requestExport() },
+                onExport = { closeCrop(); requestExport() },
                 exportSaved = exportDone,
-                onShare = { requestShare() },
+                onShare = { closeCrop(); requestShare() },
             )
         },
         body = { wide, foldingFeature ->
@@ -1230,7 +1286,7 @@ internal fun EditorScreen(
                 state = state,
                 onParamsChanged = { previewTick++ },
                 activeCategory = activeCategory,
-                onActiveCategoryChange = { activeCategory = it },
+                onActiveCategoryChange = openCategory,
                 toolShown = ::toolShown,
                 wide = wide,
                 chromeHidden = viewerUi.chromeHidden,
@@ -1242,11 +1298,15 @@ internal fun EditorScreen(
                 panelBackProgress = panelBackProgress,
                 exportVisible = engine != null && sourceRenderAllowed,
                 exportInFlight = exportInFlight,
-                onExport = { requestExport() },
-                onShare = { requestShare() },
-                onOpenCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
+                onExport = { closeCrop(); requestExport() },
+                onShare = { closeCrop(); requestShare() },
+                onOpenCrop = ::toggleCrop,
                 toolContent = toolContent,
                 previewRegion = previewRegion,
+                cropOpen = toolUi.cropOpen,
+                cropPanelContent = {
+                    CropPanelContent(draft = cropDraft, onRotate = { rotation = rotation.next() })
+                },
             )
         },
         overlays = {
@@ -1265,7 +1325,6 @@ internal fun EditorScreen(
                     session = session,
                     toolUi = toolUi,
                     cropBmp = cropBmp,
-                    cropShown = cropShown,
                     maskGeometryShown = maskGeometryShown,
                     sampleReady = sampleReady,
                     loadSourceCachedForZoom = { loadSourceCachedForZoom(it) },

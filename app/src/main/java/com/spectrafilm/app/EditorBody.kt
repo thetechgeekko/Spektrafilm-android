@@ -65,6 +65,9 @@ internal fun ColumnScope.EditorBody(
     onOpenCrop: () -> Unit,
     toolContent: @Composable ColumnScope.(Category) -> Unit,
     previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit,
+    /** The Crop tab is open: its panel takes the tool panel's place (CropTool.kt). */
+    cropOpen: Boolean = false,
+    cropPanelContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     var editorBoxOrigin by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
@@ -147,7 +150,7 @@ internal fun ColumnScope.EditorBody(
         // closing panel, so the target drops to 0 straight away instead).
         // Tabletop reserves the photo's upper-half box outright (below), so the panel
         // never insets it there.
-        val panelShown = !wide && activeCategory != null && !chromeHidden &&
+        val panelShown = !wide && (activeCategory != null || cropOpen) && !chromeHidden &&
             posture !is FoldPosture.Tabletop
         val panelTarget = if (panelShown) {
             with(LocalDensity.current) { panelHeightPx.toDp() }
@@ -185,6 +188,8 @@ internal fun ColumnScope.EditorBody(
                 editSections = editSections,
                 openSection = openSection,
                 panelContent = panelContent,
+                cropOpen = cropOpen,
+                cropPanelContent = cropPanelContent,
             )
         } else {
             EditorNarrowLayout(
@@ -207,6 +212,8 @@ internal fun ColumnScope.EditorBody(
                 editSections = editSections,
                 openSection = openSection,
                 panelContent = panelContent,
+                cropOpen = cropOpen,
+                cropPanelContent = cropPanelContent,
             )
         }
     }

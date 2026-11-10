@@ -22,7 +22,7 @@ internal enum class EditorOverlayTool {
 }
 
 /**
- * Tool selection is durable even when a tool's in-progress gesture is not. CropOverlay and
+ * Tool selection is durable even when a tool's in-progress gesture is not. The Crop tab and
  * MaskGeometryOverlay create a new draft from committed ParamsState/mask geometry when recomposed;
  * reopening either tool is therefore a clean no-op until the user gestures and confirms.
  */

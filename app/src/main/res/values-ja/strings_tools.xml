@@ -161,14 +161,13 @@
     <string name="tool_masks_invert_color_help">範囲の外側の色に適用します。</string>
     <string name="tool_masks_delete">マスクを削除</string>
     <string name="tool_crop_title">切り抜き</string>
-    <string name="tool_crop_cancel">切り抜きをキャンセル</string>
     <string name="tool_crop_rotate">90°回転</string>
-    <string name="tool_crop_apply">切り抜きを適用</string>
     <string name="tool_crop_aspect_group">縦横比</string>
     <string name="tool_crop_aspect_free">自由</string>
     <string name="tool_crop_portrait">縦の比率</string>
     <string name="tool_crop_landscape">横の比率</string>
-    <string name="tool_crop_orientation_flip">向きを切り替え</string>
+    <string name="tool_crop_orient_portrait">縦</string>
+    <string name="tool_crop_orient_landscape">横</string>
     <string name="tool_crop_aspect_original">元の比率</string>
     <string name="tool_crop_canvas_desc">写真上の切り抜き枠。角や辺をドラッグしてサイズを変え、内側をドラッグして移動します。</string>
     <string name="tool_crop_reset">切り抜きを写真全体に戻す</string>

@@ -2,7 +2,7 @@
  * Spektrafilm for Android — draw-on-the-preview mask geometry editor. GPLv3.
  * Film modeling powered by spektrafilm.
  *
- * A full-screen modal (mirroring CropOverlay) to POSITION a mask on the photo instead of dialing
+ * A full-screen modal (once mirroring the old crop overlay) to POSITION a mask on the photo instead of dialing
  * Position/Size sliders: drag the radial to move it, drag its right/bottom handle to resize; drag a
  * gradient's endpoints. Because the image fills a Box with the image's aspect ratio, normalized 0..1
  * geometry maps straight to box pixels — alignment is correct by construction (no zoom/pan to track).

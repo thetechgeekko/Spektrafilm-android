@@ -24,7 +24,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -64,7 +63,8 @@ internal fun modeTapTarget(mode: EditorMode, active: Category?, lastEdit: Catego
  * The editor's bottom bar (compact and medium windows): Looks, Edit, Crop and Masks. The
  * selected mode is a filled pill with icon and label; the others show their icon with the name
  * as tooltip and accessibility label. Tapping the open mode folds the panel away, leaving the
- * photo and this row. Crop is an action (it opens the crop overlay), never a selected tab.
+ * photo and this row. Crop is a tab too ([cropSelected]); it has no Category, so it is wired
+ * through [onCrop], which the editor uses to open it or, when open, to leave it.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -75,6 +75,7 @@ internal fun StageRow(
     onCrop: (() -> Unit)?,
     modifier: Modifier = Modifier,
     lastEdit: Category? = null,
+    cropSelected: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val modifiedState = stringResource(R.string.editor_category_modified)
@@ -96,7 +97,7 @@ internal fun StageRow(
             }
             items.forEach { item ->
                 val mode = item as? EditorMode
-                val selected = mode != null && active?.mode == mode
+                val selected = if (mode != null) !cropSelected && active?.mode == mode else cropSelected
                 val modified = mode != null && Category.entries.any { it.mode == mode && it in dirty }
                 val label = stringResource(mode?.labelRes ?: R.string.tool_crop_title)
                 val hint = stringResource(mode?.hintRes ?: R.string.tool_crop_title)
@@ -117,7 +118,7 @@ internal fun StageRow(
                                         onOpen(modeTapTarget(mode, active, lastEdit))
                                     }
                                 } else {
-                                    Modifier.clickable(role = Role.Button) { onCrop?.invoke() }
+                                    Modifier.selectable(selected = selected, role = Role.Tab) { onCrop?.invoke() }
                                 },
                             )
                             .semantics {
@@ -307,7 +308,7 @@ internal fun ToolRow(
 
 /**
  * The modes as an M3 navigation rail (expanded windows), with Export as the rail's FAB and
- * Crop as an action item. Tapping the open mode closes the supporting pane, as on the phone.
+ * Crop as the item for the Crop tab. Tapping the open mode closes the supporting pane, as on the phone.
  */
 @Composable
 internal fun StageRail(
@@ -322,6 +323,7 @@ internal fun StageRail(
     lastEdit: Category? = null,
     /** Share sits right under the Export FAB, the rail's form of the top bar's pill. */
     onShare: (() -> Unit)? = null,
+    cropSelected: Boolean = false,
 ) {
     val modifiedState = stringResource(R.string.editor_category_modified)
     NavigationRail(
@@ -350,7 +352,7 @@ internal fun StageRail(
             val railItem: @Composable (EditorMode) -> Unit = { mode ->
                 val modified = Category.entries.any { it.mode == mode && it in dirty }
                 NavigationRailItem(
-                    selected = active?.mode == mode,
+                    selected = !cropSelected && active?.mode == mode,
                     onClick = { onOpen(modeTapTarget(mode, active, lastEdit)) },
                     icon = {
                         BadgedBox(badge = { if (modified) Badge() }) {
@@ -365,7 +367,7 @@ internal fun StageRail(
             railItem(EditorMode.EDIT)
             if (onCrop != null) {
                 NavigationRailItem(
-                    selected = false,
+                    selected = cropSelected,
                     onClick = onCrop,
                     icon = { Icon(SpectraIcons.Crop, contentDescription = null) },
                     label = { Text(stringResource(R.string.tool_crop_title), maxLines = 1) },
