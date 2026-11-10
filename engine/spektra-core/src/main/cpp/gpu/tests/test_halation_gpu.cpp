@@ -259,6 +259,53 @@ int main() {
               "budget-refused whole-frame work falls back to the banded route, same bytes");
     }
 
+    // Scoped reclaim: another kernel's idle grow-only buffers hold the budget the
+    // whole-frame work needs. The pass's denied reservation must drop them (not
+    // its own), run whole-frame with the same bytes, and the other kernel must
+    // rebuild on its next use with the same bytes as before.
+    {
+        auto& budget = spk::memory::process_memory_budget();
+        const uint32_t npix = static_cast<uint32_t>(w) * static_cast<uint32_t>(h);
+        std::vector<float> cmy(static_cast<size_t>(npix) * 3u), dye(81u * 3u), icmf(81u * 3u);
+        for (size_t i = 0; i < cmy.size(); ++i) cmy[i] = 0.2f + 0.6f * static_cast<float>(i % 97) / 97.0f;
+        for (size_t i = 0; i < dye.size(); ++i) {
+            dye[i] = 0.3f + 0.01f * static_cast<float>(i % 13);
+            icmf[i] = 0.002f * static_cast<float>(1 + i % 7);
+        }
+        const float xyz2rgb[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        auto scan = [&](std::vector<float>* outv) {
+            outv->assign(cmy.size(), -1.0f);
+            return spk::gpu::scan_spectral_linear(cmy.data(), outv->data(), npix, dye.data(),
+                                                  icmf.data(), xyz2rgb);
+        };
+        spk::gpu::release_resources();
+        const uint64_t c0 = budget.snapshot().total.current_bytes;
+        std::vector<float> scanA, scanB;
+        const bool scanOk = scan(&scanA);
+        const uint64_t c1 = budget.snapshot().total.current_bytes;
+        const uint64_t frameBytes = static_cast<uint64_t>(npix) * 12u;
+        // Room for the whole-frame halation pass (4 work + 1 staging image +
+        // the small frame block) only once the scan kernel's buffers are gone.
+        const uint64_t oldLimit = budget.limit_bytes();
+        budget.set_limit_bytes(c0 + 5u * frameBytes + (1u << 20));
+        const uint64_t reclaimsBefore = spk::gpu::scoped_reclaim_count();
+        std::vector<double> gpuReclaimed(raw.size());
+        spk::gpu::HalationScatterDiagnostics drc{};
+        const bool rcOk = spk::gpu::halation_scatter(r, gpuReclaimed.data(), &drc);
+        const uint64_t reclaims = spk::gpu::scoped_reclaim_count() - reclaimsBefore;
+        budget.set_limit_bytes(oldLimit);
+        const bool scanAgain = scan(&scanB);
+        spk::gpu::release_resources();
+        std::printf("scoped reclaim: scan held %llu bytes; halation ok=%d reason=%s reclaims=%llu engaged=%d\n",
+                    static_cast<unsigned long long>(c1 - c0), rcOk ? 1 : 0, drc.reason ? drc.reason : "-",
+                    static_cast<unsigned long long>(reclaims), reclaims > 0 ? 1 : 0);
+        check(scanOk && c1 - c0 > (1u << 20), "the scan kernel holds budget before halation asks");
+        check(rcOk && drc.engaged && std::strcmp(drc.reason, "none") == 0 && reclaims >= 1 &&
+                  bytes_eq(gpu, gpuReclaimed),
+              "a denied whole-frame reservation reclaims the other kernels and runs whole, same bytes");
+        check(scanAgain && scanA == scanB, "the reclaimed kernel rebuilds with the same bytes");
+    }
+
     // Submissions (#270): the pass is split into several queue submissions so
     // the compositor is not starved. One dispatch per submission and the whole
     // pass in one submission must give the very same bytes as the host cap.
