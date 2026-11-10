@@ -250,6 +250,12 @@ object RawDecoder {
         val hotPixelCorrection: Boolean = false,
         /** Luminance-preserving chroma low-pass strength, 0..100; 0 disables (#259). */
         val chromaNoiseReduction: Float = 0f,
+        /**
+         * Bytes the caller admitted for this decode (file-descriptor decodes only). When >0
+         * the native pixel limit is derived from it instead of the device's free-memory
+         * tiers; 0 keeps the tiers.
+         */
+        val admittedBytes: Long = 0L,
     )
 
     /** Constructed by the native layer (raw_decoder_jni.cpp). */
@@ -344,7 +350,7 @@ object RawDecoder {
         fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
         settings.halfSize, settings.maxLongEdge,
         settings.hotPixelCorrection, settings.chromaNoiseReduction,
-        cancellation?.tokenForDecode() ?: NO_CANCELLATION, -1,
+        cancellation?.tokenForDecode() ?: NO_CANCELLATION, -1, settings.admittedBytes,
     ).toLinear()
 
     /**
@@ -363,7 +369,7 @@ object RawDecoder {
             fd, settings.whiteBalance.nativeMode, settings.temperatureK, settings.tint,
             settings.halfSize, settings.maxLongEdge,
             settings.hotPixelCorrection, settings.chromaNoiseReduction,
-            cancellation?.tokenForDecode() ?: NO_CANCELLATION, scratchFd,
+            cancellation?.tokenForDecode() ?: NO_CANCELLATION, scratchFd, settings.admittedBytes,
         ).toLinear()
         cancellation?.throwIfCancellationRequested()
         val scratch = File.createTempFile("sfraw-input-", ".tmp", scratchDirectory)
@@ -517,7 +523,7 @@ object RawDecoder {
     private external fun nativeDecodeFd(
         fd: Int, wbMode: Int, temperatureK: Double, tint: Double,
         halfSize: Boolean, maxLongEdge: Int, hotPixels: Boolean, chromaNoise: Float,
-        cancellationToken: Long, scratchFd: Int,
+        cancellationToken: Long, scratchFd: Int, admittedBytes: Long,
     ): NativeResult
 
     /** Embedded camera JPEG; outMeta = {status, width, height, flip}. See raw_preview.h. */

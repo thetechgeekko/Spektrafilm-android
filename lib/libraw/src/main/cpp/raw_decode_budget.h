@@ -47,6 +47,24 @@ constexpr std::uint64_t decodePixelLimitForMemory(
     return 12ULL * kMiB;
 }
 
+// Peak bytes per decoded pixel, the largest measured on the host (RSS over the
+// decode of Lightroom LinearRaw panoramas: 1.65 GB at 41.2 MP, 1.86 GB at 48.1 MP,
+// ~40 B/px; a 25.5 MP Bayer DNG peaked at 0.72 GB, ~28 B/px).
+constexpr std::uint64_t kDecodePeakBytesPerPixel = 40ULL;
+
+// The pixel limit for bytes the caller admitted (DecodeOptions::admittedBytes):
+// never below the smallest 64-bit tier, never above 128 MiPixels.
+constexpr std::uint64_t admittedDecodePixelLimit(std::uint64_t admittedBytes) noexcept {
+    constexpr std::uint64_t kMi = 1024ULL * 1024ULL;
+    const std::uint64_t pixels = admittedBytes / kDecodePeakBytesPerPixel;
+    if (pixels < 12ULL * kMi) return 12ULL * kMi;
+    if (pixels > 128ULL * kMi) return 128ULL * kMi;
+    return pixels;
+}
+static_assert(admittedDecodePixelLimit(0) == 12ULL * 1024ULL * 1024ULL, "floor");
+static_assert(admittedDecodePixelLimit(2000ULL * 1024ULL * 1024ULL) == 50ULL * 1024ULL * 1024ULL,
+              "2000 MiB admits 50 MiPixels");
+
 // A half-size Bayer image still needs its full single-plane unpacked store:
 // at most 4x the output ceiling, at two bytes/sample, plus 64 MiB for loader
 // metadata and aligned margins. 32 MiPixels -> 320 MiB (128 MiPixel source),
