@@ -3964,11 +3964,14 @@ constexpr double kHalTailRatio[3] = {0.5360, 1.5236, 2.7684};
 constexpr uint32_t kHalSetCount = 11u;
 constexpr VkDeviceSize kHalPixelBytes = 12;      // three f32, packed
 constexpr uint32_t kHalWorkBuffers = 4u;         // src, sum, x, xT
-// Whole-frame residency ceiling for the four work buffers (48 B/px: ~22 MP).
-// Above it, or when the device refuses the whole-frame buffers, the pass takes
-// the banded route below (#281) rather than refusing; only a resident frame,
-// which has no host copy to band from, still refuses.
-constexpr VkDeviceSize kHalWorkBudgetBytes = 1024ull << 20;
+// Whole-frame residency ceiling for the four work buffers (48 B/px: ~25 MP),
+// sized so a 23.4 MP export band (8490 x 2760, 1072 MiB) runs whole: the banded
+// route moves the image host <-> device several times per blur component. Above
+// it, or when the device or the process memory budget refuses the whole-frame
+// buffers (after the scoped reclaim of the other kernels' idle caches), the pass
+// takes the banded route below (#281) rather than refusing; only a resident
+// frame, which has no host copy to band from, still refuses.
+constexpr VkDeviceSize kHalWorkBudgetBytes = 1152ull << 20;
 constexpr VkDeviceSize kHalStagingBytes = 64ull << 20;  // upload/readback band
 // Per-submission work cap for the compute pass (#270), in pixels walked by the
 // dispatches recorded since the last submission. A 12.5 MP pass used to be one
