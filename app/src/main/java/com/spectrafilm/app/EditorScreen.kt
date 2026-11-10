@@ -765,7 +765,12 @@ internal fun EditorScreen(
         readyStatus: String,
         probeLabel: String? = null,
         ownedCopy: Uri? = null,
-    ) = sourceAdoption.adoptSource(uri, kind, displayName, readyStatus, probeLabel, ownedCopy)
+    ) {
+        // A crop draft belongs to the photo on screen: commit it before a new photo (picker,
+        // share or launcher shortcut) resets the cursor, so going back keeps the crop.
+        closeCrop()
+        sourceAdoption.adoptSource(uri, kind, displayName, readyStatus, probeLabel, ownedCopy)
+    }
 
     LaunchedEffect(Unit) {
         if (!editorProbe.isArmed()) return@LaunchedEffect
@@ -1071,6 +1076,7 @@ internal fun EditorScreen(
         doUndo = ::doUndo,
         doRedo = ::doRedo,
         openPhotoPicker = {
+            closeCrop()
             photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         },
         requestExport = { closeCrop(); requestExport() },
@@ -1254,6 +1260,7 @@ internal fun EditorScreen(
                 fading = interacting,
                 onOpenSource = {
                     // Open the SAME photo picker the Source panel uses (no app exit).
+                    closeCrop()
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
