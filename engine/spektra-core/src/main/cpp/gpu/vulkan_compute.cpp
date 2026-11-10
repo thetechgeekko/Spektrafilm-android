@@ -86,6 +86,8 @@ bool low_priority_queue() { return false; }
 bool cctf_encode_srgb(float*, size_t) { return false; }
 bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
+bool contrast_mask_gain(const float*, float*, uint32_t, const float*, const float*,
+                        const ContrastMaskGainParams&) { return false; }
 bool gaussian_blur_rgb(double*, int, int, const double*) { return false; }
 bool gaussian_blur_rgb_f32(float*, int, int, const double*) { return false; }
 bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
@@ -179,6 +181,7 @@ bool halation_scatter(const HalationScatterRequest&, double*,
 #include <vector>
 
 #include "gpu/cctf_encode_spv.h"
+#include "gpu/contrast_mask_spv.h"
 #include "gpu/fft_convolve_spv.h"
 #include "gpu/filming_stage_spv.h"
 #include "gpu/filming_spv.h"
@@ -284,6 +287,9 @@ struct Ctx {
     // glare.comp (#215): same four-binding shape again (xyz in, xyz out, blur
     // taps, one unused slot the layout requires).
     Kernel glareK;
+    // contrast_mask.comp: raw integral in, one gain per pixel out, the frame
+    // grid's a and b planes in the two table slots.
+    Kernel maskK;
     // fft_convolve.comp (#216): the same four-binding shape once more. Its push
     // block is larger than the scan one, which is the only reason
     // build_scan_pipeline takes a push size.
@@ -739,6 +745,7 @@ struct Ctx {
         destroyKernel(scanLin);
         destroyKernel(grainK);
         destroyKernel(glareK);
+        destroyKernel(maskK);
         destroyKernel(fftK);
         for (ResidentBuf& b : fftWork) destroyResidentBuf(b);
         destroyFrame();
@@ -1881,6 +1888,129 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
     Ctx& c = ctx();
     return dispatch_scan(c, c.scanLin, kScanSpectralLinSpv, sizeof(kScanSpectralLinSpv),
                          cmy, rgb, npix, dye, icmf, xyz2rgb);
+}
+
+struct ContrastMaskPush {
+    uint32_t n, base, width;
+    int32_t frameY0, frameH, gw, gh;
+    float efm, mult, pf0, pf1, pf2, core, highlights, shadows;
+};
+
+bool contrast_mask_gain(const float* raw, float* gain, uint32_t npix,
+                        const float* grid_a, const float* grid_b,
+                        const ContrastMaskGainParams& p) {
+    std::lock_guard<GpuMutex> lk(gpu_mutex());
+    Ctx& c = ctx();
+    if (!c.ok || !raw || !gain || npix == 0 || !grid_a || !grid_b || p.width == 0 ||
+        p.gw <= 0 || p.gh <= 0 || p.frame_height <= 0) {
+        return false;
+    }
+    Ctx::Kernel& s = c.maskK;
+    // Same slice cap as dispatch_scan: 65535 groups x 64 invocations.
+    const uint32_t MAX_SLICE = 65535u * 64u;
+    const uint32_t sliceCap = npix < MAX_SLICE ? npix : MAX_SLICE;
+    const VkDeviceSize inBytes = static_cast<VkDeviceSize>(sliceCap) * 3u * sizeof(float);
+    const VkDeviceSize outBytes = static_cast<VkDeviceSize>(sliceCap) * sizeof(float);
+    const VkDeviceSize gridBytes =
+        static_cast<VkDeviceSize>(p.gw) * static_cast<VkDeviceSize>(p.gh) * sizeof(float);
+    bool ok = false;
+    do {
+        if (!s.pipelineReady &&
+            !build_scan_pipeline(c, s, kContrastMaskSpv, sizeof(kContrastMaskSpv),
+                                 sizeof(ContrastMaskPush))) {
+            break;
+        }
+        const bool had = s.in.buf && s.in.cap >= inBytes && s.out.buf && s.out.cap >= outBytes &&
+                         s.dyeB.buf && s.dyeB.cap >= gridBytes && s.cmfB.buf &&
+                         s.cmfB.cap >= gridBytes;
+        if (!c.ensureBuf(s.in, inBytes) || !c.ensureBuf(s.out, outBytes) ||
+            !c.ensureBuf(s.dyeB, gridBytes) || !c.ensureBuf(s.cmfB, gridBytes)) {
+            break;
+        }
+        if (!had) {
+            VkBuffer bufs[4] = {s.in.buf, s.out.buf, s.dyeB.buf, s.cmfB.buf};
+            VkDeviceSize caps[4] = {s.in.cap, s.out.cap, s.dyeB.cap, s.cmfB.cap};
+            VkDescriptorBufferInfo dbi[4];
+            VkWriteDescriptorSet wds[4];
+            for (uint32_t i = 0; i < 4; ++i) {
+                dbi[i] = VkDescriptorBufferInfo{bufs[i], 0, caps[i]};
+                wds[i] = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                wds[i].dstSet = s.dset;
+                wds[i].dstBinding = i;
+                wds[i].descriptorCount = 1;
+                wds[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                wds[i].pBufferInfo = &dbi[i];
+            }
+            vkUpdateDescriptorSets(c.device, 4, wds, 0, nullptr);
+        }
+        std::memcpy(s.dyeB.mapped, grid_a, static_cast<size_t>(gridBytes));
+        std::memcpy(s.cmfB.mapped, grid_b, static_cast<size_t>(gridBytes));
+
+        ContrastMaskPush push{};
+        push.width = p.width;
+        push.frameY0 = p.frame_y0;
+        push.frameH = p.frame_height;
+        push.gw = p.gw;
+        push.gh = p.gh;
+        push.efm = p.exposure_factor_midgray;
+        push.mult = p.mult;
+        push.pf0 = p.preflash[0];
+        push.pf1 = p.preflash[1];
+        push.pf2 = p.preflash[2];
+        push.core = p.core;
+        push.highlights = p.highlights;
+        push.shadows = p.shadows;
+
+        uint32_t slices = 0;
+        bool slice_ok = true;
+        for (uint32_t base = 0; base < npix && slice_ok; base += MAX_SLICE) {
+            const uint32_t n = (npix - base) < MAX_SLICE ? (npix - base) : MAX_SLICE;
+            const size_t ncomp = static_cast<size_t>(n) * 3u;
+            // The raw integral comes from the GPU print kernel, whose inputs are
+            // guarded finite; non-finite values still map to 0 so the shader
+            // never sees one.
+            float* dst = static_cast<float*>(s.in.mapped);
+            const float* src = raw + static_cast<size_t>(base) * 3u;
+            parallel_for(0, static_cast<int>(ncomp), [&](int lo, int hi) {
+                for (int i = lo; i < hi; ++i) {
+                    const float v = src[i];
+                    dst[i] = std::isfinite(v) ? v : 0.0f;
+                }
+            });
+            if (vkResetCommandBuffer(s.cmd, 0) != VK_SUCCESS) { slice_ok = false; break; }
+            VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            if (vkBeginCommandBuffer(s.cmd, &bi) != VK_SUCCESS) { slice_ok = false; break; }
+            vkCmdBindPipeline(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+            vkCmdBindDescriptorSets(s.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s.pl, 0, 1, &s.dset,
+                                    0, nullptr);
+            push.n = n;
+            push.base = base;
+            vkCmdPushConstants(s.cmd, s.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(ContrastMaskPush), &push);
+            vkCmdDispatch(s.cmd, (n + 63u) / 64u, 1, 1);
+            if (vkEndCommandBuffer(s.cmd) != VK_SUCCESS) { slice_ok = false; break; }
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &s.cmd;
+            if (vkQueueSubmit(c.queue, 1, &si, s.fence) != VK_SUCCESS) { slice_ok = false; break; }
+            if (vkWaitForFences(c.device, 1, &s.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+                slice_ok = false;
+                break;
+            }
+            if (vkResetFences(c.device, 1, &s.fence) != VK_SUCCESS) { slice_ok = false; break; }
+            const float* outp = static_cast<const float*>(s.out.mapped);
+            float* gp = gain + base;
+            parallel_for(0, static_cast<int>(n), [&](int lo, int hi) {
+                std::memcpy(gp + lo, outp + lo, static_cast<size_t>(hi - lo) * sizeof(float));
+            });
+            ++slices;
+        }
+        stage_timing_note_gpu_submissions(slices);
+        ok = slice_ok;
+    } while (false);
+    if (!ok) c.destroyScan();
+    return ok;
 }
 
 // --- AgX particle grain sampler (#214) --------------------------------------

@@ -1,0 +1,92 @@
+#version 450
+// Contrast-mask gain at the print exposure (model/contrast_mask.cpp
+// contrast_mask_apply_grid), run on the GPU print integral's raw output.
+// Per pixel: the mean log2 paper exposure x, the bilinear guided-filter base
+// b = A*x + B on the frame grid, the bounded pull d and the gain k = 2^d,
+// written as EXACTLY 1.0 inside the core. The CPU multiplies its own float64
+// exposure by k, so pixels inside the core are untouched byte for byte.
+// fp32 throughout; the delta law mirrors contrast_mask_delta() line for line.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly  buffer InBuf  { float raw[]; };   // n*3 raw integral
+layout(std430, binding = 1) writeonly buffer OutBuf { float gain[]; };  // n
+layout(std430, binding = 2) readonly  buffer GridA  { float ga[]; };    // gw*gh
+layout(std430, binding = 3) readonly  buffer GridB  { float gb[]; };    // gw*gh
+layout(push_constant) uniform Push {
+    uint n;          // pixels in this slice
+    uint base;       // band pixel index of the slice's first pixel
+    uint width;      // band (= frame) width
+    int frameY0;     // frame row of band row 0
+    int frameH;
+    int gw;
+    int gh;
+    float efm;       // exposure_factor_midgray
+    float mult;      // print_exposure * bw_exposure_correction
+    float pf0;
+    float pf1;
+    float pf2;
+    float core;
+    float highlights;
+    float shadows;
+} pc;
+
+const float kReach = 3.0;        // kContrastMaskReach
+const float kGainLimit = 6.0;    // kContrastMaskGainLimit
+const float kShapeKnee = 0.25;
+const float kLog2Floor = -20.0;
+
+float shape_f(float D) { return D * D / (D + kShapeKnee); }
+
+float mask_delta(float b) {
+    float core = max(0.0, pc.core);
+    float amount, D, sgn;
+    if (pc.highlights > 0.0 && b < -core) {
+        amount = pc.highlights; D = -core - b; sgn = 1.0;
+    } else if (pc.shadows > 0.0 && b > core) {
+        amount = pc.shadows; D = b - core; sgn = -1.0;
+    } else {
+        return 0.0;
+    }
+    float t = min(amount / kReach, 1.0);
+    float knee = kReach * shape_f(D) / shape_f(kReach);
+    float d = t * ((1.0 - t) * knee + t * D);
+    d = min(min(d, D), kGainLimit * 0.999);
+    return sgn * d;
+}
+
+float log2_term(float r, float pf) {
+    // a = max(y - 1e-10 - pf, 0) * mult with y = max(r * efm + pf, 0) + 1e-10.
+    float a = max(max(r * pc.efm + pf, 0.0) - pf, 0.0) * pc.mult;
+    return a > 0.0 ? max(log2(a), kLog2Floor) : kLog2Floor;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.n) return;
+    uint p = pc.base + i;
+    uint ly = p / pc.width;
+    uint px = p - ly * pc.width;
+
+    float x = (log2_term(raw[i * 3u + 0u], pc.pf0) +
+               log2_term(raw[i * 3u + 1u], pc.pf1) +
+               log2_term(raw[i * 3u + 2u], pc.pf2)) * (1.0 / 3.0);
+
+    float py = float(pc.frameY0 + int(ly));
+    float v = clamp((py + 0.5) * float(pc.gh) / float(pc.frameH) - 0.5, 0.0, float(pc.gh - 1));
+    int v0 = int(floor(v));
+    int v1 = min(v0 + 1, pc.gh - 1);
+    float tv = v - float(v0);
+    float u = clamp((float(px) + 0.5) * float(pc.gw) / float(pc.width) - 0.5, 0.0, float(pc.gw - 1));
+    int u0 = int(floor(u));
+    int u1 = min(u0 + 1, pc.gw - 1);
+    float tu = u - float(u0);
+    int r0 = v0 * pc.gw;
+    int r1 = v1 * pc.gw;
+    float A = (ga[r0 + u0] * (1.0 - tu) + ga[r0 + u1] * tu) * (1.0 - tv) +
+              (ga[r1 + u0] * (1.0 - tu) + ga[r1 + u1] * tu) * tv;
+    float B = (gb[r0 + u0] * (1.0 - tu) + gb[r0 + u1] * tu) * (1.0 - tv) +
+              (gb[r1 + u0] * (1.0 - tu) + gb[r1 + u1] * tu) * tv;
+
+    float d = mask_delta(A * x + B);
+    gain[i] = (d == 0.0) ? 1.0 : exp2(d);
+}
