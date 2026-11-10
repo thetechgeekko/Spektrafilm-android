@@ -11,7 +11,7 @@ import androidx.exifinterface.media.ExifInterface
 
 internal object FrameCaptions {
     /** Between the parts of a shot-info caption. */
-    const val SEPARATOR = "  ·  "
+    const val SEPARATOR = " · "
 
     /**
      * The caption for [look], or null when it has none or the photo lacks what it asks for.
@@ -29,7 +29,7 @@ internal object FrameCaptions {
         return raw?.let(FrameLook::cleanCaption)?.takeIf { it.isNotEmpty() }
     }
 
-    /** "X-T5  ·  35 mm  ·  f/2.8  ·  1/250 s  ·  ISO 400", leaving out whatever is missing. */
+    /** "X-T5 · 35 mm · f/2.8 · 1/250 s · ISO 400", leaving out whatever is missing. */
     fun shotInfo(tags: Map<String, String>): String? {
         val parts = listOfNotNull(
             PhotoInfoFormat.camera(tags[ExifInterface.TAG_MAKE], tags[ExifInterface.TAG_MODEL]),

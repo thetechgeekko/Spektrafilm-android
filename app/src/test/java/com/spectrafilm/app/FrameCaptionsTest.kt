@@ -27,7 +27,7 @@ class FrameCaptionsTest {
 
     @Test
     fun `each kind words its caption`() {
-        assertEquals("FUJIFILM X-T5  ·  35 mm  ·  f/2.8  ·  1/250 s  ·  ISO 400", text(CaptionKind.SHOT_INFO))
+        assertEquals("FUJIFILM X-T5 · 35 mm · f/2.8 · 1/250 s · ISO 400", text(CaptionKind.SHOT_INFO))
         assertEquals("2026-11-10", text(CaptionKind.DATE))
         assertEquals("Portra 400", text(CaptionKind.FILM_STOCK))
         assertEquals("Lisbon, autumn", text(CaptionKind.CUSTOM, custom = "  Lisbon,\n autumn "))
