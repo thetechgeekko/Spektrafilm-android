@@ -306,6 +306,31 @@ int main() {
         check(scanAgain && scanA == scanB, "the reclaimed kernel rebuilds with the same bytes");
     }
 
+    // Odd frame size: the whole-frame route pads its rows (641 -> 656 px) and
+    // the transposed rows (403 -> 416 px) to 16 px; the banded route keeps the
+    // exact shape. Same bytes either way, and inside the CPU band.
+    {
+        const int wo = 641, ho = 403;
+        const std::vector<double> rawo = synthetic(wo, ho);
+        std::vector<double> cpuo = rawo;
+        spk::apply_halation_um(cpuo.data(), wo, ho, p, pixel_size_um);
+        const spk::gpu::HalationScatterRequest ro = request_from(p, rawo, wo, ho, pixel_size_um);
+        std::vector<double> whole(rawo.size()), banded(rawo.size());
+        spk::gpu::HalationScatterDiagnostics dw{}, db2{};
+        const bool okw = spk::gpu::halation_scatter(ro, whole.data(), &dw);
+        spk::gpu::HalationScatterRequest rbo = ro;
+        rbo.band_bytes_override = static_cast<uint64_t>(wo) * 41u * 12u * 6u;
+        const bool okb = spk::gpu::halation_scatter(rbo, banded.data(), &db2);
+        double mx = 0.0, rm = 0.0;
+        if (okw) log10_metrics(cpuo, whole, &mx, &rm);
+        std::printf("odd size %dx%d: whole ok=%d reason=%s, banded ok=%d reason=%s bands=%u; whole vs CPU max_abs=%.3e rms=%.3e\n",
+                    wo, ho, okw ? 1 : 0, dw.reason, okb ? 1 : 0, db2.reason, db2.bands, mx, rm);
+        check(okw && dw.engaged && std::strcmp(dw.reason, "none") == 0 &&
+                  okb && db2.engaged && std::strcmp(db2.reason, "banded") == 0 && bytes_eq(whole, banded),
+              "odd size: padded whole-frame route gives the banded route's bytes");
+        check(okw && mx <= 1e-4 && rm <= 1e-5, "odd size: whole-frame route within the parity band vs the CPU");
+    }
+
     // Submissions (#270): the pass is split into several queue submissions so
     // the compositor is not starved. One dispatch per submission and the whole
     // pass in one submission must give the very same bytes as the host cap.
