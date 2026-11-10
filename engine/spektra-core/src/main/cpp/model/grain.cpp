@@ -376,7 +376,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                    int width, int height,
                                    const double* density_max_layers,
                                    double pixel_size_um, const GrainParams& grain,
-                                   float* out, std::vector<float>* release_layers) {
+                                   float* out, std::unique_ptr<float[]>* release_layers) {
     // One choice per render, from the params: the Fast GPU export route may
     // use the cheaper generator (#180); everything else keeps mt19937.
     const StatsRng::Generator generator = grain.fast_sampler
@@ -469,7 +469,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     { std::vector<float>().swap(layer_out); }
     // The layer buffer's last reader was the loop above (or the GPU accumulate).
     density_cmy_layers = nullptr;
-    if (release_layers) { std::vector<float>().swap(*release_layers); }
+    if (release_layers) release_layers->reset();
 
     // micro-structure clumping (operates on the accumulated grain, before the
     // density_min subtraction and final blur — matching grain.py order).
@@ -483,9 +483,12 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
     // density_cmy_out -= density_min
     {
         ScopedGrainPhase _p(GrainPhase::Final);
+        // On the GPU only against a resident frame: otherwise the pass is an
+        // upload and a readback of the whole plane for one subtract per element,
+        // ~10x the parallel CPU loop below at export size.
         gpu::FilmingStageDiagnostics gd{};
         const bool on_gpu =
-            grain.allow_gpu_sampler &&
+            grain.allow_gpu_sampler && gpu::frame_active(width, height) &&
             gpu::subtract_per_channel(out, out, width, height, grain.density_min, &gd);
         // The sibling conversion ten lines above is already parallel; this one
         // was simply missed. Same shape, same 37.5 M elements at 12.5 MP.

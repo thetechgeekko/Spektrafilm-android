@@ -24,6 +24,7 @@
 #define SPK_MODEL_GRAIN_H
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "kernels/stats.h"
@@ -156,7 +157,7 @@ void apply_grain_to_density_layers(const float* density_cmy_layers, int npix,
                                    const double* density_max_layers,
                                    double pixel_size_um, const GrainParams& grain,
                                    float* out,
-                                   std::vector<float>* release_layers = nullptr);
+                                   std::unique_ptr<float[]>* release_layers = nullptr);
 // `release_layers`, when given, must own `density_cmy_layers`; it is emptied as
 // soon as the layers have been accumulated (before micro-structure and blur),
 // which takes the 9-channel buffer out of the rest of the stage's peak (#300).
