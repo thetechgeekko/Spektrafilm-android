@@ -1006,12 +1006,12 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
             //                           density_curves_layers_RAW, positive_film).
             // NOTE: apply_grain passes the RAW (un-normalized) density_curves_layers
             // here, while density_curves is the normalized curve axis.
-            // 450 MB at 12.5 MP: allocated, zero-initialised, then filled.
-            // Timed together because the allocation and the fill are one cost.
-            std::vector<float> layers;
+            // 450 MB at 12.5 MP, left uninitialised: the GPU or the CPU interp
+            // below writes every element. Timed with the fill as one cost.
+            std::unique_ptr<float[]> layers;
             {
                 ScopedGrainPhase _p(GrainPhase::Layers);
-                layers.resize(static_cast<size_t>(npix) * 9);
+                layers.reset(new float[static_cast<size_t>(npix) * 9]);
                 // Nine interpolations per pixel -- 112M at 12.5 MP, and the
                 // largest CPU item left in this stage. Its output is the GPU
                 // grain sampler's input, so the 450 MB buffer is on the wrong
@@ -1023,12 +1023,12 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
                                       width, height, ndc.data(),
                                       film.density_curves_layers.data(),
                                       static_cast<uint32_t>(n), film.is_positive(),
-                                      layers.data(), &gd);
+                                      layers.get(), &gd);
                 note_gpu_filming("grain_layers", gd);
                 if (!on_gpu)
                     interp_density_cmy_layers(density_cmy_out, npix, ndc.data(),
                                               film.density_curves_layers.data(), n,
-                                              film.is_positive(), layers.data());
+                                              film.is_positive(), layers.get());
             }
             // density_max_layers[sl,c] = nanmax over the log-exposure axis of the
             // RAW density_curves_layers (NOT normalized).
@@ -1046,7 +1046,7 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
                     density_max_layers[sl * 3 + c] = any ? mx : 2.2;
                 }
             }
-            apply_grain_to_density_layers(layers.data(), npix, width, height,
+            apply_grain_to_density_layers(layers.get(), npix, width, height,
                                           density_max_layers, params.pixel_size_um,
                                           grain, density_cmy_out, &layers);
         } else {
