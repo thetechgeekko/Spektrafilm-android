@@ -1,0 +1,68 @@
+# GPU gates, run automatically -- but only when native render code changes.
+#
+# The Fast GPU route is what every user gets (AppSettings.gpuEngine and
+# gpuExportEngine always return true), yet the host parity suite compiles
+# without SPK_ENABLE_VULKAN, so it never executes a GPU branch. Until this
+# workflow existed, the only gates that did lived in ci.yml, which is
+# manual-dispatch only, so a GPU regression could merge and ship unseen.
+#
+# Kept small to save Actions minutes:
+#   - path-filtered: app-only, docs-only and workflow-only changes skip it;
+#   - one job, lavapipe (software Vulkan) on a stock runner, no Gradle;
+#   - the engine is compiled once per flag leg and every gate links against
+#     those objects (tools/gpu_gates/run_gpu_gates.sh), ~2 min of compile.
+#
+# It gates correctness only. lavapipe is a CPU rasterizer: it says nothing
+# about speed, and nothing about an arm64 GPU's transcendental precision,
+# which the on-device self-check still covers at runtime.
+#
+# Film modeling powered by spektrafilm (GPLv3).
+name: GPU gates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'engine/spektra-core/src/main/cpp/**'
+      - 'engine/spektra-core/src/main/assets/spektra/**'
+      - 'tools/gpu_gates/**'
+      - '.github/workflows/gpu-gates.yml'
+  pull_request:
+    paths:
+      - 'engine/spektra-core/src/main/cpp/**'
+      - 'engine/spektra-core/src/main/assets/spektra/**'
+      - 'tools/gpu_gates/**'
+      - '.github/workflows/gpu-gates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-gates:
+    name: GPU gates (lavapipe)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # mesa-vulkan-drivers ships the lavapipe ICD, libvulkan-dev the headers
+      # and the link target; neither alone is enough.
+      - name: Install software Vulkan (lavapipe + headers)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan-dev
+          test -f /usr/include/vulkan/vulkan.h \
+            || (echo "libvulkan-dev did not provide vulkan/vulkan.h" && exit 1)
+          test -f /usr/share/vulkan/icd.d/lvp_icd.json \
+            || (echo "mesa-vulkan-drivers did not provide the lavapipe ICD" && exit 1)
+
+      - name: GPU gates under lavapipe
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+        run: bash tools/gpu_gates/run_gpu_gates.sh "$RUNNER_TEMP/gpu-gates"

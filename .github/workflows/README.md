@@ -17,6 +17,20 @@ or `tools/parity/`, the same job also runs `tools/parity/run_engine_parity.sh`
 | Pull request | Only with the **`run-ci`** label (the fallback when Codex review is unavailable); later pushes to a labelled PR re-run it |
 | Manual dispatch | Yes, parity always included |
 
+## `gpu-gates.yml` (automatic, native render changes only)
+
+Every GPU gate under lavapipe (software Vulkan): `test_gpu_host`, the resident
+pointwise chain, halation, grain, FFT diffusion, filming stages and the
+contrast mask, at `-O2` and the shipping flags. It runs on a PR or a push to
+`main` only when `engine/spektra-core/src/main/cpp/**`, the engine assets,
+`tools/gpu_gates/**` or the workflow itself changes, plus manual dispatch. The
+Fast GPU route is the default for every render and export, and the parity
+suite compiles without Vulkan, so this is the only automatic check of the
+route users get. Both this workflow and `ci.yml` call
+`tools/gpu_gates/run_gpu_gates.sh`, which compiles the engine once per leg,
+requires every gate to engage a device, and fails if a `gpu/tests/test_*.cpp`
+is not wired in.
+
 ## `ci.yml` (full gate set, manual only)
 
 Runs only on manual dispatch (Actions → CI → Run workflow, or

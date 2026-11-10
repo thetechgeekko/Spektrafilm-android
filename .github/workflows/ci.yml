@@ -118,145 +118,16 @@ jobs:
           test -f /usr/share/vulkan/icd.d/lvp_icd.json \
             || (echo "mesa-vulkan-drivers did not provide the lavapipe ICD" && exit 1)
 
-      - name: GPU shader validation under lavapipe
-        working-directory: engine/spektra-core/src/main/cpp
+      # Every GPU gate (shader math, pointwise chain, halation, grain, FFT
+      # diffusion, filming stages, contrast mask; both flag legs where the host
+      # side is f64) lives in one script, shared with gpu-gates.yml, which runs
+      # it automatically when native render code changes. Each gate must
+      # ENGAGE lavapipe, or the script fails: without a device every binary
+      # passes vacuously.
+      - name: GPU gates under lavapipe
         env:
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          g++ -std=c++17 -O2 -pthread -I. -I"$GITHUB_WORKSPACE/tools/parity" \
-            -DSPK_ENABLE_VULKAN=1 \
-            tests/test_gpu_host.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-            model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-            -lvulkan -o /tmp/test_gpu_host
-          /tmp/test_gpu_host "$GITHUB_WORKSPACE/engine/spektra-core/src/main/assets/spektra" \
-            2>&1 | tee /tmp/gpu_host.out
-          # test_gpu_host reports ALL OK in BOTH cases: with a GPU it checks the
-          # shader, and without one it checks only the fallback law. Those are not
-          # the same gate, so require that a GPU was actually found -- otherwise a
-          # broken ICD would silently downgrade this to a no-op and stay green.
-          grep -q "self-check passed (state == 1)" /tmp/gpu_host.out || \
-            (echo "no GPU engaged — this gate validated nothing" && exit 1)
-          grep -q "test_gpu_host: ALL OK" /tmp/gpu_host.out || exit 1
-
-      - name: GPU halation pass gate under lavapipe (#206)
-        working-directory: engine/spektra-core/src/main/cpp
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          # Two legs, like engine-parity: the host computes this pass's blur
-          # table (sigmas, FIR/IIR class, weights and the Young-van Vliet
-          # coefficients as double-float pairs) in f64, and the shipping flags
-          # include -ffast-math, which is free to reassociate exactly the
-          # residual arithmetic those pairs are built from. -O2 alone would
-          # never show that.
-          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
-            echo "== halation gate leg: $leg =="
-            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1 \
-              gpu/tests/test_halation_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-              model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-              -lvulkan -o /tmp/test_halation_gpu
-            /tmp/test_halation_gpu 2>&1 | tee /tmp/halation_gpu.out
-            # Same rule as above: the binary passes without a device by checking only
-            # the fallback law, which is not this gate. Require engagement.
-            grep -q "engaged=1" /tmp/halation_gpu.out || \
-              (echo "no GPU engaged — the halation gate validated nothing" && exit 1)
-            grep -q "test_halation_gpu: ALL OK" /tmp/halation_gpu.out || exit 1
-          done
-
-      - name: GPU grain sampler gate under lavapipe (#214)
-        working-directory: engine/spektra-core/src/main/cpp
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          # Two legs for the same reason the halation gate has two: this pass
-          # checks a MEAN and a VARIANCE against a closed form, and -ffast-math
-          # is free to reassociate the host-side reduction those are computed
-          # from. The shader is unaffected by host flags, the assertions are not.
-          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
-            echo "== grain gate leg: $leg =="
-            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1 \
-              gpu/tests/test_grain_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-              model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-              -lvulkan -o /tmp/test_grain_gpu
-            /tmp/test_grain_gpu 2>&1 | tee /tmp/grain_gpu.out
-            # Same rule as the gates above: without a device this binary reports
-            # NO DEVICE and asserts nothing, so require engagement explicitly
-            # rather than accepting a green run that validated nothing.
-            grep -q "engaged=1" /tmp/grain_gpu.out || \
-              (echo "no GPU engaged - the grain gate validated nothing" && exit 1)
-            grep -q "test_grain_gpu: ALL OK" /tmp/grain_gpu.out || exit 1
-          done
-
-      - name: GPU FFT diffusion convolution gate under lavapipe (#216)
-        working-directory: engine/spektra-core/src/main/cpp
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          # Two legs, like the gates above. This one compares an f32 DEVICE
-          # transform against the host f64 one AND against the direct loop, and
-          # -ffast-math is free to reassociate the host side of both.
-          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
-            echo "== fft gate leg: $leg =="
-            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1 \
-              gpu/tests/test_fft_convolve_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-              model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-              -lvulkan -o /tmp/test_fft_convolve_gpu
-            /tmp/test_fft_convolve_gpu 2>&1 | tee /tmp/fft_gpu.out
-            # Without a device this binary asserts nothing, so require engagement
-            # explicitly rather than accepting a green run that validated nothing.
-            grep -q "engaged=1" /tmp/fft_gpu.out || \
-              (echo "no GPU engaged - the FFT gate validated nothing" && exit 1)
-            grep -q "test_fft_convolve_gpu: ALL OK" /tmp/fft_gpu.out || exit 1
-          done
-
-      - name: GPU pointwise filming stages gate under lavapipe (#218)
-        working-directory: engine/spektra-core/src/main/cpp
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          # Two legs, like the gates above: the reference side of this comparison
-          # is the engine's own CPU expose, which -ffast-math is free to
-          # reassociate. The shader is unaffected by host flags; the bar is not.
-          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
-            echo "== filming gate leg: $leg =="
-            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1 \
-              gpu/tests/test_filming_stage_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp \
-              model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp \
-              -lvulkan -o /tmp/test_filming_stage_gpu
-            /tmp/test_filming_stage_gpu 2>&1 | tee /tmp/filming_gpu.out
-            # Without a device this binary asserts nothing, so require engagement
-            # explicitly rather than accepting a green run that validated nothing.
-            grep -q "engaged=1" /tmp/filming_gpu.out || \
-              (echo "no GPU engaged - the filming gate validated nothing" && exit 1)
-            grep -q "test_filming_stage_gpu: ALL OK" /tmp/filming_gpu.out || exit 1
-          done
-
-      - name: GPU contrast-mask gain gate under lavapipe
-        working-directory: engine/spektra-core/src/main/cpp
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          for leg in "-O2" "-O3 -ffast-math -fno-finite-math-only"; do
-            echo "== contrast-mask gate leg: $leg =="
-            g++ -std=c++17 $leg -pthread -I. -DSPK_ENABLE_VULKAN=1               gpu/tests/test_contrast_mask_gpu.cpp spektra.cpp gpu/*.cpp kernels/*.cpp io/*.cpp               model/*.cpp profiles/*.cpp runtime/*.cpp runtime/stages/*.cpp               -lvulkan -o /tmp/test_contrast_mask_gpu
-            /tmp/test_contrast_mask_gpu ../assets/spektra 2>&1 | tee /tmp/cmask_gpu.out
-            # Without a device this binary asserts nothing, so require engagement
-            # explicitly rather than accepting a green run that validated nothing.
-            grep -q "engaged=1" /tmp/cmask_gpu.out ||               (echo "no GPU engaged - the contrast-mask gate validated nothing" && exit 1)
-            grep -q "test_contrast_mask_gpu: ALL OK" /tmp/cmask_gpu.out || exit 1
-          done
+        run: bash tools/gpu_gates/run_gpu_gates.sh "$RUNNER_TEMP/gpu-gates"
 
   # ---------------------------------------------------------------------------
   # Offline native safety gate. These are direct host builds of committed tests:
