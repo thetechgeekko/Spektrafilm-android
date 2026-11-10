@@ -1185,6 +1185,16 @@ jobs:
               | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
             sha256sum -c SHA256SUMS
           )
+          # The public release carries only what users need: the APK, plus
+          # the LibRaw source/relink bundle that LGPL-2.1 section 6 requires
+          # to be offered from the same place. The full verified set in out/
+          # (SBOMs, mapping, symbols, locks, provenance, checksums) stays in
+          # the signed workflow artifact below. The in-app updater reads only
+          # the APK and its GitHub asset digest.
+          mkdir -p publish
+          cp "out/$NAME" "out/$BUNDLE_NAME" publish/
+          (cd out && sha256sum -c --ignore-missing SHA256SUMS)
+          test "$(find publish -maxdepth 1 -type f | wc -l)" -eq 2
 
       - name: Revalidate immutable tag before artifact publication
         env:
@@ -1209,7 +1219,7 @@ jobs:
             signed/app-release-gate-androidTest.apk
             build/device-smoke/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
       - name: Attach verified set to GitHub Release
         env:
@@ -1221,4 +1231,4 @@ jobs:
           python3 tools/release/github_release.py \
             --tag "$VERSION" \
             --source-sha "$RELEASE_SHA" \
-            --assets-dir out
+            --assets-dir publish

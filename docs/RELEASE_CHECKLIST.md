@@ -136,7 +136,9 @@ The `resolve-release` -> `qualify-libraw` -> `build-release-candidate` ->
     archive, R8 mapping, full native symbols, runtime classpath, provenance, and
     checksums. Provenance binds source/tag/version, run ID/attempt, candidate
     artifact ID/digest, signer, unsigned/signed/installed/test APK hashes, and all
-    release gates.
+    release gates. That full set is kept in the signed workflow artifact (90
+    days); only the APK and the LibRaw source/relink ZIP (LGPL-2.1 section 6) go
+    on the public Release, so users see one obvious download.
 12. The publisher first requires repository immutable releases to be enabled. A
     new Release stays draft while every operation is bound to numeric release and
     asset IDs and all downloaded remote bytes are verified. It publishes only
@@ -230,10 +232,10 @@ git push origin v0.7.0
 (Or trigger `release.yml` manually via **Actions → Release → Run workflow** with the tag name.)
 
 Expect the unsigned-candidate and protected signing jobs to assemble, gate,
-sign, device-verify, and publish `Spektrafilm-v0.7.0.apk`, the deterministic
-LibRaw source/relink ZIP, app and LibRaw SPDX documents, seven-lock archive, R8
-mapping, full native symbols, release runtime classpath, provenance, and
-`SHA256SUMS` to the Release for that tag.
+sign, device-verify, and publish `Spektrafilm-v0.7.0.apk` and the deterministic
+LibRaw source/relink ZIP to the Release for that tag. The SPDX documents,
+seven-lock archive, R8 mapping, full native symbols, release runtime classpath,
+provenance, and `SHA256SUMS` stay in the run's signed workflow artifact.
 
 **Verify the published APK** (download from the Release, then):
 
@@ -291,9 +293,10 @@ it cannot be assumed to have repository Administration read permission.
 
 ## 5. Post-release
 
-- [ ] Open the immutable published Release; confirm the APK, both SPDX files,
-  LibRaw source/relink ZIP, seven-lock archive, R8 mapping, full native symbols,
-  runtime classpath, provenance, and `SHA256SUMS` assets are attached.
+- [ ] Open the immutable published Release; confirm exactly two assets are
+  attached: the APK and the LibRaw source/relink ZIP. Download the run's
+  `signed-release-*` artifact if you need the SPDX files, mapping, symbols,
+  locks, provenance or `SHA256SUMS` (kept 90 days).
 - [ ] Verify the APK is production-signed and 16 KB-aligned (§3).
 - [ ] Close/update issues resolved by the release; keep `CHANGELOG.md` current.
 - [ ] **Do not** commit the APK anywhere in the repo — the release artifacts live only on the
