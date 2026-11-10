@@ -26,6 +26,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Observes the process-owned export runtime; see the comment at its LaunchedEffect in EditorScreen. */
 internal suspend fun CoroutineScope.runExportRuntimeObserver(
@@ -267,6 +268,8 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     sourceState: State<EditorSourceState>,
     prerenderDigestState: MutableState<Pair<String, Long>?>,
     prerenderOutOfMemoryState: MutableState<Boolean>,
+    previewState: State<Bitmap?>,
+    decodingState: State<Boolean>,
 ) {
     val engine by engineState
     var previewBusy by previewBusyState
@@ -279,8 +282,16 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     ) return
     if (prerenderOutOfMemory) return
     delay(RenderPayloads.IDLE_DEBOUNCE_MS)
-    if (previewBusy || exportVm.current.inFlight ||
-        ExportWorkRuntime.state.value is ExportRuntimeState.Running
+    // Only once the editor's own first preview is on screen and idle: opening a large RAW
+    // decodes it for the preview, and a full-size pre-render on top of that is what had the
+    // low-memory killer take background apps.
+    val settled = withTimeoutOrNull(RenderPayloads.PREVIEW_SETTLE_TIMEOUT_MS) {
+        while (previewState.value == null || decodingState.value || previewBusy) delay(250)
+        delay(RenderPayloads.PREVIEW_SETTLE_MS)
+        true
+    } == true
+    if (!settled || previewState.value == null || decodingState.value || previewBusy ||
+        exportVm.current.inFlight || ExportWorkRuntime.state.value is ExportRuntimeState.Running
     ) return
     val app = ctx.applicationContext
     val descriptor = runCatching {
@@ -316,7 +327,9 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
         )
         Triple(store, key, store.holds(key))
     }
-    if (held || !RenderPayloads.shouldPrerender(app)) return
+    if (held) return
+    val sourcePixels = withContext(dispatchers.io) { mediaStorePixelCount(app, activeUri) }
+    if (!RenderPayloads.shouldPrerender(app, sourcePixels)) return
     val startedMs = System.currentTimeMillis()
     // #270: the render runs as a tracked flight, not as this effect's child, so an
     // export of this very edit can join it instead of throwing it away (see
@@ -386,3 +399,17 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
         }
     }
 }
+
+/** The source's pixel count from MediaStore's width and height, or null when it has none. */
+internal fun mediaStorePixelCount(context: Context, uri: Uri): Long? = runCatching {
+    context.contentResolver.query(
+        uri,
+        arrayOf(android.provider.MediaStore.MediaColumns.WIDTH, android.provider.MediaStore.MediaColumns.HEIGHT),
+        null, null, null,
+    )?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val w = cursor.getLong(0)
+        val h = cursor.getLong(1)
+        if (w > 0 && h > 0) w * h else null
+    }
+}.getOrNull()

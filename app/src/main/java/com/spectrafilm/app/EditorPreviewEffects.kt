@@ -301,6 +301,8 @@ internal fun EditorPreviewEffects(
             sourceState = sourceState,
             prerenderDigestState = prerenderDigestState,
             prerenderOutOfMemoryState = prerenderOutOfMemoryState,
+            previewState = previewState,
+            decodingState = decodingState,
         )
     }
 }

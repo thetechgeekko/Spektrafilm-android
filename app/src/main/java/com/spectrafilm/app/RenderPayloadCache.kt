@@ -240,7 +240,7 @@ internal object RenderPayloads {
      * skipped on a hot, memory-pressured or power-saving device — where the cost is real and the
      * saving is hypothetical.
      */
-    fun shouldPrerender(context: android.content.Context): Boolean {
+    fun shouldPrerender(context: android.content.Context, sourcePixels: Long? = null): Boolean {
         val power = context.getSystemService(android.os.PowerManager::class.java)
         if (power?.isPowerSaveMode == true) return false
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
@@ -252,8 +252,45 @@ internal object RenderPayloads {
             ?: return true
         val info = android.app.ActivityManager.MemoryInfo()
         activity.getMemoryInfo(info)
-        return !info.lowMemory
+        if (info.lowMemory) return false
+        val allowed = prerenderMemoryAllows(info.availMem, info.threshold, sourcePixels ?: PRERENDER_UNKNOWN_PIXELS)
+        if (!allowed) {
+            Diag.i(
+                "pre-render skipped for memory: avail=${info.availMem shr 20} MiB " +
+                    "threshold=${info.threshold shr 20} MiB pixels=${sourcePixels ?: -1}",
+            )
+        }
+        return allowed
     }
+
+    /**
+     * Whether a speculative full-resolution render fits: what it is expected to take
+     * ([PRERENDER_PEAK_BYTES_PER_PIXEL] per source pixel) must leave the system's
+     * low-memory threshold plus [PRERENDER_MEMORY_MARGIN_BYTES] available, or the
+     * low-memory killer starts taking background apps for work the user may never use.
+     */
+    fun prerenderMemoryAllows(availMem: Long, lowMemoryThreshold: Long, sourcePixels: Long): Boolean {
+        val need = sourcePixels.coerceAtLeast(0L) * PRERENDER_PEAK_BYTES_PER_PIXEL
+        return availMem - need >= lowMemoryThreshold + PRERENDER_MEMORY_MARGIN_BYTES
+    }
+
+    /**
+     * Process memory growth per source pixel over a full-resolution render, GPU included:
+     * the SM-S948W's export of a 48 MP DNG peaked at ~4.9 GB PSS and a 41 MP one at
+     * ~4.7 GB, and its first 41 MP pre-render with ~3 GB available had lmkd kill 18
+     * background apps.
+     */
+    const val PRERENDER_PEAK_BYTES_PER_PIXEL = 100L
+    const val PRERENDER_MEMORY_MARGIN_BYTES = 512L shl 20
+
+    /** Pixels assumed when the source's size is unknown: a 48 MP phone RAW. */
+    const val PRERENDER_UNKNOWN_PIXELS = 48_000_000L
+
+    /** How long the preview must have been idle before a pre-render starts. */
+    const val PREVIEW_SETTLE_MS = 2_000L
+
+    /** Longest wait for the first preview; past it the pre-render is skipped. */
+    const val PREVIEW_SETTLE_TIMEOUT_MS = 60_000L
 
     fun of(context: android.content.Context): RenderPayloadCache {
         val app = context.applicationContext
