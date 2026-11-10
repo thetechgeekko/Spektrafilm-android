@@ -241,8 +241,10 @@ bool diffusion_far_init(const DiffusionFilterParams& params, double pixel_size_u
 void diffusion_far_accumulate(const double* raw, int w, int h, int frame_y0,
                               DiffusionFarField* far);
 
-// Convolve the coarse grid with the far kernel (frees the grid).
-void diffusion_far_finish(DiffusionFarField* far);
+// Convolve the coarse grid with the far kernel (frees the grid). `allow_gpu_fft`
+// offers each channel to gpu::fft_convolve first (f32); a refused channel runs
+// on the CPU transform.
+void diffusion_far_finish(DiffusionFarField* far, bool allow_gpu_fft = false);
 
 // Filter one band in place: rows [frame_y0, frame_y0 + h) of the frame, with
 // at least near_radius rows of real frame above and below every row the caller

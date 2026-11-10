@@ -1655,7 +1655,7 @@ void diffusion_far_accumulate(const double* raw, int w, int h, int frame_y0,
     });
 }
 
-void diffusion_far_finish(DiffusionFarField* far) {
+void diffusion_far_finish(DiffusionFarField* far, bool allow_gpu_fft) {
     if (!far || far->accum.empty()) return;
     const int f = far->factor, rc = far->coarse_radius, cks = 2 * rc + 1;
     const int cx = far->cells_x, cy = far->cells_y;
@@ -1663,8 +1663,61 @@ void diffusion_far_finish(DiffusionFarField* far) {
     far->out_h = cy - 2 * rc;
     far->field.assign(static_cast<size_t>(far->out_w) * far->out_h * 3, 0.0);
     const double inv = 1.0 / (static_cast<double>(f) * f);
+    bool gpu_done[3] = {false, false, false};
+    if (allow_gpu_fft) {
+        // The GPU operator reflect-pads its input itself, so it convolves the
+        // already padded grid as the image and the interior is kept: an interior
+        // output reads only cells inside the grid, which is the valid
+        // convolution the CPU transform computes. Channels 0+1 paired, then 2.
+        const size_t cells = static_cast<size_t>(cx) * cy;
+        std::vector<double> grid(cells * 3);
+        for (size_t i = 0; i < cells * 3; ++i) grid[i] = static_cast<double>(far->accum[i]) * inv;
+        std::vector<double> same(cells * 3);
+        const uint64_t budgets[2] = {gpu::kFftGpuMaxElements, gpu::kFftGpuMaxElements / 2};
+        for (int c = 0; c < 3; c += 2) {
+            gpu::FftConvolveRequest gr;
+            gr.src_rgb = grid.data();
+            gr.width = cx;
+            gr.height = cy;
+            gr.channel = c;
+            gr.kern = far->coarse_kernel[c].data();
+            gr.ks = cks;
+            gr.out_stride = 3;
+            gr.out_offset = c;
+            if (c == 0) {
+                gr.channel2 = 1;
+                gr.kern2 = far->coarse_kernel[1].data();
+                gr.out_offset2 = 1;
+            }
+            gpu::FftConvolveDiagnostics gd{};
+            for (uint64_t budget : budgets) {
+                gr.max_elements = budget;
+                if (gpu::fft_convolve(gr, same.data(), &gd)) {
+                    gpu_done[c] = true;
+                    if (c == 0) gpu_done[1] = true;
+                    break;
+                }
+            }
+            note_gpu_fft(c, gd);
+            if (c == 0) note_gpu_fft(1, gd, /*count=*/false);
+        }
+        for (int c = 0; c < 3; ++c) {
+            if (!gpu_done[c]) continue;
+            for (int y = 0; y < far->out_h; ++y) {
+                const double* src = same.data() + (static_cast<size_t>(y + rc) * cx + rc) * 3;
+                double* dst = far->field.data() + static_cast<size_t>(y) * far->out_w * 3;
+                for (int x = 0; x < far->out_w; ++x) dst[x * 3 + c] = src[x * 3 + c];
+            }
+        }
+        if (gpu_done[0] && gpu_done[1] && gpu_done[2]) {
+            std::vector<float>().swap(far->accum);
+            far->ready = true;
+            return;
+        }
+    }
     std::vector<double> plane(static_cast<size_t>(cx) * cy);
     for (int c = 0; c < 3; ++c) {
+        if (gpu_done[c]) continue;
         for (size_t i = 0; i < plane.size(); ++i)
             plane[i] = static_cast<double>(far->accum[i * 3 + c]) * inv;
         int cap = 0;
