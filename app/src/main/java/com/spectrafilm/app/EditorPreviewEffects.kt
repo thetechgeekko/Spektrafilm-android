@@ -93,8 +93,12 @@ internal fun EditorPreviewEffects(
     fun gradeCacheKey(fullEdge: Int): GradeCache.Key {
         val filmBalance =
             if (state.balanceToFilmStock && FilmStockBalance.isMeaningful(ctx, state.filmProfile)) state.filmProfile else ""
+        // The Crop tab renders the whole frame (CropTool.kt): its crop frame sits on the photo,
+        // so the engine must not have cut it already. Part of the key, so the cropped and the
+        // crop-free renders are cached apart.
+        val params = state.toParams(skipGrainHalation = true)
         return GradeCache.Key(
-            engineParams = state.toParams(skipGrainHalation = true),
+            engineParams = if (toolVm.current.cropOpen) params.withoutCrop() else params,
             decode = GradeCache.DecodeKey(
                 uri = sourceUri?.toString(), kind = sourceKind.name,
                 whiteBalance = state.rawWhiteBalance, temperature = state.rawTemperature,
@@ -196,6 +200,7 @@ internal fun EditorPreviewEffects(
             engineState = engineState,
             previewState = previewState,
             beforePreviewState = beforePreviewState,
+            cropFreePreviewState = screen.cropFreePreviewState,
             decodingState = decodingState,
             lastRenderMsState = lastRenderMsState,
             previewBusyState = previewBusyState,
@@ -299,3 +304,7 @@ internal fun EditorPreviewEffects(
         )
     }
 }
+
+/** These params with the engine crop switched off: the whole frame, for the Crop tab. */
+internal fun SpektraParams.withoutCrop(): SpektraParams =
+    if (io.crop) copy(io = io.copy(crop = false)) else this

@@ -18,8 +18,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The full-screen editing tools drawn over the photo: the crop overlay, the on-photo mask
- * geometry editor and the eyedropper (white-balance gray point or a mask's color/tone target).
+ * The full-screen editing tools drawn over the photo: the on-photo mask geometry editor and the
+ * eyedropper (white-balance gray point or a mask's color/tone target). Crop is a tab, not an
+ * overlay (CropTool.kt).
  * Moved verbatim out of EditorScreen (#273); the caller keeps the predictive-back wrapper.
  */
 @Composable
@@ -32,7 +33,6 @@ internal fun EditorToolOverlays(
     scope: CoroutineScope,
     toolUi: EditorToolUiState,
     cropBmp: Bitmap?,
-    cropShown: Boolean,
     maskGeometryShown: Boolean,
     sampleReady: Boolean,
     loadSourceCachedForZoom: suspend (maxEdge: Int) -> DecodedSourceCache.Lease,
@@ -41,33 +41,8 @@ internal fun EditorToolOverlays(
     val previewTickState = screen.previewTickState
     val snackbarHost = screen.snackbarHost
     val state = session.params
-    val rotationState = session.rotation
     var previewTick by previewTickState
-    var rotation by rotationState
     var status by statusState
-    // --- interactive crop overlay (Lightroom-style) ---
-    // Only shown once a preview bitmap exists (the crop tool needs the image
-    // to draw and to read its aspect ratio).
-    if (cropShown && cropBmp != null) {
-        CropOverlay(
-            bitmap = cropBmp,
-            initialCrop = state.crop,
-            initialCenter = state.cropCenter,
-            initialSize = state.cropSize,
-            initialStraighten = state.straightenDegrees,
-            onRotate = { rotation = rotation.next() },
-            onConfirm = { crop, center, size, straighten ->
-                state.crop = crop
-                state.cropCenter = center
-                state.cropSize = size
-                state.straightenDegrees = straighten
-                toolVm.onAction(EditorToolAction.CloseCrop)
-                previewTick++
-            },
-            onCancel = { toolVm.onAction(EditorToolAction.CloseCrop) },
-        )
-    }
-
     // --- draw-on-the-preview mask geometry editor ---
     if (maskGeometryShown && cropBmp != null) {
         MaskGeometryOverlay(

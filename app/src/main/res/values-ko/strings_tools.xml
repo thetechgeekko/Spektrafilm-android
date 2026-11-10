@@ -161,14 +161,13 @@
     <string name="tool_masks_invert_color_help">범위 바깥의 색에 적용합니다.</string>
     <string name="tool_masks_delete">마스크 삭제</string>
     <string name="tool_crop_title">자르기</string>
-    <string name="tool_crop_cancel">자르기 취소</string>
     <string name="tool_crop_rotate">90° 회전</string>
-    <string name="tool_crop_apply">자르기 적용</string>
     <string name="tool_crop_aspect_group">가로세로 비율</string>
     <string name="tool_crop_aspect_free">자유</string>
     <string name="tool_crop_portrait">세로 비율</string>
     <string name="tool_crop_landscape">가로 비율</string>
-    <string name="tool_crop_orientation_flip">방향 전환</string>
+    <string name="tool_crop_orient_portrait">세로</string>
+    <string name="tool_crop_orient_landscape">가로</string>
     <string name="tool_crop_aspect_original">원본</string>
     <string name="tool_crop_canvas_desc">사진 위의 자르기 사각형. 모서리나 가장자리를 드래그해 크기를 바꾸고, 안쪽을 드래그해 이동합니다.</string>
     <string name="tool_crop_reset">자르기를 사진 전체로 재설정</string>

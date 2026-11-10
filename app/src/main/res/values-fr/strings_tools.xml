@@ -161,14 +161,13 @@
     <string name="tool_masks_invert_color_help">Agit plutôt sur les couleurs EN DEHORS de la plage.</string>
     <string name="tool_masks_delete">Supprimer le masque</string>
     <string name="tool_crop_title">Recadrer</string>
-    <string name="tool_crop_cancel">Annuler le recadrage</string>
     <string name="tool_crop_rotate">Pivoter de 90°</string>
-    <string name="tool_crop_apply">Appliquer le recadrage</string>
     <string name="tool_crop_aspect_group">Format</string>
     <string name="tool_crop_aspect_free">Libre</string>
     <string name="tool_crop_portrait">Formats portrait</string>
     <string name="tool_crop_landscape">Formats paysage</string>
-    <string name="tool_crop_orientation_flip">changer d’orientation</string>
+    <string name="tool_crop_orient_portrait">Portrait</string>
+    <string name="tool_crop_orient_landscape">Paysage</string>
     <string name="tool_crop_aspect_original">Original</string>
     <string name="tool_crop_canvas_desc">Cadre de recadrage sur la photo. Faites glisser un coin ou un bord pour le redimensionner, et faites glisser à l’intérieur pour le déplacer.</string>
     <string name="tool_crop_reset">Rétablir le recadrage sur la photo entière</string>

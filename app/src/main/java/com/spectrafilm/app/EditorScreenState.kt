@@ -62,6 +62,13 @@ internal class EditorScreenState {
     // The rendered preview and the compare "before" frame.
     val previewState: MutableState<Bitmap?> = mutableStateOf(null)
     val beforePreviewState: MutableState<Bitmap?> = mutableStateOf(null)
+
+    /**
+     * The published preview when it was rendered WITHOUT the engine crop (the Crop tab's render),
+     * else null. Compared by identity with [previewState]: any other publisher (a cropped
+     * render, an export result) replaces the preview and so ends the match.
+     */
+    val cropFreePreviewState: MutableState<Bitmap?> = mutableStateOf(null)
     val previewBusyState: MutableState<Boolean> = mutableStateOf(false)
     val decodingState: MutableState<Boolean> = mutableStateOf(false)
     val lastRenderMsState: MutableState<Long?> = mutableStateOf(null)
@@ -131,6 +138,7 @@ internal class EditorScreenState {
         // leases defer physical recycle only until an already-running histogram sample completes.
         previewState.value = null
         beforePreviewState.value = null
+        cropFreePreviewState.value = null
 
         gpuProxyLeaseState.value?.close()
         gpuProxyLeaseState.value = null

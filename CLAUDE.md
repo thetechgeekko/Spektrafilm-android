@@ -21,7 +21,7 @@ byte-identical across thread counts — not necessarily byte-identical across CP
 Gradle modules actually built (`settings.gradle.kts`):
 - **`:app`** — `com.spectrafilm.app`, the application. All UI lives here (~82 Kotlin files in
   `app/src/main/java/com/spectrafilm/app/`): `MainActivity`, the Lightroom-style editor
-  (`Viewer`, `ParamsState`, `ImagePipeline`, `CropOverlay`, `CategoryIcons`/`SpectraIcons`),
+  (`Viewer`, `ParamsState`, `ImagePipeline`, `CropTool` (the Crop tab), `CategoryIcons`/`SpectraIcons`),
   presets/recipes, settings, profile-curve browser, diagnostics.
 - **`:engine:spektra-core`** — `com.spectrafilm.engine`. NDK C++ engine (`libspektra.so`) + the
   Kotlin facade `SpektraEngine` / `SpektraParams`. Bundles film/paper profiles, spectral LUTs,

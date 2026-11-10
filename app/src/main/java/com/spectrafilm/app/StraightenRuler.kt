@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -80,6 +81,11 @@ internal fun StraightenRuler(
     degrees: Float,
     onChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    // The ticks and label. White on the always-dark canvas; the crop panel passes its theme's
+    // on-surface-variant so the ruler reads on a light panel too.
+    tint: Color = SpektraBrand.onCanvas,
+    // The fixed needle; the crop panel passes the theme's primary (amber).
+    needle: Color = SpektraBrand.onCanvas,
 ) {
     val view = LocalView.current
     val current by rememberUpdatedState(degrees)
@@ -91,7 +97,7 @@ internal fun StraightenRuler(
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             "$title  $valueText",
-            color = if (degrees == 0f) SpektraBrand.onCanvas.copy(alpha = 0.7f) else SpektraBrand.onCanvas,
+            color = if (degrees == 0f) tint.copy(alpha = 0.7f) else tint,
             style = MaterialTheme.typography.labelLarge,
         )
         Canvas(
@@ -143,8 +149,8 @@ internal fun StraightenRuler(
             val pxPerDeg = STRAIGHTEN_DP_PER_DEGREE.dp.toPx()
             val cx = size.width / 2f
             val base = size.height
-            val minor = SpektraBrand.onCanvas.copy(alpha = 0.35f)
-            val major = SpektraBrand.onCanvas.copy(alpha = 0.7f)
+            val minor = tint.copy(alpha = 0.35f)
+            val major = tint.copy(alpha = 0.7f)
             val halfSpan = cx / pxPerDeg
             val first = ceil(degrees - halfSpan).toInt().coerceAtLeast(-STRAIGHTEN_MAX_DEGREES.toInt())
             val last = floor(degrees + halfSpan).toInt().coerceAtMost(STRAIGHTEN_MAX_DEGREES.toInt())
@@ -165,13 +171,13 @@ internal fun StraightenRuler(
             }
             // The fixed needle.
             drawLine(
-                SpektraBrand.onCanvas,
+                needle,
                 Offset(cx, 0f),
                 Offset(cx, base),
                 strokeWidth = 2.5.dp.toPx(),
             )
             drawCircle(
-                SpektraBrand.onCanvas,
+                needle,
                 3.dp.toPx(),
                 Offset(cx, 0f),
                 style = Stroke(width = 1.5.dp.toPx()),

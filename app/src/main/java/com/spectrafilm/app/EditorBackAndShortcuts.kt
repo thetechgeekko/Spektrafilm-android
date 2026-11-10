@@ -27,6 +27,10 @@ internal fun EditorBackAndShortcuts(
     magnifierOpen: Boolean,
     activeCategory: Category?,
     onCloseCategory: () -> Unit,
+    /** Leave the Crop tab, keeping its draft (one undo step), as switching tabs does. */
+    onCloseCrop: () -> Unit,
+    /** The Crop tab's draft holds an edit not yet in the history; Undo takes it back first. */
+    cropDraftPending: Boolean,
     onBackPressedDispatcher: OnBackPressedDispatcher,
     setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
     editHistory: EditHistory,
@@ -50,14 +54,17 @@ internal fun EditorBackAndShortcuts(
         // The magnifier is a full-screen overlay in this window (not a dialog), so it
         // has to block shortcuts too; an undo behind it would invalidate its crop.
         val overlayOpen = toolUi.anyOverlayOpen || exportMaskVisible || magnifierOpen
+        // The Crop tab is not modal: Undo / Redo stay live there, since Undo is its way back.
+        val historyBlocked = toolUi.maskGeometryOpen || toolUi.sampleOpen || exportMaskVisible || magnifierOpen
         when (shortcut) {
             EditorShortcut.CLOSE -> {
                 val closable = viewerUi.chromeHidden || overlayOpen || activeCategory != null
                 if (closable) onBackPressedDispatcher.onBackPressed()
                 closable
             }
-            EditorShortcut.UNDO -> !overlayOpen && editHistory.canUndo && run { doUndo(); true }
-            EditorShortcut.REDO -> !overlayOpen && editHistory.canRedo && run { doRedo(); true }
+            EditorShortcut.UNDO -> !historyBlocked && (editHistory.canUndo || cropDraftPending) &&
+                run { doUndo(); true }
+            EditorShortcut.REDO -> !historyBlocked && !cropDraftPending && editHistory.canRedo && run { doRedo(); true }
             EditorShortcut.OPEN -> !overlayOpen && run {
                 openPhotoPicker()
                 true
@@ -87,17 +94,20 @@ internal fun EditorBackAndShortcuts(
     // Above every other rung: with the chrome hidden there is no visible control at
     // all, so Back has to mean "give me the app back" before it means anything else.
     BackHandler(enabled = viewerUi.chromeHidden) { viewerVm.onAction(EditorViewerAction.ShowChrome) }
-    // Predictive back on the full-screen tools (crop, mask geometry, eyedropper): while the
+    // The Crop tab: Back leaves it the way another tab would, keeping the crop (Undo reverts
+    // it). Registered below the full-screen tools so a mask editor or eyedropper on top of it
+    // would still take Back first.
+    BackHandler(enabled = toolUi.cropOpen) { onCloseCrop() }
+    // Predictive back on the full-screen tools (mask geometry, eyedropper): while the
     // swipe is held the tool shrinks away so the user can see Back will close it, and can
     // still cancel. Committing cancels the tool exactly as its own Cancel button does.
     PredictiveBackHandler(
-        enabled = toolUi.cropOpen || toolUi.maskGeometryOpen || toolUi.sampleOpen,
+        enabled = toolUi.maskGeometryOpen || toolUi.sampleOpen,
     ) { progress ->
         try {
             progress.collect { onOverlayBackProgress(it.progress) }
             val tool = toolVm.current
             when {
-                tool.cropOpen -> toolVm.onAction(EditorToolAction.CloseCrop)
                 tool.maskGeometryOpen -> toolVm.onAction(EditorToolAction.CloseMaskGeometry)
                 tool.sampleOpen -> toolVm.onAction(EditorToolAction.CloseSample)
             }
