@@ -175,15 +175,13 @@ int main(int argc, char** argv) {
             expect(false, std::string(c.name) + ": whole-frame render succeeds");
             continue;
         }
-        // Several band heights, so the film-pass and print-pass partitions (and
+        // Several band heights, so the band partitions (and
         // their core boundaries) land in different places; a height whose margin
         // does not fit is refused by the planner and skipped.
         int banded_runs = 0;
-        bool partitions_differ = false;
         for (const int band_rows : {450, 650, 900, 1200}) {
             std::vector<float> banded;
             int bw = 0, bh = 0;
-            const uint64_t film0 = spk_band_film_pass_bands();
             const uint64_t bands0 = spk_band_render_bands();
             spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
             const bool okb = render(eng, frame, p, 1, static_cast<int64_t>(kW) * band_rows, &banded, &bw, &bh);
@@ -192,14 +190,12 @@ int main(int argc, char** argv) {
                 std::printf("  %s: %d-row bands refused (margin does not fit), skipped\n", c.name, band_rows);
                 continue;
             }
-            const uint64_t film_bands = spk_band_film_pass_bands() - film0;
             const uint64_t final_bands = spk_band_render_bands() - bands0;
             if (bw != ww || bh != wh || final_bands == 0) {
                 expect(false, std::string(c.name) + ": banded render has the whole render's size and bands");
                 continue;
             }
             ++banded_runs;
-            if (film_bands != final_bands) partitions_differ = true;
             double worst_row = 0.0, sse = 0.0, max_abs = 0.0;
             int worst_y = -1;
             for (int y = 0; y < bh; ++y) {
@@ -215,9 +211,9 @@ int main(int argc, char** argv) {
                 if (sum > worst_row) { worst_row = sum; worst_y = y; }
             }
             const double rms = std::sqrt(sse / static_cast<double>(banded.size()));
-            std::printf("%s @%d rows: film-pass bands %llu, final bands %llu; max_abs %.3e rms %.3e worst row %d mean %.3e\n",
-                        c.name, band_rows, static_cast<unsigned long long>(film_bands),
-                        static_cast<unsigned long long>(final_bands), max_abs, rms, worst_y, worst_row);
+            std::printf("%s @%d rows: bands %llu; max_abs %.3e rms %.3e worst row %d mean %.3e\n",
+                        c.name, band_rows, static_cast<unsigned long long>(final_bands), max_abs, rms,
+                        worst_y, worst_row);
             if (c.grain) {
                 std::printf("  grain bound (measured, not gated): worst row mean %.3e\n", worst_row);
                 continue;
@@ -228,8 +224,6 @@ int main(int argc, char** argv) {
                    std::string(c.name) + " @" + std::to_string(band_rows) + " rows: banded matches whole (no seam rows)");
         }
         expect(banded_runs > 0, std::string(c.name) + ": renders banded at least once");
-        std::printf("  %s: film and print partitions differ in %s run\n", c.name,
-                    partitions_differ ? "at least one" : "no");
     }
     // 1 = the GPU print/scan routes passed their self-checks and ran (engaged=1);
     // 0 = never engaged (a CPU build, or no device).
