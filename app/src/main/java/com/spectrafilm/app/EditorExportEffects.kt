@@ -225,6 +225,9 @@ internal suspend fun CoroutineScope.runExportRuntimeObserver(
                                     R.string.editor_msg_export_failed_raw_preview
                                 cause is ExportSourceDegradedException ->
                                     R.string.editor_msg_export_failed_raw_memory
+                                cause is com.spectrafilm.libraw.RawDecodeException &&
+                                    cause.status == com.spectrafilm.libraw.DecodeStatus.NO_MEMORY ->
+                                    R.string.editor_msg_export_failed_raw_memory
                                 isMemoryExhaustion(cause) -> R.string.editor_msg_export_failed_memory
                                 else -> R.string.editor_msg_export_failed
                             },

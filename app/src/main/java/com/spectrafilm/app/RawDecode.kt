@@ -48,11 +48,13 @@ fun decodeRawToLinear(
     memoryDegraded: AtomicBoolean? = null,
     hotPixels: Boolean = false,
     chromaNoise: Float = 0f,
+    admittedBytes: Long = 0L,
+    allowReducedFallback: Boolean = true,
 ): LinearImage {
-    return decodeRawWithMemoryFallback(maxEdge, memoryDegraded) { edge, halfSize ->
+    return decodeRawWithMemoryFallback(maxEdge, memoryDegraded, allowReducedFallback) { edge, halfSize ->
         decodeRawAtEdge(
             ctx, uri, wb, temperatureK, tint, edge, halfSize, cancellation,
-            hotPixels, chromaNoise,
+            hotPixels, chromaNoise, admittedBytes,
         )
     }
 }
@@ -66,8 +68,11 @@ fun decodeRawToLinear(
 internal fun <T> decodeRawWithMemoryFallback(
     maxEdge: Int,
     memoryDegraded: AtomicBoolean? = null,
+    /** False for an export: a reduced decode would be refused anyway, so fail at once. */
+    allowReducedFallback: Boolean = true,
     decode: (edge: Int, halfSize: Boolean) -> T,
 ): T {
+    if (!allowReducedFallback) return decode(maxEdge.coerceAtLeast(MIN_RAW_FALLBACK_EDGE), false)
     var attemptEdge = maxEdge.coerceAtLeast(MIN_RAW_FALLBACK_EDGE)
     var halfSize = maxEdge <= HALF_DECODE_EDGE_THRESHOLD
     while (true) {
@@ -168,6 +173,7 @@ private fun decodeRawAtEdge(
     cancellation: RawDecodeCancellation?,
     hotPixels: Boolean,
     chromaNoise: Float,
+    admittedBytes: Long,
 ): LinearImage {
     val settings = RawDecoder.Settings(
         whiteBalance = wb, temperatureK = temperatureK, tint = tint, halfSize = halfSize,
@@ -179,6 +185,7 @@ private fun decodeRawAtEdge(
         maxLongEdge = maxEdge,
         hotPixelCorrection = hotPixels,
         chromaNoiseReduction = chromaNoise,
+        admittedBytes = admittedBytes,
     )
     // Decode straight from the file descriptor: LibRaw reads through the fd, so we never
     // copy the whole RAW file into a single contiguous Java byte[] first. That byte[]
