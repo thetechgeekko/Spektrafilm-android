@@ -103,6 +103,12 @@ struct DecodeOptions {
     // until decodeFromFd returns; the decoder duplicates it and never closes
     // the caller's descriptor. -1 keeps the legacy 64 MiB buffered path.
     int inputScratchFd = -1;
+
+    // Bytes the caller has admitted for this decode (process MemoryBudget and the
+    // system's available memory, measured by the app). When non-zero on 64-bit, the
+    // decoded-pixel limit is these bytes over the decode's measured peak per pixel
+    // (raw_decode_budget.h) instead of the fixed MemAvailable tiers. 0 = the tiers.
+    std::uint64_t admittedBytes = 0;
 };
 
 // Stable decode status codes. These cross to Kotlin (RawDecoder.DecodeStatus)

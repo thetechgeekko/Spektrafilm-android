@@ -1376,7 +1376,10 @@ constexpr unsigned kMaxRawMemoryMb = 128;
 // encoded-input bound; neither path bypasses decoded-memory admission.
 constexpr size_t kMaxEncodedInputBytes = 64U * 1024U * 1024U;
 // Keep one selected output limit for every phase of a decode.
-uint64_t currentDecodePixelLimit() {
+uint64_t currentDecodePixelLimit(const DecodeOptions& options) {
+    if (options.admittedBytes != 0 && sizeof(void*) >= 8) {
+        return admittedDecodePixelLimit(options.admittedBytes);
+    }
     uint64_t totalBytes = 0;
     uint64_t availableBytes = 0;
 #ifdef __ANDROID__
@@ -2910,7 +2913,7 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
 DecodeResult decodeFromBuffer(const uint8_t* data, size_t length,
                               const DecodeOptions& options) try {
     const auto decodeStartedAt = std::chrono::steady_clock::now();
-    const uint64_t pixelLimit = currentDecodePixelLimit();
+    const uint64_t pixelLimit = currentDecodePixelLimit(options);
     DecodeResult result;
     if (!rawWhiteBalanceOptionsValid(options)) {
         return invalidWhiteBalanceFailure();
@@ -2981,7 +2984,7 @@ DecodeResult decodeFromBuffer(const uint8_t* data, size_t length,
 
 DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
     const auto decodeStartedAt = std::chrono::steady_clock::now();
-    const uint64_t pixelLimit = currentDecodePixelLimit();
+    const uint64_t pixelLimit = currentDecodePixelLimit(options);
     DecodeResult result;
     if (!rawWhiteBalanceOptionsValid(options)) {
         return invalidWhiteBalanceFailure();

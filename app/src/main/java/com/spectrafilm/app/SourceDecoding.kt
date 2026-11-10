@@ -178,19 +178,41 @@ internal suspend fun decodeSourceRequest(
     val rawMemoryDegraded = java.util.concurrent.atomic.AtomicBoolean(false)
     val image = when (request.kind) {
         SourceKind.RAW -> try {
-            runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
-                decodeRawToLinear(
-                    request.context,
-                    requireNotNull(uri),
-                    request.rawWhiteBalance,
-                    request.rawTemperature.toDouble(),
-                    request.rawTint.toDouble(),
-                    maxEdge,
-                    cancellation,
-                    rawMemoryDegraded,
-                    hotPixels = request.rawHotPixels,
-                    chromaNoise = request.rawChromaNoise,
-                )
+            val export = isExportDecodeEdge(maxEdge)
+            suspend fun decodeRaw(admittedBytes: Long): LinearImage =
+                runCancellableRawDecode(onLateResult = { late -> late.close() }) { cancellation ->
+                    decodeRawToLinear(
+                        request.context,
+                        requireNotNull(uri),
+                        request.rawWhiteBalance,
+                        request.rawTemperature.toDouble(),
+                        request.rawTint.toDouble(),
+                        maxEdge,
+                        cancellation,
+                        rawMemoryDegraded,
+                        hotPixels = request.rawHotPixels,
+                        chromaNoise = request.rawChromaNoise,
+                        admittedBytes = admittedBytes,
+                        // An export refuses a reduced decode, so it never takes that ladder.
+                        allowReducedFallback = !export,
+                    )
+                }
+            if (!export) {
+                decodeRaw(0L)
+            } else {
+                // A full-size export decode is admitted against free memory and the process
+                // budget; a refusal releases the editor's idle GPU caches and retries once.
+                suspend fun admitted(): LinearImage =
+                    admitRawExportDecode(request.context).use { decodeRaw(it.bytes) }
+                try {
+                    admitted()
+                } catch (refused: RawDecodeException) {
+                    if (refused.status != DecodeStatus.NO_MEMORY) throw refused
+                    Diag.w("raw export decode refused for memory (${refused.message}); reclaiming and retrying once")
+                    releaseGpuAfterFullResRender("raw export decode")
+                    Runtime.getRuntime().gc()
+                    admitted()
+                }
             }
         } catch (failure: RawDecodeException) {
             if (failure.status == DecodeStatus.CANCELLED) {
