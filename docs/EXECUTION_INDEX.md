@@ -15,17 +15,17 @@ When two documents disagree, use this order:
    [Wayfinder workstream: 1–2 s exact export + fast interactive preview](https://github.com/thetechgeekko/Spektrafilm-android/issues/117) owns the
    exact-export and interactive-preview implementation sequence.
 2. [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md) owns release acceptance and the
-   implementation architecture. [BIT_IDENTICAL_EXPORT_ROADMAP.md](BIT_IDENTICAL_EXPORT_ROADMAP.md)
+   implementation architecture. [the export identity contract](MAINTAINERS.md#export-identity-contract)
    owns numeric contracts, performance strategy, measurements, and dependency decisions.
 3. [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) owns the immutable candidate, signing, legal,
    device, and publication procedure. It is not a backlog.
 4. Domain contracts own their narrow surface: [LICENSING.md](LICENSING.md),
-   [JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md),
-   [TRANSACTIONAL_STORAGE.md](TRANSACTIONAL_STORAGE.md), [RAW_DNG.md](RAW_DNG.md), and
+   [the native boundary contract](MAINTAINERS.md#native-boundary-and-lifetime),
+   [the storage contract](MAINTAINERS.md#storage-and-publication), [the RAW contract](MAINTAINERS.md#raw-decoding), and
    [MASK_JSON_SCHEMA.md](MASK_JSON_SCHEMA.md).
-5. `docs/research/**`, [AUDIT.md](AUDIT.md), [PERF_ROADMAP.md](PERF_ROADMAP.md), and
-   [EXPORT_FASTPATH.md](EXPORT_FASTPATH.md) retain findings and history. They do not own current
-   issue state or execution order.
+5. The research notes, audits and plans removed for 1.0 (`docs/research/**`, `AUDIT.md`,
+   `PERF_ROADMAP.md`, `EXPORT_FASTPATH.md` and others) live in git history, for example
+   `git show 37d475e:docs/AUDIT.md`. They do not own current issue state or execution order.
 
 Build files, workflows, and tests outrank prose for facts about the current tree. If prose and code
 disagree, fix the prose or open a ticket; do not silently reinterpret the implementation.

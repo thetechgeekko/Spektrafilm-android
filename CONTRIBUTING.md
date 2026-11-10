@@ -19,8 +19,8 @@ Read [`docs/EXECUTION_INDEX.md`](docs/EXECUTION_INDEX.md). It declares which doc
 authority and which are historical evidence. Dated files (`*_2026-*`, `AUDIT.md`) record what was
 true when written; they are not a work queue.
 
-Live work is tracked in GitHub Issues. See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md)
-for the protocol and [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md) for labels.
+Live work is tracked in GitHub Issues. See `docs/agents/issue-tracker.md` (git history)
+for the protocol and `docs/agents/triage-labels.md` (git history) for labels.
 
 ## Toolchain
 

@@ -31,10 +31,17 @@ Gradle modules actually built (`settings.gradle.kts`):
   TIFF/PNG export writers.
 
 `feature/film-emulation/` was a never-compiled pseudo-module (never in `settings.gradle.kts`);
-it was deleted by #184 — its history survives in git and in `docs/DECISION.md`. The
-real app is the standalone `:app` module documented in `docs/ARCHITECTURE.md`. The abandoned
-ImageToolbox-host proposal survives only as historical decision input in `docs/DECISION.md`.
-Start at `docs/EXECUTION_INDEX.md` for the current authority order and live-work protocol.
+it was deleted by #184. The real app is the standalone `:app` module documented in
+`docs/MAINTAINERS.md`. Start at `docs/EXECUTION_INDEX.md` for the current authority order and
+live-work protocol.
+
+**Docs were rewritten for 1.0.** `docs/` now holds the user guides (`docs/README.md` and six
+pages), `docs/MAINTAINERS.md` (architecture, contracts, device gate) and the files tooling reads
+(EXECUTION_INDEX, RELEASE_CHECKLIST, PRODUCTION_READINESS_PLAN, LICENSING, dependencies/LIBRAW,
+PRESETS, UPSTREAM_PARITY, MASK_JSON_SCHEMA + schema/). Every other doc this file or a code comment
+cites (`docs/research/**`, `DECISION.md`, `ARCHITECTURE.md`, `AUDIT.md`, `RAW_DNG.md`,
+`JNI_LIFETIME_SAFETY.md`, `TRANSACTIONAL_STORAGE.md`, `BIT_IDENTICAL_EXPORT_ROADMAP.md`,
+`docs/agents/*`, ...) was removed and is read from git: `git show 37d475e:docs/<path>`.
 
 ## Engine architecture (C++, `engine/spektra-core/src/main/cpp/`)
 
@@ -292,7 +299,7 @@ explicitly signs it with the committed public debug key, and runs the 16 KB pre-
 - Unit tests put real `org.json` on the test classpath (the `android.jar` stub throws "not mocked")
   so `Presets` JSON round-trips on the plain JVM.
 - `docs/EXECUTION_INDEX.md` defines documentation authority and the dependency-aware execution loop.
-  GitHub Wayfinder maps own live status; `docs/AUDIT.md` is historical evidence, not a current
+  GitHub Wayfinder maps own live status; `docs/AUDIT.md` (git history) was historical evidence, not a current
   queue (`HANDOFF.md`, the 2026-06..08 session transcript, was deleted on 2026-09-14; git history
   keeps it). Run `python tools/docs/check_docs_consistency.py` before a documentation handoff.
 
@@ -315,14 +322,14 @@ refusing is not proof the capability is missing. (2026-08-29.)
 ### Issue tracker
 
 Issues live in this repo's GitHub Issues (`thetechgeekko/Spektrafilm-android`); remote Claude
-sessions use the GitHub MCP tools, local sessions use `gh`. See `docs/agents/issue-tracker.md`.
+sessions use the GitHub MCP tools, local sessions use `gh`.
 
 ### Triage labels
 
 Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`,
-`ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+`ready-for-human`, `wontfix`).
 
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by
-`/domain-modeling`; absence is normal). See `docs/agents/domain.md`.
+`/domain-modeling`; absence is normal).

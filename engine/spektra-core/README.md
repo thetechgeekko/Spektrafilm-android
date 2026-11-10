@@ -8,12 +8,12 @@ a thin JNI + Kotlin facade.
 > cross-build/ABI/CPU/GPU byte identity. Latest-upstream coverage is the generated
 > `docs/UPSTREAM_PARITY.md`. The C++ header, JNI bridge, and Kotlin facade/params are the current boundary; see
 > [`docs/EXECUTION_INDEX.md`](../../docs/EXECUTION_INDEX.md) for authority and
-> [`docs/BIT_IDENTICAL_EXPORT_ROADMAP.md`](../../docs/BIT_IDENTICAL_EXPORT_ROADMAP.md) for the
+> [the export identity contract](../../docs/MAINTAINERS.md#export-identity-contract) for the
 > numeric contract.
 
 Native allocation tokens, data leases, checked direct-buffer windows, cancellation checkpoints,
 and render/close verification are specified in
-[`docs/JNI_LIFETIME_SAFETY.md`](../../docs/JNI_LIFETIME_SAFETY.md).
+[the native boundary contract](../../docs/MAINTAINERS.md#native-boundary-and-lifetime).
 
 ## Layout
 

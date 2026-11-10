@@ -41,8 +41,7 @@ $sourceInputs = @(
     "gradlew.bat"
     "debug.keystore"
     "tools/ticket141_mask_memory.ps1"
-    "docs/MASKING_SPEC.md"
-    "docs/MASK_COMPOSITOR_MEMORY.md"
+    "docs/MASK_JSON_SCHEMA.md"
 ) | Sort-Object -Unique
 
 function Get-SourceManifestLines {

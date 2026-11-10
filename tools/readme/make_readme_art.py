@@ -1,74 +1,67 @@
 #!/usr/bin/env python3
-"""Builds the README art (hero banner, framed screenshots) in light and dark.
+"""Builds the README and docs art (banner, framed screens, chain diagram) in light and dark.
 
-The README follows Material 3: colour roles from one tonal scheme, the M3 shape
-scale (screens at extra-large corners, chips at full), Roboto type and Material
-Symbols. GitHub markdown cannot style anything itself, so the styled parts are
-baked into images and each one ships a light and a dark variant that the README
-picks with <picture> + prefers-color-scheme.
+GitHub Markdown cannot style anything itself, so the styled parts are baked into
+images. Each one ships a light and a dark variant that the page picks with
+<picture> + prefers-color-scheme.
 
 Inputs:
-  docs/screenshots/raw/<name>-<light|dark>.jpg   phone captures, status bar cropped
-  --fonts DIR   Roboto-Regular.ttf, Roboto-Medium.ttf and MaterialSymbolsRounded.ttf
-                (both from Google Fonts, OFL / Apache-2.0; not committed)
+  docs/images/raw/<screen>-<light|dark>.jpg   phone captures (720 px wide, no status bar)
+  --fonts DIR   Roboto-Regular.ttf, Roboto-Medium.ttf, Roboto-Bold.ttf, RobotoMono-Medium.ttf
+                and Display.ttf (Bricolage Grotesque ExtraBold). All from Google Fonts
+                (OFL / Apache-2.0); not committed.
 Outputs:
-  docs/readme/hero-<light|dark>.png
-  docs/readme/<name>-<light|dark>.jpg            rounded, on GitHub's page colour
+  docs/images/hero-<light|dark>.png
+  docs/images/<screen>-<light|dark>.jpg        rounded, on GitHub's page colour
+  docs/images/chain-<light|dark>.png
+
+The four banner frames are an illustration of the stages (negative, enlarger,
+print, scan) made from the Looks capture with simple image operations. They are
+not engine renders of each stage.
 
 Usage: python3 tools/readme/make_readme_art.py --fonts /path/to/fonts
-Needs Pillow built with libraqm (for Material Symbols ligatures).
 """
 import argparse
-import math
 import os
 
-from PIL import Image, ImageDraw, ImageFont, features
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-RAW = os.path.join(ROOT, "docs", "screenshots", "raw")
-OUT = os.path.join(ROOT, "docs", "readme")
+RAW = os.path.join(ROOT, "docs", "images", "raw")
+OUT = os.path.join(ROOT, "docs", "images")
 
-# Tonal-spot roles generated (Material Color Utilities) from the source colour the
-# app's dynamic scheme produced on the capture device (#4878F6), so the art matches
-# the screenshots. primary is the device's own value for the same reason.
-SCHEMES = {
+SCREENS = ["looks", "edit", "crop", "masks"]
+
+# Film amber, the app's own accent when Material You is off.
+THEMES = {
     "light": dict(
         page="#ffffff",  # GitHub light page
-        surfaceContainer="#eeedf6",
-        surfaceContainerHigh="#e8e7f1",
-        primary="#4878f6",
-        onPrimary="#ffffff",
-        primaryContainer="#dce2ff",
-        onPrimaryContainer="#2e3c68",
-        secondaryContainer="#dde1f9",
-        onSecondaryContainer="#4c5164",
-        tertiaryContainer="#f3dcff",
-        onSurface="#1b1b21",
-        onSurfaceVariant="#5d5f68",
-        outlineVariant="#c6c6d0",
+        card="#f6efe5",
+        ink="#1f1a15",
+        muted="#6b5f53",
+        accent="#b8650f",
+        line="#e4d8c8",
+        strip="#15110d",
+        stripHole="#3a3027",
+        stripText="#d8c3a5",
     ),
     "dark": dict(
         page="#0d1117",  # GitHub dark page
-        surfaceContainer="#181920",
-        surfaceContainerHigh="#1e1f26",
-        primary="#9bb6f9",
-        onPrimary="#1a2c61",
-        primaryContainer="#2f3f6e",
-        onPrimaryContainer="#dce2ff",
-        secondaryContainer="#363b4d",
-        onSecondaryContainer="#d4d8ee",
-        tertiaryContainer="#4f3d5f",
-        onSurface="#e4e4f0",
-        onSurfaceVariant="#aaaab5",
-        outlineVariant="#464750",
+        card="#1a1510",
+        ink="#fbf1e4",
+        muted="#c9b59c",
+        accent="#f2a64a",
+        line="#3a2f24",
+        strip="#0b0806",
+        stripHole="#2c241b",
+        stripText="#c9b59c",
     ),
 }
 
-SCALE = 2  # every size below is in dp; images render at 2x for sharp retina display
-SCREENS = ["look", "film", "print", "export"]
+SCALE = 2  # sizes below are in px at 1x; images render at 2x for sharp display
 
 
-def dp(v):
+def px(v):
     return int(round(v * SCALE))
 
 
@@ -78,138 +71,169 @@ def rounded_mask(size, radius):
     return m
 
 
-def framed(shot, width_dp, radius_dp, outline):
-    """A screenshot clipped to the M3 extra-large corner with a 1dp outlineVariant edge."""
-    w = dp(width_dp)
-    h = round(shot.height * w / shot.width)
-    img = shot.resize((w, h), Image.LANCZOS).convert("RGBA")
-    r = dp(radius_dp)
-    img.putalpha(rounded_mask((w, h), r))
-    ImageDraw.Draw(img).rounded_rectangle((0, 0, w - 1, h - 1), r, outline=outline, width=dp(1))
-    return img
+def load_fonts(d):
+    def f(name, size):
+        return ImageFont.truetype(os.path.join(d, name), px(size))
+
+    return dict(
+        display=lambda s: f("Display.ttf", s),
+        regular=lambda s: f("Roboto-Regular.ttf", s),
+        medium=lambda s: f("Roboto-Medium.ttf", s),
+        bold=lambda s: f("Roboto-Bold.ttf", s),
+        mono=lambda s: f("RobotoMono-Medium.ttf", s),
+    )
 
 
-def cookie(size, lobes, depth, fill):
-    """M3 shape-library style 'cookie': a circle with soft scalloped edge (decoration only)."""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    c = size / 2
-    base = size / 2 / (1 + depth)
-    pts = []
-    for i in range(720):
-        t = 2 * math.pi * i / 720
-        rr = base * (1 + depth * math.cos(lobes * t))
-        pts.append((c + rr * math.cos(t), c + rr * math.sin(t)))
-    ImageDraw.Draw(img).polygon(pts, fill=fill)
-    return img
+def photo_from_looks():
+    """The rendered photo area of the dark Looks capture, cropped to 3:2."""
+    shot = Image.open(os.path.join(RAW, "looks-dark.jpg")).convert("RGB")
+    w = shot.width
+    # The preview sits between the top bar and the Looks sheet; take a 3:2 band from it.
+    left, right = int(w * 0.13), int(w * 0.87)
+    band_h = int((right - left) * 2 / 3)
+    top = int(shot.height * 0.16)
+    return shot.crop((left, top, right, top + band_h))
 
 
-def hero(mode, fonts):
-    s = SCHEMES[mode]
-    W, H = dp(800), dp(440)
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+def stage_frames(photo):
+    # Negative: inverted tones on an orange mask, the way a colour negative looks.
+    neg = ImageOps.invert(ImageOps.grayscale(photo).convert("RGB")).point(lambda v: 40 + v * 0.75)
+    neg = ImageChops.multiply(neg, Image.new("RGB", photo.size, (238, 146, 84)))
+    # Enlarger: the negative's image projected as soft light, still faint on the paper.
+    enl = ImageEnhance.Contrast(photo).enhance(0.45)
+    enl = ImageEnhance.Brightness(enl).enhance(1.35).filter(ImageFilter.GaussianBlur(1.2))
+    enl = ImageChops.multiply(enl, Image.new("RGB", photo.size, (255, 236, 214)))
+    # Print: full density on paper, a little warmer and richer.
+    prt = ImageEnhance.Contrast(photo).enhance(1.12)
+    prt = ImageEnhance.Color(prt).enhance(1.12)
+    # Scan: the final render as the app shows it.
+    return [("Negative", neg), ("Enlarger", enl), ("Print", prt), ("Scan", photo)]
+
+
+def hero(mode, fonts, photo):
+    t = THEMES[mode]
+    W, H = px(880), px(500)
+    img = Image.new("RGBA", (W, H), t["page"])
     d = ImageDraw.Draw(img)
-    # Container: surfaceContainer, extra-large (28dp) corners.
-    d.rounded_rectangle((0, 0, W - 1, H - 1), dp(28), fill=s["surfaceContainer"])
+    d.rounded_rectangle((0, 0, W - 1, H - 1), px(24), fill=t["card"])
 
-    raqm = ImageFont.Layout.RAQM
-    f_label = ImageFont.truetype(fonts["medium"], dp(14), layout_engine=raqm)
-    f_display = ImageFont.truetype(fonts["regular"], dp(52), layout_engine=raqm)
-    f_headline = ImageFont.truetype(fonts["regular"], dp(22), layout_engine=raqm)
-    f_chip = ImageFont.truetype(fonts["medium"], dp(14), layout_engine=raqm)
-    f_icon = ImageFont.truetype(fonts["symbols"], dp(18), layout_engine=raqm)
+    x0 = px(44)
+    d.text((x0, px(44)), "SPEKTRAFILM 1.0  ·  ANDROID", font=fonts["mono"](13), fill=t["accent"], anchor="lt")
+    d.text((x0, px(72)), "Shoot digital.", font=fonts["display"](52), fill=t["ink"], anchor="lt")
+    d.text((x0, px(130)), "Develop it on film.", font=fonts["display"](52), fill=t["ink"], anchor="lt")
+    d.text(
+        (x0, px(202)),
+        "A spectral simulation of the whole darkroom on your phone:",
+        font=fonts["regular"](18),
+        fill=t["muted"],
+        anchor="lt",
+    )
+    d.text(
+        (x0, px(228)),
+        "the negative, the enlarger, the paper and the scan.",
+        font=fonts["regular"](18),
+        fill=t["muted"],
+        anchor="lt",
+    )
 
-    x0 = dp(40)
-
-    # Assist chip style label: secondaryContainer, full shape.
-    label = "Open source  ·  GPLv3  ·  Android 7.0+"
-    lw = d.textlength(label, font=f_label)
-    d.rounded_rectangle((x0, dp(48), x0 + lw + dp(32), dp(80)), dp(16), fill=s["secondaryContainer"])
-    d.text((x0 + dp(16), dp(64)), label, font=f_label, fill=s["onSecondaryContainer"], anchor="lm")
-
-    # Display small for the name, headline small for the promise.
-    d.text((x0, dp(104)), "Spektrafilm", font=f_display, fill=s["onSurface"], anchor="lt")
-    for i, line in enumerate(["Spectral film simulation", "for Android"]):
-        d.text((x0, dp(178) + i * dp(30)), line, font=f_headline, fill=s["onSurfaceVariant"], anchor="lt")
-
-    # The analog chain as a connected group: full outer corners, small inner ones, every
-    # step on surfaceContainerHigh with a primary icon (it is a sequence, not a selection).
-    steps = [("camera_roll", "Negative"), ("wb_incandescent", "Enlarger"), ("photo", "Print"), ("document_scanner", "Scan")]
-    y0, y1 = dp(276), dp(316)
-    x = x0
-    gap = dp(2)
-    seg_w = []
-    for icon, text in steps:
-        seg_w.append(dp(12) + dp(18) + dp(6) + d.textlength(text, font=f_chip) + dp(14))
-    for i, ((icon, text), w) in enumerate(zip(steps, seg_w)):
-        first, last = i == 0, i == len(steps) - 1
-        fill = s["surfaceContainerHigh"]
-        ink = s["onSurface"]
-        # Draw a rounded rect with full ends on the outside, 8dp on the inside.
-        big, small = dp(20), dp(8)
-        box = (x, y0, x + w, y1)
-        d.rounded_rectangle(box, small, fill=fill)
-        if first:
-            d.rounded_rectangle((x, y0, x + big * 2, y1), big, fill=fill)
-            d.rectangle((x + big, y0, x + big * 2, y1), fill=fill)
-        if last:
-            d.rounded_rectangle((x + w - big * 2, y0, x + w, y1), big, fill=fill)
-            d.rectangle((x + w - big * 2, y0, x + w - big, y1), fill=fill)
-        cy = (y0 + y1) // 2
-        d.text((x + dp(12), cy), icon, font=f_icon, fill=s["primary"], anchor="lm")
-        d.text((x + dp(12) + dp(18) + dp(6), cy), text, font=f_chip, fill=ink, anchor="lm")
-        x += w + gap
-
-    foot = "Film modeling powered by spektrafilm"
-    d.text((x0, dp(372)), foot, font=f_label, fill=s["onSurfaceVariant"], anchor="lt")
-
-    # Decoration: one cookie shape in primaryContainer behind the phones (expressive accent).
-    ck = cookie(dp(330), 9, 0.06, s["primaryContainer"])
-    img.alpha_composite(ck, (dp(470), dp(60)))
-    tc = cookie(dp(96), 7, 0.08, s["tertiaryContainer"])
-    img.alpha_composite(tc, (dp(712), dp(28)))
-
-    # Three phones, centre one raised, clipped to the container.
-    phones = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    names = ["look", "film", "export"]
-    xs = [dp(452), dp(548), dp(644)]
-    ys = [dp(92), dp(52), dp(92)]
-    order = [0, 2, 1]
-    for k in order:
-        shot = Image.open(os.path.join(RAW, f"{names[k]}-{mode}.jpg"))
-        f = framed(shot, 132, 18, s["outlineVariant"])
-        phones.alpha_composite(f, (xs[k], ys[k]))
-    clip = rounded_mask((W, H), dp(28))
-    phones.putalpha(Image.composite(phones.getchannel("A"), Image.new("L", (W, H), 0), clip))
-    img.alpha_composite(phones)
-    return img
+    # Film strip with sprocket holes and four frames; the strip's height follows the frames.
+    sx0, sx1, sy0 = px(28), W - px(28), px(272)
+    fw_est = (sx1 - sx0 - px(28) - px(12) * 3) // 4
+    sy1 = sy0 + px(24) + int(fw_est * 2 / 3) + px(44)
+    d.rounded_rectangle((sx0, sy0, sx1, sy1), px(10), fill=t["strip"])
+    hole_w, hole_h, step = px(10), px(6), px(20)
+    for y in (sy0 + px(8), sy1 - px(14)):
+        x = sx0 + px(12)
+        while x + hole_w < sx1 - px(10):
+            d.rounded_rectangle((x, y, x + hole_w, y + hole_h), px(1.5), fill=t["stripHole"])
+            x += step
+    frames = stage_frames(photo)
+    gap = px(12)
+    inner_x0, inner_x1 = sx0 + px(14), sx1 - px(14)
+    fw = (inner_x1 - inner_x0 - gap * 3) // 4
+    fh = int(fw * 2 / 3)
+    fy = sy0 + px(24)
+    for i, (label, im) in enumerate(frames):
+        fx = inner_x0 + i * (fw + gap)
+        tile = im.resize((fw, fh), Image.LANCZOS).convert("RGBA")
+        tile.putalpha(rounded_mask((fw, fh), px(4)))
+        img.alpha_composite(tile, (fx, fy))
+        ly = fy + fh + px(10)
+        d.text((fx, ly), label.upper(), font=fonts["mono"](11), fill=t["stripText"], anchor="lt")
+        d.text((fx + fw, ly), f"0{i + 1}", font=fonts["mono"](11), fill=t["stripText"], anchor="rt")
+    img.convert("RGB").save(os.path.join(OUT, f"hero-{mode}.png"), optimize=True)
 
 
-def gallery(mode):
-    s = SCHEMES[mode]
-    os.makedirs(OUT, exist_ok=True)
-    for name in SCREENS:
-        shot = Image.open(os.path.join(RAW, f"{name}-{mode}.jpg"))
-        f = framed(shot, 280, 24, s["outlineVariant"])
-        bg = Image.new("RGBA", f.size, s["page"])
-        bg.alpha_composite(f)
-        bg.convert("RGB").save(os.path.join(OUT, f"{name}-{mode}.jpg"), quality=86, optimize=True, progressive=True)
+def framed_screen(name, mode):
+    t = THEMES[mode]
+    shot = Image.open(os.path.join(RAW, f"{name}-{mode}.jpg")).convert("RGB")
+    w = px(200)
+    h = round(shot.height * w / shot.width)
+    tile = shot.resize((w, h), Image.LANCZOS).convert("RGBA")
+    r = px(24)
+    tile.putalpha(rounded_mask((w, h), r))
+    canvas = Image.new("RGBA", (w, h), t["page"])
+    canvas.alpha_composite(tile)
+    ImageDraw.Draw(canvas).rounded_rectangle((0, 0, w - 1, h - 1), r, outline=t["line"], width=px(1))
+    canvas.convert("RGB").save(os.path.join(OUT, f"{name}-{mode}.jpg"), quality=88, optimize=True)
+
+
+def chain(mode, fonts):
+    t = THEMES[mode]
+    stages = [
+        ("01", "Negative", ["Each pixel becomes a spectrum", "and exposes the film's", "real emulsion layers."],
+         [(194, 107, 42), (231, 161, 92)]),
+        ("02", "Enlarger", ["The negative is projected", "through yellow, magenta", "and cyan filters."],
+         [(233, 211, 106), (210, 91, 155), (79, 182, 200)]),
+        ("03", "Print", ["Light lands on a virtual", "paper with its own", "measured curves."],
+         [(244, 237, 225), (43, 37, 34)]),
+        ("04", "Scan", ["The print is scanned", "into the colour space", "you export in."],
+         [(91, 143, 214), (127, 199, 123), (231, 161, 92)]),
+    ]
+    W, H = px(880), px(168)
+    img = Image.new("RGB", (W, H), t["page"])
+    d = ImageDraw.Draw(img)
+    gap = px(10)
+    cw = (W - gap * 3) // 4
+    for i, (num, title, lines, colours) in enumerate(stages):
+        x = i * (cw + gap)
+        d.rounded_rectangle((x, 0, x + cw - 1, H - 1), px(14), fill=t["card"], outline=t["line"], width=px(1))
+        d.text((x + px(16), px(16)), num, font=fonts["mono"](11), fill=t["accent"], anchor="lt")
+        d.text((x + px(16), px(34)), title, font=fonts["bold"](18), fill=t["ink"], anchor="lt")
+        for j, line in enumerate(lines):
+            d.text((x + px(16), px(64) + j * px(19)), line, font=fonts["regular"](13), fill=t["muted"], anchor="lt")
+        # Gradient swatch along the bottom of the card.
+        sw_y0, sw_y1 = H - px(22), H - px(14)
+        sw_x0, sw_x1 = x + px(16), x + cw - px(16)
+        grad = Image.new("RGB", (sw_x1 - sw_x0, sw_y1 - sw_y0))
+        gd = ImageDraw.Draw(grad)
+        n = len(colours) - 1
+        for gx in range(grad.width):
+            p = gx / max(1, grad.width - 1) * n
+            k = min(int(p), n - 1)
+            f = p - k
+            c = tuple(int(colours[k][c] * (1 - f) + colours[k + 1][c] * f) for c in range(3))
+            gd.line((gx, 0, gx, grad.height), fill=c)
+        img.paste(grad, (sw_x0, sw_y0), rounded_mask(grad.size, px(4)))
+        if i < 3:
+            ax = x + cw + gap // 2
+            d.text((ax, H // 2), "›", font=fonts["bold"](16), fill=t["accent"], anchor="mm")
+    img.save(os.path.join(OUT, f"chain-{mode}.png"), optimize=True)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fonts", required=True)
-    a = ap.parse_args()
-    if not features.check("raqm"):
-        raise SystemExit("Pillow needs libraqm for Material Symbols ligatures")
-    fonts = {
-        "regular": os.path.join(a.fonts, "Roboto-Regular.ttf"),
-        "medium": os.path.join(a.fonts, "Roboto-Medium.ttf"),
-        "symbols": os.path.join(a.fonts, "MaterialSymbolsRounded.ttf"),
-    }
+    args = ap.parse_args()
+    fonts = load_fonts(args.fonts)
     os.makedirs(OUT, exist_ok=True)
-    for mode in SCHEMES:
-        hero(mode, fonts).save(os.path.join(OUT, f"hero-{mode}.png"), optimize=True)
-        gallery(mode)
+    photo = photo_from_looks()
+    for mode in THEMES:
+        hero(mode, fonts, photo)
+        chain(mode, fonts)
+        for name in SCREENS:
+            framed_screen(name, mode)
+    print("wrote", sorted(f for f in os.listdir(OUT) if not os.path.isdir(os.path.join(OUT, f))))
 
 
 if __name__ == "__main__":

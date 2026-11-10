@@ -48,7 +48,7 @@ FIFO source/recipe races, and revoked URI grants. Rotate/recreate the Activity
 during an export and confirm the retained terminal result is delivered without a
 second publication. API 24-28 candidates must separately verify legacy storage-
 permission grant and denial; an API 36 device cannot certify that branch. See
-[TRANSACTIONAL_STORAGE.md](TRANSACTIONAL_STORAGE.md) for the exact commands and
+[the storage device gate](MAINTAINERS.md#storage-and-native-safety-device-gate) for the exact commands and
 the limits/guarantees being certified.
 
 [Harden JNI lifetime, buffer bounds, cancellation, and render-close races](https://github.com/thetechgeekko/Spektrafilm-android/issues/172)
@@ -62,9 +62,9 @@ the deterministic foreground-service rapid-completion/watchdog regression and na
 buffer byte-order tests. The host sanitizer runner covers native helpers, the real C render/cancel
 path, fork/join exception containment, allocation-token races, and writers; it does not claim
 sanitizer instrumentation of the Android JNI bridge. The exact ownership and evidence contract is in
-[JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md). Local connected-device qualification must use the
+[the native boundary contract](MAINTAINERS.md#native-boundary-and-lifetime). Local connected-device qualification must use the
 fail-closed `tools/android/run_release_device_gate.ps1` helper documented in
-[TRANSACTIONAL_STORAGE.md](TRANSACTIONAL_STORAGE.md), not an unchecked sequence of native commands.
+[the storage device gate](MAINTAINERS.md#storage-and-native-safety-device-gate), not an unchecked sequence of native commands.
 
 The final local candidate for
 [Harden JNI lifetime, buffer bounds, cancellation, and render-close races](https://github.com/thetechgeekko/Spektrafilm-android/issues/172)
@@ -197,7 +197,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   the release asset being named exactly `Spektrafilm-vX.Y.Z.apk` and signed with the same
   production key as the previous release; renaming the asset or rotating the key without a
   proof-of-rotation lineage silently turns in-app updates into "Open release page". See
-  [PRIVACY.md](PRIVACY.md) and [UPDATER_SECURITY.md](UPDATER_SECURITY.md).
+  [the privacy summary](MAINTAINERS.md#privacy) and [the updater contract](MAINTAINERS.md#updater).
 - [ ] Reconcile the store privacy policy and Data Safety form with the exact candidate.
   The present app has no automatic telemetry; standard Auto Backup/cross-platform transfer is
   disabled and the OEM-D2D defense-in-depth rules allow only settings/back-exit state, the updater
