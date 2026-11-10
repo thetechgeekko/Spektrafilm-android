@@ -249,6 +249,8 @@ data class BorderText(
     val font: CaptionFont? = null,
     val centered: Boolean = false,
     val color: Int? = null,
+    /** Widest the run may be drawn, in pixels; the renderer shrinks it to fit. 0 = no limit. */
+    val maxWidth: Int = 0,
 )
 
 /** A point in output pixels. */
@@ -321,6 +323,31 @@ object FilmBorderGeometry {
     fun textRunLength(text: String, capHeight: Int): Int =
         ceil(text.length * capHeight * (TEXT_ADVANCE_EM + TEXT_LETTER_SPACING_EM) / TEXT_CAP_HEIGHT_EM * 1.05)
             .toInt()
+
+    /**
+     * Estimate of a caption's width in pixels for any of the caption fonts: a full em for wide
+     * (CJK, Hangul, full-width) characters, 0.75 em for anything else, which covers the widest
+     * Latin capitals of the proportional faces on average. Layout only; the renderer measures
+     * the real text and shrinks it if a face is wider still ([BorderText.maxWidth]).
+     */
+    fun captionRunLength(text: String, capHeight: Int): Int {
+        var ems = 0.0
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            ems += (if (isWide(cp)) 1.0 else 0.75) + CAPTION_TRACKING_EM
+            i += Character.charCount(cp)
+        }
+        return ceil(ems * capHeight / TEXT_CAP_HEIGHT_EM).toInt()
+    }
+
+    /** Tracking the renderer gives captions, in em. */
+    const val CAPTION_TRACKING_EM = 0.02f
+
+    private fun isWide(cp: Int): Boolean =
+        cp in 0x1100..0x115F || cp in 0x2E80..0xA4CF || cp in 0xAC00..0xD7A3 ||
+            cp in 0xF900..0xFAFF || cp in 0xFE30..0xFE4F || cp in 0xFF00..0xFF60 ||
+            cp in 0xFFE0..0xFFE6 || cp in 0x1F300..0x1FAFF || cp in 0x20000..0x3FFFD
 
     // Default margins as a fraction of the short edge.
     private const val PRINT_MARGIN = 0.06f
@@ -590,11 +617,11 @@ object FilmBorderGeometry {
         var cap = max(1, (short * CAPTION_CAP).roundToInt())
         // Width it may use: the frame, less a margin of two caps (or the side margin) each side.
         val usable = base.outWidth - 2 * max(side, 2 * cap)
-        while (cap >= CAPTION_MIN_CAP && textRunLength(text, cap) > usable) cap--
+        while (cap >= CAPTION_MIN_CAP && captionRunLength(text, cap) > usable) cap--
         val existingBottom = base.outHeight - img.bottom
         if (instant) {
             cap = min(cap, existingBottom / 3)
-            while (cap >= CAPTION_MIN_CAP && textRunLength(text, cap) > usable) cap--
+            while (cap >= CAPTION_MIN_CAP && captionRunLength(text, cap) > usable) cap--
         }
         if (cap < CAPTION_MIN_CAP) return base
         val color = if (base.frameColor == PHOTO_TONE) INK_ON_FRAME else contrastOn(base.frameColor)
@@ -613,6 +640,7 @@ object FilmBorderGeometry {
             font = font,
             centered = true,
             color = color,
+            maxWidth = usable,
         )
         return base.copy(
             outHeight = outHeight,

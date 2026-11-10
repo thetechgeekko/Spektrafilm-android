@@ -95,14 +95,21 @@ internal object FilmBorderRenderer {
             val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
             for (t in layout.texts) {
                 textPaint.typeface = t.font?.let(::captionFace) ?: edgeFace
-                textPaint.letterSpacing = if (t.font == null) FilmBorderGeometry.TEXT_LETTER_SPACING_EM else CAPTION_TRACKING
+                textPaint.letterSpacing = if (t.font == null) FilmBorderGeometry.TEXT_LETTER_SPACING_EM else FilmBorderGeometry.CAPTION_TRACKING_EM
                 textPaint.color = when (val c = t.color ?: layout.textColor) {
                     FilmBorderGeometry.INK_ON_FRAME -> FilmBorderGeometry.contrastOn(frame)
                     else -> resolve(c)
                 }
                 // BorderText.size is the cap height; caps are ~0.72 of the em.
                 textPaint.textSize = t.size / FilmBorderGeometry.TEXT_CAP_HEIGHT_EM
-                val dx = if (t.centered) -textPaint.measureText(t.text) / 2f else 0f
+                var width = textPaint.measureText(t.text)
+                // The layout's width is an estimate; a face or fallback glyph wider than it
+                // shrinks the run so it never runs off the frame.
+                if (t.maxWidth > 0 && width > t.maxWidth) {
+                    textPaint.textSize *= t.maxWidth / width
+                    width = textPaint.measureText(t.text)
+                }
+                val dx = if (t.centered) -width / 2f else 0f
                 if (t.vertical) {
                     canvas.save()
                     canvas.translate(t.x.toFloat(), t.baseline.toFloat())
@@ -144,5 +151,4 @@ internal object FilmBorderRenderer {
     }
 
     private const val TONE_SAMPLE = 16
-    private const val CAPTION_TRACKING = 0.02f
 }

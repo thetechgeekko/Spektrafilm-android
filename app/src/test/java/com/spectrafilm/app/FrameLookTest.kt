@@ -202,7 +202,8 @@ class FrameLookTest {
             // Below the photo, inside the output, and no wider than the frame.
             assertTrue(tag, t.baseline - t.size > l.image.bottom)
             assertTrue(tag, t.baseline <= l.outHeight)
-            assertTrue(tag, FilmBorderGeometry.textRunLength(t.text, t.size) <= l.outWidth)
+            assertTrue(tag, FilmBorderGeometry.captionRunLength(t.text, t.size) <= t.maxWidth)
+            assertTrue(tag, t.maxWidth <= l.outWidth)
             // The photo has not moved or grown.
             assertEquals(tag, w, l.image.width)
             assertEquals(tag, h, l.image.height)
@@ -232,7 +233,16 @@ class FrameLookTest {
         val long = "x".repeat(FrameLook.CAPTION_MAX)
         val l = FilmBorderGeometry.layout(FrameSpec(FilmBorder.PRINT_WHITE, look), 1000, 1000, 1, caption = long)!!
         val t = l.texts.single()
-        assertTrue(FilmBorderGeometry.textRunLength(t.text, t.size) <= l.outWidth)
+        assertTrue(FilmBorderGeometry.captionRunLength(t.text, t.size) <= t.maxWidth)
+        // Wide (CJK) characters count a full em, so a CJK caption gets a smaller cap than a
+        // Latin one of the same length.
+        fun cap(text: String) = FilmBorderGeometry.layout(
+            FrameSpec(FilmBorder.PRINT_WHITE, look), 1000, 1000, 1, caption = text,
+        )!!.texts.single()
+        val latin = cap("x".repeat(40))
+        val cjk = cap("写".repeat(40))
+        assertTrue("${cjk.size} < ${latin.size}", cjk.size < latin.size)
+        assertTrue(FilmBorderGeometry.captionRunLength(cjk.text, cjk.size) <= cjk.maxWidth)
         val tiny = FilmBorderGeometry.layout(FrameSpec(FilmBorder.PRINT_WHITE, look), 40, 30, 1, caption = long)!!
         assertTrue(tiny.texts.isEmpty())
     }
