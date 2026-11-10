@@ -2595,7 +2595,25 @@ rawcrop::InsetGeometry insetGeometryOf(const LibRaw& raw) {
 // `srcData`/`srcLen` point at the still-readable source bytes (the same buffer
 // LibRaw opened) so a failed unpack() of a compressed DNG can be classified
 // (deflate vs lossy-JPEG) for a precise, actionable error code.
-DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
+// LibRaw with one more release point: the unpacked RAW store, once
+// dcraw_process() has produced imgdata.image from it. LibRaw frees it only in
+// recycle(); holding it through the processed-bitmap copy and the float output
+// put all four planes in memory at once (~40 B per pixel for a LinearRaw DNG).
+class DecodeLibRaw : public LibRaw {
+public:
+    void releaseRawStore() noexcept {
+        if (imgdata.rawdata.raw_alloc != nullptr) free(imgdata.rawdata.raw_alloc);
+        imgdata.rawdata.raw_alloc = nullptr;
+        imgdata.rawdata.raw_image = nullptr;
+        imgdata.rawdata.color3_image = nullptr;
+        imgdata.rawdata.color4_image = nullptr;
+        imgdata.rawdata.float_image = nullptr;
+        imgdata.rawdata.float3_image = nullptr;
+        imgdata.rawdata.float4_image = nullptr;
+    }
+};
+
+DecodeResult finishDecode(DecodeLibRaw& raw, const DecodeOptions& options,
                           const uint8_t* srcData, size_t srcLen,
                           std::chrono::steady_clock::time_point decodeStartedAt,
                           double inputIoMs, double openMs,
@@ -2740,6 +2758,8 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
             std::string("LibRaw dcraw_process() failed: ") + libraw_strerror(rc);
         return result;
     }
+    // The bitmap below is made from imgdata.image alone.
+    raw.releaseRawStore();
 
     int status = LIBRAW_SUCCESS;
     libraw_processed_image_t* img = raw.dcraw_make_mem_image(&status);
@@ -2763,6 +2783,8 @@ DecodeResult finishDecode(LibRaw& raw, const DecodeOptions& options,
     };
     std::unique_ptr<libraw_processed_image_t, decltype(clearImage)> image(
         img, clearImage);
+    // The processed bitmap holds everything the float copy reads.
+    raw.free_image();
     if (cancellationRequested(options)) return cancellationFailure();
     if (image->type != LIBRAW_IMAGE_BITMAP || image->colors != 3 ||
         (image->bits != 8 && image->bits != 16)) {
@@ -2935,7 +2957,7 @@ DecodeResult decodeFromBuffer(const uint8_t* data, size_t length,
                             &result)) {
         return result;
     }
-    LibRaw raw;
+    DecodeLibRaw raw;
     applyInputLimits(raw);
     applyCancellationHandler(raw, options);
     const auto openAt = std::chrono::steady_clock::now();
@@ -3014,7 +3036,7 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
                                 &blackRounded, &result)) {
             return result;
         }
-        LibRaw raw;
+        DecodeLibRaw raw;
         applyInputLimits(raw);
         applyCancellationHandler(raw, options);
         const auto openAt = std::chrono::steady_clock::now();
@@ -3049,7 +3071,7 @@ DecodeResult decodeFromFd(int fd, const DecodeOptions& options) try {
                                    length, &decoded);
         return decoded;
     }
-    LibRaw raw;
+    DecodeLibRaw raw;
     applyInputLimits(raw);
     applyCancellationHandler(raw, options);
     // Read the whole source up front (the open_buffer parity path) with the size known
