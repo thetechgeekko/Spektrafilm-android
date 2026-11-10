@@ -519,7 +519,10 @@ object Ticket177BenchmarkChecks {
                 if (read <= 0) break
                 container.update(buffer, 0, read)
                 // The TIFF pixel payload is the container minus its 8-byte header.
-                val skip = (TIFF_HEADER_BYTES - size).coerceIn(0L, read.toLong()).toInt()
+                // java.lang.Math, not Kotlin's coerceIn: this harness runs against the
+                // R8-shrunk app's Kotlin runtime, which keeps only the ranges overloads
+                // proguard-rules.pro names.
+                val skip = Math.min(Math.max(TIFF_HEADER_BYTES - size, 0L), read.toLong()).toInt()
                 if (read > skip) payload.update(buffer, skip, read - skip)
                 size += read
             }
