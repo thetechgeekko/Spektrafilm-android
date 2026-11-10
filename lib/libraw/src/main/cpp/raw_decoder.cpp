@@ -299,6 +299,21 @@ struct ScanState {
         collapsibleLinearBlacks{};
     std::size_t collapsibleLinearBlackCount = 0U;
     bool collapsibleLinearBlackOverflow = false;
+    // The DNG colour tags of root IFD0 (their place in the DNG specification).
+    // A LinearRaw image in a SubIFD -- a Lightroom merged panorama or HDR --
+    // carries none of its own and is described by these.
+    struct RootColour {
+        bool recorded = false;
+        bool sawColorMatrix1 = false;
+        bool sawColorMatrix2 = false;
+        bool sawCalibrationIlluminant1 = false;
+        bool sawCalibrationIlluminant2 = false;
+        bool ambiguous = false;
+        size_t colorMatrix1Entry = std::numeric_limits<size_t>::max();
+        size_t colorMatrix2Entry = std::numeric_limits<size_t>::max();
+        int calibrationIlluminant1 = 0;
+        int calibrationIlluminant2 = 0;
+    } rootColour;
 };
 
 struct IfdDecode {
@@ -341,6 +356,9 @@ struct IfdDecode {
     bool sawCalibrationIlluminant1 = false;
     bool sawCalibrationIlluminant2 = false;
     bool sawSubIfds = false;
+    // A colour tag repeated or malformed in this IFD (the colour-only part of
+    // metadataAmbiguous, which also covers the IFD's own image plane).
+    bool colourAmbiguous = false;
     int planarConfiguration = 1;
     int calibrationIlluminant1 = 0;
     int calibrationIlluminant2 = 0;
@@ -739,6 +757,7 @@ inline void decodeBoundedIfdEntry(const Reader& r, size_t entry,
         case 0xC621:  // ColorMatrix1
             if (!markOnce(&decoded.sawColorMatrix1)) {
                 candidate.metadataAmbiguous = true;
+                decoded.colourAmbiguous = true;
             } else {
                 decoded.colorMatrix1Entry = entry;
             }
@@ -746,6 +765,7 @@ inline void decodeBoundedIfdEntry(const Reader& r, size_t entry,
         case 0xC622:  // ColorMatrix2
             if (!markOnce(&decoded.sawColorMatrix2)) {
                 candidate.metadataAmbiguous = true;
+                decoded.colourAmbiguous = true;
             } else {
                 decoded.colorMatrix2Entry = entry;
             }
@@ -754,6 +774,7 @@ inline void decodeBoundedIfdEntry(const Reader& r, size_t entry,
             if (!markOnce(&decoded.sawCalibrationIlluminant1) || type != 3U ||
                 count != 1U) {
                 candidate.metadataAmbiguous = true;
+                decoded.colourAmbiguous = true;
             } else {
                 decoded.calibrationIlluminant1 =
                     static_cast<int>(r.u16(valueAt));
@@ -763,6 +784,7 @@ inline void decodeBoundedIfdEntry(const Reader& r, size_t entry,
             if (!markOnce(&decoded.sawCalibrationIlluminant2) || type != 3U ||
                 count != 1U) {
                 candidate.metadataAmbiguous = true;
+                decoded.colourAmbiguous = true;
             } else {
                 decoded.calibrationIlluminant2 =
                     static_cast<int>(r.u16(valueAt));
@@ -960,7 +982,8 @@ inline void recordCollapsibleLinearBlack(const Reader& r,
 
 // Qualify the bounded per-image descriptor independently from dependency
 // safety. No field from a preview or sibling is inherited into this candidate.
-inline void qualifySemanticCandidate(const Reader& r, IfdDecode& decoded) {
+inline void qualifySemanticCandidate(const Reader& r, IfdDecode& decoded,
+                                     const ScanState& state, bool rootIfd) {
     IfdCandidate& candidate = decoded.candidate;
     const std::uint64_t blackCells =
         static_cast<std::uint64_t>(candidate.blackRepeatRows) *
@@ -996,22 +1019,32 @@ inline void qualifySemanticCandidate(const Reader& r, IfdDecode& decoded) {
         }
         return;
     }
-    if (candidate.photometric == 34892 &&
-        (decoded.sawCfaDimensions || decoded.sawCfaPattern ||
-         decoded.sawCfaPlaneColor || decoded.sawCfaLayout ||
-         !decoded.sawPlanarConfiguration ||
-         decoded.planarConfiguration != 1 || decoded.sawExtraSamples ||
-         !decoded.sawColorMatrix1 || !decoded.sawColorMatrix2 ||
-         !decoded.sawCalibrationIlluminant1 ||
-         !decoded.sawCalibrationIlluminant2 ||
-         decoded.calibrationIlluminant1 == 0 ||
-         decoded.calibrationIlluminant2 == 0 ||
-         !signedRationalColorMatrixIsQualified(
-             r, decoded.colorMatrix1Entry, candidate.samplesPerPixel) ||
-         !signedRationalColorMatrixIsQualified(
-             r, decoded.colorMatrix2Entry, candidate.samplesPerPixel) ||
-         candidate.blackRepeatRows != 1 ||
-         candidate.blackRepeatColumns != 1)) {
+    if (candidate.photometric != 34892) return;
+    // A SubIFD LinearRaw image with none of the colour tags of its own takes
+    // root IFD0's; one that carries some but not all of them stays ambiguous.
+    const bool ownColour = decoded.sawColorMatrix1 || decoded.sawColorMatrix2 ||
+        decoded.sawCalibrationIlluminant1 || decoded.sawCalibrationIlluminant2;
+    const bool useRoot = !rootIfd && !ownColour && state.rootColour.recorded &&
+        !state.rootColour.ambiguous;
+    const bool sawCm1 = useRoot ? state.rootColour.sawColorMatrix1 : decoded.sawColorMatrix1;
+    const bool sawCm2 = useRoot ? state.rootColour.sawColorMatrix2 : decoded.sawColorMatrix2;
+    const bool sawCi1 = useRoot ? state.rootColour.sawCalibrationIlluminant1
+                                : decoded.sawCalibrationIlluminant1;
+    const bool sawCi2 = useRoot ? state.rootColour.sawCalibrationIlluminant2
+                                : decoded.sawCalibrationIlluminant2;
+    const int ci1 = useRoot ? state.rootColour.calibrationIlluminant1 : decoded.calibrationIlluminant1;
+    const int ci2 = useRoot ? state.rootColour.calibrationIlluminant2 : decoded.calibrationIlluminant2;
+    const size_t cm1 = useRoot ? state.rootColour.colorMatrix1Entry : decoded.colorMatrix1Entry;
+    const size_t cm2 = useRoot ? state.rootColour.colorMatrix2Entry : decoded.colorMatrix2Entry;
+    if (decoded.sawCfaDimensions || decoded.sawCfaPattern ||
+        decoded.sawCfaPlaneColor || decoded.sawCfaLayout ||
+        !decoded.sawPlanarConfiguration ||
+        decoded.planarConfiguration != 1 || decoded.sawExtraSamples ||
+        !sawCm1 || !sawCm2 || !sawCi1 || !sawCi2 || ci1 == 0 || ci2 == 0 ||
+        !signedRationalColorMatrixIsQualified(r, cm1, candidate.samplesPerPixel) ||
+        !signedRationalColorMatrixIsQualified(r, cm2, candidate.samplesPerPixel) ||
+        candidate.blackRepeatRows != 1 ||
+        candidate.blackRepeatColumns != 1) {
         candidate.metadataAmbiguous = true;
     }
 }
@@ -1021,7 +1054,9 @@ inline void qualifySemanticCandidate(const Reader& r, IfdDecode& decoded) {
 inline void aggregateSemanticCandidate(IfdDecode& decoded, uint32_t ifdOffset,
                                        ScanState& state) {
     IfdCandidate& candidate = decoded.candidate;
-    const bool reduced = (candidate.newSubfileType & 1U) != 0U;
+    // Reduced-resolution previews (bit 0) and transparency masks (bit 2, e.g.
+    // the alpha plane of a Lightroom merged panorama) are not RAW images.
+    const bool reduced = (candidate.newSubfileType & 5U) != 0U;
     const bool rawPhotometric = candidate.photometric == 32803 ||
         candidate.photometric == 34892;
     const bool malformedPhotometric =
@@ -1101,7 +1136,21 @@ inline void walkIfd(const Reader& r, uint32_t ifdOff, ScanState& state,
     decoded.candidate.ifdOffset = ifdOff;
     evaluateDependencySafety(r, decoded, state);
     recordCollapsibleLinearBlack(r, decoded, state);
-    qualifySemanticCandidate(r, decoded);
+    const bool rootIfd = containerIfd && depth == 0 && !state.rootColour.recorded;
+    if (rootIfd) {
+        ScanState::RootColour& rc = state.rootColour;
+        rc.recorded = true;
+        rc.ambiguous = decoded.colourAmbiguous;
+        rc.sawColorMatrix1 = decoded.sawColorMatrix1;
+        rc.sawColorMatrix2 = decoded.sawColorMatrix2;
+        rc.sawCalibrationIlluminant1 = decoded.sawCalibrationIlluminant1;
+        rc.sawCalibrationIlluminant2 = decoded.sawCalibrationIlluminant2;
+        rc.colorMatrix1Entry = decoded.colorMatrix1Entry;
+        rc.colorMatrix2Entry = decoded.colorMatrix2Entry;
+        rc.calibrationIlluminant1 = decoded.calibrationIlluminant1;
+        rc.calibrationIlluminant2 = decoded.calibrationIlluminant2;
+    }
+    qualifySemanticCandidate(r, decoded, state, rootIfd);
     aggregateSemanticCandidate(decoded, ifdOff, state);
     for (std::size_t s = 0U; s < decoded.subIfdCount; ++s) {
         walkIfd(r, decoded.subIfds[s], state, depth + 1, remainingIfds, false);
