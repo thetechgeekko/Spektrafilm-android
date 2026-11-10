@@ -65,10 +65,18 @@ class MainActivity : ComponentActivity() {
      * Settings writes are queued to DataStore (#276). Wait briefly for them here, where
      * Android used to drain SharedPreferences.apply(), so a setting changed just before the
      * app is backgrounded and killed is not lost.
+     *
+     * This runs on the main thread, so the wait is short: it returns at once when nothing is
+     * queued (the normal case), a normal DataStore write lands in a few ms, and a write still
+     * running when the wait gives up keeps going on the store's own scope -- only a process
+     * killed in that same instant could lose it. A longer wait only froze the UI on a stalled
+     * disk without making the write any more likely to finish.
      */
     override fun onStop() {
         super.onStop()
-        appContainer.settings.flush()
+        if (!appContainer.settings.flush(ON_STOP_FLUSH_TIMEOUT_MS)) {
+            Diag.w("settings still writing after ${ON_STOP_FLUSH_TIMEOUT_MS} ms at onStop; continuing in background")
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,3 +148,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * Longest the main thread waits in onStop for queued settings writes. Was 2 s (the store's
+ * default), which could freeze the screen on a stalled disk while backgrounding.
+ */
+private const val ON_STOP_FLUSH_TIMEOUT_MS = 250L

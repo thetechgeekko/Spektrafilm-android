@@ -309,8 +309,8 @@ class AppSettings private constructor(
     /** Suspends until saved settings have been read (the splash screen waits on this). */
     suspend fun awaitLoaded() = store.awaitLoaded()
 
-    /** Waits briefly for queued writes to reach disk; see [SettingsDataStore.flush]. */
-    fun flush(): Boolean = store.flush()
+    /** Waits up to [timeoutMs] for queued writes to reach disk; see [SettingsDataStore.flush]. */
+    fun flush(timeoutMs: Long): Boolean = store.flush(timeoutMs)
 
     /**
      * Seed a freshly constructed [state] with the saved app defaults. Profile defaults
