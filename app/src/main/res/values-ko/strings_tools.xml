@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">필름 스트립은 필름 베이스 색을 유지합니다. 색은 비율 여백에 쓰입니다.</string>
     <string name="frame_export_note">프레임은 내보낼 때 더해집니다. Ultra HDR, JPEG, PNG에 들어가며, 고비트 심도 형식은 사진만 내보냅니다.</string>
     <string name="frame_preview_cd">선택한 프레임이 있는 사진</string>
+    <string name="frame_caption">캡션</string>
+    <string name="frame_caption_none">없음</string>
+    <string name="frame_caption_shot">촬영 정보</string>
+    <string name="frame_caption_date">날짜</string>
+    <string name="frame_caption_stock">필름</string>
+    <string name="frame_caption_custom">직접 입력</string>
+    <string name="frame_caption_text">캡션 텍스트</string>
+    <string name="frame_caption_missing">이 사진에는 이 캡션에 쓸 정보가 없어 추가되지 않습니다.</string>
+    <string name="frame_font_sans">산세리프</string>
+    <string name="frame_font_serif">세리프</string>
+    <string name="frame_font_mono">고정폭</string>
+    <string name="frame_markings">가장자리 표기</string>
+    <string name="frame_markings_show">가장자리 표기 표시</string>
+    <string name="frame_markings_label">가장자리 문구</string>
+    <string name="frame_number">프레임 번호</string>
+    <string name="frame_number_note">0이면 사진에서 번호를 정합니다.</string>
 </resources>

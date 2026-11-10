@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">フィルムストリップはベース色のままです。色は縦横比の余白に使われます。</string>
     <string name="frame_export_note">フレームは書き出し時に付きます。Ultra HDR、JPEG、PNG に付き、高ビット深度の形式は写真のみを書き出します。</string>
     <string name="frame_preview_cd">選んだフレーム付きの写真</string>
+    <string name="frame_caption">キャプション</string>
+    <string name="frame_caption_none">なし</string>
+    <string name="frame_caption_shot">撮影情報</string>
+    <string name="frame_caption_date">日付</string>
+    <string name="frame_caption_stock">フィルム</string>
+    <string name="frame_caption_custom">カスタム</string>
+    <string name="frame_caption_text">キャプションの文字</string>
+    <string name="frame_caption_missing">この写真にはこのキャプションの情報がないため、追加されません。</string>
+    <string name="frame_font_sans">サンセリフ</string>
+    <string name="frame_font_serif">セリフ</string>
+    <string name="frame_font_mono">等幅</string>
+    <string name="frame_markings">エッジマーク</string>
+    <string name="frame_markings_show">エッジマークを表示</string>
+    <string name="frame_markings_label">エッジの文字</string>
+    <string name="frame_number">コマ番号</string>
+    <string name="frame_number_note">0 にすると写真から番号を決めます。</string>
 </resources>

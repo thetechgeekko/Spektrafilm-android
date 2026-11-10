@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">Las tiras de película conservan su base. El color rellena el espacio de la proporción.</string>
     <string name="frame_export_note">El marco se añade al exportar. Ultra HDR, JPEG y PNG lo incluyen; los formatos de alta profundidad de bits exportan la foto sola.</string>
     <string name="frame_preview_cd">Foto con el marco elegido</string>
+    <string name="frame_caption">Pie de foto</string>
+    <string name="frame_caption_none">Ninguno</string>
+    <string name="frame_caption_shot">Datos de toma</string>
+    <string name="frame_caption_date">Fecha</string>
+    <string name="frame_caption_stock">Película</string>
+    <string name="frame_caption_custom">Personalizado</string>
+    <string name="frame_caption_text">Texto del pie</string>
+    <string name="frame_caption_missing">Esta foto no tiene datos para este pie, así que no se añade.</string>
+    <string name="frame_font_sans">Sans</string>
+    <string name="frame_font_serif">Serif</string>
+    <string name="frame_font_mono">Mono</string>
+    <string name="frame_markings">Marcas de borde</string>
+    <string name="frame_markings_show">Mostrar marcas de borde</string>
+    <string name="frame_markings_label">Texto del borde</string>
+    <string name="frame_number">Número de fotograma</string>
+    <string name="frame_number_note">0 toma un número de la foto.</string>
 </resources>

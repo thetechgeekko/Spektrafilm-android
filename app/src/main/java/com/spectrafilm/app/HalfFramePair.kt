@@ -260,8 +260,13 @@ private suspend fun exportPair(
             owned.remove(frame)
         }
         val border = options.effectiveFrame()
+        val frameCaption = FrameCaptions.text(
+            border.look,
+            srcExif.tags,
+            StockCatalog.displayName(app, firstState.filmProfile),
+        )
         val photoEdge = options.targetLongEdge()?.let { edge ->
-            FilmBorderGeometry.photoLongEdgeFor(border, pair.width, pair.height, edge)
+            FilmBorderGeometry.photoLongEdgeFor(border, pair.width, pair.height, edge, frameCaption)
         }
         val sized = photoEdge?.let { scaleBitmapToLongEdge(pair, it) } ?: pair
         if (sized !== pair) {
@@ -275,6 +280,7 @@ private suspend fun exportPair(
             sized.width,
             sized.height,
             FilmBorderGeometry.frameNumberFor(first.uri.toString()),
+            frameCaption,
         )
         val framed = frameLayout?.let { FilmBorderRenderer.render(sized, it) } ?: sized
         if (framed !== sized) owned += framed

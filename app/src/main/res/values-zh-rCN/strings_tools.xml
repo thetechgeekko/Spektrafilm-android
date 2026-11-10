@@ -201,4 +201,20 @@
     <string name="frame_strip_color_note">胶片片条保持片基颜色，所选颜色用于比例填充。</string>
     <string name="frame_export_note">边框在导出时添加。Ultra HDR、JPEG 和 PNG 会带上边框；高位深格式只导出照片本身。</string>
     <string name="frame_preview_cd">带所选边框的照片</string>
+    <string name="frame_caption">说明文字</string>
+    <string name="frame_caption_none">无</string>
+    <string name="frame_caption_shot">拍摄信息</string>
+    <string name="frame_caption_date">日期</string>
+    <string name="frame_caption_stock">胶片</string>
+    <string name="frame_caption_custom">自定义</string>
+    <string name="frame_caption_text">说明文字内容</string>
+    <string name="frame_caption_missing">这张照片没有这种说明所需的信息，因此不会添加。</string>
+    <string name="frame_font_sans">无衬线</string>
+    <string name="frame_font_serif">衬线</string>
+    <string name="frame_font_mono">等宽</string>
+    <string name="frame_markings">片边标记</string>
+    <string name="frame_markings_show">显示片边标记</string>
+    <string name="frame_markings_label">片边文字</string>
+    <string name="frame_number">画格编号</string>
+    <string name="frame_number_note">0 表示根据照片取编号。</string>
 </resources>

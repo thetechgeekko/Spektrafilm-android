@@ -91,25 +91,35 @@ internal object FilmBorderRenderer {
         }
 
         if (layout.texts.isNotEmpty()) {
-            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = layout.textColor
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                letterSpacing = FilmBorderGeometry.TEXT_LETTER_SPACING_EM
-            }
+            val edgeFace = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
             for (t in layout.texts) {
-                // BorderText.size is the cap height; monospace caps are ~0.72 of the em.
+                textPaint.typeface = t.font?.let(::captionFace) ?: edgeFace
+                textPaint.letterSpacing = if (t.font == null) FilmBorderGeometry.TEXT_LETTER_SPACING_EM else CAPTION_TRACKING
+                textPaint.color = when (val c = t.color ?: layout.textColor) {
+                    FilmBorderGeometry.INK_ON_FRAME -> FilmBorderGeometry.contrastOn(frame)
+                    else -> resolve(c)
+                }
+                // BorderText.size is the cap height; caps are ~0.72 of the em.
                 textPaint.textSize = t.size / FilmBorderGeometry.TEXT_CAP_HEIGHT_EM
+                val dx = if (t.centered) -textPaint.measureText(t.text) / 2f else 0f
                 if (t.vertical) {
                     canvas.save()
                     canvas.translate(t.x.toFloat(), t.baseline.toFloat())
                     canvas.rotate(-90f)
-                    canvas.drawText(t.text, 0f, 0f, textPaint)
+                    canvas.drawText(t.text, dx, 0f, textPaint)
                     canvas.restore()
                 } else {
-                    canvas.drawText(t.text, t.x.toFloat(), t.baseline.toFloat(), textPaint)
+                    canvas.drawText(t.text, t.x + dx, t.baseline.toFloat(), textPaint)
                 }
             }
         }
+    }
+
+    private fun captionFace(font: CaptionFont): Typeface = when (font) {
+        CaptionFont.SANS -> Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        CaptionFont.SERIF -> Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+        CaptionFont.MONO -> Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
     }
 
     /** [FilmBorderGeometry.mutedTone] of [photo]'s average colour, sampled from a tiny copy. */
@@ -134,4 +144,5 @@ internal object FilmBorderRenderer {
     }
 
     private const val TONE_SAMPLE = 16
+    private const val CAPTION_TRACKING = 0.02f
 }

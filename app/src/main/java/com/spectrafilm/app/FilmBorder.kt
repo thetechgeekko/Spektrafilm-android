@@ -98,28 +98,91 @@ enum class FrameAspect(@StringRes val labelRes: Int, val ratioW: Int, val ratioH
     }
 }
 
+/** What the caption under the photo says. [SHOT_INFO], [DATE] and [FILM_STOCK] are filled in per photo. */
+enum class CaptionKind(@StringRes val labelRes: Int) {
+    NONE(R.string.frame_caption_none),
+    SHOT_INFO(R.string.frame_caption_shot),
+    DATE(R.string.frame_caption_date),
+    FILM_STOCK(R.string.frame_caption_stock),
+    CUSTOM(R.string.frame_caption_custom),
+    ;
+
+    companion object {
+        fun parse(name: String?): CaptionKind = entries.firstOrNull { it.name == name } ?: NONE
+    }
+}
+
+/** Caption typeface: platform generic families, so nothing is bundled. */
+enum class CaptionFont(@StringRes val labelRes: Int) {
+    SANS(R.string.frame_font_sans),
+    SERIF(R.string.frame_font_serif),
+    MONO(R.string.frame_font_mono),
+    ;
+
+    companion object {
+        fun parse(name: String?): CaptionFont = entries.firstOrNull { it.name == name } ?: SANS
+    }
+}
+
 /**
  * The frame settings beyond the style. Defaults reproduce the original fixed borders exactly,
  * so a stored style with no look renders as it always did.
  *
  * @property width margin as a fraction of the photo's short edge, or null for the style's own
+ * @property caption what is written under the photo on paper styles (strips carry edge markings)
+ * @property captionText the text for [CaptionKind.CUSTOM]
+ * @property edgeMarkings whether strips print their edge text at all
+ * @property edgeLabel the strip's edge label, or blank for the generic one
+ * @property frameNumber a fixed frame number for strips, or null for one derived from the photo
  */
 data class FrameLook(
     val width: Float? = null,
     val color: FrameColor = FrameColor.STYLE,
     val aspect: FrameAspect = FrameAspect.ORIGINAL,
+    val caption: CaptionKind = CaptionKind.NONE,
+    val captionText: String = "",
+    val captionFont: CaptionFont = CaptionFont.SANS,
+    val edgeMarkings: Boolean = true,
+    val edgeLabel: String = "",
+    val frameNumber: Int? = null,
 ) {
     val isDefault: Boolean get() = this == FrameLook()
+
+    /** The caption settings differ from none. */
+    val hasCaption: Boolean get() = caption != CaptionKind.NONE
 
     fun toJson(): JSONObject = JSONObject().apply {
         width?.let { put("width", it.toDouble()) }
         put("color", color.name)
         put("aspect", aspect.name)
+        if (caption != CaptionKind.NONE) put("caption", caption.name)
+        if (captionText.isNotEmpty()) put("captionText", captionText)
+        if (captionFont != CaptionFont.SANS) put("captionFont", captionFont.name)
+        if (!edgeMarkings) put("edgeMarkings", false)
+        if (edgeLabel.isNotEmpty()) put("edgeLabel", edgeLabel)
+        frameNumber?.let { put("frameNumber", it) }
     }
 
     companion object {
         /** Width slider range, as a fraction of the short edge. */
         val WIDTH_RANGE: ClosedFloatingPointRange<Float> = 0.005f..0.25f
+
+        /** Longest custom caption kept. */
+        const val CAPTION_MAX = 80
+
+        /** Longest custom edge label kept. */
+        const val EDGE_LABEL_MAX = 24
+
+        /** Frame numbers a strip can carry. */
+        val FRAME_NUMBER_RANGE: IntRange = 1..99
+
+        /** A custom edge label as printed: upper case, printable ASCII, trimmed and capped. */
+        fun cleanEdgeLabel(raw: String): String =
+            raw.uppercase(java.util.Locale.ROOT).filter { it in ' '..'~' }.trim().take(EDGE_LABEL_MAX)
+
+        /** A custom caption as kept: one line, trimmed and capped. */
+        fun cleanCaption(raw: String): String =
+            raw.replace(Regex("\\s+"), " ").trim().take(CAPTION_MAX)
 
         /** Lenient: a missing object, key or unknown name falls back to the default. */
         fun fromJson(json: JSONObject?): FrameLook {
@@ -129,6 +192,12 @@ data class FrameLook(
                 width = if (w.isFinite()) w.toFloat().coerceIn(WIDTH_RANGE) else null,
                 color = FrameColor.parse(json.optString("color")),
                 aspect = FrameAspect.parse(json.optString("aspect")),
+                caption = CaptionKind.parse(json.optString("caption")),
+                captionText = cleanCaption(json.optString("captionText")),
+                captionFont = CaptionFont.parse(json.optString("captionFont")),
+                edgeMarkings = json.optBoolean("edgeMarkings", true),
+                edgeLabel = cleanEdgeLabel(json.optString("edgeLabel")),
+                frameNumber = json.optInt("frameNumber", 0).takeIf { it in FRAME_NUMBER_RANGE },
             )
         }
     }
@@ -137,7 +206,8 @@ data class FrameLook(
 /** A complete frame: a style plus its look. */
 data class FrameSpec(val style: FilmBorder, val look: FrameLook = FrameLook()) {
     /** True when nothing is added around the photo. */
-    val isNone: Boolean get() = style == FilmBorder.NONE && look.aspect == FrameAspect.ORIGINAL
+    val isNone: Boolean
+        get() = style == FilmBorder.NONE && look.aspect == FrameAspect.ORIGINAL && !look.hasCaption
 
     /** Stable text identity for cache keys: the bare style name when the look is the default. */
     fun key(): String = if (look.isDefault) style.name else buildString {
@@ -145,6 +215,13 @@ data class FrameSpec(val style: FilmBorder, val look: FrameLook = FrameLook()) {
         look.width?.let { append("|w=").append(it) }
         append("|c=").append(look.color.name)
         append("|a=").append(look.aspect.name)
+        if (look.hasCaption) {
+            append("|cap=").append(look.caption.name).append('/').append(look.captionFont.name)
+            if (look.caption == CaptionKind.CUSTOM) append('/').append(look.captionText)
+        }
+        if (!look.edgeMarkings) append("|marks=off")
+        if (look.edgeLabel.isNotEmpty()) append("|label=").append(look.edgeLabel)
+        look.frameNumber?.let { append("|n=").append(it) }
     }
 
     companion object {
@@ -158,8 +235,21 @@ data class BorderRect(val left: Int, val top: Int, val right: Int, val bottom: I
     val height: Int get() = bottom - top
 }
 
-/** One run of edge text: baseline-left anchor, cap height, and the text itself. */
-data class BorderText(val x: Int, val baseline: Int, val size: Int, val text: String, val vertical: Boolean)
+/**
+ * One run of text: baseline anchor, cap height, and the text itself. Edge markings anchor at the
+ * run's left end in bold monospace ([font] null) in the layout's text colour; a caption is
+ * [centered] on [x], in its own [font] and [color].
+ */
+data class BorderText(
+    val x: Int,
+    val baseline: Int,
+    val size: Int,
+    val text: String,
+    val vertical: Boolean,
+    val font: CaptionFont? = null,
+    val centered: Boolean = false,
+    val color: Int? = null,
+)
 
 /** A point in output pixels. */
 data class BorderPoint(val x: Int, val y: Int)
@@ -212,6 +302,9 @@ object FilmBorderGeometry {
      */
     const val PHOTO_TONE: Int = 0x00000001
 
+    /** Placeholder text colour: whichever of ink or paper reads on the (resolved) frame colour. */
+    const val INK_ON_FRAME: Int = 0x00000002
+
     /** Generic edge label. Not a maker's name. */
     const val EDGE_LABEL = "SPEKTRAFILM"
 
@@ -238,6 +331,10 @@ object FilmBorderGeometry {
 
     // Instant print: the bottom margin is this many times the side margin.
     private const val INSTANT_BOTTOM = 3.4
+
+    // Caption cap height as a fraction of the short edge, and the smallest worth printing.
+    private const val CAPTION_CAP = 0.022
+    private const val CAPTION_MIN_CAP = 3
 
     // Gallery mat keyline: offset from the photo as a share of the margin, thickness of the short edge.
     private const val MAT_KEY_OFFSET = 0.18
@@ -292,8 +389,18 @@ object FilmBorderGeometry {
      * Layout for [spec] around a [width] x [height] photo, or null when nothing is added
      * ([FrameSpec.isNone]) or the photo is empty. Strip styles run along the photo's long edge
      * (portrait strips are vertical); half-frame runs along the short edge.
+     *
+     * [caption] is the caption already worded for this photo (see FrameCaptions); it is set
+     * under the photo on every style but the strips, which carry edge markings instead. Null or
+     * blank adds nothing. [frameNumber] is the photo's own number; the look's fixed number wins.
      */
-    fun layout(spec: FrameSpec, width: Int, height: Int, frameNumber: Int = 1): BorderLayout? {
+    fun layout(
+        spec: FrameSpec,
+        width: Int,
+        height: Int,
+        frameNumber: Int = 1,
+        caption: String? = null,
+    ): BorderLayout? {
         if (width <= 0 || height <= 0 || spec.isNone) return null
         val style = spec.style
         val look = spec.look
@@ -303,7 +410,8 @@ object FilmBorderGeometry {
             else -> look.color.argb ?: styleColor(style)
         }
         val fraction = (look.width ?: defaultWidth(style)).coerceIn(FrameLook.WIDTH_RANGE)
-        val base = when (style) {
+        val number = look.frameNumber ?: frameNumber
+        val framed = when (style) {
             FilmBorder.NONE -> margin(width, height, 0, 0, 0, frameColor)
             FilmBorder.PRINT_WHITE, FilmBorder.FILED_BLACK -> {
                 val m = marginPx(width, height, fraction)
@@ -315,10 +423,14 @@ object FilmBorderGeometry {
             }
             FilmBorder.GALLERY_MAT -> mat(width, height, marginPx(width, height, fraction), frameColor)
             FilmBorder.ROUGH_FILED -> rough(width, height, marginPx(width, height, fraction), frameColor, frameNumber)
-            FilmBorder.STRIP_135 -> strip(width, height, frameNumber, StripKind.S135)
-            FilmBorder.ROLL_120 -> strip(width, height, frameNumber, StripKind.R120)
-            FilmBorder.HALF_FRAME -> strip(width, height, frameNumber, StripKind.HALF)
+            FilmBorder.STRIP_135 -> strip(width, height, number, StripKind.S135, look)
+            FilmBorder.ROLL_120 -> strip(width, height, number, StripKind.R120, look)
+            FilmBorder.HALF_FRAME -> strip(width, height, number, StripKind.HALF, look)
         }
+        val text = caption?.let(FrameLook::cleanCaption)?.takeIf { it.isNotEmpty() }
+        val base = if (text != null && !style.isStrip && look.hasCaption) {
+            withCaption(framed, text, look.captionFont, instant = style == FilmBorder.INSTANT)
+        } else framed
         // Aspect padding: the strip keeps its film base, the padding takes the chosen colour
         // (or paper white when the colour is the style's own and the style is a dark strip).
         val padColor = if (look.color == FrameColor.FROM_PHOTO) {
@@ -333,9 +445,9 @@ object FilmBorderGeometry {
     fun outputSize(border: FilmBorder, width: Int, height: Int): Pair<Int, Int> =
         outputSize(FrameSpec(border), width, height)
 
-    /** Output size for [spec] without keeping the layout. */
-    fun outputSize(spec: FrameSpec, width: Int, height: Int): Pair<Int, Int> =
-        layout(spec, width, height)?.let { it.outWidth to it.outHeight } ?: (width to height)
+    /** Output size for [spec] (with [caption], if any) without keeping the layout. */
+    fun outputSize(spec: FrameSpec, width: Int, height: Int, caption: String? = null): Pair<Int, Int> =
+        layout(spec, width, height, caption = caption)?.let { it.outWidth to it.outHeight } ?: (width to height)
 
     /** [photoLongEdgeFor] for a bare style. */
     fun photoLongEdgeFor(border: FilmBorder, width: Int, height: Int, outputLongEdge: Int): Int =
@@ -343,11 +455,17 @@ object FilmBorderGeometry {
 
     /**
      * Long edge to shrink a [width] x [height] photo to, so that photo + [spec] has an output
-     * long edge of at most [outputLongEdge]. Never asks to enlarge the photo.
+     * long edge of at most [outputLongEdge], [caption] included. Never asks to enlarge the photo.
      */
-    fun photoLongEdgeFor(spec: FrameSpec, width: Int, height: Int, outputLongEdge: Int): Int {
+    fun photoLongEdgeFor(
+        spec: FrameSpec,
+        width: Int,
+        height: Int,
+        outputLongEdge: Int,
+        caption: String? = null,
+    ): Int {
         val photoLong = max(width, height)
-        val (ow, oh) = outputSize(spec, width, height)
+        val (ow, oh) = outputSize(spec, width, height, caption)
         val outLong = max(ow, oh)
         if (outLong <= outputLongEdge) return photoLong
         var edge = min(photoLong, floor(outputLongEdge.toDouble() * photoLong / outLong).toInt())
@@ -355,7 +473,7 @@ object FilmBorderGeometry {
         // two; step down until the finished image truly fits.
         while (edge > 1) {
             val (w2, h2) = scaledDimensions(width, height, edge)
-            val (fw, fh) = outputSize(spec, w2, h2)
+            val (fw, fh) = outputSize(spec, w2, h2, caption)
             if (max(fw, fh) <= outputLongEdge) break
             edge--
         }
@@ -459,6 +577,52 @@ object FilmBorderGeometry {
         return base.copy(inkOutline = pts)
     }
 
+    /**
+     * Sets [text] centred under the photo. An instant print writes in its deep bottom margin;
+     * every other style grows its bottom edge by a caption band below whatever margin it has,
+     * so the caption never sits on the ink, the keyline or the photo. The cap height shrinks to
+     * fit the width; below [CAPTION_MIN_CAP] pixels the caption is left off.
+     */
+    private fun withCaption(base: BorderLayout, text: String, font: CaptionFont, instant: Boolean): BorderLayout {
+        val img = base.image
+        val short = min(img.width, img.height)
+        val side = img.left
+        var cap = max(1, (short * CAPTION_CAP).roundToInt())
+        // Width it may use: the frame, less a margin of two caps (or the side margin) each side.
+        val usable = base.outWidth - 2 * max(side, 2 * cap)
+        while (cap >= CAPTION_MIN_CAP && textRunLength(text, cap) > usable) cap--
+        val existingBottom = base.outHeight - img.bottom
+        if (instant) {
+            cap = min(cap, existingBottom / 3)
+            while (cap >= CAPTION_MIN_CAP && textRunLength(text, cap) > usable) cap--
+        }
+        if (cap < CAPTION_MIN_CAP) return base
+        val color = if (base.frameColor == PHOTO_TONE) INK_ON_FRAME else contrastOn(base.frameColor)
+        val (outHeight, baseline) = if (instant) {
+            base.outHeight to img.bottom + (existingBottom + cap) / 2
+        } else {
+            // A band of three caps: one above the text, the text, one below.
+            base.outHeight + 3 * cap to base.outHeight + 2 * cap
+        }
+        val caption = BorderText(
+            x = base.outWidth / 2,
+            baseline = baseline,
+            size = cap,
+            text = text,
+            vertical = false,
+            font = font,
+            centered = true,
+            color = color,
+        )
+        return base.copy(
+            outHeight = outHeight,
+            frameRect = if (base.frameRect.bottom == base.outHeight) {
+                base.frameRect.copy(bottom = outHeight)
+            } else base.frameRect,
+            texts = base.texts + caption,
+        )
+    }
+
     /** Grow [base] to [aspect] by centring it on a [padColor] canvas. Nothing moves relative to the photo. */
     private fun padToAspect(base: BorderLayout, aspect: FrameAspect, padColor: Int): BorderLayout {
         if (aspect == FrameAspect.ORIGINAL) return base
@@ -497,7 +661,7 @@ object FilmBorderGeometry {
      * frames are wider than tall, so their strip runs along the photo's long edge; a half
      * frame is 18 x 24 mm, so its strip runs along the short edge.
      */
-    private fun strip(w: Int, h: Int, frameNumber: Int, kind: StripKind): BorderLayout {
+    private fun strip(w: Int, h: Int, frameNumber: Int, kind: StripKind, look: FrameLook = FrameLook()): BorderLayout {
         val is120 = kind == StripKind.R120
         val horizontal = if (kind == StripKind.HALF) w < h else w >= h
         val along = if (horizontal) w else h
@@ -536,8 +700,9 @@ object FilmBorderGeometry {
         val textBand = if (!is120) mm(S135_HOLE_OUTER) else rebate
         val textSize = max(1, (textBand * 0.6).roundToInt())
         val baselineAcross = outAcross - (textBand - textSize) / 2
-        val n = frameNumber.coerceIn(1, 99)
-        val label = "$EDGE_LABEL ${if (is120) "120" else "135"}"
+        val n = frameNumber.coerceIn(FrameLook.FRAME_NUMBER_RANGE)
+        val custom = FrameLook.cleanEdgeLabel(look.edgeLabel)
+        val label = custom.ifEmpty { "$EDGE_LABEL ${if (is120) "120" else "135"}" }
         // Each run starts at its preferred spot, pushed along when the run before it is still
         // there (the label is long next to a short frame number). If the set does not fit on
         // the strip that way it is packed tight from the start; if it still does not fit, the
@@ -557,9 +722,11 @@ object FilmBorderGeometry {
         val marker = 0.06 to "▸$n"
         val labelRun = 0.22 to label
         val number = 0.72 to "${n}A"
-        val runs = listOf(listOf(marker, labelRun, number), listOf(labelRun, number), listOf(labelRun))
-            .firstNotNullOfOrNull { set -> place(set, packed = false) ?: place(set, packed = true) }
-            .orEmpty()
+        val runs = if (!look.edgeMarkings) emptyList() else {
+            listOf(listOf(marker, labelRun, number), listOf(labelRun, number), listOf(labelRun))
+                .firstNotNullOfOrNull { set -> place(set, packed = false) ?: place(set, packed = true) }
+                .orEmpty()
+        }
 
         fun rect(r: AC) = if (horizontal) {
             BorderRect(r.a0, r.c0, r.a1, r.c1)

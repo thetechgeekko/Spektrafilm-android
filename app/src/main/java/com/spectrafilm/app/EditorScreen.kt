@@ -1096,6 +1096,10 @@ internal fun EditorScreen(
             withContext(dispatchers.io) { DateStampText.readCaptureDate(ctx, uri) }
         }
     }
+    // Worded only while the Frame tab is open; the export words its own from the same facts.
+    val frameCaption = if (activeCategory == Category.FRAME) {
+        rememberFrameCaption(exportOptions.frame, sourceUri, state.filmProfile)
+    } else null
     // RAW cleanup acts inside the RAW decode, so it is only offered for a RAW.
     val isRawSource = sourceKind == SourceKind.RAW
     fun toolShown(c: Category) = c != Category.RAW_CLEANUP || isRawSource
@@ -1156,6 +1160,7 @@ internal fun EditorScreen(
             reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
             exportOptions = exportOptions,
             onExportOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
+            frameCaption = frameCaption,
         )
     }
     // The Crop tab draws its frame on the photo only once the preview on screen is the
@@ -1180,7 +1185,12 @@ internal fun EditorScreen(
                 CropCanvas(bitmap = cropBitmap, draft = draft, bottomInset = panelInset)
             }
         } else if (framePreview != null) {
-            FramedPreviewCanvas(preview = framePreview, spec = exportOptions.frameSpec, bottomInset = panelInset)
+            FramedPreviewCanvas(
+                preview = framePreview,
+                spec = exportOptions.frameSpec,
+                bottomInset = panelInset,
+                caption = frameCaption,
+            )
         } else PreviewRegion(
             zoomRequests = viewerVm.zoomRequests,
             controlsBottomInset = panelInset,

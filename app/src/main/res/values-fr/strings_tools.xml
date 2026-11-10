@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">Les bandes de film gardent leur support. La couleur remplit l\'espace ajouté pour le format.</string>
     <string name="frame_export_note">Le cadre est ajouté à l\'export. Ultra HDR, JPEG et PNG le portent ; les formats à haute profondeur exportent la photo seule.</string>
     <string name="frame_preview_cd">Photo avec le cadre choisi</string>
+    <string name="frame_caption">Légende</string>
+    <string name="frame_caption_none">Aucune</string>
+    <string name="frame_caption_shot">Infos de prise de vue</string>
+    <string name="frame_caption_date">Date</string>
+    <string name="frame_caption_stock">Pellicule</string>
+    <string name="frame_caption_custom">Personnalisée</string>
+    <string name="frame_caption_text">Texte de la légende</string>
+    <string name="frame_caption_missing">Cette photo n\'a pas les informations de cette légende, aucune n\'est donc ajoutée.</string>
+    <string name="frame_font_sans">Sans</string>
+    <string name="frame_font_serif">Serif</string>
+    <string name="frame_font_mono">Mono</string>
+    <string name="frame_markings">Marquages de bord</string>
+    <string name="frame_markings_show">Afficher les marquages de bord</string>
+    <string name="frame_markings_label">Texte du bord</string>
+    <string name="frame_number">Numéro de vue</string>
+    <string name="frame_number_note">0 prend un numéro tiré de la photo.</string>
 </resources>

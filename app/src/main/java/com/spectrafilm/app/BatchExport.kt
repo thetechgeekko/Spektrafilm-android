@@ -324,6 +324,7 @@ private suspend fun exportBatchPhoto(
         straightenDegrees = state.straightenDegrees,
     )
     val srcExif = withContext(io) { readSourceExif(app, source.uri, keepGps = keepGps) }
+    val frameCaption = FrameCaptions.text(border.look, srcExif.tags, StockCatalog.displayName(app, state.filmProfile))
     val image = decodeSourceRequest(request, EXPORT_MAX_EDGE_PX, io).image
     var sceneTap: SceneLuma? = null
     // Skin masks are bound to skin found on this photo, before the render, while the decode
@@ -361,7 +362,7 @@ private suspend fun exportBatchPhoto(
                 )
                 bitmap = full
                 val photoEdge = longEdge?.let { edge ->
-                    FilmBorderGeometry.photoLongEdgeFor(border, full.width, full.height, edge)
+                    FilmBorderGeometry.photoLongEdgeFor(border, full.width, full.height, edge, frameCaption)
                 }
                 val sized = photoEdge?.let { edge ->
                     scaleBitmapToLongEdge(full, edge).also { scaled ->
@@ -377,6 +378,7 @@ private suspend fun exportBatchPhoto(
                     sized.width,
                     sized.height,
                     FilmBorderGeometry.frameNumberFor(source.uri.toString()),
+                    frameCaption,
                 )
                 val framed = layout?.let { l ->
                     FilmBorderRenderer.render(sized, l).also {

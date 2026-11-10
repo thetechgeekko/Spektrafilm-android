@@ -240,4 +240,20 @@
     <string name="frame_strip_color_note">Tiras de filme mantêm a base do filme. A cor preenche o espaço da proporção.</string>
     <string name="frame_export_note">A moldura é adicionada ao exportar. Ultra HDR, JPEG e PNG a incluem; formatos de alta profundidade de bits exportam só a foto.</string>
     <string name="frame_preview_cd">Foto com a moldura escolhida</string>
+    <string name="frame_caption">Legenda</string>
+    <string name="frame_caption_none">Nenhuma</string>
+    <string name="frame_caption_shot">Dados da foto</string>
+    <string name="frame_caption_date">Data</string>
+    <string name="frame_caption_stock">Filme</string>
+    <string name="frame_caption_custom">Personalizada</string>
+    <string name="frame_caption_text">Texto da legenda</string>
+    <string name="frame_caption_missing">Esta foto não tem dados para esta legenda, então nenhuma é adicionada.</string>
+    <string name="frame_font_sans">Sans</string>
+    <string name="frame_font_serif">Serif</string>
+    <string name="frame_font_mono">Mono</string>
+    <string name="frame_markings">Marcas de borda</string>
+    <string name="frame_markings_show">Mostrar marcas de borda</string>
+    <string name="frame_markings_label">Texto da borda</string>
+    <string name="frame_number">Número do quadro</string>
+    <string name="frame_number_note">0 usa um número tirado da foto.</string>
 </resources>

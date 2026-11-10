@@ -11,6 +11,7 @@
 package com.spectrafilm.app
 
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,12 +32,14 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -55,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /** Long edge of the style thumbnails in the Frame tab, in pixels. */
 private const val STYLE_THUMB_EDGE = 160
@@ -66,12 +71,12 @@ private const val FRAMED_PREVIEW_EDGE = 1600
  * A copy of [preview] scaled to [edge] with [spec] painted around it, or null for no frame or
  * an unusable preview. Off the main thread: the scale and the border paint are per-pixel passes.
  */
-internal fun framedThumbnail(preview: Bitmap?, spec: FrameSpec, edge: Int): Bitmap? {
+internal fun framedThumbnail(preview: Bitmap?, spec: FrameSpec, edge: Int, caption: String? = null): Bitmap? {
     if (preview == null || preview.isRecycled || spec.isNone) return null
     return runCatching {
         val small = scaleBitmapToLongEdge(preview, edge)
         try {
-            val layout = FilmBorderGeometry.layout(spec, small.width, small.height)
+            val layout = FilmBorderGeometry.layout(spec, small.width, small.height, caption = caption)
                 ?: return@runCatching null
             FilmBorderRenderer.render(small, layout)
         } finally {
@@ -86,22 +91,43 @@ internal fun framedThumbnail(preview: Bitmap?, spec: FrameSpec, edge: Int): Bitm
  * does not flash. Left to the GC rather than recycled: Compose may still draw the old one.
  */
 @Composable
-internal fun rememberFramedPreview(preview: Bitmap?, spec: FrameSpec, edge: Int): Bitmap? {
+internal fun rememberFramedPreview(preview: Bitmap?, spec: FrameSpec, edge: Int, caption: String? = null): Bitmap? {
     val dispatchers = rememberAppDispatchers()
     var framed by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(preview, spec, edge) {
+    LaunchedEffect(preview, spec, edge, caption) {
         framed = withContext(dispatchers.default) {
             val source = preview ?: return@withContext null
-            acquirePreviewLease(source)?.use { framedThumbnail(it.value, spec, edge) }
+            acquirePreviewLease(source)?.use { framedThumbnail(it.value, spec, edge, caption) }
         }
     }
     return framed
 }
 
+/**
+ * The caption [look] gives the photo at [sourceUri] with [filmProfile], worded as the export
+ * will word it. The EXIF is read off the main thread, once per photo, and only for a caption
+ * that needs it.
+ */
+@Composable
+internal fun rememberFrameCaption(look: FrameLook, sourceUri: Uri?, filmProfile: String): String? {
+    val context = LocalContext.current
+    val dispatchers = rememberAppDispatchers()
+    val needsExif = look.caption == CaptionKind.SHOT_INFO || look.caption == CaptionKind.DATE
+    val tags by produceState(emptyMap<String, String>(), sourceUri, needsExif) {
+        value = if (sourceUri == null || !needsExif) emptyMap() else {
+            withContext(dispatchers.io) { readSourceExif(context.applicationContext, sourceUri).tags }
+        }
+    }
+    val stock = remember(filmProfile, look.caption) {
+        if (look.caption == CaptionKind.FILM_STOCK) StockCatalog.displayName(context, filmProfile) else null
+    }
+    return FrameCaptions.text(look, tags, stock)
+}
+
 /** The editor canvas while the Frame tab is open: the preview with its frame, fitted. */
 @Composable
-internal fun FramedPreviewCanvas(preview: Bitmap, spec: FrameSpec, bottomInset: Dp) {
-    val framed = rememberFramedPreview(preview, spec, FRAMED_PREVIEW_EDGE)
+internal fun FramedPreviewCanvas(preview: Bitmap, spec: FrameSpec, bottomInset: Dp, caption: String? = null) {
+    val framed = rememberFramedPreview(preview, spec, FRAMED_PREVIEW_EDGE, caption)
     // The framed render is ours; the bare preview may be retired and recycled by the
     // editor at any time, so it is only drawn under a read lease.
     val shown = framed?.asImageBitmap() ?: rememberLeasedImage(preview)
@@ -122,9 +148,12 @@ internal fun FramedPreviewCanvas(preview: Bitmap, spec: FrameSpec, bottomInset: 
 }
 
 /**
- * The frame controls: style, then width and colour where the style takes them, then aspect.
+ * The frame controls: style, then width and colour where the style takes them, then aspect,
+ * then the caption (paper styles) or the edge markings (strips).
  * [frameless] is true for formats that export the bare photo; the controls stay editable
- * (the choice is kept for the next JPEG/PNG export) under a note saying so.
+ * (the choice is kept for the next JPEG/PNG export) under a note saying so. [caption] is the
+ * caption as worded for the photo on screen, when there is one photo to word it for
+ * ([captionKnown]); it lets the controls say when the photo has nothing to caption with.
  */
 @Composable
 internal fun FrameControls(
@@ -133,6 +162,8 @@ internal fun FrameControls(
     preview: Bitmap?,
     frameless: Boolean,
     modifier: Modifier = Modifier,
+    caption: String? = null,
+    captionKnown: Boolean = false,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (frameless) FrameNote(stringResource(R.string.frame_export_note))
@@ -169,6 +200,118 @@ internal fun FrameControls(
             onSelect = { onChange(spec.copy(look = spec.look.copy(aspect = aspects[it]))) },
         )
         FrameNote(stringResource(R.string.frame_aspect_note))
+        if (style.isStrip) {
+            EdgeMarkingControls(spec, onChange)
+        } else {
+            CaptionControls(spec, onChange, caption, captionKnown)
+        }
+    }
+}
+
+/** What the caption says, its text when custom, and its typeface. */
+@Composable
+private fun CaptionControls(spec: FrameSpec, onChange: (FrameSpec) -> Unit, caption: String?, captionKnown: Boolean) {
+    val look = spec.look
+    fun update(l: FrameLook) = onChange(spec.copy(look = l))
+    FrameHeading(stringResource(R.string.frame_caption))
+    val kinds = CaptionKind.entries
+    FrameChipRow(
+        labels = kinds.map { stringResource(it.labelRes) },
+        selected = kinds.indexOf(look.caption),
+        onSelect = { update(look.copy(caption = kinds[it])) },
+    )
+    if (look.caption == CaptionKind.CUSTOM) {
+        OutlinedTextField(
+            value = look.captionText,
+            onValueChange = { update(look.copy(captionText = it.replace('\n', ' ').take(FrameLook.CAPTION_MAX))) },
+            label = { Text(stringResource(R.string.frame_caption_text)) },
+            singleLine = true,
+            supportingText = { Text("${look.captionText.length} / ${FrameLook.CAPTION_MAX}") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    if (look.hasCaption) {
+        if (captionKnown && caption == null && look.caption != CaptionKind.CUSTOM) {
+            FrameNote(stringResource(R.string.frame_caption_missing))
+        }
+        val fonts = CaptionFont.entries
+        SubTabRow(
+            tabs = fonts.map { stringResource(it.labelRes) },
+            selected = fonts.indexOf(look.captionFont),
+            onSelect = { update(look.copy(captionFont = fonts[it])) },
+        )
+    }
+}
+
+/** Whether the strip carries edge text, its label, and a fixed frame number. */
+@Composable
+private fun EdgeMarkingControls(spec: FrameSpec, onChange: (FrameSpec) -> Unit) {
+    val look = spec.look
+    fun update(l: FrameLook) = onChange(spec.copy(look = l))
+    FrameHeading(stringResource(R.string.frame_markings))
+    SwitchRow(
+        label = stringResource(R.string.frame_markings_show),
+        checked = look.edgeMarkings,
+        onCheckedChange = { update(look.copy(edgeMarkings = it)) },
+    )
+    if (!look.edgeMarkings) return
+    OutlinedTextField(
+        value = look.edgeLabel,
+        // Trailing spaces stay while typing (the next word follows); the layout trims them.
+        onValueChange = { raw ->
+            val typed = raw.uppercase(java.util.Locale.ROOT).filter { it in ' '..'~' }.trimStart()
+            update(look.copy(edgeLabel = typed.take(FrameLook.EDGE_LABEL_MAX)))
+        },
+        label = { Text(stringResource(R.string.frame_markings_label)) },
+        placeholder = { Text(FilmBorderGeometry.EDGE_LABEL) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    EnhancedSlider(
+        label = stringResource(R.string.frame_number),
+        value = (look.frameNumber ?: 0).toFloat(),
+        range = 0f..FrameLook.FRAME_NUMBER_RANGE.last.toFloat(),
+        step = 1f,
+        decimals = 0,
+        default = 0f,
+        onValueChange = { v ->
+            val n = v.roundToInt()
+            update(look.copy(frameNumber = n.takeIf { it in FrameLook.FRAME_NUMBER_RANGE }))
+        },
+    )
+    FrameNote(stringResource(R.string.frame_number_note))
+}
+
+/** A one-of-N row of text chips that scrolls sideways when the labels run long. */
+@Composable
+private fun FrameChipRow(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        labels.forEachIndexed { i, label ->
+            val isSelected = i == selected
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelect(i) }),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 }
 
