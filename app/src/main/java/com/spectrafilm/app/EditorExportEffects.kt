@@ -329,6 +329,10 @@ internal suspend fun CoroutineScope.runSpeculativePrerender(
     }
     if (held) return
     val sourcePixels = withContext(dispatchers.io) { mediaStorePixelCount(app, activeUri) }
+    // Two readings a few seconds apart: one taken right after the system reclaimed cached
+    // memory overstated what the render would have (5.7 GB, falling to 1.9 GB mid-render).
+    if (!RenderPayloads.shouldPrerender(app, sourcePixels)) return
+    delay(RenderPayloads.PRERENDER_RECHECK_MS)
     if (!RenderPayloads.shouldPrerender(app, sourcePixels)) return
     val startedMs = System.currentTimeMillis()
     // #270: the render runs as a tracked flight, not as this effect's child, so an

@@ -275,12 +275,15 @@ internal object RenderPayloads {
     }
 
     /**
-     * Process memory growth per source pixel over a full-resolution render, GPU included:
-     * the SM-S948W's export of a 48 MP DNG peaked at ~4.9 GB PSS and a 41 MP one at
-     * ~4.7 GB, and its first 41 MP pre-render with ~3 GB available had lmkd kill 18
-     * background apps.
+     * System memory a full-resolution render takes per source pixel, GPU included. On the
+     * SM-S948W a 41.2 MP pre-render took MemAvailable from 5.7 GB to 1.9 GB while lmkd
+     * reaped 22 cached apps (~1.5 GB) to keep up: ~5.4 GB, ~132 B per pixel. At 100 the
+     * gate passed and the render still caused those kills.
      */
-    const val PRERENDER_PEAK_BYTES_PER_PIXEL = 100L
+    const val PRERENDER_PEAK_BYTES_PER_PIXEL = 135L
+
+    /** Gap between the two MemAvailable readings that must both pass. */
+    const val PRERENDER_RECHECK_MS = 3_000L
     const val PRERENDER_MEMORY_MARGIN_BYTES = 512L shl 20
 
     /** Pixels assumed when the source's size is unknown: a 48 MP phone RAW. */
