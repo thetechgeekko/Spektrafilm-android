@@ -208,6 +208,11 @@ struct ContrastMaskGainParams {
     float highlights = 0.0f;
     float shadows = 0.0f;
 };
+// Scoped reclaims since process start: a GPU pass whose reservation was denied
+// dropped the other kernels' idle grow-only buffers and retried. Diagnostics.
+uint64_t scoped_reclaim_count();
+uint64_t scoped_reclaim_bytes();
+
 bool contrast_mask_gain(const float* raw, float* gain, uint32_t npix,
                         const float* grid_a, const float* grid_b,
                         const ContrastMaskGainParams& params);

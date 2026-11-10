@@ -88,6 +88,8 @@ bool scan_spectral(const float*, float*, uint32_t, const float*, const float*, c
 bool scan_spectral_linear(const float*, float*, uint32_t, const float*, const float*, const float*) { return false; }
 bool contrast_mask_gain(const float*, float*, uint32_t, const float*, const float*,
                         const ContrastMaskGainParams&) { return false; }
+uint64_t scoped_reclaim_count() { return 0; }
+uint64_t scoped_reclaim_bytes() { return 0; }
 bool gaussian_blur_rgb(double*, int, int, const double*) { return false; }
 bool gaussian_blur_rgb_f32(float*, int, int, const double*) { return false; }
 bool glare_field(float*, int, int, const GlareRequest&, GlareDiagnostics* d) {
@@ -245,6 +247,10 @@ enum PointwiseTable : size_t {
     kScanIlluminantCmf,
     kPointwiseTableCount,
 };
+
+bool gpu_mutex_held_by_this_thread();
+std::uint64_t gpu_reserved_bytes_locked();
+void note_scoped_reclaim(std::uint64_t freed);
 
 struct Ctx {
     VkInstance instance = VK_NULL_HANDLE;
@@ -619,6 +625,13 @@ struct Ctx {
                 deviceLocal ? spk::memory::MemoryDomain::GpuDevice
                             : spk::memory::MemoryDomain::GpuHost,
                 spk::memory::MemoryStage::Gpu);
+        if (!reservation && reclaimOthers(&b)) {
+            reservation = spk::memory::process_memory_budget().try_reserve(
+                static_cast<std::uint64_t>(req.size),
+                deviceLocal ? spk::memory::MemoryDomain::GpuDevice
+                            : spk::memory::MemoryDomain::GpuHost,
+                spk::memory::MemoryStage::Gpu);
+        }
         if (!reservation) {
             vkDestroyBuffer(device, buffer, nullptr);
             return false;
@@ -674,6 +687,50 @@ struct Ctx {
 
     // Tear down all persistent kernel state (failure recovery only — never runs
     // at process exit, see the deliberate leak below).
+    // Scoped reclaim: a GPU pass whose own reservation was denied, while this
+    // thread holds the GPU mutex, drops the idle grow-only buffers (and
+    // pipelines) of every OTHER kernel group, then retries once. The process
+    // reclaimer cannot help here: it must not tear down the whole context
+    // mid-pass, so it refuses whenever the caller holds the mutex. Each pass
+    // uses one group's buffers only (the audit in the PR), so the dropped
+    // groups are idle and rebuild lazily on their next use. Never while a
+    // resident frame is open: the frame's planes are live between passes.
+    // Fires only on a denial; returns true when it freed something.
+    bool reclaimOthers(const void* requester) {
+        if (!device || frame.open || !gpu_mutex_held_by_this_thread()) return false;
+        auto inside = [requester](const auto& obj) {
+            const char* a = reinterpret_cast<const char*>(&obj);
+            const char* p = static_cast<const char*>(requester);
+            return p >= a && p < a + sizeof(obj);
+        };
+        const bool keepFft = inside(fftK) || inside(fftWork);
+        // A buffer outside every group is not a pass's grow-only buffer: refuse
+        // rather than risk dropping the group that is actually running.
+        const bool known = inside(scanFused) || inside(scanLin) || inside(grainK) ||
+                           inside(glareK) || inside(maskK) || keepFft || inside(filmK) ||
+                           inside(halation) || inside(pointwise) || inside(frame);
+        if (!known) return false;
+        const std::uint64_t before = gpu_reserved_bytes_locked();
+        vkDeviceWaitIdle(device);
+        if (!inside(scanFused)) destroyKernel(scanFused);
+        if (!inside(scanLin)) destroyKernel(scanLin);
+        if (!inside(grainK)) destroyKernel(grainK);
+        if (!inside(glareK)) destroyKernel(glareK);
+        if (!inside(maskK)) destroyKernel(maskK);
+        if (!keepFft) {
+            destroyKernel(fftK);
+            for (ResidentBuf& b : fftWork) destroyResidentBuf(b);
+        }
+        if (!inside(filmK)) destroyKernel(filmK);
+        if (!inside(halation)) destroyHalation();
+        if (!inside(pointwise)) destroyPointwise();
+        if (!inside(frame)) destroyFrame();
+        const std::uint64_t after = gpu_reserved_bytes_locked();
+        if (after >= before) return false;
+        note_scoped_reclaim(before - after);
+        return true;
+    }
+
     void destroyKernel(Kernel& s) {
         if (s.fence) { vkDestroyFence(device, s.fence, nullptr); s.fence = VK_NULL_HANDLE; }
         if (s.cpool) { vkDestroyCommandPool(device, s.cpool, nullptr); s.cpool = VK_NULL_HANDLE; s.cmd = VK_NULL_HANDLE; }
@@ -812,6 +869,11 @@ struct Ctx {
         b.reservation = spk::memory::process_memory_budget().try_reserve(
             static_cast<std::uint64_t>(req.size), spk::memory::MemoryDomain::GpuHost,
             spk::memory::MemoryStage::Gpu);
+        if (!b.reservation && reclaimOthers(&b)) {
+            b.reservation = spk::memory::process_memory_budget().try_reserve(
+                static_cast<std::uint64_t>(req.size), spk::memory::MemoryDomain::GpuHost,
+                spk::memory::MemoryStage::Gpu);
+        }
         if (!b.reservation) return false;
         VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         mai.allocationSize = req.size;
@@ -860,6 +922,27 @@ private:
     std::atomic<std::thread::id> owner_{};
 };
 GpuMutex& gpu_mutex() { static GpuMutex m; return m; }
+
+bool gpu_mutex_held_by_this_thread() { return gpu_mutex().held_by_this_thread(); }
+
+std::uint64_t gpu_reserved_bytes_locked() {
+    const auto s = spk::memory::process_memory_budget().snapshot();
+    return s.domains[static_cast<std::size_t>(spk::memory::MemoryDomain::GpuHost)].current_bytes +
+           s.domains[static_cast<std::size_t>(spk::memory::MemoryDomain::GpuDevice)].current_bytes;
+}
+
+std::atomic<std::uint64_t> g_scoped_reclaims{0};
+std::atomic<std::uint64_t> g_scoped_reclaim_bytes{0};
+
+void note_scoped_reclaim(std::uint64_t freed) {
+    g_scoped_reclaims.fetch_add(1, std::memory_order_relaxed);
+    g_scoped_reclaim_bytes.fetch_add(freed, std::memory_order_relaxed);
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "spektra",
+                        "gpu scoped reclaim for a denied reservation: freed %llu bytes",
+                        static_cast<unsigned long long>(freed));
+#endif
+}
 Ctx* g_ctx = nullptr;  // guarded by gpu_mutex(); see ctx()
 bool release_resources_locked();
 bool reclaim_for_budget() noexcept;
@@ -1891,6 +1974,9 @@ bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
     return dispatch_scan(c, c.scanLin, kScanSpectralLinSpv, sizeof(kScanSpectralLinSpv),
                          cmy, rgb, npix, dye, icmf, xyz2rgb);
 }
+
+uint64_t scoped_reclaim_count() { return g_scoped_reclaims.load(std::memory_order_relaxed); }
+uint64_t scoped_reclaim_bytes() { return g_scoped_reclaim_bytes.load(std::memory_order_relaxed); }
 
 struct ContrastMaskPush {
     uint32_t n, base, width;
