@@ -21,7 +21,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,7 +65,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.spectrafilm.engine.ColorSpace
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -370,7 +368,6 @@ fun ExportSheet(
                 options = options,
                 onOptionsChange = onOptionsChange,
                 previewBitmap = previewBitmap,
-                display = { resources.getString(it.labelRes) },
             )
 
             if (!isSceneLinear && !manyPhotos) {
@@ -520,7 +517,6 @@ private fun FilmBorderSection(
     options: ExportOptions,
     onOptionsChange: (ExportOptions) -> Unit,
     previewBitmap: Bitmap?,
-    display: (FilmBorder) -> String,
 ) {
     Text(
         stringResource(R.string.tool_export_border_heading),
@@ -535,37 +531,29 @@ private fun FilmBorderSection(
         )
         return
     }
-    Dropdown(
-        label = stringResource(R.string.tool_export_border),
-        selected = options.border,
-        options = FilmBorder.entries.toList(),
-        display = display,
-        onSelect = { onOptionsChange(options.copy(border = it)) },
+    // The Frame tab's controls, so a library export (no editor) can frame its photos too.
+    FrameControls(
+        spec = options.frameSpec,
+        onChange = { onOptionsChange(options.withFrame(it)) },
+        preview = previewBitmap,
+        frameless = false,
     )
-    if (options.border == FilmBorder.NONE) return
+    if (options.frameSpec.isNone) return
     Text(
         stringResource(R.string.tool_export_border_note),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     // A small framed copy of the current preview, painted by the same code as the export, so
-    // what the sheet shows is what the file gets. ~1.6 MB at most; deliberately left to the GC
-    // rather than recycled on change, because the Image may still draw the old one for a frame.
-    // Painted on the default dispatcher under a preview read lease, not in composition: the
-    // scale plus the border render is a per-pixel pass, and in composition it lands in the
-    // frame that opens the sheet (#270). The old thumbnail stays up until the new one is ready.
-    val dispatchers = rememberAppDispatchers()
-    var thumb by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(previewBitmap, options.border) {
-        thumb = withContext(dispatchers.default) {
-            val preview = previewBitmap ?: return@withContext null
-            acquirePreviewLease(preview)?.use { borderThumbnail(it.value, options.border) }
-        }
-    }
-    thumb?.let { framed ->
+    // what the sheet shows is what the file gets. Painted off the main thread under a preview
+    // read lease, not in composition (#270); the old thumbnail stays up until the new one is ready.
+    rememberFramedPreview(previewBitmap, options.frameSpec, BORDER_THUMB_EDGE)?.let { framed ->
         Image(
             bitmap = framed.asImageBitmap(),
-            contentDescription = stringResource(R.string.tool_export_border_preview_cd, display(options.border)),
+            contentDescription = stringResource(
+                R.string.tool_export_border_preview_cd,
+                stringResource(options.border.labelRes),
+            ),
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
@@ -576,20 +564,6 @@ private fun FilmBorderSection(
 
 /** Long edge of the border thumbnail in the export sheet. */
 private const val BORDER_THUMB_EDGE = 640
-
-private fun borderThumbnail(preview: Bitmap?, border: FilmBorder): Bitmap? {
-    if (preview == null || preview.isRecycled || border == FilmBorder.NONE) return null
-    return runCatching {
-        val small = scaleBitmapToLongEdge(preview, BORDER_THUMB_EDGE)
-        try {
-            val layout = FilmBorderGeometry.layout(border, small.width, small.height)
-                ?: return@runCatching null
-            FilmBorderRenderer.render(small, layout)
-        } finally {
-            if (small !== preview) small.recycle()
-        }
-    }.getOrNull()
-}
 
 /** Localised display name for an [ExportFormat] (the enum's `display` stays as the log/diagnostic id). */
 @StringRes

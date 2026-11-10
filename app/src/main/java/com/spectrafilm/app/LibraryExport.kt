@@ -94,6 +94,7 @@ internal fun encodeLibraryExportOptions(options: ExportOptions): String = JSONOb
     put("customLongEdge", options.customLongEdge)
     put("border", options.border.name)
     put("sharpen", options.sharpen.name)
+    put("frame", options.frame.toJson())
 }.toString()
 
 internal fun decodeLibraryExportOptions(text: String?, fallback: ExportOptions): ExportOptions {
@@ -112,6 +113,7 @@ internal fun decodeLibraryExportOptions(text: String?, fallback: ExportOptions):
             border = FilmBorder.parse(json.optString("border", FilmBorder.NONE.name)),
             sharpen = runCatching { OutputSharpen.valueOf(json.getString("sharpen")) }
                 .getOrDefault(OutputSharpen.NONE),
+            frame = FrameLook.fromJson(json.optJSONObject("frame")),
         )
     }.getOrDefault(fallback)
 }

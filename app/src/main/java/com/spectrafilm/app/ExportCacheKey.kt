@@ -78,6 +78,8 @@ internal object ExportCacheKey {
         border: FilmBorder,
         contractVersion: String,
         sharpen: OutputSharpen = OutputSharpen.NONE,
+        /** The frame's width, colour and aspect; only keyed when not the default, so older keys hold. */
+        frame: FrameLook = FrameLook(),
     ): String {
         val text = buildString {
             line("schema", SCHEMA)
@@ -126,6 +128,7 @@ internal object ExportCacheKey {
             line("encoder.jpegQuality", jpegQuality)
             line("exif.keepGps", keepGps)
             line("border", border.name)
+            if (!frame.isDefault) line("frame", FrameSpec(border, frame).key())
         }
         return sha256Hex(text.toByteArray(Charsets.UTF_8))
     }

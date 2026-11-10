@@ -701,6 +701,8 @@
     <string name="editor_section_detail_hint">Scan sharpening and levels, RAW cleanup</string>
     <string name="editor_section_output">Output</string>
     <string name="editor_section_output_hint">Color space, gamut and preview</string>
+    <string name="editor_section_frame">Frame</string>
+    <string name="editor_section_frame_hint">Border, colour and aspect around the photo</string>
     <string name="editor_section_lab">Lab</string>
     <string name="editor_section_lab_hint">Spectral input and experimental curves</string>
     <string name="editor_category_paper">Paper</string>
@@ -716,6 +718,7 @@
     <string name="editor_category_date_stamp">Date stamp</string>
     <string name="editor_category_scanner">Scan</string>
     <string name="editor_category_raw_cleanup">RAW cleanup</string>
+    <string name="editor_category_frame">Frame</string>
     <string name="editor_hint_exposure">Camera exposure and auto-exposure</string>
     <string name="editor_hint_scene_latitude">Hold detail in bright highlights and deep shadows before the film</string>
     <string name="editor_hint_sat_vib">Saturation and vibrance of the final image</string>
@@ -727,6 +730,7 @@
     <string name="editor_hint_lens_blur">Camera lens softness</string>
     <string name="editor_hint_date_stamp">A date imprint in the corner of the frame</string>
     <string name="editor_hint_raw_cleanup">Hot pixels and chroma noise inside the RAW decode</string>
+    <string name="editor_hint_frame">A print border or film strip around the photo, added on export</string>
     <string name="editor_reset_short">Reset</string>
     <string name="editor_hud_type_value">Type an exact value</string>
     <string name="editor_history_title">History</string>

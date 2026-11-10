@@ -609,6 +609,10 @@
     <string name="editor_section_effects_hint">Brilho, desfoque da lente e data impressa</string>
     <string name="editor_section_detail">Detalhe</string>
     <string name="editor_section_detail_hint">Nitidez e níveis da digitalização, limpeza RAW</string>
+    <string name="editor_section_frame">Moldura</string>
+    <string name="editor_section_frame_hint">Borda, cor e proporção ao redor da foto</string>
+    <string name="editor_category_frame">Moldura</string>
+    <string name="editor_hint_frame">Uma margem de cópia ou tira de filme ao redor da foto, adicionada ao exportar</string>
     <string name="editor_section_output">Saída</string>
     <string name="editor_section_output_hint">Espaço de cor, gama e prévia</string>
     <string name="editor_section_lab">Lab</string>

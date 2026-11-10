@@ -49,6 +49,8 @@ internal enum class Category(val label: String, @StringRes val labelRes: Int) {
     // Detail
     SCANNER("Scan", R.string.editor_category_scanner),
     RAW_CLEANUP("RAW cleanup", R.string.editor_category_raw_cleanup),
+    // Frame
+    FRAME("Frame", R.string.editor_category_frame),
     // Output
     OUTPUT("Output", R.string.editor_sim_tab_output),
     DISPLAY("Display", R.string.editor_category_display),
@@ -75,7 +77,7 @@ internal enum class EditorMode(@StringRes val labelRes: Int, @StringRes val hint
 }
 
 /**
- * A group of tools shown together: Looks and Masks are one group each; Edit has eight
+ * A group of tools shown together: Looks and Masks are one group each; Edit has nine
  * sections, by what each changes (Light, Color, ...), shown as tabs over a stacked list.
  */
 internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: Int, val mode: EditorMode) {
@@ -86,6 +88,7 @@ internal enum class Stage(@StringRes val labelRes: Int, @StringRes val hintRes: 
     PRINT(R.string.editor_section_print, R.string.editor_section_print_hint, EditorMode.EDIT),
     EFFECTS(R.string.editor_section_effects, R.string.editor_section_effects_hint, EditorMode.EDIT),
     DETAIL(R.string.editor_section_detail, R.string.editor_section_detail_hint, EditorMode.EDIT),
+    FRAME(R.string.editor_section_frame, R.string.editor_section_frame_hint, EditorMode.EDIT),
     OUTPUT(R.string.editor_section_output, R.string.editor_section_output_hint, EditorMode.EDIT),
     LAB(R.string.editor_section_lab, R.string.editor_section_lab_hint, EditorMode.EDIT),
     MASKS(R.string.editor_mode_masks, R.string.editor_mode_masks_hint, EditorMode.MASKS),
@@ -120,6 +123,7 @@ internal val Category.stage: Stage
         Category.PRINT_EXPOSURE, Category.PREFLASH, Category.ENLARGER -> Stage.PRINT
         Category.GLARE, Category.LENS_BLUR, Category.DATE_STAMP -> Stage.EFFECTS
         Category.SCANNER, Category.RAW_CLEANUP -> Stage.DETAIL
+        Category.FRAME -> Stage.FRAME
         Category.OUTPUT, Category.DISPLAY -> Stage.OUTPUT
         Category.INPUT, Category.EXPERIMENTAL -> Stage.LAB
         Category.MASKS -> Stage.MASKS

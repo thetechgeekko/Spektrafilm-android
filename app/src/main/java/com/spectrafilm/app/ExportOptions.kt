@@ -33,6 +33,8 @@ data class ExportOptions(
     val border: FilmBorder = FilmBorder.NONE,
     /** Output sharpening, applied after the resize (8-bit formats only). */
     val sharpen: OutputSharpen = OutputSharpen.NONE,
+    /** Width, colour and aspect of the [border] frame (the Frame tab). */
+    val frame: FrameLook = FrameLook(),
 ) {
     /**
      * The border this export actually gets. 16-bit and scene-linear formats write the engine's
@@ -42,6 +44,16 @@ data class ExportOptions(
     fun effectiveBorder(): FilmBorder =
         if (format.isHighBitDepth() || format == ExportFormat.SCENE_LINEAR_TIFF) FilmBorder.NONE
         else border
+
+    /** The whole frame this export paints: [effectiveBorder] with its [frame] look, or none. */
+    fun effectiveFrame(): FrameSpec =
+        if (format.isHighBitDepth() || format == ExportFormat.SCENE_LINEAR_TIFF) FrameSpec.NONE
+        else FrameSpec(border, frame)
+
+    /** The frame as chosen, whether or not this format can carry it (the Frame tab edits this). */
+    val frameSpec: FrameSpec get() = FrameSpec(border, frame)
+
+    fun withFrame(spec: FrameSpec): ExportOptions = copy(border = spec.style, frame = spec.look)
 
     /**
      * Target long edge in px for a post-render downscale, or null = full resolution. 16-bit formats

@@ -1154,6 +1154,8 @@ internal fun EditorScreen(
             retireSourceResources = ::retireSourceResources,
             resetEditorCursorForSourceChange = ::resetEditorCursorForSourceChange,
             reconcileVisibleSourceAfterFailure = ::reconcileVisibleSourceAfterFailure,
+            exportOptions = exportOptions,
+            onExportOptionsChange = { exportVm.onAction(ExportAction.SetOptions(it)) },
         )
     }
     // The Crop tab draws its frame on the photo only once the preview on screen is the
@@ -1167,10 +1169,16 @@ internal fun EditorScreen(
     val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
         val cropBitmap = cropCanvasBmp
         val draft = cropDraft
+        // The Frame tab shows the photo with its frame, painted by the export's own renderer.
+        val framePreview = preview?.takeIf {
+            activeCategory == Category.FRAME && !it.isRecycled && !exportOptions.frameSpec.isNone
+        }
         if (cropBitmap != null && draft != null) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                 CropCanvas(bitmap = cropBitmap, draft = draft, bottomInset = panelInset)
             }
+        } else if (framePreview != null) {
+            FramedPreviewCanvas(preview = framePreview, spec = exportOptions.frameSpec, bottomInset = panelInset)
         } else PreviewRegion(
             zoomRequests = viewerVm.zoomRequests,
             controlsBottomInset = panelInset,

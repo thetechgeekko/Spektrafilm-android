@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">%1$s der Vorschau ist in %2$s beschnitten: ausgefressene Lichter, abgesoffene Schatten oder Farben außerhalb des Farbraums. Die Clipping-Taste am Foto zeigt, wo.</string>
     <string name="tool_export_proof_wide">Dieser Bildschirm zeigt eventuell nicht alle Farben von %1$s. Die Datei behält sie; die Vorschau zeigt sie beschnitten.</string>
     <string name="tool_export_proof_sharpen">Die Ausgabeschärfung wird danach auf die Datei angewendet und kann etwas mehr beschneiden.</string>
+    <string name="tool_export_border_instant">Sofortbild</string>
+    <string name="tool_export_border_mat">Galerie-Passepartout</string>
+    <string name="tool_export_border_half">Halbformat-Streifen</string>
+    <string name="tool_export_border_rough">Gefeilter Rand</string>
+    <string name="frame_style">Stil</string>
+    <string name="frame_width">Randbreite</string>
+    <string name="frame_color">Farbe</string>
+    <string name="frame_color_style">Stilvorgabe</string>
+    <string name="frame_color_white">Papierweiß</string>
+    <string name="frame_color_cream">Warmes Creme</string>
+    <string name="frame_color_grey">Grau</string>
+    <string name="frame_color_black">Schwarz</string>
+    <string name="frame_color_photo">Aus dem Foto</string>
+    <string name="frame_aspect">Seitenverhältnis</string>
+    <string name="frame_aspect_original">Original</string>
+    <string name="frame_aspect_note">Füllt den Rahmen auf dieses Format auf. Das Foto wird nie beschnitten.</string>
+    <string name="frame_strip_color_note">Filmstreifen behalten ihre Filmbasis. Die Farbe füllt den Rand für das Seitenverhältnis.</string>
+    <string name="frame_export_note">Der Rahmen wird beim Export hinzugefügt. Ultra HDR, JPEG und PNG enthalten ihn; Formate mit hoher Bittiefe exportieren das reine Foto.</string>
+    <string name="frame_preview_cd">Foto mit dem gewählten Rahmen</string>
 </resources>

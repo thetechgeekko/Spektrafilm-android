@@ -12,6 +12,7 @@ package com.spectrafilm.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
@@ -45,8 +46,39 @@ internal object FilmBorderRenderer {
     }
 
     private fun paint(canvas: Canvas, photo: Bitmap, layout: BorderLayout) {
-        canvas.drawColor(layout.background)
+        // FROM_PHOTO frames carry a placeholder colour; resolve it once from the photo.
+        val tone by lazy(LazyThreadSafetyMode.NONE) { photoTone(photo) }
+        fun resolve(c: Int) = if (c == FilmBorderGeometry.PHOTO_TONE) tone else c
+        val background = resolve(layout.background)
+        val frame = resolve(layout.frameColor)
+        canvas.drawColor(background)
+        if (frame != background) {
+            val r = layout.frameRect
+            canvas.drawRect(
+                r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(),
+                Paint().apply { color = frame },
+            )
+        }
+        if (layout.inkOutline.size >= 3) {
+            val path = Path()
+            layout.inkOutline.forEachIndexed { i, p ->
+                if (i == 0) path.moveTo(p.x.toFloat(), p.y.toFloat()) else path.lineTo(p.x.toFloat(), p.y.toFloat())
+            }
+            path.close()
+            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FilmBorderGeometry.contrastOn(frame) })
+        }
+        // The photo goes over the ink, so nothing the frame paints can cover the picture.
         canvas.drawBitmap(photo, layout.image.left.toFloat(), layout.image.top.toFloat(), null)
+
+        if (layout.rules.isNotEmpty()) {
+            val rulePaint = Paint().apply {
+                // A keyline reads as a pencil line, not a stripe: dark or light at partial strength.
+                color = FilmBorderGeometry.contrastOn(frame) and 0x00FFFFFF or (0x99 shl 24)
+            }
+            for (r in layout.rules) {
+                canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(), rulePaint)
+            }
+        }
 
         if (layout.holes.isNotEmpty()) {
             val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = layout.holeColor }
@@ -79,4 +111,27 @@ internal object FilmBorderRenderer {
             }
         }
     }
+
+    /** [FilmBorderGeometry.mutedTone] of [photo]'s average colour, sampled from a tiny copy. */
+    private fun photoTone(photo: Bitmap): Int {
+        val small = Bitmap.createScaledBitmap(photo, TONE_SAMPLE, TONE_SAMPLE, true)
+        try {
+            var r = 0L
+            var g = 0L
+            var b = 0L
+            val px = IntArray(TONE_SAMPLE * TONE_SAMPLE)
+            small.getPixels(px, 0, TONE_SAMPLE, 0, 0, TONE_SAMPLE, TONE_SAMPLE)
+            for (c in px) {
+                r += (c shr 16) and 0xFF
+                g += (c shr 8) and 0xFF
+                b += c and 0xFF
+            }
+            val n = px.size
+            return FilmBorderGeometry.mutedTone((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        } finally {
+            if (small !== photo) small.recycle()
+        }
+    }
+
+    private const val TONE_SAMPLE = 16
 }

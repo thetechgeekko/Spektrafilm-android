@@ -605,6 +605,10 @@
     <string name="editor_section_effects_hint">글레어, 렌즈 블러, 날짜 각인</string>
     <string name="editor_section_detail">디테일</string>
     <string name="editor_section_detail_hint">스캔 선명도와 레벨, RAW 정리</string>
+    <string name="editor_section_frame">프레임</string>
+    <string name="editor_section_frame_hint">사진 둘레의 테두리, 색, 비율</string>
+    <string name="editor_category_frame">프레임</string>
+    <string name="editor_hint_frame">사진 둘레에 인화지 여백이나 필름 스트립을 더합니다(내보낼 때)</string>
     <string name="editor_section_output">출력</string>
     <string name="editor_section_output_hint">색 공간, 색역, 미리보기</string>
     <string name="editor_section_lab">랩</string>

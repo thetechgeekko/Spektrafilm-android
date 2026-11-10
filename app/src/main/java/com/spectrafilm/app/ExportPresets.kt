@@ -64,6 +64,7 @@ internal object ExportPresetCodec {
                     .put("fileName", p.options.customName)
                     .put("sharpen", p.options.sharpen.name)
                     .put("border", p.options.border.name)
+                    .put("frame", p.options.frame.toJson())
                     .put("keepGps", p.keepGps),
             )
         }
@@ -95,6 +96,7 @@ internal object ExportPresetCodec {
                         customName = o.optString("fileName", ""),
                         sharpen = OutputSharpen.valueOf(o.optString("sharpen", OutputSharpen.NONE.name)),
                         border = FilmBorder.valueOf(o.optString("border", FilmBorder.NONE.name)),
+                        frame = FrameLook.fromJson(o.optJSONObject("frame")),
                     ),
                     keepGps = o.optBoolean("keepGps", false),
                 )

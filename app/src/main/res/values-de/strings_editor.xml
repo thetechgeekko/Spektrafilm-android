@@ -607,6 +607,10 @@
     <string name="editor_section_effects_hint">Streulicht, Objektivunschärfe und Datumsstempel</string>
     <string name="editor_section_detail">Details</string>
     <string name="editor_section_detail_hint">Scan-Schärfung und Tonwerte, RAW-Bereinigung</string>
+    <string name="editor_section_frame">Rahmen</string>
+    <string name="editor_section_frame_hint">Rand, Farbe und Seitenverhältnis um das Foto</string>
+    <string name="editor_category_frame">Rahmen</string>
+    <string name="editor_hint_frame">Ein Abzugsrand oder Filmstreifen um das Foto, beim Export hinzugefügt</string>
     <string name="editor_section_output">Ausgabe</string>
     <string name="editor_section_output_hint">Farbraum, Gamut und Vorschau</string>
     <string name="editor_section_lab">Labor</string>

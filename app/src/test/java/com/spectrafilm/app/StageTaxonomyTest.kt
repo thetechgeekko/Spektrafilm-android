@@ -42,7 +42,7 @@ class StageTaxonomyTest {
         assertEquals(
             listOf(
                 Stage.LIGHT, Stage.COLOR, Stage.FILM, Stage.PRINT,
-                Stage.EFFECTS, Stage.DETAIL, Stage.OUTPUT, Stage.LAB,
+                Stage.EFFECTS, Stage.DETAIL, Stage.FRAME, Stage.OUTPUT, Stage.LAB,
             ),
             stagesOf(EditorMode.EDIT),
         )
@@ -86,6 +86,7 @@ class StageTaxonomyTest {
         assertEquals(Category.PRINT_EXPOSURE, categoriesOf(Stage.PRINT).first())
         assertEquals(Category.GLARE, categoriesOf(Stage.EFFECTS).first())
         assertEquals(Category.SCANNER, categoriesOf(Stage.DETAIL).first())
+        assertEquals(Category.FRAME, categoriesOf(Stage.FRAME).first())
         assertEquals(Category.OUTPUT, categoriesOf(Stage.OUTPUT).first())
         assertEquals(Category.INPUT, categoriesOf(Stage.LAB).first())
         assertEquals(Category.MASKS, categoriesOf(Stage.MASKS).first())

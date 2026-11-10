@@ -221,4 +221,23 @@
     <string name="tool_export_proof_clipped">プレビューの %1$s が %2$s でクリップされます（白飛び、黒つぶれ、色空間外の色）。写真のクリッピングボタンで場所を確認できます。</string>
     <string name="tool_export_proof_wide">この画面では %1$s のすべての色を表示できない場合があります。ファイルには保持されますが、プレビューではクリップして表示されます。</string>
     <string name="tool_export_proof_sharpen">出力シャープニングはこの後ファイルに適用され、わずかにクリップが増えることがあります。</string>
+    <string name="tool_export_border_instant">インスタント</string>
+    <string name="tool_export_border_mat">ギャラリーマット</string>
+    <string name="tool_export_border_half">ハーフサイズ</string>
+    <string name="tool_export_border_rough">ラフな黒縁</string>
+    <string name="frame_style">スタイル</string>
+    <string name="frame_width">縁の幅</string>
+    <string name="frame_color">色</string>
+    <string name="frame_color_style">スタイル標準</string>
+    <string name="frame_color_white">ペーパーホワイト</string>
+    <string name="frame_color_cream">ウォームクリーム</string>
+    <string name="frame_color_grey">グレー</string>
+    <string name="frame_color_black">ブラック</string>
+    <string name="frame_color_photo">写真から</string>
+    <string name="frame_aspect">縦横比に合わせる</string>
+    <string name="frame_aspect_original">元のまま</string>
+    <string name="frame_aspect_note">この形になるまでフレームを広げます。写真は切り取られません。</string>
+    <string name="frame_strip_color_note">フィルムストリップはベース色のままです。色は縦横比の余白に使われます。</string>
+    <string name="frame_export_note">フレームは書き出し時に付きます。Ultra HDR、JPEG、PNG に付き、高ビット深度の形式は写真のみを書き出します。</string>
+    <string name="frame_preview_cd">選んだフレーム付きの写真</string>
 </resources>

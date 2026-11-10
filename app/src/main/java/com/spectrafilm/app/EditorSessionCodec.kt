@@ -655,6 +655,7 @@ internal object EditorSessionDocumentCodec {
         put("customName", options.customName)
         put("border", options.border.name)
         put("sharpen", options.sharpen.name)
+        if (!options.frame.isDefault) put("frame", options.frame.toJson())
     }
 
     private fun presetToJson(preset: EditorPresetState) = JSONObject().apply {
@@ -692,6 +693,8 @@ internal object EditorSessionDocumentCodec {
         } else {
             OutputSharpen.NONE
         },
+        // Optional: absent before the Frame tab, and whenever the look is the default.
+        frame = FrameLook.fromJson(value.optJSONObject("frame")),
     )
 
     private fun JSONObject.requiredObject(key: String): JSONObject =
