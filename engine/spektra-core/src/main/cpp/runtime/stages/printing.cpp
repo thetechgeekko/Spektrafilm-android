@@ -12,6 +12,7 @@
  */
 #include "runtime/stages/printing.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <memory>
@@ -109,6 +110,40 @@ constexpr int kGpuNB = 81;  // the shader's fixed band count
 
 std::atomic<int> g_gpu_print_state{0};      // 0 unchecked, 1 passed, 2 failed
 std::atomic<long long> g_gpu_print_frames{0};
+std::atomic<long long> g_gpu_mask_frames{0};
+
+// The contrast-mask gain of every pixel on the GPU from the print integral's
+// raw output (gpu/contrast_mask.comp), against the frame grid `g` whose row 0
+// is band row -frame_y0. False leaves `gain` unspecified.
+bool gpu_contrast_mask_gain(const float* gpu_raw, int width, int height, int frame_y0,
+                            const ContrastMaskGrid& g, const PrintingParams& params,
+                            const double preflash_raw[3], double mult, float* gain) {
+    if (g.gw <= 0 || g.gh <= 0 || g.frame_width != width) return false;
+    const size_t cells = static_cast<size_t>(g.gw) * static_cast<size_t>(g.gh);
+    if (g.a.size() != cells || g.b.size() != cells) return false;
+    std::vector<float> ga(cells), gb(cells);
+    for (size_t i = 0; i < cells; ++i) {
+        ga[i] = static_cast<float>(g.a[i]);
+        gb[i] = static_cast<float>(g.b[i]);
+    }
+    const ContrastMaskParams& cm = params.contrast_mask;
+    spk::gpu::ContrastMaskGainParams gp;
+    gp.width = static_cast<uint32_t>(width);
+    gp.frame_y0 = frame_y0;
+    gp.frame_height = g.frame_height;
+    gp.gw = g.gw;
+    gp.gh = g.gh;
+    gp.exposure_factor_midgray = static_cast<float>(params.exposure_factor_midgray);
+    gp.mult = static_cast<float>(mult);
+    for (int c = 0; c < 3; ++c) gp.preflash[c] = static_cast<float>(preflash_raw[c]);
+    gp.core = static_cast<float>(cm.core);
+    gp.highlights = static_cast<float>(cm.highlights);
+    gp.shadows = static_cast<float>(cm.shadows);
+    return spk::gpu::contrast_mask_gain(gpu_raw, gain,
+                                        static_cast<uint32_t>(width) *
+                                            static_cast<uint32_t>(height),
+                                        ga.data(), gb.data(), gp);
+}
 
 // NaN contract, mirroring build_gpu_scan_tables: a band whose base or channel
 // density (or filtered illuminant) is NaN makes `light` NaN, which the CPU
@@ -583,20 +618,60 @@ void print_expose(const Profile& film, const Profile& print_profile,
             }
             return;
         }
-        if (cm.frame_width > 0 && cm.grid) {
-            // Banded pass 2: the finished frame grid, at frame coordinates.
-            if (mult > 0.0) {
-                contrast_mask_apply_grid(mask_y.get(), height, cm.frame_y0, preflash_raw,
-                                         mult, cm, *cm.grid);
+        const bool banded_grid = cm.frame_width > 0 && cm.grid;
+        // GPU route: the per-pixel gain k = 2^d comes from the GPU (the three
+        // log2, the grid lookup, the pull and the exp2), and the tail below
+        // applies it to the float64 exposure exactly as contrast_mask_apply_grid
+        // does. k == 1 inside the core, so those pixels stay untouched.
+        std::unique_ptr<float[]> gain;
+        if (gpu_raw && mult > 0.0) {
+            ContrastMaskGrid whole;
+            const ContrastMaskGrid* g = nullptr;
+            int frame_y0 = 0;
+            if (banded_grid) {
+                g = cm.grid;
+                frame_y0 = cm.frame_y0;
+            } else if (width > 0 && height > 0) {
+                ContrastMaskAccum acc;
+                contrast_mask_accum_init(&acc, width, height, cm);
+                contrast_mask_accumulate(mask_y.get(), 0, height, 0, preflash_raw, mult, &acc);
+                contrast_mask_finish(acc, cm, &whole);
+                g = &whole;
             }
-        } else {
-            contrast_mask_apply(mask_y.get(), width, height, preflash_raw, mult, cm);
+            if (g) {
+                gain.reset(new float[static_cast<size_t>(npix)]);
+                if (gpu_contrast_mask_gain(gpu_raw.get(), width, height, frame_y0, *g, params,
+                                           preflash_raw, mult, gain.get())) {
+                    g_gpu_mask_frames.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    gain.reset();
+                }
+            }
+        }
+        if (!gain) {
+            if (banded_grid) {
+                // Banded pass 2: the finished frame grid, at frame coordinates.
+                if (mult > 0.0) {
+                    contrast_mask_apply_grid(mask_y.get(), height, cm.frame_y0, preflash_raw,
+                                             mult, cm, *cm.grid);
+                }
+            } else {
+                contrast_mask_apply(mask_y.get(), width, height, preflash_raw, mult, cm);
+            }
         }
         // The same tail as the per-pixel loop above, on the masked exposure.
-        const double* my = mask_y.get();
+        double* my = mask_y.get();
+        const float* kp = gain.get();
         parallel_for(0, npix, [&](int lo, int hi) {
             for (int p = lo; p < hi; ++p) {
                 const size_t i = static_cast<size_t>(p) * 3;
+                if (kp && kp[p] != 1.0f) {
+                    const double k = static_cast<double>(kp[p]);
+                    for (int c = 0; c < 3; ++c) {
+                        const double a = std::max(my[i + c] - 1e-10 - preflash_raw[c], 0.0);
+                        my[i + c] = std::max(k * a + preflash_raw[c], 0.0) + 1e-10;
+                    }
+                }
                 const double r0 = my[i] * mult, r1 = my[i + 1] * mult, r2 = my[i + 2] * mult;
                 if (diffusion) {
                     double* rb = raw_buf.get() + i;
@@ -737,6 +812,10 @@ void print_develop(const Profile& print_profile, const PrintingParams& params,
 
 int gpu_print_expose_state() {
     return g_gpu_print_state.load(std::memory_order_acquire);
+}
+
+unsigned long long gpu_contrast_mask_frames_rendered() {
+    return static_cast<unsigned long long>(g_gpu_mask_frames.load(std::memory_order_relaxed));
 }
 
 unsigned long long gpu_print_frames_rendered() {

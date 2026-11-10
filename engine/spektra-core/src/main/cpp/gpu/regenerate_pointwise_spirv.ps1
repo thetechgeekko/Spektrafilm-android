@@ -29,7 +29,8 @@ $pairs = @(
     @('grain.comp', 'grain_spv.inc'),
     @('glare.comp', 'glare_spv.inc'),
     @('fft_convolve.comp', 'fft_convolve_spv.inc'),
-    @('filming_stage.comp', 'filming_stage_spv.inc')
+    @('filming_stage.comp', 'filming_stage_spv.inc'),
+    @('contrast_mask.comp', 'contrast_mask_spv.inc')
 )
 
 # Regenerating everything rewrites shaders you did not touch: glslc from a

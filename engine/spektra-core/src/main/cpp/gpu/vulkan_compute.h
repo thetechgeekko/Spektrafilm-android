@@ -189,6 +189,29 @@ bool scan_spectral(const float* cmy, float* rgb, uint32_t npix,
 bool scan_spectral_linear(const float* cmy, float* rgb, uint32_t npix,
                           const float* dye, const float* icmf, const float* xyz2rgb);
 
+// Contrast-mask gain (gpu/contrast_mask.comp) on the print integral's raw
+// output: per pixel k = 2^d of model/contrast_mask.cpp's apply step, exactly
+// 1.0 inside the core, from the frame grid's a/b planes (gw*gh floats each).
+// `raw` is npix*3 floats of one band whose row 0 is frame row frame_y0;
+// `gain` receives npix floats. fp32, so not byte-identical to the CPU apply;
+// returns false (the caller applies the mask on the CPU) on any failure.
+struct ContrastMaskGainParams {
+    uint32_t width = 0;
+    int frame_y0 = 0;
+    int frame_height = 0;
+    int gw = 0;
+    int gh = 0;
+    float exposure_factor_midgray = 1.0f;
+    float mult = 1.0f;
+    float preflash[3] = {0.0f, 0.0f, 0.0f};
+    float core = 0.0f;
+    float highlights = 0.0f;
+    float shadows = 0.0f;
+};
+bool contrast_mask_gain(const float* raw, float* gain, uint32_t npix,
+                        const float* grid_a, const float* grid_b,
+                        const ContrastMaskGainParams& params);
+
 // Per-channel 2D Gaussian blur of an interleaved f64 RGB frame, on the GPU.
 //
 // This is the engine's three remaining CPU blurs -- the camera lens blur

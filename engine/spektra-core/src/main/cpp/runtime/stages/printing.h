@@ -72,6 +72,8 @@ int gpu_print_expose_state();
 // Frames whose print-expose integral actually ran on the GPU. 0 with state == 1
 // means the path was eligible but never taken (no frame reached it).
 unsigned long long gpu_print_frames_rendered();
+// Print passes whose contrast-mask gain came from the GPU (gpu/contrast_mask.comp).
+unsigned long long gpu_contrast_mask_frames_rendered();
 
 }  // namespace spk
 
