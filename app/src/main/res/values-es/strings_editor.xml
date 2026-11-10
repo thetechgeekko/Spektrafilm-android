@@ -584,6 +584,8 @@
     <string name="editor_hint_output">Espacio de color de salida, compresión de gama y codificación</string>
     <string name="editor_msg_export_failed">No se pudo exportar esta foto. Inténtalo de nuevo o elige un tamaño más pequeño u otro formato.</string>
     <string name="editor_msg_export_failed_memory">No hay memoria suficiente para exportar a este tamaño. Prueba un tamaño más pequeño.</string>
+    <string name="editor_msg_export_failed_raw_preview">Este RAW solo se pudo leer como su pequeña vista previa incrustada, así que no se guardó nada.</string>
+    <string name="editor_msg_export_failed_raw_memory">No hay memoria libre suficiente para leer este RAW a resolución completa, así que no se guardó nada. Cierra otras apps y vuelve a intentarlo.</string>
     <string name="editor_msg_retry">Reintentar</string>
     <string name="editor_msg_change_settings">Cambiar ajustes</string>
     <string name="editor_msg_export_settings_unsupported">Estos ajustes de exportación no son compatibles entre sí. Prueba otro formato u otro espacio de color.</string>

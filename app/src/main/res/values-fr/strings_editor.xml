@@ -584,6 +584,8 @@
     <string name="editor_hint_output">Espace colorimétrique de sortie, compression de gamut et encodage</string>
     <string name="editor_msg_export_failed">Impossible d\'exporter cette photo. Réessayez, ou choisissez une taille plus petite ou un autre format.</string>
     <string name="editor_msg_export_failed_memory">Mémoire insuffisante pour exporter à cette taille. Essayez une taille plus petite.</string>
+    <string name="editor_msg_export_failed_raw_preview">Ce RAW n\'a pu être lu que sous forme de sa petite vignette intégrée, rien n\'a donc été enregistré.</string>
+    <string name="editor_msg_export_failed_raw_memory">Mémoire libre insuffisante pour lire ce RAW en pleine résolution, rien n\'a donc été enregistré. Fermez d\'autres apps et réessayez.</string>
     <string name="editor_msg_retry">Réessayer</string>
     <string name="editor_msg_change_settings">Modifier les réglages</string>
     <string name="editor_msg_export_settings_unsupported">Ces réglages d\'export ne sont pas compatibles. Essayez un autre format ou un autre espace colorimétrique.</string>

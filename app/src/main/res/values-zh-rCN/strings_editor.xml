@@ -487,6 +487,8 @@
     <string name="editor_hint_output">输出色彩空间、色域压缩和编码</string>
     <string name="editor_msg_export_failed">无法导出这张照片。请重试，或选择更小的尺寸或其他格式。</string>
     <string name="editor_msg_export_failed_memory">内存不足，无法以此尺寸导出。请选择更小的尺寸。</string>
+    <string name="editor_msg_export_failed_raw_preview">此 RAW 只能读取其内嵌的小预览图，因此未保存任何内容。</string>
+    <string name="editor_msg_export_failed_raw_memory">可用内存不足，无法以全分辨率读取此 RAW，因此未保存任何内容。请关闭其他应用后重试。</string>
     <string name="editor_msg_retry">重试</string>
     <string name="editor_msg_change_settings">更改设置</string>
     <string name="editor_msg_export_settings_unsupported">这些导出设置无法同时使用。请换一种格式或色彩空间。</string>

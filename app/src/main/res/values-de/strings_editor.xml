@@ -582,6 +582,8 @@
     <string name="editor_hint_output">Ausgabefarbraum, Gamut-Kompression und Kodierung</string>
     <string name="editor_msg_export_failed">Das Foto konnte nicht exportiert werden. Versuche es erneut oder wähle eine kleinere Größe oder ein anderes Format.</string>
     <string name="editor_msg_export_failed_memory">Nicht genug Speicher für den Export in dieser Größe. Wähle eine kleinere Größe.</string>
+    <string name="editor_msg_export_failed_raw_preview">Diese RAW-Datei konnte nur als kleine eingebettete Vorschau gelesen werden, daher wurde nichts gespeichert.</string>
+    <string name="editor_msg_export_failed_raw_memory">Nicht genug freier Speicher, um diese RAW-Datei in voller Auflösung zu lesen, daher wurde nichts gespeichert. Schließe andere Apps und versuche es erneut.</string>
     <string name="editor_msg_retry">Erneut versuchen</string>
     <string name="editor_msg_change_settings">Einstellungen ändern</string>
     <string name="editor_msg_export_settings_unsupported">Diese Exporteinstellungen passen nicht zusammen. Wähle ein anderes Format oder einen anderen Farbraum.</string>
