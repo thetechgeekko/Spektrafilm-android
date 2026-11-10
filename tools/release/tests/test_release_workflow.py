@@ -914,6 +914,17 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertIn("super.onCreate(arguments);", RUNNER)
         self.assertIn("start();", RUNNER)
 
+    def test_public_release_carries_only_apk_and_libraw_bundle(self) -> None:
+        protected = job_block("sign-and-publish")
+        stage = step_block(protected, "Stage signed release artifacts and provenance")
+        self.assertIn('cp "out/$NAME" "out/$BUNDLE_NAME" publish/', stage)
+        self.assertIn('test "$(find publish -maxdepth 1 -type f | wc -l)" -eq 2', stage)
+        publish = step_block(protected, "Attach verified set to GitHub Release")
+        self.assertIn("--assets-dir publish", publish)
+        self.assertNotIn("--assets-dir out", publish)
+        retained = step_block(protected, "Upload immutable signed artifacts")
+        self.assertIn("out/", retained)
+
     def test_publisher_requires_immutable_releases_and_exact_ids(self) -> None:
         protected = job_block("sign-and-publish")
         publish = step_block(protected, "Attach verified set to GitHub Release")
