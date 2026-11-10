@@ -548,7 +548,13 @@ internal fun startEditorExport(
                         }
                     }
                 }
-                val retainedBitmap = runCatching {
+                // A framed export is not handed back as the editor preview: the preview
+                // is the photo alone, and the Frame tab paints the frame around it, so
+                // a framed bitmap there would come back with a second frame.
+                val retainedBitmap = if (!exportFrame.isNone) {
+                    runCatching { bitmap?.recycle() }
+                    null
+                } else runCatching {
                     bitmap?.let { full ->
                         scaleBitmapToLongEdge(full, 2_048).also { proxy ->
                             if (proxy !== full) full.recycle()
