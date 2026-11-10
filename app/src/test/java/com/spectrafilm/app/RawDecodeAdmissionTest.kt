@@ -16,10 +16,12 @@ class RawDecodeAdmissionTest {
 
     @Test
     fun admitsWhatTheSystemCanGiveAboveItsThresholdWithinTheBudget() {
-        // The SM-S948W mid-session: ~2.9 GB available, a ~200 MB low-memory threshold and a
+        // The SM-S948W mid-session: ~2.4 GB available, a ~200 MB low-memory threshold and a
         // 2 GiB budget with nothing reserved: the system bound wins below the budget.
-        val bytes = rawExportAdmissionBytes(2_900L * mib, 200L * mib, 2_048L * mib)
-        assertEquals(2_900L * mib - 200L * mib - RAW_ADMISSION_SAFETY_BYTES, bytes)
+        val bytes = rawExportAdmissionBytes(2_400L * mib, 200L * mib, 2_048L * mib)
+        assertEquals(2_400L * mib - 200L * mib - RAW_ADMISSION_SAFETY_BYTES, bytes)
+        // With more available, the budget bounds it.
+        assertEquals(2_048L * mib, rawExportAdmissionBytes(2_900L * mib, 200L * mib, 2_048L * mib))
         // A busy budget bounds it instead.
         assertEquals(700L * mib, rawExportAdmissionBytes(4_000L * mib, 200L * mib, 700L * mib))
     }
