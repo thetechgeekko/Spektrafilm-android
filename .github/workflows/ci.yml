@@ -634,6 +634,10 @@ jobs:
           # a date stamp across band edges), 1-vs-8-thread identity, grain/glare
           # reproducibility and statistics, and the frame-wide-effect fallback.
           build_run test_band_render "$ASSET"
+          # Banded vs WHOLE-frame seam sweep across the reach space (halation, camera
+          # diffusion, highlight boost, DIR diffusion, lens blur, date-back, crop) at
+          # several band heights: a row-mean bar a seam cannot pass (#604, #614).
+          build_run test_band_seam_sweep "$ASSET"
           # STATISTICAL GRAIN GATES (previously local-only — the one stage the
           # byte-exact goldens structurally cannot cover, since its RNG stream
           # differs from the oracle's). test_grain: non-sublayer grain — mean
