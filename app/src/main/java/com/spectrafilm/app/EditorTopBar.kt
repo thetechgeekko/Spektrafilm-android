@@ -59,6 +59,8 @@ internal fun EditorTopBar(
     compare: Boolean,
     /** Compare and hold-for-original have a photo to act on (off while the Crop tab draws its own canvas). */
     compareEnabled: Boolean = hasPhoto,
+    /** Histogram and clipping warnings have a preview to draw on (off while Crop or Frame draws its own canvas). */
+    viewTogglesEnabled: Boolean = hasPhoto,
     histogram: Boolean,
     clipWarnings: Boolean,
     onToggleCompare: () -> Unit,
@@ -282,10 +284,10 @@ internal fun EditorTopBar(
                             menuOpen = false; onToggleCompare()
                         }
                     }
-                    ViewToggleItem(stringResource(R.string.editor_histogram), SpectraIcons.Histogram, histogram, hasPhoto) {
+                    ViewToggleItem(stringResource(R.string.editor_histogram), SpectraIcons.Histogram, histogram, viewTogglesEnabled) {
                         menuOpen = false; onToggleHistogram()
                     }
-                    ViewToggleItem(stringResource(R.string.editor_menu_clipping), SpectraIcons.Clipping, clipWarnings, hasPhoto) {
+                    ViewToggleItem(stringResource(R.string.editor_menu_clipping), SpectraIcons.Clipping, clipWarnings, viewTogglesEnabled) {
                         menuOpen = false; onToggleClipWarnings()
                     }
                     androidx.compose.material3.DropdownMenuItem(
