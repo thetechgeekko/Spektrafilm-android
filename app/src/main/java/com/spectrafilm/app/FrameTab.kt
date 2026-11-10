@@ -102,7 +102,9 @@ internal fun rememberFramedPreview(preview: Bitmap?, spec: FrameSpec, edge: Int)
 @Composable
 internal fun FramedPreviewCanvas(preview: Bitmap, spec: FrameSpec, bottomInset: Dp) {
     val framed = rememberFramedPreview(preview, spec, FRAMED_PREVIEW_EDGE)
-    val shown = framed ?: preview
+    // The framed render is ours; the bare preview may be retired and recycled by the
+    // editor at any time, so it is only drawn under a read lease.
+    val shown = framed?.asImageBitmap() ?: rememberLeasedImage(preview)
     Box(
         Modifier
             .fillMaxSize()
@@ -110,8 +112,8 @@ internal fun FramedPreviewCanvas(preview: Bitmap, spec: FrameSpec, bottomInset: 
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomInset + 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Image(
-            bitmap = shown.asImageBitmap(),
+        if (shown != null) Image(
+            bitmap = shown,
             contentDescription = stringResource(R.string.frame_preview_cd),
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
@@ -220,10 +222,14 @@ private fun FrameStyleRow(spec: FrameSpec, preview: Bitmap?, onSelect: (FilmBord
                     border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                     modifier = Modifier.size(68.dp),
                 ) {
-                    val shown = if (style == FilmBorder.NONE) preview else thumb
-                    if (shown != null && !shown.isRecycled) {
+                    // Generated thumbnails are ours; the bare preview (None) is the editor's
+                    // and is only drawn under a read lease, as it can be recycled at any time.
+                    val shown = if (style == FilmBorder.NONE) {
+                        preview?.takeUnless { it.isRecycled }?.let { rememberLeasedImage(it) }
+                    } else thumb?.asImageBitmap()
+                    if (shown != null) {
                         Image(
-                            bitmap = shown.asImageBitmap(),
+                            bitmap = shown,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.padding(4.dp),
