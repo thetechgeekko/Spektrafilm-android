@@ -20,9 +20,16 @@ class PrerenderMemoryGateTest {
     }
 
     @Test
+    fun theReadingThatLetTheMeasuredKillsThroughNowRefuses() {
+        // With #628's 100 B/px the gate passed at 5732 MiB available, and the render still
+        // had lmkd reap 22 cached apps as MemAvailable fell to ~1.9 GB.
+        assertFalse(RenderPayloads.prerenderMemoryAllows(5_732L * mib, threshold, 41_220_000L))
+    }
+
+    @Test
     fun theSamePhotoPrerendersWhenThereIsRoomForIt() {
-        // 41.2 MP x 100 B + threshold + 512 MiB margin is ~4.6 GB.
-        assertTrue(RenderPayloads.prerenderMemoryAllows(5_000L * mib, threshold, 41_220_000L))
+        // 41.2 MP x 135 B + threshold + 512 MiB margin is ~6.0 GiB.
+        assertTrue(RenderPayloads.prerenderMemoryAllows(6_600L * mib, threshold, 41_220_000L))
     }
 
     @Test
