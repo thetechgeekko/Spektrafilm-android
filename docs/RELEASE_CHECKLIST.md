@@ -214,7 +214,7 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
   memory corruption reachable through an enabled codec, keep the release on hold
   until the pinned dependency is patched and its hostile regression is green.
 - [ ] Commit version/changelog changes (try a signed commit first; fall back to
-  `-c commit.gpgsign=false` only where signing actually fails, per CLAUDE.md).
+  `-c commit.gpgsign=false` only where signing actually fails).
 
 ---
 

@@ -47,7 +47,7 @@ JPEG / PNG8 / PNG16 / TIFF16 / TIFF32F / Ultra HDR --> digest-verified publicati
 Engine layout (`engine/spektra-core/src/main/cpp/`): `spektra_jni.cpp` is the single native
 boundary; `runtime/stages/` holds `filming`, `printing`, `scanning`, `crop_resize` and
 `autoexposure`; `model/` the photographic math; `kernels/` the hot numeric primitives; `gpu/`
-the Vulkan route. [CLAUDE.md](../CLAUDE.md) has the long version.
+the Vulkan route.
 
 ## Build
 

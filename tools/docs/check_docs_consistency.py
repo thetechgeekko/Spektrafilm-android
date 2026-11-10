@@ -15,7 +15,6 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 CURRENT_DOCS = (
     ROOT / "README.md",
-    ROOT / "CLAUDE.md",
     # Root-level docs a contributor lands on first. These were added later and
     # were never link-checked, so a dead relative link in CONTRIBUTING.md would
     # have shipped silently (#185).
@@ -574,7 +573,6 @@ def main() -> int:
             "oracle tolerance",
             f"{len(asset_preset_ids)} built-in presets",
         ),
-        ROOT / "CLAUDE.md": ("docs/EXECUTION_INDEX.md", f"{parity_count} tests"),
         ROOT / "docs" / "EXECUTION_INDEX.md": (
             f"`{version_name}` / versionCode `{version_code}`",
             _sdk_summary(min_sdk, target_sdk, compile_sdk),

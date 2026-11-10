@@ -5,8 +5,8 @@
 # WHY THIS EXISTS
 #
 # CI has broken twice from the same root cause: a change verified in an
-# environment better equipped than CI. The specific trap is documented in
-# CLAUDE.md — the HOST parity build compiles with a glob
+# environment better equipped than CI. The specific trap (docs/MAINTAINERS.md,
+# Engine parity): the HOST parity build compiles with a glob
 # (`kernels/*.cpp model/*.cpp ...`) while the ANDROID build enumerates every
 # source in CMakeLists.txt by hand. A new .cpp that is missing from CMakeLists
 # therefore passes all 39 host gates and fails only at the Android `ninja`

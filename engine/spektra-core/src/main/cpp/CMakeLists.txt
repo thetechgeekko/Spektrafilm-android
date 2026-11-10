@@ -23,7 +23,7 @@ endif()
 
 
 # EVERY SOURCE MUST BE LISTED HERE BY HAND. The host parity build compiles with a
-# glob (`kernels/*.cpp model/*.cpp ...` — see the build line in CLAUDE.md), so a new
+# glob (`kernels/*.cpp model/*.cpp ...` — see tools/parity/run_engine_parity.sh), so a new
 # .cpp picked up there is NOT picked up here. A file missing from this list therefore
 # passes the whole host parity suite locally and fails only in the Android
 # `ninja ... spektra` step, which is a slow and confusing way to find out. That is

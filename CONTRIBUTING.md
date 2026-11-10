@@ -80,6 +80,13 @@ If you touch `engine/.../gpu/`, two hard-won rules apply:
 2. **Never silently clamp what the oracle does not clamp.** If the GPU cannot hold a parameter range
    inside the tolerance band, refuse the request and let the CPU render it.
 
+## The committed debug.keystore
+
+`debug.keystore` in the repo root is the standard public Android debug key, committed on
+purpose so debug builds and the CI smoke builds are signed the same way on every machine (CI
+checks its SHA-256). It is not a secret and never signs a release; please don't report it as a
+leaked key.
+
 ## Commits and pull requests
 
 Conventional commit prefixes: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`.

@@ -3,7 +3,7 @@
 # exercised by the CI `android` job (debug build, minify off), and a wrong R8
 # keep-rule fails only as a runtime crash or black export — so the repo
 # convention requires an on-device smoke test of a minified build before any
-# `v*` tag (CLAUDE.md, docs/AUDIT.md §D, issue #129).
+# `v*` tag (docs/RELEASE_CHECKLIST.md, issue #129).
 #
 # Gradle deliberately emits an unsigned release candidate. This workflow aligns
 # that exact R8 output and signs it with the committed, public debug keystore so
