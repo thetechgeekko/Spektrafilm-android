@@ -486,7 +486,7 @@ jobs:
           verify_asset third_party/libraw/LICENSE.LGPL eea173a556abac0370461e57e12aab266894ea6be3874c2be05fd87871f75449
           verify_asset third_party/libraw/LICENSE.CDDL 0e3098d2d54a12434715f6679ea408d57da5e8d613c385c58ecc6fe5d30cc81f
           verify_asset legal/spektrafilm/LICENSE.GPL-3.0 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
-          verify_asset legal/spektrafilm/NOTICE.md 6196d84fb481a6fb21eed7d1b529dc599df00659bee46ba78ed2062e48492fcd
+          verify_asset legal/spektrafilm/NOTICE.md f7deb29de88feae2ea03c5e8dc02c327d0b1917ff6bf705b28e0d01c67a70ee3
 
       - name: Stage hash-bound candidate and compliance materials
         env:
@@ -1010,7 +1010,7 @@ jobs:
           verify_asset third_party/libraw/LICENSE.LGPL eea173a556abac0370461e57e12aab266894ea6be3874c2be05fd87871f75449
           verify_asset third_party/libraw/LICENSE.CDDL 0e3098d2d54a12434715f6679ea408d57da5e8d613c385c58ecc6fe5d30cc81f
           verify_asset legal/spektrafilm/LICENSE.GPL-3.0 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
-          verify_asset legal/spektrafilm/NOTICE.md 6196d84fb481a6fb21eed7d1b529dc599df00659bee46ba78ed2062e48492fcd
+          verify_asset legal/spektrafilm/NOTICE.md f7deb29de88feae2ea03c5e8dc02c327d0b1917ff6bf705b28e0d01c67a70ee3
 
       # Grant the runner's user access to /dev/kvm (standard udev rule from the
       # reactivecircus/android-emulator-runner action README). Without it the
