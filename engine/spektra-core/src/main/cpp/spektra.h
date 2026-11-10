@@ -495,6 +495,17 @@ uint64_t spk_band_film_reuse_passes(void);
 /* Film-density reuse across band passes: 1 (default) on, 0 off (tests compare
  * the two). Process-wide. */
 void spk_set_band_film_reuse(int enabled);
+/* Banded print-route renders whose film-side pass stored the GPU print
+ * integral for the later passes to reuse, and renders that had to redo that
+ * pass because a band's integral did not run on the GPU (diagnostics). */
+uint64_t spk_band_print_raw_passes(void);
+uint64_t spk_band_print_raw_fallbacks(void);
+/* Print-integral reuse across band passes: 1 (default) on, 0 off (tests compare
+ * the two). Process-wide. */
+void spk_set_band_print_raw_reuse(int enabled);
+/* Test hook: report band (band_plus_one - 1)'s stored print integral as not run
+ * on the GPU, forcing the fallback; 0 turns it off. */
+void spk_test_set_print_raw_fault_band(int band_plus_one);
 /* Diffusion-filter (camera or enlarger) coarse-frame pre-passes run by banded
  * renders (diagnostics). */
 uint64_t spk_band_diffusion_prepasses(void);

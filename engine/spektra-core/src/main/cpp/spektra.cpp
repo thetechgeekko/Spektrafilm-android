@@ -1180,7 +1180,19 @@ struct BandFrame {
     const float* film_in_top = nullptr;
     int film_in_top_rows = 0;
     const float* film_in_rest = nullptr;
+    // Print-raw reuse (print route, GPU print integral). print_raw_store: the
+    // pass that stores film density also runs the print integral on its core
+    // rows and writes the GPU output over the same frame rows; a band whose
+    // integral did not run on the GPU sets *print_raw_failed instead.
+    // print_raw_in: the film_in_* rows hold that output, not film density.
+    float* print_raw_store = nullptr;
+    bool* print_raw_failed = nullptr;
+    bool print_raw_in = false;
 };
+
+// Test hook: band index + 1 whose stored print integral is reported as not run
+// on the GPU (0 = off), to exercise the fallback.
+std::atomic<int> g_print_raw_fault_band{0};
 
 // Seed salt per band. Grain seeds are seed_base[c] + sublayer*10 + seed_offset,
 // so a step of 1000 never lands on another channel's or sublayer's seed.
@@ -3298,7 +3310,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
                         film_density_cmy.data() +
                             static_cast<size_t>(band->core_begin) * row_elems,
                         static_cast<size_t>(rows) * row_elems * sizeof(float));
-            if (band->film_only) return SPK_OK;
+            if (band->film_only && !band->print_raw_store) return SPK_OK;
         }
         if (use_film_cache) {
             // Store {width, height, film_density_cmy} + key under the lock, count miss.
@@ -3346,10 +3358,40 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
     if (!pd_hit) {
         std::vector<float> print_log_raw(out_elems);
-        spk::print_expose(film, prnt, pparams, film_density_cmy.data(), width, height,
+        // A banded pass that stops after the print exposure (mask grid, enlarger
+        // far field, print-raw store) uses only its core rows, and everything up
+        // to that point is per pixel, so it exposes the core rows alone.
+        const bool core_only =
+            band && (band->mask_accum || band->enlarger_far_accumulate || band->film_only);
+        int pr0 = 0, prows = height;
+        if (core_only) {
+            pr0 = band->core_begin;
+            prows = band->core_end - band->core_begin;
+            if (pr0 < 0 || prows <= 0 || band->core_end > height) return SPK_ERR_INTERNAL;
+            pparams.contrast_mask.frame_y0 += pr0;
+            pparams.contrast_mask.core_begin = 0;
+            pparams.contrast_mask.core_end = prows;
+            pparams.diffusion_filter.band_frame_y0 += pr0;
+            pparams.diffusion_filter.band_core_begin = 0;
+            pparams.diffusion_filter.band_core_end = prows;
+        }
+        const size_t pr_off = static_cast<size_t>(pr0) * width * 3;
+        if (band && band->print_raw_in) pparams.gpu_raw_in = film_density_cmy.data() + pr_off;
+        if (band && band->print_raw_store) {
+            if (!core_only) return SPK_ERR_INTERNAL;
+            pparams.gpu_raw_out =
+                band->print_raw_store + static_cast<size_t>(band->y0) * width * 3 + pr_off;
+            pparams.gpu_raw_out_failed = band->print_raw_failed;
+            pparams.raw_only = band->film_only;
+        }
+        spk::print_expose(film, prnt, pparams, film_density_cmy.data() + pr_off, width, prows,
                           print_log_raw.data());
+        if (band && band->print_raw_failed &&
+            g_print_raw_fault_band.load(std::memory_order_relaxed) == band->index + 1) {
+            *band->print_raw_failed = true;
+        }
         // The contrast-mask pass 1 of a banded render ends here (BandFrame).
-        if (band && (band->mask_accum || band->enlarger_far_accumulate)) return SPK_OK;
+        if (core_only) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
         // film_density_cmy's last read was print_expose (the tap copy was taken
         // above; the memo store below uses pd_key only) — at 12 MP this
@@ -3544,6 +3586,9 @@ std::atomic<uint64_t> g_mask_prepasses{0};
 std::atomic<uint64_t> g_diffusion_prepasses{0};
 std::atomic<uint64_t> g_film_reuse_passes{0};
 std::atomic<int> g_film_reuse{1};
+std::atomic<uint64_t> g_print_raw_passes{0};
+std::atomic<uint64_t> g_print_raw_fallbacks{0};
+std::atomic<int> g_print_raw_reuse{1};
 
 // Export diagnostics, off unless `adb shell setprop debug.spektra.pdump 1`:
 // logs the full spk_params (hex) and every band plan, so a phone-only render
@@ -3586,6 +3631,7 @@ void dump_export_params(const spk_image* in, const spk_params* p) {
 }
 #endif
 bool film_reuse_enabled() { return g_film_reuse.load(std::memory_order_relaxed) != 0; }
+bool print_raw_reuse_enabled() { return g_print_raw_reuse.load(std::memory_order_relaxed) != 0; }
 
 struct BandPlan {
     bool active = false;
@@ -3920,36 +3966,22 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     // until the final pass writes its output there); the later passes read it.
     const bool reuse_film = film_reuse_enabled() && (mask_pass || enlarger_pass);
     std::vector<float> carry;  // the final pass's top margin rows, saved before overwrite
-    if (reuse_film && !mask_pass) {
-        band.film_store = frame.get();
-        band.film_only = true;
-        for (int i = 0; i < plan.bands; ++i) {
-            if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
-            const int core0 = i * plan.core_rows;
-            const int core1 = std::min(h, core0 + plan.core_rows);
-            const int y0 = std::max(0, core0 - plan.margin_rows);
-            const int y1 = std::min(h, core1 + plan.margin_rows);
-            band.index = i;
-            band.core_begin = core0 - y0;
-            band.core_end = core1 - y0;
-            std::vector<float> unused;
-            int ow = 0, oh = 0;
-            const spk_status st = render(y0, y1, &unused, &ow, &oh);
-            if (st != SPK_OK) return st;
+    // Print-raw reuse: the storing pass also runs the GPU print integral on its
+    // core rows and keeps that output in `frame` instead of the film density, so
+    // the later passes skip the integral. It needs every band's integral on the
+    // GPU; if any band's ran elsewhere, the pass is redone storing film density.
+    bool print_raw_failed = false;
+    const bool try_print_raw =
+        reuse_film && p->allow_gpu_scan != 0 && print_raw_reuse_enabled();
+    // The pass that renders every band with margins through the film side: the
+    // film-only store pass, or the mask pass (film side + print exposure).
+    auto film_side_pass = [&](bool store_print_raw) -> spk_status {
+        band.print_raw_store = store_print_raw ? frame.get() : nullptr;
+        band.print_raw_failed = store_print_raw ? &print_raw_failed : nullptr;
+        if (mask_pass) {
+            spk::contrast_mask_accum_init(&mask_accum, w, h, mask_params);
+            band.mask_accum = &mask_accum;
         }
-        band.film_store = nullptr;
-        band.film_only = false;
-        g_film_reuse_passes.fetch_add(1, std::memory_order_relaxed);
-    }
-    auto read_stored_film = [&](int y0) {
-        band.film_in_top = nullptr;
-        band.film_in_top_rows = 0;
-        band.film_in_rest = frame.get() + static_cast<size_t>(y0) * row_floats;
-    };
-    if (mask_pass) {
-        if (reuse_film) band.film_store = frame.get();
-        spk::contrast_mask_accum_init(&mask_accum, w, h, mask_params);
-        band.mask_accum = &mask_accum;
         for (int i = 0; i < plan.bands; ++i) {
             if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
             const int core0 = i * plan.core_rows;
@@ -3965,10 +3997,38 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             if (st != SPK_OK) return st;
         }
         band.mask_accum = nullptr;
-        if (reuse_film) {
-            band.film_store = nullptr;
-            g_film_reuse_passes.fetch_add(1, std::memory_order_relaxed);
+        band.print_raw_store = nullptr;
+        band.print_raw_failed = nullptr;
+        return SPK_OK;
+    };
+    auto run_film_side_pass = [&]() -> spk_status {
+        if (reuse_film) band.film_store = frame.get();
+        band.film_only = reuse_film && !mask_pass;
+        spk_status st = film_side_pass(try_print_raw);
+        if (st == SPK_OK && try_print_raw && print_raw_failed) {
+            g_print_raw_fallbacks.fetch_add(1, std::memory_order_relaxed);
+            st = film_side_pass(false);
         }
+        band.film_store = nullptr;
+        band.film_only = false;
+        if (st != SPK_OK) return st;
+        band.print_raw_in = try_print_raw && !print_raw_failed;
+        if (band.print_raw_in) g_print_raw_passes.fetch_add(1, std::memory_order_relaxed);
+        if (reuse_film) g_film_reuse_passes.fetch_add(1, std::memory_order_relaxed);
+        return SPK_OK;
+    };
+    if (reuse_film && !mask_pass) {
+        const spk_status st = run_film_side_pass();
+        if (st != SPK_OK) return st;
+    }
+    auto read_stored_film = [&](int y0) {
+        band.film_in_top = nullptr;
+        band.film_in_top_rows = 0;
+        band.film_in_rest = frame.get() + static_cast<size_t>(y0) * row_floats;
+    };
+    if (mask_pass) {
+        const spk_status st = run_film_side_pass();
+        if (st != SPK_OK) return st;
         spk::contrast_mask_finish(mask_accum, mask_params, &mask_grid);
         std::vector<double>().swap(mask_accum.sum);
         std::vector<double>().swap(mask_accum.sum2);
@@ -4492,6 +4552,22 @@ uint64_t spk_band_film_reuse_passes(void) {
 
 void spk_set_band_film_reuse(int enabled) {
     g_film_reuse.store(enabled != 0 ? 1 : 0, std::memory_order_relaxed);
+}
+
+uint64_t spk_band_print_raw_passes(void) {
+    return g_print_raw_passes.load(std::memory_order_relaxed);
+}
+
+uint64_t spk_band_print_raw_fallbacks(void) {
+    return g_print_raw_fallbacks.load(std::memory_order_relaxed);
+}
+
+void spk_set_band_print_raw_reuse(int enabled) {
+    g_print_raw_reuse.store(enabled != 0 ? 1 : 0, std::memory_order_relaxed);
+}
+
+void spk_test_set_print_raw_fault_band(int band_plus_one) {
+    g_print_raw_fault_band.store(band_plus_one, std::memory_order_relaxed);
 }
 
 uint64_t spk_band_mask_prepasses(void) {

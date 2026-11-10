@@ -184,8 +184,18 @@ int main(int argc, char** argv) {
             std::vector<float> banded;
             int bw = 0, bh = 0;
             const uint64_t bands0 = spk_band_render_bands();
+            const uint64_t print_raw0 = spk_band_print_raw_passes();
             spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
             const bool okb = render(eng, frame, p, 1, static_cast<int64_t>(kW) * band_rows, &banded, &bw, &bh);
+            const uint64_t print_raw_used = spk_band_print_raw_passes() - print_raw0;
+            // Print-integral reuse must not move a byte: the same banded render
+            // with it off recomputes the integral in every pass.
+            std::vector<float> banded_off;
+            int bw_off = 0, bh_off = 0;
+            spk_set_band_print_raw_reuse(0);
+            const bool okb_off = okb && render(eng, frame, p, 1, static_cast<int64_t>(kW) * band_rows,
+                                               &banded_off, &bw_off, &bh_off);
+            spk_set_band_print_raw_reuse(1);
             spk_set_whole_frame_pixel_limit(0);
             if (!okb) {
                 std::printf("  %s: %d-row bands refused (margin does not fit), skipped\n", c.name, band_rows);
@@ -197,6 +207,36 @@ int main(int argc, char** argv) {
                 continue;
             }
             ++banded_runs;
+            expect(okb_off && banded_off.size() == banded.size() &&
+                       std::memcmp(banded_off.data(), banded.data(), banded.size() * sizeof(float)) == 0,
+                   std::string(c.name) + " @" + std::to_string(band_rows) +
+                       " rows: print-integral reuse is byte-identical to recomputing it (reuse " +
+                       (print_raw_used ? "engaged" : "not engaged") + ")");
+            // On the GPU route every config here has a film-side store pass, so
+            // the reuse must have engaged.
+            if (spk_gpu_print_state() == 1) {
+                expect(print_raw_used > 0, std::string(c.name) + " @" + std::to_string(band_rows) +
+                                               " rows: print-integral reuse engaged on the GPU route");
+                // A band whose integral did not run on the GPU makes the pass
+                // redo itself storing film density: same bytes, no reuse.
+                if (band_rows == 650) {
+                    std::vector<float> banded_fault;
+                    int bwf = 0, bhf = 0;
+                    const uint64_t fb0 = spk_band_print_raw_fallbacks();
+                    const uint64_t pr1 = spk_band_print_raw_passes();
+                    spk_test_set_print_raw_fault_band(2);
+                    spk_set_whole_frame_pixel_limit(static_cast<int64_t>(kW) * kH - 1);
+                    const bool okf = render(eng, frame, p, 1, static_cast<int64_t>(kW) * band_rows,
+                                            &banded_fault, &bwf, &bhf);
+                    spk_set_whole_frame_pixel_limit(0);
+                    spk_test_set_print_raw_fault_band(0);
+                    expect(okf && spk_band_print_raw_fallbacks() == fb0 + 1 &&
+                               spk_band_print_raw_passes() == pr1 && banded_fault.size() == banded.size() &&
+                               std::memcmp(banded_fault.data(), banded.data(),
+                                           banded.size() * sizeof(float)) == 0,
+                           std::string(c.name) + " @650 rows: a band off the GPU falls back, same bytes");
+                }
+            }
             // Test hook: a NaN in the banded frame must fail the gate.
             if (std::getenv("SPK_SEAM_SWEEP_INJECT_NAN")) banded[banded.size() / 2] = std::nanf("");
             // Non-finite samples are counted, not accumulated: std::max and the
