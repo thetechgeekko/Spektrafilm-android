@@ -101,6 +101,7 @@ for leg in o2 ship; do
     gate "$leg" gpu/tests/test_fft_convolve_gpu.cpp test_fft_convolve_gpu "engaged=1"
     gate "$leg" gpu/tests/test_filming_stage_gpu.cpp test_filming_stage_gpu "engaged=1"
     gate "$leg" gpu/tests/test_contrast_mask_gpu.cpp test_contrast_mask_gpu "engaged=1" ../assets/spektra
+    gate "$leg" tests/test_band_seam_sweep.cpp test_band_seam_sweep "engaged=1" ../assets/spektra
 done
 
 # A new gpu/tests/*.cpp must be added above, not silently skipped.
