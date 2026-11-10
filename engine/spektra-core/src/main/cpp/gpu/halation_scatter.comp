@@ -157,6 +157,12 @@ layout(push_constant) uniform CoreParams {
   uint activeOriginY;
   uint activeWidth;
   uint activeHeight;
+  // Row strides in pixels of in0's image and of buf1/buf3's image. The
+  // whole-frame route pads rows to 16 px (64 B), so a column walk starts every
+  // row on a cache line; equal to the image width otherwise. A transpose
+  // writes rows of length height, so its out pitch follows height.
+  uint inPitch;
+  uint outPitch;
 } params;
 
 float f(uint index) {
@@ -289,7 +295,7 @@ DF iirStep(Coeff B, Coeff p1, Coeff p2, Coeff p3, float x, DF w1, DF w2, DF w3) 
 
 // Element (j, channel c) of column `line` in a packed buffer.
 uint columnElement(uint line, uint j, uint c) {
-  return (j * params.width + line) * 3u + c;
+  return (j * params.outPitch + line) * 3u + c;
 }
 
 // Young-van Vliet IIR of one channel down one column, in place on buf1. The
@@ -360,7 +366,7 @@ void iirColumnAccumulate(uint line, uint n, uint slot, uint c, float weight) {
 float firPixel(uvec2 gid, uint c, float sigma, int radius, bool alongX) {
   const int x = int(gid.x);
   const int y = int(gid.y);
-  const float centre = in0[(gid.y * params.width + gid.x) * 3u + c];
+  const float centre = in0[(gid.y * params.inPitch + gid.x) * 3u + c];
   if (radius <= 0) {
     return centre;
   }
@@ -375,8 +381,8 @@ float firPixel(uvec2 gid, uint c, float sigma, int radius, bool alongX) {
   for (int k = 1; k <= radius; ++k) {
     const int lo = reflectIndex(p - k, n);
     const int hi = reflectIndex(p + k, n);
-    const uint loIdx = alongX ? uint(y) * params.width + uint(lo) : uint(lo) * params.width + uint(x);
-    const uint hiIdx = alongX ? uint(y) * params.width + uint(hi) : uint(hi) * params.width + uint(x);
+    const uint loIdx = alongX ? uint(y) * params.inPitch + uint(lo) : uint(lo) * params.inPitch + uint(x);
+    const uint hiIdx = alongX ? uint(y) * params.inPitch + uint(hi) : uint(hi) * params.inPitch + uint(x);
     acc += (in0[loIdx * 3u + c] + in0[hiIdx * 3u + c]) * g;
     weightSum += 2.0 * g;
     g *= ratio;
@@ -398,7 +404,7 @@ void transposeTile() {
   for (uint k = 0u; k < 4u; ++k) {
     const uint y = group.y * 32u + local.y + k * 8u;
     if (x < params.width && y < params.height) {
-      const uint idx = (y * params.width + x) * 3u;
+      const uint idx = (y * params.inPitch + x) * 3u;
       tile[0][local.y + k * 8u][local.x] = in0[idx];
       tile[1][local.y + k * 8u][local.x] = in0[idx + 1u];
       tile[2][local.y + k * 8u][local.x] = in0[idx + 2u];
@@ -409,7 +415,7 @@ void transposeTile() {
   for (uint k = 0u; k < 4u; ++k) {
     const uint ty = group.x * 32u + local.y + k * 8u;  // transposed y = original x
     if (tx < params.height && ty < params.width) {
-      const uint idx = (ty * params.height + tx) * 3u;
+      const uint idx = (ty * params.outPitch + tx) * 3u;
       if ((mask & 1u) != 0u) buf1[idx] = tile[0][local.x][local.y + k * 8u];
       if ((mask & 2u) != 0u) buf1[idx + 1u] = tile[1][local.x][local.y + k * 8u];
       if ((mask & 4u) != 0u) buf1[idx + 2u] = tile[2][local.x][local.y + k * 8u];
@@ -448,7 +454,8 @@ void main() {
   if (gid.x >= params.width || gid.y >= params.height) {
     return;
   }
-  const uint index = (gid.y * params.width + gid.x) * 3u;
+  // Per-pixel ops read and write images of one shape: inPitch == outPitch.
+  const uint index = (gid.y * params.outPitch + gid.x) * 3u;
   if (params.operation == kOpFirX || params.operation == kOpFirYAccumulate) {
     const bool alongX = params.operation == kOpFirX;
     const uint slot = blurSlot();

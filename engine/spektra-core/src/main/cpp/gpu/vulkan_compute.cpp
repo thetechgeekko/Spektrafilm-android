@@ -3900,8 +3900,9 @@ struct HalationPush {
     float filmPushPullStops = 0.f;
     uint32_t fullWidth = 0, fullHeight = 0, tileOriginX = 0, tileOriginY = 0;
     uint32_t activeOriginX = 0, activeOriginY = 0, activeWidth = 0, activeHeight = 0;
+    uint32_t inPitch = 0, outPitch = 0;  // row strides in pixels (see the shader)
 };
-static_assert(sizeof(HalationPush) == 104, "push block must match halation_scatter.comp");
+static_assert(sizeof(HalationPush) == 112, "push block must match halation_scatter.comp");
 
 constexpr uint32_t kHalOpClear = 0u;
 constexpr uint32_t kHalOpScatterResolve = 4u;
@@ -4226,7 +4227,14 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
     // Whole-frame residency: four packed f32 planes, each one storage range,
     // against the fixed budget and the device's largest device-local heap.
     const uint32_t W = static_cast<uint32_t>(r.width), H = static_cast<uint32_t>(r.height);
-    const VkDeviceSize frameBytes = static_cast<VkDeviceSize>(npix64) * kHalPixelBytes;
+    // Whole-frame rows are padded to 16 px (64 B): the column IIR walks every
+    // buffer at its row stride, and a stride that is not a cache-line multiple
+    // ran it 2.3x slower on the phone (8703 vs 8704 wide). The transposed
+    // image's rows (length H) are padded the same way; every work buffer holds
+    // the larger of the two layouts, and admission is against that size.
+    const uint32_t Wp = (W + 15u) & ~15u, Hp = (H + 15u) & ~15u;
+    const VkDeviceSize frameBytes =
+        std::max(static_cast<VkDeviceSize>(Wp) * H, static_cast<VkDeviceSize>(Hp) * W) * kHalPixelBytes;
     const VkDeviceSize workBytes = frameBytes * kHalWorkBuffers;
     const VkPhysicalDeviceLimits& lim = c.properties.limits;
     const uint32_t maxDim = std::max(W, H);
@@ -4325,6 +4333,8 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         }
     }
     const VkDeviceSize rowBytes = static_cast<VkDeviceSize>(W) * kHalPixelBytes;
+    // Device row stride of the whole-frame buffers (the staging band is packed).
+    const VkDeviceSize pitchBytes = static_cast<VkDeviceSize>(Wp) * kHalPixelBytes;
 
     // Per-channel sigma in pixels of one blur, as apply_halation_um derives it
     // (model/diffusion.cpp): the scatter core, one of the three surrogate
@@ -4501,6 +4511,10 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         push.component = component;
         push.width = width;
         push.height = height;
+        // Banded images keep their exact shape; the whole frame is padded.
+        const auto pad = [&](uint32_t n) { return banded ? n : ((n + 15u) & ~15u); };
+        push.inPitch = pad(width);
+        push.outPitch = op == kHalOpTranspose ? pad(height) : push.inPitch;
         vkCmdBindPipeline(k.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, k.pipe);
         vkCmdBindDescriptorSets(k.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, k.pl, 0, 1, &k.dsets[set], 0, nullptr);
         vkCmdPushConstants(k.cmd, k.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HalationPush), &push);
@@ -4726,9 +4740,10 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         if (!begin()) { d.reason = "dispatch-failed"; return false; }
         barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        VkBufferCopy whole{0, 0, frameBytes};
-        vkCmdCopyBuffer(k.cmd, c.frame.plane[c.frame.front].buf,
-                        k.work[kHalSrc].buf, 1, &whole);
+        std::vector<VkBufferCopy> rowsIn(H);
+        for (uint32_t y = 0; y < H; ++y)
+            rowsIn[y] = VkBufferCopy{static_cast<VkDeviceSize>(y) * rowBytes, static_cast<VkDeviceSize>(y) * pitchBytes, rowBytes};
+        vkCmdCopyBuffer(k.cmd, c.frame.plane[c.frame.front].buf, k.work[kHalSrc].buf, H, rowsIn.data());
         if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
         ++bands;
         d.upload_ms += std::chrono::duration<double, std::milli>(
@@ -4751,8 +4766,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
             if (!begin()) { d.reason = "dispatch-failed"; return false; }
             barrier(VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_WRITE_BIT,
                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-            VkBufferCopy upload{0, static_cast<VkDeviceSize>(y0) * rowBytes, static_cast<VkDeviceSize>(rows) * rowBytes};
-            vkCmdCopyBuffer(k.cmd, k.staging.buf, k.work[kHalSrc].buf, 1, &upload);
+            std::vector<VkBufferCopy> upload(rows);
+            for (uint32_t i = 0; i < rows; ++i)
+                upload[i] = VkBufferCopy{static_cast<VkDeviceSize>(i) * rowBytes,
+                                         static_cast<VkDeviceSize>(y0 + i) * pitchBytes, rowBytes};
+            vkCmdCopyBuffer(k.cmd, k.staging.buf, k.work[kHalSrc].buf, rows, upload.data());
             if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
             ++bands;
         }
@@ -4796,8 +4814,10 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
         if (!begin()) { d.reason = "dispatch-failed"; return false; }
         barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        VkBufferCopy whole{0, 0, frameBytes};
-        vkCmdCopyBuffer(k.cmd, result, c.frame.plane[c.frame.front ^ 1u].buf, 1, &whole);
+        std::vector<VkBufferCopy> rowsOut(H);
+        for (uint32_t y = 0; y < H; ++y)
+            rowsOut[y] = VkBufferCopy{static_cast<VkDeviceSize>(y) * pitchBytes, static_cast<VkDeviceSize>(y) * rowBytes, rowBytes};
+        vkCmdCopyBuffer(k.cmd, result, c.frame.plane[c.frame.front ^ 1u].buf, H, rowsOut.data());
         if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
         c.frame.front ^= 1u;
         d.readback_ms += std::chrono::duration<double, std::milli>(
@@ -4809,8 +4829,11 @@ bool halation_scatter_locked(Ctx& c, const HalationScatterRequest& r, double* ou
             if (!begin()) { d.reason = "dispatch-failed"; return false; }
             barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-            VkBufferCopy readback{static_cast<VkDeviceSize>(y0) * rowBytes, 0, static_cast<VkDeviceSize>(rows) * rowBytes};
-            vkCmdCopyBuffer(k.cmd, result, k.staging.buf, 1, &readback);
+            std::vector<VkBufferCopy> readback(rows);
+            for (uint32_t i = 0; i < rows; ++i)
+                readback[i] = VkBufferCopy{static_cast<VkDeviceSize>(y0 + i) * pitchBytes,
+                                           static_cast<VkDeviceSize>(i) * rowBytes, rowBytes};
+            vkCmdCopyBuffer(k.cmd, result, k.staging.buf, rows, readback.data());
             barrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
                     VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_HOST_READ_BIT);
             if (!submit_wait()) { d.reason = "dispatch-failed"; return false; }
