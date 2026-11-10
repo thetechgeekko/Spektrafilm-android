@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -287,14 +288,14 @@ void print_expose(const Profile& film, const Profile& print_profile,
     // masked tail) before it is read, so they are allocated uninitialised: a
     // value-initialised vector zero-fills ~0.5 GB per 23 MP band on one thread.
     std::unique_ptr<double[]> raw_buf;
-    if (diffusion) raw_buf.reset(new double[static_cast<size_t>(npix) * 3]);
+    if (diffusion && !params.raw_only) raw_buf.reset(new double[static_cast<size_t>(npix) * 3]);
     // Opt-in contrast mask (model/contrast_mask.h, not an oracle stage). It needs
     // the whole frame's exposure before any pixel's tail can run, so when engaged
     // the per-pixel loop parks y in `mask_y` and a second pass finishes the tail.
     // Off (the default): `mask_y` stays empty and the loop below is unchanged.
     const bool mask = params.contrast_mask.engaged();
     std::unique_ptr<double[]> mask_y;
-    if (mask) mask_y.reset(new double[static_cast<size_t>(npix) * 3]);
+    if (mask && !params.raw_only) mask_y.reset(new double[static_cast<size_t>(npix) * 3]);
 
     // print sensitivity = nan_to_num(10**log_sensitivity) on the working shape.
     // Precompute once: print_profile.log_sensitivity is (S*3,) row-major [s*3+k].
@@ -368,15 +369,21 @@ void print_expose(const Profile& film, const Profile& print_profile,
     bool gpu_lr_done = false;
     // On success the GPU integral's raw output; the per-pixel loop applies the
     // constant tail (midgray factor, preflash, floor) to it in place.
-    std::unique_ptr<float[]> gpu_raw;
-    if (params.allow_gpu && S == kGpuNB && spk::gpu::available()) {
+    std::unique_ptr<float[]> gpu_raw_owned;
+    const float* gpu_raw = nullptr;
+    if (params.gpu_raw_in) {
+        // A banded render's earlier pass stored this call's GPU output.
+        gpu_raw = params.gpu_raw_in;
+        gpu_lr_done = true;
+        g_gpu_print_frames.fetch_add(1, std::memory_order_relaxed);
+    } else if (params.allow_gpu && S == kGpuNB && spk::gpu::available()) {
         std::vector<float> dye, icmf;
         if (build_gpu_print_tables(film, params, sens, &dye, &icmf) &&
             gpu_print_self_check(film, params, sens, dye, icmf)) {
             static const float kIdentity[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
                                                0.0f, 0.0f, 0.0f, 1.0f};
-            gpu_raw.reset(new float[static_cast<size_t>(npix) * 3]);
-            if (spk::gpu::scan_spectral_linear(density_cmy, gpu_raw.get(),
+            gpu_raw_owned.reset(new float[static_cast<size_t>(npix) * 3]);
+            if (spk::gpu::scan_spectral_linear(density_cmy, gpu_raw_owned.get(),
                                                static_cast<uint32_t>(npix),
                                                dye.data(), icmf.data(),
                                                kIdentity)) {
@@ -385,12 +392,21 @@ void print_expose(const Profile& film, const Profile& print_profile,
                 // below, which forms the linear exposure y = fmax(raw, 0) + 1e-10
                 // itself rather than log10(y) for a 10^ round trip (#203).
                 gpu_lr_done = true;
+                gpu_raw = gpu_raw_owned.get();
                 g_gpu_print_frames.fetch_add(1, std::memory_order_relaxed);
             } else {
-                gpu_raw.reset();
+                gpu_raw_owned.reset();
             }
         }
     }
+    if (params.gpu_raw_out) {
+        if (gpu_raw) {
+            std::memcpy(params.gpu_raw_out, gpu_raw, static_cast<size_t>(npix) * 3 * sizeof(float));
+        } else if (params.gpu_raw_out_failed) {
+            *params.gpu_raw_out_failed = true;
+        }
+    }
+    if (params.raw_only) return;
     if (params.use_enlarger_lut && !gpu_lr_done) {
         // Per-channel domain bounds (printing.py::expose):
         //   data_min = -film_render.grain.density_min
@@ -497,7 +513,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
         if (gpu_lr_done) {
             // The GPU offload's raw integral (see above), with the same tail
             // the direct path applies below.
-            const float* gr = gpu_raw.get() + static_cast<size_t>(p) * 3;
+            const float* gr = gpu_raw + static_cast<size_t>(p) * 3;
             const double efm = params.exposure_factor_midgray;
             y0 = std::fmax(static_cast<double>(gr[0]) * efm + preflash_raw[0], 0.0) + 1e-10;
             y1 = std::fmax(static_cast<double>(gr[1]) * efm + preflash_raw[1], 0.0) + 1e-10;
@@ -640,7 +656,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
             }
             if (g) {
                 gain.reset(new float[static_cast<size_t>(npix)]);
-                if (gpu_contrast_mask_gain(gpu_raw.get(), width, height, frame_y0, *g, params,
+                if (gpu_contrast_mask_gain(gpu_raw, width, height, frame_y0, *g, params,
                                            preflash_raw, mult, gain.get())) {
                     g_gpu_mask_frames.fetch_add(1, std::memory_order_relaxed);
                 } else {

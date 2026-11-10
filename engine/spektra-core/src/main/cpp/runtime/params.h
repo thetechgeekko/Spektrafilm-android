@@ -298,6 +298,17 @@ struct PrintingParams {
     // oracle). Applied in print_expose to the paper's image exposure before the
     // print_exposure multiplier. Inactive by default; never run unless engaged.
     ContrastMaskParams contrast_mask;
+
+    // INTERNAL, banded renders only (spektra.cpp run_banded). The GPU integral's
+    // float32 output per pixel (npix * 3), the value the tail rebuilds y from.
+    // gpu_raw_in: use these values instead of running the integral.
+    // gpu_raw_out: copy this call's GPU output here; when the integral did not
+    // run on the GPU, *gpu_raw_out_failed is set instead. raw_only: stop after
+    // that copy (no tail, no output written).
+    const float* gpu_raw_in = nullptr;
+    float* gpu_raw_out = nullptr;
+    bool* gpu_raw_out_failed = nullptr;
+    bool raw_only = false;
 };
 
 // Enlarger illuminant on the 81-band working shape for a given illuminant id.
