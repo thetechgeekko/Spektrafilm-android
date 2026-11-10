@@ -248,15 +248,18 @@ void print_expose(const Profile& film, const Profile& print_profile,
     // the final log10, mirroring printing.py::expose. Otherwise the pointwise
     // round trip below writes directly into log_raw_print_out and `raw_buf`
     // is unused, keeping the default (no-op) path byte-identical.
-    std::vector<double> raw_buf;
-    if (diffusion) raw_buf.resize(static_cast<size_t>(npix) * 3);
+    // Every element of raw_buf / mask_y is written by the per-pixel loop (or the
+    // masked tail) before it is read, so they are allocated uninitialised: a
+    // value-initialised vector zero-fills ~0.5 GB per 23 MP band on one thread.
+    std::unique_ptr<double[]> raw_buf;
+    if (diffusion) raw_buf.reset(new double[static_cast<size_t>(npix) * 3]);
     // Opt-in contrast mask (model/contrast_mask.h, not an oracle stage). It needs
     // the whole frame's exposure before any pixel's tail can run, so when engaged
     // the per-pixel loop parks y in `mask_y` and a second pass finishes the tail.
     // Off (the default): `mask_y` stays empty and the loop below is unchanged.
     const bool mask = params.contrast_mask.engaged();
-    std::vector<double> mask_y;
-    if (mask) mask_y.resize(static_cast<size_t>(npix) * 3);
+    std::unique_ptr<double[]> mask_y;
+    if (mask) mask_y.reset(new double[static_cast<size_t>(npix) * 3]);
 
     // print sensitivity = nan_to_num(10**log_sensitivity) on the working shape.
     // Precompute once: print_profile.log_sensitivity is (S*3,) row-major [s*3+k].
@@ -312,11 +315,11 @@ void print_expose(const Profile& film, const Profile& print_profile,
     // staying byte-identical to the per-pixel exp10_vec integral.
     std::vector<double> lut_lr;  // (npix*3) when use_enlarger_lut, else empty
     // EXPERIMENTAL GPU offload of the spectral integral (perf lab, first rung of
-    // #148). Fills the SAME lut_lr plane the opt-in enlarger LUT would, so the
-    // whole tail below — midgray factor, preflash, the 10^/log10 round trip, the
-    // optional diffusion filter — runs unchanged on the CPU. Any failure at any
-    // step leaves lut_lr empty, so the route falls back to the enlarger LUT if
-    // the user opted into it, and otherwise to the exact per-pixel integral.
+    // #148). Leaves the raw integral in gpu_raw, and the whole tail below —
+    // midgray factor, preflash, floor, the optional diffusion filter — runs
+    // on the CPU. Any failure at any step leaves gpu_raw empty, so the route
+    // falls back to the enlarger LUT if the user opted into it, and otherwise
+    // to the exact per-pixel integral.
     //
     // ORDER MATTERS, and it is the scan offload's precedent: on success this
     // SKIPS the enlarger LUT build entirely, rather than deferring to it. The
@@ -328,39 +331,28 @@ void print_expose(const Profile& film, const Profile& print_profile,
     // offload never engaged on the interactive path at all — which is the one
     // that needs it.
     bool gpu_lr_done = false;
+    // On success the GPU integral's raw output; the per-pixel loop applies the
+    // constant tail (midgray factor, preflash, floor) to it in place.
+    std::unique_ptr<float[]> gpu_raw;
     if (params.allow_gpu && S == kGpuNB && spk::gpu::available()) {
         std::vector<float> dye, icmf;
         if (build_gpu_print_tables(film, params, sens, &dye, &icmf) &&
             gpu_print_self_check(film, params, sens, dye, icmf)) {
             static const float kIdentity[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
                                                0.0f, 0.0f, 0.0f, 1.0f};
-            std::vector<float> gpu_raw(static_cast<size_t>(npix) * 3);
-            if (spk::gpu::scan_spectral_linear(density_cmy, gpu_raw.data(),
+            gpu_raw.reset(new float[static_cast<size_t>(npix) * 3]);
+            if (spk::gpu::scan_spectral_linear(density_cmy, gpu_raw.get(),
                                                static_cast<uint32_t>(npix),
                                                dye.data(), icmf.data(),
                                                kIdentity)) {
                 // The kernel stops at `raw`; the constant tail (midgray factor,
-                // preflash 3-vector, floor) is pointwise and stays on the CPU.
-                // It stores the linear exposure y = fmax(raw, 0) + 1e-10 itself,
-                // not log10(y) for the loop below to raise back to 10^: the same
-                // round trip the direct path drops (#203), two libm calls per
-                // channel per pixel on every banded print pass.
-                lut_lr.resize(static_cast<size_t>(npix) * 3);
-                double* const lr = lut_lr.data();
-                const double efm = params.exposure_factor_midgray;
-                parallel_for(0, npix, [&](int lo, int hi) {
-                    for (int p = lo; p < hi; ++p)
-                        for (int k = 0; k < 3; ++k) {
-                            const double raw =
-                                static_cast<double>(
-                                    gpu_raw[static_cast<size_t>(p) * 3 + k]) *
-                                    efm +
-                                preflash_raw[k];
-                            lr[static_cast<size_t>(p) * 3 + k] = std::fmax(raw, 0.0) + 1e-10;
-                        }
-                });
+                // preflash 3-vector, floor) is pointwise and runs in the loop
+                // below, which forms the linear exposure y = fmax(raw, 0) + 1e-10
+                // itself rather than log10(y) for a 10^ round trip (#203).
                 gpu_lr_done = true;
                 g_gpu_print_frames.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                gpu_raw.reset();
             }
         }
     }
@@ -454,8 +446,8 @@ void print_expose(const Profile& film, const Profile& print_profile,
                                     lut_lr.data());
     }
 
-    // True when lut_lr is precomputed: log_raw from the opt-in enlarger LUT, or
-    // (gpu_lr_done) the linear exposure from the GPU offload above.
+    // True when the integral is precomputed: log_raw in lut_lr from the opt-in
+    // enlarger LUT, or (gpu_lr_done) the raw integral in gpu_raw from the GPU.
     const bool lr_precomputed = params.use_enlarger_lut || gpu_lr_done;
 
     // The Python reference runs the whole spectral chain in float64 and stores
@@ -468,11 +460,13 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // y = 10^log_raw_print, the linear print exposure the tail multiplies.
         double y0, y1, y2;
         if (gpu_lr_done) {
-            // The GPU offload left the linear exposure itself (see above).
-            const double* gy = lut_lr.data() + static_cast<size_t>(p) * 3;
-            y0 = gy[0];
-            y1 = gy[1];
-            y2 = gy[2];
+            // The GPU offload's raw integral (see above), with the same tail
+            // the direct path applies below.
+            const float* gr = gpu_raw.get() + static_cast<size_t>(p) * 3;
+            const double efm = params.exposure_factor_midgray;
+            y0 = std::fmax(static_cast<double>(gr[0]) * efm + preflash_raw[0], 0.0) + 1e-10;
+            y1 = std::fmax(static_cast<double>(gr[1]) * efm + preflash_raw[1], 0.0) + 1e-10;
+            y2 = std::fmax(static_cast<double>(gr[2]) * efm + preflash_raw[2], 0.0) + 1e-10;
         } else if (lr_precomputed) {
             // An interpolated log value: exponentiate it, as expose() does.
             const double* lr = lut_lr.data() + static_cast<size_t>(p) * 3;
@@ -555,7 +549,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // then the optical diffusion filter (if active) runs on `raw`; finally
         // return log10(max(raw,0) + 1e-10).
         if (mask) {
-            double* my = mask_y.data() + static_cast<size_t>(p) * 3;
+            double* my = mask_y.get() + static_cast<size_t>(p) * 3;
             my[0] = y0; my[1] = y1; my[2] = y2;
             continue;
         }
@@ -565,7 +559,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
         double r2 = y2 * mult;
 
         if (diffusion) {
-            double* rb = raw_buf.data() + static_cast<size_t>(p) * 3;
+            double* rb = raw_buf.get() + static_cast<size_t>(p) * 3;
             rb[0] = r0; rb[1] = r1; rb[2] = r2;
         } else {
             float* out = log_raw_print_out + static_cast<size_t>(p) * 3;
@@ -584,7 +578,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
             // into the frame's cell sums, and the render stops here.
             // log_raw_print_out is deliberately left unwritten.
             if (mult > 0.0) {
-                contrast_mask_accumulate(mask_y.data(), cm.core_begin, cm.core_end,
+                contrast_mask_accumulate(mask_y.get(), cm.core_begin, cm.core_end,
                                          cm.frame_y0, preflash_raw, mult, cm.accum);
             }
             return;
@@ -592,20 +586,20 @@ void print_expose(const Profile& film, const Profile& print_profile,
         if (cm.frame_width > 0 && cm.grid) {
             // Banded pass 2: the finished frame grid, at frame coordinates.
             if (mult > 0.0) {
-                contrast_mask_apply_grid(mask_y.data(), height, cm.frame_y0, preflash_raw,
+                contrast_mask_apply_grid(mask_y.get(), height, cm.frame_y0, preflash_raw,
                                          mult, cm, *cm.grid);
             }
         } else {
-            contrast_mask_apply(mask_y.data(), width, height, preflash_raw, mult, cm);
+            contrast_mask_apply(mask_y.get(), width, height, preflash_raw, mult, cm);
         }
         // The same tail as the per-pixel loop above, on the masked exposure.
-        const double* my = mask_y.data();
+        const double* my = mask_y.get();
         parallel_for(0, npix, [&](int lo, int hi) {
             for (int p = lo; p < hi; ++p) {
                 const size_t i = static_cast<size_t>(p) * 3;
                 const double r0 = my[i] * mult, r1 = my[i + 1] * mult, r2 = my[i + 2] * mult;
                 if (diffusion) {
-                    double* rb = raw_buf.data() + i;
+                    double* rb = raw_buf.get() + i;
                     rb[0] = r0; rb[1] = r1; rb[2] = r2;
                 } else {
                     float* out = log_raw_print_out + i;
@@ -624,7 +618,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // log_raw_print_out is deliberately left unwritten.
         const int c0 = df.band_core_end > df.band_core_begin ? df.band_core_begin : 0;
         const int c1 = df.band_core_end > df.band_core_begin ? df.band_core_end : height;
-        diffusion_far_accumulate(raw_buf.data() + static_cast<size_t>(c0) * width * 3,
+        diffusion_far_accumulate(raw_buf.get() + static_cast<size_t>(c0) * width * 3,
                                  width, c1 - c0, df.band_frame_y0 + c0, df.band_far);
         return;
     }
@@ -632,11 +626,11 @@ void print_expose(const Profile& film, const Profile& print_profile,
         if (df.band_far) {
             // One band of a frame above the whole-frame capacity: the near/far
             // split of model/diffusion.h with the frame's coarse far field.
-            apply_diffusion_filter_banded(raw_buf.data(), width, height,
+            apply_diffusion_filter_banded(raw_buf.get(), width, height,
                                           df.band_frame_y0, *df.band_far,
                                           params.allow_gpu_diffusion_fft);
         } else {
-            apply_diffusion_filter_um(raw_buf.data(), width, height,
+            apply_diffusion_filter_um(raw_buf.get(), width, height,
                                       params.diffusion_filter, params.pixel_size_um,
                                       params.allow_gpu_diffusion_fft);
         }
@@ -645,7 +639,7 @@ void print_expose(const Profile& film, const Profile& print_profile,
         // reached when the print diffusion filter is on, so it is not on the
         // path the 12.5 MP benchmark measures; it is 37.5 M elements when it
         // does run, which is not something to leave on one core.
-        const double* raw_p = raw_buf.data();
+        const double* raw_p = raw_buf.get();
         parallel_for(0, static_cast<int>(total), [&](int lo, int hi) {
             for (int i = lo; i < hi; ++i) {
                 log_raw_print_out[i] = static_cast<float>(
