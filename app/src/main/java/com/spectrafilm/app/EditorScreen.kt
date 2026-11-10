@@ -547,6 +547,9 @@ internal fun EditorScreen(
     }
 
     fun doRedo() {
+        // Redo would restore a recipe over a crop draft that never entered history, and the
+        // draft's new adjustments would be lost for good: Redo waits until the draft is committed.
+        if (cropDraftRef.value?.touched == true) return
         session.redo() ?: return
         liveCursorMutated = true
         previewTick++
@@ -1243,7 +1246,7 @@ internal fun EditorScreen(
         topBar = { wide ->
             if (!viewerUi.chromeHidden) EditorTopBar(
                 canUndo = editHistory.canUndo || cropDraft?.touched == true,
-                canRedo = editHistory.canRedo,
+                canRedo = editHistory.canRedo && cropDraft?.touched != true,
                 onUndo = { doUndo() },
                 onRedo = { doRedo() },
                 onShowHistory = { historySheet = historyTimeline(editHistory.snapshotState(), snapshotNow()) },
@@ -1279,7 +1282,9 @@ internal fun EditorScreen(
                 // The canvas tools that used to float on the photo (EditorPreviewRegion.kt).
                 hasPhoto = preview != null || gpuProxy != null,
                 onCrop = { toolVm.onAction(EditorToolAction.OpenCrop) },
-                compare = viewerUi.compare,
+                // The Crop canvas has no split view or original peek, so Compare rests while it shows.
+                compare = viewerUi.compare && cropDraft == null,
+                compareEnabled = (preview != null || gpuProxy != null) && cropDraft == null,
                 histogram = viewerUi.histogram,
                 clipWarnings = viewerUi.clipWarnings,
                 onToggleCompare = { viewerVm.onAction(EditorViewerAction.ToggleCompare) },

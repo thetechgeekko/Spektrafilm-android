@@ -64,7 +64,7 @@ internal fun EditorBackAndShortcuts(
             }
             EditorShortcut.UNDO -> !historyBlocked && (editHistory.canUndo || cropDraftPending) &&
                 run { doUndo(); true }
-            EditorShortcut.REDO -> !historyBlocked && editHistory.canRedo && run { doRedo(); true }
+            EditorShortcut.REDO -> !historyBlocked && !cropDraftPending && editHistory.canRedo && run { doRedo(); true }
             EditorShortcut.OPEN -> !overlayOpen && run {
                 openPhotoPicker()
                 true
