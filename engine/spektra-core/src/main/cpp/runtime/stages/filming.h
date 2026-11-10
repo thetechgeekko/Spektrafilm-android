@@ -31,6 +31,8 @@
 
 #include <vector>
 
+#include "kernels/float_buffer.h"
+
 #include "io/npy_lut.h"
 #include "model/gamut_compression.h"
 #include "profiles/profile.h"
@@ -137,7 +139,7 @@ void expose_f32_gain(const float* rgb, double gain, int width, int height,
 // (#300, export peak memory). Output is unaffected.
 void develop(const float* log_raw, int width, int height, const Profile& film,
              const FilmingParams& params, float* density_cmy_out,
-             std::vector<float>* release_log_raw = nullptr);
+             FloatBuffer* release_log_raw = nullptr);
 
 }  // namespace spk
 
