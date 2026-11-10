@@ -59,4 +59,21 @@ class RawFallbackRoutingTest {
         assertFalse(rawMemoryFallbackSupported(DecodeStatus.NO_MEMORY, Int.MAX_VALUE))
         assertFalse(rawMemoryFallbackSupported(DecodeStatus.UNPACK, 1024))
     }
+
+    @Test
+    fun anExportNeverSavesAPreviewOrAHalfSizeDecodeOfARaw() {
+        // A Lightroom panorama DNG the native route refused came back from the platform
+        // decoder as its 1024 px embedded preview, and the export saved that at 1074x432.
+        assertTrue(exportRefusesDecode(SourceKind.RAW, EXPORT_MAX_EDGE_PX, usedPlatformFallback = true, memoryDegraded = false))
+        assertTrue(exportRefusesDecode(SourceKind.RAW, EXPORT_MAX_EDGE_PX, usedPlatformFallback = false, memoryDegraded = true))
+        assertFalse(exportRefusesDecode(SourceKind.RAW, EXPORT_MAX_EDGE_PX, usedPlatformFallback = false, memoryDegraded = false))
+    }
+
+    @Test
+    fun previewsAndOtherSourcesKeepTheirReducedDecodes() {
+        // The editor may show a preview-sized or half-size decode; only an export refuses it.
+        assertFalse(exportRefusesDecode(SourceKind.RAW, 2048, usedPlatformFallback = true, memoryDegraded = true))
+        assertFalse(exportRefusesDecode(SourceKind.RAW, EXPORT_MAX_EDGE_PX - 1, usedPlatformFallback = true, memoryDegraded = false))
+        assertFalse(exportRefusesDecode(SourceKind.PHOTO, EXPORT_MAX_EDGE_PX, usedPlatformFallback = true, memoryDegraded = true))
+    }
 }

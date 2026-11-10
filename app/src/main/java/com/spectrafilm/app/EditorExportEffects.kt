@@ -218,11 +218,15 @@ internal suspend fun CoroutineScope.runExportRuntimeObserver(
                         exportVm.onAction(ExportAction.SetPhase(EditorExportPhase.FAILURE))
                         // The cause is in the diagnostics log above; the user gets what
                         // happened and what to try, with Retry reopening the export sheet.
+                        val cause = outcome.cause
                         val message = ctx.getString(
-                            if (isMemoryExhaustion(outcome.cause)) {
-                                R.string.editor_msg_export_failed_memory
-                            } else {
-                                R.string.editor_msg_export_failed
+                            when {
+                                cause is ExportSourceDegradedException && cause.previewOnly ->
+                                    R.string.editor_msg_export_failed_raw_preview
+                                cause is ExportSourceDegradedException ->
+                                    R.string.editor_msg_export_failed_raw_memory
+                                isMemoryExhaustion(cause) -> R.string.editor_msg_export_failed_memory
+                                else -> R.string.editor_msg_export_failed
                             },
                         )
                         status = message

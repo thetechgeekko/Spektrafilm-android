@@ -54,6 +54,35 @@ internal data class SourceDecodeResult(
     val memoryDegraded: Boolean = false,
 )
 
+/**
+ * An export-sized RAW decode that could not read the RAW data at full size: the platform
+ * decoder returned the file's embedded preview ([previewOnly]), or a memory refusal made the
+ * native decoder fall back to a half-size decode. An export fails with this instead of saving
+ * a smaller image than the RAW holds.
+ */
+internal class ExportSourceDegradedException(val previewOnly: Boolean, val width: Int, val height: Int) :
+    IllegalStateException(
+        if (previewOnly) {
+            "RAW could only be read as its embedded preview (${width}x$height)"
+        } else {
+            "RAW decode fell back to a reduced size (${width}x$height) for lack of memory"
+        },
+    )
+
+/** True for an export decode request; previews and the editor may use reduced decodes. */
+internal fun isExportDecodeEdge(maxEdge: Int): Boolean = maxEdge >= EXPORT_MAX_EDGE_PX
+
+/**
+ * Whether a finished decode must be refused because it is an export of a RAW that was not read
+ * at full size: the platform decoder (the embedded preview) or a memory half-size fallback.
+ */
+internal fun exportRefusesDecode(
+    kind: SourceKind,
+    maxEdge: Int,
+    usedPlatformFallback: Boolean,
+    memoryDegraded: Boolean,
+): Boolean = kind == SourceKind.RAW && isExportDecodeEdge(maxEdge) && (usedPlatformFallback || memoryDegraded)
+
 internal data class CachedSourceDecodeRequest(
     val decode: SourceDecodeRequest,
     val ticket: DecodedSourceCache.Ticket,
@@ -250,6 +279,14 @@ internal suspend fun decodeSourceRequest(
         }
         if (isCancelled()) throw CancellationException("source decode cancelled")
         Diag.i("decode kind=${request.kind.name} ${rotated.width}x${rotated.height} maxEdge=$maxEdge")
+        if (exportRefusesDecode(request.kind, maxEdge, usedPlatformFallback, rawMemoryDegraded.get())) {
+            Diag.w(
+                "export decode refused: RAW read " +
+                    (if (usedPlatformFallback) "as its embedded preview" else "at reduced size for memory") +
+                    " ${rotated.width}x${rotated.height}",
+            )
+            throw ExportSourceDegradedException(usedPlatformFallback, rotated.width, rotated.height)
+        }
         val decoded = SourceDecodeResult(rotated, usedPlatformFallback, rawMemoryDegraded.get())
         ownedImage = null
         decoded

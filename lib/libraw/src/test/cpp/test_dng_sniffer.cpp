@@ -145,6 +145,90 @@ std::vector<uint8_t> buildLongNextIfdChain(size_t ifdCount) {
     return b;
 }
 
+// General little-endian TIFF: IFD 0 is the root (IFD0), the others are its
+// SubIFDs in order. An entry whose payload is non-empty stores it out of line.
+struct Entry {
+    uint16_t tag;
+    uint16_t type;
+    uint32_t count;
+    uint32_t value;
+    std::vector<uint8_t> payload;
+};
+std::vector<uint8_t> buildTiff(std::vector<std::vector<Entry>> ifds) {
+    std::vector<size_t> ifdAt(ifds.size());
+    size_t at = 8;
+    for (size_t i = 0; i < ifds.size(); ++i) {
+        ifdAt[i] = at;
+        at += 2 + ifds[i].size() * 12 + 4;
+    }
+    std::vector<uint8_t> b(at, 0);
+    b[0] = 'I'; b[1] = 'I'; put16(b, 2, 42); put32(b, 4, 8);
+    for (size_t i = 0; i < ifds.size(); ++i) {
+        put16(b, ifdAt[i], static_cast<uint16_t>(ifds[i].size()));
+        size_t e = ifdAt[i] + 2;
+        for (const Entry& t : ifds[i]) {
+            uint32_t value = t.value;
+            if (t.tag == 0x014A) {  // SubIFDs: offsets of IFDs 1..n-1
+                std::vector<uint8_t> offs(4 * (ifds.size() - 1), 0);
+                for (size_t s = 1; s < ifds.size(); ++s) put32(offs, 4 * (s - 1), (uint32_t)ifdAt[s]);
+                value = static_cast<uint32_t>(b.size());
+                b.insert(b.end(), offs.begin(), offs.end());
+            } else if (!t.payload.empty()) {
+                value = static_cast<uint32_t>(b.size());
+                b.insert(b.end(), t.payload.begin(), t.payload.end());
+            }
+            put16(b, e, t.tag); put16(b, e + 2, t.type);
+            put32(b, e + 4, t.tag == 0x014A ? (uint32_t)(ifds.size() - 1) : t.count);
+            put32(b, e + 8, value);
+            e += 12;
+        }
+        put32(b, e, 0);
+    }
+    return b;
+}
+std::vector<uint8_t> srationalMatrix() {
+    std::vector<uint8_t> m(9 * 8, 0);
+    for (int i = 0; i < 9; ++i) {
+        put32(m, i * 8, (i % 4 == 0) ? 10000U : static_cast<uint32_t>(-1000));  // diagonal-dominant
+        put32(m, i * 8 + 4, 10000U);
+    }
+    return m;
+}
+std::vector<uint8_t> shorts3(uint16_t v) {
+    std::vector<uint8_t> s(6, 0);
+    for (int i = 0; i < 3; ++i) put16(s, i * 2, v);
+    return s;
+}
+// A Lightroom merged-panorama layout: IFD0 is the RGB preview and carries the
+// DNG colour tags, SubIFD 1 the LinearRaw image, SubIFD 2 its transparency mask
+// at the same size. `rootColour` drops the colour tags from IFD0; `rawColour`
+// gives the RAW SubIFD a ColorMatrix1 of its own; `maskType` is the mask's
+// NewSubFileType.
+std::vector<uint8_t> buildPanorama(bool rootColour, bool rawColour, uint32_t maskType) {
+    std::vector<Entry> ifd0 = {
+        {0x00FE, 4, 1, 1, {}},  {0x0100, 4, 1, 256, {}}, {0x0101, 4, 1, 98, {}},
+        {0x0103, 3, 1, 1, {}},  {0x0106, 3, 1, 2, {}},   {0x014A, 4, 0, 0, {}},
+        {0xC612, 1, 4, 0x00000401, {}},
+    };
+    if (rootColour) {
+        ifd0.push_back({0xC621, 10, 9, 0, srationalMatrix()});
+        ifd0.push_back({0xC622, 10, 9, 0, srationalMatrix()});
+        ifd0.push_back({0xC65A, 3, 1, 17, {}});
+        ifd0.push_back({0xC65B, 3, 1, 21, {}});
+    }
+    std::vector<Entry> raw = {
+        {0x00FE, 4, 1, 0, {}}, {0x0100, 4, 1, 10103, {}}, {0x0101, 4, 1, 4080, {}},
+        {0x0102, 3, 3, 0, shorts3(16)}, {0x0103, 3, 1, 7, {}}, {0x0106, 3, 1, 34892, {}},
+        {0x0115, 3, 1, 3, {}}, {0x011C, 3, 1, 1, {}},
+    };
+    if (rawColour) raw.push_back({0xC621, 10, 9, 0, srationalMatrix()});
+    std::vector<Entry> mask = {
+        {0x00FE, 4, 1, maskType, {}}, {0x0100, 4, 1, 10103, {}}, {0x0101, 4, 1, 4080, {}},
+        {0x0102, 3, 1, 8, {}}, {0x0103, 3, 1, 8, {}}, {0x0106, 3, 1, 4, {}},
+    };
+    return buildTiff({ifd0, raw, mask});
+}
+
 int failures = 0;
 void check(const char* name, int got, int want) {
     if (got != want) {
@@ -242,6 +326,29 @@ int main() {
     { uint8_t z[16] = {0};
       check("classify/non-dng -> UNPACK",
             classifyUnpackFailure(z, 16), SFRAW_ERR_UNPACK); }
+
+    // --- primaryImageInfoOf: a SubIFD LinearRaw image (Lightroom merged
+    // panorama) takes the DNG colour tags from IFD0, and its transparency mask
+    // is not a second RAW candidate ---
+    using spectrafilm::dngsniff::primaryImageInfoOf;
+    { auto b = buildPanorama(true, false, 4);
+      const auto info = primaryImageInfoOf(b.data(), b.size());
+      check("panorama/preflight safe", info.unsafeForLibRawOpen ? 1 : 0, 0);
+      check("panorama/is DNG", info.isDng ? 1 : 0, 1);
+      check("panorama/LinearRaw selected", info.photometric, 34892);
+      check("panorama/RAW width", static_cast<int>(info.width), 10103);
+      const auto bound = primaryImageInfoOf(b.data(), b.size(), 10103, 4080);
+      check("panorama/bound to decoded size", bound.unsafeForLibRawOpen ? 1 : 0, 0);
+      check("panorama/bound LinearRaw", bound.photometric, 34892); }
+    { auto b = buildPanorama(false, false, 4);
+      check("panorama/no colour tags anywhere -> unsafe",
+            primaryImageInfoOf(b.data(), b.size()).unsafeForLibRawOpen ? 1 : 0, 1); }
+    { auto b = buildPanorama(true, true, 4);
+      check("panorama/RAW IFD with partial own colour -> unsafe",
+            primaryImageInfoOf(b.data(), b.size()).unsafeForLibRawOpen ? 1 : 0, 1); }
+    { auto b = buildPanorama(true, false, 0);
+      check("panorama/unmarked same-size plane -> unsafe",
+            primaryImageInfoOf(b.data(), b.size()).unsafeForLibRawOpen ? 1 : 0, 1); }
 
     printf("\n%s (%d failures)\n",
            failures ? "TESTS FAILED" : "ALL TESTS PASSED", failures);
