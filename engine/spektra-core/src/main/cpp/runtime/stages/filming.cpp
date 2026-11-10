@@ -934,7 +934,7 @@ void expose_f32_gain(const float* rgb, double gain, int width, int height,
 
 void develop(const float* log_raw, int width, int height, const Profile& film,
              const FilmingParams& params, float* density_cmy_out,
-             std::vector<float>* release_log_raw) {
+             FloatBuffer* release_log_raw) {
     int n = film.n_density_pts;
     const int npix = width * height;
 
@@ -982,7 +982,7 @@ void develop(const float* log_raw, int width, int height, const Profile& film,
     // log_raw's last reader was the coupler step above.
     if (release_log_raw) {
         log_raw = nullptr;
-        std::vector<float>().swap(*release_log_raw);
+        FloatBuffer().swap(*release_log_raw);
     }
 
     // Stochastic grain (AgX particle model). Identity unless grain.active (set by

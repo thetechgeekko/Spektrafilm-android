@@ -60,6 +60,7 @@
 
 #include "io/npy_lut.h"
 #include "gpu/vulkan_compute.h"
+#include "kernels/float_buffer.h"
 #include "kernels/lut3d_cache.h"  // spk_engine holds the spectral 3D-LUT memo by value
 #include "kernels/parallel.h"     // spk_set_big_cores -> parallel_set_big_cores
 #include "model/color_output.h"
@@ -826,7 +827,8 @@ static uint64_t compute_film_cache_key(const std::vector<double>& rgb, int width
 // morph set, the preflash trio, the enlarger LUT settings, the enlarger
 // diffusion filter (+ the µm->px scale), and the print-route b/w correction
 // inputs (they set pparams.bw_exposure_correction inside print_expose).
-static uint64_t compute_print_density_key(const std::vector<float>& film_density_cmy,
+template <typename Buffer>
+static uint64_t compute_print_density_key(const Buffer& film_density_cmy,
                                           int width, int height,
                                           const spk_params* p,
                                           double resize_pixel_size_um) {
@@ -1800,7 +1802,7 @@ const char* pointwise_route_ineligibility(
     const spk::Profile& paper, const spk::NdArray& tc_lut,
     const spk::FilmingParams& fparams,
     const spk::PrintingParams& pparams,
-    const spk::ScanningParams& sparams, std::vector<float>* final_rgb,
+    const spk::ScanningParams& sparams, spk::FloatBuffer* final_rgb,
     std::vector<float>* tap_log_raw,
     std::vector<float>* tap_film_density_cmy,
     std::vector<float>* tap_print_density_cmy, int npix) noexcept {
@@ -2105,7 +2107,7 @@ void note_pointwise_self_test(
 // Run the scan_film pipeline, producing display RGB plus the intermediate taps.
 // `tap_*` pointers, when non-null, receive the corresponding intermediate.
 spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params* p,
-                         std::vector<float>* final_rgb,
+                         spk::FloatBuffer* final_rgb,
                          std::vector<float>* tap_log_raw,
                          std::vector<float>* tap_density_cmy,
                          int* out_w = nullptr, int* out_h = nullptr,
@@ -2346,7 +2348,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     // Allocated when a path needs it (memo hit copy-assigns; the miss path
     // resizes right before develop, AFTER expose's transients are gone —
     // EXPORT_FASTPATH item 4 keeps it out of the filming peak).
-    std::vector<float> density_cmy;
+    spk::FloatBuffer density_cmy;
     const size_t out_elems = static_cast<size_t>(npix) * 3;
     const bool scan_tap_bypass =
         (tap_log_raw != nullptr) || (tap_density_cmy != nullptr);
@@ -2372,7 +2374,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
             slot.entry.width == width && slot.entry.height == height &&
             slot.entry.film_density_cmy.size() == out_elems) {
             // HIT: copy the cached buffer out BY VALUE while holding the lock.
-            density_cmy = slot.entry.film_density_cmy;
+            density_cmy.assign(slot.entry.film_density_cmy.begin(), slot.entry.film_density_cmy.end());
             ++slot.hits;
             scan_film_cache_hit = true;
         }
@@ -2381,7 +2383,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
 
     if (!scan_film_cache_hit) {
-        std::vector<float> log_raw(out_elems);
+        spk::FloatBuffer log_raw(out_elems);
         if (pin.direct) {
             spk::expose_f32_gain(in->data, pin.gain, width, height, fparams,
                                  tc_lut, log_raw.data());
@@ -2393,7 +2395,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         // end here (BandFrame).
         if (band && (band->boost_max_out || band->camera_far_accumulate)) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
-        if (tap_log_raw) *tap_log_raw = log_raw;
+        if (tap_log_raw) tap_log_raw->assign(log_raw.begin(), log_raw.end());
 
         // The float64 image is dead past expose — at 12 MP this releases
         // ~288 MB before develop/scan run (EXPORT_FASTPATH item 4). The memo
@@ -2410,7 +2412,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
             auto& slot = eng->film_memo[spk_engine::kMemoScan];
             slot.entry.width = width;
             slot.entry.height = height;
-            slot.entry.film_density_cmy = density_cmy;
+            slot.entry.film_density_cmy.assign(density_cmy.begin(), density_cmy.end());
             slot.key = scan_film_key;
             slot.valid = true;
             ++slot.misses;
@@ -2418,7 +2420,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
     } else {
         { std::vector<double>().swap(pin.rgb); }
     }
-    if (tap_density_cmy) *tap_density_cmy = density_cmy;
+    if (tap_density_cmy) tap_density_cmy->assign(density_cmy.begin(), density_cmy.end());
 
     if (!final_rgb) return SPK_OK;  // caller only wanted an earlier tap
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
@@ -2465,7 +2467,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
         sparams.bw_xyz_q = bw_corr.q;
     }
 
-    final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
+    final_rgb->resize(static_cast<size_t>(npix) * 3);
     spk::scan(film, sparams, density_cmy.data(), width, height, final_rgb->data());
     if (cancellation_requested(cancel, cancel_user_data)) {
         final_rgb->clear();
@@ -2488,7 +2490,7 @@ spk_status run_scan_film(spk_engine* eng, const spk_image* in, const spk_params*
 // intermediate taps. `tap_*` pointers, when non-null, receive the corresponding
 // intermediate. Mirrors pipeline._pipeline_print under the print_portra toggles.
 spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
-                     std::vector<float>* final_rgb,
+                     spk::FloatBuffer* final_rgb,
                      std::vector<float>* tap_log_raw,
                      std::vector<float>* tap_film_density_cmy,
                      std::vector<float>* tap_print_density_cmy,
@@ -3019,7 +3021,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             // Full-frame conversion/scratch are deferred until the tiny keyed
             // capability verdict passes. Cached device failures therefore do
             // not allocate or touch live image planes.
-            std::vector<float> scratch;
+            spk::FloatBuffer scratch;
             bool capability_passed = false;
             if (!pointwise_failed) {
                 const double source_gain = pin.direct ? pin.gain : 1.0;
@@ -3229,7 +3231,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // Allocated when a path needs it (memo hit copy-assigns; the miss path
     // resizes right before develop, AFTER expose's transients are gone —
     // EXPORT_FASTPATH item 4 keeps it out of the filming peak).
-    std::vector<float> film_density_cmy;
+    spk::FloatBuffer film_density_cmy;
     const size_t out_elems = static_cast<size_t>(npix) * 3;
     const bool tap_bypass = (tap_log_raw != nullptr) || (tap_film_density_cmy != nullptr);
     const bool use_film_cache =
@@ -3253,7 +3255,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             slot.entry.width == width && slot.entry.height == height &&
             slot.entry.film_density_cmy.size() == out_elems) {
             // HIT: copy the cached buffer out BY VALUE while holding the lock.
-            film_density_cmy = slot.entry.film_density_cmy;
+            film_density_cmy.assign(slot.entry.film_density_cmy.begin(),
+                                    slot.entry.film_density_cmy.end());
             ++slot.hits;
             film_cache_hit = true;
         }
@@ -3275,7 +3278,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
                     (out_elems - top_elems) * sizeof(float));
         { std::vector<double>().swap(pin.rgb); }
     } else if (!film_cache_hit) {
-        std::vector<float> film_log_raw(out_elems);
+        spk::FloatBuffer film_log_raw(out_elems);
         if (pin.direct) {
             spk::expose_f32_gain(in->data, pin.gain, width, height, fparams,
                                  tc_lut, film_log_raw.data());
@@ -3287,7 +3290,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         // end here (BandFrame).
         if (band && (band->boost_max_out || band->camera_far_accumulate)) return SPK_OK;
         if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
-        if (tap_log_raw) *tap_log_raw = film_log_raw;
+        if (tap_log_raw) tap_log_raw->assign(film_log_raw.begin(), film_log_raw.end());
 
         // The float64 image is dead past expose — at 12 MP this releases
         // ~288 MB before develop/printing/scan run (EXPORT_FASTPATH item 4).
@@ -3318,7 +3321,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             auto& slot = eng->film_memo[spk_engine::kMemoPrint];
             slot.entry.width = width;
             slot.entry.height = height;
-            slot.entry.film_density_cmy = film_density_cmy;
+            slot.entry.film_density_cmy.assign(film_density_cmy.begin(), film_density_cmy.end());
             slot.key = film_key;
             slot.valid = true;
             ++slot.misses;
@@ -3326,14 +3329,16 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     } else {
         { std::vector<double>().swap(pin.rgb); }
     }
-    if (tap_film_density_cmy) *tap_film_density_cmy = film_density_cmy;
+    if (tap_film_density_cmy) {
+        tap_film_density_cmy->assign(film_density_cmy.begin(), film_density_cmy.end());
+    }
 
     // 4) Printing stage (film density -> enlarger expose -> print develop),
     //    memoized on the film_density_cmy CONTENT + every printing input (see
     //    compute_print_density_key). An output-only edit (scanner/output space/
     //    tone curve/glare) therefore reruns scan() alone. Debug-tap renders
     //    bypass, keeping the tap path byte-identical to a plain recompute.
-    std::vector<float> print_density_cmy;  // allocated by the path that fills it
+    spk::FloatBuffer print_density_cmy;  // allocated by the path that fills it
     // Bypassed for tap renders AND for one-shot renders (disable_buffer_memos,
     // EXPORT_FASTPATH item 2 — the key hashes the whole float32 film buffer).
     const bool pd_bypass = tap_bypass || (tap_print_density_cmy != nullptr) ||
@@ -3350,14 +3355,15 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         if (slot.valid && slot.key == pd_key &&
             slot.entry.width == width && slot.entry.height == height &&
             slot.entry.film_density_cmy.size() == out_elems) {
-            print_density_cmy = slot.entry.film_density_cmy;  // holds print density
+            print_density_cmy.assign(slot.entry.film_density_cmy.begin(),
+                                     slot.entry.film_density_cmy.end());  // holds print density
             ++slot.hits;
             pd_hit = true;
         }
     }
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
     if (!pd_hit) {
-        std::vector<float> print_log_raw(out_elems);
+        spk::FloatBuffer print_log_raw(out_elems);
         // A banded pass that stops after the print exposure (mask grid, enlarger
         // far field, print-raw store) uses only its core rows, and everything up
         // to that point is per pixel, so it exposes the core rows alone.
@@ -3397,7 +3403,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
         // above; the memo store below uses pd_key only) — at 12 MP this
         // releases ~144 MB before print_develop/scan run (EXPORT_FASTPATH
         // item 4).
-        { std::vector<float>().swap(film_density_cmy); }
+        { spk::FloatBuffer().swap(film_density_cmy); }
         print_density_cmy.resize(out_elems);
         spk::print_develop(prnt, pparams, print_log_raw.data(), npix,
                            print_density_cmy.data());
@@ -3407,15 +3413,18 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
             auto& slot = eng->print_density_memo;
             slot.entry.width = width;
             slot.entry.height = height;
-            slot.entry.film_density_cmy = print_density_cmy;  // holds print density
+            slot.entry.film_density_cmy.assign(print_density_cmy.begin(),
+                                               print_density_cmy.end());  // holds print density
             slot.key = pd_key;
             slot.valid = true;
             ++slot.misses;
         }
     } else {
-        { std::vector<float>().swap(film_density_cmy); }
+        { spk::FloatBuffer().swap(film_density_cmy); }
     }
-    if (tap_print_density_cmy) *tap_print_density_cmy = print_density_cmy;
+    if (tap_print_density_cmy) {
+        tap_print_density_cmy->assign(print_density_cmy.begin(), print_density_cmy.end());
+    }
 
     if (!final_rgb) return SPK_OK;  // caller only wanted an earlier tap
     if (cancellation_requested(cancel, cancel_user_data)) return SPK_ERR_CANCELLED;
@@ -3454,7 +3463,7 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
     // Scanner BLACK/WHITE XYZ correction (print route): apply the shared affine
     // (m, q) per pixel in scan(). Inactive (strict no-op) by default / when the
     // print paper is not negative.
-    final_rgb->assign(static_cast<size_t>(npix) * 3, 0.0f);
+    final_rgb->resize(static_cast<size_t>(npix) * 3);
     spk::scan(prnt, sparams, print_density_cmy.data(), width, height,
               final_rgb->data());
     if (cancellation_requested(cancel, cancel_user_data)) {
@@ -3477,7 +3486,8 @@ spk_status run_print(spk_engine* eng, const spk_image* in, const spk_params* p,
 }
 
 // Allocate an spk_image and copy `data` into it.
-spk_status fill_out_image(spk_image* out, const std::vector<float>& data,
+template <typename Buffer>
+spk_status fill_out_image(spk_image* out, const Buffer& data,
                           int width, int height, int color_space) {
     out->data = static_cast<float*>(std::malloc(data.size() * sizeof(float)));
     if (!out->data) return SPK_ERR_OOM;
@@ -3879,7 +3889,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
     band.pixel_size_um = plan.pixel_size_um;
     band.gain = band_auto_exposure_gain(in, p);  // metered on the uncropped input
     std::vector<float> scratch;
-    auto render = [&](int y0, int y1, std::vector<float>* rgb, int* ow, int* oh) {
+    auto render = [&](int y0, int y1, spk::FloatBuffer* rgb, int* ow, int* oh) {
         const spk_image sub = band_rows(in, plan, y0, y1, &scratch);
         band.y0 = y0;
         *ow = w;
@@ -3904,7 +3914,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             double band_max = 0.0;
             band.index = i;
             band.boost_max_out = &band_max;
-            std::vector<float> unused;
+            spk::FloatBuffer unused;
             int ow = 0, oh = 0;
             const spk_status st = render(core0, core1, &unused, &ow, &oh);
             band.boost_max_out = nullptr;
@@ -3933,7 +3943,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                 const int core0 = i * plan.core_rows;
                 const int core1 = std::min(h, core0 + plan.core_rows);
                 band.index = i;
-                std::vector<float> unused;
+                spk::FloatBuffer unused;
                 int ow = 0, oh = 0;
                 const spk_status st = render(core0, core1, &unused, &ow, &oh);
                 if (st != SPK_OK) return st;
@@ -3991,7 +4001,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             band.index = i;
             band.core_begin = core0 - y0;
             band.core_end = core1 - y0;
-            std::vector<float> unused;
+            spk::FloatBuffer unused;
             int ow = 0, oh = 0;
             const spk_status st = render(y0, y1, &unused, &ow, &oh);
             if (st != SPK_OK) return st;
@@ -4082,7 +4092,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
                 band.core_begin = core0 - y0;
                 band.core_end = core1 - y0;
                 if (reuse_film) read_stored_film(y0);
-                std::vector<float> unused;
+                spk::FloatBuffer unused;
                 int ow = 0, oh = 0;
                 const spk_status st = render(y0, y1, &unused, &ow, &oh);
                 if (st != SPK_OK) return st;
@@ -4113,7 +4123,7 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
             band.film_in_top_rows = top;
             band.film_in_rest = frame.get() + static_cast<size_t>(core0) * row_floats;
         }
-        std::vector<float> rgb;
+        spk::FloatBuffer rgb;
         int ow = w, oh = y1 - y0;
         const spk_status st = render(y0, y1, &rgb, &ow, &oh);
         if (st != SPK_OK || ow != w || oh != y1 - y0 ||
@@ -4632,7 +4642,7 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
             "frame-wide effects (engine rescale)");
         return timing.finish(SPK_ERR_OOM);
     }
-    std::vector<float> rgb;
+    spk::FloatBuffer rgb;
     spk_status st;
     int ow = in->width, oh = in->height;
     if (p->scan_film) {
@@ -4744,7 +4754,8 @@ spk_status spk_simulate_tap(spk_engine* eng, const spk_image* in,
     p = &tp;
 
     std::string tap = tap_name;
-    std::vector<float> log_raw, film_density_cmy, print_density_cmy, final_rgb;
+    std::vector<float> log_raw, film_density_cmy, print_density_cmy;
+    spk::FloatBuffer final_rgb;
     spk_status st;
     // Output geometry after the crop/resize preprocess (== input geometry under
     // default params); written by the run_* functions.
@@ -4969,7 +4980,7 @@ spk_status spk_bake_cube_lut_cancellable(
                      static_cast<int32_t>(SPK_CS_PROPHOTO)};
 
     // --- Run the pipeline (same route spk_simulate would take) ---------------
-    std::vector<float> rgb;
+    spk::FloatBuffer rgb;
     spk_status st;
     if (bp.scan_film) {
         st = run_scan_film(eng, &in_img, &bp, &rgb, nullptr, nullptr,
