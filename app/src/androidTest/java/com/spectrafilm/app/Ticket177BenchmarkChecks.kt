@@ -506,18 +506,35 @@ object Ticket177BenchmarkChecks {
         uri: Uri,
         format: ExportFormat,
     ): JSONObject {
-        val bytes = context.contentResolver.openInputStream(uri).use { input ->
-            drain(requireNotNull(input) { "published $uri is not readable" })
+        // Streamed, never held whole: a full-size 16-bit TIFF is larger than the test
+        // process's heap growth limit, and buffering it is what OOMed this harness.
+        val container = MessageDigest.getInstance("SHA-256")
+        val payload = MessageDigest.getInstance("SHA-256")
+        var size = 0L
+        context.contentResolver.openInputStream(uri).use { input ->
+            val stream = requireNotNull(input) { "published $uri is not readable" }
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                container.update(buffer, 0, read)
+                // The TIFF pixel payload is the container minus its 8-byte header.
+                // java.lang.Math, not Kotlin's coerceIn: this harness runs against the
+                // R8-shrunk app's Kotlin runtime, which keeps only the ranges overloads
+                // proguard-rules.pro names.
+                val skip = Math.min(Math.max(TIFF_HEADER_BYTES - size, 0L), read.toLong()).toInt()
+                if (read > skip) payload.update(buffer, skip, read - skip)
+                size += read
+            }
         }
         val decoded = if (format == ExportFormat.TIFF) {
             // No platform TIFF decoder: digest the pixel payload the writer emitted, i.e.
             // the container minus its header/IFD, which is what C3 is about.
-            sha256(java.util.Arrays.copyOfRange(bytes, if (bytes.size < 8) bytes.size else 8,
-                                                bytes.size))
+            hex(payload.digest())
         } else {
-            val bitmap = requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size)) {
-                "published $format did not decode"
-            }
+            val bitmap = requireNotNull(
+                context.contentResolver.openInputStream(uri).use { BitmapFactory.decodeStream(it) },
+            ) { "published $format did not decode" }
             try {
                 val buffer = java.nio.ByteBuffer.allocate(bitmap.byteCount)
                 bitmap.copyPixelsToBuffer(buffer)
@@ -526,10 +543,11 @@ object Ticket177BenchmarkChecks {
                 bitmap.recycle()
             }
         }
-        val metadata = normalizedMetadata(context, uri, format, bytes.size)
+        val bytes = Math.toIntExact(size)
+        val metadata = normalizedMetadata(context, uri, format, bytes)
         return JSONObject()
-            .put("container_sha256", sha256(bytes))
-            .put("container_bytes", bytes.size)
+            .put("container_sha256", hex(container.digest()))
+            .put("container_bytes", bytes)
             .put("decoded_sample_sha256", decoded)
             .put("normalized_metadata_sha256", sha256(metadata.toByteArray()))
     }
@@ -900,6 +918,8 @@ object Ticket177BenchmarkChecks {
     }
 
     // ---- small helpers -----------------------------------------------------------------------
+
+    private const val TIFF_HEADER_BYTES = 8L
 
     private fun readAllBytes(file: File): ByteArray =
         FileInputStream(file).use { input -> drain(input) }

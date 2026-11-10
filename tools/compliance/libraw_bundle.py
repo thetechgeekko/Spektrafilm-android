@@ -128,6 +128,7 @@ REQUIRED_NATIVE_FILES = (
     "raw_decoder_jni.cpp",
     "raw_decoder_jni_safety.h",
     "raw_input_snapshot.h",
+    "raw_inset_crop.h",
     "pread_datastream.h",
     "raw_preview.cpp",
     "raw_preview.h",
