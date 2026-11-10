@@ -23,17 +23,20 @@ CURRENT_DOCS = (
     ROOT / "SECURITY.md",
     ROOT / "CHANGELOG.md",
     ROOT / "NOTICE.md",
+    # The user guides (rewritten for 1.0) and the maintainer docs the tooling reads.
+    ROOT / "docs" / "README.md",
+    ROOT / "docs" / "getting-started.md",
+    ROOT / "docs" / "editing.md",
+    ROOT / "docs" / "films-and-papers.md",
+    ROOT / "docs" / "exporting.md",
+    ROOT / "docs" / "how-it-works.md",
+    ROOT / "docs" / "faq.md",
+    ROOT / "docs" / "MAINTAINERS.md",
     ROOT / "docs" / "EXECUTION_INDEX.md",
-    ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "PRODUCTION_READINESS_PLAN.md",
-    ROOT / "docs" / "BIT_IDENTICAL_EXPORT_ROADMAP.md",
     ROOT / "docs" / "RELEASE_CHECKLIST.md",
-    ROOT / "docs" / "MOBILE_STRATEGY.md",
     ROOT / "docs" / "PRESETS.md",
     ROOT / "docs" / "LICENSING.md",
-    ROOT / "docs" / "JNI_LIFETIME_SAFETY.md",
-    ROOT / "docs" / "TRANSACTIONAL_STORAGE.md",
-    ROOT / "docs" / "RAW_DNG.md",
     ROOT / "docs" / "MASK_JSON_SCHEMA.md",
     ROOT / "engine" / "spektra-core" / "README.md",
     ROOT / "lib" / "libraw" / "README.md",
@@ -583,15 +586,11 @@ def main() -> int:
             f"{parity_count} cases",
         ),
         ROOT / "docs" / "PRODUCTION_READINESS_PLAN.md": ("EXECUTION_INDEX.md",),
-        ROOT / "docs" / "BIT_IDENTICAL_EXPORT_ROADMAP.md": ("EXECUTION_INDEX.md",),
+        ROOT / "docs" / "MAINTAINERS.md": ("EXECUTION_INDEX.md", "oracle tolerance"),
         ROOT / "docs" / "RELEASE_CHECKLIST.md": ("EXECUTION_INDEX.md",),
     }
     forbidden_fragments = {
         ROOT / "README.md": ("checked bit-for-bit",),
-        ROOT / "docs" / "MOBILE_STRATEGY.md": (
-            "GPU is an **optional accelerator for the preview path only**",
-            "export always uses the CPU engine",
-        ),
     }
 
     strings_screens = (

@@ -35,11 +35,11 @@ no account to compromise. Realistic reports concern:
   and the patches are listed in [`docs/dependencies/LIBRAW.md`](docs/dependencies/LIBRAW.md).
 - **Storage and URI handling.** The app takes persistable URI permissions and writes sidecars. Path
   traversal, writing outside granted trees, or leaking another app's data is in scope. The contract
-  is in [`docs/TRANSACTIONAL_STORAGE.md`](docs/TRANSACTIONAL_STORAGE.md).
+  is in [the storage contract](docs/MAINTAINERS.md#storage-and-publication).
 - **The JNI boundary.** Buffer lifetime, cancellation, and use-after-free across the native seam are
-  in scope. The contract is in [`docs/JNI_LIFETIME_SAFETY.md`](docs/JNI_LIFETIME_SAFETY.md).
+  in scope. The contract is in [the native boundary contract](docs/MAINTAINERS.md#native-boundary-and-lifetime).
 - **Release integrity.** Signing, the update advisory path
-  ([`docs/UPDATER_SECURITY.md`](docs/UPDATER_SECURITY.md)), and anything that would let an
+  ([the updater contract](docs/MAINTAINERS.md#updater)), and anything that would let an
   unofficial build present as official.
 
 Out of scope: rendering that you disagree with aesthetically, performance, and reports produced by

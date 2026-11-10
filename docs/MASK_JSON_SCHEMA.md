@@ -12,7 +12,7 @@ recipe envelopes embed the same preset document under `params`.
 
 This format is Spektrafilm JSON interoperability, not Adobe Camera Raw/Lightroom XMP. Some concepts
 map cleanly to Adobe masks, but Spektrafilm v1 applies luminance and color refinements mask-wide and
-does not claim bit-identical Lightroom behavior. See [MASKING_SPEC.md](MASKING_SPEC.md) for that separate
+does not claim bit-identical Lightroom behavior. See `docs/MASKING_SPEC.md` in git history for that separate
 XMP roadmap.
 
 ## Canonical document

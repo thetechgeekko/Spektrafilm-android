@@ -10,7 +10,7 @@ export](https://github.com/thetechgeekko/Spektrafilm-android/issues/164)
 Nested performance history/workstream: [Wayfinder workstream: 1–2 s exact export + fast
 interactive preview](https://github.com/thetechgeekko/Spektrafilm-android/issues/117)
 
-Performance architecture: [BIT_IDENTICAL_EXPORT_ROADMAP.md](BIT_IDENTICAL_EXPORT_ROADMAP.md)
+Performance architecture: [the export identity contract](MAINTAINERS.md#export-identity-contract)
 
 ## Outcome
 
@@ -122,8 +122,8 @@ fatal log. The app/test hashes were respectively
 `EE1A1BA636FA123C93186EB4A3E80E964281080462B5AB8E24B790DE361318E8` and
 `6368EF2697FFD4A557E4418C22B7052F831D518AE4340E04473776CABB6E0F4A`. These are local-candidate
 engineering results, not protected-Environment production-signing evidence. The complete ownership
-contract and proof matrix are in [JNI_LIFETIME_SAFETY.md](JNI_LIFETIME_SAFETY.md); the reproducible
-device procedure is in [TRANSACTIONAL_STORAGE.md](TRANSACTIONAL_STORAGE.md).
+contract and proof matrix are in [the native boundary contract](MAINTAINERS.md#native-boundary-and-lifetime); the reproducible
+device procedure is in [the storage contract](MAINTAINERS.md#storage-and-publication).
 
 ## Execution order
 
@@ -309,7 +309,7 @@ Owner: [Research and lock RAW white-balance chromatic adaptation against the ups
 Research resolved CAT02 against the pinned source/test blobs and colour-science 0.4.7, quantified
 the current XYZ-scaling/Bradford/no-adaptation errors, and locked white ownership, cast order,
 camera-seed vectors, and rebaseline rules in
-[`research/raw-wb-chromatic-adaptation.md`](research/raw-wb-chromatic-adaptation.md). Production
+`research/raw-wb-chromatic-adaptation.md` (git history). Production
 pixels remain unchanged here. Implementation owner:
 [Implement oracle-locked CAT02 RAW white balance and exact cast-order goldens](https://github.com/thetechgeekko/Spektrafilm-android/issues/192).
 
@@ -349,7 +349,7 @@ Owners:
 - [Release full-resolution buffers promptly and enforce one global memory budget](https://github.com/thetechgeekko/Spektrafilm-android/issues/176)
 - [Tile the mask compositor and enforce a full-resolution memory budget](https://github.com/thetechgeekko/Spektrafilm-android/issues/141)
 - [Bound tc_lut_cache with a byte-budgeted LRU](https://github.com/thetechgeekko/Spektrafilm-android/issues/142)
-  ([implementation contract and evidence](research/tc-lut-cache.md))
+  (implementation contract and evidence: `docs/research/tc-lut-cache.md` in git history)
 - [Stream exact quantization and PNG/TIFF output without full-image staging](https://github.com/thetechgeekko/Spektrafilm-android/issues/175)
 
 Inventory Java/Kotlin, native, GPU and file-writer allocations on one timeline. Define device-tier
@@ -359,7 +359,7 @@ byte-budgeted. Writer rows/strips stay bounded and participate in the same expor
 
 ## Phase 5 — exact performance work
 
-The detailed design and budgets live in [BIT_IDENTICAL_EXPORT_ROADMAP.md](BIT_IDENTICAL_EXPORT_ROADMAP.md).
+The detailed design and budgets live in [the export identity contract](MAINTAINERS.md#export-identity-contract).
 The strict ordering is:
 
 1. [Build an exact idle full-resolution pre-render and content-addressed export cache](https://github.com/thetechgeekko/Spektrafilm-android/issues/179).

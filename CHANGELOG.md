@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Documentation rewritten for 1.0.** A new README with real phone screens, and six user guides
+  in `docs/` (getting started, editing, films and papers, exporting, how it works, FAQ). The
+  maintainer contracts are folded into `docs/MAINTAINERS.md`; about 70 research notes, audits and
+  plans were removed and stay in git history.
+
 ## v1.0.0 (versionCode 15) — 2026-11-10 — full-resolution exports with every effect, Crop and Frame tabs
 
 **Major: first stable release. No breaking change to saved edits.** v0.12.0 below was prepared

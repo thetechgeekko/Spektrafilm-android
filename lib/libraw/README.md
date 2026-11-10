@@ -158,7 +158,7 @@ patch hashes, build flags, corpus deltas, OpenMP disposition, and sanitizer evid
 
 > **DNG SDK add-on:** there is no current adoption commitment. Evaluate it only after the canonical
 > per-format baseline under the numeric, coverage, security, licensing, APK-size, and maintenance
-> gates in [`docs/BIT_IDENTICAL_EXPORT_ROADMAP.md`](../../docs/BIT_IDENTICAL_EXPORT_ROADMAP.md).
+> gates in [the export identity contract](../../docs/MAINTAINERS.md#export-identity-contract).
 > Baseline DNG + CR2/CR3/NEF/ARW/RAF/ORF/RW2 support does not depend on it.
 
 ## Mobile / Google Pixel DNG decode (native vs fallback)
@@ -300,10 +300,10 @@ the 64 tier, with the 32 tier's bounds) can admit
 a qualified Bayer source up to 128 MiPixels for half-size output, with a
 320 MiB raw-store cap; other requests retain 128 MiB. Layout, margins, aspect,
 padded output, and post-unpack single-plane geometry are checked independently.
-See [the RAW contract](../../docs/RAW_DNG.md#large-files-proxy-decode-and-off-heap-buffers)
+See [the RAW contract](../../docs/MAINTAINERS.md#raw-decoding)
 for thresholds. A larger encoded file alone does not qualify a larger frame.
 The snapshot requires temporary disk space and adds file I/O; mapped pages can
-still contribute to memory pressure. See [large RAW input](../../docs/research/large-raw-input.md)
+still contribute to memory pressure. See `docs/research/large-raw-input.md` in git history
 for the ownership contract, limits, and validation.
 
 `RawDecoder.Settings` exposes a `halfSize: Boolean` flag (default `false`):
@@ -377,7 +377,7 @@ uses its full cone-response matrix, preserves NumPy's `allclose`/`isclose` skips
 output to float32 before the separate float32 green-channel tint multiply. The digest-generated
 C++ gate reproduces all 56 research vectors at both declared bit boundaries; connected Samsung,
 MotionCam, and third-cohort DNG repeat digests are recorded in
-[`docs/research/raw-wb-chromatic-adaptation.md`](../../docs/research/raw-wb-chromatic-adaptation.md)
+`docs/research/raw-wb-chromatic-adaptation.md` (git history)
 and [Implement oracle-locked CAT02 RAW white balance and exact cast-order goldens](https://github.com/thetechgeekko/Spektrafilm-android/issues/192). Native entry points reject non-finite
 or out-of-range `[1000,12000] K` / `[0.2,1.8]` settings before decode or colour math.
 
