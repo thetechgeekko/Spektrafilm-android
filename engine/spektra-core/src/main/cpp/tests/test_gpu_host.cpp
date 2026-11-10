@@ -35,7 +35,7 @@
  *     engaged.
  *
  * Build (host) — full source set + -DSPK_ENABLE_VULKAN=1 -lvulkan, from the cpp
- * root (see CLAUDE.md for the base compile line; SRC already includes gpu/).
+ * root (see tools/parity/run_engine_parity.sh for the base compile line; SRC already includes gpu/).
  */
 #include <cmath>
 #include <chrono>

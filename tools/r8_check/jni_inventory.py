@@ -6,7 +6,7 @@
 # WHY: R8 cannot see a JNI call edge. A member reached only from C++ by literal string
 # survives today because proguard-rules.pro keeps com.spectrafilm.** wholesale; narrow
 # that rule and the member disappears with every gate still green (the kotlin.Triple
-# defect in CLAUDE.md). check_release_dex.sh asserts every line printed here exists in
+# defect fixed before 1.0; see docs/MAINTAINERS.md). check_release_dex.sh asserts every line printed here exists in
 # the minified dex, so a removed member fails the release instead of rendering 0.0.
 #
 # OUTPUT: one tab-separated line per requirement, sorted and de-duplicated:

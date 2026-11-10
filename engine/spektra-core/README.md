@@ -34,7 +34,7 @@ spektra-core/
 │   ├── kernels/                         # gaussian, interp/lut3d, stats, exp10, parallel, half
 │   ├── io/                              # npy/.lut asset loaders
 │   ├── profiles/                        # profile JSON loaders
-│   └── tests/                           # host g++ parity tests (see CLAUDE.md)
+│   └── tests/                           # host g++ parity tests (tools/parity/run_engine_parity.sh)
 ├── src/main/kotlin/com/spectrafilm/engine/
 │   ├── SpektraEngine.kt                 # ★ Kotlin facade (loads .so, marshals buffers)
 │   └── SpektraParams.kt                 # ★ params mirror of RuntimePhotoParams

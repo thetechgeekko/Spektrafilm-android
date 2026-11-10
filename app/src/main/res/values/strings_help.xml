@@ -22,6 +22,6 @@
     <string name="help_contrast_mask_title">Contrast mask</string>
     <string name="help_contrast_mask_summary">Holds back light in big bright areas and adds it in big dark ones, like a darkroom mask.</string>
     <string name="help_contrast_mask_body">Printers once sandwiched a soft, blurred copy of the negative with the original in the enlarger. Where the negative was thin it held back light, and where it was dense it added none, so large bright and dark areas of the print moved toward the middle while edges and texture kept their bite. \"Highlights\" brings back sky and highlight detail, \"Shadows\" opens up dark areas, \"Untouched midtones\" protects the middle of the scale, and \"Softness\" sets how far the mask is blurred. It is off by default and works on the print route only.</string>
-    <!-- Attribution stays English on purpose (GPLv3 notice; see CLAUDE.md). -->
+    <!-- Attribution stays English on purpose (GPLv3 notice; see NOTICE.md). -->
     <string name="help_attribution" translatable="false">Film modeling powered by spektrafilm</string>
 </resources>

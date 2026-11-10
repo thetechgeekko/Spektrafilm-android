@@ -83,7 +83,7 @@ jobs:
           java-version: "21"
 
       # Explicit packages: the action's default list names the removed `tools`
-      # package. Pins match app/build.gradle.kts and CLAUDE.md.
+      # package. Pins match app/build.gradle.kts and docs/EXECUTION_INDEX.md.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools ndk;28.2.13676358 cmake;3.22.1 build-tools;36.0.0 platforms;android-37.0
