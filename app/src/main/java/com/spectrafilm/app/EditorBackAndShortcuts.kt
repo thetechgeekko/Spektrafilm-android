@@ -29,6 +29,8 @@ internal fun EditorBackAndShortcuts(
     onCloseCategory: () -> Unit,
     /** Leave the Crop tab, keeping its draft (one undo step), as switching tabs does. */
     onCloseCrop: () -> Unit,
+    /** The Crop tab's draft holds an edit not yet in the history; Undo takes it back first. */
+    cropDraftPending: Boolean,
     onBackPressedDispatcher: OnBackPressedDispatcher,
     setEditorShortcutHandler: (((EditorShortcut) -> Boolean)?) -> Unit,
     editHistory: EditHistory,
@@ -60,7 +62,8 @@ internal fun EditorBackAndShortcuts(
                 if (closable) onBackPressedDispatcher.onBackPressed()
                 closable
             }
-            EditorShortcut.UNDO -> !historyBlocked && editHistory.canUndo && run { doUndo(); true }
+            EditorShortcut.UNDO -> !historyBlocked && (editHistory.canUndo || cropDraftPending) &&
+                run { doUndo(); true }
             EditorShortcut.REDO -> !historyBlocked && editHistory.canRedo && run { doRedo(); true }
             EditorShortcut.OPEN -> !overlayOpen && run {
                 openPhotoPicker()

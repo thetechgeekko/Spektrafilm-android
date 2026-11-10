@@ -258,7 +258,7 @@ internal class CropDraft(
 /**
  * The draft for [bitmap] (a crop-free preview) and the recipe's committed crop. A new draft is
  * seeded whenever the committed values or the frame size change: an Undo while the tab is open,
- * a 90-degree rotation, a new photo. Bitmap identity is deliberately not a key, since every
+ * a 90-degree rotation (the editor commits the draft first, so nothing set is lost), a new photo. Bitmap identity is deliberately not a key, since every
  * re-render publishes a new bitmap of the same frame.
  */
 @Composable
@@ -268,10 +268,12 @@ internal fun rememberCropDraft(
     center: Pair<Float, Float>,
     size: Pair<Float, Float>,
     straighten: Float,
+    /** Bumped by the editor to discard the pending draft (Undo of an uncommitted crop edit). */
+    epoch: Int = 0,
 ): CropDraft {
     val w = bitmap.width
     val h = bitmap.height
-    return remember(w, h, crop, center, size, straighten) {
+    return remember(w, h, crop, center, size, straighten, epoch) {
         CropDraft(w.toFloat().coerceAtLeast(1f), h.toFloat().coerceAtLeast(1f), crop, center, size, straighten)
     }
 }

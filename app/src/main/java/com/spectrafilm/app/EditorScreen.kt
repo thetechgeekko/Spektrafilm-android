@@ -324,16 +324,32 @@ internal fun EditorScreen(
     // the tab writes it to the recipe in one go, so the history records ONE undo step; an
     // untouched draft writes nothing. Every way out of the tab goes through here.
     val cropDraftRef = remember { mutableStateOf<CropDraft?>(null) }
+    // Bumped to throw the pending draft away (Undo while it holds an edit): a key of the draft.
+    var cropDraftEpoch by remember { mutableIntStateOf(0) }
+    // Write a touched draft to the recipe. A saved export no longer shows the photo, so its
+    // result is dropped right here: Share straight after must not send the old file (the
+    // snapshot watcher that normally does this only runs a frame later).
+    fun commitCropDraft() {
+        val c = cropDraftRef.value?.takeIf { it.touched }?.commit() ?: return
+        state.crop = c.crop
+        state.cropCenter = c.center
+        state.cropSize = c.size
+        state.straightenDegrees = c.straighten
+        cropDraftRef.value = null
+        if (exportVm.current.done) exportVm.onAction(ExportAction.DismissResult)
+    }
     fun closeCrop() {
         if (!toolVm.current.cropOpen) return
-        cropDraftRef.value?.takeIf { it.touched }?.commit()?.let { c ->
-            state.crop = c.crop
-            state.cropCenter = c.center
-            state.cropSize = c.size
-            state.straightenDegrees = c.straighten
-        }
+        commitCropDraft()
         cropDraftRef.value = null
         toolVm.onAction(EditorToolAction.CloseCrop)
+    }
+    // An edit still only in the Crop tab's draft: Undo takes that back before the history.
+    fun discardCropDraft(): Boolean {
+        if (cropDraftRef.value?.touched != true) return false
+        cropDraftRef.value = null
+        cropDraftEpoch++
+        return true
     }
     // The Crop item in the bottom bar / rail: open the tab, or leave it when it is open.
     fun toggleCrop() {
@@ -520,6 +536,10 @@ internal fun EditorScreen(
     fun snapshotNow(): EditSnapshot = session.snapshot()
 
     fun doUndo() {
+        if (discardCropDraft()) {
+            status = ctx.getString(R.string.editor_status_undo)
+            return
+        }
         session.undo() ?: return
         liveCursorMutated = true
         previewTick++
@@ -538,6 +558,7 @@ internal fun EditorScreen(
 
     /** Walks undo or redo from the live state at [from] to timeline index [to]. */
     fun jumpHistory(from: Int, to: Int) {
+        discardCropDraft()
         var moved = false
         repeat(from - to) { if (session.undo() != null) moved = true }
         repeat(to - from) { if (session.redo() != null) moved = true }
@@ -1040,6 +1061,7 @@ internal fun EditorScreen(
         activeCategory = activeCategory,
         onCloseCategory = { activeCategory = null },
         onCloseCrop = ::closeCrop,
+        cropDraftPending = cropDraftRef.value?.touched == true,
         onBackPressedDispatcher = onBackPressedDispatcher,
         setEditorShortcutHandler = setEditorShortcutHandler,
         editHistory = editHistory,
@@ -1130,7 +1152,7 @@ internal fun EditorScreen(
     val cropFreePreview by screen.cropFreePreviewState
     val cropCanvasBmp = preview?.takeIf { toolUi.cropOpen && it === cropFreePreview && !it.isRecycled }
     val cropDraft = cropCanvasBmp?.let {
-        rememberCropDraft(it, state.crop, state.cropCenter, state.cropSize, state.straightenDegrees)
+        rememberCropDraft(it, state.crop, state.cropCenter, state.cropSize, state.straightenDegrees, cropDraftEpoch)
     }
     SideEffect { cropDraftRef.value = if (toolUi.cropOpen) cropDraft else null }
     val previewRegion: @Composable (controlsBottomInset: Dp, editOpen: Boolean) -> Unit = { panelInset, editOpen ->
@@ -1220,7 +1242,7 @@ internal fun EditorScreen(
         onDropImage = { onImageDrop(it) },
         topBar = { wide ->
             if (!viewerUi.chromeHidden) EditorTopBar(
-                canUndo = editHistory.canUndo,
+                canUndo = editHistory.canUndo || cropDraft?.touched == true,
                 canRedo = editHistory.canRedo,
                 onUndo = { doUndo() },
                 onRedo = { doRedo() },
@@ -1305,7 +1327,11 @@ internal fun EditorScreen(
                 previewRegion = previewRegion,
                 cropOpen = toolUi.cropOpen,
                 cropPanelContent = {
-                    CropPanelContent(draft = cropDraft, onRotate = { rotation = rotation.next() })
+                    CropPanelContent(
+                        draft = cropDraft,
+                        // Keep what was set so far: the rotated frame re-seeds from the recipe.
+                        onRotate = { commitCropDraft(); rotation = rotation.next() },
+                    )
                 },
             )
         },
