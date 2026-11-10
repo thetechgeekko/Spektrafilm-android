@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -196,6 +197,11 @@ int main(int argc, char** argv) {
                 continue;
             }
             ++banded_runs;
+            // Test hook: a NaN in the banded frame must fail the gate.
+            if (std::getenv("SPK_SEAM_SWEEP_INJECT_NAN")) banded[banded.size() / 2] = std::nanf("");
+            // Non-finite samples are counted, not accumulated: std::max and the
+            // row-mean comparison both pass NaN through silently.
+            size_t nonfinite = 0;
             double worst_row = 0.0, sse = 0.0, max_abs = 0.0;
             int worst_y = -1;
             for (int y = 0; y < bh; ++y) {
@@ -203,17 +209,25 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < bw * 3; ++i) {
                     const size_t k = static_cast<size_t>(y) * bw * 3 + i;
                     const double d = std::fabs(static_cast<double>(banded[k]) - whole[k]);
+                    if (!std::isfinite(banded[k]) || !std::isfinite(whole[k]) || !std::isfinite(d)) {
+                        ++nonfinite;
+                        continue;
+                    }
                     sum += d;
                     sse += d * d;
                     max_abs = std::max(max_abs, d);
                 }
                 sum /= bw * 3;
-                if (sum > worst_row) { worst_row = sum; worst_y = y; }
+                if (!std::isfinite(sum)) ++nonfinite;
+                else if (sum > worst_row) { worst_row = sum; worst_y = y; }
             }
             const double rms = std::sqrt(sse / static_cast<double>(banded.size()));
-            std::printf("%s @%d rows: bands %llu; max_abs %.3e rms %.3e worst row %d mean %.3e\n",
+            if (!std::isfinite(rms)) ++nonfinite;
+            std::printf("%s @%d rows: bands %llu; max_abs %.3e rms %.3e worst row %d mean %.3e nonfinite %zu\n",
                         c.name, band_rows, static_cast<unsigned long long>(final_bands), max_abs, rms,
-                        worst_y, worst_row);
+                        worst_y, worst_row, nonfinite);
+            expect(nonfinite == 0, std::string(c.name) + " @" + std::to_string(band_rows) +
+                                       " rows: every sample finite in both renders");
             if (c.grain) {
                 std::printf("  grain bound (measured, not gated): worst row mean %.3e\n", worst_row);
                 continue;
