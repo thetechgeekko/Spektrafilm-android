@@ -69,5 +69,5 @@ private const val MIB = 1_048_576L
 /** Kept free above the system's low-memory threshold, so other apps are not pushed out. */
 internal const val RAW_ADMISSION_SAFETY_BYTES = 256L * MIB
 
-/** The smallest admission worth passing: the decoder's lowest 64-bit tier (12 MiP x 40 B). */
-internal const val RAW_ADMISSION_MIN_BYTES = 480L * MIB
+/** The smallest admission worth passing: the decoder's lowest 64-bit tier (12 MiP x 28 B). */
+internal const val RAW_ADMISSION_MIN_BYTES = 336L * MIB
