@@ -54,6 +54,8 @@
 
 #ifdef __ANDROID__
 #include <android/asset_manager.h>
+#include <android/log.h>
+#include <sys/system_properties.h>
 #endif
 
 #include "io/npy_lut.h"
@@ -3543,6 +3545,19 @@ std::atomic<uint64_t> g_diffusion_prepasses{0};
 std::atomic<uint64_t> g_film_reuse_passes{0};
 std::atomic<uint64_t> g_film_pass_bands{0};
 std::atomic<int> g_film_reuse{1};
+
+// Export diagnostics, off unless `adb shell setprop debug.spektra.pdump 1`:
+// logs the full spk_params (hex) and every band plan, so a phone-only render
+// can be replayed on the host with the exact parameters. Read per render; no
+// effect on any output.
+[[maybe_unused]] bool export_dump_enabled() {
+#ifdef __ANDROID__
+    char v[PROP_VALUE_MAX] = {0};
+    return __system_property_get("debug.spektra.pdump", v) > 0 && v[0] == '1';
+#else
+    return false;
+#endif
+}
 bool film_reuse_enabled() { return g_film_reuse.load(std::memory_order_relaxed) != 0; }
 
 struct BandPlan {
@@ -3972,6 +3987,16 @@ spk_status run_banded(spk_engine* eng, const spk_image* in, const spk_params* p,
         pass_core = core;
         pass_bands = (h + core - 1) / core;
     }
+#ifdef __ANDROID__
+    if (export_dump_enabled()) {
+        __android_log_print(ANDROID_LOG_INFO, "Spektra",
+                            "bplan w=%d h=%d region=%d,%d core=%d margin=%d print_margin=%d bands=%d "
+                            "px=%.3f mask=%d enlarger=%d reuse=%d pass_core=%d pass_margin=%d pass_bands=%d",
+                            w, h, plan.col0, plan.row0, plan.core_rows, plan.margin_rows,
+                            plan.print_margin_rows, plan.bands, plan.pixel_size_um, mask_pass ? 1 : 0,
+                            enlarger_pass ? 1 : 0, reuse_film ? 1 : 0, pass_core, pass_margin, pass_bands);
+    }
+#endif
     spk::DiffusionFarField enlarger_far;
     if (enlarger_pass) {
         spk::DiffusionFilterParams d;
@@ -4498,6 +4523,32 @@ spk_status spk_simulate_cancellable(spk_engine* eng, const spk_image* in,
     if (cancellation_requested(cancel, cancel_user_data)) {
         return timing.finish(SPK_ERR_CANCELLED);
     }
+#ifdef __ANDROID__
+    if (export_dump_enabled()) {
+        const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
+        const size_t n = sizeof(spk_params);
+        __android_log_print(ANDROID_LOG_INFO, "Spektra",
+                            "pdump in=%dx%d cs=%d size=%zu film=%s print=%s ae=%s illum=%s incs=%s date=%s",
+                            in->width, in->height, in->color_space, n,
+                            p->film_profile ? p->film_profile : "-",
+                            p->print_profile ? p->print_profile : "-",
+                            p->auto_exposure_method ? p->auto_exposure_method : "-",
+                            p->enlarger_illuminant ? p->enlarger_illuminant : "-",
+                            p->input_color_space ? p->input_color_space : "-",
+                            p->date_stamp_text ? p->date_stamp_text : "-");
+        static const char* hx = "0123456789abcdef";
+        for (size_t o = 0; o < n; o += 256) {
+            char line[520];
+            size_t k = 0;
+            for (size_t i = o; i < n && i < o + 256; ++i) {
+                line[k++] = hx[pb[i] >> 4];
+                line[k++] = hx[pb[i] & 15];
+            }
+            line[k] = 0;
+            __android_log_print(ANDROID_LOG_INFO, "Spektra", "pdump %zu %s", o, line);
+        }
+    }
+#endif
     // EXPERIMENTAL GPU export latch (#149 option B, #154). gpu_export routes the
     // scan stage through the GPU on export, gated by scan()'s self-check + CPU
     // fallback. Only SETS the internal latch (never clears), so a preview
