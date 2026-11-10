@@ -113,7 +113,7 @@ internal class ExportTransaction(
         onPublished: (String) -> Unit = {},
     ): String {
         throwIfExportCancelled(isCancelled)
-        verifyArtifact(artifact, isCancelled)
+        verifyArtifact(artifact)
         throwIfExportCancelled(isCancelled)
         val token = backend.reserve(spec)
         var publicationReported = false
@@ -251,10 +251,17 @@ internal class ExportTransaction(
         }
     }
 
-    private fun verifyArtifact(artifact: EncodedArtifact, isCancelled: () -> Boolean) {
+    /**
+     * Cheap pre-reservation check: a missing or resized stage fails before a MediaStore row
+     * exists. It deliberately does NOT re-hash the file. The artifact's digest was measured
+     * moments earlier (or validated on cache read), and [copyAndDigest] hashes the very bytes
+     * it copies and compares them to [EncodedArtifact.sha256], so a stage whose content changed
+     * after encoding is still rejected -- after reservation, where the pending row is deleted.
+     * The extra full read here cost one more pass over a 70 MB TIFF on every export.
+     */
+    private fun verifyArtifact(artifact: EncodedArtifact) {
         if (!artifact.file.isFile) throw IOException("staged artifact disappeared")
-        val measured = digest(artifact.file, isCancelled)
-        if (measured.length != artifact.length || measured.sha256 != artifact.sha256) {
+        if (artifact.file.length() != artifact.length) {
             throw IOException("staged artifact changed after encoding")
         }
     }
