@@ -157,6 +157,25 @@ job rejects a receipt from any earlier attempt. After any failed release job, us
 
 ## 2. Pre-tag checklist
 
+**Preflight first.** A `v*` tag cannot be moved or deleted while the
+`release-tags-immutable` ruleset is active, so anything that fails after tagging
+costs a ruleset toggle, a tag delete and a new two-hour run. Every v1.0.0 failure
+was findable before the tag. Do these on the exact commit you will tag, in order:
+
+- [ ] Dispatch the full `ci.yml` on that commit and wait for every job to pass.
+  Its `export-benchmark` job builds the R8 release candidate, scans the shrunk
+  dex, and runs the same `tools/ci/release_device_smoke.sh` as the release (debug
+  key). Before this, that smoke first ran after signing (run 42938059021).
+- [ ] Dispatch **Release token check** and approve it. It proves
+  `RELEASE_GITHUB_TOKEN` can still read immutable-release settings and create a
+  draft release. Fine-grained tokens expire; run 42975413550 signed and smoke-tested
+  v1.0.0, then failed its final upload with HTTP 401 "Bad credentials". Note the
+  token's expiry date when you rotate it.
+- [ ] On the machine that pushes the tag, drop stale local tags before pushing:
+  `git tag -d vX.Y.Z 2>/dev/null; git fetch origin --prune --prune-tags`, then
+  create the annotated tag and push only that ref (`git push origin vX.Y.Z`,
+  never `--tags`).
+
 - [ ] Confirm a repository ruleset covers `refs/tags/v*` and forbids tag updates
   and deletion. Workflow SHA rechecks detect movement while a run is active;
   the ruleset keeps the published tag immutable afterward.

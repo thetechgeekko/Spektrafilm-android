@@ -35,7 +35,7 @@ is not wired in.
 
 Runs only on manual dispatch (Actions → CI → Run workflow, or
 `gh workflow run ci.yml --ref <branch>`). Use it for risky native, LibRaw or
-release-path changes. Eight jobs:
+release-path changes, and on the exact commit before every `v*` tag. Nine jobs:
 
 | Job | What it gates |
 |-----|---------------|
@@ -47,6 +47,7 @@ release-path changes. Eight jobs:
 | **python-lint** | The parity harness, LibRaw compliance tools, release-policy tools, documentation consistency checker, and offline Wayfinder frontier tests byte-compile; deterministic bundle/relink, app-SPDX, exact gate-attestation, immutable-publisher, workflow-structure, repository-fact, common Markdown link/image, preset-inventory, and ticket-routing tests pass. |
 | **android** | JDK 21. Runs debug JVM unit tests for `:app`, `:lib:libraw`, `:engine:spektra-core`, `:lib:pngwriter`, and `:lib:tiffwriter`, then `:app:lint` (a hard gate — `abortOnError = true`, no baseline since #298), assembles the debug APK with the NDK-built `.so` for all 3 ABIs, and verifies the bundled app GPL/NOTICE plus the three pinned LibRaw legal assets. It extracts the generated source/relink bundle and performs a real NDK 27 x86_64 recipient build, checking SONAME, JNI/recipient marker exports, and every `PT_LOAD` alignment. Finally it runs the APK **16 KB-page gate** (`zipalign -c -P 16 4` plus `readelf -lW`). It uploads the app APK and standalone engine boundary Android-test APK as separate exact artifacts. |
 | **android-emulator** | Required on every `ci.yml` run. A single pinned emulator action installs the standalone engine Android-test APK on the same API 35 x86_64 `google_apis` route used by release, runs the actual `EngineBoundaryInstrumentation` JNI bridge suite, and requires both `ENGINE_BOUNDARY_INSTRUMENTATION: PASS` and `INSTRUMENTATION_CODE: -1`. It then installs/launches the app and rejects fatal Java/JNI/native failures. |
+| **export-benchmark** | Release preflight. Builds the R8-minified release candidate and its instrumentation APKs, runs `tools/r8_check/check_release_dex.sh` on the shrunk dex, debug-signs them and runs the same `tools/ci/release_device_smoke.sh` the release runs after production signing (same API 35 emulator options). A missing keep rule therefore fails here, before a `v*` tag exists. It then boots a second emulator for the #177 export benchmark, uploaded as a trend artifact that is never gated. |
 
 `bash tools/release/run_native_safety.sh --list` prints the locked eight
 ASan+UBSan plus six TSan inventory. Running it without arguments compiles and

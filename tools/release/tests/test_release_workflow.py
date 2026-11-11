@@ -591,6 +591,37 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("RED:", ENGINE_BOUNDARY_RUNNER)
         self.assertNotIn("not-implemented", ENGINE_BOUNDARY_RUNNER)
 
+    def test_ci_runs_the_release_device_smoke_on_the_r8_candidate_before_tagging(self) -> None:
+        # v1.0.0 run 42938059021: R8 removed a member only the release
+        # instrumentation used, and nothing before the tag ever ran it.
+        bench = workflow_job_block(CI, "export-benchmark")
+        assemble = step_block(bench, "Assemble release candidate + its instrumentation APKs")
+        for task in (
+            ":app:assembleRelease",
+            ":app:assembleReleaseAndroidTest",
+            ":engine:spektra-core:assembleDebugAndroidTest",
+        ):
+            self.assertIn(task, assemble)
+        dex = step_block(bench, "Verify the shrunk dex keeps JNI and release-test members")
+        self.assertIn("tools/r8_check/check_release_dex.sh", dex)
+        smoke = step_block(bench, "Run release candidate instrumentation and API smoke")
+        self.assertIn("script: bash tools/ci/release_device_smoke.sh", smoke)
+        self.assertIn("-feature -Vulkan", smoke)
+        self.assertIn("api-level: 35", smoke)
+        self.assertLess(
+            bench.index("- name: Run release candidate instrumentation and API smoke"),
+            bench.index("- name: Run the export benchmark"),
+        )
+        for staged in (
+            "signed/app-release.apk",
+            "signed/app-release-gate-androidTest.apk",
+            "candidate/engine-boundary-debug-androidTest.apk",
+        ):
+            self.assertIn(staged, bench)
+            self.assertIn(staged, RELEASE_DEVICE_SMOKE)
+        self.assertNotRegex(bench, r"(?m)^    if:")
+        self.assertNotIn("continue-on-error", bench)
+
     def test_engine_boundary_result_is_hash_and_provenance_bound_in_release(self) -> None:
         candidate = job_block("build-release-candidate")
         assemble = step_block(candidate, "Assemble exact-candidate instrumentation APK")
