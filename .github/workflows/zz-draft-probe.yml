@@ -1,11 +1,12 @@
-# Temporary probe (deleted after one run): can the built-in GITHUB_TOKEN create,
-# list and delete a draft release targeting a commit that touches workflows?
+# Temporary probe (branch is deleted after use): run the new release scripts
+# end to end against a throwaway version, then delete the draft.
 name: Draft probe
 on:
   push:
     branches: [claude/token-draft-probe]
 permissions:
   contents: write
+  actions: read
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -13,17 +14,45 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      VERSION: v0.0.999
     steps:
-      - run: |
-          set -euo pipefail
-          tag="draft-probe-${{ github.run_id }}"
-          id="$(gh api -X POST "repos/$GH_REPO/releases" -f tag_name="$tag" \
-            -f target_commitish="${{ github.sha }}" -f name="probe" -F draft=true -q .id)"
-          echo "created draft $id"
-          gh api "repos/$GH_REPO/releases?per_page=30" -q "[.[]|select(.tag_name==\"$tag\")]|length"
-          echo probe > a.txt
-          gh api -X POST -H "Content-Type: text/plain" \
-            "https://uploads.github.com/repos/$GH_REPO/releases/$id/assets?name=a.txt" --input a.txt -q .id
-          gh api -X DELETE "repos/$GH_REPO/releases/$id"
-          echo "PROBE PASS"
-          gh api "repos/$GH_REPO/immutable-releases" || echo "immutable-releases not readable with GITHUB_TOKEN (expected)"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: resolve (known green CI sha)
+        env:
+          EVENT_REF: refs/heads/main
+          RELEASE_SHA: a684b7461836eb54bd62aa4110249ae6badfba25
+        run: GITHUB_OUTPUT=out.txt bash tools/release/resolve_release.sh && cat out.txt
+      - name: resolve must refuse a sha without CI
+        env:
+          EVENT_REF: refs/heads/main
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          if GITHUB_OUTPUT=o2.txt bash tools/release/resolve_release.sh; then echo "::error::should refuse"; exit 1; fi
+      - name: resolve must refuse an existing tag
+        env:
+          EVENT_REF: refs/heads/main
+          RELEASE_SHA: a684b7461836eb54bd62aa4110249ae6badfba25
+          VERSION: v1.0.0
+        run: |
+          if GITHUB_OUTPUT=o3.txt bash tools/release/resolve_release.sh; then echo "::error::should refuse"; exit 1; fi
+      - name: tag state
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          bash tools/release/check_tag_state.sh
+          VERSION=v1.0.0 RELEASE_SHA=bb53c80ab81f6f1d885ff613f4218f83c6c87f65 bash tools/release/check_tag_state.sh
+          if VERSION=v1.0.0 bash tools/release/check_tag_state.sh; then echo "::error::should refuse"; exit 1; fi
+      - name: stage draft
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          mkdir publish
+          head -c 300000 /dev/urandom > publish/Spektrafilm-v0.0.999.apk
+          echo zip > publish/Spektrafilm-v0.0.999-libraw-source-relink.zip
+          bash tools/release/stage_draft_release.sh publish
+      - name: delete probe draft
+        if: always()
+        run: |
+          for id in $(gh api "repos/$GH_REPO/releases?per_page=50" --jq '.[]|select(.tag_name=="v0.0.999")|.id'); do gh api -X DELETE "repos/$GH_REPO/releases/$id"; echo deleted $id; done
