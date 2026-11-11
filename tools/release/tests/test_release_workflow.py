@@ -1005,6 +1005,8 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertIn('release.get("draft") is not True', DRAFT_STAGER)
         self.assertIn("releases/tags/${VERSION}", DRAFT_STAGER)
         self.assertIn('gh api -X DELETE "repos/${GH_REPO}/releases/${release_id}"', DRAFT_STAGER)
+        cleanup = DRAFT_STAGER[DRAFT_STAGER.index("cleanup() {") : DRAFT_STAGER.index("trap cleanup EXIT")]
+        self.assertLess(cleanup.index("--jq .draft"), cleanup.index("-X DELETE"))
         self.assertIn("set -euo pipefail", DRAFT_STAGER)
 
 

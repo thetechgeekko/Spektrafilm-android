@@ -45,8 +45,14 @@ fi
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    echo "Deleting incomplete draft ${release_id}"
-    gh api -X DELETE "repos/${GH_REPO}/releases/${release_id}" || true
+    # Delete only while it is still our draft. If someone pressed Publish
+    # meanwhile, deleting would destroy a live release and burn its tag name.
+    if [ "$(gh api "repos/${GH_REPO}/releases/${release_id}" --jq .draft 2>/dev/null)" = "true" ]; then
+      echo "Deleting incomplete draft ${release_id}"
+      gh api -X DELETE "repos/${GH_REPO}/releases/${release_id}" || true
+    else
+      echo "::error::Release ${release_id} is no longer a draft (published during staging?); left untouched, check it by hand"
+    fi
   fi
 }
 trap cleanup EXIT
