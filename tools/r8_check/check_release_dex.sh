@@ -273,7 +273,7 @@ check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'saveSimResultAsTiff
 check_member 'Lcom/spectrafilm/app/GalleryExportKt;' method 'saveSimResultAsPng16' '(Landroid/content/Context;Lcom/spectrafilm/engine/SimResult;Lcom/spectrafilm/app/OutputDescriptor;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;'
 # #174's output-contract check packs a reference row and calls the 3-argument helper.
 check_member 'Lcom/spectrafilm/app/DisplayBitmapsKt;' method 'packToArgb' '([F[II)V'
-check_member 'Lcom/spectrafilm/app/DisplayBitmapsKt;' method 'simResultToBitmap$default' '(Ljava/nio/ByteBuffer;IILandroid/graphics/ColorSpace;ILjava/lang/Object;)Landroid/graphics/Bitmap;'
+check_member 'Lcom/spectrafilm/app/DisplayBitmapsKt;' method 'simResultToBitmap$default' '(Ljava/nio/ByteBuffer;IILcom/spectrafilm/engine/ColorSpace;ILjava/lang/Object;)Landroid/graphics/Bitmap;'
 check_member 'Lcom/spectrafilm/app/DisplayBitmapsKt;' method 'simResultToBitmapGraded' '(Lcom/spectrafilm/engine/SimResult;ZFFFLjava/util/List;Lcom/spectrafilm/engine/RenderCancellation;)Landroid/graphics/Bitmap;'
 # The instrumentation calls these with default arguments, so the call it actually makes is the
 # synthetic $default bridge; both it and the full method are pinned to today's prototypes
