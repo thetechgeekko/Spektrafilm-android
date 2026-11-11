@@ -1,0 +1,29 @@
+# Temporary probe (deleted after one run): can the built-in GITHUB_TOKEN create,
+# list and delete a draft release targeting a commit that touches workflows?
+name: Draft probe
+on:
+  push:
+    branches: [claude/token-draft-probe]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          set -euo pipefail
+          tag="draft-probe-${{ github.run_id }}"
+          id="$(gh api -X POST "repos/$GH_REPO/releases" -f tag_name="$tag" \
+            -f target_commitish="${{ github.sha }}" -f name="probe" -F draft=true -q .id)"
+          echo "created draft $id"
+          gh api "repos/$GH_REPO/releases?per_page=30" -q "[.[]|select(.tag_name==\"$tag\")]|length"
+          echo probe > a.txt
+          gh api -X POST -H "Content-Type: text/plain" \
+            "https://uploads.github.com/repos/$GH_REPO/releases/$id/assets?name=a.txt" --input a.txt -q .id
+          gh api -X DELETE "repos/$GH_REPO/releases/$id"
+          echo "PROBE PASS"
+          gh api "repos/$GH_REPO/immutable-releases" || echo "immutable-releases not readable with GITHUB_TOKEN (expected)"
