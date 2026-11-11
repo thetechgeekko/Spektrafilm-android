@@ -30,10 +30,13 @@
 #                        (NDK-built .so for all ABIs)
 #   • android-emulator— runs actual engine JNI boundary instrumentation on a KVM
 #                        AVD, then smoke-tests MainActivity; required on every run
-#   • export-benchmark — #285: the #177 export harness on the R8 release candidate
-#                        (debug-key signed) on the API 35 AVD; uploads capture.json
-#                        with decode/simulate/grade/encode phases as a TREND artifact
-#                        (emulator numbers are not device numbers, never gated)
+#   • export-benchmark — the R8 release candidate (debug-key signed) on the API 35
+#                        AVD. GATES: the shrunk-dex JNI/test-ABI scan and the same
+#                        tools/ci/release_device_smoke.sh release.yml runs after
+#                        signing, so a missing R8 keep rule fails here, before a
+#                        v* tag exists (v1.0.0 run 42938059021 found one only after
+#                        tagging). Then #285: the #177 export harness uploads
+#                        capture.json as a TREND artifact (never gated)
 #
 # Film modeling powered by spektrafilm (GPLv3).
 name: CI
@@ -736,10 +739,8 @@ jobs:
             tools/compliance/tests/test_libraw_bundle.py \
             tools/release/app_spdx.py \
             tools/release/gate_attestation.py \
-            tools/release/github_release.py \
             tools/release/tests/test_app_spdx.py \
             tools/release/tests/test_gate_attestation.py \
-            tools/release/tests/test_github_release.py \
             tools/release/tests/test_release_workflow.py
 
       - name: Test LibRaw compliance bundle tooling
@@ -1080,9 +1081,9 @@ jobs:
   # debug key, exactly as r8-smoke.yml does; it is a test artifact, never a release.
   # ---------------------------------------------------------------------------
   export-benchmark:
-    name: Export benchmark trace (release candidate on API 35 AVD)
+    name: Release candidate smoke + export benchmark (R8 build on API 35 AVD)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -1099,13 +1100,24 @@ jobs:
       - name: Install NDK + CMake + build-tools
         run: sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "build-tools;36.0.0" "platforms;android-37.0"
 
-      - name: Assemble release candidate + its instrumentation APK
+      - name: Assemble release candidate + its instrumentation APKs
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest --stacktrace
+          ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest \
+            :engine:spektra-core:assembleDebugAndroidTest --stacktrace
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
           test -f app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
+          test -f engine/spektra-core/build/outputs/apk/androidTest/debug/spektra-core-debug-androidTest.apk
+
+      # Same scan release.yml runs on the candidate. It reads the physical
+      # shrunk dex for every member JNI or the release instrumentation needs.
+      - name: Verify the shrunk dex keeps JNI and release-test members
+        run: |
+          set -euo pipefail
+          tools/r8_check/check_release_dex.sh \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$ANDROID_HOME/build-tools/36.0.0"
 
       - name: Align and debug-sign both APKs
         run: |
@@ -1125,6 +1137,13 @@ jobs:
           sign app/build/outputs/apk/release/app-release-unsigned.apk bench/app-release-bench.apk
           sign app/build/outputs/apk/androidTest/release/app-release-androidTest.apk \
             bench/app-release-androidTest-bench.apk
+          # The layout tools/ci/release_device_smoke.sh expects. Debug key
+          # only: this proves R8 + instrumentation mechanics, never signing.
+          mkdir -p signed candidate
+          cp bench/app-release-bench.apk signed/app-release.apk
+          cp bench/app-release-androidTest-bench.apk signed/app-release-gate-androidTest.apk
+          cp engine/spektra-core/build/outputs/apk/androidTest/debug/spektra-core-debug-androidTest.apk \
+            candidate/engine-boundary-debug-androidTest.apk
 
       - name: Enable KVM group permissions
         run: |
@@ -1140,6 +1159,21 @@ jobs:
           sdkmanager "platform-tools"
           "$ANDROID_HOME/platform-tools/adb" start-server
           "$ANDROID_HOME/platform-tools/adb" version
+
+      # Exactly release.yml's device step and emulator options (see the
+      # comments there for -gpu swangle and -feature -Vulkan). Own boot so the
+      # benchmark below keeps its historical emulator settings.
+      - name: Run release candidate instrumentation and API smoke
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swangle -noaudio -no-boot-anim -no-snapshot -camera-back none -feature -Vulkan
+          script: bash tools/ci/release_device_smoke.sh
 
       - name: Run the export benchmark
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
@@ -1157,4 +1191,12 @@ jobs:
         with:
           name: export-benchmark-capture
           path: build/ticket177-bench/
+          if-no-files-found: warn
+
+      - name: Upload release candidate smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-smoke
+          path: build/device-smoke/
           if-no-files-found: warn

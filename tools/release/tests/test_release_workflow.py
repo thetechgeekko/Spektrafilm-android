@@ -17,7 +17,9 @@ RUNNER = (
     ROOT
     / "app/src/androidTest/java/com/spectrafilm/app/ReleaseCandidateSmokeInstrumentation.java"
 ).read_text(encoding="utf-8")
-PUBLISHER = (ROOT / "tools/release/github_release.py").read_text(encoding="utf-8")
+DRAFT_STAGER = (ROOT / "tools/release/stage_draft_release.sh").read_text(encoding="utf-8")
+RESOLVER = (ROOT / "tools/release/resolve_release.sh").read_text(encoding="utf-8")
+TAG_STATE = (ROOT / "tools/release/check_tag_state.sh").read_text(encoding="utf-8")
 NATIVE_SAFETY_RUNNER = ROOT / "tools/release/run_native_safety.sh"
 R8_DEX_CHECK = (ROOT / "tools/r8_check/check_release_dex.sh").read_text(
     encoding="utf-8"
@@ -591,6 +593,37 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("RED:", ENGINE_BOUNDARY_RUNNER)
         self.assertNotIn("not-implemented", ENGINE_BOUNDARY_RUNNER)
 
+    def test_ci_runs_the_release_device_smoke_on_the_r8_candidate_before_tagging(self) -> None:
+        # v1.0.0 run 42938059021: R8 removed a member only the release
+        # instrumentation used, and nothing before the tag ever ran it.
+        bench = workflow_job_block(CI, "export-benchmark")
+        assemble = step_block(bench, "Assemble release candidate + its instrumentation APKs")
+        for task in (
+            ":app:assembleRelease",
+            ":app:assembleReleaseAndroidTest",
+            ":engine:spektra-core:assembleDebugAndroidTest",
+        ):
+            self.assertIn(task, assemble)
+        dex = step_block(bench, "Verify the shrunk dex keeps JNI and release-test members")
+        self.assertIn("tools/r8_check/check_release_dex.sh", dex)
+        smoke = step_block(bench, "Run release candidate instrumentation and API smoke")
+        self.assertIn("script: bash tools/ci/release_device_smoke.sh", smoke)
+        self.assertIn("-feature -Vulkan", smoke)
+        self.assertIn("api-level: 35", smoke)
+        self.assertLess(
+            bench.index("- name: Run release candidate instrumentation and API smoke"),
+            bench.index("- name: Run the export benchmark"),
+        )
+        for staged in (
+            "signed/app-release.apk",
+            "signed/app-release-gate-androidTest.apk",
+            "candidate/engine-boundary-debug-androidTest.apk",
+        ):
+            self.assertIn(staged, bench)
+            self.assertIn(staged, RELEASE_DEVICE_SMOKE)
+        self.assertNotRegex(bench, r"(?m)^    if:")
+        self.assertNotIn("continue-on-error", bench)
+
     def test_engine_boundary_result_is_hash_and_provenance_bound_in_release(self) -> None:
         candidate = job_block("build-release-candidate")
         assemble = step_block(candidate, "Assemble exact-candidate instrumentation APK")
@@ -668,8 +701,7 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         candidate_steps = (
             "Reject stale LibRaw qualification from a prior run attempt",
             "Reject stale native safety qualification from a prior run attempt",
-            "Run O2 exact engine parity",
-            "Run shipping-flags exact engine parity",
+            "Accept exact engine parity from full CI on this commit",
             "Run release JVM tests and lint",
             "Assemble unsigned minified release candidate",
             "Assemble exact-candidate instrumentation APK",
@@ -688,7 +720,7 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
             "Verify signed R8, legal, and 16 KiB invariants",
             "Run exact signed candidate instrumentation and API smoke",
             "Stage signed release artifacts and provenance",
-            "Attach verified set to GitHub Release",
+            "Stage verified set as a draft GitHub Release",
         )
         for left, right in zip(protected_steps, protected_steps[1:]):
             self.assertLess(protected.index(f"- name: {left}"), protected.index(f"- name: {right}"))
@@ -890,9 +922,11 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         cleanup = step_block(protected, "Verify signing material cleanup")
         self.assertNotIn("./gradlew", protected)
         self.assertIn("actions: read", protected)
-        self.assertIn("contents: read", protected)
-        self.assertNotIn("contents: write", protected)
-        self.assertEqual(1, protected.count("secrets.RELEASE_GITHUB_TOKEN"))
+        # contents: write only so the built-in token can create the draft; the
+        # tag and the public release come from the maintainer's Publish.
+        self.assertIn("contents: write", protected)
+        self.assertNotIn("RELEASE_GITHUB_TOKEN", RELEASE)
+        self.assertNotIn("secrets.", protected.replace("secrets.SIGNING_", ""))
         self.assertIn("trap cleanup_key EXIT", sign)
         self.assertIn("--out signed/app-release.apk", sign)
         self.assertIn("--out signed/app-release-gate-androidTest.apk", sign)
@@ -919,24 +953,61 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         stage = step_block(protected, "Stage signed release artifacts and provenance")
         self.assertIn('cp "out/$NAME" "out/$BUNDLE_NAME" publish/', stage)
         self.assertIn('test "$(find publish -maxdepth 1 -type f | wc -l)" -eq 2', stage)
-        publish = step_block(protected, "Attach verified set to GitHub Release")
-        self.assertIn("--assets-dir publish", publish)
-        self.assertNotIn("--assets-dir out", publish)
+        draft = step_block(protected, "Stage verified set as a draft GitHub Release")
+        self.assertIn("bash tools/release/stage_draft_release.sh publish", draft)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", draft)
         retained = step_block(protected, "Upload immutable signed artifacts")
         self.assertIn("out/", retained)
 
-    def test_publisher_requires_immutable_releases_and_exact_ids(self) -> None:
-        protected = job_block("sign-and-publish")
-        publish = step_block(protected, "Attach verified set to GitHub Release")
-        self.assertIn("secrets.RELEASE_GITHUB_TOKEN", publish)
-        self.assertIn("tools/release/github_release.py", publish)
-        self.assertIn("/immutable-releases", PUBLISHER)
-        self.assertIn("/releases/{release_id}", PUBLISHER)
-        self.assertIn("/releases/assets/{asset_id}", PUBLISHER)
-        self.assertIn('release.get("draft") is not True', PUBLISHER)
-        self.assertIn('release.get("immutable") is not True', PUBLISHER)
-        self.assertNotIn("gh release delete", RELEASE + PUBLISHER)
-        self.assertNotIn("gh release upload", RELEASE + PUBLISHER)
+    def test_release_is_one_dispatch_that_ends_in_a_draft(self) -> None:
+        # No tag exists while gates run, so a failure never needs a tag
+        # delete, and no personal token can expire (v1.0.0 runs 42938059021,
+        # 42975413550).
+        trigger = RELEASE[RELEASE.index("on:\n") : RELEASE.index("permissions:")]
+        self.assertIn("workflow_dispatch:", trigger)
+        self.assertNotIn("push:", trigger)
+        self.assertNotIn("tags:", trigger)
+        resolve = job_block("resolve-release")
+        self.assertIn("bash tools/release/resolve_release.sh", resolve)
+        self.assertIn("actions: read", resolve)
+        for check in (
+            'refs/heads/main',
+            "git ls-remote --tags origin",
+            "actions/workflows/ci.yml/runs?head_sha=${RELEASE_SHA}&status=success",
+            '^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$',
+        ):
+            self.assertIn(check, RESOLVER)
+        self.assertNotIn("git push", RELEASE + RESOLVER + DRAFT_STAGER + TAG_STATE)
+        self.assertNotIn("git tag", RELEASE + RESOLVER + DRAFT_STAGER + TAG_STATE)
+        self.assertEqual(3, RELEASE.count("run: bash tools/release/check_tag_state.sh"))
+        self.assertIn("RELEASE_SHA", TAG_STATE)
+
+    def test_parity_is_taken_from_green_full_ci_on_the_same_commit(self) -> None:
+        candidate = job_block("build-release-candidate")
+        self.assertNotIn("run_engine_parity.sh", RELEASE)
+        accept = step_block(candidate, "Accept exact engine parity from full CI on this commit")
+        self.assertIn("needs.resolve-release.outputs.ci_run_id", accept)
+        self.assertIn("build/release-gates/o2-exact-engine-parity", accept)
+        self.assertIn("build/release-gates/shipping-exact-engine-parity", accept)
+        provenance = step_block(job_block("sign-and-publish"), "Stage signed release artifacts and provenance")
+        self.assertIn("full_ci_run_id=%s", provenance)
+        engine_parity = workflow_job_block(CI, "engine-parity")
+        self.assertIn('opt: "-O2"', engine_parity)
+        self.assertIn('opt: "-O3 -ffast-math -fno-finite-math-only"', engine_parity)
+
+    def test_draft_stager_verifies_github_digests_and_never_publishes(self) -> None:
+        self.assertIn("-F draft=true", DRAFT_STAGER)
+        self.assertNotIn("draft=false", DRAFT_STAGER)
+        self.assertNotIn("-X PATCH", DRAFT_STAGER)
+        self.assertIn('-f target_commitish="$RELEASE_SHA"', DRAFT_STAGER)
+        self.assertIn('"sha256:$(sha256sum "$file"', DRAFT_STAGER)
+        self.assertIn("if actual != expected:", DRAFT_STAGER)
+        self.assertIn('release.get("draft") is not True', DRAFT_STAGER)
+        self.assertIn("releases/tags/${VERSION}", DRAFT_STAGER)
+        self.assertIn('gh api -X DELETE "repos/${GH_REPO}/releases/${release_id}"', DRAFT_STAGER)
+        cleanup = DRAFT_STAGER[DRAFT_STAGER.index("cleanup() {") : DRAFT_STAGER.index("trap cleanup EXIT")]
+        self.assertLess(cleanup.index("--jq .draft"), cleanup.index("-X DELETE"))
+        self.assertIn("set -euo pipefail", DRAFT_STAGER)
 
 
 if __name__ == "__main__":

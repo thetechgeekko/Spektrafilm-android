@@ -1,83 +1,71 @@
-# Spektrafilm release pipeline.
+# Spektrafilm release pipeline: one button.
 #
-# Fires on a stable vMAJOR.MINOR.PATCH tag. Gates and attests one exact unsigned
-# app/instrumentation pair without secrets, then signs and device-verifies those
-# bytes only inside the protected `release-signing` Environment. Publication
-# requires immutable releases and retains the APK, both SPDX documents, LibRaw
-# source/relink ZIP, all dependency locks, R8 mapping, full native symbols,
-# runtime classpath, provenance, sidecars, and checksums.
+# Actions -> Release -> Run workflow on main, enter vMAJOR.MINOR.PATCH. The run
+#   1. refuses unless that exact main commit already has a green full ci.yml run
+#      (both parity legs, sanitizers, and the R8 release-candidate device smoke)
+#      and the tag does not exist yet;
+#   2. requalifies LibRaw and native safety, then builds one exact unsigned
+#      app/instrumentation pair without secrets;
+#   3. waits for the protected `release-signing` approval, signs and
+#      device-verifies those bytes;
+#   4. stages them as a DRAFT GitHub Release with the built-in GITHUB_TOKEN.
+# The maintainer reads the draft and presses Publish, which creates the tag at
+# the built commit; immutable releases lock it from then on.
+#
+# Nothing is tagged before every gate has passed, so a failure never leaves a
+# tag to delete, and there is no personal token to expire (v1.0.0 lost a run to
+# an expired personal publishing token, run 42975413550, and two to post-tag fixes).
+# The signed workflow artifact keeps the full evidence set for 90 days: APK,
+# both SPDX documents, LibRaw source/relink ZIP, dependency locks, R8 mapping,
+# native symbols, runtime classpath, provenance, sidecars and checksums.
 #
 # Required `release-signing` Environment secrets (repo-level copies forbidden):
 #   SIGNING_KEYSTORE           base64 of spectrafilm-release.jks
 #   SIGNING_KEY_ALIAS          keystore alias (e.g. spectrafilm)
 #   SIGNING_KEYSTORE_PASSWORD  store password
 #   SIGNING_KEY_PASSWORD       key password
-#   RELEASE_GITHUB_TOKEN       fine-grained token/App token with repository
-#                              Administration(read) + Contents(write); required
-#                              to prove immutable releases are enabled.
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing tag to build (e.g. v0.4.0)"
+      version:
+        description: "Version to release, e.g. v1.1.0 (must match versionName; tag must not exist yet)"
         required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  group: release-${{ github.workflow }}-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   resolve-release:
-    name: Resolve immutable release commit
+    name: Check commit, version and full CI
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.resolve.outputs.sha }}
+      ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate tag and resolve commit
+      - name: Require main, a new version tag and green full CI on this commit
         id: resolve
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           EVENT_REF: ${{ github.ref }}
-          EVENT_SHA: ${{ github.sha }}
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            tag="$INPUT_TAG"
-          else
-            tag="${EVENT_REF#refs/tags/}"
-          fi
-          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release tag must be a stable vMAJOR.MINOR.PATCH value without leading zeros"
-            exit 1
-          fi
-          git fetch --force origin "+refs/tags/${tag}:refs/tags/${tag}"
-          sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
-          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Tag did not resolve to one commit"
-            exit 1
-          fi
-          if [ "$EVENT_NAME" = "push" ]; then
-            event_commit="$(git rev-parse "${EVENT_SHA}^{commit}")"
-            if [ "$sha" != "$event_commit" ]; then
-              echo "::error::Release tag moved after the push event; refusing the replacement target"
-              exit 1
-            fi
-          fi
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          RELEASE_SHA: ${{ github.sha }}
+          VERSION: ${{ inputs.version }}
+        run: bash tools/release/resolve_release.sh
 
   qualify-libraw:
     name: Qualify pinned LibRaw before signing
@@ -221,10 +209,8 @@ jobs:
     name: Build unsigned release candidate
     needs: [resolve-release, qualify-libraw, qualify-native-safety]
     runs-on: ubuntu-latest
-    # Both exact parity legs run here back to back. With the 51-case table the
-    # shipping-flags leg alone takes ~70 min (ci.yml run 42916305170), so the
-    # old 60-minute cap cancelled the v1.0.0 candidate (run 42925210277).
-    timeout-minutes: 180
+    # JVM tests, lint, assembly and staging: ~15-20 min (run 42975413550).
+    timeout-minutes: 60
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
       artifact_digest: ${{ steps.candidate-upload.outputs.artifact-digest }}
@@ -291,18 +277,11 @@ jobs:
             "distributionSha256Sum=9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14" \
             gradle/wrapper/gradle-wrapper.properties
 
-      - name: Revalidate immutable release tag before candidate build
+      - name: Check the version tag is unused or on this commit before candidate build
         env:
           RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          git fetch --force origin "+refs/tags/${VERSION}:refs/tags/${VERSION}"
-          CURRENT_SHA="$(git rev-parse "refs/tags/${VERSION}^{commit}")"
-          if [ "$CURRENT_SHA" != "$RELEASE_SHA" ]; then
-            echo "::error::Release tag moved after qualification; refusing candidate build"
-            exit 1
-          fi
+        run: bash tools/release/check_tag_state.sh
 
       - name: Verify release tag matches app version source
         env:
@@ -347,19 +326,20 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tools/release/tests -p 'test_*.py'
 
-      - name: Run O2 exact engine parity
-        run: |
-          set -euo pipefail
-          mkdir -p build/release-gates
-          bash tools/parity/run_engine_parity.sh build/release-parity-o2
-          printf 'PASS\n' > build/release-gates/o2-exact-engine-parity
-
-      - name: Run shipping-flags exact engine parity
+      # Both exact parity legs ran on this exact commit in the green ci.yml run
+      # that resolve-release found (engine-parity matrix). Rerunning them here
+      # took 45-70 min and timed out v1.0.0 run 42925210277.
+      - name: Accept exact engine parity from full CI on this commit
         env:
-          SPK_PARITY_EXTRA_FLAGS: -O3 -ffast-math -fno-finite-math-only
+          CI_RUN_ID: ${{ needs.resolve-release.outputs.ci_run_id }}
         run: |
           set -euo pipefail
-          bash tools/parity/run_engine_parity.sh build/release-parity-shipping
+          if [[ ! "$CI_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::No green ci.yml run was recorded for this commit"
+            exit 1
+          fi
+          mkdir -p build/release-gates
+          printf 'PASS\n' > build/release-gates/o2-exact-engine-parity
           printf 'PASS\n' > build/release-gates/shipping-exact-engine-parity
 
       - name: Run release JVM tests and lint
@@ -628,14 +608,14 @@ jobs:
           retention-days: 7
 
   sign-and-publish:
-    name: Sign, qualify, and publish the exact candidate
+    name: Sign, qualify, and stage the exact candidate as a draft release
     needs: [resolve-release, qualify-libraw, qualify-native-safety, build-release-candidate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: release-signing
     permissions:
       actions: read
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -841,18 +821,11 @@ jobs:
           test -s candidate/r8-mapping.txt
           unzip -t candidate/native-debug-symbols.zip
 
-      - name: Revalidate immutable release tag before signing
+      - name: Check the version tag is unused or on this commit before signing
         env:
           RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          git fetch --force origin "+refs/tags/${VERSION}:refs/tags/${VERSION}"
-          CURRENT_SHA="$(git rev-parse "refs/tags/${VERSION}^{commit}")"
-          if [ "$CURRENT_SHA" != "$RELEASE_SHA" ]; then
-            echo "::error::Release tag moved after candidate qualification"
-            exit 1
-          fi
+        run: bash tools/release/check_tag_state.sh
 
       - name: Align exact unsigned candidate and gate APK
         run: |
@@ -1099,6 +1072,7 @@ jobs:
         env:
           CANDIDATE_ARTIFACT_ID: ${{ needs.build-release-candidate.outputs.artifact_id }}
           CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build-release-candidate.outputs.artifact_digest }}
+          CI_RUN_ID: ${{ needs.resolve-release.outputs.ci_run_id }}
           RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
         run: |
@@ -1151,6 +1125,7 @@ jobs:
             printf 'source_date_epoch=%s\n' "$SOURCE_DATE_EPOCH"
             printf 'run_id=%s\n' "$GITHUB_RUN_ID"
             printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'full_ci_run_id=%s\n' "$CI_RUN_ID"
             printf 'candidate_artifact_id=%s\n' "$CANDIDATE_ARTIFACT_ID"
             printf 'candidate_artifact_digest=%s\n' "$CANDIDATE_ARTIFACT_DIGEST"
             printf 'unsigned_apk_sha256=%s\n' "$UNSIGNED_SHA"
@@ -1199,18 +1174,11 @@ jobs:
           (cd out && sha256sum -c --ignore-missing SHA256SUMS)
           test "$(find publish -maxdepth 1 -type f | wc -l)" -eq 2
 
-      - name: Revalidate immutable tag before artifact publication
+      - name: Check the version tag is unused or on this commit before staging
         env:
           RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          git fetch --force origin "+refs/tags/${VERSION}:refs/tags/${VERSION}"
-          CURRENT_SHA="$(git rev-parse "refs/tags/${VERSION}^{commit}")"
-          if [ "$CURRENT_SHA" != "$RELEASE_SHA" ]; then
-            echo "::error::Release tag moved after device qualification"
-            exit 1
-          fi
+        run: bash tools/release/check_tag_state.sh
 
       - name: Upload immutable signed artifacts
         id: signed-upload
@@ -1224,14 +1192,10 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Attach verified set to GitHub Release
+      - name: Stage verified set as a draft GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ needs.resolve-release.outputs.sha }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          python3 tools/release/github_release.py \
-            --tag "$VERSION" \
-            --source-sha "$RELEASE_SHA" \
-            --assets-dir publish
+        run: bash tools/release/stage_draft_release.sh publish
