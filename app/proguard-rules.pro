@@ -106,8 +106,13 @@
 -keep class com.spectrafilm.app.ExportOptions { *; }
 -keep class com.spectrafilm.app.ExportSize { *; }
 -keep class com.spectrafilm.app.ColorManagement { *; }
+# The same check calls the 3-argument simResultToBitmap (the synthetic default-argument bridge)
+# and packToArgb as its reference packer. The app never calls either, so R8 removed them and
+# the v1.0.0 candidate died with NoSuchMethodError: packToArgb([F[II)V.
 -keepclassmembers class com.spectrafilm.app.DisplayBitmapsKt {
     public static android.graphics.Bitmap simResultToBitmap(...);
+    public static android.graphics.Bitmap simResultToBitmap$default(...);
+    public static void packToArgb(float[], int[], int);
 }
 
 # Ticket #177's benchmark phase (same release test APK) measures the SHIPPING export path:
