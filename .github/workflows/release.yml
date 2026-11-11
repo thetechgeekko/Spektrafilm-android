@@ -221,7 +221,10 @@ jobs:
     name: Build unsigned release candidate
     needs: [resolve-release, qualify-libraw, qualify-native-safety]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Both exact parity legs run here back to back. With the 51-case table the
+    # shipping-flags leg alone takes ~70 min (ci.yml run 42916305170), so the
+    # old 60-minute cap cancelled the v1.0.0 candidate (run 42925210277).
+    timeout-minutes: 180
     outputs:
       artifact_id: ${{ steps.candidate-upload.outputs.artifact-id }}
       artifact_digest: ${{ steps.candidate-upload.outputs.artifact-digest }}
